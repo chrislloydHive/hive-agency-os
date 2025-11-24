@@ -9,9 +9,28 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "next": "16.0.4",
+    "@anthropic-ai/sdk": "^0.71.0",
+    "@eslint/eslintrc": "^3.3.1",
+    "@google-analytics/data": "^5.2.1",
+    "airtable": "^0.12.2",
+    "axios": "^1.13.2",
+    "cheerio": "^1.1.2",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "dotenv": "^17.2.3",
+    "googleapis": "^166.0.0",
+    "inngest": "^3.46.0",
+    "lucide-react": "^0.554.0",
+    "next": "^15.4.6",
+    "openai": "^6.9.1",
+    "puppeteer": "^24.31.0",
     "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react-dom": "19.2.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "resend": "^6.5.2",
+    "sharp": "^0.34.5",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

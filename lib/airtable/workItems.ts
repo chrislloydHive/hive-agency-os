@@ -1,0 +1,540 @@
+/**
+ * Work Items - Airtable helper
+ *
+ * Manages Work Items table which tracks real initiatives/tasks
+ * derived from OS priorities or created manually.
+ */
+
+import { base } from './client';
+import type { PriorityItem } from './fullReports';
+import type { PlanInitiative } from '@/lib/gap/types';
+
+/**
+ * Work Items table field names (matching Airtable schema exactly)
+ */
+const WORK_ITEMS_FIELDS = {
+  TITLE: 'Title',
+  COMPANY: 'Company',
+  FULL_REPORT: 'Full Report',
+  AREA: 'Area',
+  STATUS: 'Status',
+  SEVERITY: 'Severity',
+  OWNER: 'Owner',
+  DUE_DATE: 'Due Date',
+  NOTES: 'Notes',
+  PRIORITY_ID: 'Priority ID',
+  PLAN_INITIATIVE_ID: 'Plan Initiative ID',
+  CREATED_AT: 'Created At',
+  UPDATED_AT: 'Updated At',
+  EFFORT: 'Effort',
+  IMPACT: 'Impact',
+} as const;
+
+/**
+ * Valid status values for Work Items
+ */
+export type WorkItemStatus =
+  | 'Backlog'
+  | 'Planned'
+  | 'In Progress'
+  | 'Done';
+
+/**
+ * Valid area values for Work Items
+ */
+export type WorkItemArea =
+  | 'Brand'
+  | 'Content'
+  | 'SEO'
+  | 'Website UX'
+  | 'Funnel'
+  | 'Other';
+
+/**
+ * Valid severity values for Work Items
+ */
+export type WorkItemSeverity =
+  | 'Critical'
+  | 'High'
+  | 'Medium'
+  | 'Low'
+  | 'Info';
+
+/**
+ * Internal type matching Airtable column names exactly
+ */
+interface WorkItemFields {
+  'Title'?: string;
+  'Company'?: string[]; // Linked record
+  'Full Report'?: string[]; // Linked record
+  'Area'?: WorkItemArea;
+  'Status'?: WorkItemStatus;
+  'Severity'?: WorkItemSeverity;
+  'Owner'?: string;
+  'Due Date'?: string;
+  'Notes'?: string;
+  'Priority ID'?: string;
+  'Plan Initiative ID'?: string;
+  'Created At'?: string;
+  'Updated At'?: string;
+  'Effort'?: string;
+  'Impact'?: string;
+}
+
+/**
+ * Work Item record (normalized from Airtable)
+ */
+export interface WorkItemRecord {
+  id: string;
+  companyId: string;
+  fullReportId?: string;
+  title: string;
+  area?: WorkItemArea;
+  status?: WorkItemStatus;
+  severity?: WorkItemSeverity;
+  owner?: string;
+  dueDate?: string; // ISO date
+  notes?: string;
+  priorityId?: string;
+  planInitiativeId?: string;
+  effort?: string;
+  impact?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * Map Airtable record to WorkItemRecord
+ */
+function mapWorkItemRecord(record: any): WorkItemRecord {
+  const fields = record.fields as WorkItemFields;
+
+  // Extract linked record IDs (arrays)
+  const companyIds = fields['Company'];
+  const fullReportIds = fields['Full Report'];
+
+  return {
+    id: record.id,
+    companyId: companyIds?.[0] || '',
+    fullReportId: fullReportIds?.[0],
+    title: fields['Title'] || 'Untitled',
+    area: fields['Area'],
+    status: fields['Status'],
+    severity: fields['Severity'],
+    owner: fields['Owner'],
+    dueDate: fields['Due Date'],
+    notes: fields['Notes'],
+    priorityId: fields['Priority ID'],
+    planInitiativeId: fields['Plan Initiative ID'],
+    effort: fields['Effort'],
+    impact: fields['Impact'],
+    createdAt: fields['Created At'],
+    updatedAt: fields['Updated At'],
+  };
+}
+
+/**
+ * Get status sort order for display
+ */
+function getStatusSortOrder(status?: WorkItemStatus): number {
+  const order: Record<WorkItemStatus, number> = {
+    'In Progress': 1,
+    'Planned': 2,
+    'Backlog': 3,
+    'Done': 4,
+  };
+  return status ? order[status] || 99 : 99;
+}
+
+/**
+ * Get all Work Items for a company
+ *
+ * @param companyId - Company record ID
+ * @returns Array of work items sorted by status and due date
+ */
+export async function getWorkItemsForCompany(
+  companyId: string
+): Promise<WorkItemRecord[]> {
+  try {
+    console.log('[Work Items] Fetching work items for company:', companyId);
+
+    // Fetch all work items from table
+    const records = await base('Work Items')
+      .select()
+      .all();
+
+    // Filter by company ID (linked field is an array)
+    const companyRecords = records.filter((record) => {
+      const fields = record.fields as WorkItemFields;
+      const companyIds = fields['Company'];
+      return companyIds && companyIds.includes(companyId);
+    });
+
+    console.log('[Work Items] Found', companyRecords.length, 'work items for company');
+
+    // Map to WorkItemRecord
+    const workItems = companyRecords.map(mapWorkItemRecord);
+
+    // Sort by status, then by due date, then by created date
+    workItems.sort((a, b) => {
+      // First, sort by status
+      const statusOrder = getStatusSortOrder(a.status) - getStatusSortOrder(b.status);
+      if (statusOrder !== 0) return statusOrder;
+
+      // Within same status, sort by due date (ascending, nulls last)
+      if (a.dueDate && b.dueDate) {
+        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      }
+      if (a.dueDate) return -1;
+      if (b.dueDate) return 1;
+
+      // Finally, sort by created date (descending, newest first)
+      if (a.createdAt && b.createdAt) {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+
+      return 0;
+    });
+
+    return workItems;
+  } catch (error) {
+    console.error('[Work Items] Error fetching work items:', error);
+    // Return empty array on error (e.g., table doesn't exist)
+    return [];
+  }
+}
+
+/**
+ * Get Work Items for a company indexed by Priority ID
+ *
+ * @param companyId - Company record ID
+ * @returns Dictionary of work items keyed by priorityId
+ */
+export async function getWorkItemsForCompanyByPriorityId(
+  companyId: string
+): Promise<Record<string, WorkItemRecord>> {
+  const workItems = await getWorkItemsForCompany(companyId);
+
+  const byPriorityId: Record<string, WorkItemRecord> = {};
+
+  for (const item of workItems) {
+    if (item.priorityId) {
+      byPriorityId[item.priorityId] = item;
+    }
+  }
+
+  return byPriorityId;
+}
+
+/**
+ * Get Work Items for a company indexed by Plan Initiative ID
+ *
+ * @param companyId - Company record ID
+ * @returns Dictionary of work items keyed by planInitiativeId
+ */
+export async function getWorkItemsForCompanyByPlanInitiativeId(
+  companyId: string
+): Promise<Record<string, WorkItemRecord>> {
+  const workItems = await getWorkItemsForCompany(companyId);
+
+  const byPlanInitiativeId: Record<string, WorkItemRecord> = {};
+
+  for (const item of workItems) {
+    if (item.planInitiativeId) {
+      byPlanInitiativeId[item.planInitiativeId] = item;
+    }
+  }
+
+  return byPlanInitiativeId;
+}
+
+/**
+ * Map priority area to Work Item area
+ */
+function mapPriorityAreaToWorkItemArea(area?: string | unknown): WorkItemArea {
+  if (!area || typeof area !== 'string') return 'Other';
+
+  const normalized = area.toLowerCase().trim();
+
+  if (normalized.includes('brand')) return 'Brand';
+  if (normalized.includes('content')) return 'Content';
+  if (normalized.includes('seo')) return 'SEO';
+  if (normalized.includes('website') || normalized.includes('ux')) return 'Website UX';
+  if (normalized.includes('funnel')) return 'Funnel';
+
+  return 'Other';
+}
+
+/**
+ * Map priority severity to Work Item severity
+ */
+function mapPrioritySeverityToWorkItemSeverity(severity?: string | number): WorkItemSeverity {
+  if (!severity) return 'Medium';
+
+  const normalized = String(severity).toLowerCase().trim();
+
+  if (normalized === 'critical') return 'Critical';
+  if (normalized === 'high') return 'High';
+  if (normalized === 'medium' || normalized === 'med') return 'Medium';
+  if (normalized === 'low') return 'Low';
+  if (normalized === 'info') return 'Info';
+
+  return 'Medium'; // Default
+}
+
+/**
+ * Create a Work Item from a Priority
+ *
+ * @param args - Configuration for creating work item
+ * @returns Created work item record
+ */
+export async function createWorkItemFromPriority(args: {
+  companyId: string;
+  fullReportId: string;
+  priority: PriorityItem;
+  defaultStatus?: WorkItemStatus;
+}): Promise<WorkItemRecord> {
+  const { companyId, fullReportId, priority, defaultStatus = 'Backlog' } = args;
+
+  console.log('[Work Items] Creating work item from priority:', {
+    companyId,
+    fullReportId,
+    priorityId: priority.id,
+    priorityTitle: priority.title,
+  });
+
+  // Build notes from priority description/summary/rationale
+  const notesParts: string[] = [];
+  if (priority.summary) notesParts.push(priority.summary);
+  if (priority.description && priority.description !== priority.summary) {
+    notesParts.push(priority.description);
+  }
+  if (priority.rationale && priority.rationale !== priority.summary && priority.rationale !== priority.description) {
+    notesParts.push(`Rationale: ${priority.rationale}`);
+  }
+  const notes = notesParts.join('\n\n') || undefined;
+
+  // Build Airtable fields
+  const fields: Record<string, any> = {
+    [WORK_ITEMS_FIELDS.TITLE]: priority.title || 'Untitled Priority',
+    [WORK_ITEMS_FIELDS.COMPANY]: [companyId], // Link field - array of record IDs
+    [WORK_ITEMS_FIELDS.FULL_REPORT]: [fullReportId], // Link field
+    [WORK_ITEMS_FIELDS.AREA]: mapPriorityAreaToWorkItemArea(priority.area || priority.pillar),
+    [WORK_ITEMS_FIELDS.STATUS]: defaultStatus,
+    [WORK_ITEMS_FIELDS.SEVERITY]: mapPrioritySeverityToWorkItemSeverity(priority.severity),
+  };
+
+  // Optional fields
+  if (priority.id) {
+    fields[WORK_ITEMS_FIELDS.PRIORITY_ID] = priority.id;
+  }
+
+  if (notes) {
+    fields[WORK_ITEMS_FIELDS.NOTES] = notes;
+  }
+
+  if (priority.effort) {
+    fields[WORK_ITEMS_FIELDS.EFFORT] = String(priority.effort);
+  }
+
+  if (priority.impact) {
+    fields[WORK_ITEMS_FIELDS.IMPACT] = String(priority.impact);
+  }
+
+  try {
+    // Create the record in Airtable
+    const records = await base('Work Items').create([{ fields }]);
+
+    if (!records || records.length === 0) {
+      throw new Error('No record returned from Airtable create');
+    }
+
+    const record = records[0];
+
+    console.log('[Work Items] Work item created successfully:', {
+      workItemId: record.id,
+      priorityId: priority.id,
+    });
+
+    // Map to WorkItemRecord
+    return mapWorkItemRecord(record);
+  } catch (error) {
+    console.error('[Work Items] Error creating work item:', error);
+    throw error;
+  }
+}
+
+/**
+ * Map initiative effort to normalized value
+ */
+function mapInitiativeEffortToString(effort?: string | unknown): string {
+  if (!effort) return 'Medium';
+  const normalized = String(effort).toUpperCase().trim();
+
+  // Initiative uses XS/S/M/L/XL, Work Item uses Low/Medium/High
+  if (normalized === 'XS' || normalized === 'S') return 'Low';
+  if (normalized === 'M') return 'Medium';
+  if (normalized === 'L' || normalized === 'XL') return 'High';
+
+  // Pass through Low/Medium/High directly
+  if (['LOW', 'MEDIUM', 'HIGH'].includes(normalized)) {
+    return normalized.charAt(0) + normalized.slice(1).toLowerCase();
+  }
+
+  return String(effort);
+}
+
+/**
+ * Map initiative impact to normalized value
+ */
+function mapInitiativeImpactToString(impact?: string | unknown): string {
+  if (!impact) return 'Medium';
+  const normalized = String(impact).charAt(0).toUpperCase() + String(impact).slice(1).toLowerCase();
+  return normalized;
+}
+
+/**
+ * Derive severity from initiative context
+ * If priorityId is present, we could look it up, but for simplicity default based on impact
+ */
+function deriveInitiativeSeverity(initiative: PlanInitiative): WorkItemSeverity {
+  const impact = initiative.impact ? String(initiative.impact).toLowerCase() : '';
+
+  if (impact === 'high') return 'High';
+  if (impact === 'low') return 'Low';
+  return 'Medium';
+}
+
+/**
+ * Create a Work Item from a Plan Initiative
+ *
+ * @param args - Configuration for creating work item
+ * @returns Created work item record
+ */
+export async function createWorkItemFromPlanInitiative(args: {
+  companyId: string;
+  fullReportId: string;
+  initiative: PlanInitiative;
+  defaultStatus?: WorkItemStatus;
+}): Promise<WorkItemRecord> {
+  const { companyId, fullReportId, initiative, defaultStatus = 'Planned' } = args;
+
+  console.log('[Work Items] Creating work item from plan initiative:', {
+    companyId,
+    fullReportId,
+    initiativeId: initiative.id,
+    initiativeTitle: initiative.title,
+  });
+
+  // Build notes from initiative summary/detail
+  const notesParts: string[] = [];
+  notesParts.push(`Created from Plan Initiative (${initiative.timeHorizon.replace('_', ' ')})`);
+  if (initiative.summary) notesParts.push(initiative.summary);
+  if (initiative.detail && initiative.detail !== initiative.summary) {
+    notesParts.push(initiative.detail);
+  }
+  const notes = notesParts.join('\n\n') || undefined;
+
+  // Build Airtable fields
+  const fields: Record<string, any> = {
+    [WORK_ITEMS_FIELDS.TITLE]: initiative.title || 'Untitled Initiative',
+    [WORK_ITEMS_FIELDS.COMPANY]: [companyId], // Link field - array of record IDs
+    [WORK_ITEMS_FIELDS.FULL_REPORT]: [fullReportId], // Link field
+    [WORK_ITEMS_FIELDS.AREA]: mapPriorityAreaToWorkItemArea(initiative.area),
+    [WORK_ITEMS_FIELDS.STATUS]: defaultStatus,
+    [WORK_ITEMS_FIELDS.SEVERITY]: deriveInitiativeSeverity(initiative),
+  };
+
+  // Optional fields
+  if (initiative.id) {
+    fields[WORK_ITEMS_FIELDS.PLAN_INITIATIVE_ID] = initiative.id;
+  }
+
+  if (initiative.priorityId) {
+    fields[WORK_ITEMS_FIELDS.PRIORITY_ID] = initiative.priorityId;
+  }
+
+  if (notes) {
+    fields[WORK_ITEMS_FIELDS.NOTES] = notes;
+  }
+
+  if (initiative.effort) {
+    fields[WORK_ITEMS_FIELDS.EFFORT] = mapInitiativeEffortToString(initiative.effort);
+  }
+
+  if (initiative.impact) {
+    fields[WORK_ITEMS_FIELDS.IMPACT] = mapInitiativeImpactToString(initiative.impact);
+  }
+
+  if (initiative.ownerHint) {
+    fields[WORK_ITEMS_FIELDS.OWNER] = initiative.ownerHint;
+  }
+
+  try {
+    // Create the record in Airtable
+    const records = await base('Work Items').create([{ fields }]);
+
+    if (!records || records.length === 0) {
+      throw new Error('No record returned from Airtable create');
+    }
+
+    const record = records[0];
+
+    console.log('[Work Items] Work item created successfully from plan initiative:', {
+      workItemId: record.id,
+      initiativeId: initiative.id,
+    });
+
+    // Map to WorkItemRecord
+    return mapWorkItemRecord(record);
+  } catch (error) {
+    console.error('[Work Items] Error creating work item from plan initiative:', error);
+    throw error;
+  }
+}
+
+/**
+ * Update the status of a Work Item
+ *
+ * @param workItemId - The Airtable record ID of the work item
+ * @param status - The new status to set
+ * @returns Updated work item record
+ */
+export async function updateWorkItemStatus(
+  workItemId: string,
+  status: WorkItemStatus
+): Promise<WorkItemRecord> {
+  console.log('[Work Items] Updating work item status:', {
+    workItemId,
+    status,
+  });
+
+  try {
+    // Update only the Status field
+    const records = await base('Work Items').update([
+      {
+        id: workItemId,
+        fields: {
+          [WORK_ITEMS_FIELDS.STATUS]: status,
+        },
+      },
+    ]);
+
+    if (!records || records.length === 0) {
+      throw new Error('No record returned from Airtable update');
+    }
+
+    const record = records[0];
+
+    console.log('[Work Items] Work item status updated successfully:', {
+      workItemId: record.id,
+      newStatus: status,
+    });
+
+    // Map to WorkItemRecord
+    return mapWorkItemRecord(record);
+  } catch (error) {
+    console.error('[Work Items] Error updating work item status:', error);
+    throw error;
+  }
+}

@@ -1,0 +1,409 @@
+'use client';
+
+import { useState, useMemo } from 'react';
+import Link from 'next/link';
+import type { CompanyRecord } from '@/lib/airtable/companies';
+
+interface Opportunity {
+  id: string;
+  name: string;
+  companyId?: string;
+  companyName?: string;
+  companyDomain?: string;
+  stage: string;
+  value?: number;
+  probability?: number;
+  closeDate?: string;
+  owner?: string;
+  notes?: string;
+  createdAt?: string;
+}
+
+interface PipelineOpportunitiesClientProps {
+  opportunities: Opportunity[];
+  companies: CompanyRecord[];
+}
+
+const STAGES = ['Discovery', 'Proposal', 'Contract', 'Won', 'Lost'];
+const ACTIVE_STAGES = ['Discovery', 'Proposal', 'Contract'];
+
+// Helper to format dates
+const formatDate = (dateStr?: string | null) => {
+  if (!dateStr) return '—';
+  try {
+    return new Date(dateStr).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  } catch {
+    return '—';
+  }
+};
+
+// Format currency
+const formatCurrency = (num?: number | null) => {
+  if (num === null || num === undefined) return '—';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(num);
+};
+
+export function PipelineOpportunitiesClient({
+  opportunities,
+  companies,
+}: PipelineOpportunitiesClientProps) {
+  const [stageFilter, setStageFilter] = useState<string>('Active');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [companyFilter, setCompanyFilter] = useState<string>('all');
+
+  // Filter opportunities
+  const filteredOpportunities = useMemo(() => {
+    return opportunities.filter((opp) => {
+      // Search filter
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const nameMatch = opp.name.toLowerCase().includes(query);
+        const companyMatch = opp.companyName?.toLowerCase().includes(query);
+        if (!nameMatch && !companyMatch) return false;
+      }
+
+      // Stage filter
+      if (stageFilter === 'Active') {
+        if (!ACTIVE_STAGES.includes(opp.stage)) return false;
+      } else if (stageFilter !== 'All' && opp.stage !== stageFilter) {
+        return false;
+      }
+
+      // Company filter
+      if (companyFilter !== 'all' && opp.companyId !== companyFilter) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [opportunities, stageFilter, searchQuery, companyFilter]);
+
+  // Stats
+  const stats = useMemo(() => {
+    const active = opportunities.filter((o) =>
+      ACTIVE_STAGES.includes(o.stage)
+    );
+    const activeValue = active.reduce((sum, o) => sum + (o.value || 0), 0);
+    const weightedValue = active.reduce(
+      (sum, o) => sum + (o.value || 0) * ((o.probability || 50) / 100),
+      0
+    );
+
+    const byStage: Record<string, { count: number; value: number }> = {};
+    for (const stage of STAGES) {
+      const stageOpps = opportunities.filter((o) => o.stage === stage);
+      byStage[stage] = {
+        count: stageOpps.length,
+        value: stageOpps.reduce((sum, o) => sum + (o.value || 0), 0),
+      };
+    }
+
+    return {
+      active: active.length,
+      activeValue,
+      weightedValue,
+      byStage,
+      won: byStage['Won']?.count || 0,
+      wonValue: byStage['Won']?.value || 0,
+    };
+  }, [opportunities]);
+
+  if (opportunities.length === 0) {
+    return (
+      <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-12 text-center">
+        <div className="max-w-md mx-auto">
+          <div className="mb-4">
+            <svg
+              className="w-16 h-16 mx-auto text-slate-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.5}
+                d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+              />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold text-slate-300 mb-2">
+            No Opportunities Yet
+          </h2>
+          <p className="text-slate-500 mb-6">
+            Track deals, run GAP assessments for prospects, and manage your
+            sales pipeline.
+          </p>
+          <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg text-left">
+            <p className="text-sm text-blue-300">
+              <strong>To set up opportunities:</strong>
+            </p>
+            <ul className="mt-2 space-y-1 text-sm text-blue-300">
+              <li>• Create an "Opportunities" table in Airtable</li>
+              <li>• Fields: Name, Company (linked), Stage, Value, Close Date</li>
+              <li>• Stages: Discovery, Proposal, Contract, Won, Lost</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+          <div className="text-2xl font-bold text-slate-100">{stats.active}</div>
+          <div className="text-xs text-slate-500">Active Opportunities</div>
+        </div>
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+          <div className="text-2xl font-bold text-amber-500">
+            {formatCurrency(stats.activeValue)}
+          </div>
+          <div className="text-xs text-slate-500">Pipeline Value</div>
+        </div>
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+          <div className="text-2xl font-bold text-purple-400">
+            {formatCurrency(stats.weightedValue)}
+          </div>
+          <div className="text-xs text-slate-500">Weighted Value</div>
+        </div>
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+          <div className="text-2xl font-bold text-emerald-400">
+            {stats.won}
+            <span className="text-base font-normal text-slate-500 ml-1">
+              ({formatCurrency(stats.wonValue)})
+            </span>
+          </div>
+          <div className="text-xs text-slate-500">Won</div>
+        </div>
+      </div>
+
+      {/* Pipeline Funnel */}
+      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+        <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
+          Pipeline by Stage
+        </h3>
+        <div className="flex gap-2">
+          {STAGES.map((stage) => {
+            const data = stats.byStage[stage];
+            const isActive = ACTIVE_STAGES.includes(stage);
+            return (
+              <div
+                key={stage}
+                className={`flex-1 p-3 rounded-lg ${
+                  stage === 'Won'
+                    ? 'bg-emerald-500/10 border border-emerald-500/30'
+                    : stage === 'Lost'
+                    ? 'bg-red-500/10 border border-red-500/30'
+                    : isActive
+                    ? 'bg-slate-800/50 border border-slate-700'
+                    : 'bg-slate-800/30 border border-slate-800'
+                }`}
+              >
+                <div className="text-xs text-slate-400 mb-1">{stage}</div>
+                <div
+                  className={`text-lg font-bold ${
+                    stage === 'Won'
+                      ? 'text-emerald-400'
+                      : stage === 'Lost'
+                      ? 'text-red-400'
+                      : 'text-slate-200'
+                  }`}
+                >
+                  {data?.count || 0}
+                </div>
+                <div className="text-xs text-slate-500">
+                  {formatCurrency(data?.value)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+        <div className="flex flex-wrap items-end gap-4">
+          {/* Search */}
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-xs font-medium text-slate-400 mb-1">
+              Search
+            </label>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search opportunities..."
+              className="w-full px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            />
+          </div>
+
+          {/* Stage Filter */}
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">
+              Stage
+            </label>
+            <select
+              value={stageFilter}
+              onChange={(e) => setStageFilter(e.target.value)}
+              className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            >
+              <option value="Active">Active</option>
+              <option value="All">All</option>
+              {STAGES.map((stage) => (
+                <option key={stage} value={stage}>
+                  {stage}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Company Filter */}
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">
+              Company
+            </label>
+            <select
+              value={companyFilter}
+              onChange={(e) => setCompanyFilter(e.target.value)}
+              className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            >
+              <option value="all">All Companies</option>
+              {companies.map((company) => (
+                <option key={company.id} value={company.id}>
+                  {company.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Results */}
+          <div className="text-sm text-slate-400">
+            {filteredOpportunities.length} opportunities
+          </div>
+        </div>
+      </div>
+
+      {/* Opportunities Table */}
+      <div className="bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-800">
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                  Opportunity
+                </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                  Company
+                </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                  Stage
+                </th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                  Value
+                </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                  Close Date
+                </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                  Owner
+                </th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredOpportunities.map((opp) => (
+                <tr
+                  key={opp.id}
+                  className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
+                >
+                  <td className="px-4 py-3">
+                    <div className="text-slate-200 font-medium">{opp.name}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {opp.companyId ? (
+                      <Link
+                        href={`/os/companies/${opp.companyId}`}
+                        className="text-amber-500 hover:text-amber-400 text-xs"
+                      >
+                        {opp.companyName || 'View Company'}
+                      </Link>
+                    ) : (
+                      <span className="text-slate-500 text-xs">No company</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                        opp.stage === 'Won'
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                          : opp.stage === 'Lost'
+                          ? 'bg-red-500/10 text-red-400 border border-red-500/30'
+                          : opp.stage === 'Contract'
+                          ? 'bg-purple-500/10 text-purple-400 border border-purple-500/30'
+                          : opp.stage === 'Proposal'
+                          ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                          : 'bg-blue-500/10 text-blue-400 border border-blue-500/30'
+                      }`}
+                    >
+                      {opp.stage}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <span className="text-slate-200 font-medium">
+                      {formatCurrency(opp.value)}
+                    </span>
+                    {opp.probability && (
+                      <span className="text-xs text-slate-500 ml-1">
+                        ({opp.probability}%)
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-slate-400 text-xs">
+                    {formatDate(opp.closeDate)}
+                  </td>
+                  <td className="px-4 py-3 text-slate-400 text-xs">
+                    {opp.owner || '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      {opp.companyDomain && (
+                        <Link
+                          href={`/snapshot?url=${encodeURIComponent(
+                            opp.companyDomain
+                          )}`}
+                          className="text-xs text-blue-500 hover:text-blue-400 font-medium"
+                        >
+                          Run GAP
+                        </Link>
+                      )}
+                      <Link
+                        href={`/os/pipeline/opportunities/${opp.id}`}
+                        className="text-xs text-amber-500 hover:text-amber-400 font-medium"
+                      >
+                        View →
+                      </Link>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}

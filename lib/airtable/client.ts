@@ -1,0 +1,349 @@
+// lib/airtable/client.ts
+// Airtable client with edge-compatible fetch-based helpers
+
+import { getBase } from '@/lib/airtable';
+
+// Lazy initialization to avoid build-time errors when env vars aren't available
+let _base: ReturnType<typeof getBase> | null = null;
+export function getLazyBase() {
+  if (!_base) {
+    _base = getBase();
+  }
+  return _base;
+}
+
+// For backward compatibility, export base as a getter
+export const base = new Proxy({} as ReturnType<typeof getBase>, {
+  get(target, prop) {
+    const instance = getLazyBase();
+    return (instance as any)[prop];
+  },
+  apply(target, thisArg, args) {
+    const instance = getLazyBase();
+    return (instance as any)(...args);
+  }
+}) as ReturnType<typeof getBase>;
+
+/**
+ * Airtable Configuration
+ */
+export interface AirtableConfig {
+  apiKey: string;
+  baseId: string;
+}
+
+/**
+ * Get Airtable configuration from environment variables
+ * Throws if credentials are missing
+ */
+export function getAirtableConfig(): AirtableConfig {
+  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN;
+  const baseId = process.env.AIRTABLE_BASE_ID;
+
+  if (!apiKey || !baseId) {
+    throw new Error(
+      'Airtable credentials not configured. Set AIRTABLE_API_KEY (or AIRTABLE_ACCESS_TOKEN) and AIRTABLE_BASE_ID.'
+    );
+  }
+
+  return { apiKey, baseId };
+}
+
+/**
+ * Create a record in an Airtable table using fetch API (edge-compatible)
+ *
+ * @param tableName - Name of the Airtable table
+ * @param fields - Record fields as key-value pairs
+ * @returns Created record data from Airtable
+ * @throws Error if the API request fails
+ */
+export async function createRecord(
+  tableName: string,
+  fields: Record<string, unknown>
+): Promise<any> {
+  const config = getAirtableConfig();
+
+  const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(
+    tableName
+  )}`;
+
+  console.log('[Airtable] Creating record:', {
+    url: url.replace(config.apiKey, '***'),
+    tableName,
+    fieldCount: Object.keys(fields).length,
+    fields: tableName === 'GAP-Heavy Run' ? fields : undefined, // Log fields for Heavy Run table
+  });
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ fields }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    const errorDetails = {
+      status: response.status,
+      statusText: response.statusText,
+      errorText,
+      url: url.replace(config.apiKey, '***'),
+      tableName,
+    };
+    console.error('[Airtable] API error:', errorDetails);
+    throw new Error(
+      `Airtable API error (${response.status}): ${errorText}`
+    );
+  }
+
+  const result = await response.json();
+  console.log('[Airtable] Record created successfully:', {
+    recordId: result?.id || result?.records?.[0]?.id,
+    tableName,
+    returnedFields: tableName === 'GAP-Heavy Run' ? result?.fields : undefined, // Log returned fields for Heavy Run
+  });
+  return result;
+}
+
+/**
+ * Get a single record by ID from Airtable
+ *
+ * @param tableName - Name of the Airtable table
+ * @param recordId - ID of the record to retrieve
+ * @returns Record data from Airtable
+ * @throws Error if the API request fails
+ */
+export async function getRecord(
+  tableName: string,
+  recordId: string
+): Promise<any> {
+  const config = getAirtableConfig();
+  const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(tableName)}/${recordId}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Airtable GET failed (${response.status}): ${errorText}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Update a record in an Airtable table using fetch API (edge-compatible)
+ *
+ * @param tableName - Name of the Airtable table
+ * @param recordId - ID of the record to update
+ * @param fields - Record fields to update
+ * @returns Updated record data from Airtable
+ * @throws Error if the API request fails
+ */
+export async function updateRecord(
+  tableName: string,
+  recordId: string,
+  fields: Record<string, unknown>
+): Promise<any> {
+  const config = getAirtableConfig();
+
+  const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(
+    tableName
+  )}/${recordId}`;
+
+  console.log('[Airtable] Updating record:', {
+    url: url.replace(config.apiKey, '***'),
+    tableName,
+    recordId,
+    fieldCount: Object.keys(fields).length,
+    fields: tableName === 'GAP-Heavy Run' ? fields : undefined, // Log fields for Heavy Run table
+    hasCompanyField: tableName === 'GAP-Heavy Run' ? ('Company' in fields) : undefined,
+  });
+
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ fields }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    const errorDetails = {
+      status: response.status,
+      statusText: response.statusText,
+      errorText,
+      url: url.replace(config.apiKey, '***'),
+      tableName,
+      recordId,
+    };
+    console.error('[Airtable] API error:', errorDetails);
+    throw new Error(
+      `Airtable API error (${response.status}): ${errorText}`
+    );
+  }
+
+  const result = await response.json();
+  console.log('[Airtable] Record updated successfully:', {
+    recordId: result?.id,
+    tableName,
+  });
+  return result;
+}
+
+/**
+ * Find a record by a specific field value using fetch API (edge-compatible)
+ *
+ * @param tableName - Name of the Airtable table
+ * @param fieldName - Name of the field to search
+ * @param value - Value to search for
+ * @returns Record data from Airtable or null if not found
+ * @throws Error if the API request fails
+ */
+export async function findRecordByField(
+  tableName: string,
+  fieldName: string,
+  value: string
+): Promise<any> {
+  const config = getAirtableConfig();
+
+  // RECORD_ID() is a function, not a field, so don't wrap it in curly braces
+  const filterFormula = fieldName === 'RECORD_ID()'
+    ? `RECORD_ID() = '${value.replace(/'/g, "\\'")}'`
+    : `{${fieldName}} = '${value.replace(/'/g, "\\'")}'`;
+  const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(
+    tableName
+  )}?filterByFormula=${encodeURIComponent(filterFormula)}&maxRecords=1`;
+
+  console.log('[Airtable] Finding record:', {
+    tableName,
+    fieldName,
+    value,
+  });
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    const errorDetails = {
+      status: response.status,
+      statusText: response.statusText,
+      errorText,
+      url: url.replace(config.apiKey, '***'),
+      tableName,
+    };
+    console.error('[Airtable] API error:', errorDetails);
+    throw new Error(
+      `Airtable API error (${response.status}): ${errorText}`
+    );
+  }
+
+  const result = await response.json();
+  const records = result.records || [];
+
+  if (records.length === 0) {
+    console.log('[Airtable] No record found:', {
+      tableName,
+      fieldName,
+      value,
+    });
+    return null;
+  }
+
+  console.log('[Airtable] Record found:', {
+    recordId: records[0].id,
+    tableName,
+  });
+  return records[0];
+}
+
+/**
+ * Archive a record by setting its Archived field to true
+ *
+ * @param tableName - Name of the Airtable table
+ * @param recordId - ID of the record to archive
+ * @returns Updated record data from Airtable
+ * @throws Error if the API request fails
+ */
+export async function archiveRecord(
+  tableName: string,
+  recordId: string
+): Promise<any> {
+  console.log('[Airtable] Archiving record:', {
+    tableName,
+    recordId,
+  });
+
+  return updateRecord(tableName, recordId, { Archived: true });
+}
+
+/**
+ * Delete a record from an Airtable table using fetch API (edge-compatible)
+ *
+ * @param tableName - Name of the Airtable table
+ * @param recordId - ID of the record to delete
+ * @returns Deleted record confirmation from Airtable
+ * @throws Error if the API request fails
+ */
+export async function deleteRecord(
+  tableName: string,
+  recordId: string
+): Promise<any> {
+  const config = getAirtableConfig();
+
+  const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(
+    tableName
+  )}/${recordId}`;
+
+  console.log('[Airtable] Deleting record:', {
+    url: url.replace(config.apiKey, '***'),
+    tableName,
+    recordId,
+  });
+
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    const errorDetails = {
+      status: response.status,
+      statusText: response.statusText,
+      errorText,
+      url: url.replace(config.apiKey, '***'),
+      tableName,
+      recordId,
+    };
+    console.error('[Airtable] API error:', errorDetails);
+    throw new Error(
+      `Airtable API error (${response.status}): ${errorText}`
+    );
+  }
+
+  const result = await response.json();
+  console.log('[Airtable] Record deleted successfully:', {
+    recordId: result?.id,
+    tableName,
+  });
+  return result;
+}
