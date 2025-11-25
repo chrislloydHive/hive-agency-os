@@ -21,6 +21,11 @@
 import { google } from 'googleapis';
 import * as http from 'http';
 import open from 'open';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+
+// Load .env.local file
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;

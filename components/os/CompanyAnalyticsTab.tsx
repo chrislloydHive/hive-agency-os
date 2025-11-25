@@ -1,7 +1,7 @@
 'use client';
 
 // components/os/CompanyAnalyticsTab.tsx
-// Analytics tab for company detail page - shows GA4 + Search Console data with AI insights
+// Analytics tab for company detail page - shows GA4 + Search Console data with unified AI insights
 
 import { useState, useEffect } from 'react';
 import type { GrowthAnalyticsSnapshot } from '@/lib/analytics/models';
@@ -9,6 +9,12 @@ import type {
   SearchConsoleSnapshot,
   SearchConsoleAIInsights,
 } from '@/lib/os/searchConsole/types';
+import type {
+  CompanyAnalyticsInput,
+  CompanyAnalyticsAiInsight,
+  CompanyAnalyticsDateRangePreset,
+  CompanyAnalyticsWorkSuggestion,
+} from '@/lib/os/companies/analyticsTypes';
 
 interface CompanyAnalyticsTabProps {
   companyId: string;
@@ -33,17 +39,66 @@ export function CompanyAnalyticsTab({
   const [gscLoading, setGscLoading] = useState(false);
   const [gscError, setGscError] = useState<string | null>(null);
 
-  // AI Insights State
+  // Legacy Search-only AI Insights (kept for backward compat)
   const [searchInsights, setSearchInsights] = useState<SearchConsoleAIInsights | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
 
+  // NEW: Unified Company AI Insights
+  const [companyInsights, setCompanyInsights] = useState<CompanyAnalyticsAiInsight | null>(null);
+  const [companyInput, setCompanyInput] = useState<CompanyAnalyticsInput | null>(null);
+  const [companyInsightsLoading, setCompanyInsightsLoading] = useState(false);
+  const [companyInsightsError, setCompanyInsightsError] = useState<string | null>(null);
+
   // UI State
   const [activeDays, setActiveDays] = useState(30);
-  const [activeSection, setActiveSection] = useState<'traffic' | 'search'>('traffic');
+  const [activeSection, setActiveSection] = useState<'overview' | 'traffic' | 'search'>('overview');
+
+  // Work Item Creation State
+  const [creatingWorkTitle, setCreatingWorkTitle] = useState<string | null>(null);
+  const [createdWorkTitles, setCreatedWorkTitles] = useState<Set<string>>(new Set());
+  const [workCreateError, setWorkCreateError] = useState<string | null>(null);
 
   const hasGa4 = !!ga4PropertyId;
   const hasSearchConsole = !!searchConsoleSiteUrl;
   const hasAnyConnection = hasGa4 || hasSearchConsole;
+
+  // Convert activeDays to preset
+  const getPreset = (days: number): CompanyAnalyticsDateRangePreset => {
+    if (days === 7) return '7d';
+    if (days === 90) return '90d';
+    return '30d';
+  };
+
+  // Fetch unified company AI insights
+  const fetchCompanyInsights = async (days: number) => {
+    setCompanyInsightsLoading(true);
+    setCompanyInsightsError(null);
+
+    try {
+      const preset = getPreset(days);
+      const response = await fetch(
+        `/api/os/companies/${companyId}/analytics/ai-insights?range=${preset}`
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch company insights');
+      }
+
+      const data = await response.json();
+      if (data.ok) {
+        setCompanyInsights(data.insights);
+        setCompanyInput(data.input);
+      } else {
+        throw new Error(data.error || 'Failed to generate insights');
+      }
+    } catch (err) {
+      console.error('Error fetching company insights:', err);
+      setCompanyInsightsError(err instanceof Error ? err.message : 'Failed to load insights');
+    } finally {
+      setCompanyInsightsLoading(false);
+    }
+  };
 
   // Fetch GA4 analytics data
   const fetchAnalytics = async (days: number) => {
@@ -141,6 +196,9 @@ export function CompanyAnalyticsTab({
   };
 
   useEffect(() => {
+    // Always fetch company insights (it works with any available data)
+    fetchCompanyInsights(activeDays);
+
     if (hasGa4) {
       fetchAnalytics(activeDays);
     }
@@ -152,8 +210,42 @@ export function CompanyAnalyticsTab({
 
   const handleRangeChange = (days: number) => {
     setActiveDays(days);
+    fetchCompanyInsights(days);
     if (hasGa4) fetchAnalytics(days);
     if (hasSearchConsole) fetchSearchConsoleData(days);
+  };
+
+  // Handle creating a work item from a suggestion
+  const handleCreateWorkFromSuggestion = async (suggestion: CompanyAnalyticsWorkSuggestion) => {
+    if (creatingWorkTitle) return; // Already creating one
+
+    setCreatingWorkTitle(suggestion.title);
+    setWorkCreateError(null);
+
+    try {
+      const res = await fetch('/api/os/work/from-analytics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          suggestion,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!json.success) {
+        throw new Error(json.error || 'Failed to create work item');
+      }
+
+      // Mark as created
+      setCreatedWorkTitles((prev) => new Set(prev).add(suggestion.title));
+    } catch (err) {
+      console.error('Error creating work item:', err);
+      setWorkCreateError(err instanceof Error ? err.message : 'Failed to create work item');
+    } finally {
+      setCreatingWorkTitle(null);
+    }
   };
 
   // No connections - show setup UI
@@ -189,26 +281,53 @@ export function CompanyAnalyticsTab({
     );
   }
 
+  // Helper to format date range for display
+  const formatDateRange = (days: number) => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - days);
+    return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  };
+
   return (
     <div className="space-y-6">
-      {/* Connection Status + Date Range */}
+      {/* Header Meta */}
       <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
         <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-4">
-            {hasGa4 && (
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-emerald-500 rounded-full" />
-                <span className="text-sm text-slate-300">GA4 Connected</span>
-                <span className="text-xs text-slate-500">({ga4PropertyId})</span>
-              </div>
-            )}
-            {hasSearchConsole && (
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-emerald-500 rounded-full" />
-                <span className="text-sm text-slate-300">Search Console</span>
-              </div>
-            )}
+          {/* Left: Company Name + Date Range + Data Sources */}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg font-semibold text-slate-100">{companyName}</h2>
+              <span className="text-sm text-slate-400">{formatDateRange(activeDays)}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              {hasGa4 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                  <span className="text-xs text-slate-400">GA4</span>
+                </div>
+              )}
+              {hasSearchConsole && (
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+                  <span className="text-xs text-slate-400">Search Console</span>
+                </div>
+              )}
+              {!hasGa4 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-slate-600 rounded-full" />
+                  <span className="text-xs text-slate-500">GA4 not connected</span>
+                </div>
+              )}
+              {!hasSearchConsole && (
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-slate-600 rounded-full" />
+                  <span className="text-xs text-slate-500">GSC not connected</span>
+                </div>
+              )}
+            </div>
           </div>
+          {/* Right: Date Range Buttons */}
           <div className="flex items-center gap-2">
             {[7, 30, 90].map((days) => (
               <button
@@ -229,9 +348,19 @@ export function CompanyAnalyticsTab({
       </div>
 
       {/* Section Tabs */}
-      {hasGa4 && hasSearchConsole && (
-        <div className="border-b border-slate-800">
-          <nav className="flex gap-4">
+      <div className="border-b border-slate-800">
+        <nav className="flex gap-4">
+          <button
+            onClick={() => setActiveSection('overview')}
+            className={`py-2 px-1 text-sm font-medium border-b-2 transition-colors ${
+              activeSection === 'overview'
+                ? 'border-amber-500 text-amber-400'
+                : 'border-transparent text-slate-400 hover:text-slate-300'
+            }`}
+          >
+            Overview
+          </button>
+          {hasGa4 && (
             <button
               onClick={() => setActiveSection('traffic')}
               className={`py-2 px-1 text-sm font-medium border-b-2 transition-colors ${
@@ -240,8 +369,10 @@ export function CompanyAnalyticsTab({
                   : 'border-transparent text-slate-400 hover:text-slate-300'
               }`}
             >
-              Traffic Analytics
+              Traffic
             </button>
+          )}
+          {hasSearchConsole && (
             <button
               onClick={() => setActiveSection('search')}
               className={`py-2 px-1 text-sm font-medium border-b-2 transition-colors ${
@@ -250,14 +381,456 @@ export function CompanyAnalyticsTab({
                   : 'border-transparent text-slate-400 hover:text-slate-300'
               }`}
             >
-              Search Analytics
+              Search
             </button>
-          </nav>
+          )}
+        </nav>
+      </div>
+
+      {/* Overview Section - Unified AI Insights */}
+      {activeSection === 'overview' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Main Content - KPI Cards and Data Summary */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Loading State */}
+            {companyInsightsLoading && (
+              <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-12 text-center">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-amber-400" />
+                <p className="text-slate-400 mt-4">Analyzing {companyName}'s data...</p>
+              </div>
+            )}
+
+            {/* Error State */}
+            {companyInsightsError && !companyInsightsLoading && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 text-center">
+                <p className="text-red-400">{companyInsightsError}</p>
+                <button
+                  onClick={() => fetchCompanyInsights(activeDays)}
+                  className="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm"
+                >
+                  Try Again
+                </button>
+              </div>
+            )}
+
+            {/* KPI Cards Grid */}
+            {companyInput && !companyInsightsLoading && (
+              <>
+                {/* Data Sources */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  {/* GA4 Metrics */}
+                  {companyInput.ga4 ? (
+                    <>
+                      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+                        <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Sessions</div>
+                        <div className="text-2xl font-bold text-slate-100">
+                          {companyInput.ga4.sessions.toLocaleString()}
+                        </div>
+                        <div className="text-xs text-emerald-400 mt-1">GA4 • {activeDays}d</div>
+                      </div>
+                      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+                        <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Users</div>
+                        <div className="text-2xl font-bold text-slate-100">
+                          {companyInput.ga4.users.toLocaleString()}
+                        </div>
+                        <div className="text-xs text-emerald-400 mt-1">GA4</div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 col-span-2">
+                      <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">GA4</div>
+                      <div className="text-sm text-slate-400">Not connected</div>
+                    </div>
+                  )}
+
+                  {/* Search Console Metrics */}
+                  {companyInput.searchConsole ? (
+                    <>
+                      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+                        <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Search Clicks</div>
+                        <div className="text-2xl font-bold text-slate-100">
+                          {companyInput.searchConsole.clicks.toLocaleString()}
+                        </div>
+                        <div className="text-xs text-blue-400 mt-1">GSC • {activeDays}d</div>
+                      </div>
+                      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+                        <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Avg Position</div>
+                        <div className="text-2xl font-bold text-slate-100">
+                          {companyInput.searchConsole.avgPosition?.toFixed(1) ?? '—'}
+                        </div>
+                        <div className="text-xs text-blue-400 mt-1">
+                          CTR: {(companyInput.searchConsole.ctr * 100).toFixed(1)}%
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 col-span-2">
+                      <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Search Console</div>
+                      <div className="text-sm text-slate-400">Not connected</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Work & GAP Summary */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Work Summary */}
+                  <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+                    <div className="text-xs text-slate-500 uppercase tracking-wide mb-3">Work Status</div>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div>
+                        <div className="text-2xl font-bold text-slate-100">
+                          {companyInput.work.activeCount}
+                        </div>
+                        <div className="text-xs text-slate-400">Active</div>
+                      </div>
+                      <div>
+                        <div className={`text-2xl font-bold ${companyInput.work.dueToday > 0 ? 'text-amber-400' : 'text-slate-100'}`}>
+                          {companyInput.work.dueToday}
+                        </div>
+                        <div className="text-xs text-slate-400">Due Today</div>
+                      </div>
+                      <div>
+                        <div className={`text-2xl font-bold ${companyInput.work.overdue > 0 ? 'text-red-400' : 'text-slate-100'}`}>
+                          {companyInput.work.overdue}
+                        </div>
+                        <div className="text-xs text-slate-400">Overdue</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* GAP Summary with Nudges */}
+                  <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+                    <div className="text-xs text-slate-500 uppercase tracking-wide mb-3">GAP & Diagnostics</div>
+                    <div className="space-y-2">
+                      {companyInput.gapDiagnostics.lastGapAssessmentAt ? (
+                        <>
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-slate-400">Last GAP</span>
+                            <span className="text-sm text-slate-200">
+                              {new Date(companyInput.gapDiagnostics.lastGapAssessmentAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                          {/* Check if GAP is stale (>90 days) */}
+                          {(() => {
+                            const daysSinceGap = Math.floor(
+                              (Date.now() - new Date(companyInput.gapDiagnostics.lastGapAssessmentAt!).getTime()) /
+                                (1000 * 60 * 60 * 24)
+                            );
+                            if (daysSinceGap > 90) {
+                              return (
+                                <div className="mt-2 p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                                  <div className="text-xs text-amber-300 mb-1">
+                                    GAP assessment is {daysSinceGap} days old
+                                  </div>
+                                  <a
+                                    href={`/companies/${companyId}?tab=gap`}
+                                    className="text-xs text-amber-400 hover:text-amber-300 underline"
+                                  >
+                                    Run new GAP assessment →
+                                  </a>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </>
+                      ) : (
+                        <div className="p-2 bg-slate-800/50 border border-slate-700 rounded-lg">
+                          <div className="text-sm text-slate-400 mb-1">No GAP assessment on record</div>
+                          <a
+                            href={`/companies/${companyId}?tab=gap`}
+                            className="text-xs text-amber-400 hover:text-amber-300 underline"
+                          >
+                            Run initial GAP assessment →
+                          </a>
+                        </div>
+                      )}
+                      {companyInput.gapDiagnostics.lastGapScore !== undefined && companyInput.gapDiagnostics.lastGapScore !== null && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-slate-400">Score</span>
+                          <span className="text-sm text-amber-400 font-medium">
+                            {companyInput.gapDiagnostics.lastGapScore}/100
+                          </span>
+                        </div>
+                      )}
+                      {companyInput.gapDiagnostics.recentDiagnosticsCount !== undefined && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-slate-400">Diagnostics (30d)</span>
+                          <span className="text-sm text-slate-200">
+                            {companyInput.gapDiagnostics.recentDiagnosticsCount}
+                          </span>
+                        </div>
+                      )}
+                      {/* Nudge if no recent diagnostics */}
+                      {(companyInput.gapDiagnostics.recentDiagnosticsCount === 0 || companyInput.gapDiagnostics.recentDiagnosticsCount === undefined) && (
+                        <div className="mt-2 p-2 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                          <div className="text-xs text-blue-300 mb-1">
+                            No recent diagnostics run
+                          </div>
+                          <a
+                            href={`/companies/${companyId}?tab=diagnostics`}
+                            className="text-xs text-blue-400 hover:text-blue-300 underline"
+                          >
+                            Run diagnostics →
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick Wins */}
+                {companyInsights && companyInsights.quickWins.length > 0 && (
+                  <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4">
+                    <h3 className="text-sm font-semibold text-emerald-300 mb-3 flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      Quick Wins
+                    </h3>
+                    <ul className="space-y-2">
+                      {companyInsights.quickWins.slice(0, 4).map((win, idx) => (
+                        <li key={idx} className="flex items-start gap-2 text-sm text-emerald-100">
+                          <span className="text-emerald-400 mt-0.5">•</span>
+                          <span>{win}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Suggested Work Items */}
+                {companyInsights && companyInsights.workSuggestions.length > 0 && (
+                  <div className="bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden">
+                    <div className="p-4 border-b border-slate-800">
+                      <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
+                        Suggested Work Items
+                      </h3>
+                    </div>
+                    <div className="divide-y divide-slate-800">
+                      {companyInsights.workSuggestions.map((item, idx) => {
+                        const isCreating = creatingWorkTitle === item.title;
+                        const isCreated = createdWorkTitles.has(item.title);
+
+                        return (
+                          <div key={idx} className="p-4">
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                  {item.recommendedPriority && (
+                                    <span className="text-xs px-1.5 py-0.5 rounded bg-slate-600 text-slate-200 font-mono">
+                                      #{item.recommendedPriority}
+                                    </span>
+                                  )}
+                                  <span className={`text-xs px-2 py-0.5 rounded ${
+                                    item.priority === 'high'
+                                      ? 'bg-red-500/20 text-red-300'
+                                      : item.priority === 'medium'
+                                      ? 'bg-amber-500/20 text-amber-300'
+                                      : 'bg-slate-500/20 text-slate-300'
+                                  }`}>
+                                    {item.priority}
+                                  </span>
+                                  <span className="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-300">
+                                    {item.area}
+                                  </span>
+                                  {item.impact && (
+                                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                      item.impact === 'high'
+                                        ? 'bg-emerald-500/20 text-emerald-300'
+                                        : item.impact === 'medium'
+                                        ? 'bg-blue-500/20 text-blue-300'
+                                        : 'bg-slate-500/20 text-slate-400'
+                                    }`}>
+                                      {item.impact} impact
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="font-medium text-slate-200">{item.title}</div>
+                                <div className="text-sm text-slate-400 mt-1">{item.description}</div>
+                                {item.reason && (
+                                  <div className="text-xs text-slate-500 mt-2 italic">
+                                    Why: {item.reason}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex-shrink-0">
+                                {isCreated ? (
+                                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    Added
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => handleCreateWorkFromSuggestion(item)}
+                                    disabled={!!creatingWorkTitle}
+                                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                                      isCreating
+                                        ? 'bg-slate-700 text-slate-400 cursor-wait'
+                                        : 'bg-amber-500 hover:bg-amber-400 text-slate-900'
+                                    }`}
+                                  >
+                                    {isCreating ? 'Adding...' : 'Add as Work Item →'}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            {workCreateError && creatingWorkTitle === null && idx === 0 && (
+                              <div className="mt-2 text-xs text-red-400">{workCreateError}</div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Experiments */}
+                {companyInsights && companyInsights.experiments.length > 0 && (
+                  <div className="bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden">
+                    <div className="p-4 border-b border-slate-800">
+                      <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
+                        Experiments to Run
+                      </h3>
+                    </div>
+                    <div className="divide-y divide-slate-800">
+                      {companyInsights.experiments.map((exp, idx) => (
+                        <div key={idx} className="p-4">
+                          <div className="flex items-start gap-3">
+                            {/* Experiment Number */}
+                            <div className="flex-shrink-0 w-7 h-7 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center">
+                              <span className="text-sm font-bold text-purple-300">{idx + 1}</span>
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-medium text-purple-200">{exp.name}</span>
+                                {exp.expectedImpact && (
+                                  <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                    exp.expectedImpact === 'high'
+                                      ? 'bg-emerald-500/20 text-emerald-300'
+                                      : exp.expectedImpact === 'medium'
+                                      ? 'bg-amber-500/20 text-amber-300'
+                                      : 'bg-slate-500/20 text-slate-300'
+                                  }`}>
+                                    {exp.expectedImpact} impact
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-sm text-slate-400 mt-1">{exp.hypothesis}</div>
+                              {exp.steps.length > 0 && (
+                                <ol className="list-decimal list-inside text-sm text-slate-500 mt-2 space-y-1">
+                                  {exp.steps.map((step, stepIdx) => (
+                                    <li key={stepIdx}>{step}</li>
+                                  ))}
+                                </ol>
+                              )}
+                              <div className="text-xs text-purple-400 mt-2">
+                                Success: {exp.successMetric}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* AI Insights Sidebar */}
+          <div className="space-y-6">
+            <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-xl p-6 sticky top-6">
+              <div className="flex items-center gap-2 mb-4">
+                <svg className="w-5 h-5 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 01-1 1H3a1 1 0 110-2h1a1 1 0 011 1zM8 16v-1h4v1a2 2 0 11-4 0zM12 14c.015-.34.208-.646.477-.859a4 4 0 10-4.954 0c.27.213.462.519.477.859h4z" />
+                </svg>
+                <h2 className="text-lg font-semibold text-amber-100">Hive OS Insight</h2>
+              </div>
+
+              {companyInsightsLoading && (
+                <div className="text-center py-8">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-amber-400" />
+                  <p className="text-amber-200 text-sm mt-3">Generating insights...</p>
+                </div>
+              )}
+
+              {!companyInsightsLoading && !companyInsights && (
+                <p className="text-sm text-amber-200/70">
+                  Insights will appear once data is loaded.
+                </p>
+              )}
+
+              {companyInsights && !companyInsightsLoading && (
+                <div className="space-y-5">
+                  {/* Summary */}
+                  <div className="text-sm text-amber-100 leading-relaxed whitespace-pre-line">
+                    {companyInsights.summary}
+                  </div>
+
+                  {/* Key Insights */}
+                  {companyInsights.keyInsights.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-amber-100 mb-2">Key Insights</h3>
+                      <div className="space-y-2">
+                        {companyInsights.keyInsights.slice(0, 5).map((insight, idx) => (
+                          <div
+                            key={idx}
+                            className={`border rounded p-3 ${
+                              insight.type === 'traffic'
+                                ? 'bg-emerald-500/10 border-emerald-500/30'
+                                : insight.type === 'search'
+                                ? 'bg-blue-500/10 border-blue-500/30'
+                                : insight.type === 'conversion' || insight.type === 'funnel'
+                                ? 'bg-purple-500/10 border-purple-500/30'
+                                : insight.type === 'engagement'
+                                ? 'bg-orange-500/10 border-orange-500/30'
+                                : 'bg-slate-900/50 border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span
+                                className={`text-xs px-1.5 py-0.5 rounded ${
+                                  insight.type === 'traffic'
+                                    ? 'bg-emerald-500/20 text-emerald-300'
+                                    : insight.type === 'search'
+                                    ? 'bg-blue-500/20 text-blue-300'
+                                    : insight.type === 'conversion' || insight.type === 'funnel'
+                                    ? 'bg-purple-500/20 text-purple-300'
+                                    : insight.type === 'engagement'
+                                    ? 'bg-orange-500/20 text-orange-300'
+                                    : 'bg-slate-500/20 text-slate-300'
+                                }`}
+                              >
+                                {insight.type}
+                              </span>
+                              {insight.category && insight.category !== insight.type && (
+                                <span className="text-xs px-1.5 py-0.5 rounded bg-slate-700/50 text-slate-400">
+                                  {insight.category}
+                                </span>
+                              )}
+                            </div>
+                            <div className="font-medium text-slate-200 text-sm">{insight.title}</div>
+                            <div className="text-xs text-slate-400 mt-1">{insight.detail}</div>
+                            {insight.evidence && (
+                              <div className="text-xs text-slate-500 mt-1 italic">{insight.evidence}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
       {/* Traffic Analytics Section (GA4) */}
-      {(activeSection === 'traffic' || !hasSearchConsole) && hasGa4 && (
+      {activeSection === 'traffic' && hasGa4 && (
         <>
           {/* Loading State */}
           {loading && (
@@ -395,7 +968,7 @@ export function CompanyAnalyticsTab({
       )}
 
       {/* Search Analytics Section */}
-      {(activeSection === 'search' || !hasGa4) && hasSearchConsole && (
+      {activeSection === 'search' && hasSearchConsole && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
