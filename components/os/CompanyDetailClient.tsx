@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import ReactMarkdown from 'react-markdown';
 import type { CompanyRecord } from '@/lib/airtable/companies';
 import type { WorkItemRecord } from '@/lib/airtable/workItems';
 import type { OsDiagnosticResult } from '@/lib/diagnostics/types';
@@ -149,6 +150,7 @@ export function CompanyDetailClient({
           companyName={company.name}
           ga4PropertyId={company.ga4PropertyId}
           searchConsoleSiteUrl={company.searchConsoleSiteUrl}
+          analyticsBlueprint={company.analyticsBlueprint}
         />
       )}
       {activeTab === 'notes' && (
@@ -589,17 +591,73 @@ function WorkTab({
   company: CompanyRecord;
   workItems: WorkItemRecord[];
 }) {
+  const [selectedWorkItem, setSelectedWorkItem] = useState<WorkItemRecord | null>(null);
+  const [aiAdditionalInfo, setAiAdditionalInfo] = useState<string | null>(null);
+  const [loadingAI, setLoadingAI] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const activeItems = workItems.filter((w) => w.status !== 'Done');
   const doneItems = workItems.filter((w) => w.status === 'Done');
+
+  // Handle selecting a work item - also load existing AI info if available
+  const handleSelectWorkItem = useCallback((item: WorkItemRecord | null) => {
+    if (item && selectedWorkItem?.id === item.id) {
+      // Toggle off
+      setSelectedWorkItem(null);
+      setAiAdditionalInfo(null);
+      setAiError(null);
+    } else if (item) {
+      // Select new item
+      setSelectedWorkItem(item);
+      setAiAdditionalInfo(item.aiAdditionalInfo || null);
+      setAiError(null);
+    } else {
+      setSelectedWorkItem(null);
+      setAiAdditionalInfo(null);
+      setAiError(null);
+    }
+  }, [selectedWorkItem?.id]);
+
+  // Fetch AI additional info from API
+  const handleAdditionalInfo = useCallback(async () => {
+    if (!selectedWorkItem) return;
+
+    setLoadingAI(true);
+    setAiError(null);
+
+    try {
+      const response = await fetch('/api/work/additional-info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workItemId: selectedWorkItem.id }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || 'Failed to generate additional info');
+      }
+
+      setAiAdditionalInfo(data.markdown);
+      // Update the selected work item with the new AI info
+      setSelectedWorkItem((prev) => prev ? { ...prev, aiAdditionalInfo: data.markdown } : null);
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoadingAI(false);
+    }
+  }, [selectedWorkItem]);
 
   return (
     <div className="space-y-6">
       {/* Active Work */}
       <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
-            Active Work ({activeItems.length})
-          </h3>
+          <div>
+            <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
+              Active Work ({activeItems.length})
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">Click a row to see implementation details</p>
+          </div>
           <button className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors text-xs">
             Add Work Item
           </button>
@@ -634,9 +692,23 @@ function WorkTab({
                 {activeItems.map((item) => (
                   <tr
                     key={item.id}
-                    className="border-b border-slate-800/50 hover:bg-slate-800/30"
+                    className={`border-b border-slate-800/50 hover:bg-slate-800/30 cursor-pointer ${
+                      selectedWorkItem?.id === item.id ? 'bg-amber-500/10' : ''
+                    }`}
+                    onClick={() => handleSelectWorkItem(item)}
                   >
-                    <td className="px-3 py-3 text-slate-200">{item.title}</td>
+                    <td className="px-3 py-3 text-slate-200 hover:text-amber-400 transition-colors">
+                      <div className="flex items-center gap-2">
+                        {item.title}
+                        {item.notes && (
+                          <span title="Has implementation details">
+                            <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-3 py-3 text-slate-400 text-xs">
                       {item.area || '—'}
                     </td>
@@ -667,6 +739,112 @@ function WorkTab({
         )}
       </div>
 
+      {/* Work Item Detail Panel */}
+      {selectedWorkItem && (
+        <div className="bg-slate-900/80 border border-amber-500/30 rounded-xl p-6">
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div>
+              <h3 className="text-base font-semibold text-slate-100">
+                {selectedWorkItem.title}
+              </h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Source: {selectedWorkItem.notes?.includes('Analytics AI') ? 'Analytics AI' : 'Manual'}
+              </p>
+            </div>
+            <button
+              onClick={() => handleSelectWorkItem(null)}
+              className="text-xs text-slate-500 hover:text-slate-300 px-2 py-1 rounded hover:bg-slate-800"
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2 mb-4 text-[11px]">
+            {selectedWorkItem.area && (
+              <span className="px-2 py-0.5 rounded bg-slate-700 text-slate-300">
+                {selectedWorkItem.area}
+              </span>
+            )}
+            {selectedWorkItem.status && (
+              <span className={`px-2 py-0.5 rounded ${
+                selectedWorkItem.status === 'In Progress'
+                  ? 'bg-blue-500/20 text-blue-300'
+                  : selectedWorkItem.status === 'Planned'
+                  ? 'bg-purple-500/20 text-purple-300'
+                  : selectedWorkItem.status === 'Done'
+                  ? 'bg-emerald-500/20 text-emerald-300'
+                  : 'bg-slate-500/20 text-slate-300'
+              }`}>
+                {selectedWorkItem.status}
+              </span>
+            )}
+            {selectedWorkItem.severity && (
+              <span className={`px-2 py-0.5 rounded ${
+                selectedWorkItem.severity === 'High'
+                  ? 'bg-red-500/20 text-red-300'
+                  : selectedWorkItem.severity === 'Medium'
+                  ? 'bg-amber-500/20 text-amber-300'
+                  : 'bg-slate-500/20 text-slate-300'
+              }`}>
+                {selectedWorkItem.severity} priority
+              </span>
+            )}
+            {selectedWorkItem.impact && (
+              <span className={`px-2 py-0.5 rounded ${
+                selectedWorkItem.impact === 'High'
+                  ? 'bg-emerald-500/20 text-emerald-300'
+                  : selectedWorkItem.impact === 'Medium'
+                  ? 'bg-blue-500/20 text-blue-300'
+                  : 'bg-slate-500/20 text-slate-300'
+              }`}>
+                {selectedWorkItem.impact} impact
+              </span>
+            )}
+          </div>
+
+          <div className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed prose prose-invert prose-sm max-w-none">
+            {selectedWorkItem.notes || 'No additional details provided.'}
+          </div>
+
+          {selectedWorkItem.dueDate && (
+            <div className="mt-4 pt-4 border-t border-slate-700">
+              <p className="text-xs text-slate-400">
+                Due: {formatDate(selectedWorkItem.dueDate)}
+              </p>
+            </div>
+          )}
+
+          {/* Additional Information Button */}
+          <div className="mt-4 pt-4 border-t border-slate-700">
+            <button
+              onClick={handleAdditionalInfo}
+              disabled={loadingAI}
+              className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-800 disabled:opacity-60"
+            >
+              {loadingAI ? 'Generating...' : aiAdditionalInfo ? 'Regenerate Info' : 'Additional Information'}
+            </button>
+            {aiError && (
+              <p className="mt-2 text-xs text-red-400">{aiError}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* AI Additional Information Card */}
+      {selectedWorkItem && aiAdditionalInfo && (
+        <div className="bg-slate-900/70 border border-slate-700 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
+              AI Implementation Guide
+            </h4>
+            <span className="text-xs text-slate-500">Generated by AI</span>
+          </div>
+          <div className="prose prose-invert prose-sm max-w-none text-slate-200">
+            <ReactMarkdown>{aiAdditionalInfo}</ReactMarkdown>
+          </div>
+        </div>
+      )}
+
       {/* Completed Work */}
       {doneItems.length > 0 && (
         <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
@@ -677,7 +855,8 @@ function WorkTab({
             {doneItems.slice(0, 5).map((item) => (
               <div
                 key={item.id}
-                className="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg opacity-70"
+                className="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg opacity-70 cursor-pointer hover:opacity-100"
+                onClick={() => handleSelectWorkItem(item)}
               >
                 <span className="text-sm text-slate-400 line-through">
                   {item.title}

@@ -7,6 +7,57 @@
 
 import { getBase } from '@/lib/airtable';
 import { randomUUID } from 'crypto';
+import type { AnalyticsBlueprint } from '@/lib/analytics/blueprintTypes';
+
+// ============================================================================
+// Company Stage Types & Utilities
+// ============================================================================
+
+/**
+ * Company stage slug type (lowercase, URL-safe)
+ */
+export type CompanyStage = 'prospect' | 'client' | 'internal' | 'dormant' | 'lost';
+
+/**
+ * Map Airtable stage label to slug
+ */
+export const stageLabelToSlug: Record<string, CompanyStage> = {
+  'Prospect': 'prospect',
+  'Client': 'client',
+  'Internal': 'internal',
+  'Dormant': 'dormant',
+  'Lost': 'lost',
+};
+
+/**
+ * Map slug to Airtable stage label
+ */
+export const stageSlugToLabel: Record<CompanyStage, string> = {
+  'prospect': 'Prospect',
+  'client': 'Client',
+  'internal': 'Internal',
+  'dormant': 'Dormant',
+  'lost': 'Lost',
+};
+
+/**
+ * All stage options for filter UI
+ */
+export const COMPANY_STAGE_OPTIONS: { slug: CompanyStage; label: string }[] = [
+  { slug: 'prospect', label: 'Prospects' },
+  { slug: 'client', label: 'Clients' },
+  { slug: 'internal', label: 'Internal' },
+  { slug: 'dormant', label: 'Dormant' },
+  { slug: 'lost', label: 'Lost' },
+];
+
+/**
+ * Convert Airtable stage label to slug
+ */
+export function parseCompanyStage(label: string | undefined | null): CompanyStage | undefined {
+  if (!label) return undefined;
+  return stageLabelToSlug[label] ?? undefined;
+}
 
 const COMPANIES_TABLE = process.env.AIRTABLE_COMPANIES_TABLE || 'Companies';
 const FULL_REPORTS_TABLE = process.env.AIRTABLE_FULL_REPORTS_TABLE || 'Full Reports';
@@ -175,7 +226,23 @@ function mapFieldsToCompanyRecord(record: any): CompanyRecord {
     // Health override fields
     healthOverride: (fields['Health Override'] as 'Healthy' | 'At Risk' | null) || undefined,
     atRiskFlag: (fields['At Risk Flag'] as boolean) || undefined,
+
+    // Analytics Blueprint (stored as JSON string in Airtable)
+    analyticsBlueprint: parseAnalyticsBlueprint(fields['Analytics Blueprint JSON'] as string),
   };
+}
+
+/**
+ * Parse Analytics Blueprint JSON from Airtable
+ */
+function parseAnalyticsBlueprint(json: string | undefined | null): AnalyticsBlueprint | null {
+  if (!json || typeof json !== 'string') return null;
+  try {
+    return JSON.parse(json) as AnalyticsBlueprint;
+  } catch (error) {
+    console.warn('[Companies] Failed to parse Analytics Blueprint JSON:', error);
+    return null;
+  }
 }
 
 /**
@@ -216,6 +283,9 @@ export type CompanyRecord = {
   // Health override fields (for manual health management)
   healthOverride?: 'Healthy' | 'At Risk' | null; // Manual health override - takes precedence over computed health
   atRiskFlag?: boolean; // Manual "At Risk" flag - forces At Risk status when true
+
+  // Analytics Blueprint (AI-generated configuration for which metrics to show)
+  analyticsBlueprint?: AnalyticsBlueprint | null;
 };
 
 /**
@@ -335,6 +405,38 @@ export async function updateCompanyMeta(params: {
     return getCompanyById(companyId);
   } catch (error) {
     console.error(`[Airtable] Failed to update company meta for ${params.companyId}:`, error);
+    return null;
+  }
+}
+
+// ============================================================================
+// Analytics Blueprint Updates
+// ============================================================================
+
+/**
+ * Update a company's Analytics Blueprint
+ *
+ * @param companyId - Airtable record ID
+ * @param blueprint - The AnalyticsBlueprint to save
+ * @returns Updated company record or null on failure
+ */
+export async function updateCompanyAnalyticsBlueprint(
+  companyId: string,
+  blueprint: AnalyticsBlueprint
+): Promise<CompanyRecord | null> {
+  try {
+    const base = getBase();
+
+    await base(COMPANIES_TABLE).update(companyId, {
+      'Analytics Blueprint JSON': JSON.stringify(blueprint),
+    } as any);
+
+    console.log(`[Companies] Updated Analytics Blueprint for company ${companyId}`);
+
+    // Return the updated record
+    return getCompanyById(companyId);
+  } catch (error) {
+    console.error(`[Companies] Failed to update Analytics Blueprint for ${companyId}:`, error);
     return null;
   }
 }

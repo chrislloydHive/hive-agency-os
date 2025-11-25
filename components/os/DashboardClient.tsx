@@ -42,39 +42,38 @@ const formatCurrency = (num: number | null | undefined) => {
 
 export function DashboardClient({ summary }: DashboardClientProps) {
   const [briefing, setBriefing] = useState<AIBriefing | null>(null);
-  const [briefingLoading, setBriefingLoading] = useState(true);
+  const [briefingLoading, setBriefingLoading] = useState(false);
   const [briefingError, setBriefingError] = useState<string | null>(null);
+  const [lastBriefingRunAt, setLastBriefingRunAt] = useState<string | null>(null);
 
-  // Load AI briefing on mount
-  useEffect(() => {
-    async function loadBriefing() {
-      setBriefingLoading(true);
-      setBriefingError(null);
-      try {
-        const res = await fetch('/api/os/dashboard/ai-briefing', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ summary, context: { includeDiagnostics: true } }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.ok && data.briefing) {
-            setBriefing(data.briefing);
-          } else {
-            setBriefingError(data.error || 'Failed to generate briefing');
-          }
+  // Function to load AI briefing (on-demand, not auto)
+  async function loadBriefing() {
+    setBriefingLoading(true);
+    setBriefingError(null);
+    try {
+      const res = await fetch('/api/os/dashboard/ai-briefing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary, context: { includeDiagnostics: true } }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && data.briefing) {
+          setBriefing(data.briefing);
+          setLastBriefingRunAt(new Date().toISOString());
         } else {
-          setBriefingError(`Failed to load briefing: ${res.status}`);
+          setBriefingError(data.error || 'Failed to generate briefing');
         }
-      } catch (error) {
-        console.warn('[Dashboard] AI briefing unavailable:', error);
-        setBriefingError(error instanceof Error ? error.message : 'Network error');
-      } finally {
-        setBriefingLoading(false);
+      } else {
+        setBriefingError(`Failed to load briefing: ${res.status}`);
       }
+    } catch (error) {
+      console.warn('[Dashboard] AI briefing unavailable:', error);
+      setBriefingError(error instanceof Error ? error.message : 'Network error');
+    } finally {
+      setBriefingLoading(false);
     }
-    loadBriefing();
-  }, [summary]);
+  }
 
   return (
     <div className="space-y-8">
@@ -514,6 +513,8 @@ export function DashboardClient({ summary }: DashboardClientProps) {
           briefing={briefing}
           loading={briefingLoading}
           error={briefingError}
+          onRun={loadBriefing}
+          lastRunAt={lastBriefingRunAt}
         />
       </section>
     </div>

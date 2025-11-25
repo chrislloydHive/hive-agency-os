@@ -57,7 +57,8 @@ You must respond with valid JSON matching this exact structure:
       "priority": "high" | "medium" | "low",
       "reason": "Why this matters for the client (1-2 sentences)",
       "impact": "high" | "medium" | "low",
-      "recommendedPriority": 1-5
+      "recommendedPriority": 1-5,
+      "implementationGuide": "Detailed how-to guide for implementing this work item"
     }
   ],
   "experiments": [
@@ -82,6 +83,7 @@ RULES:
 8. Keep insights concise - detail should be 2-3 sentences max
 9. category in keyInsights must be one of: "engagement", "search", "traffic", "conversion", "general"
 10. For workSuggestions, always include reason and impact fields
+11. For each workSuggestion, include an implementationGuide field with detailed "how to" instructions that a mid-level marketer could follow. Use short paragraphs and bullet points. Focus on concrete steps: what to change, where in GA4/Search Console/website, what to watch for, and how to validate the change worked.
 
 Return ONLY valid JSON, no markdown formatting or code blocks.`;
 
@@ -118,7 +120,7 @@ Remember to:
         { role: 'user', content: userPrompt },
       ],
       temperature: 0.7,
-      max_tokens: 2000,
+      max_tokens: 4000, // Increased to accommodate implementation guides
       response_format: { type: 'json_object' },
     });
 
@@ -245,6 +247,7 @@ function validateWorkSuggestion(item: any): CompanyAnalyticsWorkSuggestion {
     recommendedPriority: typeof item.recommendedPriority === 'number'
       ? Math.min(5, Math.max(1, item.recommendedPriority))
       : undefined,
+    implementationGuide: typeof item.implementationGuide === 'string' ? item.implementationGuide : undefined,
   };
 }
 

@@ -28,6 +28,7 @@ const WORK_ITEMS_FIELDS = {
   UPDATED_AT: 'Updated At',
   EFFORT: 'Effort',
   IMPACT: 'Impact',
+  AI_ADDITIONAL_INFO: 'AI Additional Info',
 } as const;
 
 /**
@@ -79,6 +80,7 @@ interface WorkItemFields {
   'Updated At'?: string;
   'Effort'?: string;
   'Impact'?: string;
+  'AI Additional Info'?: string;
 }
 
 /**
@@ -101,6 +103,7 @@ export interface WorkItemRecord {
   impact?: string;
   createdAt?: string;
   updatedAt?: string;
+  aiAdditionalInfo?: string; // AI-generated implementation guide
 }
 
 /**
@@ -130,6 +133,7 @@ function mapWorkItemRecord(record: any): WorkItemRecord {
     impact: fields['Impact'],
     createdAt: fields['Created At'],
     updatedAt: fields['Updated At'],
+    aiAdditionalInfo: fields['AI Additional Info'],
   };
 }
 
@@ -642,6 +646,75 @@ export async function createWorkItemFromDiagnosticInsight(args: {
     return mapWorkItemRecord(record);
   } catch (error) {
     console.error('[Work Items] Error creating work item from diagnostic insight:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get a single Work Item by ID
+ *
+ * @param workItemId - The Airtable record ID
+ * @returns Work item record or null if not found
+ */
+export async function getWorkItemById(
+  workItemId: string
+): Promise<WorkItemRecord | null> {
+  try {
+    console.log('[Work Items] Fetching work item by ID:', workItemId);
+
+    const record = await base('Work Items').find(workItemId);
+
+    if (!record) {
+      console.log('[Work Items] Work item not found:', workItemId);
+      return null;
+    }
+
+    return mapWorkItemRecord(record);
+  } catch (error) {
+    console.error('[Work Items] Error fetching work item:', error);
+    return null;
+  }
+}
+
+/**
+ * Update the AI Additional Info field of a Work Item
+ *
+ * @param workItemId - The Airtable record ID
+ * @param aiAdditionalInfo - The AI-generated implementation guide markdown
+ * @returns Updated work item record
+ */
+export async function updateWorkItemAiAdditionalInfo(
+  workItemId: string,
+  aiAdditionalInfo: string
+): Promise<WorkItemRecord> {
+  console.log('[Work Items] Updating AI Additional Info:', {
+    workItemId,
+    contentLength: aiAdditionalInfo.length,
+  });
+
+  try {
+    const records = await base('Work Items').update([
+      {
+        id: workItemId,
+        fields: {
+          [WORK_ITEMS_FIELDS.AI_ADDITIONAL_INFO]: aiAdditionalInfo,
+        },
+      },
+    ]);
+
+    if (!records || records.length === 0) {
+      throw new Error('No record returned from Airtable update');
+    }
+
+    const record = records[0];
+
+    console.log('[Work Items] AI Additional Info updated successfully:', {
+      workItemId: record.id,
+    });
+
+    return mapWorkItemRecord(record);
+  } catch (error) {
+    console.error('[Work Items] Error updating AI Additional Info:', error);
     throw error;
   }
 }

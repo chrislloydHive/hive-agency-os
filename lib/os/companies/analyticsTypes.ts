@@ -119,6 +119,7 @@ export interface CompanyAnalyticsWorkSuggestion {
   reason?: string;
   impact?: CompanyAnalyticsImpact;
   recommendedPriority?: number; // 1-5, where 1 = highest
+  implementationGuide?: string; // long-form "how to" instructions (markdown or bullet list)
 }
 
 export interface CompanyAnalyticsExperiment {

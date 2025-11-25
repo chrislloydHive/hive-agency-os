@@ -74,18 +74,26 @@ export async function POST(request: NextRequest) {
       priority: suggestion.priority,
     });
 
-    // Build notes
+    // Build notes with reason, description, and implementation guide
     const notesParts: string[] = [];
     notesParts.push('Created from Analytics AI Insight');
-    if (suggestion.description) {
-      notesParts.push(suggestion.description);
-    }
+
     if (suggestion.reason) {
-      notesParts.push(`Why: ${suggestion.reason}`);
+      notesParts.push(`**Why this matters:**\n${suggestion.reason}`);
     }
+
+    if (suggestion.description) {
+      notesParts.push(`**What to do:**\n${suggestion.description}`);
+    }
+
     if (suggestion.impact) {
-      notesParts.push(`Expected Impact: ${suggestion.impact}`);
+      notesParts.push(`**Expected Impact:** ${suggestion.impact}`);
     }
+
+    if (suggestion.implementationGuide) {
+      notesParts.push(`**How to implement:**\n${suggestion.implementationGuide}`);
+    }
+
     const notes = notesParts.join('\n\n');
 
     // Build Airtable fields

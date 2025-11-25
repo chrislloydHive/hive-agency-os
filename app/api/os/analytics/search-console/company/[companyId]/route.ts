@@ -1,6 +1,7 @@
 // app/api/os/analytics/search-console/company/[companyId]/route.ts
 // Company-level Search Console API
 // Returns GSC snapshot for a specific company's site
+// Falls back to workspace/env GSC config if company doesn't have its own
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getCompanyById } from '@/lib/airtable/companies';
@@ -43,15 +44,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Check if company has Search Console configured
-    const siteUrl = company.searchConsoleSiteUrl;
+    // Check if company has Search Console configured, otherwise fall back to env default
+    const companySiteUrl = company.searchConsoleSiteUrl;
+    const fallbackSiteUrl = process.env.SEARCH_CONSOLE_SITE_URL;
+    const siteUrl = companySiteUrl || fallbackSiteUrl;
+    const usingFallback = !companySiteUrl && !!fallbackSiteUrl;
 
     if (!siteUrl) {
       return NextResponse.json(
         {
           ok: false,
-          error: 'Search Console not configured for this company',
-          hint: 'Add the Search Console site URL in company settings to enable Search Analytics.',
+          error: 'Search Console not configured',
+          hint: 'Add the Search Console site URL in company settings or set SEARCH_CONSOLE_SITE_URL env var.',
           company: {
             id: company.id,
             name: company.name,
@@ -60,6 +64,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         { status: 400 }
       );
     }
+
+    console.log('[SearchConsole Company API] Using site URL', {
+      siteUrl,
+      usingFallback,
+      companyName: company.name,
+    });
 
     // Fetch snapshot
     const snapshot = await fetchCompanySearchConsoleSnapshot(
@@ -71,6 +81,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({
       ok: true,
       snapshot,
+      usingFallback,
       company: {
         id: company.id,
         name: company.name,

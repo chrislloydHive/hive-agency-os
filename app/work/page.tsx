@@ -6,10 +6,16 @@
  * - Status (Backlog, Planned, In Progress, Done)
  * - Area (Brand, Content, SEO, Website UX, Funnel, Other)
  * - Company
+ * - Company Stage (Prospect, Client, Internal, Dormant, Lost)
  */
 
 import { base } from '@/lib/airtable/client';
-import { getAllCompanies, type CompanyRecord } from '@/lib/airtable/companies';
+import {
+  getAllCompanies,
+  parseCompanyStage,
+  type CompanyRecord,
+  type CompanyStage,
+} from '@/lib/airtable/companies';
 import { WorkboardClient } from '@/components/os/WorkboardClient';
 
 // Fetch all work items with company data
@@ -25,13 +31,16 @@ async function getWorkItemsWithCompanies() {
     companyLookup.set(company.id, company);
   }
 
-  // Enrich work items with company names
-  const enrichedItems = workItems.map((item) => ({
-    ...item,
-    companyName: item.companyId
-      ? companyLookup.get(item.companyId)?.name
-      : undefined,
-  }));
+  // Enrich work items with company names and stages
+  const enrichedItems = workItems.map((item) => {
+    const company = item.companyId ? companyLookup.get(item.companyId) : undefined;
+    return {
+      ...item,
+      companyName: company?.name,
+      // Use lookup field if available, otherwise fall back to company record stage
+      companyStage: item.companyStageFromLookup ?? parseCompanyStage(company?.stage),
+    };
+  });
 
   return { workItems: enrichedItems, companies };
 }
@@ -48,20 +57,29 @@ async function fetchAllWorkItems() {
       })
       .all();
 
-    return records.map((record) => ({
-      id: record.id,
-      title: (record.fields['Title'] as string) || 'Untitled',
-      companyId: (record.fields['Company'] as string[])?.[0],
-      area: record.fields['Area'] as string,
-      status: (record.fields['Status'] as string) || 'Backlog',
-      severity: record.fields['Severity'] as string,
-      owner: record.fields['Owner'] as string,
-      dueDate: record.fields['Due Date'] as string,
-      notes: record.fields['Notes'] as string,
-      effort: record.fields['Effort'] as string,
-      impact: record.fields['Impact'] as string,
-      createdAt: record.fields['Created At'] as string,
-    }));
+    return records.map((record) => {
+      // Get Company Stage from lookup field (returns array for lookup fields)
+      const companyStageRaw = record.fields['Company Stage'];
+      const companyStageLabel = Array.isArray(companyStageRaw)
+        ? companyStageRaw[0]
+        : (companyStageRaw as string | undefined);
+
+      return {
+        id: record.id,
+        title: (record.fields['Title'] as string) || 'Untitled',
+        companyId: (record.fields['Company'] as string[])?.[0],
+        companyStageFromLookup: parseCompanyStage(companyStageLabel),
+        area: record.fields['Area'] as string,
+        status: (record.fields['Status'] as string) || 'Backlog',
+        severity: record.fields['Severity'] as string,
+        owner: record.fields['Owner'] as string,
+        dueDate: record.fields['Due Date'] as string,
+        notes: record.fields['Notes'] as string,
+        effort: record.fields['Effort'] as string,
+        impact: record.fields['Impact'] as string,
+        createdAt: record.fields['Created At'] as string,
+      };
+    });
   } catch (error) {
     console.error('[Work] Failed to fetch work items:', error);
     return [];

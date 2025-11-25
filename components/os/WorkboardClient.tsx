@@ -2,13 +2,18 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import type { CompanyRecord } from '@/lib/airtable/companies';
+import {
+  type CompanyRecord,
+  type CompanyStage,
+  COMPANY_STAGE_OPTIONS,
+} from '@/lib/airtable/companies';
 
 interface WorkItem {
   id: string;
   title: string;
   companyId?: string;
   companyName?: string;
+  companyStage?: CompanyStage;
   area?: string;
   status: string;
   severity?: string;
@@ -83,6 +88,7 @@ export function WorkboardClient({
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [areaFilter, setAreaFilter] = useState<string>('All');
   const [companyFilter, setCompanyFilter] = useState<string>('all');
+  const [stageFilter, setStageFilter] = useState<CompanyStage | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [groupBy, setGroupBy] = useState<GroupByOption>('none');
 
@@ -113,12 +119,16 @@ export function WorkboardClient({
       if (companyFilter !== 'all' && item.companyId !== companyFilter)
         return false;
 
+      // Stage filter
+      if (stageFilter !== 'all' && item.companyStage !== stageFilter)
+        return false;
+
       // Mine filter (TODO: implement user context)
       // if (viewMode === 'mine' && item.owner !== currentUser) return false;
 
       return true;
     });
-  }, [workItems, statusFilter, areaFilter, companyFilter, searchQuery, viewMode]);
+  }, [workItems, statusFilter, areaFilter, companyFilter, stageFilter, searchQuery, viewMode]);
 
   // Group items by selected grouping
   const groupedItems = useMemo(() => {
@@ -210,6 +220,36 @@ export function WorkboardClient({
             {stats.inProgress}
           </div>
           <div className="text-xs text-slate-500">In Progress</div>
+        </div>
+      </div>
+
+      {/* Stage Filter Bar */}
+      <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-medium text-slate-400 mr-1">Stage:</span>
+          <button
+            onClick={() => setStageFilter('all')}
+            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+              stageFilter === 'all'
+                ? 'bg-amber-500 text-slate-900'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300'
+            }`}
+          >
+            All
+          </button>
+          {COMPANY_STAGE_OPTIONS.map((option) => (
+            <button
+              key={option.slug}
+              onClick={() => setStageFilter(option.slug)}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                stageFilter === option.slug
+                  ? 'bg-amber-500 text-slate-900'
+                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
       </div>
 

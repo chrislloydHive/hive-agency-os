@@ -15,12 +15,15 @@ import type {
   CompanyAnalyticsDateRangePreset,
   CompanyAnalyticsWorkSuggestion,
 } from '@/lib/os/companies/analyticsTypes';
+import { BlueprintChartsView } from '@/components/analytics/BlueprintChartsView';
+import type { AnalyticsBlueprint } from '@/lib/analytics/blueprintTypes';
 
 interface CompanyAnalyticsTabProps {
   companyId: string;
   companyName: string;
   ga4PropertyId?: string | null;
   searchConsoleSiteUrl?: string | null;
+  analyticsBlueprint?: AnalyticsBlueprint | null;
 }
 
 export function CompanyAnalyticsTab({
@@ -28,6 +31,7 @@ export function CompanyAnalyticsTab({
   companyName,
   ga4PropertyId,
   searchConsoleSiteUrl,
+  analyticsBlueprint,
 }: CompanyAnalyticsTabProps) {
   // GA4 State
   const [snapshot, setSnapshot] = useState<GrowthAnalyticsSnapshot | null>(null);
@@ -51,7 +55,7 @@ export function CompanyAnalyticsTab({
 
   // UI State
   const [activeDays, setActiveDays] = useState(30);
-  const [activeSection, setActiveSection] = useState<'overview' | 'traffic' | 'search'>('overview');
+  const [activeSection, setActiveSection] = useState<'overview' | 'charts' | 'traffic' | 'search'>('overview');
 
   // Work Item Creation State
   const [creatingWorkTitle, setCreatingWorkTitle] = useState<string | null>(null);
@@ -59,8 +63,10 @@ export function CompanyAnalyticsTab({
   const [workCreateError, setWorkCreateError] = useState<string | null>(null);
 
   const hasGa4 = !!ga4PropertyId;
-  const hasSearchConsole = !!searchConsoleSiteUrl;
-  const hasAnyConnection = hasGa4 || hasSearchConsole;
+  const hasCompanySearchConsole = !!searchConsoleSiteUrl;
+  // Always try to fetch GSC data - API will use fallback if company doesn't have its own URL
+  const hasSearchConsole = true;
+  const hasAnyConnection = hasGa4 || hasCompanySearchConsole;
 
   // Convert activeDays to preset
   const getPreset = (days: number): CompanyAnalyticsDateRangePreset => {
@@ -360,6 +366,22 @@ export function CompanyAnalyticsTab({
           >
             Overview
           </button>
+          <button
+            onClick={() => setActiveSection('charts')}
+            className={`py-2 px-1 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+              activeSection === 'charts'
+                ? 'border-amber-500 text-amber-400'
+                : 'border-transparent text-slate-400 hover:text-slate-300'
+            }`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            Charts
+            {!analyticsBlueprint && (
+              <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">NEW</span>
+            )}
+          </button>
           {hasGa4 && (
             <button
               onClick={() => setActiveSection('traffic')}
@@ -413,64 +435,86 @@ export function CompanyAnalyticsTab({
               </div>
             )}
 
-            {/* KPI Cards Grid */}
+            {/* KPI Cards Grid - Show from raw data OR from AI input */}
+            {!companyInsightsLoading && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {/* GA4 Metrics */}
+                {hasGa4 ? (
+                  <>
+                    <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+                      <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Sessions</div>
+                      <div className="text-2xl font-bold text-slate-100">
+                        {loading ? (
+                          <span className="inline-block w-16 h-7 bg-slate-700 rounded animate-pulse" />
+                        ) : (
+                          (companyInput?.ga4?.sessions ?? snapshot?.traffic.sessions)?.toLocaleString() ?? '—'
+                        )}
+                      </div>
+                      <div className="text-xs text-emerald-400 mt-1">GA4 • {activeDays}d</div>
+                    </div>
+                    <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+                      <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Users</div>
+                      <div className="text-2xl font-bold text-slate-100">
+                        {loading ? (
+                          <span className="inline-block w-16 h-7 bg-slate-700 rounded animate-pulse" />
+                        ) : (
+                          (companyInput?.ga4?.users ?? snapshot?.traffic.users)?.toLocaleString() ?? '—'
+                        )}
+                      </div>
+                      <div className="text-xs text-emerald-400 mt-1">GA4</div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 col-span-2">
+                    <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">GA4</div>
+                    <div className="text-sm text-slate-400">Not connected</div>
+                  </div>
+                )}
+
+                {/* Search Console Metrics */}
+                {hasSearchConsole ? (
+                  <>
+                    <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+                      <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Search Clicks</div>
+                      <div className="text-2xl font-bold text-slate-100">
+                        {gscLoading ? (
+                          <span className="inline-block w-16 h-7 bg-slate-700 rounded animate-pulse" />
+                        ) : (
+                          (companyInput?.searchConsole?.clicks ?? gscSnapshot?.summary.clicks)?.toLocaleString() ?? '—'
+                        )}
+                      </div>
+                      <div className="text-xs text-blue-400 mt-1">GSC • {activeDays}d</div>
+                    </div>
+                    <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+                      <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Avg Position</div>
+                      <div className="text-2xl font-bold text-slate-100">
+                        {gscLoading ? (
+                          <span className="inline-block w-12 h-7 bg-slate-700 rounded animate-pulse" />
+                        ) : (
+                          (companyInput?.searchConsole?.avgPosition ?? gscSnapshot?.summary.avgPosition)?.toFixed(1) ?? '—'
+                        )}
+                      </div>
+                      <div className="text-xs text-blue-400 mt-1">
+                        CTR: {gscLoading ? '...' : (
+                          (companyInput?.searchConsole?.ctr ?? gscSnapshot?.summary.ctr) != null
+                            ? ((companyInput?.searchConsole?.ctr ?? gscSnapshot?.summary.ctr)! * 100).toFixed(1) + '%'
+                            : '—'
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 col-span-2">
+                    <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Search Console</div>
+                    <div className="text-sm text-slate-400">Not connected</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Work & GAP Summary - Only shown after AI runs */}
             {companyInput && !companyInsightsLoading && (
               <>
-                {/* Data Sources */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  {/* GA4 Metrics */}
-                  {companyInput.ga4 ? (
-                    <>
-                      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
-                        <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Sessions</div>
-                        <div className="text-2xl font-bold text-slate-100">
-                          {companyInput.ga4.sessions.toLocaleString()}
-                        </div>
-                        <div className="text-xs text-emerald-400 mt-1">GA4 • {activeDays}d</div>
-                      </div>
-                      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
-                        <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Users</div>
-                        <div className="text-2xl font-bold text-slate-100">
-                          {companyInput.ga4.users.toLocaleString()}
-                        </div>
-                        <div className="text-xs text-emerald-400 mt-1">GA4</div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 col-span-2">
-                      <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">GA4</div>
-                      <div className="text-sm text-slate-400">Not connected</div>
-                    </div>
-                  )}
-
-                  {/* Search Console Metrics */}
-                  {companyInput.searchConsole ? (
-                    <>
-                      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
-                        <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Search Clicks</div>
-                        <div className="text-2xl font-bold text-slate-100">
-                          {companyInput.searchConsole.clicks.toLocaleString()}
-                        </div>
-                        <div className="text-xs text-blue-400 mt-1">GSC • {activeDays}d</div>
-                      </div>
-                      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
-                        <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Avg Position</div>
-                        <div className="text-2xl font-bold text-slate-100">
-                          {companyInput.searchConsole.avgPosition?.toFixed(1) ?? '—'}
-                        </div>
-                        <div className="text-xs text-blue-400 mt-1">
-                          CTR: {(companyInput.searchConsole.ctr * 100).toFixed(1)}%
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 col-span-2">
-                      <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Search Console</div>
-                      <div className="text-sm text-slate-400">Not connected</div>
-                    </div>
-                  )}
-                </div>
-
                 {/* Work & GAP Summary */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Work Summary */}
@@ -829,6 +873,16 @@ export function CompanyAnalyticsTab({
         </div>
       )}
 
+      {/* Charts Section - Blueprint-driven analytics */}
+      {activeSection === 'charts' && (
+        <BlueprintChartsView
+          companyId={companyId}
+          companyName={companyName}
+          initialBlueprint={analyticsBlueprint}
+          activeDays={activeDays}
+        />
+      )}
+
       {/* Traffic Analytics Section (GA4) */}
       {activeSection === 'traffic' && hasGa4 && (
         <>
@@ -982,14 +1036,24 @@ export function CompanyAnalyticsTab({
 
             {/* Error State */}
             {gscError && !gscLoading && (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 text-center">
-                <p className="text-red-400">{gscError}</p>
-                <button
-                  onClick={() => fetchSearchConsoleData(activeDays)}
-                  className="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm"
-                >
-                  Try Again
-                </button>
+              <div className={`${gscError.includes('not configured') ? 'bg-slate-800/50 border-slate-700' : 'bg-red-500/10 border-red-500/30'} border rounded-xl p-6 text-center`}>
+                <p className={gscError.includes('not configured') ? 'text-slate-400' : 'text-red-400'}>
+                  {gscError.includes('not configured')
+                    ? 'Search Console is not configured for this company.'
+                    : gscError}
+                </p>
+                {gscError.includes('not configured') ? (
+                  <p className="text-slate-500 text-sm mt-2">
+                    Add a Search Console Site URL to the company record in Airtable to enable search analytics.
+                  </p>
+                ) : (
+                  <button
+                    onClick={() => fetchSearchConsoleData(activeDays)}
+                    className="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm"
+                  >
+                    Try Again
+                  </button>
+                )}
               </div>
             )}
 
