@@ -12,11 +12,16 @@ export function getLazyBase() {
   return _base;
 }
 
-// For backward compatibility, export base as a getter
-export const base = new Proxy({} as ReturnType<typeof getBase>, {
+// For backward compatibility, export base as a callable function that acts like Airtable.Base
+// We use a function as the proxy target so that `apply` trap works when calling base('Table Name')
+export const base = new Proxy(function() {} as unknown as ReturnType<typeof getBase>, {
   get(target, prop) {
     const instance = getLazyBase();
-    return (instance as any)[prop];
+    const value = (instance as any)[prop];
+    if (typeof value === 'function') {
+      return value.bind(instance);
+    }
+    return value;
   },
   apply(target, thisArg, args) {
     const instance = getLazyBase();

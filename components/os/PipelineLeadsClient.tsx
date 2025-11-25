@@ -265,7 +265,7 @@ export function PipelineLeadsClient({ leads }: PipelineLeadsClientProps) {
                     <div className="flex items-center justify-end gap-2">
                       {lead.companyId ? (
                         <Link
-                          href={`/os/companies/${lead.companyId}`}
+                          href={`/companies/${lead.companyId}`}
                           className="text-xs text-emerald-500 hover:text-emerald-400 font-medium"
                         >
                           View Company

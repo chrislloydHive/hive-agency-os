@@ -3,24 +3,48 @@
 
 import { TrafficSummary, ChannelSummary, LandingPageSummary } from './models';
 import { getGa4Client, getGa4PropertyId } from './googleAuth';
+import { getSiteConfig, getDefaultSite } from './sites';
 
 /**
  * Fetches GA4 analytics snapshot for the specified date range
  * Returns traffic summary, channels, and top landing pages
+ *
+ * @param startDate - Start date in YYYY-MM-DD format
+ * @param endDate - End date in YYYY-MM-DD format
+ * @param siteId - Optional site ID (defaults to first configured site)
  */
 export async function getGa4AnalyticsSnapshot(
   startDate: string,
-  endDate: string
+  endDate: string,
+  siteId?: string
 ): Promise<{
   traffic: TrafficSummary;
   channels: ChannelSummary[];
   topLandingPages: LandingPageSummary[];
 }> {
+  // Get site config
+  const site = siteId ? getSiteConfig(siteId) : getDefaultSite();
+  const propertyId = site?.ga4PropertyId || process.env.GA4_PROPERTY_ID;
+
+  // Check for required credentials before attempting to create client
+  const hasCredentials = process.env.GOOGLE_CLIENT_ID &&
+                         process.env.GOOGLE_CLIENT_SECRET &&
+                         process.env.GOOGLE_REFRESH_TOKEN &&
+                         propertyId;
+
+  if (!hasCredentials) {
+    console.warn('[GA4] Skipping analytics - missing Google OAuth credentials or GA4 property ID', { siteId });
+    return {
+      traffic: { users: null, sessions: null, pageviews: null, avgSessionDurationSeconds: null, bounceRate: null },
+      channels: [],
+      topLandingPages: [],
+    };
+  }
+
   try {
     const client = getGa4Client();
-    const propertyId = getGa4PropertyId();
 
-    console.log('[GA4] Fetching analytics for', { startDate, endDate, propertyId });
+    console.log('[GA4] Fetching analytics for', { startDate, endDate, propertyId, siteId: site?.id });
 
     // Run all three queries in parallel
     const [trafficData, channelsData, landingPagesData] = await Promise.all([

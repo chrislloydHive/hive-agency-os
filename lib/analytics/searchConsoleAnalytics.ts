@@ -3,37 +3,62 @@
 
 import { google } from 'googleapis';
 import { SearchQuerySummary, SearchPageSummary } from './models';
-import { getGoogleOAuthClient, getSearchConsoleSiteUrl } from './googleAuth';
+import { getGoogleOAuthClient } from './googleAuth';
+import { getSiteConfig, getDefaultSite } from './sites';
 
 /**
  * Fetches Search Console data for the specified date range
  * Returns top queries and pages
+ *
+ * @param startDate - Start date in YYYY-MM-DD format
+ * @param endDate - End date in YYYY-MM-DD format
+ * @param siteId - Optional site ID (defaults to first configured site)
  */
 export async function getSearchConsoleSnapshot(
   startDate: string,
-  endDate: string
+  endDate: string,
+  siteId?: string
 ): Promise<{
   queries: SearchQuerySummary[];
   pages: SearchPageSummary[];
 }> {
+  // Get site config
+  const site = siteId ? getSiteConfig(siteId) : getDefaultSite();
+  const siteUrl = site?.searchConsoleSiteUrl || process.env.SEARCH_CONSOLE_SITE_URL;
+
+  if (!siteUrl) {
+    console.warn('[Search Console] No Search Console URL configured for site', { siteId });
+    return { queries: [], pages: [] };
+  }
+
   try {
     const auth = getGoogleOAuthClient();
-    const siteUrl = getSearchConsoleSiteUrl();
     const searchconsole = google.searchconsole({ version: 'v1', auth });
 
-    console.log('[Search Console] Fetching data for', { startDate, endDate, siteUrl });
+    console.log('[Search Console] Fetching data for', { startDate, endDate, siteUrl, siteId: site?.id });
 
-    // Fetch queries and pages in parallel
+    // Fetch queries and pages in parallel, with individual error handling
     const [queriesData, pagesData] = await Promise.all([
-      fetchTopQueries(searchconsole, siteUrl, startDate, endDate),
-      fetchTopPages(searchconsole, siteUrl, startDate, endDate),
+      fetchTopQueries(searchconsole, siteUrl, startDate, endDate).catch((err) => {
+        console.warn('[Search Console] Query fetch failed:', err?.message || err);
+        return [] as SearchQuerySummary[];
+      }),
+      fetchTopPages(searchconsole, siteUrl, startDate, endDate).catch((err) => {
+        console.warn('[Search Console] Pages fetch failed:', err?.message || err);
+        return [] as SearchPageSummary[];
+      }),
     ]);
 
     return {
       queries: queriesData,
       pages: pagesData,
     };
-  } catch (error) {
+  } catch (error: any) {
+    // Handle permission errors gracefully
+    if (error?.message?.includes('permission') || error?.code === 403) {
+      console.warn('[Search Console] Permission denied for site - check Google Search Console access');
+      return { queries: [], pages: [] };
+    }
     console.error('[Search Console] Error fetching data:', error);
 
     // Return empty arrays on failure

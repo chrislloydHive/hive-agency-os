@@ -1,0 +1,120 @@
+# Hive OS - Cursor Project Rules
+
+You are an expert in TypeScript, Next.js 15 App Router, React 19, Tailwind CSS v4, Airtable, and AI integrations (Anthropic Claude, OpenAI).
+
+## Project Overview
+
+Hive OS is an internal Growth Operating System for managing marketing diagnostics, growth plans, and client work. It provides:
+
+- **Diagnostics Suite**: Tools for analyzing websites, brands, content, SEO, demand gen, and operations
+- **GAP (Growth Acceleration Plans)**: Strategic assessments and 90-day growth roadmaps
+- **Work Management**: Task tracking and prioritization for client deliverables
+- **Pipeline Management**: Opportunity and lead tracking
+- **Analytics**: GA4 integration and growth metrics
+
+## Tech Stack
+
+- **Framework**: Next.js 15 with App Router
+- **React**: React 19 with Server Components
+- **Styling**: Tailwind CSS v4 (uses new CSS-first config)
+- **Database**: Airtable (via REST API and airtable npm package)
+- **AI**: Anthropic Claude (claude-sonnet-4-20250514), OpenAI
+- **Background Jobs**: Inngest
+- **Analytics**: Google Analytics 4 Data API
+- **TypeScript**: Strict mode enabled
+
+## Code Style & Conventions
+
+### TypeScript
+- Use strict TypeScript with explicit types
+- Prefer interfaces over type aliases for object shapes
+- Export types from dedicated type files in `/types` or co-located with modules
+- Use Zod for runtime validation when needed
+
+### React & Next.js
+- Use Server Components by default, 'use client' only when necessary
+- Page components are async Server Components
+- Client components go in separate files with 'use client' directive
+- Use dynamic imports for client components in server pages: `const { Component } = await import('./Component')`
+- Always handle loading and error states
+
+### File Organization
+```
+app/
+  [companyId]/           # Company-scoped routes
+    diagnostics/         # Diagnostic tool pages
+    gap/                 # GAP assessment pages
+    work/                # Work management
+  api/                   # API routes
+    os/                  # OS-specific APIs
+      diagnostics/       # Diagnostic APIs
+components/
+  os/                    # OS-specific components
+    diagnostics/         # Diagnostic components
+  gap/                   # GAP-related components
+lib/
+  airtable/              # Airtable table helpers
+  os/                    # OS-specific logic
+    diagnostics/         # Diagnostic tools, runs, AI insights
+  gap-heavy/             # Heavy GAP analysis modules
+```
+
+### Airtable Patterns
+- Use `lib/airtable/client.ts` for base connection
+- Each table has its own file in `lib/airtable/` (e.g., `companies.ts`, `workItems.ts`)
+- Use edge-compatible fetch-based helpers, not the Airtable SDK directly in API routes
+- Always handle pagination for large datasets
+
+### Styling
+- Use Tailwind CSS classes
+- Dark theme: bg-[#050509] for page background, bg-slate-900/70 for cards
+- Accent color: amber-500 for primary actions
+- Status colors: emerald (success), blue (info), amber (warning), red (error)
+- Rounded corners: rounded-xl for cards, rounded-lg for buttons
+
+### Diagnostics System
+- Tools are registered in `lib/os/diagnostics/tools.ts`
+- Runs are stored via `lib/os/diagnostics/runs.ts`
+- AI insights generated via `lib/os/diagnostics/aiInsights.ts`
+- Each tool has: id, label, description, category, runApiPath, hubPathForCompany
+
+### API Routes
+- Use Next.js 15 route handlers
+- Always return proper JSON responses with appropriate status codes
+- Log errors with context using console.error
+- Use try/catch for error handling
+
+## Common Patterns
+
+### Creating a new diagnostic tool:
+1. Add tool ID to `DiagnosticToolId` type in `lib/os/diagnostics/runs.ts`
+2. Add tool config to `DIAGNOSTIC_TOOLS` array in `lib/os/diagnostics/tools.ts`
+3. Create API route at `app/api/os/diagnostics/run/[tool-name]/route.ts`
+4. Create page at `app/[companyId]/diagnostics/[tool-name]/page.tsx`
+
+### Fetching company data:
+```typescript
+import { getCompanyById } from '@/lib/airtable/companies';
+const company = await getCompanyById(companyId);
+if (!company) return notFound();
+```
+
+### Creating work items:
+```typescript
+import { createWorkItem } from '@/lib/airtable/workItems';
+await createWorkItem({
+  companyId,
+  title: 'Task title',
+  description: 'Task description',
+  priority: 'high',
+  status: 'To Do',
+});
+```
+
+## Important Notes
+
+- Never commit `.env.local` or expose API keys
+- The base URL has no `/os` prefix - routes are at `/{companyId}/...`
+- Always use `await params` in Next.js 15 page components
+- Use `force-dynamic` export for pages that need fresh data
+- Prefer editing existing files over creating new ones

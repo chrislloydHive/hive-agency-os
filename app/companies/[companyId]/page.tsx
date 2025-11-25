@@ -16,6 +16,7 @@ import { getGapIaRunsForCompany } from '@/lib/airtable/gapIaRuns';
 import { getGapPlanRunsForCompany } from '@/lib/airtable/gapPlanRuns';
 import { getLatestOsResultForCompany, getFullReportsForCompany } from '@/lib/airtable/fullReports';
 import { getWorkItemsForCompany } from '@/lib/airtable/workItems';
+import { listDiagnosticRunsForCompany } from '@/lib/os/diagnostics/runs';
 import { CompanyDetailClient } from '@/components/os/CompanyDetailClient';
 
 interface CompanyDetailPageProps {
@@ -38,13 +39,14 @@ export default async function CompanyDetailPage({
   }
 
   // Fetch all related data in parallel
-  const [gapIaRuns, gapPlanRuns, latestOsResult, fullReports, workItems] =
+  const [gapIaRuns, gapPlanRuns, latestOsResult, fullReports, workItems, diagnosticRuns] =
     await Promise.all([
       getGapIaRunsForCompany(companyId, 10),
       getGapPlanRunsForCompany(companyId, 10),
       getLatestOsResultForCompany(companyId),
       getFullReportsForCompany(companyId),
       getWorkItemsForCompany(companyId),
+      listDiagnosticRunsForCompany(companyId),
     ]);
 
   // Extract latest assessment summary
@@ -56,7 +58,7 @@ export default async function CompanyDetailPage({
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-2 text-sm text-slate-500 mb-2">
-          <Link href="/os/companies" className="hover:text-slate-300">
+          <Link href="/companies" className="hover:text-slate-300">
             Companies
           </Link>
           <span>/</span>
@@ -123,6 +125,7 @@ export default async function CompanyDetailPage({
         workItems={workItems}
         latestAssessment={latestAssessment}
         latestPlan={latestPlan}
+        diagnosticRuns={diagnosticRuns}
       />
     </div>
   );

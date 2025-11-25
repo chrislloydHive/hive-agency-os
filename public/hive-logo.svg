@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 50" width="180" height="50">
+  <!-- Background rectangle to cover the dot on 'i' (matches header background slate-900) -->
+  <rect x="48" y="0" width="12" height="12" fill="#0f172a"/>
+  
+  <!-- Text: "hive" -->
+  <text x="0" y="38" font-family="Inter, Arial, sans-serif" font-size="32" font-weight="700" fill="#fbbf24" letter-spacing="-0.5">hive</text>
+  
+  <!-- Honey dipper icon replacing dot above 'i' -->
+  <g transform="translate(48, 0)">
+    <!-- Top bar -->
+    <rect x="0" y="2" width="10" height="2.5" rx="1.25" fill="#fbbf24"/>
+    <!-- Middle bar (shortest) -->
+    <rect x="1.5" y="5.5" width="7" height="2.5" rx="1.25" fill="#fbbf24"/>
+    <!-- Bottom bar -->
+    <rect x="0" y="9" width="10" height="2.5" rx="1.25" fill="#fbbf24"/>
+    <!-- Drop below -->
+    <ellipse cx="5" cy="14" rx="2.5" ry="3.5" fill="#fbbf24"/>
+  </g>
+</svg>
+

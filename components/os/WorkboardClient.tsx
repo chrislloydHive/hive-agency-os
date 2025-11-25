@@ -33,8 +33,13 @@ const AREA_OPTIONS = [
   'SEO',
   'Website UX',
   'Funnel',
+  'Analytics',
+  'Strategy',
+  'Operations',
   'Other',
 ];
+const GROUP_BY_OPTIONS = ['none', 'status', 'company', 'area', 'owner'] as const;
+type GroupByOption = typeof GROUP_BY_OPTIONS[number];
 
 // Helper to format dates
 const formatDate = (dateStr?: string | null) => {
@@ -79,6 +84,7 @@ export function WorkboardClient({
   const [areaFilter, setAreaFilter] = useState<string>('All');
   const [companyFilter, setCompanyFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [groupBy, setGroupBy] = useState<GroupByOption>('none');
 
   // Get unique owners
   const uniqueOwners = useMemo(() => {
@@ -114,26 +120,57 @@ export function WorkboardClient({
     });
   }, [workItems, statusFilter, areaFilter, companyFilter, searchQuery, viewMode]);
 
-  // Group by status for kanban-style display
-  const groupedByStatus = useMemo(() => {
-    const groups: Record<string, WorkItem[]> = {
-      Backlog: [],
-      Planned: [],
-      'In Progress': [],
-      Done: [],
-    };
+  // Group items by selected grouping
+  const groupedItems = useMemo(() => {
+    if (groupBy === 'none') {
+      return { 'All Items': filteredItems };
+    }
+
+    const groups: Record<string, WorkItem[]> = {};
 
     filteredItems.forEach((item) => {
-      const status = item.status || 'Backlog';
-      if (groups[status]) {
-        groups[status].push(item);
-      } else {
-        groups['Backlog'].push(item);
+      let key: string;
+
+      switch (groupBy) {
+        case 'status':
+          key = item.status || 'Backlog';
+          break;
+        case 'company':
+          key = item.companyName || 'No Company';
+          break;
+        case 'area':
+          key = item.area || 'No Area';
+          break;
+        case 'owner':
+          key = item.owner || 'Unassigned';
+          break;
+        default:
+          key = 'All Items';
       }
+
+      if (!groups[key]) {
+        groups[key] = [];
+      }
+      groups[key].push(item);
     });
 
-    return groups;
-  }, [filteredItems]);
+    // Sort groups by key
+    const sortedGroups: Record<string, WorkItem[]> = {};
+    Object.keys(groups)
+      .sort((a, b) => {
+        // For status, use custom order
+        if (groupBy === 'status') {
+          const statusOrder = ['In Progress', 'Planned', 'Backlog', 'Done'];
+          return statusOrder.indexOf(a) - statusOrder.indexOf(b);
+        }
+        return a.localeCompare(b);
+      })
+      .forEach((key) => {
+        sortedGroups[key] = groups[key];
+      });
+
+    return sortedGroups;
+  }, [filteredItems, groupBy]);
 
   // Stats
   const stats = useMemo(() => {
@@ -277,9 +314,28 @@ export function WorkboardClient({
             </select>
           </div>
 
+          {/* Group By */}
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">
+              Group By
+            </label>
+            <select
+              value={groupBy}
+              onChange={(e) => setGroupBy(e.target.value as GroupByOption)}
+              className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            >
+              <option value="none">No Grouping</option>
+              <option value="status">Status</option>
+              <option value="company">Company</option>
+              <option value="area">Area</option>
+              <option value="owner">Owner</option>
+            </select>
+          </div>
+
           {/* Results */}
           <div className="text-sm text-slate-400">
             {filteredItems.length} items
+            {groupBy !== 'none' && ` in ${Object.keys(groupedItems).length} groups`}
           </div>
         </div>
       </div>
@@ -311,115 +367,148 @@ export function WorkboardClient({
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-800">
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                    Title
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                    Company
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                    Area
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                    Status
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                    Due
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                    Owner
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredItems.map((item) => {
-                  const overdue =
-                    item.status !== 'Done' &&
-                    isOverdue(item.dueDate) &&
-                    !isToday(item.dueDate);
-                  const dueToday =
-                    item.status !== 'Done' && isToday(item.dueDate);
+          <div className="divide-y divide-slate-800">
+            {Object.entries(groupedItems).map(([groupName, items]) => (
+              <div key={groupName}>
+                {/* Group Header (only show if grouping is enabled) */}
+                {groupBy !== 'none' && (
+                  <div className="px-4 py-3 bg-slate-900 border-b border-slate-800">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-slate-300">
+                        {groupName}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        {items.length} item{items.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                  </div>
+                )}
 
-                  return (
-                    <tr
-                      key={item.id}
-                      className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-slate-200 font-medium">
-                            {item.title}
-                          </span>
-                          {item.severity === 'Critical' && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500/20 text-red-400 border border-red-500/30">
-                              CRITICAL
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {item.companyId ? (
-                          <Link
-                            href={`/os/companies/${item.companyId}`}
-                            className="text-amber-500 hover:text-amber-400 text-xs"
+                {/* Table for this group */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    {groupBy === 'none' && (
+                      <thead>
+                        <tr className="border-b border-slate-800">
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                            Title
+                          </th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                            Company
+                          </th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                            Area
+                          </th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                            Status
+                          </th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                            Due
+                          </th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                            Owner
+                          </th>
+                        </tr>
+                      </thead>
+                    )}
+                    <tbody>
+                      {items.map((item) => {
+                        const overdue =
+                          item.status !== 'Done' &&
+                          isOverdue(item.dueDate) &&
+                          !isToday(item.dueDate);
+                        const dueToday =
+                          item.status !== 'Done' && isToday(item.dueDate);
+
+                        return (
+                          <tr
+                            key={item.id}
+                            className={`border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors ${
+                              overdue ? 'bg-red-500/5' : ''
+                            }`}
                           >
-                            {item.companyName || 'View'}
-                          </Link>
-                        ) : (
-                          <span className="text-slate-500 text-xs">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {item.area ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-700 text-slate-300">
-                            {item.area}
-                          </span>
-                        ) : (
-                          <span className="text-slate-500 text-xs">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                            item.status === 'In Progress'
-                              ? 'bg-blue-500/10 text-blue-400 border border-blue-500/30'
-                              : item.status === 'Planned'
-                              ? 'bg-purple-500/10 text-purple-400 border border-purple-500/30'
-                              : item.status === 'Done'
-                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                              : 'bg-slate-500/10 text-slate-400 border border-slate-500/30'
-                          }`}
-                        >
-                          {item.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`text-xs ${
-                            overdue
-                              ? 'text-red-400 font-semibold'
-                              : dueToday
-                              ? 'text-amber-400 font-semibold'
-                              : 'text-slate-400'
-                          }`}
-                        >
-                          {formatDate(item.dueDate)}
-                          {overdue && ' (overdue)'}
-                          {dueToday && ' (today)'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-400 text-xs">
-                        {item.owner || '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-slate-200 font-medium">
+                                  {item.title}
+                                </span>
+                                {item.severity === 'Critical' && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500/20 text-red-400 border border-red-500/30">
+                                    CRITICAL
+                                  </span>
+                                )}
+                                {overdue && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500/20 text-red-400">
+                                    OVERDUE
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              {item.companyId && groupBy !== 'company' ? (
+                                <Link
+                                  href={`/companies/${item.companyId}`}
+                                  className="text-amber-500 hover:text-amber-400 text-xs"
+                                >
+                                  {item.companyName || 'View'}
+                                </Link>
+                              ) : groupBy === 'company' ? (
+                                <span className="text-slate-500 text-xs">—</span>
+                              ) : (
+                                <span className="text-slate-500 text-xs">—</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              {item.area && groupBy !== 'area' ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-700 text-slate-300">
+                                  {item.area}
+                                </span>
+                              ) : (
+                                <span className="text-slate-500 text-xs">—</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              {groupBy !== 'status' && (
+                                <span
+                                  className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                    item.status === 'In Progress'
+                                      ? 'bg-blue-500/10 text-blue-400 border border-blue-500/30'
+                                      : item.status === 'Planned'
+                                      ? 'bg-purple-500/10 text-purple-400 border border-purple-500/30'
+                                      : item.status === 'Done'
+                                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                      : 'bg-slate-500/10 text-slate-400 border border-slate-500/30'
+                                  }`}
+                                >
+                                  {item.status}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={`text-xs ${
+                                  overdue
+                                    ? 'text-red-400 font-semibold'
+                                    : dueToday
+                                    ? 'text-amber-400 font-semibold'
+                                    : 'text-slate-400'
+                                }`}
+                              >
+                                {formatDate(item.dueDate)}
+                                {dueToday && ' (today)'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-400 text-xs">
+                              {groupBy !== 'owner' ? item.owner || '—' : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

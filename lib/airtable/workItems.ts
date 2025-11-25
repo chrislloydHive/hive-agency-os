@@ -538,3 +538,110 @@ export async function updateWorkItemStatus(
     throw error;
   }
 }
+
+/**
+ * Suggested work item from AI diagnostic analysis
+ */
+export interface SuggestedWorkItemInput {
+  title: string;
+  area: 'strategy' | 'website' | 'brand' | 'content' | 'seo' | 'demand' | 'ops';
+  description: string;
+  priority: 'low' | 'medium' | 'high';
+}
+
+/**
+ * Map suggested work item area to Work Item area
+ */
+function mapSuggestedAreaToWorkItemArea(area: SuggestedWorkItemInput['area']): WorkItemArea {
+  const mapping: Record<SuggestedWorkItemInput['area'], WorkItemArea> = {
+    strategy: 'Other',
+    website: 'Website UX',
+    brand: 'Brand',
+    content: 'Content',
+    seo: 'SEO',
+    demand: 'Funnel',
+    ops: 'Other',
+  };
+  return mapping[area] || 'Other';
+}
+
+/**
+ * Map suggested priority to Work Item severity
+ */
+function mapSuggestedPriorityToSeverity(priority: SuggestedWorkItemInput['priority']): WorkItemSeverity {
+  const mapping: Record<SuggestedWorkItemInput['priority'], WorkItemSeverity> = {
+    high: 'High',
+    medium: 'Medium',
+    low: 'Low',
+  };
+  return mapping[priority] || 'Medium';
+}
+
+/**
+ * Create a Work Item from an AI-suggested work item (from diagnostic insights)
+ *
+ * @param args - Configuration for creating work item
+ * @returns Created work item record
+ */
+export async function createWorkItemFromDiagnosticInsight(args: {
+  companyId: string;
+  diagnosticRunId?: string;
+  toolId: string;
+  suggestedItem: SuggestedWorkItemInput;
+  defaultStatus?: WorkItemStatus;
+}): Promise<WorkItemRecord> {
+  const { companyId, diagnosticRunId, toolId, suggestedItem, defaultStatus = 'Backlog' } = args;
+
+  console.log('[Work Items] Creating work item from diagnostic insight:', {
+    companyId,
+    toolId,
+    title: suggestedItem.title,
+    area: suggestedItem.area,
+  });
+
+  // Build notes
+  const notesParts: string[] = [];
+  notesParts.push(`Created from ${toolId} diagnostic insight`);
+  if (diagnosticRunId) {
+    notesParts.push(`Diagnostic Run ID: ${diagnosticRunId}`);
+  }
+  if (suggestedItem.description) {
+    notesParts.push(suggestedItem.description);
+  }
+  const notes = notesParts.join('\n\n') || undefined;
+
+  // Build Airtable fields
+  const fields: Record<string, any> = {
+    [WORK_ITEMS_FIELDS.TITLE]: suggestedItem.title || 'Untitled Work Item',
+    [WORK_ITEMS_FIELDS.COMPANY]: [companyId], // Link field - array of record IDs
+    [WORK_ITEMS_FIELDS.AREA]: mapSuggestedAreaToWorkItemArea(suggestedItem.area),
+    [WORK_ITEMS_FIELDS.STATUS]: defaultStatus,
+    [WORK_ITEMS_FIELDS.SEVERITY]: mapSuggestedPriorityToSeverity(suggestedItem.priority),
+  };
+
+  if (notes) {
+    fields[WORK_ITEMS_FIELDS.NOTES] = notes;
+  }
+
+  try {
+    // Create the record in Airtable
+    const records = await base('Work Items').create([{ fields }]);
+
+    if (!records || records.length === 0) {
+      throw new Error('No record returned from Airtable create');
+    }
+
+    const record = records[0];
+
+    console.log('[Work Items] Work item created successfully from diagnostic insight:', {
+      workItemId: record.id,
+      title: suggestedItem.title,
+    });
+
+    // Map to WorkItemRecord
+    return mapWorkItemRecord(record);
+  } catch (error) {
+    console.error('[Work Items] Error creating work item from diagnostic insight:', error);
+    throw error;
+  }
+}

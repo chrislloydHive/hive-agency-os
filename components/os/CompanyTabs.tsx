@@ -7,13 +7,13 @@ export default function CompanyTabs({ companyId }: { companyId: string }) {
   const pathname = usePathname();
 
   const tabs = [
-    { name: 'Overview', href: `/os/${companyId}` },
-    { name: 'GAP', href: `/os/${companyId}/gap` },
-    { name: 'Diagnostics', href: `/os/${companyId}/diagnostics` },
-    { name: 'Priorities', href: `/os/${companyId}/priorities` },
-    { name: 'Work', href: `/os/${companyId}/work` },
-    { name: 'Growth Plan', href: `/os/${companyId}/plan` },
-    { name: 'Scorecard', href: `/os/${companyId}/scorecard` },
+    { name: 'Overview', href: `/c/${companyId}` },
+    { name: 'GAP', href: `/c/${companyId}/gap` },
+    { name: 'Diagnostics', href: `/c/${companyId}/diagnostics` },
+    { name: 'Priorities', href: `/c/${companyId}/priorities` },
+    { name: 'Work', href: `/c/${companyId}/work` },
+    { name: 'Growth Plan', href: `/c/${companyId}/plan` },
+    { name: 'Scorecard', href: `/c/${companyId}/scorecard` },
   ];
 
   return (

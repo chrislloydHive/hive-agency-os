@@ -7,9 +7,20 @@ import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import type { GrowthAnalyticsSnapshot, AIInsights } from '@/lib/analytics/models';
 
+interface SiteInfo {
+  id: string;
+  name: string;
+  domain: string;
+  color: string;
+  hasGa4: boolean;
+  hasSearchConsole: boolean;
+}
+
 interface GrowthAnalyticsClientProps {
   initialSnapshot: GrowthAnalyticsSnapshot | null;
   initialRange: { startDate: string; endDate: string };
+  initialSites: SiteInfo[];
+  initialSiteId?: string;
   error: string | null;
 }
 
@@ -23,6 +34,8 @@ const getDaysFromRange = (startDate: string, endDate: string): number => {
 export function GrowthAnalyticsClient({
   initialSnapshot,
   initialRange,
+  initialSites,
+  initialSiteId,
   error: initialError,
 }: GrowthAnalyticsClientProps) {
   const [range, setRange] = useState(initialRange);
@@ -32,8 +45,11 @@ export function GrowthAnalyticsClient({
   const [loadingInsights, setLoadingInsights] = useState(false);
   const [errorMetrics, setErrorMetrics] = useState<string | null>(initialError);
   const [errorInsights, setErrorInsights] = useState<string | null>(null);
+  const [sites] = useState<SiteInfo[]>(initialSites);
+  const [selectedSiteId, setSelectedSiteId] = useState<string | undefined>(initialSiteId);
 
   const activeDays = useMemo(() => getDaysFromRange(range.startDate, range.endDate), [range]);
+  const selectedSite = useMemo(() => sites.find(s => s.id === selectedSiteId), [sites, selectedSiteId]);
 
   // Fetch AI insights on mount if we have a snapshot
   useEffect(() => {
@@ -79,14 +95,26 @@ export function GrowthAnalyticsClient({
     };
 
     setRange(newRange);
+    await fetchData(newRange, selectedSiteId);
+  };
+
+  const handleSiteChange = async (siteId: string) => {
+    setSelectedSiteId(siteId);
+    await fetchData(range, siteId);
+  };
+
+  const fetchData = async (dateRange: { startDate: string; endDate: string }, siteId?: string) => {
     setLoadingMetrics(true);
     setErrorMetrics(null);
     setInsights(null); // Clear old insights
 
     try {
-      const response = await fetch(
-        `/api/os/analytics/growth?start=${newRange.startDate}&end=${newRange.endDate}`
-      );
+      let url = `/api/analytics/growth?start=${dateRange.startDate}&end=${dateRange.endDate}`;
+      if (siteId) {
+        url += `&site=${siteId}`;
+      }
+
+      const response = await fetch(url);
 
       if (!response.ok) {
         throw new Error('Failed to fetch analytics');
@@ -134,11 +162,42 @@ export function GrowthAnalyticsClient({
 
   return (
     <div className="space-y-6">
-      {/* Date Range Selector with dynamic subtitle */}
+      {/* Site Selector & Date Range Selector */}
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <p className="text-sm text-slate-400">
-          Showing data for the last <span className="text-amber-400 font-medium">{activeDays} days</span>
-        </p>
+        <div className="flex items-center gap-4">
+          {/* Site Selector */}
+          {sites.length > 1 && (
+            <div className="flex items-center gap-2">
+              {sites.map((site) => (
+                <button
+                  key={site.id}
+                  onClick={() => handleSiteChange(site.id)}
+                  disabled={loadingMetrics}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    selectedSiteId === site.id
+                      ? site.color === 'amber'
+                        ? 'bg-amber-500 text-slate-900'
+                        : site.color === 'purple'
+                        ? 'bg-purple-500 text-white'
+                        : site.color === 'yellow'
+                        ? 'bg-yellow-500 text-slate-900'
+                        : 'bg-slate-500 text-white'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  {site.name}
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="text-sm text-slate-400">
+            Showing data for the last <span className={`font-medium ${
+              selectedSite?.color === 'amber' ? 'text-amber-400' :
+              selectedSite?.color === 'purple' ? 'text-purple-400' :
+              selectedSite?.color === 'yellow' ? 'text-yellow-400' : 'text-amber-400'
+            }`}>{activeDays} days</span>
+          </p>
+        </div>
         <div className="flex items-center gap-3">
           {[7, 30, 90].map((days) => (
             <button
@@ -514,7 +573,7 @@ export function GrowthAnalyticsClient({
             {/* Link to DMA Insights */}
             <div className="mt-6 pt-6 border-t border-amber-500/20">
               <Link
-                href="/os/dma/insights"
+                href="/dma/insights"
                 className="text-sm text-amber-400 hover:text-amber-300 transition-colors flex items-center gap-1"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

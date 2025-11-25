@@ -4,24 +4,28 @@
 import { GrowthAnalyticsSnapshot } from './models';
 import { getGa4AnalyticsSnapshot } from './ga4Analytics';
 import { getSearchConsoleSnapshot } from './searchConsoleAnalytics';
+import { getSiteConfig, getDefaultSite } from './sites';
 
 /**
  * Fetches unified growth analytics snapshot combining GA4 and Search Console data
  *
  * @param startDate - Start date in YYYY-MM-DD format
  * @param endDate - End date in YYYY-MM-DD format
+ * @param siteId - Optional site ID (defaults to first configured site)
  * @returns Complete growth analytics snapshot
  */
 export async function getGrowthAnalyticsSnapshot(
   startDate: string,
-  endDate: string
+  endDate: string,
+  siteId?: string
 ): Promise<GrowthAnalyticsSnapshot> {
-  console.log('[Growth Analytics] Fetching snapshot for', { startDate, endDate });
+  const site = siteId ? getSiteConfig(siteId) : getDefaultSite();
+  console.log('[Growth Analytics] Fetching snapshot for', { startDate, endDate, siteId: site?.id });
 
   try {
     // Fetch GA4 and Search Console data in parallel
     const [ga4Data, searchConsoleData] = await Promise.all([
-      getGa4AnalyticsSnapshot(startDate, endDate).catch((error) => {
+      getGa4AnalyticsSnapshot(startDate, endDate, siteId).catch((error) => {
         console.error('[Growth Analytics] GA4 fetch failed:', error);
         return {
           traffic: {
@@ -35,7 +39,7 @@ export async function getGrowthAnalyticsSnapshot(
           topLandingPages: [],
         };
       }),
-      getSearchConsoleSnapshot(startDate, endDate).catch((error) => {
+      getSearchConsoleSnapshot(startDate, endDate, siteId).catch((error) => {
         console.error('[Growth Analytics] Search Console fetch failed:', error);
         return {
           queries: [],

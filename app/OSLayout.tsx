@@ -64,6 +64,29 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
     },
   ];
 
+  // Bottom navigation items (above settings)
+  const bottomNavigation = [
+    {
+      name: 'Tools',
+      href: '/tools',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+        </svg>
+      ),
+      submenu: [
+        { name: 'GAP Snapshot', href: '/tools/gap-snapshot' },
+        { name: 'GAP Plan', href: '/tools/gap-plan' },
+        { name: 'Website Lab', href: '/tools/website-lab' },
+        { name: 'Brand Lab', href: '/tools/brand-lab' },
+        { name: 'Content Lab', href: '/tools/content-lab' },
+        { name: 'SEO Lab', href: '/tools/seo-lab' },
+        { name: 'Demand Lab', href: '/tools/demand-lab' },
+        { name: 'Ops Lab', href: '/tools/ops-lab' },
+      ],
+    },
+  ];
+
   const isActive = (href: string) => {
     if (href === '/') {
       return pathname === href;
@@ -121,8 +144,40 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
             </div>
           ))}
 
-          {/* Settings */}
-          <div className="pt-6 mt-6 border-t border-slate-800">
+          {/* Tools & Settings */}
+          <div className="pt-6 mt-6 border-t border-slate-800 space-y-1">
+            {bottomNavigation.map((item) => (
+              <div key={item.name}>
+                <Link
+                  href={item.href}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    isActive(item.href)
+                      ? 'bg-slate-800 text-slate-100'
+                      : 'text-slate-400 hover:text-slate-300 hover:bg-slate-800/50'
+                  }`}
+                >
+                  {item.icon}
+                  <span>{item.name}</span>
+                </Link>
+                {item.submenu && isActive(item.href) && (
+                  <div className="ml-8 mt-1 space-y-1">
+                    {item.submenu.map((subitem) => (
+                      <Link
+                        key={subitem.href}
+                        href={subitem.href}
+                        className={`block px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                          pathname === subitem.href
+                            ? 'text-slate-100 bg-slate-800/50'
+                            : 'text-slate-500 hover:text-slate-300'
+                        }`}
+                      >
+                        {subitem.name}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
             <Link
               href="/settings"
               className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${

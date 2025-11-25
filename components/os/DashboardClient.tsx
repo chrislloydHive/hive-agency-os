@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import type { DashboardSummary } from '@/lib/os/dashboardSummary';
+import type { AIBriefing } from '@/app/api/os/dashboard/ai-briefing/route';
+import { HiveOsBriefingCard } from './HiveOsBriefingCard';
 
 interface DashboardClientProps {
   summary: DashboardSummary;
@@ -39,28 +41,34 @@ const formatCurrency = (num: number | null | undefined) => {
 };
 
 export function DashboardClient({ summary }: DashboardClientProps) {
-  const [aiBriefing, setAiBriefing] = useState<{
-    summary: string;
-    bullets: string[];
-  } | null>(null);
-  const [briefingLoading, setBriefingLoading] = useState(false);
+  const [briefing, setBriefing] = useState<AIBriefing | null>(null);
+  const [briefingLoading, setBriefingLoading] = useState(true);
+  const [briefingError, setBriefingError] = useState<string | null>(null);
 
   // Load AI briefing on mount
   useEffect(() => {
     async function loadBriefing() {
       setBriefingLoading(true);
+      setBriefingError(null);
       try {
         const res = await fetch('/api/os/dashboard/ai-briefing', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ summary }),
+          body: JSON.stringify({ summary, context: { includeDiagnostics: true } }),
         });
         if (res.ok) {
           const data = await res.json();
-          setAiBriefing(data);
+          if (data.ok && data.briefing) {
+            setBriefing(data.briefing);
+          } else {
+            setBriefingError(data.error || 'Failed to generate briefing');
+          }
+        } else {
+          setBriefingError(`Failed to load briefing: ${res.status}`);
         }
       } catch (error) {
         console.warn('[Dashboard] AI briefing unavailable:', error);
+        setBriefingError(error instanceof Error ? error.message : 'Network error');
       } finally {
         setBriefingLoading(false);
       }
@@ -77,7 +85,7 @@ export function DashboardClient({ summary }: DashboardClientProps) {
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Link
-            href="/os/companies"
+            href="/companies"
             className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors"
           >
             <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">
@@ -89,7 +97,7 @@ export function DashboardClient({ summary }: DashboardClientProps) {
           </Link>
 
           <Link
-            href="/os/gap/ia"
+            href="/gap/ia"
             className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors"
           >
             <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">
@@ -102,7 +110,7 @@ export function DashboardClient({ summary }: DashboardClientProps) {
           </Link>
 
           <Link
-            href="/os/gap/plans"
+            href="/gap/plans"
             className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors"
           >
             <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">
@@ -115,7 +123,7 @@ export function DashboardClient({ summary }: DashboardClientProps) {
           </Link>
 
           <Link
-            href="/os/analytics/os"
+            href="/analytics/os"
             className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-xl p-4 hover:border-amber-500/50 transition-colors group"
           >
             <div className="text-xs text-amber-400 uppercase tracking-wide mb-1">
@@ -210,7 +218,7 @@ export function DashboardClient({ summary }: DashboardClientProps) {
               Work & Delivery
             </h2>
             <Link
-              href="/os/work"
+              href="/work"
               className="text-xs text-amber-500 hover:text-amber-400 font-medium"
             >
               View Workboard →
@@ -290,7 +298,7 @@ export function DashboardClient({ summary }: DashboardClientProps) {
               Pipeline Snapshot
             </h2>
             <Link
-              href="/os/pipeline/opportunities"
+              href="/pipeline/opportunities"
               className="text-xs text-amber-500 hover:text-amber-400 font-medium"
             >
               View Pipeline →
@@ -445,7 +453,7 @@ export function DashboardClient({ summary }: DashboardClientProps) {
             Growth Analytics
           </h2>
           <Link
-            href="/os/analytics/os"
+            href="/analytics/os"
             className="text-xs text-amber-500 hover:text-amber-400 font-medium"
           >
             View Insights →
@@ -494,42 +502,11 @@ export function DashboardClient({ summary }: DashboardClientProps) {
         <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
           Hive OS Briefing
         </h2>
-        <div className="bg-gradient-to-br from-amber-500/5 to-orange-500/5 border border-amber-500/20 rounded-xl p-6">
-          {briefingLoading ? (
-            <div className="flex items-center gap-3">
-              <div className="w-5 h-5 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
-              <span className="text-sm text-slate-400">
-                Generating today's briefing...
-              </span>
-            </div>
-          ) : aiBriefing ? (
-            <div>
-              <p className="text-slate-200 mb-4">{aiBriefing.summary}</p>
-              <ul className="space-y-2">
-                {aiBriefing.bullets.map((bullet, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <span className="text-amber-500 mt-1">•</span>
-                    <span className="text-sm text-slate-300">{bullet}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <div className="text-sm text-slate-400">
-              <p className="mb-3">
-                AI briefing will analyze your dashboard data and provide:
-              </p>
-              <ul className="space-y-1 text-slate-500">
-                <li>• Today's focus priorities</li>
-                <li>• Opportunities to pursue</li>
-                <li>• Risks to address</li>
-              </ul>
-              <p className="mt-3 text-xs text-slate-600">
-                Connect the AI briefing API to enable this feature.
-              </p>
-            </div>
-          )}
-        </div>
+        <HiveOsBriefingCard
+          briefing={briefing}
+          loading={briefingLoading}
+          error={briefingError}
+        />
       </section>
     </div>
   );

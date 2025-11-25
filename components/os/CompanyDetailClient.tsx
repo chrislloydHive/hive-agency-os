@@ -7,6 +7,10 @@ import type { CompanyRecord } from '@/lib/airtable/companies';
 import type { WorkItemRecord } from '@/lib/airtable/workItems';
 import type { OsDiagnosticResult } from '@/lib/diagnostics/types';
 import type { FullReportRecord } from '@/lib/airtable/fullReports';
+import type { DiagnosticRun } from '@/lib/os/diagnostics/runs';
+import { DiagnosticsPanel } from './DiagnosticsPanel';
+import { CompanyAnalyticsTab } from './CompanyAnalyticsTab';
+import { CompanyOpportunitiesTab } from './CompanyOpportunitiesTab';
 
 interface CompanyDetailClientProps {
   company: CompanyRecord;
@@ -18,10 +22,13 @@ interface CompanyDetailClientProps {
   workItems: WorkItemRecord[];
   latestAssessment: any;
   latestPlan: any;
+  diagnosticRuns?: DiagnosticRun[];
 }
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
+  { id: 'opportunities', label: 'Opportunities' },
+  { id: 'diagnostics', label: 'Diagnostics' },
   { id: 'gap', label: 'GAP' },
   { id: 'work', label: 'Work' },
   { id: 'analytics', label: 'Analytics' },
@@ -52,13 +59,14 @@ export function CompanyDetailClient({
   workItems,
   latestAssessment,
   latestPlan,
+  diagnosticRuns = [],
 }: CompanyDetailClientProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState(currentTab);
 
   const handleTabChange = (tabId: string) => {
     setActiveTab(tabId);
-    router.push(`/os/companies/${company.id}?tab=${tabId}`, { scroll: false });
+    router.push(`/companies/${company.id}?tab=${tabId}`, { scroll: false });
   };
 
   return (
@@ -97,6 +105,19 @@ export function CompanyDetailClient({
           workItems={workItems}
         />
       )}
+      {activeTab === 'opportunities' && (
+        <CompanyOpportunitiesTab
+          companyId={company.id}
+          companyName={company.name}
+        />
+      )}
+      {activeTab === 'diagnostics' && (
+        <DiagnosticsPanel
+          companyId={company.id}
+          companyName={company.name}
+          runs={diagnosticRuns}
+        />
+      )}
       {activeTab === 'gap' && (
         <GapTab
           company={company}
@@ -108,7 +129,14 @@ export function CompanyDetailClient({
       {activeTab === 'work' && (
         <WorkTab company={company} workItems={workItems} />
       )}
-      {activeTab === 'analytics' && <AnalyticsTab company={company} />}
+      {activeTab === 'analytics' && (
+        <CompanyAnalyticsTab
+          companyId={company.id}
+          companyName={company.name}
+          ga4PropertyId={company.ga4PropertyId}
+          searchConsoleSiteUrl={company.searchConsoleSiteUrl}
+        />
+      )}
       {activeTab === 'notes' && (
         <NotesTab
           company={company}
@@ -261,8 +289,14 @@ function OverviewTab({
         </h3>
         <div className="flex flex-wrap gap-3">
           <Link
-            href={`/snapshot?url=${encodeURIComponent(company.website || company.domain)}`}
+            href={`/c/${company.id}/diagnostics`}
             className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors text-sm"
+          >
+            Run Diagnostics
+          </Link>
+          <Link
+            href={`/snapshot?url=${encodeURIComponent(company.website || company.domain)}`}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-lg transition-colors text-sm"
           >
             Run GAP Assessment
           </Link>
@@ -562,89 +596,6 @@ function WorkTab({
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ============================================================================
-// Analytics Tab
-// ============================================================================
-
-function AnalyticsTab({ company }: { company: CompanyRecord }) {
-  const hasGa4 = company.ga4PropertyId || company.ga4Linked;
-  const hasSearchConsole = company.searchConsoleSiteUrl;
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
-        <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
-          Company Analytics
-        </h3>
-
-        {!hasGa4 && !hasSearchConsole ? (
-          <div className="text-center py-12">
-            <svg
-              className="w-16 h-16 mx-auto text-slate-600 mb-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-              />
-            </svg>
-            <h3 className="text-lg font-semibold text-slate-300 mb-2">
-              Per-Company Analytics Coming Soon
-            </h3>
-            <p className="text-sm text-slate-500 mb-6 max-w-md mx-auto">
-              Connect this company's GA4 property or Search Console to see
-              traffic, conversions, and SEO performance here.
-            </p>
-            <div className="flex items-center justify-center gap-3">
-              <button className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-lg transition-colors text-sm">
-                Connect GA4
-              </button>
-              <button className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-lg transition-colors text-sm">
-                Connect Search Console
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {hasGa4 && (
-              <div className="p-4 bg-slate-800/50 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="w-2 h-2 bg-emerald-500 rounded-full" />
-                  <span className="text-sm text-slate-300">GA4 Connected</span>
-                </div>
-                <p className="text-xs text-slate-500">
-                  Property: {company.ga4PropertyId}
-                </p>
-              </div>
-            )}
-            {hasSearchConsole && (
-              <div className="p-4 bg-slate-800/50 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="w-2 h-2 bg-emerald-500 rounded-full" />
-                  <span className="text-sm text-slate-300">
-                    Search Console Connected
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500">
-                  Site: {company.searchConsoleSiteUrl}
-                </p>
-              </div>
-            )}
-            {/* TODO: Display actual analytics data */}
-            <div className="text-center py-8 text-slate-500 text-sm">
-              Analytics data display coming soon...
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

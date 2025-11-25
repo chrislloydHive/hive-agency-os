@@ -6,6 +6,10 @@ import { getBase } from '../airtable';
 import type {
   Company,
   CompanyId,
+  CompanyStage,
+  CompanyType,
+  CompanySizeBand,
+  CompanySource,
   Diagnostics,
   PriorityItem,
   GrowthPlan,
@@ -34,6 +38,77 @@ function mapStatus(airtableStatus: string | undefined): Company['status'] {
   if (normalized === 'closed') return 'closed';
 
   return 'new';
+}
+
+/**
+ * Map Airtable Stage field to CompanyStage type
+ */
+function mapStage(airtableStage: string | undefined): CompanyStage | undefined {
+  if (!airtableStage) return undefined;
+
+  const normalized = airtableStage.toLowerCase().trim();
+
+  if (normalized === 'lead') return 'Lead';
+  if (normalized === 'prospect') return 'Prospect';
+  if (normalized === 'client') return 'Client';
+  if (normalized === 'churned') return 'Churned';
+  if (normalized === 'partner') return 'Partner';
+
+  return undefined;
+}
+
+/**
+ * Map Airtable Company Type field to CompanyType type
+ */
+function mapCompanyType(airtableType: string | undefined): CompanyType | undefined {
+  if (!airtableType) return undefined;
+
+  const normalized = airtableType.toLowerCase().trim();
+
+  if (normalized === 'saas') return 'SaaS';
+  if (normalized === 'services') return 'Services';
+  if (normalized === 'marketplace') return 'Marketplace';
+  if (normalized === 'ecommerce' || normalized === 'e-commerce' || normalized === 'ecom') return 'eCom';
+  if (normalized === 'local') return 'Local';
+  if (normalized === 'other') return 'Other';
+
+  return undefined;
+}
+
+/**
+ * Map Airtable Size Band field to CompanySizeBand type
+ * Note: Types use en-dashes (–) not hyphens (-)
+ */
+function mapSizeBand(airtableSize: string | undefined): CompanySizeBand | undefined {
+  if (!airtableSize) return undefined;
+
+  const normalized = airtableSize.toLowerCase().trim();
+
+  if (normalized.includes('1') && normalized.includes('10')) return '1–10';
+  if (normalized.includes('11') && normalized.includes('50')) return '11–50';
+  if (normalized.includes('51') && normalized.includes('200')) return '51–200';
+  if (normalized.includes('200+') || normalized.includes('201') || normalized === 'large' || normalized === 'enterprise') return '200+';
+  if (normalized === 'startup' || normalized === 'small') return '1–10';
+  if (normalized === 'medium') return '51–200';
+
+  return undefined;
+}
+
+/**
+ * Map Airtable Source field to CompanySource type
+ */
+function mapSource(airtableSource: string | undefined): CompanySource | undefined {
+  if (!airtableSource) return undefined;
+
+  const normalized = airtableSource.toLowerCase().trim();
+
+  if (normalized === 'inbound') return 'Inbound';
+  if (normalized === 'outbound') return 'Outbound';
+  if (normalized === 'referral') return 'Referral';
+  if (normalized === 'internal') return 'Internal';
+  if (normalized === 'other') return 'Other';
+
+  return undefined;
 }
 
 /**
@@ -87,12 +162,12 @@ export async function fetchCompaniesFromAirtable(): Promise<Company[]> {
           name: (fields['Name'] as string) || (fields['Company Name'] as string) || 'Unknown Company',
           websiteUrl: (fields['Website'] as string) || (fields['URL'] as string) || '',
           industry: (fields['Industry'] as string) || undefined,
-          stage: (fields['Stage'] as string) || undefined,
-          companyType: (fields['Company Type'] as string) as Company['companyType'] | undefined,
-          sizeBand: (fields['Size Band'] as string) as Company['sizeBand'] | undefined,
+          stage: mapStage(fields['Stage'] as string | undefined),
+          companyType: mapCompanyType(fields['Company Type'] as string | undefined),
+          sizeBand: mapSizeBand(fields['Size Band'] as string | undefined),
           region: (fields['Region'] as string) || undefined,
           owner: (fields['Owner'] as string) || undefined,
-          source: (fields['Source'] as string) as Company['source'] | undefined,
+          source: mapSource(fields['Source'] as string | undefined),
           primaryContactName: (fields['Primary Contact Name'] as string) || undefined,
           primaryContactEmail: (fields['Primary Contact Email'] as string) || undefined,
           primaryContactRole: (fields['Primary Contact Role'] as string) || undefined,
@@ -171,12 +246,12 @@ export async function fetchCompanyByIdFromAirtable(
       name: (fields['Name'] as string) || (fields['Company Name'] as string) || 'Unknown Company',
       websiteUrl: (fields['Website'] as string) || (fields['URL'] as string) || '',
       industry: (fields['Industry'] as string) || undefined,
-      stage: (fields['Stage'] as string) || undefined,
-      companyType: (fields['Company Type'] as string) as Company['companyType'] | undefined,
-      sizeBand: (fields['Size Band'] as string) as Company['sizeBand'] | undefined,
+      stage: mapStage(fields['Stage'] as string | undefined),
+      companyType: mapCompanyType(fields['Company Type'] as string | undefined),
+      sizeBand: mapSizeBand(fields['Size Band'] as string | undefined),
       region: (fields['Region'] as string) || undefined,
       owner: (fields['Owner'] as string) || undefined,
-      source: (fields['Source'] as string) as Company['source'] | undefined,
+      source: mapSource(fields['Source'] as string | undefined),
       primaryContactName: (fields['Primary Contact Name'] as string) || undefined,
       primaryContactEmail: (fields['Primary Contact Email'] as string) || undefined,
       primaryContactRole: (fields['Primary Contact Role'] as string) || undefined,

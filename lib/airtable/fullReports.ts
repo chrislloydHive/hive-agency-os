@@ -1038,41 +1038,20 @@ export async function getFullReportsForCompany(
     // Map to FullReportRecord
     return companyReports.map(mapToFullReportRecord);
   } catch (error) {
-    console.error(`[Full Reports] Error fetching reports for company ${companyId}:`);
+    // Check for authorization errors - these are expected if table doesn't exist or no access
+    const isAuthError = error && typeof error === 'object' &&
+      (('error' in error && (error as any).error === 'NOT_AUTHORIZED') ||
+       ('statusCode' in error && (error as any).statusCode === 403));
 
-    // Extract all error properties (including non-enumerable ones)
-    const errorDetails: any = {
-      message: error instanceof Error ? error.message : 'Unknown error',
-      type: error?.constructor?.name,
-      stack: error instanceof Error ? error.stack : undefined,
-    };
-
-    // Try to extract Airtable-specific error properties
-    if (error && typeof error === 'object') {
-      // Extract all own properties (enumerable and non-enumerable)
-      const allProps = Object.getOwnPropertyNames(error);
-      for (const prop of allProps) {
-        try {
-          errorDetails[prop] = (error as any)[prop];
-        } catch (e) {
-          // Skip inaccessible properties
-        }
-      }
-
-      // Check for common Airtable error properties
-      if ('error' in error) errorDetails.airtableError = (error as any).error;
-      if ('statusCode' in error) errorDetails.statusCode = (error as any).statusCode;
-      if ('statusMessage' in error) errorDetails.statusMessage = (error as any).statusMessage;
+    if (isAuthError) {
+      // Silently return empty array for auth errors (table may not exist or no access)
+      console.warn(`[Full Reports] No access to Full Reports table for company ${companyId}, skipping`);
+      return [];
     }
 
-    console.error('Detailed error information:', errorDetails);
-
-    // Try JSON.stringify with all properties
-    try {
-      console.error('Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
-    } catch (e) {
-      console.error('Could not stringify error');
-    }
+    // Log other errors with details
+    console.error(`[Full Reports] Error fetching reports for company ${companyId}:`,
+      error instanceof Error ? error.message : 'Unknown error');
 
     return [];
   }

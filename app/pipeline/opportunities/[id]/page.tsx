@@ -13,6 +13,7 @@ import { notFound } from 'next/navigation';
 import { base } from '@/lib/airtable/client';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { getGapIaRunsForCompany } from '@/lib/airtable/gapIaRuns';
+import { QuickDiagnosticsPanel } from '@/components/os/QuickDiagnosticsPanel';
 
 // Fetch opportunity by ID
 async function getOpportunity(id: string) {
@@ -92,7 +93,7 @@ export default async function OpportunityDetailPage({
       {/* Header */}
       <div className="mb-6">
         <Link
-          href="/os/pipeline/opportunities"
+          href="/pipeline/opportunities"
           className="text-sm text-slate-400 hover:text-slate-300 mb-3 inline-block transition-colors"
         >
           ← Back to opportunities
@@ -157,7 +158,7 @@ export default async function OpportunityDetailPage({
                 <dd className="text-sm text-slate-200 mt-1">
                   {company ? (
                     <Link
-                      href={`/os/companies/${company.id}`}
+                      href={`/companies/${company.id}`}
                       className="text-amber-500 hover:text-amber-400"
                     >
                       {company.name}
@@ -296,7 +297,7 @@ export default async function OpportunityDetailPage({
                   </div>
                 ))}
                 <Link
-                  href={`/os/companies/${company.id}?tab=gap`}
+                  href={`/companies/${company.id}?tab=gap`}
                   className="block text-center text-sm text-amber-500 hover:text-amber-400 mt-4"
                 >
                   View all GAP history for {company.name} →
@@ -349,6 +350,15 @@ export default async function OpportunityDetailPage({
             </div>
           </div>
 
+          {/* Quick Diagnostics */}
+          {company && (
+            <QuickDiagnosticsPanel
+              companyId={company.id}
+              companyName={company.name}
+              websiteUrl={company.website || company.domain || ''}
+            />
+          )}
+
           {/* Linked Company Card */}
           {company && (
             <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
@@ -356,7 +366,7 @@ export default async function OpportunityDetailPage({
                 Linked Company
               </h2>
               <Link
-                href={`/os/companies/${company.id}`}
+                href={`/companies/${company.id}`}
                 className="block hover:bg-slate-800/50 rounded-lg p-3 -m-3 transition-colors"
               >
                 <div className="text-slate-200 font-medium">{company.name}</div>

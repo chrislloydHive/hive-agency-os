@@ -456,7 +456,7 @@ export default function DmaInsightsClient({
             {/* Link to Pipeline Leads */}
             <div className="mt-6 pt-6 border-t border-blue-500/20">
               <Link
-                href="/os/pipeline/leads"
+                href="/pipeline/leads"
                 className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

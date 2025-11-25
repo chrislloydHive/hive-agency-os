@@ -3,12 +3,17 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import type { CompanyRecord } from '@/lib/airtable/companies';
+import type { CompanyHealth } from '@/lib/os/types';
+import { CompanyHealthBadge, calculateCompanyHealth } from './CompanyHealthBadge';
 
 type HealthStatus = 'Healthy' | 'Watch' | 'At Risk' | null;
 
 interface EnrichedCompany extends CompanyRecord {
   healthStatus: HealthStatus;
   lastActivityDate: string | null;
+  latestOverallScore?: number | null;
+  opportunityCount?: number;
+  workItemCount?: number;
 }
 
 interface CompaniesRosterClientProps {
@@ -16,9 +21,9 @@ interface CompaniesRosterClientProps {
   defaultView: string;
 }
 
-type ViewFilter = 'All' | 'Clients' | 'Prospects' | 'Internal' | 'At Risk' | 'Dormant/Lost';
+type ViewFilter = 'All' | 'Clients' | 'Prospects' | 'Leads' | 'At Risk' | 'Needs Attention';
 
-const VIEW_FILTERS: ViewFilter[] = ['All', 'Clients', 'Prospects', 'Internal', 'At Risk', 'Dormant/Lost'];
+const VIEW_FILTERS: ViewFilter[] = ['All', 'Clients', 'Prospects', 'Leads', 'At Risk', 'Needs Attention'];
 
 // Format relative date
 const formatLastActivity = (dateStr: string | null) => {
@@ -47,6 +52,41 @@ export function CompaniesRosterClient({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCompany, setSelectedCompany] = useState<EnrichedCompany | null>(null);
 
+  // Helper to get computed health for a company
+  const getComputedHealth = (company: EnrichedCompany): CompanyHealth => {
+    // If company has a healthStatus from server, map it
+    if (company.healthStatus === 'At Risk') return 'critical';
+    if (company.healthStatus === 'Watch') return 'at-risk';
+    if (company.healthStatus === 'Healthy') return 'healthy';
+
+    // Otherwise calculate from available data
+    const daysSinceLastActivity = company.lastActivityDate
+      ? Math.floor((Date.now() - new Date(company.lastActivityDate).getTime()) / (1000 * 60 * 60 * 24))
+      : undefined;
+
+    return calculateCompanyHealth({
+      daysSinceLastAssessment: daysSinceLastActivity,
+      overallScore: company.latestOverallScore ?? undefined,
+      hasActivePlan: (company.workItemCount ?? 0) > 0,
+      overdueWorkItems: 0, // We don't have this data yet
+    });
+  };
+
+  // Check if company needs attention (no recent activity, low score, or no GAP)
+  const needsAttention = (company: EnrichedCompany): boolean => {
+    // No activity in 60+ days
+    if (company.lastActivityDate) {
+      const days = Math.floor((Date.now() - new Date(company.lastActivityDate).getTime()) / (1000 * 60 * 60 * 24));
+      if (days > 60) return true;
+    } else if (company.stage === 'Client') {
+      // Client with no activity ever
+      return true;
+    }
+    // Low score
+    if (company.latestOverallScore && company.latestOverallScore < 50) return true;
+    return false;
+  };
+
   // Filter companies based on view and search
   const filteredCompanies = useMemo(() => {
     return companies.filter((company) => {
@@ -55,7 +95,8 @@ export function CompaniesRosterClient({
         const query = searchQuery.toLowerCase();
         const nameMatch = company.name.toLowerCase().includes(query);
         const domainMatch = company.domain?.toLowerCase().includes(query);
-        if (!nameMatch && !domainMatch) return false;
+        const industryMatch = company.industry?.toLowerCase().includes(query);
+        if (!nameMatch && !domainMatch && !industryMatch) return false;
       }
 
       // View filter
@@ -66,12 +107,12 @@ export function CompaniesRosterClient({
           return company.stage === 'Client';
         case 'Prospects':
           return company.stage === 'Prospect';
-        case 'Internal':
-          return company.stage === 'Internal';
+        case 'Leads':
+          return company.stage === 'Lead';
         case 'At Risk':
           return company.healthStatus === 'At Risk';
-        case 'Dormant/Lost':
-          return company.stage === 'Dormant' || company.stage === 'Lost';
+        case 'Needs Attention':
+          return needsAttention(company);
         default:
           return true;
       }
@@ -84,9 +125,9 @@ export function CompaniesRosterClient({
       All: companies.length,
       Clients: companies.filter((c) => c.stage === 'Client').length,
       Prospects: companies.filter((c) => c.stage === 'Prospect').length,
-      Internal: companies.filter((c) => c.stage === 'Internal').length,
+      Leads: companies.filter((c) => c.stage === 'Lead').length,
       'At Risk': companies.filter((c) => c.healthStatus === 'At Risk').length,
-      'Dormant/Lost': companies.filter((c) => c.stage === 'Dormant' || c.stage === 'Lost').length,
+      'Needs Attention': companies.filter(needsAttention).length,
     };
   }, [companies]);
 
@@ -112,8 +153,12 @@ export function CompaniesRosterClient({
     if (!stage) return null;
 
     const styles: Record<string, string> = {
+      Lead: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30',
       Prospect: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
       Client: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+      Partner: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
+      Churned: 'bg-red-500/10 text-red-400 border-red-500/30',
+      // Legacy stages
       Internal: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
       Dormant: 'bg-slate-500/10 text-slate-400 border-slate-500/30',
       Lost: 'bg-red-500/10 text-red-400 border-red-500/30',
@@ -126,6 +171,22 @@ export function CompaniesRosterClient({
     );
   };
 
+  // Score badge styling
+  const getScoreBadge = (score?: number | null) => {
+    if (score === null || score === undefined) return null;
+
+    let colorClass = 'bg-slate-500/10 text-slate-400';
+    if (score >= 70) colorClass = 'bg-emerald-500/10 text-emerald-400';
+    else if (score >= 50) colorClass = 'bg-amber-500/10 text-amber-400';
+    else colorClass = 'bg-red-500/10 text-red-400';
+
+    return (
+      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${colorClass}`}>
+        {score}
+      </span>
+    );
+  };
+
   return (
     <div className="space-y-4">
       {/* View Pills */}
@@ -134,6 +195,7 @@ export function CompaniesRosterClient({
           const count = viewCounts[view];
           const isActive = activeView === view;
           const isAtRisk = view === 'At Risk';
+          const isNeedsAttention = view === 'Needs Attention';
 
           return (
             <button
@@ -143,9 +205,13 @@ export function CompaniesRosterClient({
                 isActive
                   ? isAtRisk
                     ? 'bg-red-500 text-white'
+                    : isNeedsAttention
+                    ? 'bg-amber-500 text-slate-900'
                     : 'bg-amber-500 text-slate-900'
                   : isAtRisk && count > 0
                   ? 'bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20'
+                  : isNeedsAttention && count > 0
+                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20'
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
               }`}
             >
@@ -245,7 +311,7 @@ export function CompaniesRosterClient({
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Link
-                          href={`/os/companies/${company.id}`}
+                          href={`/companies/${company.id}`}
                           onClick={(e) => e.stopPropagation()}
                           className="text-xs text-amber-500 hover:text-amber-400 font-medium"
                         >
@@ -350,7 +416,7 @@ export function CompaniesRosterClient({
 
             {/* CTA */}
             <Link
-              href={`/os/companies/${selectedCompany.id}`}
+              href={`/companies/${selectedCompany.id}`}
               className="block w-full text-center px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors"
             >
               Open Company

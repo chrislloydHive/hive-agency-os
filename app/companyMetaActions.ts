@@ -82,8 +82,8 @@ export async function updateCompanyMetaAction(
 
     // Revalidate relevant paths
     revalidatePath('/os'); // Directory view
-    revalidatePath(`/os/${companyId}`); // Company detail view
-    revalidatePath(`/os/${companyId}/control`); // Control panel
+    revalidatePath(`/c/${companyId}`); // Company detail view
+    revalidatePath(`/c/${companyId}/control`); // Control panel
 
     return {
       success: true,
