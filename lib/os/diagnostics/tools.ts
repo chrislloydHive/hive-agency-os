@@ -47,11 +47,11 @@ export interface DiagnosticToolConfig {
   /** API endpoint path for running the tool */
   runApiPath: string;
 
-  /** Function to generate hub path for a company */
-  hubPathForCompany: (companyId: string) => string;
+  /** Path template for hub (use {companyId} placeholder) */
+  hubPath: string;
 
-  /** Optional function to generate a view path for a specific run */
-  viewPathForRun?: (companyId: string, runId: string) => string;
+  /** Path template for viewing a run (use {companyId} and {runId} placeholders) */
+  viewPath?: string;
 
   /** Whether this tool produces a numeric score */
   supportsScore: boolean;
@@ -85,8 +85,8 @@ export const DIAGNOSTIC_TOOLS: DiagnosticToolConfig[] = [
     primaryActionLabel: 'Run Snapshot',
     category: 'strategy',
     runApiPath: '/api/os/diagnostics/run/gap-snapshot',
-    hubPathForCompany: (companyId) => `/c/${companyId}/diagnostics`,
-    viewPathForRun: (companyId, runId) => `/c/${companyId}/diagnostics/gap-snapshot/${runId}`,
+    hubPath: '/c/{companyId}/diagnostics',
+    viewPath: '/c/{companyId}/diagnostics/gap-snapshot/{runId}',
     supportsScore: true,
     defaultEnabled: true,
     icon: 'Zap',
@@ -100,8 +100,8 @@ export const DIAGNOSTIC_TOOLS: DiagnosticToolConfig[] = [
     primaryActionLabel: 'Generate Plan',
     category: 'strategy',
     runApiPath: '/api/os/diagnostics/run/gap-plan',
-    hubPathForCompany: (companyId) => `/c/${companyId}/plan`,
-    viewPathForRun: (companyId, runId) => `/c/${companyId}/plan`,
+    hubPath: '/c/{companyId}/plan',
+    viewPath: '/c/{companyId}/plan',
     supportsScore: true,
     defaultEnabled: true,
     icon: 'FileText',
@@ -119,8 +119,8 @@ export const DIAGNOSTIC_TOOLS: DiagnosticToolConfig[] = [
     primaryActionLabel: 'Run Website Diagnostic',
     category: 'website',
     runApiPath: '/api/os/diagnostics/run/website-lab',
-    hubPathForCompany: (companyId) => `/c/${companyId}/diagnostics/website`,
-    viewPathForRun: (companyId, runId) => `/c/${companyId}/diagnostics/website`,
+    hubPath: '/c/{companyId}/diagnostics/website',
+    viewPath: '/c/{companyId}/diagnostics/website',
     supportsScore: true,
     defaultEnabled: true,
     icon: 'Globe',
@@ -138,8 +138,8 @@ export const DIAGNOSTIC_TOOLS: DiagnosticToolConfig[] = [
     primaryActionLabel: 'Run Brand Diagnostic',
     category: 'brand',
     runApiPath: '/api/os/diagnostics/run/brand-lab',
-    hubPathForCompany: (companyId) => `/c/${companyId}/diagnostics/brand`,
-    viewPathForRun: (companyId, runId) => `/c/${companyId}/diagnostics/brand`,
+    hubPath: '/c/{companyId}/diagnostics/brand',
+    viewPath: '/c/{companyId}/diagnostics/brand',
     supportsScore: true,
     defaultEnabled: true,
     icon: 'Sparkles',
@@ -157,8 +157,8 @@ export const DIAGNOSTIC_TOOLS: DiagnosticToolConfig[] = [
     primaryActionLabel: 'Run Content Diagnostic',
     category: 'content',
     runApiPath: '/api/os/diagnostics/run/content-lab',
-    hubPathForCompany: (companyId) => `/c/${companyId}/diagnostics/content`,
-    viewPathForRun: (companyId, runId) => `/c/${companyId}/diagnostics/content`,
+    hubPath: '/c/{companyId}/diagnostics/content',
+    viewPath: '/c/{companyId}/diagnostics/content',
     supportsScore: true,
     defaultEnabled: true,
     icon: 'FileEdit',
@@ -176,8 +176,8 @@ export const DIAGNOSTIC_TOOLS: DiagnosticToolConfig[] = [
     primaryActionLabel: 'Run SEO Diagnostic',
     category: 'seo',
     runApiPath: '/api/os/diagnostics/run/seo-lab',
-    hubPathForCompany: (companyId) => `/c/${companyId}/diagnostics/seo`,
-    viewPathForRun: (companyId, runId) => `/c/${companyId}/diagnostics/seo`,
+    hubPath: '/c/{companyId}/diagnostics/seo',
+    viewPath: '/c/{companyId}/diagnostics/seo',
     supportsScore: true,
     defaultEnabled: true,
     icon: 'Search',
@@ -195,8 +195,8 @@ export const DIAGNOSTIC_TOOLS: DiagnosticToolConfig[] = [
     primaryActionLabel: 'Run Demand Diagnostic',
     category: 'demand',
     runApiPath: '/api/os/diagnostics/run/demand-lab',
-    hubPathForCompany: (companyId) => `/c/${companyId}/diagnostics/demand`,
-    viewPathForRun: (companyId, runId) => `/c/${companyId}/diagnostics/demand`,
+    hubPath: '/c/{companyId}/diagnostics/demand',
+    viewPath: '/c/{companyId}/diagnostics/demand',
     supportsScore: true,
     defaultEnabled: true,
     icon: 'TrendingUp',
@@ -214,8 +214,8 @@ export const DIAGNOSTIC_TOOLS: DiagnosticToolConfig[] = [
     primaryActionLabel: 'Run Ops Diagnostic',
     category: 'ops',
     runApiPath: '/api/os/diagnostics/run/ops-lab',
-    hubPathForCompany: (companyId) => `/c/${companyId}/diagnostics/ops`,
-    viewPathForRun: (companyId, runId) => `/c/${companyId}/diagnostics/ops`,
+    hubPath: '/c/{companyId}/diagnostics/ops',
+    viewPath: '/c/{companyId}/diagnostics/ops',
     supportsScore: true,
     defaultEnabled: true,
     icon: 'Settings',
@@ -226,6 +226,21 @@ export const DIAGNOSTIC_TOOLS: DiagnosticToolConfig[] = [
 // ============================================================================
 // Helper Functions
 // ============================================================================
+
+/**
+ * Get the hub path for a tool and company
+ */
+export function getToolHubPath(tool: DiagnosticToolConfig, companyId: string): string {
+  return tool.hubPath.replace('{companyId}', companyId);
+}
+
+/**
+ * Get the view path for a specific run
+ */
+export function getToolViewPath(tool: DiagnosticToolConfig, companyId: string, runId: string): string {
+  if (!tool.viewPath) return getToolHubPath(tool, companyId);
+  return tool.viewPath.replace('{companyId}', companyId).replace('{runId}', runId);
+}
 
 /**
  * Get a tool config by ID

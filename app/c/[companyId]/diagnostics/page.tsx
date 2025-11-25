@@ -62,13 +62,12 @@ export default async function DiagnosticsHubPage({ params }: PageProps) {
 
   // Calculate overall stats
   const completedRuns = toolSummaries.filter((s) => s.latestRun?.status === 'complete');
+  const runsWithScores = completedRuns.filter((s) => s.latestRun?.score != null);
   const averageScore =
-    completedRuns.length > 0
+    runsWithScores.length > 0
       ? Math.round(
-          completedRuns
-            .filter((s) => s.latestRun?.score != null)
-            .reduce((acc, s) => acc + (s.latestRun?.score || 0), 0) /
-            completedRuns.filter((s) => s.latestRun?.score != null).length
+          runsWithScores.reduce((acc, s) => acc + (s.latestRun?.score || 0), 0) /
+            runsWithScores.length
         )
       : null;
 

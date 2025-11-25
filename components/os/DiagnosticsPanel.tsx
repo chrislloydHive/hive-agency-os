@@ -6,6 +6,7 @@ import {
   getToolsByCategory,
   getCategoryLabel,
   getCategoryColor,
+  getToolViewPath,
   type DiagnosticToolConfig,
   type DiagnosticToolCategory,
 } from '@/lib/os/diagnostics/tools';
@@ -285,9 +286,9 @@ function ToolCard({
           )}
         </button>
 
-        {hasResult && tool.viewPathForRun && (
+        {hasResult && tool.viewPath && (
           <a
-            href={tool.viewPathForRun(companyId, latestRun.id)}
+            href={getToolViewPath(tool, companyId, latestRun.id)}
             className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-slate-200 rounded-lg border border-slate-700 hover:border-slate-600 transition-colors"
           >
             View

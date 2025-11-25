@@ -21,9 +21,9 @@ interface CompaniesRosterClientProps {
   defaultView: string;
 }
 
-type ViewFilter = 'All' | 'Clients' | 'Prospects' | 'Leads' | 'At Risk' | 'Needs Attention';
+type ViewFilter = 'All' | 'Clients' | 'Prospects' | 'At Risk' | 'Needs Attention';
 
-const VIEW_FILTERS: ViewFilter[] = ['All', 'Clients', 'Prospects', 'Leads', 'At Risk', 'Needs Attention'];
+const VIEW_FILTERS: ViewFilter[] = ['All', 'Clients', 'Prospects', 'At Risk', 'Needs Attention'];
 
 // Format relative date
 const formatLastActivity = (dateStr: string | null) => {
@@ -107,8 +107,6 @@ export function CompaniesRosterClient({
           return company.stage === 'Client';
         case 'Prospects':
           return company.stage === 'Prospect';
-        case 'Leads':
-          return company.stage === 'Lead';
         case 'At Risk':
           return company.healthStatus === 'At Risk';
         case 'Needs Attention':
@@ -125,28 +123,10 @@ export function CompaniesRosterClient({
       All: companies.length,
       Clients: companies.filter((c) => c.stage === 'Client').length,
       Prospects: companies.filter((c) => c.stage === 'Prospect').length,
-      Leads: companies.filter((c) => c.stage === 'Lead').length,
       'At Risk': companies.filter((c) => c.healthStatus === 'At Risk').length,
       'Needs Attention': companies.filter(needsAttention).length,
     };
   }, [companies]);
-
-  // Health badge styling
-  const getHealthBadge = (health: HealthStatus) => {
-    if (!health) return null;
-
-    const styles = {
-      Healthy: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-      Watch: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
-      'At Risk': 'bg-red-500/10 text-red-400 border-red-500/30',
-    };
-
-    return (
-      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${styles[health]}`}>
-        {health}
-      </span>
-    );
-  };
 
   // Stage badge styling
   const getStageBadge = (stage?: string) => {
@@ -253,18 +233,18 @@ export function CompaniesRosterClient({
               <thead>
                 <tr className="border-b border-slate-800">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                    Name
+                    Company
                   </th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                    Domain
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide hidden sm:table-cell">
                     Stage
                   </th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
                     Health
                   </th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide hidden md:table-cell">
+                    Score
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide hidden lg:table-cell">
                     Last Activity
                   </th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide hidden xl:table-cell">
@@ -283,43 +263,51 @@ export function CompaniesRosterClient({
                     </td>
                   </tr>
                 ) : (
-                  filteredCompanies.map((company) => (
-                    <tr
-                      key={company.id}
-                      onClick={() => setSelectedCompany(company)}
-                      className={`border-b border-slate-800/50 last:border-0 hover:bg-slate-800/30 transition-colors cursor-pointer ${
-                        selectedCompany?.id === company.id ? 'bg-slate-800/50' : ''
-                      }`}
-                    >
-                      <td className="px-4 py-3">
-                        <span className="text-slate-200 font-medium">{company.name}</span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-400 text-xs">
-                        {company.domain || '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        {getStageBadge(company.stage)}
-                      </td>
-                      <td className="px-4 py-3">
-                        {getHealthBadge(company.healthStatus)}
-                      </td>
-                      <td className="px-4 py-3 text-slate-400 text-xs">
-                        {formatLastActivity(company.lastActivityDate)}
-                      </td>
-                      <td className="px-4 py-3 text-slate-400 text-xs hidden xl:table-cell">
-                        {company.owner || '—'}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <Link
-                          href={`/companies/${company.id}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-xs text-amber-500 hover:text-amber-400 font-medium"
-                        >
-                          Open →
-                        </Link>
-                      </td>
-                    </tr>
-                  ))
+                  filteredCompanies.map((company) => {
+                    const computedHealth = getComputedHealth(company);
+                    return (
+                      <tr
+                        key={company.id}
+                        onClick={() => setSelectedCompany(company)}
+                        className={`border-b border-slate-800/50 last:border-0 hover:bg-slate-800/30 transition-colors cursor-pointer ${
+                          selectedCompany?.id === company.id ? 'bg-slate-800/50' : ''
+                        }`}
+                      >
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col">
+                            <span className="text-slate-200 font-medium">{company.name}</span>
+                            <span className="text-xs text-slate-500">{company.domain || '—'}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 hidden sm:table-cell">
+                          {getStageBadge(company.stage)}
+                        </td>
+                        <td className="px-4 py-3">
+                          {company.stage === 'Client' && (
+                            <CompanyHealthBadge health={computedHealth} size="sm" />
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center hidden md:table-cell">
+                          {getScoreBadge(company.latestOverallScore)}
+                        </td>
+                        <td className="px-4 py-3 text-slate-400 text-xs hidden lg:table-cell">
+                          {formatLastActivity(company.lastActivityDate)}
+                        </td>
+                        <td className="px-4 py-3 text-slate-400 text-xs hidden xl:table-cell">
+                          {company.owner || '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <Link
+                            href={`/companies/${company.id}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-xs text-amber-500 hover:text-amber-400 font-medium"
+                          >
+                            Open →
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -347,11 +335,31 @@ export function CompaniesRosterClient({
             {/* Status Row */}
             <div className="flex items-center gap-2 mb-4">
               {getStageBadge(selectedCompany.stage)}
-              {getHealthBadge(selectedCompany.healthStatus)}
+              {selectedCompany.stage === 'Client' && (
+                <CompanyHealthBadge health={getComputedHealth(selectedCompany)} size="sm" />
+              )}
             </div>
 
             {/* Quick Stats */}
             <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="bg-slate-800/50 rounded-lg p-3">
+                <div className="text-xs text-slate-500 mb-1">GAP Score</div>
+                <div className="text-sm font-medium">
+                  {selectedCompany.latestOverallScore ? (
+                    <span className={
+                      selectedCompany.latestOverallScore >= 70
+                        ? 'text-emerald-400'
+                        : selectedCompany.latestOverallScore >= 50
+                        ? 'text-amber-400'
+                        : 'text-red-400'
+                    }>
+                      {selectedCompany.latestOverallScore}/100
+                    </span>
+                  ) : (
+                    <span className="text-slate-500">No score</span>
+                  )}
+                </div>
+              </div>
               <div className="bg-slate-800/50 rounded-lg p-3">
                 <div className="text-xs text-slate-500 mb-1">Last Activity</div>
                 <div className="text-sm text-slate-200 font-medium">
@@ -364,24 +372,28 @@ export function CompaniesRosterClient({
                   {selectedCompany.owner || 'Unassigned'}
                 </div>
               </div>
+              <div className="bg-slate-800/50 rounded-lg p-3">
+                <div className="text-xs text-slate-500 mb-1">Tier</div>
+                <div className="text-sm text-slate-200 font-medium">
+                  {selectedCompany.tier ? `Tier ${selectedCompany.tier}` : '—'}
+                </div>
+              </div>
             </div>
 
-            {/* Industry & Tier (if available) */}
-            {(selectedCompany.industry || selectedCompany.tier) && (
+            {/* Industry (if available) */}
+            {selectedCompany.industry && (
               <div className="mb-4 text-sm text-slate-400">
-                {selectedCompany.industry && <span>{selectedCompany.industry}</span>}
-                {selectedCompany.industry && selectedCompany.tier && <span className="mx-2">•</span>}
-                {selectedCompany.tier && <span>Tier {selectedCompany.tier}</span>}
+                {selectedCompany.industry}
               </div>
             )}
 
-            {/* Next Steps Placeholder */}
+            {/* Next Steps */}
             <div className="border-t border-slate-700 pt-4 mb-4">
               <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
-                Next Steps
+                Suggested Actions
               </h4>
               <div className="space-y-2">
-                {selectedCompany.healthStatus === 'At Risk' ? (
+                {selectedCompany.healthStatus === 'At Risk' || getComputedHealth(selectedCompany) === 'critical' ? (
                   <>
                     <div className="flex items-start gap-2 text-sm text-slate-300">
                       <span className="text-red-400 mt-0.5">•</span>
@@ -392,24 +404,35 @@ export function CompaniesRosterClient({
                       <span>Run new GAP assessment</span>
                     </div>
                   </>
-                ) : selectedCompany.healthStatus === 'Watch' ? (
-                  <div className="flex items-start gap-2 text-sm text-slate-300">
-                    <span className="text-amber-400 mt-0.5">•</span>
-                    <span>Review recent work progress</span>
-                  </div>
+                ) : selectedCompany.healthStatus === 'Watch' || getComputedHealth(selectedCompany) === 'at-risk' ? (
+                  <>
+                    <div className="flex items-start gap-2 text-sm text-slate-300">
+                      <span className="text-amber-400 mt-0.5">•</span>
+                      <span>Review recent work progress</span>
+                    </div>
+                    <div className="flex items-start gap-2 text-sm text-slate-300">
+                      <span className="text-amber-400 mt-0.5">•</span>
+                      <span>Check for overdue items</span>
+                    </div>
+                  </>
                 ) : selectedCompany.stage === 'Prospect' ? (
                   <>
                     <div className="flex items-start gap-2 text-sm text-slate-300">
                       <span className="text-blue-400 mt-0.5">•</span>
-                      <span>Run GAP assessment</span>
+                      <span>Run full GAP assessment</span>
                     </div>
                     <div className="flex items-start gap-2 text-sm text-slate-300">
                       <span className="text-blue-400 mt-0.5">•</span>
-                      <span>Create opportunity</span>
+                      <span>Create proposal</span>
                     </div>
                   </>
+                ) : !selectedCompany.lastActivityDate || !selectedCompany.latestOverallScore ? (
+                  <div className="flex items-start gap-2 text-sm text-slate-300">
+                    <span className="text-slate-400 mt-0.5">•</span>
+                    <span>Run GAP assessment to get started</span>
+                  </div>
                 ) : (
-                  <p className="text-sm text-slate-500">No urgent actions</p>
+                  <p className="text-sm text-slate-500">No urgent actions needed</p>
                 )}
               </div>
             </div>

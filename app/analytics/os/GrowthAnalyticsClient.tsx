@@ -1,11 +1,12 @@
 'use client';
 
-// app/os/analytics/os/GrowthAnalyticsClient.tsx
+// app/analytics/os/GrowthAnalyticsClient.tsx
 // Client component for Growth Analytics with interactive UI and AI insights
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import type { GrowthAnalyticsSnapshot, AIInsights } from '@/lib/analytics/models';
+import type { AnalyticsAnomaly, AnalyticsInsight } from '@/lib/os/types';
 
 interface SiteInfo {
   id: string;
@@ -41,6 +42,8 @@ export function GrowthAnalyticsClient({
   const [range, setRange] = useState(initialRange);
   const [snapshot, setSnapshot] = useState<GrowthAnalyticsSnapshot | null>(initialSnapshot);
   const [insights, setInsights] = useState<AIInsights | null>(null);
+  const [anomalies, setAnomalies] = useState<AnalyticsAnomaly[]>([]);
+  const [workspaceInsights, setWorkspaceInsights] = useState<AnalyticsInsight[]>([]);
   const [loadingMetrics, setLoadingMetrics] = useState(false);
   const [loadingInsights, setLoadingInsights] = useState(false);
   const [errorMetrics, setErrorMetrics] = useState<string | null>(initialError);
@@ -83,6 +86,25 @@ export function GrowthAnalyticsClient({
       setLoadingInsights(false);
     }
   };
+
+  // Fetch workspace analytics (anomalies and insights)
+  const fetchWorkspaceAnalytics = async () => {
+    try {
+      const response = await fetch('/api/os/analytics/workspace');
+      if (!response.ok) return;
+
+      const data = await response.json();
+      if (data.anomalies) setAnomalies(data.anomalies);
+      if (data.insights) setWorkspaceInsights(data.insights);
+    } catch (err) {
+      console.warn('Failed to fetch workspace analytics:', err);
+    }
+  };
+
+  // Fetch workspace analytics on mount
+  useEffect(() => {
+    fetchWorkspaceAnalytics();
+  }, []);
 
   const handleRangeChange = async (days: number) => {
     const endDate = new Date();
@@ -218,6 +240,66 @@ export function GrowthAnalyticsClient({
           )}
         </div>
       </div>
+
+      {/* Anomalies Alert Banner */}
+      {anomalies.length > 0 && (
+        <div className="bg-gradient-to-r from-red-500/10 to-amber-500/10 border border-red-500/30 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0">
+              <svg className="w-5 h-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-red-300">
+                {anomalies.length} Anomal{anomalies.length === 1 ? 'y' : 'ies'} Detected
+              </h3>
+              <div className="mt-2 space-y-1">
+                {anomalies.slice(0, 3).map((anomaly) => (
+                  <div key={anomaly.id} className="flex items-center gap-2 text-sm">
+                    <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                      anomaly.severity === 'high' ? 'bg-red-500/20 text-red-300' :
+                      anomaly.severity === 'medium' ? 'bg-amber-500/20 text-amber-300' :
+                      'bg-slate-500/20 text-slate-300'
+                    }`}>
+                      {anomaly.severity}
+                    </span>
+                    <span className="text-slate-300">{anomaly.description}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Insights Cards */}
+      {workspaceInsights.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {workspaceInsights.filter(i => i.impact === 'high').slice(0, 3).map((insight) => (
+            <div key={insight.id} className="bg-slate-900/70 border border-slate-800 rounded-lg p-4">
+              <div className="flex items-start gap-2 mb-2">
+                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                  insight.area === 'traffic' ? 'bg-blue-500/20 text-blue-300' :
+                  insight.area === 'conversion' ? 'bg-emerald-500/20 text-emerald-300' :
+                  insight.area === 'seo' ? 'bg-purple-500/20 text-purple-300' :
+                  insight.area === 'content' ? 'bg-amber-500/20 text-amber-300' :
+                  'bg-slate-500/20 text-slate-300'
+                }`}>
+                  {insight.area}
+                </span>
+              </div>
+              <h4 className="text-sm font-medium text-slate-200 mb-1">{insight.title}</h4>
+              <p className="text-xs text-slate-400 line-clamp-2">{insight.description}</p>
+              {insight.recommendation && (
+                <p className="text-xs text-emerald-400 mt-2 line-clamp-1">
+                  → {insight.recommendation}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left/Main Column (2/3 width) */}

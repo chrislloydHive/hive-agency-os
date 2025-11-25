@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Zap, Loader2, ExternalLink } from 'lucide-react';
 import type { DiagnosticToolId } from '@/lib/os/diagnostics/runs';
-import { getToolConfig } from '@/lib/os/diagnostics/tools';
+import { getToolConfig, getToolViewPath } from '@/lib/os/diagnostics/tools';
 
 interface QuickDiagnosticsPanelProps {
   companyId: string;
@@ -138,9 +138,9 @@ export function QuickDiagnosticsPanel({
                       {lastResult.summary && (
                         <div className="text-xs text-slate-400 mb-3">{lastResult.summary}</div>
                       )}
-                      {lastResult.runId && tool.viewPathForRun && (
+                      {lastResult.runId && tool.viewPath && (
                         <Link
-                          href={tool.viewPathForRun(companyId, lastResult.runId)}
+                          href={getToolViewPath(tool, companyId, lastResult.runId)}
                           className="text-xs text-blue-400 hover:text-blue-300"
                         >
                           View Details →

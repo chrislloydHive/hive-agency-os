@@ -2,10 +2,44 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useState, useEffect } from 'react';
 import HiveLogo from '@/components/HiveLogo';
+
+interface QuickStats {
+  atRiskCount: number;
+  workDueToday: number;
+  opportunities: number;
+}
 
 export function OSLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const [quickStats, setQuickStats] = useState<QuickStats | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Fetch quick stats for nav indicators
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const response = await fetch('/api/os/dashboard/summary');
+        if (response.ok) {
+          const data = await response.json();
+          setQuickStats({
+            atRiskCount: data.clientHealth?.atRisk?.length || 0,
+            workDueToday: data.work?.today || 0,
+            opportunities: data.pipeline?.activeOpportunities || 0,
+          });
+        }
+      } catch {
+        // Silently fail - stats are not critical
+      }
+    };
+
+    fetchStats();
+  }, []);
+
+  // Detect company context from URL
+  const companyMatch = pathname.match(/^\/(?:companies|c)\/([^/]+)/);
+  const currentCompanyId = companyMatch?.[1];
 
   // Navigation - paths are now relative to root (no /os prefix needed)
   const navigation = [
@@ -26,6 +60,10 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
         </svg>
       ),
+      badge: quickStats?.atRiskCount && quickStats.atRiskCount > 0 ? {
+        count: quickStats.atRiskCount,
+        variant: 'danger' as const,
+      } : undefined,
     },
     {
       name: 'Work',
@@ -35,6 +73,10 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
         </svg>
       ),
+      badge: quickStats?.workDueToday && quickStats.workDueToday > 0 ? {
+        count: quickStats.workDueToday,
+        variant: 'warning' as const,
+      } : undefined,
     },
     {
       name: 'Pipeline',
@@ -44,6 +86,10 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
         </svg>
       ),
+      badge: quickStats?.opportunities && quickStats.opportunities > 0 ? {
+        count: quickStats.opportunities,
+        variant: 'info' as const,
+      } : undefined,
       submenu: [
         { name: 'Opportunities', href: '/pipeline/opportunities' },
         { name: 'Leads', href: '/pipeline/leads' },
@@ -122,7 +168,16 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
                 }`}
               >
                 {item.icon}
-                <span>{item.name}</span>
+                <span className="flex-1">{item.name}</span>
+                {item.badge && (
+                  <span className={`px-1.5 py-0.5 text-[10px] font-semibold rounded ${
+                    item.badge.variant === 'danger' ? 'bg-red-500/20 text-red-400' :
+                    item.badge.variant === 'warning' ? 'bg-amber-500/20 text-amber-400' :
+                    'bg-blue-500/20 text-blue-400'
+                  }`}>
+                    {item.badge.count}
+                  </span>
+                )}
               </Link>
               {item.submenu && isActive(item.href) && (
                 <div className="ml-8 mt-1 space-y-1">
