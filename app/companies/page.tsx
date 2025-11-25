@@ -1,98 +1,103 @@
-import { listCompaniesForOs } from '@/lib/airtable/companies';
-import { listRecentGapIaRuns } from '@/lib/airtable/gapIaRuns';
-import { CompaniesRosterClient } from '@/components/os/CompaniesRosterClient';
+// app/companies/page.tsx
+// Companies Directory Page - OS CRM Index
+// Server component that fetches enriched company data and renders directory client
 
-/**
- * Companies page - Roster + Triage view
- *
- * Organized around decisions:
- * - Who needs attention?
- * - What's the health of each client?
- * - When was the last activity?
- */
+import { Suspense } from 'react';
+import {
+  listCompaniesForOsDirectory,
+  type CompanyListFilter,
+  type CompanyStage,
+  type CompanyHealth,
+} from '@/lib/os/companies/list';
+import { CompaniesDirectoryClient } from '@/components/os/companies/CompaniesDirectoryClient';
+import type { Metadata } from 'next';
 
-// Calculate health status for clients
-function calculateHealthStatus(
-  company: { id: string; stage?: string; createdAt?: string },
-  lastGapDate: Date | null,
-  latestScore: number | null
-): 'Healthy' | 'Watch' | 'At Risk' | null {
-  // Only calculate health for Clients
-  if (company.stage !== 'Client') return null;
+export const metadata: Metadata = {
+  title: 'Companies',
+  description: 'Manage your client roster. Track health, scores, and prioritize who needs attention.',
+};
 
-  // Critical: No GAP ever or very low score
-  if (!lastGapDate) return 'At Risk';
-  if (latestScore !== null && latestScore < 40) return 'At Risk';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-  const now = new Date();
-  const daysSinceGap = Math.floor((now.getTime() - lastGapDate.getTime()) / (1000 * 60 * 60 * 24));
-
-  // At risk: No activity in 90+ days
-  if (daysSinceGap > 90) return 'At Risk';
-
-  // Watch: No activity in 60+ days or low score
-  if (daysSinceGap > 60) return 'Watch';
-  if (latestScore !== null && latestScore < 60) return 'Watch';
-
-  return 'Healthy';
+interface CompaniesPageProps {
+  searchParams: Promise<{
+    stage?: string;
+    health?: string;
+    q?: string;
+    atRisk?: string;
+  }>;
 }
 
-export default async function CompaniesPage() {
-  // Fetch companies and recent GAP runs in parallel
-  const [companies, gapRuns] = await Promise.all([
-    listCompaniesForOs(200),
-    listRecentGapIaRuns(500), // Get more runs to find last activity per company
-  ]);
+function CompaniesLoading() {
+  return (
+    <div className="p-8">
+      <div className="mb-6">
+        <div className="h-8 w-48 bg-slate-800 rounded animate-pulse" />
+        <div className="h-4 w-96 bg-slate-800/50 rounded mt-2 animate-pulse" />
+      </div>
+      <div className="space-y-4">
+        <div className="flex gap-2">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="h-10 w-24 bg-slate-800 rounded-lg animate-pulse" />
+          ))}
+        </div>
+        <div className="h-12 bg-slate-800/50 rounded-lg animate-pulse" />
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="h-16 bg-slate-800/30 rounded mb-2 animate-pulse" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
-  // Build maps for company -> last GAP date and score
-  const lastGapByCompany = new Map<string, { date: Date; score: number | null }>();
-  for (const run of gapRuns) {
-    if (run.companyId && run.createdAt) {
-      const runDate = new Date(run.createdAt);
-      const existing = lastGapByCompany.get(run.companyId);
-      if (!existing || runDate > existing.date) {
-        // Get score from summary (v2+) or null
-        const score = run.summary?.overallScore ?? null;
-        lastGapByCompany.set(run.companyId, {
-          date: runDate,
-          score,
-        });
-      }
-    }
-  }
+async function CompaniesContent({ searchParams }: CompaniesPageProps) {
+  const params = await searchParams;
 
-  // Enrich companies with health status, last activity, and score
-  const enrichedCompanies = companies.map((company) => {
-    const gapData = lastGapByCompany.get(company.id);
-    const lastGapDate = gapData?.date || null;
-    const latestScore = gapData?.score ?? null;
-    const healthStatus = calculateHealthStatus(company, lastGapDate, latestScore);
+  // Parse search params into filter
+  const filter: CompanyListFilter = {
+    stage: (params.stage as CompanyStage) || 'All',
+    health: params.health as CompanyHealth | undefined,
+    search: params.q || '',
+    atRiskOnly: params.atRisk === 'true',
+  };
 
-    return {
-      ...company,
-      healthStatus,
-      lastActivityDate: lastGapDate?.toISOString() || null,
-      latestOverallScore: latestScore,
-    };
-  });
+  // Fetch companies with enriched data
+  const companies = await listCompaniesForOsDirectory(filter);
 
-  // Determine default view based on data
-  const hasClients = enrichedCompanies.some((c) => c.stage === 'Client');
-  const defaultView = hasClients ? 'Clients' : 'All';
+  // Determine default stage view based on data
+  const hasClients = companies.some((c) => c.stage === 'Client');
+  const defaultStage = hasClients ? 'Client' : 'All';
+
+  // If no stage filter was specified, use the default
+  const effectiveFilter = {
+    ...filter,
+    stage: filter.stage || defaultStage,
+  };
 
   return (
     <div className="p-8">
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-slate-100">Companies</h1>
         <p className="text-slate-400 mt-1">
-          Manage your client roster. Track health, scores, and prioritize who needs attention.
+          All companies in your OS, with stage, health, owner, and activity.
         </p>
       </div>
 
-      <CompaniesRosterClient
-        companies={enrichedCompanies}
-        defaultView={defaultView}
+      <CompaniesDirectoryClient
+        initialCompanies={companies}
+        initialFilter={effectiveFilter}
       />
     </div>
+  );
+}
+
+export default async function CompaniesPage(props: CompaniesPageProps) {
+  return (
+    <Suspense fallback={<CompaniesLoading />}>
+      <CompaniesContent {...props} />
+    </Suspense>
   );
 }

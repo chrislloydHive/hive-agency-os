@@ -5,11 +5,17 @@
 import { WorkspaceAnalyticsClient } from '@/components/os/WorkspaceAnalyticsClient';
 import { getWorkspaceAnalyticsOverview } from '@/lib/os/analytics/overview';
 import type { WorkspaceAnalyticsOverview } from '@/lib/os/analytics/types';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'Workspace Analytics',
+  description: 'Workspace-wide GA4, Search Console, and funnel analytics.',
+};
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export default async function OSAnalyticsPage() {
+export default async function WorkspaceAnalyticsPage() {
   let initialOverview: WorkspaceAnalyticsOverview | null = null;
   let error: string | null = null;
 
@@ -31,10 +37,7 @@ export default async function OSAnalyticsPage() {
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-slate-100">Workspace Analytics</h1>
           <p className="text-slate-400 mt-1">
-            GA4 traffic, Search Console data, growth funnel, and AI-powered insights
-          </p>
-          <p className="text-sm text-slate-500 mt-1">
-            Monitor performance, identify issues, and discover opportunities.
+            GA4 + Search Console + Funnel analytics for the entire Hive OS workspace.
           </p>
         </div>
 

@@ -1,10 +1,13 @@
 'use client';
 
+// app/analytics/dma/DmaFunnelClient.tsx
+// DMA Funnel Analytics Client Component
+
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import type { AuditFunnelSnapshot } from '@/lib/ga4Client';
 
-interface DmaInsightsClientProps {
+interface DmaFunnelClientProps {
   initialSnapshot: AuditFunnelSnapshot;
   initialRange: { startDate: string; endDate: string };
 }
@@ -33,10 +36,10 @@ interface DmaFunnelInsights {
   }>;
 }
 
-export default function DmaInsightsClient({
+export default function DmaFunnelClient({
   initialSnapshot,
   initialRange,
-}: DmaInsightsClientProps) {
+}: DmaFunnelClientProps) {
   const [range, setRange] = useState(initialRange);
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [loadingMetrics, setLoadingMetrics] = useState(false);
@@ -150,9 +153,9 @@ export default function DmaInsightsClient({
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-slate-100 mb-2">DMA Insights</h1>
+          <h1 className="text-3xl font-bold text-slate-100 mb-2">DMA Funnel</h1>
           <p className="text-slate-400">
-            Audit funnel metrics for <span className="text-amber-400">DigitalMarketingAudit.ai</span>
+            Performance of the <span className="text-amber-400">DigitalMarketingAudit.ai</span> acquisition funnel.
           </p>
           <p className="text-sm text-slate-500 mt-1">
             {range.startDate} to {range.endDate}
@@ -338,7 +341,7 @@ export default function DmaInsightsClient({
               <h2 className="text-lg font-semibold text-blue-100">DMA Funnel Insights</h2>
             </div>
             <p className="text-xs text-blue-300/70 mb-4">
-              AI-powered analysis of your DigitalMarketingAudit.ai audit funnel
+              AI-powered analysis of your DigitalMarketingAudit.ai acquisition funnel
             </p>
 
             {loadingInsights && (

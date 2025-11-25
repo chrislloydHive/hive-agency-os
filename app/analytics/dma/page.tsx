@@ -1,7 +1,20 @@
-import { getAuditFunnelSnapshot } from '@/lib/ga4Client';
-import DmaInsightsClient from './DmaInsightsClient';
+// app/analytics/dma/page.tsx
+// DMA Funnel Analytics page for Hive OS
+// Performance analytics for the DigitalMarketingAudit.ai acquisition funnel
 
-export default async function DmaInsightsPage() {
+import { getAuditFunnelSnapshot } from '@/lib/ga4Client';
+import DmaFunnelClient from './DmaFunnelClient';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'DMA Funnel',
+  description: 'Analytics for the DMA audit funnel performance.',
+};
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+export default async function DmaFunnelPage() {
   try {
     // Default to last 30 days
     const today = new Date();
@@ -14,22 +27,22 @@ export default async function DmaInsightsPage() {
     const snapshot = await getAuditFunnelSnapshot(startDate, endDate);
 
     return (
-      <DmaInsightsClient
+      <DmaFunnelClient
         initialSnapshot={snapshot}
         initialRange={{ startDate, endDate }}
       />
     );
   } catch (error) {
-    console.error('Error loading DMA insights:', error);
+    console.error('Error loading DMA Funnel:', error);
 
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
 
     return (
       <div className="p-8">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-slate-100">DMA Insights</h1>
+          <h1 className="text-3xl font-bold text-slate-100">DMA Funnel</h1>
           <p className="text-slate-400 mt-1">
-            Analytics for DigitalMarketingAudit.ai performance
+            Performance of the DigitalMarketingAudit.ai acquisition funnel.
           </p>
         </div>
 

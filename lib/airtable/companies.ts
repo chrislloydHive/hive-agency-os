@@ -171,6 +171,10 @@ function mapFieldsToCompanyRecord(record: any): CompanyRecord {
     ga4Linked: (fields['GA4 Linked'] as boolean) || undefined,
     primaryConversionEvents: (fields['Primary Conversion Events'] as string[]) || undefined,
     searchConsoleSiteUrl: (fields['Search Console Site URL'] as string) || undefined,
+
+    // Health override fields
+    healthOverride: (fields['Health Override'] as 'Healthy' | 'At Risk' | null) || undefined,
+    atRiskFlag: (fields['At Risk Flag'] as boolean) || undefined,
   };
 }
 
@@ -208,6 +212,10 @@ export type CompanyRecord = {
   ga4Linked?: boolean; // true if we should attempt to query GA4
   primaryConversionEvents?: string[]; // e.g., ["generate_lead", "form_submit"]
   searchConsoleSiteUrl?: string;
+
+  // Health override fields (for manual health management)
+  healthOverride?: 'Healthy' | 'At Risk' | null; // Manual health override - takes precedence over computed health
+  atRiskFlag?: boolean; // Manual "At Risk" flag - forces At Risk status when true
 };
 
 /**

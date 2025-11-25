@@ -18,6 +18,8 @@ import { getLatestOsResultForCompany, getFullReportsForCompany } from '@/lib/air
 import { getWorkItemsForCompany } from '@/lib/airtable/workItems';
 import { listDiagnosticRunsForCompany } from '@/lib/os/diagnostics/runs';
 import { CompanyDetailClient } from '@/components/os/CompanyDetailClient';
+import { buildCompanyActivitySnapshot, hasOverdueWorkItems, hasStaleBacklogItems } from '@/lib/os/companies/activity';
+import { evaluateCompanyHealth } from '@/lib/os/companies/health';
 
 interface CompanyDetailPageProps {
   params: Promise<{ companyId: string }>;
@@ -53,6 +55,33 @@ export default async function CompanyDetailPage({
   const latestAssessment = gapIaRuns[0] || null;
   const latestPlan = gapPlanRuns[0] || null;
 
+  // Build activity snapshot for health evaluation
+  const activity = buildCompanyActivitySnapshot({
+    gapIaRuns,
+    gapPlanRuns,
+    diagnosticRuns,
+    workItems,
+  });
+
+  // Get latest GAP score for health evaluation
+  const latestGapScore = (() => {
+    if (!latestAssessment) return null;
+    const runAny = latestAssessment as any;
+    return runAny.summary?.overallScore ?? runAny.overallScore ?? null;
+  })();
+
+  // Evaluate company health (includes manual override support)
+  const { health, reasons: healthReasons } = evaluateCompanyHealth({
+    stage: company.stage,
+    activity,
+    hasOverdueWork: hasOverdueWorkItems(workItems),
+    hasBacklogWork: hasStaleBacklogItems(workItems),
+    latestGapScore,
+    // Manual override fields from Airtable
+    healthOverride: company.healthOverride,
+    atRiskFlag: company.atRiskFlag,
+  });
+
   return (
     <div className="p-8">
       {/* Header */}
@@ -67,7 +96,7 @@ export default async function CompanyDetailPage({
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-3xl font-bold text-slate-100">{company.name}</h1>
-            <div className="flex items-center gap-3 mt-2">
+            <div className="flex flex-wrap items-center gap-3 mt-2">
               {company.website && (
                 <a
                   href={company.website}
@@ -96,9 +125,43 @@ export default async function CompanyDetailPage({
                   Tier {company.tier}
                 </span>
               )}
+              {/* Health Badge */}
+              {company.stage === 'Client' || company.stage === 'Prospect' ? (
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${
+                    health === 'At Risk'
+                      ? 'bg-red-500/10 text-red-400 border-red-500/30'
+                      : health === 'Healthy'
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                      : 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+                  }`}
+                >
+                  {health === 'At Risk' && (
+                    <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                      <path
+                        fillRule="evenodd"
+                        d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  )}
+                  {health}
+                </span>
+              ) : null}
               {latestOsResult?.overallScore && (
                 <span className="inline-flex items-center px-2 py-1 rounded text-sm font-semibold bg-slate-800 text-amber-500">
                   Score: {latestOsResult.overallScore}
+                </span>
+              )}
+              {/* Last Activity */}
+              {activity.lastAnyActivityAt && (
+                <span className="text-xs text-slate-500">
+                  Last activity:{' '}
+                  {new Date(activity.lastAnyActivityAt).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
                 </span>
               )}
             </div>
@@ -126,6 +189,10 @@ export default async function CompanyDetailPage({
         latestAssessment={latestAssessment}
         latestPlan={latestPlan}
         diagnosticRuns={diagnosticRuns}
+        health={health}
+        lastActivityAt={activity.lastAnyActivityAt}
+        healthReasons={healthReasons}
+        activitySnapshot={activity}
       />
     </div>
   );

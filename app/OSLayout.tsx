@@ -104,8 +104,8 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
         </svg>
       ),
       submenu: [
-        { name: 'DMA Insights', href: '/dma/insights' },
-        { name: 'OS Analytics', href: '/analytics/os' },
+        { name: 'Workspace Analytics', href: '/analytics/os' },
+        { name: 'DMA Funnel', href: '/analytics/dma' },
       ],
     },
   ];

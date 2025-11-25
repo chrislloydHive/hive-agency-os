@@ -150,10 +150,18 @@ export function DashboardClient({ summary }: DashboardClientProps) {
             {/* At-Risk Clients */}
             <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-medium text-red-400">At Risk</h3>
-                <span className="text-xs text-slate-500">
-                  {summary.clientHealth.atRisk.length} clients
-                </span>
+                <Link
+                  href="/companies?atRisk=true&stage=Client"
+                  className="text-sm font-medium text-red-400 hover:text-red-300"
+                >
+                  At Risk
+                </Link>
+                <Link
+                  href="/companies?atRisk=true&stage=Client"
+                  className="text-xs text-slate-500 hover:text-slate-400"
+                >
+                  {summary.clientHealth.atRisk.length} clients →
+                </Link>
               </div>
               {summary.clientHealth.atRisk.length === 0 ? (
                 <div className="text-sm text-slate-500 py-4 text-center">
@@ -164,7 +172,7 @@ export function DashboardClient({ summary }: DashboardClientProps) {
                   {summary.clientHealth.atRisk.map((client) => (
                     <Link
                       key={client.companyId}
-                      href={`/os/${client.companyId}`}
+                      href={`/companies/${client.companyId}`}
                       className="block p-2 rounded-lg hover:bg-slate-800/50 transition-colors"
                     >
                       <div className="text-sm text-slate-200 font-medium truncate">
@@ -194,7 +202,7 @@ export function DashboardClient({ summary }: DashboardClientProps) {
                   {summary.clientHealth.newClients.map((client) => (
                     <Link
                       key={client.companyId}
-                      href={`/os/${client.companyId}`}
+                      href={`/companies/${client.companyId}`}
                       className="block p-2 rounded-lg hover:bg-slate-800/50 transition-colors"
                     >
                       <div className="text-sm text-slate-200 font-medium truncate">
@@ -381,8 +389,8 @@ export function DashboardClient({ summary }: DashboardClientProps) {
                       key={assessment.id}
                       href={
                         assessment.companyId
-                          ? `/os/${assessment.companyId}/gap`
-                          : `/os/gap/ia`
+                          ? `/companies/${assessment.companyId}?tab=gap`
+                          : `/gap/ia`
                       }
                       className="block p-2 rounded-lg hover:bg-slate-800/50 transition-colors"
                     >
@@ -419,8 +427,8 @@ export function DashboardClient({ summary }: DashboardClientProps) {
                       key={plan.id}
                       href={
                         plan.companyId
-                          ? `/os/${plan.companyId}/gap`
-                          : `/os/gap/plans`
+                          ? `/companies/${plan.companyId}?tab=gap`
+                          : `/gap/plans`
                       }
                       className="block p-2 rounded-lg hover:bg-slate-800/50 transition-colors"
                     >
