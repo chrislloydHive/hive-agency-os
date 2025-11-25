@@ -7,8 +7,8 @@ const ADMIN_EMAILS = process.env.ADMIN_EMAILS?.split(',').map(email => email.tri
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID || "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+      clientId: process.env.NEXTAUTH_GOOGLE_CLIENT_ID || "",
+      clientSecret: process.env.NEXTAUTH_GOOGLE_CLIENT_SECRET || "",
     }),
   ],
 

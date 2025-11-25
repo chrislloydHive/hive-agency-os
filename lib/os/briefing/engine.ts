@@ -7,6 +7,11 @@ import { listRecentGapIaRuns } from '@/lib/airtable/gapIaRuns';
 import { listRecentGapPlanRuns } from '@/lib/airtable/gapPlanRuns';
 import { base } from '@/lib/airtable/client';
 import { getDefaultDateRange, getGrowthAnalyticsSnapshot } from '@/lib/analytics/growthAnalytics';
+import {
+  fetchSearchConsoleSnapshot,
+  createDateRangeLastNDays,
+} from '../searchConsole/snapshot';
+import { getGscConnectionStatus } from '../searchConsole/client';
 import type {
   Briefing,
   BriefingFocusItem,
@@ -15,6 +20,7 @@ import type {
   CompanyId,
   Company,
 } from '@/lib/os/types';
+import type { SearchConsoleSnapshot } from '../searchConsole/types';
 
 // ============================================================================
 // Types
@@ -106,6 +112,15 @@ export interface AnalyticsData {
   usersTrend?: number;
   // Anomalies detected
   anomalies: AnalyticsAnomaly[];
+  // Search Console data
+  searchConsole?: {
+    clicks: number;
+    impressions: number;
+    ctr: number;
+    avgPosition: number | null;
+    topQueries?: { query: string; clicks: number; impressions: number }[];
+    topPages?: { url: string; clicks: number; impressions: number }[];
+  };
 }
 
 export interface AnalyticsAnomaly {
@@ -297,7 +312,7 @@ async function fetchAnalytics(): Promise<AnalyticsData | null> {
       });
     }
 
-    return {
+    const result: AnalyticsData = {
       sessions30d: snapshot.traffic.sessions,
       users30d: snapshot.traffic.users,
       searchClicks30d: snapshot.searchQueries.reduce((sum, q) => sum + q.clicks, 0) || null,
@@ -305,6 +320,58 @@ async function fetchAnalytics(): Promise<AnalyticsData | null> {
       avgSessionDuration: snapshot.traffic.avgSessionDurationSeconds,
       anomalies,
     };
+
+    // Fetch Search Console data separately
+    try {
+      const gscStatus = await getGscConnectionStatus();
+      if (gscStatus.connected && gscStatus.siteUrl) {
+        const range = createDateRangeLastNDays(30);
+        const gscSnapshot = await fetchSearchConsoleSnapshot({
+          siteUrl: gscStatus.siteUrl,
+          range,
+          maxRows: 10,
+        });
+
+        result.searchConsole = {
+          clicks: gscSnapshot.summary.clicks,
+          impressions: gscSnapshot.summary.impressions,
+          ctr: gscSnapshot.summary.ctr,
+          avgPosition: gscSnapshot.summary.avgPosition,
+          topQueries: gscSnapshot.topQueries.slice(0, 5).map((q) => ({
+            query: q.query,
+            clicks: q.clicks,
+            impressions: q.impressions,
+          })),
+          topPages: gscSnapshot.topPages.slice(0, 5).map((p) => ({
+            url: p.url,
+            clicks: p.clicks,
+            impressions: p.impressions,
+          })),
+        };
+
+        // Check for low CTR anomaly
+        if (gscSnapshot.summary.ctr < 0.02 && gscSnapshot.summary.impressions > 1000) {
+          anomalies.push({
+            type: 'low-engagement',
+            metric: 'searchCtr',
+            severity: gscSnapshot.summary.ctr < 0.01 ? 'high' : 'medium',
+            description: `Search CTR is ${(gscSnapshot.summary.ctr * 100).toFixed(2)}% - opportunity to improve meta titles/descriptions`,
+            value: gscSnapshot.summary.ctr,
+            threshold: 0.02,
+          });
+        }
+
+        console.log('[Briefing] Search Console data fetched:', {
+          clicks: gscSnapshot.summary.clicks,
+          impressions: gscSnapshot.summary.impressions,
+        });
+      }
+    } catch (gscError) {
+      console.warn('[Briefing] Search Console fetch failed:', gscError);
+      // Continue without GSC data - it's optional
+    }
+
+    return result;
   } catch (error) {
     console.warn('[Briefing] Analytics fetch failed:', error);
     return null;

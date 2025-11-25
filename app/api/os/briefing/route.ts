@@ -21,6 +21,7 @@ You receive structured data about the agency's current state:
 - Risks (things that need immediate attention)
 - Opportunities (growth potential)
 - Data snapshot (summary metrics)
+- Analytics data (GA4 traffic + Google Search Console performance)
 
 Your job is to synthesize this into a natural, actionable briefing with:
 1. A punchy headline (5-10 words) summarizing the day
@@ -31,12 +32,14 @@ TONE:
 - Direct and actionable
 - Focus on what matters TODAY
 - Reference specific numbers and names from the data
+- Highlight both client health AND growth analytics (traffic, search)
 
 RULES:
 1. The headline should capture the most important theme
 2. The summary should give a quick overview that a busy executive can scan
 3. Don't invent data - only reference what's in the provided data
-4. Be specific (use names, numbers) not generic
+4. Be specific (use names, numbers, percentages) not generic
+5. If Search Console data is available, mention search performance (clicks, CTR, position)
 
 Respond with JSON:
 {
@@ -85,6 +88,19 @@ export async function POST(request: NextRequest) {
         companyName: o.companyName,
       })),
       snapshot,
+      analytics: data.analytics ? {
+        sessions30d: data.analytics.sessions30d,
+        users30d: data.analytics.users30d,
+        bounceRate: data.analytics.bounceRate,
+        searchConsole: data.analytics.searchConsole ? {
+          clicks: data.analytics.searchConsole.clicks,
+          impressions: data.analytics.searchConsole.impressions,
+          ctr: data.analytics.searchConsole.ctr,
+          avgPosition: data.analytics.searchConsole.avgPosition,
+          topQueries: data.analytics.searchConsole.topQueries?.slice(0, 3),
+        } : undefined,
+        anomalies: data.analytics.anomalies,
+      } : undefined,
     };
 
     // Generate headline and summary with AI
