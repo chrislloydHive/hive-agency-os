@@ -26,7 +26,7 @@ export type WorkEffort = 'S' | 'M' | 'L';
 /**
  * Work category/area (lowercase slugs)
  */
-export type WorkCategory = 'brand' | 'content' | 'seo' | 'website' | 'analytics' | 'ops' | 'other';
+export type WorkCategory = 'brand' | 'content' | 'seo' | 'website' | 'analytics' | 'demand' | 'ops' | 'other';
 
 /**
  * Status display configuration
@@ -67,6 +67,7 @@ export const WORK_CATEGORY_CONFIG: Record<WorkCategory, { label: string; icon: s
   seo: { label: 'SEO', icon: '🔍' },
   website: { label: 'Website', icon: '🌐' },
   analytics: { label: 'Analytics', icon: '📊' },
+  demand: { label: 'Demand Gen', icon: '📈' },
   ops: { label: 'Operations', icon: '⚙️' },
   other: { label: 'Other', icon: '📋' },
 };
@@ -83,9 +84,9 @@ export type WorkSourceType =
   | 'analytics_metric'
   | 'gap_insight'
   | 'diagnostics'
+  | 'tool_run'
   | 'priority'
-  | 'plan_initiative'
-  | 'client_brain_insight'; // NEW: Work generated from Client Brain insight
+  | 'plan_initiative';
 
 /**
  * Analytics metric source - when work is created from an analytics insight
@@ -115,12 +116,22 @@ export interface WorkSourceGapInsight {
 }
 
 /**
- * Diagnostics source - from diagnostic tools
+ * Diagnostics source - from diagnostic tools (legacy)
  */
 export interface WorkSourceDiagnostics {
   sourceType: 'diagnostics';
   toolId: string;
   diagnosticRunId?: string;
+}
+
+/**
+ * Tool Run source - from unified Tool Run system
+ */
+export interface WorkSourceToolRun {
+  sourceType: 'tool_run';
+  toolSlug: string;
+  toolRunId: string;
+  companyId: string;
 }
 
 /**
@@ -142,15 +153,6 @@ export interface WorkSourcePlanInitiative {
 }
 
 /**
- * Client Brain insight source - work generated from a strategic insight
- */
-export interface WorkSourceClientBrainInsight {
-  sourceType: 'client_brain_insight';
-  insightId: string;
-  insightTitle?: string;
-}
-
-/**
  * Union of all work source types
  */
 export type WorkSource =
@@ -158,9 +160,9 @@ export type WorkSource =
   | WorkSourceAnalytics
   | WorkSourceGapInsight
   | WorkSourceDiagnostics
+  | WorkSourceToolRun
   | WorkSourcePriority
-  | WorkSourcePlanInitiative
-  | WorkSourceClientBrainInsight;
+  | WorkSourcePlanInitiative;
 
 // ============================================================================
 // Work Item Types
@@ -315,22 +317,20 @@ export function getSourceLabel(source?: WorkSource): string {
       return 'GAP Insight';
     case 'diagnostics':
       return `Diagnostics (${source.toolId})`;
+    case 'tool_run':
+      return `Tool Run → ${source.toolSlug}`;
     case 'priority':
       return 'Priority';
     case 'plan_initiative':
       return 'Plan Initiative';
-    case 'client_brain_insight':
-      return source.insightTitle
-        ? `Client Brain → ${source.insightTitle}`
-        : 'Client Brain Insight';
     default:
       return 'Unknown';
   }
 }
 
 /**
- * Check if a work source is from Client Brain insight
+ * Check if a work source is from a tool run
  */
-export function isClientBrainInsightSource(source?: WorkSource): source is WorkSourceClientBrainInsight {
-  return source?.sourceType === 'client_brain_insight';
+export function isToolRunSource(source?: WorkSource): source is WorkSourceToolRun {
+  return source?.sourceType === 'tool_run';
 }

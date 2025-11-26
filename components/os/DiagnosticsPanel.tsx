@@ -49,6 +49,7 @@ const formatDate = (dateStr?: string | null) => {
 export function DiagnosticsPanel({ companyId, companyName, runs }: DiagnosticsPanelProps) {
   const [runningTools, setRunningTools] = useState<Set<DiagnosticToolId>>(new Set());
   const [localRuns, setLocalRuns] = useState<DiagnosticRun[]>(runs);
+  const [error, setError] = useState<string | null>(null);
 
   // Group tools by category - show all categories with tools
   const toolCategories: DiagnosticToolCategory[] = ['strategy', 'website', 'brand', 'content', 'seo', 'demand', 'ops'];
@@ -63,6 +64,7 @@ export function DiagnosticsPanel({ companyId, companyName, runs }: DiagnosticsPa
     if (runningTools.has(tool.id)) return;
 
     setRunningTools((prev) => new Set(prev).add(tool.id));
+    setError(null);
 
     try {
       const response = await fetch(tool.runApiPath, {
@@ -71,18 +73,21 @@ export function DiagnosticsPanel({ companyId, companyName, runs }: DiagnosticsPa
         body: JSON.stringify({ companyId }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to run diagnostic');
-      }
-
       const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to run diagnostic');
+      }
 
       // Add the new run to local state
       if (data.run) {
         setLocalRuns((prev) => [data.run, ...prev.filter((r) => r.id !== data.run.id)]);
       }
-    } catch (error) {
-      console.error('Error running diagnostic:', error);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to run diagnostic';
+      console.error('Error running diagnostic:', errorMessage);
+      setError(errorMessage);
+      setTimeout(() => setError(null), 8000);
     } finally {
       setRunningTools((prev) => {
         const next = new Set(prev);
@@ -94,6 +99,25 @@ export function DiagnosticsPanel({ companyId, companyName, runs }: DiagnosticsPa
 
   return (
     <div className="space-y-8">
+      {/* Error Toast */}
+      {error && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-md rounded-lg bg-red-900/90 border border-red-700 px-4 py-3 shadow-lg">
+          <div className="flex items-start gap-2">
+            <XCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-red-100">Diagnostic Failed</p>
+              <p className="text-xs text-red-300 mt-1">{error}</p>
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="ml-2 text-red-400 hover:text-red-200"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

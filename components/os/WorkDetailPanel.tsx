@@ -16,6 +16,7 @@ import {
   severityToPriority,
   getSourceLabel,
   isAnalyticsSource,
+  isToolRunSource,
   type WorkPriority,
   type WorkCategory,
   type WorkSource,
@@ -52,6 +53,8 @@ function getSourceIcon(source: WorkSource | undefined): string {
       return '🎯';
     case 'diagnostics':
       return '🔍';
+    case 'tool_run':
+      return '🛠️';
     case 'priority':
       return '⚡';
     case 'plan_initiative':
@@ -59,6 +62,33 @@ function getSourceIcon(source: WorkSource | undefined): string {
     default:
       return '✏️';
   }
+}
+
+/**
+ * Get friendly tool label from slug
+ */
+function getToolLabel(toolSlug: string): string {
+  const labels: Record<string, string> = {
+    'gap-snapshot': 'GAP Snapshot',
+    'gapSnapshot': 'GAP Snapshot',
+    'gap-plan': 'GAP Plan',
+    'gapPlan': 'GAP Plan',
+    'gap-heavy': 'GAP Heavy',
+    'gapHeavy': 'GAP Heavy',
+    'website-lab': 'Website Lab',
+    'websiteLab': 'Website Lab',
+    'brand-lab': 'Brand Lab',
+    'brandLab': 'Brand Lab',
+    'content-lab': 'Content Lab',
+    'contentLab': 'Content Lab',
+    'seo-lab': 'SEO Lab',
+    'seoLab': 'SEO Lab',
+    'demand-lab': 'Demand Lab',
+    'demandLab': 'Demand Lab',
+    'ops-lab': 'Ops Lab',
+    'opsLab': 'Ops Lab',
+  };
+  return labels[toolSlug] || toolSlug;
 }
 
 // ============================================================================
@@ -150,7 +180,7 @@ export function WorkDetailPanel({ item, onClose }: WorkDetailPanelProps) {
             <div className="rounded-lg border border-slate-700/50 bg-slate-800/50 p-3">
               <div className="flex items-center gap-2 text-xs">
                 <span className="text-lg">{getSourceIcon(item.source)}</span>
-                <div>
+                <div className="flex-1">
                   <p className="text-slate-300 font-medium">
                     Source: {getSourceLabel(item.source)}
                   </p>
@@ -158,6 +188,22 @@ export function WorkDetailPanel({ item, onClose }: WorkDetailPanelProps) {
                     <p className="text-slate-500 mt-0.5">
                       Created from {item.source.metricGroup} metric insight
                     </p>
+                  )}
+                  {isToolRunSource(item.source) && (
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <p className="text-slate-500">
+                        Generated from {getToolLabel(item.source.toolSlug)} report
+                      </p>
+                      <Link
+                        href={`/c/${item.source.companyId}/diagnostics/${item.source.toolSlug}/${item.source.toolRunId}`}
+                        className="inline-flex items-center gap-1 text-amber-500 hover:text-amber-400 font-medium"
+                      >
+                        View Report
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </Link>
+                    </div>
                   )}
                 </div>
               </div>

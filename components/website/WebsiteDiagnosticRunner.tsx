@@ -36,9 +36,12 @@ export function WebsiteDiagnosticRunner({ companyId, initialStatus = 'not_starte
         setError(data.error);
 
         if (data.status === 'completed') {
-          // Refresh page to show results
-          router.refresh();
+          // Hard refresh to show results from server
           clearInterval(interval);
+          // Small delay to ensure UI updates, then reload
+          setTimeout(() => {
+            window.location.reload();
+          }, 500);
         } else if (data.status === 'failed') {
           clearInterval(interval);
         }

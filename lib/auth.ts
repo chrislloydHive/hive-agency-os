@@ -4,11 +4,22 @@ import GoogleProvider from "next-auth/providers/google";
 // Admin email whitelist - only these emails can access the OS
 const ADMIN_EMAILS = process.env.ADMIN_EMAILS?.split(',').map(email => email.trim()) || [];
 
+// Validate OAuth credentials at startup
+const googleClientId = process.env.NEXTAUTH_GOOGLE_CLIENT_ID;
+const googleClientSecret = process.env.NEXTAUTH_GOOGLE_CLIENT_SECRET;
+
+if (!googleClientId || !googleClientSecret) {
+  console.error('[NextAuth] Missing Google OAuth credentials:', {
+    hasClientId: !!googleClientId,
+    hasClientSecret: !!googleClientSecret,
+  });
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
-      clientId: process.env.NEXTAUTH_GOOGLE_CLIENT_ID || "",
-      clientSecret: process.env.NEXTAUTH_GOOGLE_CLIENT_SECRET || "",
+      clientId: googleClientId || "",
+      clientSecret: googleClientSecret || "",
     }),
   ],
 
@@ -50,4 +61,6 @@ export const authOptions: NextAuthOptions = {
   },
 
   secret: process.env.NEXTAUTH_SECRET,
+
+  debug: process.env.NODE_ENV === 'development',
 };

@@ -69,9 +69,10 @@ export async function runGapSnapshotEngine(input: GapEngineInput): Promise<Engin
 
     // Extract score and summary from initialAssessment
     // The result has structure: { initialAssessment, businessContext, metadata }
+    // initialAssessment is a GapIaV2AiOutput with summary.overallScore
     const ia = result.initialAssessment as any;
-    const overallScore = ia?.scores?.overall ?? ia?.overallScore ?? ia?.score;
-    const maturityStage = ia?.maturityStage;
+    const overallScore = ia?.summary?.overallScore ?? ia?.scores?.overall ?? ia?.overallScore ?? ia?.score;
+    const maturityStage = ia?.summary?.maturityStage ?? ia?.maturityStage;
     const summary = maturityStage
       ? `${maturityStage} maturity stage - Score: ${overallScore}/100`
       : `Overall Score: ${overallScore}/100`;
@@ -416,6 +417,131 @@ export async function runOpsLabEngine(input: EngineInput): Promise<EngineResult>
 }
 
 // ============================================================================
+// GAP Heavy Engine
+// ============================================================================
+
+/**
+ * Run GAP Heavy diagnostic
+ * Deep multi-source analysis: competitors, sitemap, social, analytics
+ */
+export async function runGapHeavyEngine(input: EngineInput): Promise<EngineResult> {
+  console.log('[GAP Heavy Engine] Starting for:', input.websiteUrl);
+
+  try {
+    // Run the full Heavy Worker V4 with all modules
+    const result = await runHeavyWorkerV4({
+      companyId: input.companyId,
+      websiteUrl: input.websiteUrl,
+      enableWebsiteLabV4: true,
+      // Request all modules for comprehensive analysis
+      requestedModules: ['website', 'brand', 'content', 'seo', 'demand', 'ops'],
+    });
+
+    // Calculate aggregate score from all modules
+    const modules = result.evidencePack.modules || [];
+    const completedModules = modules.filter(m => m.status === 'completed' && typeof m.score === 'number');
+    const avgScore = completedModules.length > 0
+      ? Math.round(completedModules.reduce((sum, m) => sum + (m.score || 0), 0) / completedModules.length)
+      : undefined;
+
+    // Build summary
+    const summaryParts: string[] = [];
+    if (avgScore !== undefined) {
+      summaryParts.push(`Overall Score: ${avgScore}/100`);
+    }
+    summaryParts.push(`${completedModules.length}/${modules.length} modules completed`);
+
+    // Add key findings from each module
+    const keyFindings: string[] = [];
+    for (const mod of modules) {
+      if (mod.summary) {
+        keyFindings.push(`${mod.module}: ${mod.summary}`);
+      }
+    }
+
+    console.log('[GAP Heavy Engine] ✓ Complete:', {
+      score: avgScore,
+      modulesCompleted: completedModules.length,
+    });
+
+    return {
+      success: true,
+      score: avgScore,
+      summary: summaryParts.join(' | '),
+      data: {
+        evidencePack: result.evidencePack,
+        heavyRunId: result.runId,
+        dimensions: completedModules.map(m => ({
+          label: m.module,
+          score: m.score,
+          notes: m.summary,
+        })),
+        keyFindings,
+        strategicThemes: modules
+          .flatMap(m => m.recommendations || [])
+          .slice(0, 10),
+        roadmap: buildRoadmapFromModules(modules),
+      },
+    };
+  } catch (error) {
+    console.error('[GAP Heavy Engine] Error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * Build roadmap items from module recommendations
+ */
+function buildRoadmapFromModules(modules: Array<{
+  module: string;
+  recommendations?: string[];
+  issues?: string[];
+}>): Array<{
+  horizon: '0-30 days' | '30-90 days' | '90+ days';
+  items: Array<{ title: string; description: string; category: string }>;
+}> {
+  const allItems: Array<{ title: string; description: string; category: string; priority: number }> = [];
+
+  for (const mod of modules) {
+    // Add high-priority items from issues
+    for (const issue of (mod.issues || []).slice(0, 3)) {
+      allItems.push({
+        title: issue.length > 60 ? issue.substring(0, 57) + '...' : issue,
+        description: issue,
+        category: mod.module,
+        priority: 1,
+      });
+    }
+
+    // Add recommendations as medium-priority
+    for (const rec of (mod.recommendations || []).slice(0, 3)) {
+      allItems.push({
+        title: rec.length > 60 ? rec.substring(0, 57) + '...' : rec,
+        description: rec,
+        category: mod.module,
+        priority: 2,
+      });
+    }
+  }
+
+  // Sort by priority and distribute across horizons
+  allItems.sort((a, b) => a.priority - b.priority);
+
+  const shortTerm = allItems.slice(0, 5).map(({ title, description, category }) => ({ title, description, category }));
+  const mediumTerm = allItems.slice(5, 10).map(({ title, description, category }) => ({ title, description, category }));
+  const longTerm = allItems.slice(10, 15).map(({ title, description, category }) => ({ title, description, category }));
+
+  return [
+    { horizon: '0-30 days', items: shortTerm },
+    { horizon: '30-90 days', items: mediumTerm },
+    { horizon: '90+ days', items: longTerm },
+  ];
+}
+
+// ============================================================================
 // Engine Router
 // ============================================================================
 
@@ -448,6 +574,8 @@ export async function runDiagnosticEngine(
       return runGapSnapshotEngine(input);
     case 'gapPlan':
       return runGapPlanEngine(input);
+    case 'gapHeavy':
+      return runGapHeavyEngine(input);
     case 'websiteLab':
       return runWebsiteLabEngine(input);
     case 'brandLab':

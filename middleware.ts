@@ -1,21 +1,24 @@
-import { withAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
-export default withAuth(
-  function middleware(req) {
-    // If the user is authenticated, allow the request
+export function middleware(request: NextRequest) {
+  // In development, skip auth entirely for easier testing
+  if (process.env.NODE_ENV === 'development') {
     return NextResponse.next();
-  },
-  {
-    callbacks: {
-      authorized: ({ token }) => !!token,
-    },
-    pages: {
-      signIn: '/auth/signin',
-      error: '/auth/error',
-    },
   }
-);
+
+  // In production, check for session cookie
+  const sessionCookie = request.cookies.get('next-auth.session-token') ||
+                        request.cookies.get('__Secure-next-auth.session-token');
+
+  if (!sessionCookie) {
+    const signInUrl = new URL('/auth/signin', request.url);
+    signInUrl.searchParams.set('callbackUrl', request.url);
+    return NextResponse.redirect(signInUrl);
+  }
+
+  return NextResponse.next();
+}
 
 // Protect all routes except auth pages, api routes, and static files
 export const config = {

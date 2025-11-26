@@ -10,6 +10,7 @@ import { getPillarScore } from '@/lib/diagnostics/types';
 import type { Priority, Impact, Effort } from '@/lib/diagnostics/types';
 import RunOsDiagnosticsButton from '@/components/os/RunOsDiagnosticsButton';
 import { CompanyMetaPanel } from '@/components/os/CompanyMetaPanel';
+import { getLatestRunForCompanyAndTool, type DiagnosticRun } from '@/lib/os/diagnostics/runs';
 
 export default async function OsOverviewPage({
   params,
@@ -29,7 +30,7 @@ export default async function OsOverviewPage({
     );
   }
 
-  // Fetch latest OS Full Report
+  // Fetch latest OS Full Report (legacy)
   const latestReportRecord = await getLatestOsFullReportForCompany(companyId);
   const osResult = latestReportRecord
     ? parseFullReportToOsResult(latestReportRecord)
@@ -37,6 +38,12 @@ export default async function OsOverviewPage({
 
   // Fetch recent OS Full Reports for trend analysis
   const recentReports = await getOsFullReportsForCompany(companyId, 5);
+
+  // Fetch latest GAP Plan run from DiagnosticRuns (new system)
+  const latestGapPlan = await getLatestRunForCompanyAndTool(companyId, 'gapPlan');
+  const latestGapSnapshot = await getLatestRunForCompanyAndTool(companyId, 'gapSnapshot');
+  // Use GAP Plan if available, otherwise fall back to GAP Snapshot
+  const latestGapRun = latestGapPlan || latestGapSnapshot;
 
   // Compute trends
   const overallTrend = computeScoreTrend(recentReports, 'Overall Score');
@@ -135,6 +142,96 @@ export default async function OsOverviewPage({
 
       {/* Company Meta Panel */}
       <CompanyMetaPanel company={company} />
+
+      {/* Latest GAP Assessment */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-slate-100">Latest Assessment</h2>
+          <Link
+            href={`/c/${companyId}/diagnostics`}
+            className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+          >
+            View all diagnostics →
+          </Link>
+        </div>
+        {latestGapRun && latestGapRun.status === 'complete' ? (
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="text-slate-200 font-medium">
+                  {latestGapRun.toolId === 'gapPlan' ? 'GAP Plan' : 'GAP Snapshot'}
+                </span>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                  latestGapRun.status === 'complete'
+                    ? 'bg-emerald-500/20 text-emerald-300'
+                    : latestGapRun.status === 'running'
+                      ? 'bg-amber-500/20 text-amber-300'
+                      : 'bg-red-500/20 text-red-300'
+                }`}>
+                  {latestGapRun.status}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">
+                {new Date(latestGapRun.createdAt).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </p>
+              {latestGapRun.summary && (
+                <p className="mt-2 text-sm text-slate-400 line-clamp-2">
+                  {latestGapRun.summary}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-4">
+              {latestGapRun.score != null && (
+                <div className="text-right">
+                  <p className={`text-3xl font-bold tabular-nums ${
+                    latestGapRun.score >= 80 ? 'text-emerald-400' :
+                    latestGapRun.score >= 60 ? 'text-amber-400' : 'text-red-400'
+                  }`}>
+                    {latestGapRun.score}
+                  </p>
+                  <p className="text-xs text-slate-500 uppercase tracking-wide">Score</p>
+                </div>
+              )}
+              <Link
+                href={`/c/${companyId}/diagnostics/${latestGapRun.toolId === 'gapPlan' ? 'gap-plan' : 'gap-snapshot'}/${latestGapRun.id}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/30 hover:bg-blue-500/20 transition-all text-sm font-medium"
+              >
+                View Report
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </Link>
+            </div>
+          </div>
+        ) : latestGapRun && latestGapRun.status === 'running' ? (
+          <div className="flex items-center gap-3 text-amber-400">
+            <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <span className="text-sm">Assessment in progress...</span>
+          </div>
+        ) : (
+          <div className="text-center py-4">
+            <p className="text-slate-400 text-sm mb-3">No GAP assessment yet.</p>
+            <Link
+              href={`/c/${companyId}/diagnostics`}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/30 hover:bg-blue-500/20 transition-all text-sm font-medium"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              Run First Assessment
+            </Link>
+          </div>
+        )}
+      </div>
 
       {/* Overall Score + Trend */}
       {osResult && (

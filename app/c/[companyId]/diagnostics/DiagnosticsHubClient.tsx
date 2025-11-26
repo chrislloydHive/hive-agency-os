@@ -4,6 +4,32 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import type { DiagnosticToolId } from '@/lib/os/diagnostics/runs';
 
+// Map tool IDs to URL slugs
+const toolIdToSlug: Record<DiagnosticToolId, string> = {
+  gapSnapshot: 'gap-snapshot',
+  gapPlan: 'gap-plan',
+  gapHeavy: 'gap-heavy',
+  websiteLab: 'website-lab',
+  brandLab: 'brand-lab',
+  contentLab: 'content-lab',
+  seoLab: 'seo-lab',
+  demandLab: 'demand-lab',
+  opsLab: 'ops-lab',
+};
+
+// Tool labels for display
+const toolLabels: Record<DiagnosticToolId, string> = {
+  gapSnapshot: 'GAP Snapshot',
+  gapPlan: 'GAP Plan',
+  gapHeavy: 'GAP Heavy',
+  websiteLab: 'Website Lab',
+  brandLab: 'Brand Lab',
+  contentLab: 'Content Lab',
+  seoLab: 'SEO Lab',
+  demandLab: 'Demand Lab',
+  opsLab: 'Ops Lab',
+};
+
 interface DiagnosticsHubClientProps {
   companyId: string;
 }
@@ -13,10 +39,10 @@ export function DiagnosticsHubClient({ companyId }: DiagnosticsHubClientProps) {
   const [runningToolId, setRunningToolId] = useState<DiagnosticToolId | null>(null);
   const [toast, setToast] = useState<{
     message: string;
-    type: 'success' | 'error';
+    type: 'success' | 'error' | 'info';
   } | null>(null);
 
-  const showToast = (message: string, type: 'success' | 'error') => {
+  const showToast = (message: string, type: 'success' | 'error' | 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 5000);
   };
@@ -40,12 +66,15 @@ export function DiagnosticsHubClient({ companyId }: DiagnosticsHubClientProps) {
   const runTool = async (toolId: DiagnosticToolId) => {
     if (runningToolId) return;
 
+    const toolSlug = toolIdToSlug[toolId];
+    const toolLabel = toolLabels[toolId];
+
     setRunningToolId(toolId);
-    showToast(`Starting ${toolId} diagnostic...`, 'success');
+    showToast(`Starting ${toolLabel}...`, 'info');
 
     try {
-      // Use the generic diagnostic run API
-      const response = await fetch(`/api/os/diagnostics/run/${toolId}`, {
+      // Use the unified tools API
+      const response = await fetch(`/api/tools/${toolSlug}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId }),
@@ -57,12 +86,27 @@ export function DiagnosticsHubClient({ companyId }: DiagnosticsHubClientProps) {
         throw new Error(result.error || 'Failed to run diagnostic');
       }
 
-      showToast(`${toolId} completed! Refreshing...`, 'success');
+      // Check if we got a run ID back
+      const runId = result.run?.id;
 
-      // Refresh to show updated data
-      setTimeout(() => {
-        router.refresh();
-      }, 1000);
+      if (runId && result.result?.success) {
+        showToast(`${toolLabel} completed! Viewing results...`, 'success');
+        // Navigate to the run detail page
+        setTimeout(() => {
+          router.push(`/c/${companyId}/diagnostics/${toolSlug}/${runId}`);
+        }, 1000);
+      } else if (runId) {
+        showToast(`${toolLabel} started. Check back soon.`, 'info');
+        // Refresh to show updated data
+        setTimeout(() => {
+          router.refresh();
+        }, 1000);
+      } else {
+        showToast(`${toolLabel} completed! Refreshing...`, 'success');
+        setTimeout(() => {
+          router.refresh();
+        }, 1000);
+      }
     } catch (error) {
       console.error(`Error running ${toolId}:`, error);
       showToast(
@@ -82,7 +126,9 @@ export function DiagnosticsHubClient({ companyId }: DiagnosticsHubClientProps) {
           className={`fixed top-4 right-4 z-50 rounded-lg px-4 py-3 shadow-lg ${
             toast.type === 'success'
               ? 'bg-emerald-900/90 border border-emerald-700 text-emerald-100'
-              : 'bg-red-900/90 border border-red-700 text-red-100'
+              : toast.type === 'info'
+                ? 'bg-blue-900/90 border border-blue-700 text-blue-100'
+                : 'bg-red-900/90 border border-red-700 text-red-100'
           }`}
         >
           <div className="flex items-center gap-2">
@@ -91,6 +137,14 @@ export function DiagnosticsHubClient({ companyId }: DiagnosticsHubClientProps) {
                 <path
                   fillRule="evenodd"
                   d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            ) : toast.type === 'info' ? (
+              <svg className="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  fillRule="evenodd"
+                  d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
                   clipRule="evenodd"
                 />
               </svg>
@@ -114,7 +168,7 @@ export function DiagnosticsHubClient({ companyId }: DiagnosticsHubClientProps) {
           <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 shadow-xl">
             <div className="flex items-center gap-3">
               <svg
-                className="animate-spin h-5 w-5 text-emerald-400"
+                className="animate-spin h-5 w-5 text-blue-400"
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
                 viewBox="0 0 24 24"
@@ -134,9 +188,12 @@ export function DiagnosticsHubClient({ companyId }: DiagnosticsHubClientProps) {
                 />
               </svg>
               <span className="text-slate-200 font-medium">
-                Running {runningToolId} diagnostic...
+                Running {toolLabels[runningToolId]}...
               </span>
             </div>
+            <p className="mt-2 text-sm text-slate-400 text-center">
+              This may take a few moments
+            </p>
           </div>
         </div>
       )}

@@ -37,6 +37,16 @@ export default async function DiagnosticsHubPage({ params }: PageProps) {
   // Fetch all diagnostic runs grouped by tool
   const runsByTool = await getRunsGroupedByTool(companyId);
 
+  // Debug: Log scores from runs
+  console.log('[Diagnostics Page] Runs by tool:',
+    Object.entries(runsByTool).map(([toolId, runs]) => ({
+      toolId,
+      runCount: runs.length,
+      latestScore: runs[0]?.score,
+      latestStatus: runs[0]?.status,
+    }))
+  );
+
   // Build tool summaries with latest run data
   const toolSummaries = DIAGNOSTIC_TOOLS.map((tool) => {
     const runs = runsByTool[tool.id] || [];
@@ -231,7 +241,10 @@ function ToolCard({ tool, latestRun, runCount, companyId }: ToolCardProps) {
         {isEnabled ? (
           <>
             <Link
-              href={`/c/${companyId}/diagnostics/${tool.id.replace('Lab', '').toLowerCase()}`}
+              href={hasRun && latestRun && tool.viewPath
+                ? tool.viewPath.replace('{companyId}', companyId).replace('{runId}', latestRun.id)
+                : tool.hubPath.replace('{companyId}', companyId)
+              }
               className="flex-1 rounded-lg bg-slate-800/50 px-3 py-2 text-xs font-medium text-slate-300 text-center hover:bg-slate-700/50 border border-slate-700/50 transition-all"
             >
               {hasRun ? 'View Details' : tool.primaryActionLabel}

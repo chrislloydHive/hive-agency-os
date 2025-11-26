@@ -9,6 +9,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { getHeavyGapRunsByCompanyId } from '@/lib/airtable/gapHeavyRuns';
+import { getLatestRunForCompanyAndTool } from '@/lib/os/diagnostics/runs';
 import { WebsiteNarrativeReport } from '@/components/website/WebsiteNarrativeReport';
 import { buildWebsiteActionPlan } from '@/lib/gap-heavy/modules/websiteActionPlanBuilder';
 import type { DiagnosticModuleResult } from '@/lib/gap-heavy/types';
@@ -36,28 +37,69 @@ export default async function WebsiteDetailPage({ params }: PageProps) {
     return notFound();
   }
 
-  // Fetch most recent Heavy Run
-  const heavyRuns = await getHeavyGapRunsByCompanyId(companyId, 1);
-  const latestHeavyRun = heavyRuns[0] || null;
+  // First check for standalone Website Lab run from Diagnostic Runs table
+  const diagnosticRun = await getLatestRunForCompanyAndTool(companyId, 'websiteLab');
 
   // Extract Website module result
   let websiteModuleResult: DiagnosticModuleResult | null = null;
   let labResultV4: WebsiteUXLabResultV4 | null = null;
   let assessment: WebsiteUXAssessmentV4 | null = null;
+  let runId: string | null = null;
 
-  if (latestHeavyRun?.evidencePack) {
-    // Check for V4 lab result
-    labResultV4 = latestHeavyRun.evidencePack.websiteLabV4 || null;
-    if (labResultV4) {
-      assessment = labResultV4.siteAssessment;
+  // Check Diagnostic Runs table first (new standalone runs)
+  if (diagnosticRun?.status === 'complete' && diagnosticRun.rawJson) {
+    const raw = diagnosticRun.rawJson as any;
+    // The rawJson from Website Lab engine is the DiagnosticModuleResult
+    // which contains rawEvidence.labResultV4.siteAssessment
+    // Check all possible paths where siteAssessment might be stored
+    if (raw.rawEvidence?.labResultV4?.siteAssessment) {
+      // Standard V4 structure from DiagnosticModuleResult
+      assessment = raw.rawEvidence.labResultV4.siteAssessment as WebsiteUXAssessmentV4;
+      labResultV4 = raw.rawEvidence.labResultV4 as WebsiteUXLabResultV4;
+      runId = diagnosticRun.id;
+      console.log('[Website Page] Found data in rawEvidence.labResultV4.siteAssessment');
+    } else if (raw.siteAssessment) {
+      // Direct siteAssessment (truncated format)
+      assessment = raw.siteAssessment as WebsiteUXAssessmentV4;
+      labResultV4 = { siteAssessment: assessment } as WebsiteUXLabResultV4;
+      runId = diagnosticRun.id;
+      console.log('[Website Page] Found data in siteAssessment');
+    } else if (raw.rawEvidence?.siteAssessment) {
+      // Alternative truncated format
+      assessment = raw.rawEvidence.siteAssessment as WebsiteUXAssessmentV4;
+      labResultV4 = { siteAssessment: assessment } as WebsiteUXLabResultV4;
+      runId = diagnosticRun.id;
+      console.log('[Website Page] Found data in rawEvidence.siteAssessment');
+    } else {
+      console.log('[Website Page] Diagnostic run found but no siteAssessment:', {
+        runId: diagnosticRun.id,
+        rawJsonKeys: Object.keys(raw),
+        hasRawEvidence: !!raw.rawEvidence,
+        rawEvidenceKeys: raw.rawEvidence ? Object.keys(raw.rawEvidence) : [],
+      });
     }
+  }
 
-    // Also extract module result for status tracking
-    const websiteModule = latestHeavyRun.evidencePack.modules?.find(
-      (m) => m.module === 'website'
-    );
-    if (websiteModule) {
-      websiteModuleResult = websiteModule;
+  // Fallback to Heavy GAP Runs if no standalone run found
+  if (!assessment || !labResultV4) {
+    const heavyRuns = await getHeavyGapRunsByCompanyId(companyId, 1);
+    const latestHeavyRun = heavyRuns[0] || null;
+
+    if (latestHeavyRun?.evidencePack) {
+      // Check for V4 lab result
+      labResultV4 = latestHeavyRun.evidencePack.websiteLabV4 || null;
+      if (labResultV4) {
+        assessment = labResultV4.siteAssessment;
+        runId = latestHeavyRun.id;
+      }
+
+      // Also extract module result for status tracking
+      const websiteModule = latestHeavyRun.evidencePack.modules?.find(
+        (m) => m.module === 'website'
+      );
+      if (websiteModule) {
+        websiteModuleResult = websiteModule;
+      }
     }
   }
 
@@ -100,7 +142,7 @@ export default async function WebsiteDetailPage({ params }: PageProps) {
     labResult: labResultV4,
     companyName: company.name,
     companyUrl: displayUrl,
-    runId: latestHeavyRun.id,
+    runId: runId || 'unknown',
   });
 
   // Dynamic import of Action Board component

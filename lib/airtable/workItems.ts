@@ -8,7 +8,7 @@
 import { base } from './client';
 import type { PriorityItem } from './fullReports';
 import type { PlanInitiative } from '@/lib/gap/types';
-import type { WorkSource, WorkSourceAnalytics, WorkItem } from '@/lib/types/work';
+import type { WorkSource, WorkSourceAnalytics } from '@/lib/types/work';
 
 /**
  * Work Items table field names (matching Airtable schema exactly)
@@ -53,8 +53,6 @@ export type WorkItemArea =
   | 'SEO'
   | 'Website UX'
   | 'Funnel'
-  | 'Analytics'
-  | 'Operations'
   | 'Other';
 
 /**
@@ -820,132 +818,172 @@ export async function createWorkItemFromAnalytics(args: {
   }
 }
 
+// ============================================================================
+// Tool Run Work Item Creation
+// ============================================================================
+
+import type {
+  WorkCategory,
+  WorkPriority,
+  WorkSourceToolRun,
+} from '@/lib/types/work';
+
 /**
- * Generic payload for creating a work item
+ * Input for creating work items from a tool run
  */
-export interface CreateWorkItemPayload {
+export interface ToolRunWorkItemInput {
   title: string;
-  companyId: string;
-  notes?: string;
-  area?: WorkItemArea;
+  description: string;
   status?: WorkItemStatus;
-  severity?: WorkItemSeverity;
-  source?: WorkSource;
-  effort?: string;
-  impact?: string;
-  fullReportId?: string;
-  priorityId?: string;
-  planInitiativeId?: string;
+  priority?: WorkPriority;
+  category?: WorkCategory;
+  source: WorkSourceToolRun;
 }
 
 /**
- * Create a generic Work Item with optional source tracking
- *
- * This is the preferred way to create work items as it properly handles
- * the Source JSON field for traceability.
- *
- * @param payload - Work item data
- * @returns Created work item or null on error
+ * Map WorkCategory to WorkItemArea
  */
-export async function createWorkItem(
-  payload: CreateWorkItemPayload
-): Promise<WorkItem | null> {
-  const {
-    title,
-    companyId,
-    notes,
-    area = 'Other',
-    status = 'Backlog',
-    severity = 'Medium',
-    source,
-    effort,
-    impact,
-    fullReportId,
-    priorityId,
-    planInitiativeId,
-  } = payload;
+function mapCategoryToWorkItemArea(category?: WorkCategory): WorkItemArea {
+  if (!category) return 'Other';
+  const mapping: Record<WorkCategory, WorkItemArea> = {
+    brand: 'Brand',
+    content: 'Content',
+    seo: 'SEO',
+    website: 'Website UX',
+    analytics: 'Funnel',
+    demand: 'Funnel',
+    ops: 'Other',
+    other: 'Other',
+  };
+  return mapping[category] || 'Other';
+}
 
-  console.log('[Work Items] Creating work item:', {
+/**
+ * Map WorkPriority to WorkItemSeverity
+ */
+function mapPriorityToSeverity(priority?: WorkPriority): WorkItemSeverity {
+  if (!priority) return 'Medium';
+  const mapping: Record<WorkPriority, WorkItemSeverity> = {
+    P0: 'Critical',
+    P1: 'High',
+    P2: 'Medium',
+    P3: 'Low',
+  };
+  return mapping[priority] || 'Medium';
+}
+
+/**
+ * Create multiple Work Items from a Tool Run's AI-generated suggestions
+ *
+ * @param input - Configuration for creating work items
+ * @returns Array of created work item records
+ */
+export async function createWorkItemsFromToolRun(input: {
+  companyId: string;
+  items: ToolRunWorkItemInput[];
+}): Promise<WorkItemRecord[]> {
+  const { companyId, items } = input;
+
+  if (items.length === 0) {
+    return [];
+  }
+
+  console.log('[Work Items] Creating work items from tool run:', {
     companyId,
-    title: title.substring(0, 50),
-    area,
-    status,
-    sourceType: source?.sourceType,
+    itemCount: items.length,
+    toolSlug: items[0]?.source?.toolSlug,
   });
 
-  // Build Airtable fields
-  const fields: Record<string, any> = {
-    [WORK_ITEMS_FIELDS.TITLE]: title,
-    [WORK_ITEMS_FIELDS.COMPANY]: [companyId],
-    [WORK_ITEMS_FIELDS.AREA]: area,
-    [WORK_ITEMS_FIELDS.STATUS]: status,
-    [WORK_ITEMS_FIELDS.SEVERITY]: severity,
-  };
+  // Build records for batch creation
+  const recordsToCreate = items.map((item) => {
+    const fields: Record<string, any> = {
+      [WORK_ITEMS_FIELDS.TITLE]: item.title,
+      [WORK_ITEMS_FIELDS.COMPANY]: [companyId],
+      [WORK_ITEMS_FIELDS.AREA]: mapCategoryToWorkItemArea(item.category),
+      [WORK_ITEMS_FIELDS.STATUS]: item.status || 'Backlog',
+      [WORK_ITEMS_FIELDS.SEVERITY]: mapPriorityToSeverity(item.priority),
+      [WORK_ITEMS_FIELDS.SOURCE_JSON]: JSON.stringify(item.source),
+    };
 
-  if (notes) {
-    fields[WORK_ITEMS_FIELDS.NOTES] = notes;
-  }
-
-  if (source) {
-    fields[WORK_ITEMS_FIELDS.SOURCE_JSON] = JSON.stringify(source);
-  }
-
-  if (effort) {
-    fields[WORK_ITEMS_FIELDS.EFFORT] = effort;
-  }
-
-  if (impact) {
-    fields[WORK_ITEMS_FIELDS.IMPACT] = impact;
-  }
-
-  if (fullReportId) {
-    fields[WORK_ITEMS_FIELDS.FULL_REPORT] = [fullReportId];
-  }
-
-  if (priorityId) {
-    fields[WORK_ITEMS_FIELDS.PRIORITY_ID] = priorityId;
-  }
-
-  if (planInitiativeId) {
-    fields[WORK_ITEMS_FIELDS.PLAN_INITIATIVE_ID] = planInitiativeId;
-  }
-
-  try {
-    const records = await base('Work Items').create([{ fields }]);
-
-    if (!records || records.length === 0) {
-      throw new Error('No record returned from Airtable create');
+    if (item.description) {
+      fields[WORK_ITEMS_FIELDS.AI_ADDITIONAL_INFO] = item.description;
     }
 
-    const record = records[0];
-    const mapped = mapWorkItemRecord(record);
+    return { fields };
+  });
 
-    console.log('[Work Items] ✅ Work item created:', {
-      workItemId: record.id,
-      title: title.substring(0, 30),
+  try {
+    // Airtable batch create supports up to 10 records at a time
+    const createdRecords: WorkItemRecord[] = [];
+    const batchSize = 10;
+
+    for (let i = 0; i < recordsToCreate.length; i += batchSize) {
+      const batch = recordsToCreate.slice(i, i + batchSize);
+      const records = await base('Work Items').create(batch);
+
+      if (records && records.length > 0) {
+        createdRecords.push(...records.map(mapWorkItemRecord));
+      }
+    }
+
+    console.log('[Work Items] Work items created successfully from tool run:', {
+      companyId,
+      createdCount: createdRecords.length,
     });
 
-    // Convert WorkItemRecord to WorkItem type
-    return {
-      id: mapped.id,
-      title: mapped.title,
-      status: mapped.status || 'Backlog',
-      companyId: mapped.companyId,
-      area: mapped.area,
-      severity: mapped.severity,
-      notes: mapped.notes,
-      createdAt: mapped.createdAt,
-      updatedAt: mapped.updatedAt,
-      aiAdditionalInfo: mapped.aiAdditionalInfo,
-      source: mapped.source,
-      priorityId: mapped.priorityId,
-      planInitiativeId: mapped.planInitiativeId,
-      fullReportId: mapped.fullReportId,
-      effort: mapped.effort,
-      impact: mapped.impact,
-    };
+    return createdRecords;
   } catch (error) {
-    console.error('[Work Items] Error creating work item:', error);
-    return null;
+    console.error('[Work Items] Error creating work items from tool run:', error);
+    throw error;
+  }
+}
+
+/**
+ * Count work items created from a specific tool run
+ *
+ * @param runId - The diagnostic run ID (stored in Source JSON)
+ * @returns Count of work items linked to this run
+ */
+export async function countWorkItemsForRun(runId: string): Promise<number> {
+  try {
+    console.log('[Work Items] Counting work items for run:', runId);
+
+    // Fetch all work items that might have Source JSON
+    const records = await base('Work Items')
+      .select({
+        fields: [WORK_ITEMS_FIELDS.SOURCE_JSON],
+        // Only fetch records that have Source JSON set
+        filterByFormula: `NOT({${WORK_ITEMS_FIELDS.SOURCE_JSON}} = '')`,
+      })
+      .all();
+
+    // Count those that match the runId in Source JSON
+    let count = 0;
+    for (const record of records) {
+      const fields = record.fields as WorkItemFields;
+      const sourceJson = fields['Source JSON'];
+      if (sourceJson) {
+        try {
+          const source = JSON.parse(sourceJson) as WorkSource;
+          if (source.sourceType === 'tool_run' && source.toolRunId === runId) {
+            count++;
+          }
+        } catch {
+          // Skip invalid JSON
+        }
+      }
+    }
+
+    console.log('[Work Items] Found', count, 'work items for run:', runId);
+    return count;
+  } catch (error: unknown) {
+    // Handle table or field not found errors gracefully
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('NOT_FOUND') || errorMessage.includes('UNKNOWN_FIELD_NAME')) {
+      console.log('[Work Items] Table or field not found, returning 0');
+      return 0;
+    }
+    console.error('[Work Items] Error counting work items for run:', errorMessage);
+    return 0;
   }
 }

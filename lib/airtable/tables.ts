@@ -15,6 +15,11 @@ export const AIRTABLE_TABLES = {
   COMPANIES: 'Companies',
   WORK_ITEMS: 'Work Items',
   COMPANY_AI_CONTEXT: 'Company AI Context', // Client Brain - AI memory per company
+  DIAGNOSTIC_RUNS: 'Diagnostic Runs', // Tool runs for diagnostics suite
+
+  // Client Brain Tables
+  CLIENT_INSIGHTS: 'Client Insights', // Strategic insights per company
+  CLIENT_DOCUMENTS: 'Client Documents', // Uploaded documents per company
 
   // Legacy/deprecated (for migration reference)
   // GAP_RUNS_OLD: 'GAP Runs',

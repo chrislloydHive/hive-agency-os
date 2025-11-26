@@ -97,26 +97,33 @@ IMPORTANT: Use the prior context above to inform your analysis. Reference releva
     `[aiForCompany] Received response (${content.length} chars)`
   );
 
-  // 4. Log full response to Company AI Context
-  const memoryEntryId = await addCompanyMemoryEntry({
-    companyId,
-    type,
-    source: 'AI',
-    content,
-    tags,
-    relatedEntityId,
-    metadata: {
-      model,
-      temperature,
-      promptLength: taskPrompt.length,
-      responseLength: content.length,
-      memoryEntriesLoaded: loadedMemoryCount,
-    },
-  });
-
-  console.log(
-    `[aiForCompany] Logged response to memory: ${memoryEntryId}`
-  );
+  // 4. Log full response to Company AI Context (non-blocking, failures don't break the flow)
+  let memoryEntryId: string | undefined;
+  try {
+    memoryEntryId = await addCompanyMemoryEntry({
+      companyId,
+      type,
+      source: 'AI',
+      content,
+      tags,
+      relatedEntityId,
+      metadata: {
+        model,
+        temperature,
+        promptLength: taskPrompt.length,
+        responseLength: content.length,
+        memoryEntriesLoaded: loadedMemoryCount,
+      },
+    });
+    console.log(
+      `[aiForCompany] Logged response to memory: ${memoryEntryId}`
+    );
+  } catch (memoryError) {
+    console.warn(
+      `[aiForCompany] Failed to log to memory (non-fatal):`,
+      memoryError instanceof Error ? memoryError.message : memoryError
+    );
+  }
 
   return {
     content,

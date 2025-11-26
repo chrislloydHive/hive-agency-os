@@ -97,8 +97,8 @@ export interface AiForCompanyOptions {
 export interface AiForCompanyResult {
   /** The AI response content */
   content: string;
-  /** The memory entry ID created for this interaction */
-  memoryEntryId: string;
+  /** The memory entry ID created for this interaction (may be undefined if logging failed) */
+  memoryEntryId?: string;
   /** Memory entries that were loaded and injected */
   loadedMemoryCount: number;
 }

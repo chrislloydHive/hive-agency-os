@@ -10,6 +10,7 @@ import {
   updateRecord,
   getAirtableConfig,
 } from '@/lib/airtable/client';
+import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 
 // ============================================================================
 // Types
@@ -22,6 +23,7 @@ import {
 export type DiagnosticToolId =
   | 'gapSnapshot'    // GAP-IA Initial Assessment
   | 'gapPlan'        // Full GAP Plan generation
+  | 'gapHeavy'       // Deep multi-source diagnostic (Heavy Worker V3)
   | 'websiteLab'     // Website UX/Conversion diagnostic
   | 'brandLab'       // Brand health diagnostic
   | 'contentLab'     // Content diagnostic
@@ -87,8 +89,8 @@ export interface ListDiagnosticRunsOptions {
 // Table Configuration
 // ============================================================================
 
-// Use a dedicated table for diagnostic runs
-// TODO: Create this table in Airtable with the following schema:
+// Use a dedicated table for diagnostic runs from centralized tables config
+// Table schema:
 // - Run ID (autonumber or formula)
 // - Company (link to Companies)
 // - Tool ID (single select: gapSnapshot, gapPlan, websiteLab, brandLab, contentLab, seoLab, demandLab, opsLab)
@@ -99,7 +101,9 @@ export interface ListDiagnosticRunsOptions {
 // - Raw JSON (long text)
 // - Created At (date/time)
 // - Updated At (date/time)
-const DIAGNOSTIC_RUNS_TABLE = 'Diagnostic Runs';
+// - URL (URL field - optional, for URL-based tools)
+// - Domain (text field - optional, for domain-based tools)
+const DIAGNOSTIC_RUNS_TABLE = AIRTABLE_TABLES.DIAGNOSTIC_RUNS;
 
 // ============================================================================
 // Helper Functions
@@ -114,7 +118,7 @@ function airtableRecordToDiagnosticRun(record: {
 }): DiagnosticRun {
   const fields = record.fields;
 
-  // Handle Company field - it could be a linked record array or a string
+  // Handle Company field - linked record format
   let companyId = '';
   if (Array.isArray(fields['Company'])) {
     companyId = fields['Company'][0] as string;
@@ -142,13 +146,39 @@ function airtableRecordToDiagnosticRun(record: {
     }
   }
 
+  // Parse score - handle both number and string formats from Airtable
+  let score: number | null = null;
+  const rawScore = fields['Score'];
+  if (typeof rawScore === 'number') {
+    score = rawScore;
+  } else if (typeof rawScore === 'string' && rawScore !== '') {
+    const parsed = parseFloat(rawScore);
+    if (!isNaN(parsed)) {
+      score = parsed;
+    }
+  }
+
+  // If score is still null, try to extract from rawJson
+  if (score === null && rawJson && typeof rawJson === 'object') {
+    const raw = rawJson as any;
+    const ia = raw.initialAssessment || raw;
+    const extractedScore = ia?.summary?.overallScore ?? ia?.scores?.overall ?? ia?.overallScore ?? ia?.score;
+    if (typeof extractedScore === 'number') {
+      score = extractedScore;
+      console.log('[DiagnosticRuns] Score extracted from rawJson:', { recordId: record.id, extractedScore });
+    }
+  }
+
+  // Debug: log score parsing
+  console.log('[DiagnosticRuns] Score parsing:', { recordId: record.id, rawScore, parsedScore: score, rawType: typeof rawScore, hasRawJson: !!rawJson });
+
   return {
     id: record.id,
     companyId,
     toolId: (fields['Tool ID'] as DiagnosticToolId) || 'gapSnapshot',
     status: (fields['Status'] as DiagnosticRunStatus) || 'pending',
     summary: (fields['Summary'] as string) || null,
-    score: typeof fields['Score'] === 'number' ? fields['Score'] : null,
+    score,
     createdAt: (fields['Created At'] as string) || new Date().toISOString(),
     updatedAt: (fields['Updated At'] as string) || new Date().toISOString(),
     metadata,
@@ -165,7 +195,8 @@ function diagnosticRunToAirtableFields(
   const fields: Record<string, unknown> = {};
 
   if ('companyId' in run && run.companyId) {
-    fields['Company'] = [run.companyId]; // Link field format
+    // Store as text - works with any field type
+    fields['Company'] = run.companyId;
   }
   if ('toolId' in run && run.toolId) {
     fields['Tool ID'] = run.toolId;
@@ -183,11 +214,108 @@ function diagnosticRunToAirtableFields(
     fields['Metadata JSON'] = JSON.stringify(run.metadata);
   }
   if ('rawJson' in run && run.rawJson !== undefined) {
-    fields['Raw JSON'] = JSON.stringify(run.rawJson);
+    // Airtable long text fields have a 100,000 character limit
+    // Truncate large JSON data to fit
+    const MAX_JSON_LENGTH = 95000; // Leave some buffer
+    let jsonStr = JSON.stringify(run.rawJson);
+
+    if (jsonStr.length > MAX_JSON_LENGTH) {
+      console.log('[DiagnosticRuns] Raw JSON too large, extracting key data:', {
+        originalLength: jsonStr.length,
+      });
+
+      // Try to extract just the essential data for the tool type
+      const raw = run.rawJson as any;
+      const essentialData: Record<string, unknown> = {
+        _truncated: true,
+        _originalLength: jsonStr.length,
+      };
+
+      // For DiagnosticModuleResult from Website Lab V4
+      // Structure: { module, status, score, summary, issues, recommendations, rawEvidence: { labResultV4 } }
+      if (raw.rawEvidence?.labResultV4) {
+        const labResult = raw.rawEvidence.labResultV4;
+        essentialData.module = raw.module;
+        essentialData.status = raw.status;
+        essentialData.score = raw.score;
+        essentialData.summary = raw.summary;
+        essentialData.issues = raw.issues?.slice(0, 10);
+        essentialData.recommendations = raw.recommendations?.slice(0, 10);
+        // Preserve siteAssessment for the page to use
+        essentialData.rawEvidence = {
+          labResultV4: {
+            siteAssessment: labResult.siteAssessment ? {
+              score: labResult.siteAssessment.score,
+              overallScore: labResult.siteAssessment.overallScore,
+              summary: labResult.siteAssessment.summary,
+              executiveSummary: labResult.siteAssessment.executiveSummary,
+              dimensions: labResult.siteAssessment.dimensions,
+              quickWins: labResult.siteAssessment.quickWins?.slice(0, 5),
+              criticalIssues: labResult.siteAssessment.criticalIssues?.slice(0, 5),
+              issues: labResult.siteAssessment.issues?.slice(0, 10),
+              recommendations: labResult.siteAssessment.recommendations?.slice(0, 10),
+              pageAssessments: labResult.siteAssessment.pageAssessments?.slice(0, 3),
+              conversionFunnels: labResult.siteAssessment.conversionFunnels,
+              consultantReport: labResult.siteAssessment.consultantReport,
+            } : null,
+          },
+        };
+      }
+      // For raw Website Lab results with siteAssessment directly
+      else if (raw.siteAssessment) {
+        essentialData.siteAssessment = {
+          score: raw.siteAssessment.score,
+          overallScore: raw.siteAssessment.overallScore,
+          summary: raw.siteAssessment.summary,
+          executiveSummary: raw.siteAssessment.executiveSummary,
+          dimensions: raw.siteAssessment.dimensions,
+          quickWins: raw.siteAssessment.quickWins?.slice(0, 5),
+          criticalIssues: raw.siteAssessment.criticalIssues?.slice(0, 5),
+          issues: raw.siteAssessment.issues?.slice(0, 10),
+          recommendations: raw.siteAssessment.recommendations?.slice(0, 10),
+          consultantReport: raw.siteAssessment.consultantReport,
+        };
+      }
+
+      // For GAP-IA results, extract summary and dimensions
+      if (raw.initialAssessment) {
+        essentialData.initialAssessment = {
+          summary: raw.initialAssessment.summary,
+          dimensions: raw.initialAssessment.dimensions,
+        };
+      }
+      if (raw.summary && !essentialData.summary) {
+        essentialData.summary = raw.summary;
+      }
+      if (raw.dimensions && !essentialData.dimensions) {
+        essentialData.dimensions = raw.dimensions;
+      }
+
+      // For module results without rawEvidence
+      if (raw.module && raw.score !== undefined && !essentialData.module) {
+        essentialData.module = raw.module;
+        essentialData.score = raw.score;
+        essentialData.summary = raw.summary;
+        essentialData.issues = raw.issues?.slice(0, 10);
+        essentialData.recommendations = raw.recommendations?.slice(0, 10);
+      }
+
+      jsonStr = JSON.stringify(essentialData);
+
+      // If still too large, just store minimal data
+      if (jsonStr.length > MAX_JSON_LENGTH) {
+        jsonStr = JSON.stringify({
+          _truncated: true,
+          _originalLength: jsonStr.length,
+          _note: 'Data too large for storage',
+        });
+      }
+    }
+
+    fields['Raw JSON'] = jsonStr;
   }
 
-  // Always set Updated At
-  fields['Updated At'] = run.updatedAt || new Date().toISOString();
+  // Note: "Updated At" is a computed field in Airtable, don't set it manually
 
   return fields;
 }
@@ -208,13 +336,11 @@ export async function createDiagnosticRun(
     status: input.status,
   });
 
-  const now = new Date().toISOString();
   const fields = diagnosticRunToAirtableFields({
     ...input,
     status: input.status || 'pending',
-    updatedAt: now,
   });
-  fields['Created At'] = now;
+  // Note: "Created At" is auto-set by Airtable
 
   try {
     const result = await createRecord(DIAGNOSTIC_RUNS_TABLE, fields);
@@ -224,10 +350,7 @@ export async function createDiagnosticRun(
       toolId: input.toolId,
     });
 
-    return airtableRecordToDiagnosticRun({
-      id: result.id,
-      fields: { ...fields, 'Created At': now },
-    });
+    return airtableRecordToDiagnosticRun(result);
   } catch (error) {
     console.error('[DiagnosticRuns] Failed to create run:', error);
     throw error;
@@ -409,6 +532,7 @@ export async function getRunsGroupedByTool(
   const grouped: Record<DiagnosticToolId, DiagnosticRun[]> = {
     gapSnapshot: [],
     gapPlan: [],
+    gapHeavy: [],
     websiteLab: [],
     brandLab: [],
     contentLab: [],
@@ -423,10 +547,51 @@ export async function getRunsGroupedByTool(
     }
   }
 
+  // Also check legacy GAP-IA Runs for gapSnapshot (backwards compat)
+  if (grouped.gapSnapshot.length === 0) {
+    try {
+      const { getGapIaRunsForCompany } = await import('@/lib/airtable/gapIaRuns');
+      const iaRuns = await getGapIaRunsForCompany(companyId, 5);
+
+      console.log('[DiagnosticRuns] Processing legacy GAP-IA Runs:', { count: iaRuns.length });
+
+      for (const iaRun of iaRuns) {
+        // Extract score from various locations in the GAP-IA result
+        const iaScore = iaRun.summary?.overallScore
+          ?? iaRun.overallScore
+          ?? iaRun.readinessScore
+          ?? null;
+
+        console.log('[DiagnosticRuns] GAP-IA score extraction:', { runId: iaRun.id, score: iaScore });
+
+        const maturityStage = iaRun.summary?.maturityStage ?? iaRun.maturityStage;
+        const summary = maturityStage
+          ? `${maturityStage} maturity stage - Score: ${iaScore}/100`
+          : iaRun.summary?.narrative || iaRun.insights?.overallSummary || null;
+
+        grouped.gapSnapshot.push({
+          id: iaRun.id,
+          companyId,
+          toolId: 'gapSnapshot',
+          status: iaRun.status === 'complete' || iaRun.status === 'completed' ? 'complete' : iaRun.status === 'error' || iaRun.status === 'failed' ? 'failed' : 'running',
+          summary,
+          score: typeof iaScore === 'number' ? iaScore : null,
+          createdAt: iaRun.createdAt,
+          updatedAt: iaRun.updatedAt,
+          rawJson: iaRun,
+        });
+      }
+    } catch (error) {
+      console.warn('[DiagnosticRuns] Failed to fetch legacy GAP-IA Runs:', error);
+    }
+  }
+
   // Also check Heavy GAP Runs for Website/Brand results (backwards compat)
   try {
     const { getHeavyGapRunsByCompanyId } = await import('@/lib/airtable/gapHeavyRuns');
     const heavyRuns = await getHeavyGapRunsByCompanyId(companyId, 5);
+
+    console.log('[DiagnosticRuns] Processing Heavy GAP Runs:', { count: heavyRuns.length });
 
     for (const heavyRun of heavyRuns) {
       if (!heavyRun.evidencePack) continue;
@@ -434,13 +599,18 @@ export async function getRunsGroupedByTool(
       // Extract Website Lab results
       if (heavyRun.evidencePack.websiteLabV4 && grouped.websiteLab.length === 0) {
         const websiteResult = heavyRun.evidencePack.websiteLabV4;
+        const websiteScore = websiteResult.siteAssessment?.overallScore
+          ?? websiteResult.score
+          ?? websiteResult.siteAssessment?.score
+          ?? null;
+        console.log('[DiagnosticRuns] Website Lab score extraction:', { runId: heavyRun.id, score: websiteScore });
         grouped.websiteLab.push({
           id: `heavy-${heavyRun.id}-website`,
           companyId,
           toolId: 'websiteLab',
           status: 'complete',
           summary: websiteResult.siteAssessment?.executiveSummary || null,
-          score: websiteResult.siteAssessment?.overallScore ?? null,
+          score: websiteScore,
           createdAt: heavyRun.createdAt,
           updatedAt: heavyRun.updatedAt,
           rawJson: websiteResult,
@@ -450,13 +620,18 @@ export async function getRunsGroupedByTool(
       // Extract Brand Lab results
       if (heavyRun.evidencePack.brandLab && grouped.brandLab.length === 0) {
         const brandResult = heavyRun.evidencePack.brandLab;
+        const brandScore = brandResult.diagnostic?.overallScore
+          ?? brandResult.diagnostic?.score
+          ?? brandResult.score
+          ?? null;
+        console.log('[DiagnosticRuns] Brand Lab score extraction:', { runId: heavyRun.id, score: brandScore });
         grouped.brandLab.push({
           id: `heavy-${heavyRun.id}-brand`,
           companyId,
           toolId: 'brandLab',
           status: 'complete',
           summary: brandResult.diagnostic?.executiveSummary || null,
-          score: brandResult.diagnostic?.overallScore ?? null,
+          score: brandScore,
           createdAt: heavyRun.createdAt,
           updatedAt: heavyRun.updatedAt,
           rawJson: brandResult,
@@ -475,13 +650,15 @@ export async function getRunsGroupedByTool(
         const toolId = toolMap[mod.module];
         if (toolId && grouped[toolId].length === 0) {
           const modStatus = String(mod.status);
+          const modScore = typeof mod.score === 'number' ? mod.score : null;
+          console.log('[DiagnosticRuns] Module score extraction:', { runId: heavyRun.id, module: mod.module, score: modScore });
           grouped[toolId].push({
             id: `heavy-${heavyRun.id}-${mod.module}`,
             companyId,
             toolId,
             status: modStatus === 'completed' || modStatus === 'complete' ? 'complete' : modStatus === 'error' || modStatus === 'failed' ? 'failed' : 'running',
             summary: (mod.summary as string) || null,
-            score: typeof mod.score === 'number' ? mod.score : null,
+            score: modScore,
             createdAt: heavyRun.createdAt,
             updatedAt: heavyRun.updatedAt,
             rawJson: mod.rawEvidence || mod,
@@ -507,6 +684,7 @@ export function getToolLabel(toolId: DiagnosticToolId): string {
   const labels: Record<DiagnosticToolId, string> = {
     gapSnapshot: 'GAP Snapshot',
     gapPlan: 'GAP Plan',
+    gapHeavy: 'GAP Heavy',
     websiteLab: 'Website Lab',
     brandLab: 'Brand Lab',
     contentLab: 'Content Lab',
@@ -537,6 +715,7 @@ export function isValidToolId(toolId: string): toolId is DiagnosticToolId {
   const validToolIds: DiagnosticToolId[] = [
     'gapSnapshot',
     'gapPlan',
+    'gapHeavy',
     'websiteLab',
     'brandLab',
     'contentLab',
