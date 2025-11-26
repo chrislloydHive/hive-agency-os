@@ -1,255 +1,160 @@
 // lib/airtable/inboundLeads.ts
-// Airtable helpers for Inbound Leads table
+// Airtable helpers for Inbound Leads
 
-import { base } from './client';
-import type {
-  InboundLeadItem,
-  InboundLeadStatus,
-  LeadSource,
-} from '@/lib/types/pipeline';
+import { getBase } from '@/lib/airtable';
+import type { InboundLeadItem } from '@/lib/types/pipeline';
 
-// Table name
-const TABLE_NAME = 'Inbound Leads';
+const INBOUND_LEADS_TABLE = process.env.AIRTABLE_INBOUND_LEADS_TABLE || 'Inbound Leads';
 
 /**
- * Fetch all inbound leads
+ * Map Airtable record to InboundLeadItem
  */
-export async function getAllInboundLeads(
-  options: {
-    maxRecords?: number;
-    filterByFormula?: string;
-    status?: InboundLeadStatus;
-  } = {}
-): Promise<InboundLeadItem[]> {
-  const { maxRecords = 200, filterByFormula, status } = options;
+function mapRecordToLead(record: any): InboundLeadItem {
+  const fields = record.fields;
 
+  // Company is a linked record field - extract first ID
+  const companyLinks = fields['Company'] as string[] | undefined;
+  const companyId = companyLinks?.[0] || null;
+
+  // GAP-IA Run is a linked record
+  const gapIaLinks = fields['GAP-IA Run'] as string[] | undefined;
+  const gapIaRunId = gapIaLinks?.[0] || null;
+
+  return {
+    id: record.id,
+    name: fields['Name'] || null,
+    email: fields['Email'] || null,
+    website: fields['Website'] || null,
+    companyName: fields['Company Name'] || null,
+    leadSource: fields['Lead Source'] || fields['Source'] || null,
+    status: fields['Status'] || 'New',
+    assignee: fields['Assignee'] || null,
+    notes: fields['Notes'] || null,
+    companyId,
+    gapIaRunId,
+    createdAt: fields['Created At'] || fields['Created'] || null,
+  };
+}
+
+/**
+ * Get all inbound leads from Airtable
+ */
+export async function getAllInboundLeads(): Promise<InboundLeadItem[]> {
   try {
-    const selectOptions: any = {
-      sort: [{ field: 'Created', direction: 'desc' }],
-      maxRecords,
-    };
+    const base = getBase();
+    const records = await base(INBOUND_LEADS_TABLE)
+      .select({
+        sort: [{ field: 'Created At', direction: 'desc' }],
+        maxRecords: 200,
+      })
+      .all();
 
-    // Build filter formula
-    const filters: string[] = [];
-    if (filterByFormula) filters.push(filterByFormula);
-    if (status) filters.push(`{Status} = "${status}"`);
-
-    if (filters.length > 0) {
-      selectOptions.filterByFormula =
-        filters.length === 1 ? filters[0] : `AND(${filters.join(', ')})`;
-    }
-
-    const records = await base(TABLE_NAME).select(selectOptions).all();
-
-    return records.map(parseInboundLeadRecord);
+    return records.map(mapRecordToLead);
   } catch (error) {
-    console.error('[Inbound Leads] Failed to fetch leads:', error);
+    console.error('[InboundLeads] Failed to fetch leads:', error);
     return [];
   }
 }
 
 /**
- * Fetch a single lead by ID
+ * Get a single lead by ID
  */
-export async function getInboundLeadById(
-  id: string
-): Promise<InboundLeadItem | null> {
+export async function getInboundLeadById(id: string): Promise<InboundLeadItem | null> {
   try {
-    const record = await base(TABLE_NAME).find(id);
-    return parseInboundLeadRecord(record);
+    const base = getBase();
+    const record = await base(INBOUND_LEADS_TABLE).find(id);
+    return record ? mapRecordToLead(record) : null;
   } catch (error) {
-    console.error('[Inbound Leads] Failed to fetch lead:', id, error);
+    console.error(`[InboundLeads] Failed to fetch lead ${id}:`, error);
     return null;
+  }
+}
+
+/**
+ * Update lead assignee
+ */
+export async function updateLeadAssignee(id: string, assignee: string): Promise<void> {
+  try {
+    const base = getBase();
+    await base(INBOUND_LEADS_TABLE).update(id, {
+      Assignee: assignee,
+    } as any);
+    console.log(`[InboundLeads] Updated lead ${id} assignee to ${assignee}`);
+  } catch (error) {
+    console.error(`[InboundLeads] Failed to update assignee for ${id}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Update lead status
+ */
+export async function updateLeadStatus(id: string, status: string): Promise<void> {
+  try {
+    const base = getBase();
+    await base(INBOUND_LEADS_TABLE).update(id, {
+      Status: status,
+    } as any);
+    console.log(`[InboundLeads] Updated lead ${id} status to ${status}`);
+  } catch (error) {
+    console.error(`[InboundLeads] Failed to update status for ${id}:`, error);
+    throw error;
   }
 }
 
 /**
  * Create a new inbound lead
  */
-export async function createInboundLead(
-  data: Partial<InboundLeadItem>
-): Promise<InboundLeadItem | null> {
+export async function createInboundLead(params: {
+  name?: string;
+  email?: string;
+  website?: string;
+  companyName?: string;
+  leadSource?: string;
+  status?: string;
+  assignee?: string;
+  notes?: string;
+  companyId?: string;
+}): Promise<InboundLeadItem | null> {
   try {
-    const fields: any = {};
+    const base = getBase();
 
-    if (data.name) fields['Name'] = data.name;
-    if (data.email) fields['Email'] = data.email;
-    if (data.website) fields['Website'] = data.website;
-    if (data.companyName) fields['Company Name'] = data.companyName;
-    if (data.leadSource) fields['Lead Source'] = data.leadSource;
-    if (data.status) fields['Status'] = data.status;
-    if (data.assignee) fields['Assignee'] = data.assignee;
-    if (data.notes) fields['Notes'] = data.notes;
-    if (data.companyId) fields['Company'] = [data.companyId];
-    if (data.gapIaRunId) fields['GAP-IA Run'] = [data.gapIaRunId];
+    const fields: Record<string, unknown> = {
+      Status: params.status || 'New',
+    };
 
-    const record = await base(TABLE_NAME).create(fields);
-    return parseInboundLeadRecord(record);
+    if (params.name) fields['Name'] = params.name;
+    if (params.email) fields['Email'] = params.email;
+    if (params.website) fields['Website'] = params.website;
+    if (params.companyName) fields['Company Name'] = params.companyName;
+    if (params.leadSource) fields['Lead Source'] = params.leadSource;
+    if (params.assignee) fields['Assignee'] = params.assignee;
+    if (params.notes) fields['Notes'] = params.notes;
+    if (params.companyId) fields['Company'] = [params.companyId];
+
+    const records = await base(INBOUND_LEADS_TABLE).create([{ fields: fields as any }]);
+    const createdRecord = records[0];
+
+    console.log(`[InboundLeads] Created lead: ${createdRecord.id}`);
+    return mapRecordToLead(createdRecord);
   } catch (error) {
-    console.error('[Inbound Leads] Failed to create lead:', error);
+    console.error('[InboundLeads] Failed to create lead:', error);
     return null;
   }
 }
 
 /**
- * Update an inbound lead
+ * Link lead to company
  */
-export async function updateInboundLead(
-  id: string,
-  data: Partial<InboundLeadItem>
-): Promise<InboundLeadItem | null> {
+export async function linkLeadToCompany(leadId: string, companyId: string): Promise<void> {
   try {
-    const fields: any = {};
-
-    if (data.name !== undefined) fields['Name'] = data.name;
-    if (data.email !== undefined) fields['Email'] = data.email;
-    if (data.website !== undefined) fields['Website'] = data.website;
-    if (data.companyName !== undefined) fields['Company Name'] = data.companyName;
-    if (data.leadSource !== undefined) fields['Lead Source'] = data.leadSource;
-    if (data.status !== undefined) fields['Status'] = data.status;
-    if (data.assignee !== undefined) fields['Assignee'] = data.assignee;
-    if (data.notes !== undefined) fields['Notes'] = data.notes;
-    if (data.companyId !== undefined) fields['Company'] = data.companyId ? [data.companyId] : [];
-    if (data.gapIaRunId !== undefined)
-      fields['GAP-IA Run'] = data.gapIaRunId ? [data.gapIaRunId] : [];
-
-    const record = await base(TABLE_NAME).update(id, fields);
-    return parseInboundLeadRecord(record);
+    const base = getBase();
+    await base(INBOUND_LEADS_TABLE).update(leadId, {
+      Company: [companyId],
+    } as any);
+    console.log(`[InboundLeads] Linked lead ${leadId} to company ${companyId}`);
   } catch (error) {
-    console.error('[Inbound Leads] Failed to update lead:', id, error);
-    return null;
+    console.error(`[InboundLeads] Failed to link lead ${leadId} to company:`, error);
+    throw error;
   }
-}
-
-/**
- * Parse Airtable record to InboundLeadItem
- */
-function parseInboundLeadRecord(record: any): InboundLeadItem {
-  const fields = record.fields;
-
-  // Get linked IDs
-  const companyId = Array.isArray(fields['Company'])
-    ? fields['Company'][0]
-    : (fields['Company'] as string | undefined);
-
-  const gapIaRunId = Array.isArray(fields['GAP-IA Run'])
-    ? fields['GAP-IA Run'][0]
-    : (fields['GAP-IA Run'] as string | undefined);
-
-  // Get attachments as array of URLs
-  const attachments = Array.isArray(fields['Attachments'])
-    ? fields['Attachments'].map((a: any) => a.url)
-    : undefined;
-
-  return {
-    id: record.id,
-    name: fields['Name'] as string | undefined,
-    email: fields['Email'] as string | undefined,
-    website: fields['Website'] as string | undefined,
-    companyName: fields['Company Name'] as string | undefined,
-    leadSource: (fields['Lead Source'] as LeadSource) || 'Other',
-    status: (fields['Status'] as InboundLeadStatus) || 'New',
-    assignee: fields['Assignee'] as string | undefined,
-    notes: fields['Notes'] as string | undefined,
-    attachments,
-    createdAt: fields['Created'] as string | undefined,
-    companyId,
-    gapIaRunId,
-    // Enrichment from lookup fields
-    gapIaScore: Array.isArray(fields['GAP Score'])
-      ? fields['GAP Score'][0]
-      : (fields['GAP Score'] as number | undefined),
-    gapIaDate: Array.isArray(fields['GAP Date'])
-      ? fields['GAP Date'][0]
-      : (fields['GAP Date'] as string | undefined),
-  };
-}
-
-/**
- * Get lead summary stats
- */
-export async function getInboundLeadSummary(): Promise<{
-  total: number;
-  new: number;
-  contacted: number;
-  qualified: number;
-  converted: number;
-  bySource: Record<string, number>;
-}> {
-  const leads = await getAllInboundLeads();
-
-  const bySource: Record<string, number> = {};
-  for (const lead of leads) {
-    const source = lead.leadSource || 'Other';
-    bySource[source] = (bySource[source] || 0) + 1;
-  }
-
-  return {
-    total: leads.length,
-    new: leads.filter((l) => l.status === 'New').length,
-    contacted: leads.filter((l) => l.status === 'Contacted').length,
-    qualified: leads.filter((l) => l.status === 'Qualified').length,
-    converted: leads.filter((l) => l.status === 'Converted').length,
-    bySource,
-  };
-}
-
-/**
- * Convert lead to company - updates lead and returns company creation data
- */
-export async function prepareLeadForCompanyConversion(
-  leadId: string
-): Promise<{
-  lead: InboundLeadItem;
-  companyData: {
-    name: string;
-    website?: string;
-    email?: string;
-    notes?: string;
-    source: string;
-  };
-} | null> {
-  const lead = await getInboundLeadById(leadId);
-  if (!lead) return null;
-
-  return {
-    lead,
-    companyData: {
-      name: lead.companyName || lead.name || 'Unknown',
-      website: lead.website,
-      email: lead.email,
-      notes: lead.notes,
-      source: `Converted from Inbound Lead (${lead.leadSource})`,
-    },
-  };
-}
-
-/**
- * Convert lead to opportunity - updates lead and returns opportunity creation data
- */
-export async function prepareLeadForOpportunityConversion(
-  leadId: string
-): Promise<{
-  lead: InboundLeadItem;
-  opportunityData: {
-    companyName: string;
-    deliverableName?: string;
-    stage: 'Discovery';
-    notes?: string;
-    leadId: string;
-  };
-} | null> {
-  const lead = await getInboundLeadById(leadId);
-  if (!lead) return null;
-
-  return {
-    lead,
-    opportunityData: {
-      companyName: lead.companyName || lead.name || 'Unknown',
-      deliverableName: `Opportunity from ${lead.leadSource} lead`,
-      stage: 'Discovery',
-      notes: lead.notes,
-      leadId: lead.id,
-    },
-  };
 }

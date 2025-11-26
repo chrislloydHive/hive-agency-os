@@ -1,48 +1,32 @@
-/**
- * Pipeline Opportunities Page
- *
- * Shows all opportunities from A-Lead Tracker with:
- * - Company (linked)
- * - Stage (Discovery, Proposal, Contract, Won, Lost)
- * - Est. value
- * - Close date
- * - Owner
- */
+// app/pipeline/opportunities/page.tsx
+// Pipeline Opportunities Board View
 
-import { getAllCompanies, type CompanyRecord } from '@/lib/airtable/companies';
 import { getAllOpportunities } from '@/lib/airtable/opportunities';
-import { PipelineOpportunitiesClient } from '@/components/os/PipelineOpportunitiesClient';
+import { getAllCompanies, type CompanyRecord } from '@/lib/airtable/companies';
+import { OpportunitiesBoardClient } from './OpportunitiesBoardClient';
 
-// Fetch opportunities with company data
-async function getOpportunitiesWithCompanies() {
+export const dynamic = 'force-dynamic';
+
+export default async function OpportunitiesPage() {
   const [opportunities, companies] = await Promise.all([
-    getAllOpportunities({ maxRecords: 200 }),
+    getAllOpportunities(),
     getAllCompanies(),
   ]);
 
-  // Build company lookup
+  // Build company lookup for enrichment
   const companyLookup = new Map<string, CompanyRecord>();
   for (const company of companies) {
     companyLookup.set(company.id, company);
   }
 
-  // Enrich opportunities with additional company data
-  const enrichedOpportunities = opportunities.map((opp) => {
-    const company = opp.companyId ? companyLookup.get(opp.companyId) : undefined;
-    return {
-      ...opp,
-      // Use company name from lookup if not already set
-      companyName: opp.companyName || company?.name || 'Unknown Company',
-      companyDomain: opp.companyDomain || company?.domain,
-      companyStage: opp.companyStage || company?.stage,
-    };
-  });
-
-  return { opportunities: enrichedOpportunities, companies };
-}
-
-export default async function OpportunitiesPage() {
-  const { opportunities, companies } = await getOpportunitiesWithCompanies();
+  // Enrich opportunities with company data
+  const enrichedOpportunities = opportunities.map((opp) => ({
+    ...opp,
+    // If company data available, enrich
+    industry: opp.industry || (opp.companyId ? companyLookup.get(opp.companyId)?.industry : null),
+    companyType: opp.companyType || (opp.companyId ? companyLookup.get(opp.companyId)?.companyType : null),
+    sizeBand: opp.sizeBand || (opp.companyId ? companyLookup.get(opp.companyId)?.sizeBand : null),
+  }));
 
   return (
     <div className="p-8">
@@ -62,8 +46,8 @@ export default async function OpportunitiesPage() {
         </div>
       </div>
 
-      <PipelineOpportunitiesClient
-        opportunities={opportunities}
+      <OpportunitiesBoardClient
+        opportunities={enrichedOpportunities}
         companies={companies}
       />
     </div>

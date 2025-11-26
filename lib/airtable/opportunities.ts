@@ -1,112 +1,197 @@
 // lib/airtable/opportunities.ts
-// Airtable helpers for A-Lead Tracker (Opportunities) table
+// Airtable helpers for Opportunities (A-Lead Tracker)
 
-import { base } from './client';
-import type {
-  OpportunityItem,
-  OpportunityStage,
-  LeadStatus,
-} from '@/lib/types/pipeline';
+import { getBase } from '@/lib/airtable';
+import type { OpportunityItem, PipelineStage } from '@/lib/types/pipeline';
+import { normalizeStage } from '@/lib/types/pipeline';
 
-// Table name - using A-Lead Tracker as specified
-const TABLE_NAME = 'A-Lead Tracker';
+const OPPORTUNITIES_TABLE = process.env.AIRTABLE_OPPORTUNITIES_TABLE || 'A-Lead Tracker';
 
 /**
- * Fetch all opportunities from A-Lead Tracker
+ * Map Airtable record to OpportunityItem
  */
-export async function getAllOpportunities(
-  options: {
-    maxRecords?: number;
-    filterByFormula?: string;
-  } = {}
-): Promise<OpportunityItem[]> {
-  const { maxRecords = 200, filterByFormula } = options;
+function mapRecordToOpportunity(record: any): OpportunityItem {
+  const fields = record.fields;
 
+  // Company is a linked record field - extract first ID
+  const companyLinks = fields['Company'] as string[] | undefined;
+  const companyId = companyLinks?.[0] || null;
+
+  // Get company name from lookup or direct field
+  const companyNameFromLookup = fields['Company Name (from Notes)'] as string[] | undefined;
+  const companyName = companyNameFromLookup?.[0] || fields['Company Name'] || 'Unknown';
+
+  // Normalize probability to 0-1 range
+  let probability = fields['Probability'] as number | undefined;
+  if (probability && probability > 1) {
+    probability = probability / 100;
+  }
+
+  return {
+    id: record.id,
+    companyId,
+    companyName,
+    deliverableName: fields['Deliverable Name'] || fields['Name'] || null,
+    stage: normalizeStage(fields['Stage']),
+    leadStatus: fields['Lead Status'] || null,
+    owner: fields['Owner'] || fields['Rep'] || null,
+    value: typeof fields['Value'] === 'number' ? fields['Value'] : null,
+    probability: probability ?? null,
+    closeDate: fields['Close Date'] || null,
+    createdAt: fields['Created At'] || fields['Created'] || null,
+    notes: fields['Rep Notes'] || fields['Notes'] || null,
+
+    // CRM fields if available via lookup
+    industry: fields['Industry'] || null,
+    companyType: fields['Company Type'] || null,
+    sizeBand: fields['Size Band'] || null,
+    icpFitScore: typeof fields['ICP Fit Score'] === 'number' ? fields['ICP Fit Score'] : null,
+    leadScore: typeof fields['Lead Score'] === 'number' ? fields['Lead Score'] : null,
+
+    // AI scoring fields
+    opportunityScore: typeof fields['Opportunity Score'] === 'number'
+      ? fields['Opportunity Score']
+      : null,
+    opportunityScoreExplanation: fields['Opportunity Score Explanation'] || null,
+  };
+}
+
+/**
+ * Get all opportunities from Airtable
+ */
+export async function getAllOpportunities(): Promise<OpportunityItem[]> {
   try {
-    const selectOptions: any = {
-      sort: [{ field: 'Close Date', direction: 'asc' }],
-      maxRecords,
-    };
+    const base = getBase();
+    const records = await base(OPPORTUNITIES_TABLE)
+      .select({
+        sort: [{ field: 'Close Date', direction: 'asc' }],
+        maxRecords: 200,
+      })
+      .all();
 
-    if (filterByFormula) {
-      selectOptions.filterByFormula = filterByFormula;
-    }
-
-    const records = await base(TABLE_NAME).select(selectOptions).all();
-
-    return records.map(parseOpportunityRecord);
+    return records.map(mapRecordToOpportunity);
   } catch (error) {
-    console.error('[Opportunities] Failed to fetch from A-Lead Tracker:', error);
+    console.error('[Opportunities] Failed to fetch opportunities:', error);
     return [];
   }
 }
 
 /**
- * Fetch a single opportunity by ID
+ * Get a single opportunity by ID
  */
-export async function getOpportunityById(
-  id: string
-): Promise<OpportunityItem | null> {
+export async function getOpportunityById(id: string): Promise<OpportunityItem | null> {
   try {
-    const record = await base(TABLE_NAME).find(id);
-    return parseOpportunityRecord(record);
+    const base = getBase();
+    const record = await base(OPPORTUNITIES_TABLE).find(id);
+    return record ? mapRecordToOpportunity(record) : null;
   } catch (error) {
-    console.error('[Opportunities] Failed to fetch opportunity:', id, error);
+    console.error(`[Opportunities] Failed to fetch opportunity ${id}:`, error);
     return null;
   }
 }
 
 /**
- * Fetch opportunities for a specific company
+ * Update opportunity stage
  */
-export async function getOpportunitiesForCompany(
-  companyId: string,
-  limit: number = 10
-): Promise<OpportunityItem[]> {
+export async function updateOpportunityStage(
+  id: string,
+  stage: PipelineStage
+): Promise<void> {
   try {
-    const records = await base(TABLE_NAME)
-      .select({
-        filterByFormula: `FIND("${companyId}", ARRAYJOIN({Company}))`,
-        sort: [{ field: 'Created At', direction: 'desc' }],
-        maxRecords: limit,
-      })
-      .all();
+    const base = getBase();
 
-    return records.map(parseOpportunityRecord);
+    // Map our stage back to Airtable format
+    const stageMap: Record<PipelineStage, string> = {
+      discovery: 'Discovery',
+      qualification: 'Qualification',
+      proposal: 'Proposal',
+      negotiation: 'Negotiation',
+      closed_won: 'Won',
+      closed_lost: 'Lost',
+    };
+
+    await base(OPPORTUNITIES_TABLE).update(id, {
+      Stage: stageMap[stage] || stage,
+    } as any);
+
+    console.log(`[Opportunities] Updated opportunity ${id} stage to ${stage}`);
   } catch (error) {
-    console.error(
-      '[Opportunities] Failed to fetch for company:',
-      companyId,
-      error
-    );
-    return [];
+    console.error(`[Opportunities] Failed to update stage for ${id}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Update opportunity AI score
+ */
+export async function updateOpportunityScore(
+  id: string,
+  score: number,
+  explanation?: string
+): Promise<void> {
+  try {
+    const base = getBase();
+    const fields: Record<string, unknown> = {
+      'Opportunity Score': score,
+    };
+
+    if (explanation) {
+      fields['Opportunity Score Explanation'] = explanation;
+    }
+
+    await base(OPPORTUNITIES_TABLE).update(id, fields as any);
+    console.log(`[Opportunities] Updated opportunity ${id} score to ${score}`);
+  } catch (error) {
+    console.error(`[Opportunities] Failed to update score for ${id}:`, error);
+    throw error;
   }
 }
 
 /**
  * Create a new opportunity
  */
-export async function createOpportunity(
-  data: Partial<OpportunityItem>
-): Promise<OpportunityItem | null> {
+export async function createOpportunity(params: {
+  companyId?: string;
+  name: string;
+  stage?: PipelineStage;
+  value?: number;
+  probability?: number;
+  closeDate?: string;
+  owner?: string;
+  notes?: string;
+}): Promise<OpportunityItem | null> {
   try {
-    const fields: any = {};
+    const base = getBase();
 
-    if (data.deliverableName) fields['Deliverable Name'] = data.deliverableName;
-    if (data.companyName) fields['Company Name (from Notes)'] = data.companyName;
-    if (data.stage) fields['Stage'] = data.stage;
-    if (data.leadStatus) fields['Lead Status'] = data.leadStatus;
-    if (data.owner) fields['Owner'] = data.owner;
-    if (data.value) fields['Value'] = data.value;
-    if (data.probability) fields['Probability'] = data.probability;
-    if (data.closeDate) fields['Close Date'] = data.closeDate;
-    if (data.notes) fields['Company Notes'] = data.notes;
-    if (data.repNotes) fields['Rep Notes'] = data.repNotes;
-    if (data.companyId) fields['Company'] = [data.companyId];
-    if (data.leadId) fields['Lead'] = [data.leadId];
+    const fields: Record<string, unknown> = {
+      'Deliverable Name': params.name,
+      Stage: params.stage ? getAirtableStage(params.stage) : 'Discovery',
+    };
 
-    const record = await base(TABLE_NAME).create(fields);
-    return parseOpportunityRecord(record);
+    if (params.companyId) {
+      fields['Company'] = [params.companyId];
+    }
+    if (params.value !== undefined) {
+      fields['Value'] = params.value;
+    }
+    if (params.probability !== undefined) {
+      fields['Probability'] = params.probability * 100; // Store as percentage
+    }
+    if (params.closeDate) {
+      fields['Close Date'] = params.closeDate;
+    }
+    if (params.owner) {
+      fields['Owner'] = params.owner;
+    }
+    if (params.notes) {
+      fields['Rep Notes'] = params.notes;
+    }
+
+    const records = await base(OPPORTUNITIES_TABLE).create([{ fields: fields as any }]);
+    const createdRecord = records[0];
+
+    console.log(`[Opportunities] Created opportunity: ${createdRecord.id}`);
+    return mapRecordToOpportunity(createdRecord);
   } catch (error) {
     console.error('[Opportunities] Failed to create opportunity:', error);
     return null;
@@ -114,127 +199,16 @@ export async function createOpportunity(
 }
 
 /**
- * Update an opportunity
+ * Convert PipelineStage to Airtable stage string
  */
-export async function updateOpportunity(
-  id: string,
-  data: Partial<OpportunityItem>
-): Promise<OpportunityItem | null> {
-  try {
-    const fields: any = {};
-
-    if (data.deliverableName !== undefined)
-      fields['Deliverable Name'] = data.deliverableName;
-    if (data.stage !== undefined) fields['Stage'] = data.stage;
-    if (data.leadStatus !== undefined) fields['Lead Status'] = data.leadStatus;
-    if (data.owner !== undefined) fields['Owner'] = data.owner;
-    if (data.value !== undefined) fields['Value'] = data.value;
-    if (data.probability !== undefined) fields['Probability'] = data.probability;
-    if (data.closeDate !== undefined) fields['Close Date'] = data.closeDate;
-    if (data.notes !== undefined) fields['Company Notes'] = data.notes;
-    if (data.repNotes !== undefined) fields['Rep Notes'] = data.repNotes;
-
-    const record = await base(TABLE_NAME).update(id, fields);
-    return parseOpportunityRecord(record);
-  } catch (error) {
-    console.error('[Opportunities] Failed to update opportunity:', id, error);
-    return null;
-  }
-}
-
-/**
- * Parse Airtable record to OpportunityItem
- */
-function parseOpportunityRecord(record: any): OpportunityItem {
-  const fields = record.fields;
-
-  // Get company name from various possible fields
-  const companyName =
-    (fields['Company Name (from Notes)'] as string) ||
-    (fields['Company Name'] as string) ||
-    (Array.isArray(fields['Company Name (from Company)'])
-      ? fields['Company Name (from Company)'][0]
-      : (fields['Company Name (from Company)'] as string)) ||
-    'Unknown Company';
-
-  // Get company ID from linked field
-  const companyId = Array.isArray(fields['Company'])
-    ? fields['Company'][0]
-    : (fields['Company'] as string | undefined);
-
-  // Get lead ID from linked field
-  const leadId = Array.isArray(fields['Lead'])
-    ? fields['Lead'][0]
-    : (fields['Lead'] as string | undefined);
-
-  return {
-    id: record.id,
-    companyName,
-    deliverableName: fields['Deliverable Name'] as string | undefined,
-    stage: (fields['Stage'] as OpportunityStage) || 'Discovery',
-    leadStatus: fields['Lead Status'] as LeadStatus | undefined,
-    owner: fields['Owner'] as string | undefined,
-    value: fields['Value'] as number | undefined,
-    probability: fields['Probability'] as number | undefined,
-    closeDate: fields['Close Date'] as string | undefined,
-    createdAt: fields['Created At'] as string | undefined,
-    notes: fields['Company Notes'] as string | undefined,
-    repNotes: fields['Rep Notes'] as string | undefined,
-    nextSteps: fields['Next Steps'] as string | undefined,
-    companyId,
-    leadId,
-    // Snapshot fields if available
-    snapshotScore: fields['Snapshot Score'] as number | undefined,
-    snapshotDate: fields['Snapshot Date'] as string | undefined,
-    // CRM enrichment from lookup fields
-    companyStage: Array.isArray(fields['Company Stage'])
-      ? fields['Company Stage'][0]
-      : (fields['Company Stage'] as string | undefined),
-    companyDomain: Array.isArray(fields['Company Domain'])
-      ? fields['Company Domain'][0]
-      : (fields['Company Domain'] as string | undefined),
-    companyIndustry: Array.isArray(fields['Industry'])
-      ? fields['Industry'][0]
-      : (fields['Industry'] as string | undefined),
-    icpFitScore: fields['ICP Fit Score'] as number | undefined,
+function getAirtableStage(stage: PipelineStage): string {
+  const stageMap: Record<PipelineStage, string> = {
+    discovery: 'Discovery',
+    qualification: 'Qualification',
+    proposal: 'Proposal',
+    negotiation: 'Negotiation',
+    closed_won: 'Won',
+    closed_lost: 'Lost',
   };
-}
-
-/**
- * Get pipeline summary stats
- */
-export async function getOpportunitySummary(): Promise<{
-  total: number;
-  active: number;
-  activeValue: number;
-  weightedValue: number;
-  byStage: Record<string, { count: number; value: number }>;
-}> {
-  const opportunities = await getAllOpportunities();
-
-  const activeStages = ['Discovery', 'Proposal', 'Contract'];
-  const active = opportunities.filter((o) => activeStages.includes(o.stage));
-
-  const activeValue = active.reduce((sum, o) => sum + (o.value || 0), 0);
-  const weightedValue = active.reduce(
-    (sum, o) => sum + (o.value || 0) * ((o.probability || 50) / 100),
-    0
-  );
-
-  const byStage: Record<string, { count: number; value: number }> = {};
-  for (const stage of ['Discovery', 'Proposal', 'Contract', 'Won', 'Lost']) {
-    const stageOpps = opportunities.filter((o) => o.stage === stage);
-    byStage[stage] = {
-      count: stageOpps.length,
-      value: stageOpps.reduce((sum, o) => sum + (o.value || 0), 0),
-    };
-  }
-
-  return {
-    total: opportunities.length,
-    active: active.length,
-    activeValue,
-    weightedValue,
-    byStage,
-  };
+  return stageMap[stage] || 'Discovery';
 }

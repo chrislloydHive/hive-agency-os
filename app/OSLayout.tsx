@@ -80,7 +80,7 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
     },
     {
       name: 'Pipeline',
-      href: '/pipeline/opportunities',
+      href: '/pipeline',
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
@@ -91,6 +91,7 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
         variant: 'info' as const,
       } : undefined,
       submenu: [
+        { name: 'Dashboard', href: '/pipeline' },
         { name: 'Opportunities', href: '/pipeline/opportunities' },
         { name: 'Leads', href: '/pipeline/leads' },
       ],

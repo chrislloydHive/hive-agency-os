@@ -1,19 +1,33 @@
-/**
- * Pipeline Leads Page
- *
- * Shows all inbound leads with:
- * - Company/domain
- * - Source (DMA, outbound, referral)
- * - Status (New, Contacted, Qualified, Disqualified)
- * - Created date
- * - Link to create company/opportunity
- */
+// app/pipeline/leads/page.tsx
+// Pipeline Leads - Inbound lead triage with routing
 
 import { getAllInboundLeads } from '@/lib/airtable/inboundLeads';
-import { PipelineLeadsClient } from '@/components/os/PipelineLeadsClient';
+import { getAllCompanies } from '@/lib/airtable/companies';
+import { LeadsClient } from './LeadsClient';
+
+export const dynamic = 'force-dynamic';
 
 export default async function LeadsPage() {
-  const leads = await getAllInboundLeads({ maxRecords: 200 });
+  const [leads, companies] = await Promise.all([
+    getAllInboundLeads(),
+    getAllCompanies(),
+  ]);
+
+  // Build company lookup
+  const companyLookup = new Map<string, { name: string; industry?: string; sizeBand?: string }>();
+  for (const company of companies) {
+    companyLookup.set(company.id, {
+      name: company.name,
+      industry: company.industry,
+      sizeBand: company.sizeBand,
+    });
+  }
+
+  // Enrich leads with company data
+  const enrichedLeads = leads.map((lead) => ({
+    ...lead,
+    companyInfo: lead.companyId ? companyLookup.get(lead.companyId) : null,
+  }));
 
   return (
     <div className="p-8">
@@ -31,7 +45,7 @@ export default async function LeadsPage() {
         </div>
       </div>
 
-      <PipelineLeadsClient leads={leads} />
+      <LeadsClient leads={enrichedLeads} />
     </div>
   );
 }

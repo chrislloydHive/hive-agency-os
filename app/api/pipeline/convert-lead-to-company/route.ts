@@ -1,26 +1,23 @@
 // app/api/pipeline/convert-lead-to-company/route.ts
-// API route to convert an inbound lead to a company in CRM
+// Convert inbound lead to CRM company
 
 import { NextRequest, NextResponse } from 'next/server';
-import { base } from '@/lib/airtable/client';
-import {
-  getInboundLeadById,
-  updateInboundLead,
-} from '@/lib/airtable/inboundLeads';
+import { getInboundLeadById, linkLeadToCompany, updateLeadStatus } from '@/lib/airtable/inboundLeads';
+import { findOrCreateCompanyByDomain } from '@/lib/airtable/companies';
 
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json();
-    const { leadId, companyData } = body;
+    const body = await req.json();
+    const { leadId } = body;
 
     if (!leadId) {
       return NextResponse.json(
-        { error: 'Lead ID is required' },
+        { error: 'Missing leadId' },
         { status: 400 }
       );
     }
 
-    // Fetch the lead
+    // Fetch lead
     const lead = await getInboundLeadById(leadId);
     if (!lead) {
       return NextResponse.json(
@@ -29,47 +26,52 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if already converted
+    // Check if already linked to a company
     if (lead.companyId) {
       return NextResponse.json(
-        { error: 'Lead already converted to company', companyId: lead.companyId },
+        { error: 'Lead already linked to a company' },
         { status: 400 }
       );
     }
 
-    // Create company in CRM (Companies table)
-    const companyFields: any = {
-      Name: companyData?.name || lead.companyName || lead.name || 'Unknown',
-      Stage: 'Prospect',
-    };
-
-    // Add optional fields
-    if (lead.website || companyData?.website) {
-      companyFields['Website'] = lead.website || companyData?.website;
-    }
-    if (lead.notes || companyData?.notes) {
-      companyFields['Notes'] = `${lead.notes || ''}\n\nConverted from Inbound Lead (${lead.leadSource})`.trim();
+    // Need website to create company
+    if (!lead.website) {
+      return NextResponse.json(
+        { error: 'Lead has no website to create company from' },
+        { status: 400 }
+      );
     }
 
-    // Create the company
-    const companyRecord = await base('Companies').create(companyFields) as any;
+    // Find or create company
+    const { companyId, companyRecord, isNew } = await findOrCreateCompanyByDomain(
+      lead.website,
+      {
+        companyName: lead.companyName || undefined,
+        stage: 'Prospect',
+        source: lead.leadSource?.includes('DMA') || lead.leadSource?.includes('GAP')
+          ? 'Inbound'
+          : 'Other',
+      }
+    );
 
-    // Update the lead with the company link and status
-    await updateInboundLead(leadId, {
-      companyId: companyRecord.id,
-      status: 'Converted',
-    });
+    // Link lead to company
+    await linkLeadToCompany(leadId, companyRecord.id);
+
+    // Update lead status
+    await updateLeadStatus(leadId, 'Qualified');
+
+    console.log(`[ConvertLeadToCompany] Lead ${leadId} → Company ${companyRecord.id} (${isNew ? 'new' : 'existing'})`);
 
     return NextResponse.json({
-      success: true,
+      leadId,
       companyId: companyRecord.id,
-      companyName: companyRecord.fields['Name'],
-      message: `Lead converted to company: ${companyRecord.fields['Name']}`,
+      companyName: companyRecord.name,
+      isNew,
     });
   } catch (error) {
-    console.error('[API] Failed to convert lead to company:', error);
+    console.error('[ConvertLeadToCompany] Error:', error);
     return NextResponse.json(
-      { error: 'Failed to convert lead to company' },
+      { error: error instanceof Error ? error.message : 'Internal error' },
       { status: 500 }
     );
   }

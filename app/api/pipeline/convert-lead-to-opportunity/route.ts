@@ -1,26 +1,24 @@
 // app/api/pipeline/convert-lead-to-opportunity/route.ts
-// API route to convert an inbound lead to an opportunity in A-Lead Tracker
+// Convert inbound lead to pipeline opportunity
 
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  getInboundLeadById,
-  updateInboundLead,
-} from '@/lib/airtable/inboundLeads';
+import { getInboundLeadById, updateLeadStatus } from '@/lib/airtable/inboundLeads';
 import { createOpportunity } from '@/lib/airtable/opportunities';
+import { getCompanyById } from '@/lib/airtable/companies';
 
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json();
-    const { leadId, opportunityData } = body;
+    const body = await req.json();
+    const { leadId, value, stage } = body;
 
     if (!leadId) {
       return NextResponse.json(
-        { error: 'Lead ID is required' },
+        { error: 'Missing leadId' },
         { status: 400 }
       );
     }
 
-    // Fetch the lead
+    // Fetch lead
     const lead = await getInboundLeadById(leadId);
     if (!lead) {
       return NextResponse.json(
@@ -29,19 +27,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create opportunity in A-Lead Tracker
+    // Need company to create opportunity
+    if (!lead.companyId) {
+      return NextResponse.json(
+        { error: 'Lead must be linked to a company first. Create a company before creating an opportunity.' },
+        { status: 400 }
+      );
+    }
+
+    // Get company details
+    const company = await getCompanyById(lead.companyId);
+    if (!company) {
+      return NextResponse.json(
+        { error: 'Linked company not found' },
+        { status: 404 }
+      );
+    }
+
+    // Create opportunity
     const opportunity = await createOpportunity({
-      companyName: opportunityData?.companyName || lead.companyName || lead.name || 'Unknown',
-      deliverableName: opportunityData?.deliverableName || `Opportunity from ${lead.leadSource} lead`,
-      stage: 'Discovery',
-      notes: `Converted from Inbound Lead\n\nOriginal notes: ${lead.notes || 'None'}`,
-      leadId: leadId,
-      // Link to company if the lead was already converted to one
       companyId: lead.companyId,
-      // Additional fields from request
-      owner: opportunityData?.owner,
-      value: opportunityData?.value,
-      probability: opportunityData?.probability || 25,
+      name: `${company.name} - New Opportunity`,
+      stage: stage || 'discovery',
+      value: value || undefined,
+      owner: lead.assignee || undefined,
+      notes: lead.notes || undefined,
     });
 
     if (!opportunity) {
@@ -51,21 +61,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update the lead status
-    await updateInboundLead(leadId, {
-      status: 'Converted',
-    });
+    // Update lead status
+    await updateLeadStatus(leadId, 'Qualified');
+
+    console.log(`[ConvertLeadToOpportunity] Lead ${leadId} → Opportunity ${opportunity.id}`);
 
     return NextResponse.json({
-      success: true,
+      leadId,
       opportunityId: opportunity.id,
-      companyName: opportunity.companyName,
-      message: `Lead converted to opportunity: ${opportunity.deliverableName || opportunity.companyName}`,
+      companyId: lead.companyId,
+      companyName: company.name,
     });
   } catch (error) {
-    console.error('[API] Failed to convert lead to opportunity:', error);
+    console.error('[ConvertLeadToOpportunity] Error:', error);
     return NextResponse.json(
-      { error: 'Failed to convert lead to opportunity' },
+      { error: error instanceof Error ? error.message : 'Internal error' },
       { status: 500 }
     );
   }
