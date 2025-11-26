@@ -1,7 +1,7 @@
 'use client';
 
 // app/analytics/dma/DmaFunnelClient.tsx
-// DMA Funnel Analytics Client Component with Charts and Persistent AI Insights
+// DMA Funnel Analytics Client Component with Charts, Global AI Cache, and Blueprint
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
@@ -18,6 +18,11 @@ import {
   Legend,
 } from 'recharts';
 import type { AuditFunnelSnapshot } from '@/lib/ga4Client';
+import {
+  getCachedInsights,
+  setCachedInsights,
+  invalidateInsightsCache,
+} from '@/lib/ai/insightsCache';
 
 interface DmaFunnelClientProps {
   initialSnapshot: AuditFunnelSnapshot;
@@ -48,52 +53,28 @@ interface DmaFunnelInsights {
   }>;
 }
 
-// Cache key for localStorage
-const INSIGHTS_CACHE_KEY = 'dma-funnel-insights';
-const CACHE_TTL_HOURS = 24;
-
-interface CachedInsights {
-  insights: DmaFunnelInsights;
-  dateRange: string;
-  timestamp: number;
-}
-
-// Load cached insights from localStorage
-function loadCachedInsights(dateRange: string): DmaFunnelInsights | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const cached = localStorage.getItem(INSIGHTS_CACHE_KEY);
-    if (!cached) return null;
-
-    const data: CachedInsights = JSON.parse(cached);
-    const now = Date.now();
-    const ageHours = (now - data.timestamp) / (1000 * 60 * 60);
-
-    // Check if cache is valid (same date range and not expired)
-    if (data.dateRange === dateRange && ageHours < CACHE_TTL_HOURS) {
-      console.log('[DMA] Loaded cached insights');
-      return data.insights;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-// Save insights to localStorage
-function saveCachedInsights(insights: DmaFunnelInsights, dateRange: string): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const data: CachedInsights = {
-      insights,
-      dateRange,
-      timestamp: Date.now(),
-    };
-    localStorage.setItem(INSIGHTS_CACHE_KEY, JSON.stringify(data));
-    console.log('[DMA] Cached insights saved');
-  } catch {
-    // Ignore storage errors
-  }
+// DMA Analytics Blueprint type
+interface DmaAnalyticsBlueprint {
+  objectives: string[];
+  notesForStrategist: string;
+  focusAreas: Array<{
+    area: string;
+    description: string;
+    priority: 'high' | 'medium' | 'low';
+    metrics: string[];
+  }>;
+  channelStrategies: Array<{
+    channel: string;
+    status: 'strong' | 'improving' | 'needs-work' | 'untapped';
+    recommendation: string;
+  }>;
+  optimizationPriorities: Array<{
+    title: string;
+    impact: 'high' | 'medium' | 'low';
+    effort: 'low' | 'medium' | 'high';
+    description: string;
+  }>;
+  generatedAt: string;
 }
 
 // Custom tooltip for charts
@@ -126,6 +107,14 @@ export default function DmaFunnelClient({
   const [loadingInsights, setLoadingInsights] = useState(false);
   const [insightsError, setInsightsError] = useState<string | null>(null);
 
+  // Blueprint state
+  const [blueprint, setBlueprint] = useState<DmaAnalyticsBlueprint | null>(null);
+  const [loadingBlueprint, setLoadingBlueprint] = useState(false);
+  const [blueprintError, setBlueprintError] = useState<string | null>(null);
+
+  // Active tab
+  const [activeTab, setActiveTab] = useState<'insights' | 'blueprint'>('insights');
+
   // Determine active range option
   const getActiveDays = (): DateRangeOption => {
     const start = new Date(range.startDate);
@@ -142,10 +131,10 @@ export default function DmaFunnelClient({
   // Generate cache key from date range
   const dateRangeKey = `${range.startDate}_${range.endDate}`;
 
-  // Fetch AI insights with caching
+  // Fetch AI insights with global caching
   const fetchInsights = async (snap: AuditFunnelSnapshot, rangeKey: string) => {
-    // Check cache first
-    const cached = loadCachedInsights(rangeKey);
+    // Check global cache first
+    const cached = getCachedInsights<DmaFunnelInsights>('dma-funnel', rangeKey);
     if (cached) {
       setInsights(cached);
       return;
@@ -168,13 +157,50 @@ export default function DmaFunnelClient({
       const data = await response.json();
       setInsights(data.insights);
 
-      // Cache the insights
-      saveCachedInsights(data.insights, rangeKey);
+      // Cache the insights globally
+      setCachedInsights('dma-funnel', rangeKey, data.insights, 24);
     } catch (error) {
       console.error('Error fetching DMA insights:', error);
       setInsightsError(error instanceof Error ? error.message : 'Failed to load insights');
     } finally {
       setLoadingInsights(false);
+    }
+  };
+
+  // Fetch Blueprint
+  const fetchBlueprint = async (snap: AuditFunnelSnapshot) => {
+    // Check global cache first
+    const cacheKey = `blueprint_${dateRangeKey}`;
+    const cached = getCachedInsights<DmaAnalyticsBlueprint>('dma-funnel', cacheKey);
+    if (cached) {
+      setBlueprint(cached);
+      return;
+    }
+
+    setLoadingBlueprint(true);
+    setBlueprintError(null);
+
+    try {
+      const response = await fetch('/api/os/dma/blueprint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ snapshot: snap }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate blueprint');
+      }
+
+      const data = await response.json();
+      setBlueprint(data.blueprint);
+
+      // Cache the blueprint globally
+      setCachedInsights('dma-funnel', cacheKey, data.blueprint, 24);
+    } catch (error) {
+      console.error('Error fetching DMA blueprint:', error);
+      setBlueprintError(error instanceof Error ? error.message : 'Failed to load blueprint');
+    } finally {
+      setLoadingBlueprint(false);
     }
   };
 
@@ -190,7 +216,8 @@ export default function DmaFunnelClient({
     setActiveDays(days);
     setLoadingMetrics(true);
     setMetricsError(null);
-    setInsights(null); // Clear old insights
+    setInsights(null);
+    setBlueprint(null);
 
     try {
       const today = new Date();
@@ -222,6 +249,20 @@ export default function DmaFunnelClient({
     } finally {
       setLoadingMetrics(false);
     }
+  };
+
+  // Refresh insights (clear cache and refetch)
+  const handleRefreshInsights = () => {
+    invalidateInsightsCache('dma-funnel', dateRangeKey);
+    setInsights(null);
+    fetchInsights(snapshot, dateRangeKey);
+  };
+
+  // Refresh blueprint (clear cache and refetch)
+  const handleRefreshBlueprint = () => {
+    invalidateInsightsCache('dma-funnel', `blueprint_${dateRangeKey}`);
+    setBlueprint(null);
+    fetchBlueprint(snapshot);
   };
 
   // Prepare chart data
@@ -481,165 +522,398 @@ export default function DmaFunnelClient({
           )}
         </div>
 
-        {/* Right Column: AI Insights Panel (1/3 width) */}
+        {/* Right Column: AI Panel with Tabs (1/3 width) */}
         <div className="space-y-6 min-w-0">
-          <div className="bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-lg p-6 sticky top-6 overflow-hidden">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 01-1 1H3a1 1 0 110-2h1a1 1 0 011 1zM8 16v-1h4v1a2 2 0 11-4 0zM12 14c.015-.34.208-.646.477-.859a4 4 0 10-4.954 0c.27.213.462.519.477.859h4z" />
-                </svg>
-                <h2 className="text-lg font-semibold text-blue-100">AI Insights</h2>
-              </div>
-              {insights && (
-                <button
-                  onClick={() => {
-                    setInsights(null);
-                    localStorage.removeItem(INSIGHTS_CACHE_KEY);
-                    fetchInsights(snapshot, dateRangeKey);
-                  }}
-                  className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-                  title="Refresh insights"
-                >
-                  ↻ Refresh
-                </button>
-              )}
-            </div>
-            <p className="text-xs text-blue-300/70 mb-4">
-              AI-powered analysis • Cached for 24h
-            </p>
+          {/* Tab Selector */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setActiveTab('insights')}
+              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === 'insights'
+                  ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+              }`}
+            >
+              AI Insights
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('blueprint');
+                if (!blueprint && !loadingBlueprint) {
+                  fetchBlueprint(snapshot);
+                }
+              }}
+              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === 'blueprint'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+              }`}
+            >
+              Blueprint
+            </button>
+          </div>
 
-            {loadingInsights && (
-              <div className="text-center py-8">
-                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400" />
-                <p className="text-blue-200 text-sm mt-3">Analyzing funnel data...</p>
-              </div>
-            )}
-
-            {insightsError && !loadingInsights && (
-              <div className="bg-red-500/10 border border-red-500/30 rounded p-4">
-                <p className="text-red-400 text-sm">{insightsError}</p>
-                <button
-                  onClick={() => fetchInsights(snapshot, dateRangeKey)}
-                  className="mt-2 text-xs text-red-300 hover:text-red-200"
-                >
-                  Try again
-                </button>
-              </div>
-            )}
-
-            {insights && !loadingInsights && (
-              <div className="space-y-5">
-                {/* Summary */}
-                <div className="text-sm text-blue-100 leading-relaxed">
-                  {insights.summary}
+          {/* AI Insights Tab */}
+          {activeTab === 'insights' && (
+            <div className="bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-lg p-6 sticky top-6 overflow-hidden">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 01-1 1H3a1 1 0 110-2h1a1 1 0 011 1zM8 16v-1h4v1a2 2 0 11-4 0zM12 14c.015-.34.208-.646.477-.859a4 4 0 10-4.954 0c.27.213.462.519.477.859h4z" />
+                  </svg>
+                  <h2 className="text-lg font-semibold text-blue-100">AI Insights</h2>
                 </div>
-
-                {/* Headline Metrics */}
-                {insights.headlineMetrics.length > 0 && (
-                  <div className="grid grid-cols-3 gap-2">
-                    {insights.headlineMetrics.map((metric, idx) => (
-                      <div key={idx} className="bg-slate-900/50 rounded p-2 text-center overflow-hidden">
-                        <div className="text-xs text-slate-500 truncate">{metric.label}</div>
-                        <div className="text-sm font-semibold text-slate-200 flex items-center justify-center gap-1 truncate">
-                          <span className="truncate">{metric.value}</span>
-                          {metric.trend === 'up' && <span className="text-emerald-400 flex-shrink-0">↑</span>}
-                          {metric.trend === 'down' && <span className="text-red-400 flex-shrink-0">↓</span>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                {insights && (
+                  <button
+                    onClick={handleRefreshInsights}
+                    className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                    title="Refresh insights"
+                  >
+                    Refresh
+                  </button>
                 )}
+              </div>
+              <p className="text-xs text-blue-300/70 mb-4">
+                AI-powered analysis • Cached for 24h
+              </p>
 
-                {/* Key Insights */}
-                {insights.keyInsights.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-semibold text-blue-100 mb-2">Key Insights</h3>
-                    <div className="space-y-3">
-                      {insights.keyInsights.map((insight, idx) => (
-                        <div
-                          key={idx}
-                          className={`bg-slate-900/50 border rounded p-3 ${
-                            insight.type === 'positive'
-                              ? 'border-emerald-500/30'
-                              : insight.type === 'warning'
-                              ? 'border-amber-500/30'
-                              : 'border-slate-700'
-                          }`}
-                        >
-                          <div className="flex items-start gap-2">
-                            {insight.type === 'positive' && (
-                              <span className="text-emerald-400 mt-0.5">✓</span>
-                            )}
-                            {insight.type === 'warning' && (
-                              <span className="text-amber-400 mt-0.5">⚠</span>
-                            )}
-                            {insight.type === 'neutral' && (
-                              <span className="text-blue-400 mt-0.5">→</span>
-                            )}
-                            <div>
-                              <div className="font-medium text-slate-200 text-sm">{insight.title}</div>
-                              <div className="text-xs text-slate-400 mt-1">{insight.detail}</div>
-                              <div className="text-xs text-slate-500 italic mt-1">{insight.evidence}</div>
+              {loadingInsights && (
+                <div className="text-center py-8">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400" />
+                  <p className="text-blue-200 text-sm mt-3">Analyzing funnel data...</p>
+                </div>
+              )}
+
+              {insightsError && !loadingInsights && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded p-4">
+                  <p className="text-red-400 text-sm">{insightsError}</p>
+                  <button
+                    onClick={() => fetchInsights(snapshot, dateRangeKey)}
+                    className="mt-2 text-xs text-red-300 hover:text-red-200"
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+
+              {insights && !loadingInsights && (
+                <div className="space-y-5">
+                  {/* Summary */}
+                  <div className="text-sm text-blue-100 leading-relaxed">
+                    {insights.summary}
+                  </div>
+
+                  {/* Headline Metrics */}
+                  {insights.headlineMetrics.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2">
+                      {insights.headlineMetrics.map((metric, idx) => (
+                        <div key={idx} className="bg-slate-900/50 rounded p-2 text-center overflow-hidden">
+                          <div className="text-xs text-slate-500 truncate">{metric.label}</div>
+                          <div className="text-sm font-semibold text-slate-200 flex items-center justify-center gap-1 truncate">
+                            <span className="truncate">{metric.value}</span>
+                            {metric.trend === 'up' && <span className="text-emerald-400 flex-shrink-0">↑</span>}
+                            {metric.trend === 'down' && <span className="text-red-400 flex-shrink-0">↓</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Key Insights */}
+                  {insights.keyInsights.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-blue-100 mb-2">Key Insights</h3>
+                      <div className="space-y-3">
+                        {insights.keyInsights.map((insight, idx) => (
+                          <div
+                            key={idx}
+                            className={`bg-slate-900/50 border rounded p-3 ${
+                              insight.type === 'positive'
+                                ? 'border-emerald-500/30'
+                                : insight.type === 'warning'
+                                ? 'border-amber-500/30'
+                                : 'border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-start gap-2">
+                              {insight.type === 'positive' && (
+                                <span className="text-emerald-400 mt-0.5">✓</span>
+                              )}
+                              {insight.type === 'warning' && (
+                                <span className="text-amber-400 mt-0.5">⚠</span>
+                              )}
+                              {insight.type === 'neutral' && (
+                                <span className="text-blue-400 mt-0.5">→</span>
+                              )}
+                              <div>
+                                <div className="font-medium text-slate-200 text-sm">{insight.title}</div>
+                                <div className="text-xs text-slate-400 mt-1">{insight.detail}</div>
+                                <div className="text-xs text-slate-500 italic mt-1">{insight.evidence}</div>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {/* Quick Wins */}
-                {insights.quickWins.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-semibold text-blue-100 mb-2">Quick Wins</h3>
-                    <ul className="space-y-2">
-                      {insights.quickWins.map((win, idx) => (
-                        <li key={idx} className="flex items-start gap-2 text-sm text-blue-200">
-                          <span className="text-emerald-400 mt-0.5">•</span>
-                          <span>{win}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                  {/* Quick Wins */}
+                  {insights.quickWins.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-blue-100 mb-2">Quick Wins</h3>
+                      <ul className="space-y-2">
+                        {insights.quickWins.map((win, idx) => (
+                          <li key={idx} className="flex items-start gap-2 text-sm text-blue-200">
+                            <span className="text-emerald-400 mt-0.5">•</span>
+                            <span>{win}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
-                {/* Experiments */}
-                {insights.experiments.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-semibold text-blue-100 mb-2">Experiments to Try</h3>
-                    <div className="space-y-2">
-                      {insights.experiments.map((exp, idx) => (
-                        <div
-                          key={idx}
-                          className="bg-slate-900/50 border border-slate-700 rounded p-3 overflow-hidden"
-                        >
-                          <div className="font-medium text-slate-200 text-sm break-words">{exp.name}</div>
-                          <div className="text-xs text-slate-400 mt-1 break-words">{exp.hypothesis}</div>
-                          <div className="text-xs text-purple-400 mt-1 break-words">
-                            Success: {exp.successMetric}
+                  {/* Experiments */}
+                  {insights.experiments.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-blue-100 mb-2">Experiments to Try</h3>
+                      <div className="space-y-2">
+                        {insights.experiments.map((exp, idx) => (
+                          <div
+                            key={idx}
+                            className="bg-slate-900/50 border border-slate-700 rounded p-3 overflow-hidden"
+                          >
+                            <div className="font-medium text-slate-200 text-sm break-words">{exp.name}</div>
+                            <div className="text-xs text-slate-400 mt-1 break-words">{exp.hypothesis}</div>
+                            <div className="text-xs text-purple-400 mt-1 break-words">
+                              Success: {exp.successMetric}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
+                </div>
+              )}
+
+              {/* Link to Pipeline Leads */}
+              <div className="mt-6 pt-6 border-t border-blue-500/20">
+                <Link
+                  href="/pipeline/leads"
+                  className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                  View DMA Leads in Pipeline →
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {/* Blueprint Tab */}
+          {activeTab === 'blueprint' && (
+            <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-lg p-6 sticky top-6 overflow-hidden">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                  <h2 className="text-lg font-semibold text-amber-100">Analytics Blueprint</h2>
+                </div>
+                {blueprint && (
+                  <button
+                    onClick={handleRefreshBlueprint}
+                    className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
+                    title="Regenerate blueprint"
+                  >
+                    Regenerate
+                  </button>
                 )}
               </div>
-            )}
+              <p className="text-xs text-amber-300/70 mb-4">
+                AI-powered strategic planning • Cached for 24h
+              </p>
 
-            {/* Link to Pipeline Leads */}
-            <div className="mt-6 pt-6 border-t border-blue-500/20">
-              <Link
-                href="/pipeline/leads"
-                className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
-                View DMA Leads in Pipeline →
-              </Link>
+              {loadingBlueprint && (
+                <div className="text-center py-8">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-amber-400" />
+                  <p className="text-amber-200 text-sm mt-3">Generating blueprint...</p>
+                </div>
+              )}
+
+              {blueprintError && !loadingBlueprint && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded p-4">
+                  <p className="text-red-400 text-sm">{blueprintError}</p>
+                  <button
+                    onClick={() => fetchBlueprint(snapshot)}
+                    className="mt-2 text-xs text-red-300 hover:text-red-200"
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+
+              {!blueprint && !loadingBlueprint && !blueprintError && (
+                <div className="text-center py-8">
+                  <p className="text-amber-200/70 text-sm mb-4">
+                    Generate an AI-powered blueprint to get strategic recommendations for your DMA funnel.
+                  </p>
+                  <button
+                    onClick={() => fetchBlueprint(snapshot)}
+                    className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors text-sm"
+                  >
+                    Generate Blueprint
+                  </button>
+                </div>
+              )}
+
+              {blueprint && !loadingBlueprint && (
+                <div className="space-y-5">
+                  {/* Notes for Strategist */}
+                  <div className="text-sm text-amber-100 leading-relaxed">
+                    {blueprint.notesForStrategist}
+                  </div>
+
+                  {/* Objectives */}
+                  {blueprint.objectives.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-amber-100 mb-2">Objectives</h3>
+                      <div className="flex flex-wrap gap-2">
+                        {blueprint.objectives.map((obj, idx) => (
+                          <span
+                            key={idx}
+                            className="text-xs px-2 py-1 bg-amber-500/10 text-amber-300 rounded-full"
+                          >
+                            {obj}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Focus Areas */}
+                  {blueprint.focusAreas.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-amber-100 mb-2">Focus Areas</h3>
+                      <div className="space-y-2">
+                        {blueprint.focusAreas.map((area, idx) => (
+                          <div
+                            key={idx}
+                            className={`bg-slate-900/50 border rounded p-3 ${
+                              area.priority === 'high'
+                                ? 'border-red-500/30'
+                                : area.priority === 'medium'
+                                ? 'border-amber-500/30'
+                                : 'border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-medium text-slate-200 text-sm">{area.area}</span>
+                              <span
+                                className={`text-xs px-1.5 py-0.5 rounded ${
+                                  area.priority === 'high'
+                                    ? 'bg-red-500/20 text-red-300'
+                                    : area.priority === 'medium'
+                                    ? 'bg-amber-500/20 text-amber-300'
+                                    : 'bg-slate-600/20 text-slate-300'
+                                }`}
+                              >
+                                {area.priority}
+                              </span>
+                            </div>
+                            <div className="text-xs text-slate-400">{area.description}</div>
+                            {area.metrics.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-2">
+                                {area.metrics.map((m, i) => (
+                                  <span key={i} className="text-xs px-1.5 py-0.5 bg-slate-800 text-slate-400 rounded">
+                                    {m}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Channel Strategies */}
+                  {blueprint.channelStrategies.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-amber-100 mb-2">Channel Strategies</h3>
+                      <div className="space-y-2">
+                        {blueprint.channelStrategies.map((ch, idx) => (
+                          <div key={idx} className="bg-slate-900/50 border border-slate-700 rounded p-3">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-medium text-slate-200 text-sm">{ch.channel}</span>
+                              <span
+                                className={`text-xs px-1.5 py-0.5 rounded ${
+                                  ch.status === 'strong'
+                                    ? 'bg-emerald-500/20 text-emerald-300'
+                                    : ch.status === 'improving'
+                                    ? 'bg-blue-500/20 text-blue-300'
+                                    : ch.status === 'needs-work'
+                                    ? 'bg-red-500/20 text-red-300'
+                                    : 'bg-purple-500/20 text-purple-300'
+                                }`}
+                              >
+                                {ch.status}
+                              </span>
+                            </div>
+                            <div className="text-xs text-slate-400">{ch.recommendation}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Optimization Priorities */}
+                  {blueprint.optimizationPriorities.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-amber-100 mb-2">Optimization Priorities</h3>
+                      <div className="space-y-2">
+                        {blueprint.optimizationPriorities.map((opt, idx) => (
+                          <div key={idx} className="bg-slate-900/50 border border-slate-700 rounded p-3">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span className="font-medium text-slate-200 text-sm">{opt.title}</span>
+                              <span
+                                className={`text-xs px-1.5 py-0.5 rounded ${
+                                  opt.impact === 'high'
+                                    ? 'bg-emerald-500/20 text-emerald-300'
+                                    : opt.impact === 'medium'
+                                    ? 'bg-amber-500/20 text-amber-300'
+                                    : 'bg-slate-600/20 text-slate-300'
+                                }`}
+                              >
+                                {opt.impact} impact
+                              </span>
+                              <span
+                                className={`text-xs px-1.5 py-0.5 rounded ${
+                                  opt.effort === 'low'
+                                    ? 'bg-emerald-500/20 text-emerald-300'
+                                    : opt.effort === 'medium'
+                                    ? 'bg-amber-500/20 text-amber-300'
+                                    : 'bg-red-500/20 text-red-300'
+                                }`}
+                              >
+                                {opt.effort} effort
+                              </span>
+                            </div>
+                            <div className="text-xs text-slate-400">{opt.description}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Generated timestamp */}
+                  <div className="text-xs text-slate-500 pt-2 border-t border-amber-500/20">
+                    Generated: {new Date(blueprint.generatedAt).toLocaleString()}
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
