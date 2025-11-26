@@ -299,15 +299,15 @@ export default function DmaFunnelClient({
   }
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-6 lg:p-8">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 lg:mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-slate-100 mb-2">DMA Funnel</h1>
-          <p className="text-slate-400">
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-100 mb-1 sm:mb-2">DMA Funnel</h1>
+          <p className="text-sm sm:text-base text-slate-400">
             Performance of the <span className="text-amber-400">DigitalMarketingAudit.ai</span> acquisition funnel.
           </p>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
             {range.startDate} to {range.endDate}
           </p>
         </div>
@@ -319,45 +319,45 @@ export default function DmaFunnelClient({
               key={days}
               onClick={() => handleDateRangeChange(days)}
               disabled={loadingMetrics}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              className={`px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 activeDays === days
                   ? 'bg-amber-500 text-slate-900'
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
               } ${loadingMetrics ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              {days} days
+              {days}d
             </button>
           ))}
         </div>
       </div>
 
       {/* Main Content: Metrics + AI Panel */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* Left Column: Metrics (2/3 width) */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-4 sm:space-y-6">
           {/* KPI Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-6 overflow-hidden">
-              <div className="text-sm text-slate-400 mb-2 truncate">Audits Started</div>
-              <div className="text-3xl font-bold text-slate-100 truncate">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
+            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-4 sm:p-6 overflow-hidden">
+              <div className="text-xs sm:text-sm text-slate-400 mb-1 sm:mb-2 truncate">Audits Started</div>
+              <div className="text-xl sm:text-3xl font-bold text-slate-100 truncate">
                 {loadingMetrics ? '...' : formatNumber(snapshot.totals.auditsStarted)}
               </div>
             </div>
-            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-6 overflow-hidden">
-              <div className="text-sm text-slate-400 mb-2 truncate">Audits Completed</div>
-              <div className="text-3xl font-bold text-slate-100 truncate">
+            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-4 sm:p-6 overflow-hidden">
+              <div className="text-xs sm:text-sm text-slate-400 mb-1 sm:mb-2 truncate">Audits Completed</div>
+              <div className="text-xl sm:text-3xl font-bold text-slate-100 truncate">
                 {loadingMetrics ? '...' : formatNumber(snapshot.totals.auditsCompleted)}
               </div>
             </div>
-            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-6 overflow-hidden">
-              <div className="text-sm text-slate-400 mb-2 truncate">Completion Rate</div>
-              <div className="text-3xl font-bold text-emerald-400 truncate">
+            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-4 sm:p-6 overflow-hidden">
+              <div className="text-xs sm:text-sm text-slate-400 mb-1 sm:mb-2 truncate">Completion Rate</div>
+              <div className="text-xl sm:text-3xl font-bold text-emerald-400 truncate">
                 {loadingMetrics ? '...' : formatPercent(snapshot.totals.completionRate)}
               </div>
             </div>
-            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-6 overflow-hidden">
-              <div className="text-sm text-slate-400 mb-2 truncate">Unique Users</div>
-              <div className="text-3xl font-bold text-slate-100 truncate">
+            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-4 sm:p-6 overflow-hidden">
+              <div className="text-xs sm:text-sm text-slate-400 mb-1 sm:mb-2 truncate">Unique Users</div>
+              <div className="text-xl sm:text-3xl font-bold text-slate-100 truncate">
                 {loadingMetrics
                   ? '...'
                   : snapshot.totals.uniqueUsers !== null
@@ -370,11 +370,11 @@ export default function DmaFunnelClient({
           {/* Time Series Chart */}
           {timeSeriesData.length > 0 && (
             <div className="bg-slate-900/70 border border-slate-800 rounded-lg overflow-hidden">
-              <div className="p-6 border-b border-slate-800">
-                <h2 className="text-lg font-semibold text-slate-100">Daily Funnel Performance</h2>
+              <div className="p-4 sm:p-6 border-b border-slate-800">
+                <h2 className="text-base sm:text-lg font-semibold text-slate-100">Daily Funnel Performance</h2>
               </div>
-              <div className="p-6">
-                <div className="h-72">
+              <div className="p-4 sm:p-6">
+                <div className="h-56 sm:h-72">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={timeSeriesData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
@@ -421,11 +421,11 @@ export default function DmaFunnelClient({
           {/* Channel Performance Bar Chart */}
           {channelData.length > 0 && (
             <div className="bg-slate-900/70 border border-slate-800 rounded-lg overflow-hidden">
-              <div className="p-6 border-b border-slate-800">
-                <h2 className="text-lg font-semibold text-slate-100">Performance by Channel</h2>
+              <div className="p-4 sm:p-6 border-b border-slate-800">
+                <h2 className="text-base sm:text-lg font-semibold text-slate-100">Performance by Channel</h2>
               </div>
-              <div className="p-6">
-                <div className="h-64">
+              <div className="p-4 sm:p-6">
+                <div className="h-48 sm:h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={channelData} layout="vertical">
                       <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
@@ -485,8 +485,8 @@ export default function DmaFunnelClient({
           {/* By Campaign */}
           {snapshot.byCampaign.length > 0 && (
             <div className="bg-slate-900/70 border border-slate-800 rounded-lg overflow-hidden">
-              <div className="p-6 border-b border-slate-800">
-                <h2 className="text-lg font-semibold text-slate-100">Performance by Campaign</h2>
+              <div className="p-4 sm:p-6 border-b border-slate-800">
+                <h2 className="text-base sm:text-lg font-semibold text-slate-100">Performance by Campaign</h2>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -523,12 +523,12 @@ export default function DmaFunnelClient({
         </div>
 
         {/* Right Column: AI Panel with Tabs (1/3 width) */}
-        <div className="space-y-6 min-w-0">
+        <div className="space-y-4 sm:space-y-6 min-w-0">
           {/* Tab Selector */}
           <div className="flex gap-2">
             <button
               onClick={() => setActiveTab('insights')}
-              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              className={`flex-1 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 activeTab === 'insights'
                   ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
@@ -543,7 +543,7 @@ export default function DmaFunnelClient({
                   fetchBlueprint(snapshot);
                 }
               }}
-              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              className={`flex-1 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 activeTab === 'blueprint'
                   ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
@@ -555,7 +555,7 @@ export default function DmaFunnelClient({
 
           {/* AI Insights Tab */}
           {activeTab === 'insights' && (
-            <div className="bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-lg p-6 sticky top-6 overflow-hidden">
+            <div className="bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-lg p-4 sm:p-6 lg:sticky lg:top-6 overflow-hidden">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
@@ -712,7 +712,7 @@ export default function DmaFunnelClient({
 
           {/* Blueprint Tab */}
           {activeTab === 'blueprint' && (
-            <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-lg p-6 sticky top-6 overflow-hidden">
+            <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-lg p-4 sm:p-6 lg:sticky lg:top-6 overflow-hidden">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">

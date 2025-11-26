@@ -36,7 +36,7 @@ export default async function CompanyLayout({
   }
 
   return (
-    <div className="p-6 lg:p-8 space-y-4 sm:space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-4 sm:space-y-6">
       <div>
         <Link
           href="/companies"
