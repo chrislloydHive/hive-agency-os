@@ -39,6 +39,7 @@ export function ToolDiagnosticsPageClient({
   const [insights, setInsights] = useState<DiagnosticInsights | null>(null);
   const [insightsError, setInsightsError] = useState<string | null>(null);
   const [creatingWorkItems, setCreatingWorkItems] = useState(false);
+  const [extractingInsights, setExtractingInsights] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Toast helper
@@ -151,6 +152,38 @@ export function ToolDiagnosticsPageClient({
     }
   };
 
+  // Extract strategic insights to Client Brain
+  const extractInsightsToClientBrain = async () => {
+    if (extractingInsights || !latestRun) return;
+
+    setExtractingInsights(true);
+    showToast('Extracting insights to Client Brain...', 'success');
+
+    try {
+      const response = await fetch(`/api/os/client-brain/${companyId}/extract-insights`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toolId: tool.id,
+          runId: latestRun.id,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to extract insights');
+      }
+
+      showToast(`${result.count} insights added to Client Brain`, 'success');
+    } catch (error) {
+      console.error('Error extracting insights:', error);
+      showToast(error instanceof Error ? error.message : 'Failed to extract insights', 'error');
+    } finally {
+      setExtractingInsights(false);
+    }
+  };
+
   // Score display
   const score = latestRun?.score;
   const scoreColor =
@@ -222,7 +255,7 @@ export function ToolDiagnosticsPageClient({
           </div>
 
           {/* Run Button */}
-          <div className="mt-6 flex gap-3">
+          <div className="mt-6 flex flex-wrap gap-3">
             <button
               onClick={runDiagnostic}
               disabled={isRunning}
@@ -243,6 +276,27 @@ export function ToolDiagnosticsPageClient({
                 tool.primaryActionLabel
               )}
             </button>
+            {/* Extract Insights to Client Brain */}
+            {hasRun && isComplete && (
+              <button
+                onClick={extractInsightsToClientBrain}
+                disabled={extractingInsights}
+                className={`rounded-xl px-5 py-3 font-semibold text-sm transition-all ${
+                  extractingInsights
+                    ? 'bg-amber-700 text-white cursor-wait'
+                    : 'bg-amber-600 text-white hover:bg-amber-500'
+                }`}
+              >
+                {extractingInsights ? (
+                  <span className="flex items-center gap-2">
+                    <Spinner />
+                    Extracting...
+                  </span>
+                ) : (
+                  'Extract Insights to Client Brain'
+                )}
+              </button>
+            )}
             {tool.estimatedTime && (
               <span className="self-center text-xs text-slate-500">
                 Est. {tool.estimatedTime}

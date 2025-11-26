@@ -29,7 +29,8 @@ export default async function GapSnapshotPage({ params }: GapSnapshotPageProps) 
   const ia = data?.initialAssessment || data || {};
 
   // Extract scores
-  const overallScore = run.score ?? (ia as Record<string, unknown>).overallScore;
+  const rawOverallScore = run.score ?? (ia as Record<string, unknown>).overallScore;
+  const overallScore = typeof rawOverallScore === 'number' ? rawOverallScore : undefined;
   const scores = (ia as Record<string, unknown>).scores as Record<string, number> | undefined;
 
   // Extract key data
@@ -79,8 +80,8 @@ export default async function GapSnapshotPage({ params }: GapSnapshotPageProps) 
           </div>
           <div className="text-right">
             <p className="text-xs text-slate-500 uppercase tracking-wide">Overall Score</p>
-            <p className={`text-4xl font-bold tabular-nums ${getScoreColor(overallScore as number)}`}>
-              {overallScore ?? '—'}
+            <p className={`text-4xl font-bold tabular-nums ${getScoreColor(overallScore)}`}>
+              {overallScore !== undefined ? overallScore : '—'}
             </p>
             {maturityStage && (
               <span className="mt-2 inline-block px-3 py-1 bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded-full text-xs font-medium">

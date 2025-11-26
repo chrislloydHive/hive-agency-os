@@ -8,7 +8,7 @@
 import { base } from './client';
 import type { PriorityItem } from './fullReports';
 import type { PlanInitiative } from '@/lib/gap/types';
-import type { WorkSource, WorkSourceAnalytics } from '@/lib/types/work';
+import type { WorkSource, WorkSourceAnalytics, WorkItem } from '@/lib/types/work';
 
 /**
  * Work Items table field names (matching Airtable schema exactly)
@@ -53,6 +53,8 @@ export type WorkItemArea =
   | 'SEO'
   | 'Website UX'
   | 'Funnel'
+  | 'Analytics'
+  | 'Operations'
   | 'Other';
 
 /**
@@ -815,5 +817,135 @@ export async function createWorkItemFromAnalytics(args: {
   } catch (error) {
     console.error('[Work Items] Error creating work item from analytics:', error);
     throw error;
+  }
+}
+
+/**
+ * Generic payload for creating a work item
+ */
+export interface CreateWorkItemPayload {
+  title: string;
+  companyId: string;
+  notes?: string;
+  area?: WorkItemArea;
+  status?: WorkItemStatus;
+  severity?: WorkItemSeverity;
+  source?: WorkSource;
+  effort?: string;
+  impact?: string;
+  fullReportId?: string;
+  priorityId?: string;
+  planInitiativeId?: string;
+}
+
+/**
+ * Create a generic Work Item with optional source tracking
+ *
+ * This is the preferred way to create work items as it properly handles
+ * the Source JSON field for traceability.
+ *
+ * @param payload - Work item data
+ * @returns Created work item or null on error
+ */
+export async function createWorkItem(
+  payload: CreateWorkItemPayload
+): Promise<WorkItem | null> {
+  const {
+    title,
+    companyId,
+    notes,
+    area = 'Other',
+    status = 'Backlog',
+    severity = 'Medium',
+    source,
+    effort,
+    impact,
+    fullReportId,
+    priorityId,
+    planInitiativeId,
+  } = payload;
+
+  console.log('[Work Items] Creating work item:', {
+    companyId,
+    title: title.substring(0, 50),
+    area,
+    status,
+    sourceType: source?.sourceType,
+  });
+
+  // Build Airtable fields
+  const fields: Record<string, any> = {
+    [WORK_ITEMS_FIELDS.TITLE]: title,
+    [WORK_ITEMS_FIELDS.COMPANY]: [companyId],
+    [WORK_ITEMS_FIELDS.AREA]: area,
+    [WORK_ITEMS_FIELDS.STATUS]: status,
+    [WORK_ITEMS_FIELDS.SEVERITY]: severity,
+  };
+
+  if (notes) {
+    fields[WORK_ITEMS_FIELDS.NOTES] = notes;
+  }
+
+  if (source) {
+    fields[WORK_ITEMS_FIELDS.SOURCE_JSON] = JSON.stringify(source);
+  }
+
+  if (effort) {
+    fields[WORK_ITEMS_FIELDS.EFFORT] = effort;
+  }
+
+  if (impact) {
+    fields[WORK_ITEMS_FIELDS.IMPACT] = impact;
+  }
+
+  if (fullReportId) {
+    fields[WORK_ITEMS_FIELDS.FULL_REPORT] = [fullReportId];
+  }
+
+  if (priorityId) {
+    fields[WORK_ITEMS_FIELDS.PRIORITY_ID] = priorityId;
+  }
+
+  if (planInitiativeId) {
+    fields[WORK_ITEMS_FIELDS.PLAN_INITIATIVE_ID] = planInitiativeId;
+  }
+
+  try {
+    const records = await base('Work Items').create([{ fields }]);
+
+    if (!records || records.length === 0) {
+      throw new Error('No record returned from Airtable create');
+    }
+
+    const record = records[0];
+    const mapped = mapWorkItemRecord(record);
+
+    console.log('[Work Items] ✅ Work item created:', {
+      workItemId: record.id,
+      title: title.substring(0, 30),
+    });
+
+    // Convert WorkItemRecord to WorkItem type
+    return {
+      id: mapped.id,
+      title: mapped.title,
+      status: mapped.status || 'Backlog',
+      companyId: mapped.companyId,
+      area: mapped.area,
+      severity: mapped.severity,
+      notes: mapped.notes,
+      createdAt: mapped.createdAt,
+      updatedAt: mapped.updatedAt,
+      aiAdditionalInfo: mapped.aiAdditionalInfo,
+      source: mapped.source,
+      priorityId: mapped.priorityId,
+      planInitiativeId: mapped.planInitiativeId,
+      fullReportId: mapped.fullReportId,
+      effort: mapped.effort,
+      impact: mapped.impact,
+    };
+  } catch (error) {
+    console.error('[Work Items] Error creating work item:', error);
+    return null;
   }
 }

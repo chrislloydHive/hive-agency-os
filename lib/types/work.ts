@@ -84,7 +84,8 @@ export type WorkSourceType =
   | 'gap_insight'
   | 'diagnostics'
   | 'priority'
-  | 'plan_initiative';
+  | 'plan_initiative'
+  | 'client_brain_insight'; // NEW: Work generated from Client Brain insight
 
 /**
  * Analytics metric source - when work is created from an analytics insight
@@ -141,6 +142,15 @@ export interface WorkSourcePlanInitiative {
 }
 
 /**
+ * Client Brain insight source - work generated from a strategic insight
+ */
+export interface WorkSourceClientBrainInsight {
+  sourceType: 'client_brain_insight';
+  insightId: string;
+  insightTitle?: string;
+}
+
+/**
  * Union of all work source types
  */
 export type WorkSource =
@@ -149,7 +159,8 @@ export type WorkSource =
   | WorkSourceGapInsight
   | WorkSourceDiagnostics
   | WorkSourcePriority
-  | WorkSourcePlanInitiative;
+  | WorkSourcePlanInitiative
+  | WorkSourceClientBrainInsight;
 
 // ============================================================================
 // Work Item Types
@@ -308,7 +319,18 @@ export function getSourceLabel(source?: WorkSource): string {
       return 'Priority';
     case 'plan_initiative':
       return 'Plan Initiative';
+    case 'client_brain_insight':
+      return source.insightTitle
+        ? `Client Brain → ${source.insightTitle}`
+        : 'Client Brain Insight';
     default:
       return 'Unknown';
   }
+}
+
+/**
+ * Check if a work source is from Client Brain insight
+ */
+export function isClientBrainInsightSource(source?: WorkSource): source is WorkSourceClientBrainInsight {
+  return source?.sourceType === 'client_brain_insight';
 }
