@@ -24,13 +24,18 @@ export type InsightSeverity = 'low' | 'medium' | 'high' | 'critical';
 
 export interface InsightSourceToolRun {
   type: 'tool_run';
-  toolSlug: string;
-  toolRunId: string;
+  toolSlug?: string;
+  toolRunId?: string;
+  // Legacy aliases
+  toolId?: string;
+  toolName?: string;
+  runId?: string;
 }
 
 export interface InsightSourceDocument {
   type: 'document';
   documentId: string;
+  documentName?: string;
 }
 
 export interface InsightSourceManual {
@@ -60,6 +65,9 @@ export interface ClientInsight {
   // Optional linking
   relatedWorkCount?: number;
   lastUsedInWorkAt?: string | null;
+  // Extended fields
+  tags?: string[];
+  workItemCount?: number;
 }
 
 export interface CreateClientInsightInput {
@@ -68,6 +76,27 @@ export interface CreateClientInsightInput {
   category: InsightCategory;
   severity?: InsightSeverity;
   source: InsightSource;
+  companyId?: string;
+  tags?: string[];
+}
+
+// Alias for backwards compatibility
+export type CreateClientInsightPayload = CreateClientInsightInput;
+
+export interface UpdateClientInsightPayload {
+  title?: string;
+  body?: string;
+  category?: InsightCategory;
+  severity?: InsightSeverity;
+  tags?: string[];
+}
+
+export interface ListClientInsightsOptions {
+  category?: InsightCategory;
+  severity?: InsightSeverity;
+  sourceType?: InsightSourceType;
+  limit?: number;
+  offset?: number;
 }
 
 // ============================================================================
@@ -217,4 +246,30 @@ export function normalizeDocumentType(raw: string | null | undefined): DocumentT
   if (['transcript', 'call notes', 'meeting notes', 'interview'].includes(normalized)) return 'transcript';
   if (['report', 'audit', 'assessment'].includes(normalized)) return 'report';
   return 'other';
+}
+
+// ============================================================================
+// Display Helper Functions
+// ============================================================================
+
+export function getInsightSourceLabel(source: InsightSource): string {
+  switch (source.type) {
+    case 'tool_run':
+      return `Tool: ${source.toolSlug}`;
+    case 'document':
+      return 'Document';
+    case 'manual':
+      return source.createdBy ? `Added by ${source.createdBy}` : 'Manual';
+    default:
+      return 'Unknown';
+  }
+}
+
+export function getInsightSeverityColor(severity: InsightSeverity | undefined): string {
+  if (!severity) return 'slate';
+  return INSIGHT_SEVERITY_CONFIG[severity]?.color || 'slate';
+}
+
+export function getInsightCategoryColor(category: InsightCategory): string {
+  return INSIGHT_CATEGORY_CONFIG[category]?.color || 'slate';
 }

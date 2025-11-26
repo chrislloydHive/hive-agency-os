@@ -95,8 +95,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       companyId,
       title,
       body: insightBody,
-      category: normalizeInsightCategory(category),
-      severity: normalizeInsightSeverity(severity),
+      category: normalizeInsightCategory(category || 'other'),
+      severity: normalizeInsightSeverity(severity || 'medium'),
       source: { type: 'manual' },
       tags,
     };

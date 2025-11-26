@@ -53,6 +53,9 @@ export type WorkItemArea =
   | 'SEO'
   | 'Website UX'
   | 'Funnel'
+  | 'Analytics'
+  | 'Operations'
+  | 'Strategy'
   | 'Other';
 
 /**
@@ -72,7 +75,7 @@ interface WorkItemFields {
   'Title'?: string;
   'Company'?: string[]; // Linked record
   'Full Report'?: string[]; // Linked record
-  'Area'?: WorkItemArea;
+  'Area'?: WorkItemArea | string;
   'Status'?: WorkItemStatus;
   'Severity'?: WorkItemSeverity;
   'Owner'?: string; // Linked record ID
@@ -145,7 +148,7 @@ function mapWorkItemRecord(record: any): WorkItemRecord {
     companyId: companyIds?.[0] || '',
     fullReportId: fullReportIds?.[0],
     title: fields['Title'] || 'Untitled',
-    area: fields['Area'],
+    area: fields['Area'] as WorkItemArea | undefined,
     status: fields['Status'],
     severity: fields['Severity'],
     owner: fields['Owner'],
@@ -699,6 +702,94 @@ export async function getWorkItemById(
     return mapWorkItemRecord(record);
   } catch (error) {
     console.error('[Work Items] Error fetching work item:', error);
+    return null;
+  }
+}
+
+/**
+ * Generic work item creation input
+ */
+export interface CreateWorkItemInput {
+  title: string;
+  companyId: string;
+  notes?: string;
+  area?: WorkItemArea;
+  severity?: WorkItemSeverity;
+  status?: WorkItemStatus;
+  source?: WorkSource;
+  aiAdditionalInfo?: string;
+}
+
+/**
+ * Create a generic work item
+ *
+ * @param input - Work item creation input
+ * @returns Created work item record or null if failed
+ */
+export async function createWorkItem(
+  input: CreateWorkItemInput
+): Promise<WorkItemRecord | null> {
+  const {
+    title,
+    companyId,
+    notes,
+    area = 'Other',
+    severity = 'Medium',
+    status = 'Backlog',
+    source,
+    aiAdditionalInfo,
+  } = input;
+
+  console.log('[Work Items] Creating generic work item:', {
+    title,
+    companyId,
+    area,
+    severity,
+    status,
+    hasSource: !!source,
+  });
+
+  // Build Airtable fields
+  const fields: Record<string, any> = {
+    [WORK_ITEMS_FIELDS.TITLE]: title,
+    [WORK_ITEMS_FIELDS.COMPANY]: [companyId], // Link field - array of record IDs
+    [WORK_ITEMS_FIELDS.AREA]: area,
+    [WORK_ITEMS_FIELDS.STATUS]: status,
+    [WORK_ITEMS_FIELDS.SEVERITY]: severity,
+  };
+
+  if (notes) {
+    fields[WORK_ITEMS_FIELDS.NOTES] = notes;
+  }
+
+  if (source) {
+    fields[WORK_ITEMS_FIELDS.SOURCE_JSON] = JSON.stringify(source);
+  }
+
+  if (aiAdditionalInfo) {
+    fields[WORK_ITEMS_FIELDS.AI_ADDITIONAL_INFO] = aiAdditionalInfo;
+  }
+
+  try {
+    // Create the record in Airtable
+    const records = await base('Work Items').create([{ fields }]);
+
+    if (!records || records.length === 0) {
+      console.error('[Work Items] No record returned from Airtable create');
+      return null;
+    }
+
+    const record = records[0];
+
+    console.log('[Work Items] Work item created successfully:', {
+      workItemId: record.id,
+      title,
+    });
+
+    // Map to WorkItemRecord
+    return mapWorkItemRecord(record);
+  } catch (error) {
+    console.error('[Work Items] Error creating work item:', error);
     return null;
   }
 }

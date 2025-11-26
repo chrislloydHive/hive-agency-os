@@ -129,7 +129,7 @@ export interface MultiPageSnapshot {
 // GAP-IA Run (Lead Magnet / Initial Assessment)
 // ============================================================================
 
-export type GapIaStatus = 'pending' | 'running' | 'completed' | 'error';
+export type GapIaStatus = 'pending' | 'running' | 'completed' | 'complete' | 'error' | 'failed';
 
 export type GapIaSource = 'lead-magnet' | 'internal' | 'imported';
 
@@ -332,6 +332,11 @@ export interface GapIaRun {
   // Consultant Report fields
   iaReportMarkdown?: string | null;
   iaReportVersion?: string | null; // e.g., "v1"
+
+  // Legacy score fields (for backwards compat)
+  overallScore?: number;
+  readinessScore?: number;
+  maturityStage?: MarketingMaturityStage;
 
   // Optional error tracking
   errorMessage?: string;

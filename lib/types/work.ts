@@ -86,7 +86,8 @@ export type WorkSourceType =
   | 'diagnostics'
   | 'tool_run'
   | 'priority'
-  | 'plan_initiative';
+  | 'plan_initiative'
+  | 'client_brain_insight';
 
 /**
  * Analytics metric source - when work is created from an analytics insight
@@ -153,6 +154,15 @@ export interface WorkSourcePlanInitiative {
 }
 
 /**
+ * Client Brain insight source - from Client Brain insights
+ */
+export interface WorkSourceClientBrainInsight {
+  sourceType: 'client_brain_insight';
+  insightId: string;
+  insightTitle?: string;
+}
+
+/**
  * Union of all work source types
  */
 export type WorkSource =
@@ -162,7 +172,8 @@ export type WorkSource =
   | WorkSourceDiagnostics
   | WorkSourceToolRun
   | WorkSourcePriority
-  | WorkSourcePlanInitiative;
+  | WorkSourcePlanInitiative
+  | WorkSourceClientBrainInsight;
 
 // ============================================================================
 // Work Item Types

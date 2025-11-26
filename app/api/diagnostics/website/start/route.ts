@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDiagnosticRun, updateDiagnosticRun } from '@/lib/os/diagnostics/runs';
 import { setDiagnosticStatus, makeStatusKey } from '@/lib/os/diagnostics/statusStore';
-import { getCompanyById } from '@/lib/airtable/companies';
+import { getCompanyById, type CompanyRecord } from '@/lib/airtable/companies';
 
 export const maxDuration = 300; // 5 minutes timeout
 
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
 // Run the diagnostic asynchronously
 async function runDiagnosticAsync(
   companyId: string,
-  company: { name: string; website?: string },
+  company: CompanyRecord,
   runId: string,
   statusKey: string
 ) {

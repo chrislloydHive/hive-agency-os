@@ -8,8 +8,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { getClientInsight, incrementInsightWorkItemCount } from '@/lib/airtable/clientInsights';
-import { createWorkItem } from '@/lib/airtable/workItems';
-import type { WorkItem, WorkSourceClientBrainInsight, WorkCategory, WorkPriority } from '@/lib/types/work';
+import { createWorkItem, type WorkItemRecord } from '@/lib/airtable/workItems';
+import type { WorkSourceClientBrainInsight, WorkCategory, WorkPriority } from '@/lib/types/work';
 
 const anthropic = new Anthropic();
 
@@ -153,7 +153,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     };
 
     // Create work items
-    const createdItems: WorkItem[] = [];
+    const createdItems: WorkItemRecord[] = [];
 
     for (const raw of parsed.items) {
       const category = normalizeWorkCategory(raw.category);
@@ -254,13 +254,14 @@ function normalizeWorkPriority(raw: string): WorkPriority {
 }
 
 // Map WorkCategory to legacy WorkItemArea
-function categoryToArea(category: WorkCategory): 'Brand' | 'Content' | 'SEO' | 'Website UX' | 'Analytics' | 'Operations' | 'Other' {
-  const mapping: Record<WorkCategory, 'Brand' | 'Content' | 'SEO' | 'Website UX' | 'Analytics' | 'Operations' | 'Other'> = {
+function categoryToArea(category: WorkCategory): 'Brand' | 'Content' | 'SEO' | 'Website UX' | 'Analytics' | 'Operations' | 'Funnel' | 'Other' {
+  const mapping: Record<WorkCategory, 'Brand' | 'Content' | 'SEO' | 'Website UX' | 'Analytics' | 'Operations' | 'Funnel' | 'Other'> = {
     brand: 'Brand',
     content: 'Content',
     seo: 'SEO',
     website: 'Website UX',
     analytics: 'Analytics',
+    demand: 'Funnel',
     ops: 'Operations',
     other: 'Other',
   };
