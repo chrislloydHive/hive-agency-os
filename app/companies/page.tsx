@@ -79,11 +79,22 @@ async function CompaniesContent({ searchParams }: CompaniesPageProps) {
 
   return (
     <div className="p-8">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-slate-100">Companies</h1>
-        <p className="text-slate-400 mt-1">
-          All companies in your OS, with stage, health, owner, and activity.
-        </p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-100">Companies</h1>
+          <p className="text-slate-400 mt-1">
+            All companies in your OS, with stage, health, owner, and activity.
+          </p>
+        </div>
+        <a
+          href="/companies/new"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors text-sm"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          Add Prospect
+        </a>
       </div>
 
       <CompaniesDirectoryClient

@@ -167,11 +167,26 @@ export default async function CompanyDetailPage({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Quick Actions for Prospects */}
+            {company.stage === 'Prospect' && (
+              <Link
+                href={`/pipeline/opportunities?create=true&companyId=${companyId}`}
+                className="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 font-medium rounded-lg transition-colors text-sm border border-emerald-500/30"
+              >
+                Add Opportunity
+              </Link>
+            )}
+            <Link
+              href={`/c/${companyId}/diagnostics`}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-lg transition-colors text-sm border border-slate-700"
+            >
+              Run Diagnostics
+            </Link>
             <Link
               href={`/snapshot?url=${encodeURIComponent(company.website || company.domain)}`}
               className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors text-sm"
             >
-              Run GAP Assessment
+              Run GAP Snapshot
             </Link>
           </div>
         </div>

@@ -506,6 +506,193 @@ export async function findOrCreateCompanyByDomain(
 }
 
 /**
+ * Find company by domain only (without creating)
+ *
+ * @param domain - Domain to search for (will be normalized)
+ * @returns Company record or null if not found
+ */
+export async function findCompanyByDomain(
+  domain: string
+): Promise<CompanyRecord | null> {
+  try {
+    const base = getBase();
+    const normalizedDomain = normalizeDomain(domain);
+
+    const records = await base(COMPANIES_TABLE)
+      .select({
+        filterByFormula: `{Domain} = "${normalizedDomain}"`,
+        maxRecords: 1,
+      })
+      .firstPage();
+
+    if (records.length === 0) {
+      return null;
+    }
+
+    return mapFieldsToCompanyRecord(records[0]);
+  } catch (error) {
+    console.error(`[Companies] Failed to find company by domain ${domain}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Find company by name (exact or fuzzy match)
+ *
+ * @param name - Company name to search for
+ * @param fuzzy - If true, uses SEARCH for partial matching
+ * @returns Company record or null if not found
+ */
+export async function findCompanyByName(
+  name: string,
+  fuzzy: boolean = false
+): Promise<CompanyRecord | null> {
+  try {
+    const base = getBase();
+
+    // Normalize for comparison
+    const searchName = name.trim();
+    const formula = fuzzy
+      ? `SEARCH(LOWER("${searchName}"), LOWER({Company Name}))`
+      : `LOWER({Company Name}) = LOWER("${searchName}")`;
+
+    const records = await base(COMPANIES_TABLE)
+      .select({
+        filterByFormula: formula,
+        maxRecords: 1,
+      })
+      .firstPage();
+
+    if (records.length === 0) {
+      return null;
+    }
+
+    return mapFieldsToCompanyRecord(records[0]);
+  } catch (error) {
+    console.error(`[Companies] Failed to find company by name ${name}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Create a new company
+ *
+ * @param data - Company data to create
+ * @returns Created company record or null on error
+ */
+export async function createCompany(data: {
+  name: string;
+  website?: string;
+  domain?: string;
+  industry?: string;
+  companyType?: CompanyRecord['companyType'];
+  stage?: CompanyRecord['stage'];
+  sizeBand?: CompanyRecord['sizeBand'];
+  source?: CompanyRecord['source'];
+  owner?: string;
+  notes?: string;
+  primaryContactName?: string;
+  primaryContactEmail?: string;
+}): Promise<CompanyRecord | null> {
+  try {
+    const base = getBase();
+    const newCompanyId = randomUUID();
+
+    // Normalize domain from website if not provided
+    const normalizedDomain = data.domain
+      ? normalizeDomain(data.domain)
+      : data.website
+        ? normalizeDomain(data.website)
+        : 'unknown.com';
+
+    const fields: Record<string, unknown> = {
+      'Company ID': newCompanyId,
+      'Company Name': data.name,
+      'Domain': normalizedDomain,
+    };
+
+    if (data.website) fields['Website'] = data.website;
+    if (data.industry) fields['Industry'] = data.industry;
+    if (data.companyType) fields['Company Type'] = data.companyType;
+    if (data.stage) fields['Stage'] = data.stage;
+    if (data.sizeBand) fields['Size Band'] = data.sizeBand;
+    if (data.source) fields['Source'] = data.source;
+    if (data.owner) fields['Owner'] = data.owner;
+    if (data.notes) fields['Notes'] = data.notes;
+    if (data.primaryContactName) fields['Primary Contact Name'] = data.primaryContactName;
+    if (data.primaryContactEmail) fields['Primary Contact Email'] = data.primaryContactEmail;
+
+    console.log(`[Companies] Creating new company: ${data.name} (${normalizedDomain})`);
+
+    const createdRecords = await base(COMPANIES_TABLE).create([{ fields: fields as any }]);
+    const createdRecord = createdRecords[0];
+    const companyRecord = mapFieldsToCompanyRecord(createdRecord);
+
+    console.log(`[Companies] ✅ Created company: ${companyRecord.name} (ID: ${companyRecord.id})`);
+
+    return companyRecord;
+  } catch (error) {
+    console.error(`[Companies] Failed to create company ${data.name}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Update company fields
+ *
+ * @param companyId - Airtable record ID
+ * @param data - Fields to update
+ * @returns Updated company record or null on error
+ */
+export async function updateCompany(
+  companyId: string,
+  data: {
+    name?: string;
+    website?: string;
+    domain?: string;
+    industry?: string;
+    companyType?: CompanyRecord['companyType'];
+    stage?: CompanyRecord['stage'];
+    sizeBand?: CompanyRecord['sizeBand'];
+    source?: CompanyRecord['source'];
+    owner?: string;
+    notes?: string;
+    primaryContactName?: string;
+    primaryContactEmail?: string;
+  }
+): Promise<CompanyRecord | null> {
+  try {
+    const base = getBase();
+    const fields: Record<string, unknown> = {};
+
+    if (data.name !== undefined) fields['Company Name'] = data.name;
+    if (data.website !== undefined) fields['Website'] = data.website;
+    if (data.domain !== undefined) fields['Domain'] = normalizeDomain(data.domain);
+    if (data.industry !== undefined) fields['Industry'] = data.industry;
+    if (data.companyType !== undefined) fields['Company Type'] = data.companyType;
+    if (data.stage !== undefined) fields['Stage'] = data.stage;
+    if (data.sizeBand !== undefined) fields['Size Band'] = data.sizeBand;
+    if (data.source !== undefined) fields['Source'] = data.source;
+    if (data.owner !== undefined) fields['Owner'] = data.owner;
+    if (data.notes !== undefined) fields['Notes'] = data.notes;
+    if (data.primaryContactName !== undefined) fields['Primary Contact Name'] = data.primaryContactName;
+    if (data.primaryContactEmail !== undefined) fields['Primary Contact Email'] = data.primaryContactEmail;
+
+    if (Object.keys(fields).length === 0) {
+      return getCompanyById(companyId);
+    }
+
+    await base(COMPANIES_TABLE).update(companyId, fields as any);
+
+    console.log(`[Companies] Updated company ${companyId}`);
+    return getCompanyById(companyId);
+  } catch (error) {
+    console.error(`[Companies] Failed to update company ${companyId}:`, error);
+    return null;
+  }
+}
+
+/**
  * Get company by canonical companyId (UUID)
  *
  * This is different from getCompanyById which takes Airtable record ID.

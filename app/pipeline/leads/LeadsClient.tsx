@@ -199,16 +199,15 @@ export function LeadsClient({ leads }: LeadsClientProps) {
           <p className="text-slate-500 mb-6">
             Leads will appear here from DMA audits, referrals, and outreach.
           </p>
-          <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg text-left">
-            <p className="text-sm text-blue-300">
-              <strong>To set up leads:</strong>
-            </p>
-            <ul className="mt-2 space-y-1 text-sm text-blue-300">
-              <li>• Create an "Inbound Leads" table in Airtable</li>
-              <li>• Fields: Name, Email, Website, Company Name, Lead Source, Status</li>
-              <li>• Add Assignee field for routing</li>
-            </ul>
-          </div>
+          <Link
+            href="/companies/new"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors text-sm"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Add Prospect
+          </Link>
         </div>
       </div>
     );
@@ -341,8 +340,15 @@ export function LeadsClient({ leads }: LeadsClientProps) {
                   </td>
                   <td className="px-4 py-3">
                     <div>
-                      <div className="text-slate-300 text-xs">
-                        {lead.companyName || lead.companyInfo?.name || '—'}
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-300 text-xs">
+                          {lead.companyName || lead.companyInfo?.name || '—'}
+                        </span>
+                        {lead.companyId && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                            Linked
+                          </span>
+                        )}
                       </div>
                       {lead.website && (
                         <a

@@ -156,6 +156,19 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
           </Link>
         </div>
 
+        {/* Quick Actions */}
+        <div className="px-3 py-2">
+          <Link
+            href="/companies/new"
+            className="flex items-center justify-center gap-2 w-full px-3 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors text-sm"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Add Prospect
+          </Link>
+        </div>
+
         {/* Main Navigation */}
         <nav className="flex-1 px-3 py-6 space-y-1 overflow-y-auto">
           {navigation.map((item) => (
