@@ -1,0 +1,98 @@
+{
+  "url": "https://qafm.org",
+  "businessContext": {
+    "businessType": "local-consumer",
+    "brandTier": "local_business",
+    "confidence": "high",
+    "notes": [
+      "Detected local-consumer business (7 local signals)",
+      "Detected farmers market terminology",
+      "Detected physical address",
+      "Detected opening hours",
+      "Detected event dates/calendar",
+      "Classified as local_business tier based on local-consumer type"
+    ],
+    "signals": {
+      "isLocal": true,
+      "isB2B": false,
+      "isB2C": true,
+      "isSaaS": false,
+      "isEcommerce": false,
+      "hasPhysicalLocation": true
+    }
+  },
+  "initialAssessment": {
+    "core": {
+      "url": "https://qafm.org",
+      "domain": "qafm.org",
+      "overallScore": 56,
+      "marketingMaturity": "early",
+      "brandTier": "local_business",
+      "companyType": "brick_and_mortar",
+      "brand": {
+        "brandScore": 40,
+        "perceivedPositioning": "Community-focused but lacks clarity.",
+        "toneOfVoice": "Community-oriented",
+        "visualConsistency": "medium"
+      },
+      "content": {
+        "contentScore": 45,
+        "hasBlogOrResources": true,
+        "contentDepth": "medium",
+        "contentFocus": "Community engagement",
+        "postingConsistency": "low"
+      },
+      "seo": {
+        "seoScore": 35,
+        "appearsIndexable": true,
+        "onPageBasics": "issues",
+        "searchIntentFit": "weak"
+      },
+      "website": {
+        "websiteScore": 50,
+        "clarityOfMessage": "medium",
+        "primaryCtaQuality": "weak",
+        "perceivedFriction": "medium"
+      },
+      "digitalFootprint": {
+        "footprintScore": 20,
+        "googleBusinessProfile": "none",
+        "linkedinPresence": "none",
+        "socialPresence": "weak",
+        "reviewsReputation": "none",
+        "authoritySignals": "weak",
+        "brandSearchDemand": "low"
+      },
+      "quickSummary": "Queen Anne Farmers Market has a strong community focus but lacks digital presence, impacting local visibility and engagement.",
+      "topOpportunities": [
+        "Claim and optimize Google Business Profile to improve local visibility.",
+        "Enhance content strategy with regular blog updates and resource development.",
+        "Establish a LinkedIn Company Page to facilitate community partnerships."
+      ]
+    },
+    "insights": {
+      "overallSummary": "Queen Anne Farmers Market shows potential as a community-centric entity, but significant gaps in its digital footprint and authority hinder its ability to fully engage with the local community. The absence of a Google Business Profile severely limits local search visibility, a critical factor for attracting local foot traffic. Additionally, the lack of a coherent brand narrative and structured content strategy further restricts its outreach and engagement potential.\n\nThe website, while functional, suffers from a lack of strategic conversion paths, which can affect user engagement and marketability. Improving these areas with targeted content development, a strong digital footprint, and enhanced SEO practices will be essential in elevating the market's presence and impact in the community.",
+      "brandInsights": [
+        "Brand lacks clear narrative, affecting differentiation.",
+        "No testimonials or case studies limit trust development."
+      ],
+      "contentInsights": [
+        "Blog presence indicates initial content marketing effort, but lacks depth.",
+        "No resource hubs or case studies to showcase impact."
+      ],
+      "seoInsights": [
+        "Basic SEO elements missing, affecting visibility.",
+        "No structured local SEO strategy in place."
+      ],
+      "websiteInsights": [
+        "Numerous CTAs but lack strategic alignment with user intent.",
+        "Website does not effectively communicate market benefits."
+      ]
+    }
+  },
+  "metadata": {
+    "url": "https://qafm.org",
+    "domain": "qafm.org",
+    "analyzedAt": "2025-11-22T20:16:29.845Z"
+  }
+}

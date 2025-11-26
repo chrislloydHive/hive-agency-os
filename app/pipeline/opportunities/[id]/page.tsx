@@ -158,7 +158,7 @@ export default async function OpportunityDetailPage({
                 <dd className="text-sm text-slate-200 mt-1">
                   {company ? (
                     <Link
-                      href={`/companies/${company.id}`}
+                      href={`/c/${company.id}`}
                       className="text-amber-500 hover:text-amber-400"
                     >
                       {company.name}
@@ -297,7 +297,7 @@ export default async function OpportunityDetailPage({
                   </div>
                 ))}
                 <Link
-                  href={`/companies/${company.id}?tab=gap`}
+                  href={`/c/${company.id}?tab=gap`}
                   className="block text-center text-sm text-amber-500 hover:text-amber-400 mt-4"
                 >
                   View all GAP history for {company.name} →
@@ -366,7 +366,7 @@ export default async function OpportunityDetailPage({
                 Linked Company
               </h2>
               <Link
-                href={`/companies/${company.id}`}
+                href={`/c/${company.id}`}
                 className="block hover:bg-slate-800/50 rounded-lg p-3 -m-3 transition-colors"
               >
                 <div className="text-slate-200 font-medium">{company.name}</div>

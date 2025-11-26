@@ -79,7 +79,7 @@ export function CompanyDetailClient({
 
   const handleTabChange = (tabId: string) => {
     setActiveTab(tabId);
-    router.push(`/companies/${company.id}?tab=${tabId}`, { scroll: false });
+    router.push(`/c/${company.id}?tab=${tabId}`, { scroll: false });
   };
 
   return (

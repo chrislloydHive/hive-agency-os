@@ -1,0 +1,98 @@
+{
+  "url": "https://example.com",
+  "businessContext": {
+    "businessType": "unknown",
+    "brandTier": "smb",
+    "confidence": "low",
+    "notes": [
+      "Unable to determine business type with confidence - using generic recommendations"
+    ],
+    "signals": {
+      "isLocal": false,
+      "isB2B": false,
+      "isB2C": false,
+      "isSaaS": false,
+      "isEcommerce": false,
+      "hasPhysicalLocation": false
+    }
+  },
+  "initialAssessment": {
+    "core": {
+      "url": "https://example.com",
+      "domain": "example.com",
+      "overallScore": 42,
+      "marketingMaturity": "early",
+      "brandTier": "other",
+      "companyType": "other",
+      "brand": {
+        "brandScore": 30,
+        "perceivedPositioning": "Unclear",
+        "toneOfVoice": "None",
+        "visualConsistency": "low"
+      },
+      "content": {
+        "contentScore": 25,
+        "hasBlogOrResources": false,
+        "contentDepth": "shallow",
+        "contentFocus": "None",
+        "postingConsistency": "low"
+      },
+      "seo": {
+        "seoScore": 20,
+        "appearsIndexable": false,
+        "onPageBasics": "issues",
+        "searchIntentFit": "weak"
+      },
+      "website": {
+        "websiteScore": 35,
+        "clarityOfMessage": "low",
+        "primaryCtaQuality": "weak",
+        "perceivedFriction": "high"
+      },
+      "digitalFootprint": {
+        "footprintScore": 30,
+        "googleBusinessProfile": "none",
+        "linkedinPresence": "weak",
+        "socialPresence": "weak",
+        "reviewsReputation": "none",
+        "authoritySignals": "weak",
+        "brandSearchDemand": "low"
+      },
+      "quickSummary": "The company's digital presence is significantly underdeveloped, impacting visibility and authority. Key improvements are needed in local search visibility, content strategy, and brand differentiation.",
+      "topOpportunities": [
+        "Claim and optimize Google Business Profile to enhance local search visibility.",
+        "Establish a comprehensive LinkedIn Company Page to engage with B2B audiences and build professional credibility.",
+        "Develop a consistent content strategy, including a blog or resource hub, to establish thought leadership and improve SEO.",
+        "Enhance social media strategy by expanding presence to key platforms like Facebook for broader audience engagement."
+      ]
+    },
+    "insights": {
+      "overallSummary": "The company's digital presence is significantly underdeveloped, impacting its visibility and authority across key channels. The absence of a Google Business Profile severely limits local search visibility, which is crucial for engaging with potential users and clients in the area. Additionally, while a LinkedIn presence exists, its impact is unclear due to unknown follower count and posting cadence, suggesting missed opportunities for engaging with a professional audience. The social media presence is fragmented with activity on Instagram and YouTube but no presence on Facebook, indicating an inconsistent approach to audience engagement. Content on the site is very minimal, with no blog or resource pages discovered, which diminishes the company's ability to establish thought leadership and attract organic traffic through content marketing. The website itself offers limited navigation and lacks a pricing page, creating a barrier for potential clients seeking transparent information about the company's offerings. Furthermore, with no case studies or testimonials, the business struggles to provide social proof that could build trust with prospective customers. SEO efforts appear sparse, with the site lacking a comprehensive strategy to cover relevant search intents and improve its domain authority. The brand's online authority is weak due to a limited backlink profile and a lack of industry recognition, making it difficult for the company to gain credibility in its field. Overall, the company must prioritize strengthening its digital footprint and authority to enhance its market position and attract more clients.",
+      "brandInsights": [
+        "The brand lacks a clear narrative and differentiation from competitors.",
+        "There are no case studies or testimonials to build credibility.",
+        "Visual consistency is low, affecting brand perception."
+      ],
+      "contentInsights": [
+        "No blog or resource pages are found, limiting content marketing potential.",
+        "Messaging does not address various stages of the buyer's journey.",
+        "There is a lack of detailed content to showcase expertise."
+      ],
+      "seoInsights": [
+        "Basic SEO elements like meta descriptions are missing.",
+        "No content strategy to improve organic search rankings.",
+        "Limited internal linking affects site navigation and user experience."
+      ],
+      "websiteInsights": [
+        "Site navigation is limited, restricting user exploration.",
+        "The absence of a pricing page creates friction in the buyer's journey.",
+        "Minimal CTAs are in place, reducing conversion opportunities."
+      ]
+    }
+  },
+  "metadata": {
+    "url": "https://example.com",
+    "domain": "example.com",
+    "analyzedAt": "2025-11-22T20:29:22.846Z"
+  }
+}

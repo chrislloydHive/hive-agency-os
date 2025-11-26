@@ -1,0 +1,101 @@
+{
+  "url": "https://www.shopify.com",
+  "businessContext": {
+    "businessType": "local-consumer",
+    "brandTier": "global_category_leader",
+    "confidence": "high",
+    "notes": [
+      "Recognized as global category leader: shopify.com",
+      "Detected local-consumer business (3 local signals)",
+      "Detected event dates/calendar"
+    ],
+    "signals": {
+      "isLocal": true,
+      "isB2B": false,
+      "isB2C": true,
+      "isSaaS": false,
+      "isEcommerce": false,
+      "hasPhysicalLocation": true
+    }
+  },
+  "initialAssessment": {
+    "core": {
+      "url": "https://www.shopify.com",
+      "domain": "shopify.com",
+      "overallScore": 92,
+      "marketingMaturity": "advanced",
+      "brandTier": "global_category_leader",
+      "companyType": "platform_infrastructure",
+      "brand": {
+        "brandScore": 90,
+        "perceivedPositioning": "Ecommerce platform leader",
+        "toneOfVoice": "Authoritative and supportive",
+        "visualConsistency": "high"
+      },
+      "content": {
+        "contentScore": 85,
+        "hasBlogOrResources": true,
+        "contentDepth": "deep",
+        "contentFocus": "Ecommerce solutions and insights",
+        "postingConsistency": "high"
+      },
+      "seo": {
+        "seoScore": 80,
+        "appearsIndexable": true,
+        "onPageBasics": "ok",
+        "searchIntentFit": "strong"
+      },
+      "website": {
+        "websiteScore": 85,
+        "clarityOfMessage": "high",
+        "primaryCtaQuality": "strong",
+        "perceivedFriction": "low"
+      },
+      "digitalFootprint": {
+        "footprintScore": 88,
+        "googleBusinessProfile": "none",
+        "linkedinPresence": "strong",
+        "socialPresence": "strong",
+        "reviewsReputation": "strong",
+        "authoritySignals": "strong",
+        "brandSearchDemand": "high"
+      },
+      "quickSummary": "Shopify maintains a strong digital presence and authority as a leader in ecommerce solutions. Minor opportunities for enhancement exist in local search visibility and social media engagement.",
+      "topOpportunities": [
+        "Enhance LinkedIn posting consistency to solidify B2B thought leadership.",
+        "Explore setting up a Google Business Profile to capture additional local search opportunities.",
+        "Expand social media engagement on platforms like Facebook to reach broader consumer segments.",
+        "Continue refining SEO strategies to ensure maximum alignment with evolving search intents."
+      ],
+      "marketingReadinessScore": 85
+    },
+    "insights": {
+      "overallSummary": "Shopify demonstrates a robust marketing operation with a comprehensive digital footprint and strong authority in the ecommerce space. As a global category leader, the brand effectively communicates its value proposition and engages its target audience through various content channels. The website provides a seamless user experience, supporting conversion goals effectively. While the digital presence is extensive, there are opportunities to further capitalize on local search visibility and enhance social media engagement. Continued refinement of SEO strategies will ensure sustained visibility in a competitive landscape.",
+      "brandInsights": [
+        "Shopify's brand is globally recognized, reinforcing its leadership in ecommerce.",
+        "The brand effectively communicates its value proposition as an all-in-one platform.",
+        "Minor opportunities exist to further differentiate the brand in a competitive market."
+      ],
+      "contentInsights": [
+        "The content strategy is robust, with a rich array of blogs and guides.",
+        "Introducing case studies could further strengthen the content offerings.",
+        "Content depth supports engagement across various buyer journey stages."
+      ],
+      "seoInsights": [
+        "Shopify employs strong SEO strategies, maintaining high visibility.",
+        "Potential exists to refine alignment with specific niche queries.",
+        "SEO efforts are robust, supporting broad search intent coverage."
+      ],
+      "websiteInsights": [
+        "The website provides a seamless user experience with clear conversion pathways.",
+        "Effective call-to-actions reduce friction and support conversion goals.",
+        "Continuous optimization can reveal further opportunities for improvement."
+      ]
+    }
+  },
+  "metadata": {
+    "url": "https://www.shopify.com",
+    "domain": "shopify.com",
+    "analyzedAt": "2025-11-22T20:25:49.808Z"
+  }
+}

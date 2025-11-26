@@ -248,7 +248,7 @@ export function CompanyPreviewPanel({ company, onClose }: CompanyPreviewPanelPro
 
       {/* CTA Button */}
       <Link
-        href={`/companies/${company.id}`}
+        href={`/c/${company.id}`}
         className="block w-full text-center px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors"
       >
         Open Company

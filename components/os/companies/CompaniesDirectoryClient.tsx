@@ -436,7 +436,7 @@ export function CompaniesDirectoryClient({
                       {/* Action */}
                       <td className="px-4 py-3 text-right">
                         <Link
-                          href={`/companies/${company.id}`}
+                          href={`/c/${company.id}`}
                           onClick={(e) => e.stopPropagation()}
                           className="text-xs text-amber-500 hover:text-amber-400 font-medium"
                         >

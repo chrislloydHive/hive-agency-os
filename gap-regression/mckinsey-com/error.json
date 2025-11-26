@@ -1,0 +1,9 @@
+{
+  "url": "https://www.mckinsey.com",
+  "error": {
+    "name": "Error",
+    "message": "Request timed out after 10 seconds. The website may be slow or unreachable.",
+    "stack": "Error: Request timed out after 10 seconds. The website may be slow or unreachable.\n    at fetchHtmlBounded (/Users/chrislloyd/Hey, Dropbox/Chris Lloyd/Website Projects/hive-forms/lib/gap/core.ts:146:15)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at async runInitialAssessment (/Users/chrislloyd/Hey, Dropbox/Chris Lloyd/Website Projects/hive-forms/lib/gap/core.ts:651:16)\n    at async runRegressionForUrl (/Users/chrislloyd/Hey, Dropbox/Chris Lloyd/Website Projects/hive-forms/scripts/runGapRegression.ts:249:22)\n    at async main (/Users/chrislloyd/Hey, Dropbox/Chris Lloyd/Website Projects/hive-forms/scripts/runGapRegression.ts:342:7)"
+  },
+  "timestamp": "2025-11-22T20:27:49.696Z"
+}

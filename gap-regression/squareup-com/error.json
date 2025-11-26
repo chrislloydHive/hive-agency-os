@@ -1,0 +1,9 @@
+{
+  "url": "https://www.squareup.com",
+  "error": {
+    "name": "Error",
+    "message": "OPENAI_API_KEY environment variable is required. Please set it in your .env.local file.",
+    "stack": "Error: OPENAI_API_KEY environment variable is required. Please set it in your .env.local file.\n    at getOpenAIClient (/Users/chrislloyd/Hey, Dropbox/Chris Lloyd/Website Projects/hive-forms/lib/gap/core.ts:348:11)\n    at generateGapIaAnalysisCore (/Users/chrislloyd/Hey, Dropbox/Chris Lloyd/Website Projects/hive-forms/lib/gap/core.ts:379:18)\n    at runRegressionForUrl (/Users/chrislloyd/Hey, Dropbox/Chris Lloyd/Website Projects/hive-forms/scripts/runGapRegression.ts:216:25)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at async main (/Users/chrislloyd/Hey, Dropbox/Chris Lloyd/Website Projects/hive-forms/scripts/runGapRegression.ts:318:7)"
+  },
+  "generatedAt": "2025-11-22T20:06:11.602Z"
+}

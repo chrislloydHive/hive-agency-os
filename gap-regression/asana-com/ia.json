@@ -1,0 +1,245 @@
+{
+  "url": "https://asana.com",
+  "businessContext": {
+    "businessType": "local-consumer",
+    "brandTier": "local_business",
+    "confidence": "high",
+    "notes": [
+      "Detected local-consumer business (4 local signals)",
+      "Detected physical address",
+      "Detected event dates/calendar",
+      "Classified as local_business tier based on local-consumer type"
+    ],
+    "signals": {
+      "isLocal": true,
+      "isB2B": false,
+      "isB2C": true,
+      "isSaaS": false,
+      "isEcommerce": false,
+      "hasPhysicalLocation": true
+    }
+  },
+  "initialAssessment": {
+    "summary": {
+      "overallScore": 86,
+      "maturityStage": "advanced",
+      "headlineDiagnosis": "Asana demonstrates strong digital presence and authority, with minor opportunities for content expansion.",
+      "narrative": "Asana, a prominent player in the project management software industry, exhibits a robust digital presence characteristic of a global category leader. The company's website is well-designed, providing comprehensive information about its services, pricing, and resources. Despite the absence of a Google Business Profile, Asana's digital footprint is bolstered by its significant presence on LinkedIn and other social media platforms like Instagram and YouTube, which supports its brand authority and visibility in the B2B SaaS market. However, strengthening the brand's presence on additional social media platforms like Facebook could further enhance its reach and engagement. \n\nIn terms of content strategy, Asana maintains a blog and a resource hub, providing valuable content that supports its authority in the industry. The blog serves as a platform for thought leadership, although the addition of case studies could further demonstrate customer success and practical applications of Asana's offerings. The website effectively communicates Asana's value proposition and facilitates a seamless user experience, though opportunities exist to optimize the conversion paths further. \n\nSEO efforts are solid, with well-structured pages and relevant content that aligns with search intent, although there is room to improve organic search visibility through enhanced on-page SEO elements. Finally, Asana's authority is underscored by its strong backlink profile and brand recognition, though ongoing efforts in industry recognition and thought leadership could solidify its position as an undisputed leader.",
+      "topOpportunities": [
+        "Expand social media presence to include platforms like Facebook for broader audience engagement.",
+        "Incorporate customer testimonials and case studies to strengthen trust and authority.",
+        "Enhance SEO efforts by optimizing on-page elements for improved search visibility.",
+        "Increase regular content updates and diversify content types in the resource hub."
+      ]
+    },
+    "dimensions": {
+      "brand": {
+        "score": 90,
+        "label": "Brand & Positioning",
+        "oneLiner": "Strong brand presence with opportunity for expanded narratives.",
+        "issues": [
+          "Lack of customer testimonials and case studies.",
+          "Potential to enhance brand narrative through additional content types."
+        ],
+        "narrative": "Asana's brand is well-established, with a clear value proposition and strong visual identity. The brand is recognized globally, which is reflected in its digital footprint and authority. However, the lack of customer testimonials and case studies on the website presents an opportunity to further strengthen its brand narrative and demonstrate real-world applications of its products. These elements could enhance trust and provide potential customers with relatable success stories."
+      },
+      "content": {
+        "score": 85,
+        "label": "Content & Messaging",
+        "oneLiner": "Comprehensive content strategy with room for deeper engagement.",
+        "issues": [
+          "Absence of case studies in content strategy.",
+          "Opportunity to diversify content types for deeper engagement."
+        ],
+        "narrative": "Asana's content strategy is robust, with a blog and resource hub offering valuable insights and educational content. The blog supports thought leadership, while the resource hub provides practical guides. However, the content could benefit from the inclusion of case studies to illustrate customer success stories. Additionally, diversifying content types, such as video series or interactive content, could engage audiences further and solidify Asana's position as an industry thought leader."
+      },
+      "seo": {
+        "score": 78,
+        "label": "SEO & Visibility",
+        "oneLiner": "Solid SEO foundation with opportunities for enhanced search visibility.",
+        "issues": [
+          "Limited optimization of on-page SEO elements.",
+          "Potential to increase organic search visibility."
+        ],
+        "narrative": "Asana has a strong SEO foundation, with relevant content that aligns well with search intent. However, there is room to enhance on-page SEO elements such as meta tags and header usage to improve organic search visibility. By optimizing these areas, Asana can ensure that its content is more discoverable and attractive to search engines, potentially increasing traffic and engagement."
+      },
+      "website": {
+        "score": 82,
+        "label": "Website & Conversion",
+        "oneLiner": "User-friendly design with opportunities for conversion optimization.",
+        "issues": [
+          "Potential to further optimize conversion paths.",
+          "Opportunity to enhance user experience through streamlined navigation."
+        ],
+        "narrative": "The Asana website is designed to provide a seamless user experience, with clear navigation and a well-organized layout. The presence of a dedicated pricing page aids in transparency, which is crucial for conversion. However, there are opportunities to further optimize conversion paths by analyzing user behavior and adjusting CTAs to guide users more effectively through the purchasing funnel. Streamlined navigation and improved user journeys could enhance the overall user experience and increase conversion rates."
+      },
+      "digitalFootprint": {
+        "score": 87,
+        "label": "Digital Footprint",
+        "oneLiner": "Strong digital presence with minor social media expansion needed.",
+        "issues": [
+          "Absence of Google Business Profile.",
+          "Limited presence on some social media platforms like Facebook."
+        ],
+        "narrative": "Asana exhibits a solid digital presence with an active LinkedIn profile and engagement on Instagram and YouTube. However, the absence of a Google Business Profile limits its visibility in certain local and search contexts, and expanding its presence to platforms like Facebook could enhance brand engagement and reach. Maintaining an active and diverse social media strategy is crucial for sustaining brand visibility and audience interaction in the competitive B2B SaaS space.",
+        "subscores": {
+          "googleBusinessProfile": 20,
+          "linkedinPresence": 90,
+          "socialPresence": 80,
+          "reviewsReputation": 60
+        }
+      },
+      "authority": {
+        "score": 92,
+        "label": "Authority & Trust",
+        "oneLiner": "Strong domain authority and brand recognition.",
+        "issues": [
+          "Ongoing efforts in industry recognition could further solidify authority.",
+          "Potential to expand thought leadership initiatives."
+        ],
+        "narrative": "Asana benefits from a strong authority in the market, underscored by a solid backlink profile and high domain authority. The brand is well-recognized, which contributes significantly to its trust and credibility. However, there is an opportunity to enhance industry recognition through awards and thought leadership initiatives. Continued focus on building authoritative content and engaging in industry events could further establish Asana as a leader in the project management software domain.",
+        "subscores": {
+          "domainAuthority": 95,
+          "backlinks": 90,
+          "brandSearchDemand": 85,
+          "industryRecognition": 80
+        }
+      }
+    },
+    "breakdown": {
+      "bullets": [
+        {
+          "category": "Brand",
+          "statement": "Lack of customer testimonials and case studies on the website.",
+          "impactLevel": "medium"
+        },
+        {
+          "category": "Content",
+          "statement": "Opportunity to diversify content types for deeper engagement.",
+          "impactLevel": "medium"
+        },
+        {
+          "category": "SEO",
+          "statement": "Limited optimization of on-page SEO elements.",
+          "impactLevel": "medium"
+        },
+        {
+          "category": "Website",
+          "statement": "Potential to further optimize conversion paths.",
+          "impactLevel": "medium"
+        },
+        {
+          "category": "Digital Footprint",
+          "statement": "Absence of Google Business Profile affects local visibility.",
+          "impactLevel": "high"
+        },
+        {
+          "category": "Authority",
+          "statement": "Ongoing efforts in industry recognition could further solidify authority.",
+          "impactLevel": "medium"
+        }
+      ]
+    },
+    "quickWins": {
+      "bullets": [
+        {
+          "category": "Digital Footprint",
+          "action": "Claim and set up a Google Business Profile to enhance local search visibility.",
+          "expectedImpact": "high",
+          "effortLevel": "low"
+        },
+        {
+          "category": "Brand",
+          "action": "Incorporate customer testimonials and case studies to strengthen trust and authority.",
+          "expectedImpact": "medium",
+          "effortLevel": "medium"
+        },
+        {
+          "category": "Content",
+          "action": "Diversify content types in the resource hub to engage different audience segments.",
+          "expectedImpact": "medium",
+          "effortLevel": "medium"
+        },
+        {
+          "category": "SEO",
+          "action": "Optimize on-page SEO elements for improved search engine visibility.",
+          "expectedImpact": "medium",
+          "effortLevel": "medium"
+        }
+      ]
+    },
+    "core": {
+      "url": "https://asana.com",
+      "domain": "asana.com",
+      "overallScore": 86,
+      "marketingMaturity": "advanced",
+      "brandTier": "global_category_leader",
+      "companyType": "b2b_saas",
+      "brand": {
+        "brandScore": 90,
+        "perceivedPositioning": "Strong B2B SaaS brand with global recognition.",
+        "toneOfVoice": "Professional and authoritative",
+        "visualConsistency": "high"
+      },
+      "content": {
+        "contentScore": 85,
+        "hasBlogOrResources": true,
+        "contentDepth": "deep",
+        "contentFocus": "Project management and productivity",
+        "postingConsistency": "high"
+      },
+      "seo": {
+        "seoScore": 78,
+        "appearsIndexable": true,
+        "onPageBasics": "ok",
+        "searchIntentFit": "strong"
+      },
+      "website": {
+        "websiteScore": 82,
+        "clarityOfMessage": "high",
+        "primaryCtaQuality": "strong",
+        "perceivedFriction": "low"
+      },
+      "digitalFootprint": {
+        "footprintScore": 87,
+        "googleBusinessProfile": "weak",
+        "linkedinPresence": "strong",
+        "socialPresence": "strong",
+        "reviewsReputation": "medium",
+        "authoritySignals": "strong",
+        "brandSearchDemand": "high"
+      },
+      "quickSummary": "Asana demonstrates a strong digital presence with a robust content strategy and authority in the B2B SaaS market. Minor opportunities for content expansion and digital footprint enhancement exist.",
+      "topOpportunities": [
+        "Expand social media presence to include platforms like Facebook for broader audience engagement.",
+        "Incorporate customer testimonials and case studies to strengthen trust and authority.",
+        "Enhance SEO efforts by optimizing on-page elements for improved search visibility."
+      ],
+      "marketingReadinessScore": 85
+    },
+    "insights": {
+      "overallSummary": "Asana is a well-established brand in the project management software industry, recognized globally for its robust product and authoritative market presence. The company's digital footprint is strong, supported by significant engagement on platforms like LinkedIn and Instagram. However, the absence of a Google Business Profile suggests an opportunity for enhanced local search visibility. The content strategy is comprehensive, with a blog and resource hub providing valuable insights, though the addition of case studies could enhance trust and demonstrate practical applications of Asana's offerings. SEO strategies are solid, but further on-page optimization could improve search visibility. Overall, Asana's digital marketing maturity is advanced, with opportunities for minor optimizations to solidify its leadership position.",
+      "brandInsights": [
+        "Strong brand presence with clear value propositions.",
+        "Opportunity to incorporate testimonials and case studies for added credibility."
+      ],
+      "contentInsights": [
+        "Comprehensive blog and resource hub indicate strong content strategy.",
+        "Potential to diversify content types for deeper audience engagement."
+      ],
+      "seoInsights": [
+        "Solid SEO foundation with room for optimization in on-page elements.",
+        "Opportunity to improve organic search visibility further."
+      ],
+      "websiteInsights": [
+        "User-friendly design with effective navigation and conversion paths.",
+        "Potential to enhance conversion rates through targeted path optimizations."
+      ]
+    }
+  },
+  "metadata": {
+    "url": "https://asana.com",
+    "domain": "asana.com",
+    "analyzedAt": "2025-11-22T20:24:37.730Z"
+  }
+}

@@ -343,7 +343,7 @@ export function PipelineOpportunitiesClient({
                   <td className="px-4 py-3">
                     {opp.companyId ? (
                       <Link
-                        href={`/companies/${opp.companyId}`}
+                        href={`/c/${opp.companyId}`}
                         className="text-amber-500 hover:text-amber-400 text-xs"
                       >
                         {opp.companyName || 'View Company'}

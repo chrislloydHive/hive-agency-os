@@ -1,0 +1,250 @@
+{
+  "url": "https://www.apple.com",
+  "businessContext": {
+    "businessType": "local-consumer",
+    "brandTier": "global_category_leader",
+    "confidence": "high",
+    "notes": [
+      "Recognized as global category leader: apple.com",
+      "Detected local-consumer business (4 local signals)",
+      "Detected opening hours"
+    ],
+    "signals": {
+      "isLocal": true,
+      "isB2B": false,
+      "isB2C": true,
+      "isSaaS": false,
+      "isEcommerce": false,
+      "hasPhysicalLocation": true
+    }
+  },
+  "initialAssessment": {
+    "summary": {
+      "overallScore": 90,
+      "maturityStage": "advanced",
+      "headlineDiagnosis": "Apple maintains a robust digital ecosystem with strong authority and brand presence.",
+      "narrative": "Apple stands as a global category leader with an exceptional digital footprint and authority. The brand is synonymous with innovation and quality, strongly positioned in the tech industry. Its website reflects high visual and UX sophistication, offering a seamless experience tailored to various customer segments. Despite its strengths, there's an opportunity to enhance thought leadership visibility on platforms like LinkedIn.\n\nContent and messaging are consistently aligned with Apple's brand values, though further investment in diverse content types could bolster engagement and thought leadership. SEO performance is solid, leveraging Apple's domain authority to capture extensive search visibility. However, the absence of a Google Business Profile is noted, which could be leveraged for enhancing local visibility.\n\nThe digital footprint is largely comprehensive, with a strong social media presence and high engagement across platforms like Instagram and YouTube. The authority and trust dimension is nearly unmatched, with Apple commanding strong brand search demand and industry recognition. There's potential for more strategic engagement on LinkedIn to enhance B2B relations.\n\nOverall, while Apple excels in most areas, focusing on expanding its presence on professional platforms could further amplify its market leadership and thought leadership in the tech industry.",
+      "topOpportunities": [
+        "Enhance LinkedIn presence to boost B2B engagement and thought leadership.",
+        "Leverage Google Business Profile to improve local search visibility.",
+        "Expand content types to include more thought leadership articles and whitepapers.",
+        "Increase engagement on YouTube through more frequent and diverse content."
+      ]
+    },
+    "dimensions": {
+      "brand": {
+        "score": 95,
+        "label": "Brand & Positioning",
+        "oneLiner": "Globally recognized brand with strong market positioning.",
+        "issues": [
+          "Opportunity to deepen thought leadership presence.",
+          "Potential to clarify brand messaging on emerging platforms."
+        ],
+        "narrative": "Apple's brand is a paragon of innovation and premium quality. The company's positioning is clear, resonating well with its target audience across consumer and professional segments. While the brand narrative is strong, there remains room for enhancing its thought leadership, particularly through platforms like LinkedIn. This could further solidify Apple's position as a leader not just in product innovation but also in industry discourse."
+      },
+      "content": {
+        "score": 85,
+        "label": "Content & Messaging",
+        "oneLiner": "Content is aligned with brand values but could diversify further.",
+        "issues": [
+          "Limited use of diverse content types such as whitepapers.",
+          "Could enhance content distribution on professional networks."
+        ],
+        "narrative": "Apple's content strategy effectively communicates its brand values of innovation and quality. While the content is authoritative and useful, expanding into more diverse formats such as whitepapers or in-depth articles could enhance thought leadership and audience engagement. Additionally, strategic distribution across professional networks like LinkedIn could amplify content reach and influence."
+      },
+      "seo": {
+        "score": 90,
+        "label": "SEO & Visibility",
+        "oneLiner": "Strong SEO foundation supported by high domain authority.",
+        "issues": [
+          "Lack of Google Business Profile limits local SEO opportunities.",
+          "Potential to optimize for emerging search trends."
+        ],
+        "narrative": "Apple's SEO strategy benefits from its strong domain authority, ensuring high visibility across search engines. However, the absence of a Google Business Profile suggests a missed opportunity for enhancing local SEO. By optimizing for local presence, Apple can capture additional search traffic and improve its visibility in regional markets."
+      },
+      "website": {
+        "score": 88,
+        "label": "Website & Conversion",
+        "oneLiner": "High visual and UX sophistication with seamless conversion paths.",
+        "issues": [
+          "Could enhance accessibility features for diverse user needs.",
+          "Potential to streamline navigation for quicker access to key areas."
+        ],
+        "narrative": "The Apple website exemplifies high visual and UX sophistication, providing users with a seamless experience from exploration to conversion. While the site performs exceptionally well, enhancing accessibility features could broaden user inclusivity. Additionally, streamlining navigation could further reduce friction and improve user interactions, especially for first-time visitors."
+      },
+      "digitalFootprint": {
+        "score": 87,
+        "label": "Digital Footprint",
+        "oneLiner": "Comprehensive social media presence with strong engagement.",
+        "issues": [
+          "Absence of a Google Business Profile.",
+          "Limited strategic presence on LinkedIn for B2B engagement."
+        ],
+        "narrative": "Apple's digital footprint is robust, with a strong presence on platforms like Instagram and YouTube, which boast high engagement. However, the lack of a Google Business Profile limits potential local visibility. Similarly, while Apple has a LinkedIn presence, enhancing its activity and engagement there could improve B2B interactions and thought leadership visibility.",
+        "subscores": {
+          "googleBusinessProfile": 0,
+          "linkedinPresence": 70,
+          "socialPresence": 95,
+          "reviewsReputation": 90
+        }
+      },
+      "authority": {
+        "score": 95,
+        "label": "Authority & Trust",
+        "oneLiner": "Exceptional authority with strong domain and industry recognition.",
+        "issues": [
+          "Potential to expand thought leadership through more strategic content.",
+          "Need for ongoing monitoring of brand search demand to maintain dominance."
+        ],
+        "narrative": "Apple's authority is unrivaled, with a strong domain authority supported by an extensive and high-quality backlink profile. The brand dominates its search landscape, underscoring its market leadership. Regular press coverage and industry recognition further cement its authority. Continuous expansion of strategic thought leadership content can enhance Apple's influence and maintain its dominant position in the tech industry.",
+        "subscores": {
+          "domainAuthority": 95,
+          "backlinks": 90,
+          "brandSearchDemand": 95,
+          "industryRecognition": 95
+        }
+      }
+    },
+    "breakdown": {
+      "bullets": [
+        {
+          "category": "Brand",
+          "statement": "Globally recognized for innovation and premium quality.",
+          "impactLevel": "high"
+        },
+        {
+          "category": "Content",
+          "statement": "Content aligns with brand values but lacks diversity.",
+          "impactLevel": "medium"
+        },
+        {
+          "category": "SEO",
+          "statement": "Strong visibility supported by high domain authority.",
+          "impactLevel": "high"
+        },
+        {
+          "category": "Website",
+          "statement": "High visual and UX quality with smooth conversion paths.",
+          "impactLevel": "high"
+        },
+        {
+          "category": "Digital Footprint",
+          "statement": "Strong social media presence but lacks a Google Business Profile.",
+          "impactLevel": "high"
+        },
+        {
+          "category": "Authority",
+          "statement": "Exceptional authority with strong industry recognition.",
+          "impactLevel": "high"
+        }
+      ]
+    },
+    "quickWins": {
+      "bullets": [
+        {
+          "category": "Digital Footprint",
+          "action": "Establish a Google Business Profile to enhance local visibility.",
+          "expectedImpact": "high",
+          "effortLevel": "low"
+        },
+        {
+          "category": "Digital Footprint",
+          "action": "Increase LinkedIn activity to boost B2B engagement.",
+          "expectedImpact": "medium",
+          "effortLevel": "medium"
+        },
+        {
+          "category": "Content",
+          "action": "Develop more thought leadership content such as whitepapers.",
+          "expectedImpact": "medium",
+          "effortLevel": "medium"
+        },
+        {
+          "category": "SEO",
+          "action": "Optimize for local SEO by leveraging Google Business Profile.",
+          "expectedImpact": "high",
+          "effortLevel": "medium"
+        },
+        {
+          "category": "Website",
+          "action": "Enhance accessibility features to improve inclusivity.",
+          "expectedImpact": "medium",
+          "effortLevel": "medium"
+        }
+      ]
+    },
+    "core": {
+      "url": "https://www.apple.com",
+      "domain": "apple.com",
+      "overallScore": 90,
+      "marketingMaturity": "advanced",
+      "brandTier": "global_category_leader",
+      "companyType": "platform_infrastructure",
+      "brand": {
+        "brandScore": 95,
+        "perceivedPositioning": "Innovation and premium quality leader in technology.",
+        "toneOfVoice": "Confident, innovative, premium",
+        "visualConsistency": "high"
+      },
+      "content": {
+        "contentScore": 85,
+        "hasBlogOrResources": true,
+        "contentDepth": "medium",
+        "contentFocus": "Innovation and product excellence",
+        "postingConsistency": "high"
+      },
+      "seo": {
+        "seoScore": 90,
+        "appearsIndexable": true,
+        "onPageBasics": "ok",
+        "searchIntentFit": "strong"
+      },
+      "website": {
+        "websiteScore": 88,
+        "clarityOfMessage": "high",
+        "primaryCtaQuality": "strong",
+        "perceivedFriction": "low"
+      },
+      "digitalFootprint": {
+        "footprintScore": 87,
+        "googleBusinessProfile": "none",
+        "linkedinPresence": "weak",
+        "socialPresence": "strong",
+        "reviewsReputation": "strong",
+        "authoritySignals": "strong",
+        "brandSearchDemand": "high"
+      },
+      "quickSummary": "Apple's digital presence is robust, with strong authority and brand recognition. Opportunities exist to enhance B2B engagement through LinkedIn and local visibility via a Google Business Profile.",
+      "topOpportunities": [
+        "Enhance LinkedIn presence to boost B2B engagement and thought leadership.",
+        "Leverage Google Business Profile to improve local search visibility.",
+        "Expand content types to include more thought leadership articles and whitepapers."
+      ],
+      "marketingReadinessScore": 85
+    },
+    "insights": {
+      "overallSummary": "Apple's marketing operation is highly advanced, reflecting its status as a global category leader. The brand's digital footprint is comprehensive, with a strong presence across major social media platforms. However, the absence of a Google Business Profile indicates a gap in local visibility, and the LinkedIn presence could be more strategic to enhance B2B engagement. Content strategy aligns well with Apple's brand values, though diversifying content types could further enhance thought leadership. SEO is strong, underpinned by exceptional domain authority and visibility.\n\nOverall, while Apple excels in many areas, focusing on expanding its presence on professional platforms like LinkedIn and optimizing for local search could further amplify its market leadership and engagement.",
+      "brandInsights": [
+        "Apple's brand is synonymous with innovation and quality.",
+        "The brand positioning is clear and resonates well with the target audience."
+      ],
+      "contentInsights": [
+        "Content aligns with brand values but could benefit from more diverse formats.",
+        "Strategic distribution on LinkedIn could enhance reach and influence."
+      ],
+      "seoInsights": [
+        "Apple's strong domain authority ensures high visibility.",
+        "Lack of a Google Business Profile limits local SEO potential."
+      ],
+      "websiteInsights": [
+        "The website offers a high-quality UX with seamless conversion paths.",
+        "Enhancing accessibility features could broaden user inclusivity."
+      ]
+    }
+  },
+  "metadata": {
+    "url": "https://www.apple.com",
+    "domain": "apple.com",
+    "analyzedAt": "2025-11-22T20:26:57.659Z"
+  }
+}

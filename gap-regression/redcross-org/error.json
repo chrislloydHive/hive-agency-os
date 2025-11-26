@@ -1,0 +1,9 @@
+{
+  "url": "https://www.redcross.org",
+  "error": {
+    "name": "Error",
+    "message": "This website is blocking automated access (403 Forbidden)",
+    "stack": "Error: This website is blocking automated access (403 Forbidden)\n    at fetchHtmlBounded (/Users/chrislloyd/Hey, Dropbox/Chris Lloyd/Website Projects/hive-forms/lib/gap/core.ts:102:15)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at async runInitialAssessment (/Users/chrislloyd/Hey, Dropbox/Chris Lloyd/Website Projects/hive-forms/lib/gap/core.ts:651:16)\n    at async runRegressionForUrl (/Users/chrislloyd/Hey, Dropbox/Chris Lloyd/Website Projects/hive-forms/scripts/runGapRegression.ts:249:22)\n    at async main (/Users/chrislloyd/Hey, Dropbox/Chris Lloyd/Website Projects/hive-forms/scripts/runGapRegression.ts:342:7)"
+  },
+  "timestamp": "2025-11-22T20:27:39.690Z"
+}

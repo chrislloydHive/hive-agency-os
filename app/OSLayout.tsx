@@ -159,7 +159,7 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
       {/* Quick Actions - Add Prospect Button */}
       <div className="px-3 py-3">
         <Link
-          href="/companies/new"
+          href="/c/new"
           className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-900 font-semibold rounded-lg transition-colors text-sm"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

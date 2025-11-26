@@ -298,7 +298,7 @@ export function CompaniesRosterClient({
                         </td>
                         <td className="px-4 py-3 text-right">
                           <Link
-                            href={`/companies/${company.id}`}
+                            href={`/c/${company.id}`}
                             onClick={(e) => e.stopPropagation()}
                             className="text-xs text-amber-500 hover:text-amber-400 font-medium"
                           >
@@ -439,7 +439,7 @@ export function CompaniesRosterClient({
 
             {/* CTA */}
             <Link
-              href={`/companies/${selectedCompany.id}`}
+              href={`/c/${selectedCompany.id}`}
               className="block w-full text-center px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors"
             >
               Open Company

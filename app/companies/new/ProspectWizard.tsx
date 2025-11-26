@@ -144,7 +144,7 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
       const data = await response.json();
 
       // Redirect to the new company page
-      router.push(`/companies/${data.company.id}`);
+      router.push(`/c/${data.company.id}`);
     } catch (err) {
       console.error('Failed to create prospect:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');

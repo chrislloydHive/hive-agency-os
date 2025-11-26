@@ -304,7 +304,7 @@ export function CompaniesListWithFilters({
                           Manage
                         </button>
                         <Link
-                          href={`/companies/${company.id}`}
+                          href={`/c/${company.id}`}
                           className="text-xs text-amber-500 hover:text-amber-400 font-medium"
                         >
                           View →

@@ -1,0 +1,95 @@
+{
+  "url": "https://www.hubspot.com",
+  "businessContext": {
+    "businessType": "media",
+    "brandTier": "global_category_leader",
+    "confidence": "medium",
+    "notes": [
+      "Recognized as global category leader: hubspot.com",
+      "Detected media publisher (2 signals)"
+    ],
+    "signals": {
+      "isLocal": true,
+      "isB2B": false,
+      "isB2C": false,
+      "isSaaS": false,
+      "isEcommerce": false,
+      "hasPhysicalLocation": true
+    }
+  },
+  "initialAssessment": {
+    "core": {
+      "url": "https://www.hubspot.com",
+      "domain": "hubspot.com",
+      "overallScore": 90,
+      "marketingMaturity": "advanced",
+      "brandTier": "global_category_leader",
+      "companyType": "b2b_saas",
+      "brand": {
+        "brandScore": 95,
+        "perceivedPositioning": "Leading SaaS provider for CRM and marketing tools",
+        "toneOfVoice": "Professional, authoritative, supportive",
+        "visualConsistency": "high"
+      },
+      "content": {
+        "contentScore": 90,
+        "hasBlogOrResources": true,
+        "contentDepth": "deep",
+        "contentFocus": "B2B SaaS, CRM, marketing",
+        "postingConsistency": "high"
+      },
+      "seo": {
+        "seoScore": 85,
+        "appearsIndexable": true,
+        "onPageBasics": "ok",
+        "searchIntentFit": "strong"
+      },
+      "website": {
+        "websiteScore": 88,
+        "clarityOfMessage": "high",
+        "primaryCtaQuality": "strong",
+        "perceivedFriction": "low"
+      },
+      "digitalFootprint": {
+        "footprintScore": 80,
+        "googleBusinessProfile": "weak",
+        "linkedinPresence": "strong",
+        "socialPresence": "medium",
+        "reviewsReputation": "strong",
+        "authoritySignals": "strong",
+        "brandSearchDemand": "high"
+      },
+      "quickSummary": "HubSpot, a global leader in B2B SaaS, excels in brand authority and content strategy. While its digital footprint is active, optimizing the Google Business Profile and LinkedIn engagement could enhance visibility and credibility.",
+      "topOpportunities": [
+        "Optimize and manage Google Business Profile to enhance local search visibility and capture potential users.",
+        "Strengthen LinkedIn presence by increasing follower engagement and consistent thought leadership content.",
+        "Integrate a unified social media strategy to ensure cohesive brand messaging across all platforms."
+      ],
+      "marketingReadinessScore": 85
+    },
+    "insights": {
+      "overallSummary": "HubSpot demonstrates advanced marketing maturity with a strong brand and content foundation. The company effectively leverages its industry authority, underpinned by extensive backlinks and a well-recognized brand. However, there are opportunities to enhance its digital footprint by optimizing the Google Business Profile and further refining its LinkedIn strategy to boost professional engagement.\n\nThe content strategy is robust, featuring a diverse array of informative and engaging materials that reinforce HubSpot's position as a thought leader. The website is user-friendly with clear navigation and effective conversion paths, though there is room to further personalize the user experience to cater to a broader audience.\n\nOverall, while HubSpot excels in numerous areas, strategic enhancements in its digital footprint and content distribution could further solidify its leadership position in the SaaS market.",
+      "brandInsights": [
+        "HubSpot's brand is a global leader in the SaaS market, with a strong, consistent narrative.",
+        "The brand narrative effectively communicates its value proposition across multiple markets."
+      ],
+      "contentInsights": [
+        "The content strategy is comprehensive, supporting thought leadership with depth and relevance.",
+        "Regular blog updates indicate a commitment to audience engagement and industry trends."
+      ],
+      "seoInsights": [
+        "SEO strategies are robust, though local search visibility could be improved with a detailed GBP.",
+        "The content ecosystem supports strong organic visibility, but niche keywords could enhance reach."
+      ],
+      "websiteInsights": [
+        "The website is professionally designed with clear conversion paths and transparent pricing.",
+        "Opportunities exist to enhance personalization for a more tailored user experience."
+      ]
+    }
+  },
+  "metadata": {
+    "url": "https://www.hubspot.com",
+    "domain": "hubspot.com",
+    "analyzedAt": "2025-11-22T20:23:21.434Z"
+  }
+}

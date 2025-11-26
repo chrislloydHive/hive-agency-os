@@ -83,7 +83,7 @@ You must respond with valid JSON matching this exact structure:
       "title": "Short action title (e.g., 'Follow up with Acme Corp')",
       "detail": "1-2 sentences explaining why this matters and what to do",
       "linkType": "company" | "work" | "opportunity" | "analytics" | "none",
-      "linkHref": "/companies/[id]" or "/work" or "/pipeline/opportunities" or "/analytics" or null
+      "linkHref": "/c/[id]" or "/work" or "/pipeline/opportunities" or "/analytics" or null
     }
   ],
   "risks": [
@@ -106,7 +106,7 @@ RULES:
 3. opportunities should have 0-3 items (only include real opportunities)
 4. If data is missing or empty, acknowledge it but still provide useful guidance
 5. Use actual company names and IDs from the data
-6. For linkHref, use the actual IDs provided in the data (e.g., /companies/rec123abc)
+6. For linkHref, use the actual IDs provided in the data (e.g., /c/rec123abc)
 7. Always include at least one actionable focus item
 
 Return ONLY valid JSON, no markdown formatting or code blocks.`;

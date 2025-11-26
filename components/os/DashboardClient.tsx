@@ -171,7 +171,7 @@ export function DashboardClient({ summary }: DashboardClientProps) {
                   {summary.clientHealth.atRisk.map((client) => (
                     <Link
                       key={client.companyId}
-                      href={`/companies/${client.companyId}`}
+                      href={`/c/${client.companyId}`}
                       className="block p-2 rounded-lg hover:bg-slate-800/50 transition-colors"
                     >
                       <div className="text-sm text-slate-200 font-medium truncate">
@@ -201,7 +201,7 @@ export function DashboardClient({ summary }: DashboardClientProps) {
                   {summary.clientHealth.newClients.map((client) => (
                     <Link
                       key={client.companyId}
-                      href={`/companies/${client.companyId}`}
+                      href={`/c/${client.companyId}`}
                       className="block p-2 rounded-lg hover:bg-slate-800/50 transition-colors"
                     >
                       <div className="text-sm text-slate-200 font-medium truncate">
@@ -388,7 +388,7 @@ export function DashboardClient({ summary }: DashboardClientProps) {
                       key={assessment.id}
                       href={
                         assessment.companyId
-                          ? `/companies/${assessment.companyId}?tab=gap`
+                          ? `/c/${assessment.companyId}?tab=gap`
                           : `/gap/ia`
                       }
                       className="block p-2 rounded-lg hover:bg-slate-800/50 transition-colors"
@@ -426,7 +426,7 @@ export function DashboardClient({ summary }: DashboardClientProps) {
                       key={plan.id}
                       href={
                         plan.companyId
-                          ? `/companies/${plan.companyId}?tab=gap`
+                          ? `/c/${plan.companyId}?tab=gap`
                           : `/gap/plans`
                       }
                       className="block p-2 rounded-lg hover:bg-slate-800/50 transition-colors"

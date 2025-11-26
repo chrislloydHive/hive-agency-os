@@ -200,7 +200,7 @@ export function LeadsClient({ leads }: LeadsClientProps) {
             Leads will appear here from DMA audits, referrals, and outreach.
           </p>
           <Link
-            href="/companies/new"
+            href="/c/new"
             className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors text-sm"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -413,7 +413,7 @@ export function LeadsClient({ leads }: LeadsClientProps) {
                       {/* View Company */}
                       {lead.companyId && (
                         <Link
-                          href={`/companies/${lead.companyId}`}
+                          href={`/c/${lead.companyId}`}
                           className="text-xs text-emerald-400 hover:text-emerald-300 whitespace-nowrap"
                         >
                           View Company

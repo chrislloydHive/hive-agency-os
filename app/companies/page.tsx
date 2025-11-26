@@ -81,7 +81,7 @@ async function CompaniesContent({ searchParams }: CompaniesPageProps) {
           </p>
         </div>
         <a
-          href="/companies/new"
+          href="/c/new"
           className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors text-sm"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
