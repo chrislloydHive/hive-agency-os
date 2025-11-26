@@ -135,6 +135,75 @@ IMPORTANT: Use the prior context above to inform your analysis. Reference releva
  * @param config - Configuration for the GAP model caller
  * @returns A GapModelCaller function
  */
+/**
+ * Simple AI call without company context/memory
+ * Used when no company ID is available
+ */
+export async function aiSimple(options: {
+  systemPrompt: string;
+  taskPrompt: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  jsonMode?: boolean;
+}): Promise<string> {
+  const {
+    systemPrompt,
+    taskPrompt,
+    model = 'gpt-4o-mini',
+    temperature = 0.7,
+    maxTokens = 2000,
+    jsonMode = false,
+  } = options;
+
+  const openai = getOpenAI();
+  const completion = await openai.chat.completions.create({
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: taskPrompt },
+    ],
+    temperature,
+    max_tokens: maxTokens,
+    ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
+  });
+
+  return completion.choices[0]?.message?.content || '';
+}
+
+/**
+ * Suggest tags based on content and optional area
+ */
+export function suggestTagsFromContent(content: string, area?: string): string[] {
+  const tags: string[] = [];
+  const lowerContent = content.toLowerCase();
+
+  // Area-based tags
+  if (area) {
+    tags.push(area.charAt(0).toUpperCase() + area.slice(1));
+  }
+
+  // Content-based tags
+  if (lowerContent.includes('seo') || lowerContent.includes('search')) {
+    tags.push('SEO');
+  }
+  if (lowerContent.includes('content') || lowerContent.includes('blog')) {
+    tags.push('Content');
+  }
+  if (lowerContent.includes('website') || lowerContent.includes('ux')) {
+    tags.push('Website');
+  }
+  if (lowerContent.includes('brand')) {
+    tags.push('Brand');
+  }
+  if (lowerContent.includes('analytics') || lowerContent.includes('tracking')) {
+    tags.push('Analytics');
+  }
+
+  // Remove duplicates and limit to 5
+  return [...new Set(tags)].slice(0, 5);
+}
+
 export function createGapModelCaller(
   companyId: string,
   config: {

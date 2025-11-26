@@ -3,29 +3,26 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import type { CompanyRecord } from '@/lib/airtable/companies';
+import type { OpportunityItem } from '@/lib/types/pipeline';
+import {
+  OPPORTUNITY_STAGES,
+  ACTIVE_OPPORTUNITY_STAGES,
+  getStageColorClasses,
+} from '@/lib/types/pipeline';
 
-interface Opportunity {
-  id: string;
-  name: string;
-  companyId?: string;
-  companyName?: string;
+// Extended opportunity with enriched company data
+interface EnrichedOpportunity extends OpportunityItem {
   companyDomain?: string;
-  stage: string;
-  value?: number;
-  probability?: number;
-  closeDate?: string;
-  owner?: string;
-  notes?: string;
-  createdAt?: string;
+  companyStage?: string;
 }
 
 interface PipelineOpportunitiesClientProps {
-  opportunities: Opportunity[];
+  opportunities: EnrichedOpportunity[];
   companies: CompanyRecord[];
 }
 
-const STAGES = ['Discovery', 'Proposal', 'Contract', 'Won', 'Lost'];
-const ACTIVE_STAGES = ['Discovery', 'Proposal', 'Contract'];
+const STAGES = OPPORTUNITY_STAGES;
+const ACTIVE_STAGES = ACTIVE_OPPORTUNITY_STAGES;
 
 // Helper to format dates
 const formatDate = (dateStr?: string | null) => {
@@ -66,9 +63,10 @@ export function PipelineOpportunitiesClient({
       // Search filter
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
-        const nameMatch = opp.name.toLowerCase().includes(query);
-        const companyMatch = opp.companyName?.toLowerCase().includes(query);
-        if (!nameMatch && !companyMatch) return false;
+        const nameMatch = opp.companyName.toLowerCase().includes(query);
+        const deliverableMatch = opp.deliverableName?.toLowerCase().includes(query);
+        const notesMatch = opp.notes?.toLowerCase().includes(query);
+        if (!nameMatch && !deliverableMatch && !notesMatch) return false;
       }
 
       // Stage filter
@@ -331,7 +329,14 @@ export function PipelineOpportunitiesClient({
                   className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
                 >
                   <td className="px-4 py-3">
-                    <div className="text-slate-200 font-medium">{opp.name}</div>
+                    <div className="text-slate-200 font-medium">
+                      {opp.deliverableName || opp.companyName}
+                    </div>
+                    {opp.deliverableName && (
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        {opp.companyName}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     {opp.companyId ? (
@@ -342,22 +347,12 @@ export function PipelineOpportunitiesClient({
                         {opp.companyName || 'View Company'}
                       </Link>
                     ) : (
-                      <span className="text-slate-500 text-xs">No company</span>
+                      <span className="text-slate-400 text-xs">{opp.companyName}</span>
                     )}
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                        opp.stage === 'Won'
-                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                          : opp.stage === 'Lost'
-                          ? 'bg-red-500/10 text-red-400 border border-red-500/30'
-                          : opp.stage === 'Contract'
-                          ? 'bg-purple-500/10 text-purple-400 border border-purple-500/30'
-                          : opp.stage === 'Proposal'
-                          ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                          : 'bg-blue-500/10 text-blue-400 border border-blue-500/30'
-                      }`}
+                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getStageColorClasses(opp.stage)}`}
                     >
                       {opp.stage}
                     </span>
@@ -391,7 +386,7 @@ export function PipelineOpportunitiesClient({
                         </Link>
                       )}
                       <Link
-                        href={`/os/pipeline/opportunities/${opp.id}`}
+                        href={`/pipeline/opportunities/${opp.id}`}
                         className="text-xs text-amber-500 hover:text-amber-400 font-medium"
                       >
                         View →

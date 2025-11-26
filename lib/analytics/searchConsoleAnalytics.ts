@@ -86,7 +86,7 @@ async function fetchTopQueries(
         endDate,
         dimensions: ['query'],
         rowLimit: 50,
-        orderBy: 'clicks',
+        // Note: GSC API doesn't support orderBy - results are always sorted by clicks descending
       },
     });
 
@@ -125,7 +125,7 @@ async function fetchTopPages(
         endDate,
         dimensions: ['page'],
         rowLimit: 50,
-        orderBy: 'clicks',
+        // Note: GSC API doesn't support orderBy - results are always sorted by clicks descending
       },
     });
 

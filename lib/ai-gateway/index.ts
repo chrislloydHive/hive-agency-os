@@ -17,7 +17,7 @@ export type {
 } from './types';
 
 // AI Gateway
-export { aiForCompany, createGapModelCaller } from './aiClient';
+export { aiForCompany, createGapModelCaller, aiSimple, suggestTagsFromContent } from './aiClient';
 
 // Memory Functions
 export {

@@ -2,10 +2,26 @@
 /**
  * Core GAP functions for running GAP-IA and Full GAP analysis
  * Extracted from API handlers for use in scripts and tests
+ *
+ * Uses GapModelCaller abstraction to allow:
+ * - aiForCompany() with memory injection in API routes
+ * - Direct OpenAI calls in scripts/tests
  */
 
 import OpenAI from 'openai';
 import type { CoreMarketingContext, GapIaRun } from '@/lib/gap/types';
+
+// ============================================================================
+// Model Caller Abstraction
+// ============================================================================
+
+/**
+ * A function that sends a prompt to an LLM and returns the response.
+ * This abstraction allows GAP engines to use different AI backends:
+ * - aiForCompany() for API routes (includes memory injection)
+ * - Direct OpenAI for scripts/tests
+ */
+export type GapModelCaller = (prompt: string) => Promise<string>;
 import { collectDigitalFootprint } from '@/lib/digital-footprint/collectDigitalFootprint';
 import {
   GAP_SHARED_SYSTEM_PROMPT,
@@ -364,6 +380,42 @@ function getOpenAIClient(): OpenAI {
   });
 }
 
+/**
+ * Create a default model caller using direct OpenAI calls.
+ * Use this for scripts/tests. For API routes, use aiForCompany() instead.
+ *
+ * @param model - OpenAI model to use (default: 'gpt-4o')
+ * @param options - Additional options for the model caller
+ */
+export function createDefaultModelCaller(
+  model: string = 'gpt-4o',
+  options: { maxTokens?: number; temperature?: number } = {}
+): GapModelCaller {
+  const { maxTokens = 6000, temperature = 0.7 } = options;
+
+  return async (prompt: string): Promise<string> => {
+    const openai = getOpenAIClient();
+
+    const completion = await openai.chat.completions.create({
+      model,
+      messages: [
+        { role: 'system', content: GAP_SHARED_SYSTEM_PROMPT },
+        { role: 'user', content: prompt },
+      ],
+      response_format: { type: 'json_object' },
+      temperature,
+      max_tokens: maxTokens,
+    });
+
+    const content = completion.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('Empty response from OpenAI');
+    }
+
+    return content;
+  };
+}
+
 // ============================================================================
 // Core GAP-IA Generator
 // ============================================================================
@@ -375,6 +427,11 @@ export interface GapIaCoreInput {
   signals: ReturnType<typeof extractHtmlSignals>;
   digitalFootprint: Awaited<ReturnType<typeof collectDigitalFootprint>>;
   multiPageSnapshot?: MultiPageSnapshot;
+  /**
+   * Optional model caller. If not provided, uses direct OpenAI calls.
+   * For API routes with company context, pass a caller created from aiForCompany().
+   */
+  modelCaller?: GapModelCaller;
 }
 
 /**
@@ -392,7 +449,8 @@ export async function generateGapIaAnalysisCore(params: GapIaCoreInput) {
     facebookFound: params.digitalFootprint.otherSocials.facebook,
   });
 
-  const openai = getOpenAIClient();
+  // Use provided model caller or create default
+  const modelCaller = params.modelCaller ?? createDefaultModelCaller('gpt-4o');
 
   const signalPayload = {
     url: params.url,
@@ -450,31 +508,18 @@ export async function generateGapIaAnalysisCore(params: GapIaCoreInput) {
     multiPageSnapshot: params.multiPageSnapshot,
   };
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    messages: [
-      { role: 'system', content: GAP_SHARED_SYSTEM_PROMPT },
-      {
-        role: 'user',
-        content: `${GAP_SHARED_REASONING_PROMPT}
+  // Build the full prompt for the model caller
+  const fullPrompt = `${GAP_SHARED_REASONING_PROMPT}
 
 **Analysis Mode:** GAP_IA (Initial Assessment - V3)
 
 **Input Signals:**
-${JSON.stringify(signalPayload, null, 2)}`,
-      },
-      { role: 'user', content: GAP_IA_OUTPUT_PROMPT_V3 },
-    ],
-    response_format: { type: 'json_object' },
-    temperature: 0.7,
-    max_tokens: 6000,
-  });
+${JSON.stringify(signalPayload, null, 2)}
 
-  const responseText = completion.choices[0]?.message?.content;
+${GAP_IA_OUTPUT_PROMPT_V3}`;
 
-  if (!responseText) {
-    throw new Error('Empty response from OpenAI');
-  }
+  // Call the model
+  const responseText = await modelCaller(fullPrompt);
 
   console.log('[gap/core/V3] ✅ Received OpenAI response:', {
     length: responseText.length,
@@ -573,23 +618,24 @@ export interface FullGapCoreInput {
   gapIa: any; // GapIaRun or similar structure
   domain: string;
   url: string;
+  /**
+   * Optional model caller. If not provided, uses direct OpenAI calls.
+   * For API routes with company context, pass a caller created from aiForCompany().
+   */
+  modelCaller?: GapModelCaller;
 }
 
 /**
  * Generate Full GAP analysis (core function without Airtable writes)
+ *
+ * The engine is model-agnostic and relies on the injected GapModelCaller.
+ * If no modelCaller is provided, uses direct OpenAI calls.
  */
 export async function generateFullGapAnalysisCore(params: FullGapCoreInput) {
   console.log('[gap/core/V3] Generating Full GAP for:', params.domain);
 
-  const openai = getOpenAIClient();
-
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: GAP_SHARED_SYSTEM_PROMPT },
-      {
-        role: 'user',
-        content: `${GAP_SHARED_REASONING_PROMPT}
+  // Build the full prompt
+  const fullPrompt = `${GAP_SHARED_REASONING_PROMPT}
 
 **Analysis Mode:** FULL_GAP (Full Growth Acceleration Plan - V3)
 
@@ -601,19 +647,20 @@ ${JSON.stringify({
   breakdown: params.gapIa.breakdown,
   core: params.gapIa.core,
   insights: params.gapIa.insights,
-}, null, 2)}`,
-      },
-      { role: 'user', content: FULL_GAP_OUTPUT_PROMPT_V3 },
-    ],
-    response_format: { type: 'json_object' },
+}, null, 2)}
+
+${FULL_GAP_OUTPUT_PROMPT_V3}`;
+
+  // Use provided model caller or create default
+  const modelCaller = params.modelCaller ?? createDefaultModelCaller('gpt-4o-mini', {
+    maxTokens: 6000,
     temperature: 0.7,
-    max_tokens: 6000,
   });
 
-  const content = completion.choices[0]?.message?.content;
+  const content = await modelCaller(fullPrompt);
 
   if (!content) {
-    throw new Error('Empty response from OpenAI when generating Full GAP');
+    throw new Error('Empty response from model when generating Full GAP');
   }
 
   console.log('[gap/core/V3] ✅ Received Full GAP response:', {
@@ -722,12 +769,28 @@ export async function discoverMultiPageContent(
 // ============================================================================
 
 /**
+ * Input options for Initial Assessment
+ */
+export interface InitialAssessmentInput {
+  url: string;
+  /**
+   * Optional model caller. If not provided, uses direct OpenAI calls.
+   * For API routes with company context, pass a caller created from aiForCompany().
+   */
+  modelCaller?: GapModelCaller;
+}
+
+/**
  * Run complete Initial Assessment (GAP-IA) for a URL
  *
- * This is the high-level function that orchestrates the entire IA workflow
+ * This is the high-level function that orchestrates the entire IA workflow.
+ * The engine is model-agnostic and relies on the injected GapModelCaller.
+ *
+ * @param input.url - The website URL to analyze
+ * @param input.modelCaller - Optional model caller (defaults to direct OpenAI)
  */
-export async function runInitialAssessment(input: { url: string }) {
-  const { url } = input;
+export async function runInitialAssessment(input: InitialAssessmentInput) {
+  const { url, modelCaller } = input;
 
   console.log('[gap/core] Running Initial Assessment for:', url);
 
@@ -767,7 +830,7 @@ export async function runInitialAssessment(input: { url: string }) {
     },
   });
 
-  // 7. Generate GAP-IA
+  // 7. Generate GAP-IA (pass modelCaller if provided)
   const gapIaOutput = await generateGapIaAnalysisCore({
     url,
     domain,
@@ -775,6 +838,7 @@ export async function runInitialAssessment(input: { url: string }) {
     signals,
     digitalFootprint,
     multiPageSnapshot,
+    modelCaller,
   });
 
   return {
@@ -789,25 +853,41 @@ export async function runInitialAssessment(input: { url: string }) {
 }
 
 /**
- * Run complete Full Growth Acceleration Plan for a URL
- *
- * This is the high-level function that orchestrates the Full GAP workflow
+ * Input options for Full GAP
  */
-export async function runFullGap(input: {
+export interface FullGapInput {
   url: string;
   initialAssessment: any; // GapIaV2AiOutput or similar
-}) {
-  const { url, initialAssessment } = input;
+  /**
+   * Optional model caller. If not provided, uses direct OpenAI calls.
+   * For API routes with company context, pass a caller created from aiForCompany().
+   */
+  modelCaller?: GapModelCaller;
+}
+
+/**
+ * Run complete Full Growth Acceleration Plan for a URL
+ *
+ * This is the high-level function that orchestrates the Full GAP workflow.
+ * The engine is model-agnostic and relies on the injected GapModelCaller.
+ *
+ * @param input.url - The website URL to analyze
+ * @param input.initialAssessment - The GAP-IA result to build upon
+ * @param input.modelCaller - Optional model caller (defaults to direct OpenAI)
+ */
+export async function runFullGap(input: FullGapInput) {
+  const { url, initialAssessment, modelCaller } = input;
 
   console.log('[gap/core] Running Full GAP for:', url);
 
   const domain = normalizeDomain(url);
 
-  // Generate Full GAP based on Initial Assessment
+  // Generate Full GAP based on Initial Assessment (pass modelCaller if provided)
   const fullGapOutput = await generateFullGapAnalysisCore({
     gapIa: initialAssessment,
     domain,
     url,
+    modelCaller,
   });
 
   return {

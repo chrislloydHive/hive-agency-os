@@ -8,6 +8,7 @@
 import { base } from './client';
 import type { PriorityItem } from './fullReports';
 import type { PlanInitiative } from '@/lib/gap/types';
+import type { WorkSource, WorkSourceAnalytics } from '@/lib/types/work';
 
 /**
  * Work Items table field names (matching Airtable schema exactly)
@@ -20,15 +21,18 @@ const WORK_ITEMS_FIELDS = {
   STATUS: 'Status',
   SEVERITY: 'Severity',
   OWNER: 'Owner',
+  OWNER_NAME: 'Owner Name', // Lookup from Owner (linked record)
   DUE_DATE: 'Due Date',
   NOTES: 'Notes',
   PRIORITY_ID: 'Priority ID',
   PLAN_INITIATIVE_ID: 'Plan Initiative ID',
   CREATED_AT: 'Created At',
   UPDATED_AT: 'Updated At',
+  LAST_TOUCHED_AT: 'Last Touched At', // Last activity timestamp
   EFFORT: 'Effort',
   IMPACT: 'Impact',
   AI_ADDITIONAL_INFO: 'AI Additional Info',
+  SOURCE_JSON: 'Source JSON', // JSON-encoded WorkSource object
 } as const;
 
 /**
@@ -71,16 +75,19 @@ interface WorkItemFields {
   'Area'?: WorkItemArea;
   'Status'?: WorkItemStatus;
   'Severity'?: WorkItemSeverity;
-  'Owner'?: string;
+  'Owner'?: string; // Linked record ID
+  'Owner Name'?: string[]; // Lookup field from Owner
   'Due Date'?: string;
   'Notes'?: string;
   'Priority ID'?: string;
   'Plan Initiative ID'?: string;
   'Created At'?: string;
   'Updated At'?: string;
+  'Last Touched At'?: string; // Last activity timestamp
   'Effort'?: string;
   'Impact'?: string;
   'AI Additional Info'?: string;
+  'Source JSON'?: string; // JSON-encoded WorkSource
 }
 
 /**
@@ -94,7 +101,8 @@ export interface WorkItemRecord {
   area?: WorkItemArea;
   status?: WorkItemStatus;
   severity?: WorkItemSeverity;
-  owner?: string;
+  owner?: string; // Owner record ID
+  ownerName?: string; // Owner display name (from lookup)
   dueDate?: string; // ISO date
   notes?: string;
   priorityId?: string;
@@ -103,7 +111,22 @@ export interface WorkItemRecord {
   impact?: string;
   createdAt?: string;
   updatedAt?: string;
+  lastTouchedAt?: string; // Last activity timestamp
   aiAdditionalInfo?: string; // AI-generated implementation guide
+  source?: WorkSource; // Where this work item came from
+}
+
+/**
+ * Parse Source JSON from Airtable field
+ */
+function parseSourceJson(sourceJson: string | undefined): WorkSource | undefined {
+  if (!sourceJson) return undefined;
+  try {
+    return JSON.parse(sourceJson) as WorkSource;
+  } catch (error) {
+    console.warn('[Work Items] Failed to parse Source JSON:', error);
+    return undefined;
+  }
 }
 
 /**
@@ -115,6 +138,7 @@ function mapWorkItemRecord(record: any): WorkItemRecord {
   // Extract linked record IDs (arrays)
   const companyIds = fields['Company'];
   const fullReportIds = fields['Full Report'];
+  const ownerNames = fields['Owner Name']; // Lookup field returns array
 
   return {
     id: record.id,
@@ -125,6 +149,7 @@ function mapWorkItemRecord(record: any): WorkItemRecord {
     status: fields['Status'],
     severity: fields['Severity'],
     owner: fields['Owner'],
+    ownerName: ownerNames?.[0], // First value from lookup array
     dueDate: fields['Due Date'],
     notes: fields['Notes'],
     priorityId: fields['Priority ID'],
@@ -133,7 +158,9 @@ function mapWorkItemRecord(record: any): WorkItemRecord {
     impact: fields['Impact'],
     createdAt: fields['Created At'],
     updatedAt: fields['Updated At'],
+    lastTouchedAt: fields['Last Touched At'],
     aiAdditionalInfo: fields['AI Additional Info'],
+    source: parseSourceJson(fields['Source JSON']),
   };
 }
 
@@ -715,6 +742,78 @@ export async function updateWorkItemAiAdditionalInfo(
     return mapWorkItemRecord(record);
   } catch (error) {
     console.error('[Work Items] Error updating AI Additional Info:', error);
+    throw error;
+  }
+}
+
+/**
+ * Map metric group to Work Item area
+ */
+function mapMetricGroupToWorkItemArea(metricGroup: string): WorkItemArea {
+  const mapping: Record<string, WorkItemArea> = {
+    traffic: 'Other',
+    seo: 'SEO',
+    conversion: 'Funnel',
+    engagement: 'Website UX',
+    local: 'SEO',
+    ecommerce: 'Funnel',
+    brand: 'Brand',
+  };
+  return mapping[metricGroup.toLowerCase()] || 'Other';
+}
+
+/**
+ * Create a Work Item from an Analytics metric insight
+ *
+ * @param args - Configuration for creating work item from analytics
+ * @returns Created work item record
+ */
+export async function createWorkItemFromAnalytics(args: {
+  companyId: string;
+  title: string;
+  description: string;
+  source: WorkSourceAnalytics;
+  defaultStatus?: WorkItemStatus;
+}): Promise<WorkItemRecord> {
+  const { companyId, title, description, source, defaultStatus = 'Backlog' } = args;
+
+  console.log('[Work Items] Creating work item from analytics metric:', {
+    companyId,
+    metricId: source.metricId,
+    metricLabel: source.metricLabel,
+    title,
+  });
+
+  // Build Airtable fields
+  const fields: Record<string, any> = {
+    [WORK_ITEMS_FIELDS.TITLE]: title,
+    [WORK_ITEMS_FIELDS.COMPANY]: [companyId], // Link field - array of record IDs
+    [WORK_ITEMS_FIELDS.AREA]: mapMetricGroupToWorkItemArea(source.metricGroup),
+    [WORK_ITEMS_FIELDS.STATUS]: defaultStatus,
+    [WORK_ITEMS_FIELDS.SEVERITY]: 'Medium', // Default severity for analytics-driven work
+    [WORK_ITEMS_FIELDS.AI_ADDITIONAL_INFO]: description, // Store the full guide
+    [WORK_ITEMS_FIELDS.SOURCE_JSON]: JSON.stringify(source),
+  };
+
+  try {
+    // Create the record in Airtable
+    const records = await base('Work Items').create([{ fields }]);
+
+    if (!records || records.length === 0) {
+      throw new Error('No record returned from Airtable create');
+    }
+
+    const record = records[0];
+
+    console.log('[Work Items] Work item created successfully from analytics:', {
+      workItemId: record.id,
+      metricId: source.metricId,
+    });
+
+    // Map to WorkItemRecord
+    return mapWorkItemRecord(record);
+  } catch (error) {
+    console.error('[Work Items] Error creating work item from analytics:', error);
     throw error;
   }
 }

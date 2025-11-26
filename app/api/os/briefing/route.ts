@@ -1,6 +1,10 @@
 // app/api/os/briefing/route.ts
 // AI Briefing API v2
 // Generates intelligent daily briefings from real data sources
+//
+// TODO: Migrate to aiForCompany() once we have per-company briefing support.
+// Currently this is a global dashboard briefing without company context.
+// See docs/ai-gateway.md for guidance on using the AI Gateway.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getOpenAI } from '@/lib/openai';

@@ -2,26 +2,19 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-
-interface Lead {
-  id: string;
-  name: string;
-  domain?: string;
-  email?: string;
-  source: string;
-  status: string;
-  notes?: string;
-  companyId?: string;
-  opportunityId?: string;
-  createdAt?: string;
-}
+import type { InboundLeadItem } from '@/lib/types/pipeline';
+import {
+  INBOUND_LEAD_STATUSES,
+  LEAD_SOURCES,
+  getLeadStatusColorClasses,
+} from '@/lib/types/pipeline';
 
 interface PipelineLeadsClientProps {
-  leads: Lead[];
+  leads: InboundLeadItem[];
 }
 
-const STATUS_OPTIONS = ['All', 'New', 'Contacted', 'Qualified', 'Disqualified'];
-const SOURCE_OPTIONS = ['All', 'DMA', 'Referral', 'Outbound', 'Inbound', 'Other'];
+const STATUS_OPTIONS = ['All', ...INBOUND_LEAD_STATUSES];
+const SOURCE_OPTIONS = ['All', ...LEAD_SOURCES];
 
 // Helper to format dates
 const formatDate = (dateStr?: string | null) => {
@@ -48,17 +41,18 @@ export function PipelineLeadsClient({ leads }: PipelineLeadsClientProps) {
       // Search filter
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
-        const nameMatch = lead.name.toLowerCase().includes(query);
-        const domainMatch = lead.domain?.toLowerCase().includes(query);
+        const nameMatch = lead.name?.toLowerCase().includes(query);
+        const companyMatch = lead.companyName?.toLowerCase().includes(query);
         const emailMatch = lead.email?.toLowerCase().includes(query);
-        if (!nameMatch && !domainMatch && !emailMatch) return false;
+        const websiteMatch = lead.website?.toLowerCase().includes(query);
+        if (!nameMatch && !companyMatch && !emailMatch && !websiteMatch) return false;
       }
 
       // Status filter
       if (statusFilter !== 'All' && lead.status !== statusFilter) return false;
 
       // Source filter
-      if (sourceFilter !== 'All' && lead.source !== sourceFilter) return false;
+      if (sourceFilter !== 'All' && lead.leadSource !== sourceFilter) return false;
 
       return true;
     });
@@ -69,7 +63,7 @@ export function PipelineLeadsClient({ leads }: PipelineLeadsClientProps) {
     const newCount = leads.filter((l) => l.status === 'New').length;
     const contacted = leads.filter((l) => l.status === 'Contacted').length;
     const qualified = leads.filter((l) => l.status === 'Qualified').length;
-    const converted = leads.filter((l) => l.companyId || l.opportunityId).length;
+    const converted = leads.filter((l) => l.status === 'Converted' || l.companyId).length;
     return { newCount, contacted, qualified, converted };
   }, [leads]);
 
@@ -227,33 +221,25 @@ export function PipelineLeadsClient({ leads }: PipelineLeadsClientProps) {
                 >
                   <td className="px-4 py-3">
                     <div>
-                      <div className="text-slate-200 font-medium">{lead.name}</div>
+                      <div className="text-slate-200 font-medium">
+                        {lead.name || lead.companyName || 'Unnamed Lead'}
+                      </div>
                       {lead.email && (
                         <div className="text-xs text-slate-500">{lead.email}</div>
                       )}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-slate-400 text-xs">
-                    {lead.domain || '—'}
+                    {lead.website || '—'}
                   </td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-700 text-slate-300">
-                      {lead.source}
+                      {lead.leadSource}
                     </span>
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                        lead.status === 'New'
-                          ? 'bg-blue-500/10 text-blue-400 border border-blue-500/30'
-                          : lead.status === 'Contacted'
-                          ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                          : lead.status === 'Qualified'
-                          ? 'bg-purple-500/10 text-purple-400 border border-purple-500/30'
-                          : lead.status === 'Disqualified'
-                          ? 'bg-red-500/10 text-red-400 border border-red-500/30'
-                          : 'bg-slate-500/10 text-slate-400 border border-slate-500/30'
-                      }`}
+                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getLeadStatusColorClasses(lead.status)}`}
                     >
                       {lead.status}
                     </span>
@@ -275,13 +261,18 @@ export function PipelineLeadsClient({ leads }: PipelineLeadsClientProps) {
                           Create Company
                         </button>
                       )}
-                      {lead.domain && !lead.companyId && (
+                      {lead.website && !lead.gapIaRunId && (
                         <Link
-                          href={`/snapshot?url=${encodeURIComponent(lead.domain)}`}
+                          href={`/snapshot?url=${encodeURIComponent(lead.website)}`}
                           className="text-xs text-blue-500 hover:text-blue-400 font-medium"
                         >
                           Run GAP
                         </Link>
+                      )}
+                      {lead.gapIaRunId && (
+                        <span className="text-xs text-emerald-500">
+                          GAP: {lead.gapIaScore || '—'}
+                        </span>
                       )}
                     </div>
                   </td>

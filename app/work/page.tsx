@@ -9,6 +9,7 @@
  * - Company Stage (Prospect, Client, Internal, Dormant, Lost)
  */
 
+import { Suspense } from 'react';
 import { base } from '@/lib/airtable/client';
 import {
   getAllCompanies,
@@ -17,6 +18,7 @@ import {
   type CompanyStage,
 } from '@/lib/airtable/companies';
 import { WorkboardClient } from '@/components/os/WorkboardClient';
+import type { WorkSource } from '@/lib/types/work';
 
 // Fetch all work items with company data
 async function getWorkItemsWithCompanies() {
@@ -64,6 +66,23 @@ async function fetchAllWorkItems() {
         ? companyStageRaw[0]
         : (companyStageRaw as string | undefined);
 
+      // Get Owner Name from lookup field (returns array for lookup fields)
+      const ownerNameRaw = record.fields['Owner Name'];
+      const ownerName = Array.isArray(ownerNameRaw)
+        ? ownerNameRaw[0]
+        : (ownerNameRaw as string | undefined);
+
+      // Parse source JSON if available
+      let source: WorkSource | undefined;
+      const sourceJson = record.fields['Source JSON'] as string | undefined;
+      if (sourceJson) {
+        try {
+          source = JSON.parse(sourceJson) as WorkSource;
+        } catch {
+          // Invalid JSON, leave source undefined
+        }
+      }
+
       return {
         id: record.id,
         title: (record.fields['Title'] as string) || 'Untitled',
@@ -73,17 +92,56 @@ async function fetchAllWorkItems() {
         status: (record.fields['Status'] as string) || 'Backlog',
         severity: record.fields['Severity'] as string,
         owner: record.fields['Owner'] as string,
+        ownerName: ownerName,
         dueDate: record.fields['Due Date'] as string,
         notes: record.fields['Notes'] as string,
         effort: record.fields['Effort'] as string,
         impact: record.fields['Impact'] as string,
         createdAt: record.fields['Created At'] as string,
+        updatedAt: record.fields['Updated At'] as string,
+        lastTouchedAt: record.fields['Last Touched At'] as string,
+        aiAdditionalInfo: record.fields['AI Additional Info'] as string,
+        source,
       };
     });
   } catch (error) {
     console.error('[Work] Failed to fetch work items:', error);
     return [];
   }
+}
+
+// Loading skeleton for work board
+function WorkboardSkeleton() {
+  return (
+    <div className="space-y-6 animate-pulse">
+      {/* Stats skeleton */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+        {[...Array(5)].map((_, i) => (
+          <div key={i} className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+            <div className="h-8 w-12 bg-slate-700 rounded mb-2" />
+            <div className="h-3 w-16 bg-slate-800 rounded" />
+          </div>
+        ))}
+      </div>
+      {/* Filter bar skeleton */}
+      <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+        <div className="flex gap-4">
+          <div className="h-8 w-24 bg-slate-800 rounded" />
+          <div className="h-8 w-48 bg-slate-800 rounded flex-1" />
+          <div className="h-8 w-24 bg-slate-800 rounded" />
+        </div>
+      </div>
+      {/* Board skeleton */}
+      <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+        <div className="h-6 w-24 bg-slate-700 rounded mb-4" />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="bg-slate-800/50 rounded-lg p-4 h-24" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default async function WorkPage() {
@@ -98,7 +156,9 @@ export default async function WorkPage() {
         </p>
       </div>
 
-      <WorkboardClient workItems={workItems} companies={companies} />
+      <Suspense fallback={<WorkboardSkeleton />}>
+        <WorkboardClient workItems={workItems} companies={companies} />
+      </Suspense>
     </div>
   );
 }

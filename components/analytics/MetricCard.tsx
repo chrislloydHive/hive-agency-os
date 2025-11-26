@@ -2,7 +2,9 @@
 
 // components/analytics/MetricCard.tsx
 // Reusable chart card component that renders metrics based on blueprint config
+// Now includes ability to create Work items from metrics
 
+import { useState } from 'react';
 import {
   LineChart,
   Line,
@@ -20,6 +22,7 @@ import {
   AreaChart,
 } from 'recharts';
 import type { AnalyticsMetricConfig, AnalyticsMetricData } from '@/lib/analytics/blueprintTypes';
+import type { MetricWorkSuggestion } from '@/lib/types/work';
 
 // ============================================================================
 // Props
@@ -28,6 +31,10 @@ import type { AnalyticsMetricConfig, AnalyticsMetricData } from '@/lib/analytics
 interface MetricCardProps {
   data: AnalyticsMetricData;
   loading?: boolean;
+  companyId?: string;
+  companyName?: string;
+  websiteUrl?: string;
+  onWorkCreated?: (workItemId: string) => void;
 }
 
 // ============================================================================
@@ -52,8 +59,23 @@ const PIE_COLORS = ['#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#06b
 // Main Component
 // ============================================================================
 
-export function MetricCard({ data, loading = false }: MetricCardProps) {
+export function MetricCard({
+  data,
+  loading = false,
+  companyId,
+  companyName,
+  websiteUrl,
+  onWorkCreated,
+}: MetricCardProps) {
   const { metric, points, currentValue, previousValue, changePercent } = data;
+
+  // Work creation state
+  const [isCreating, setIsCreating] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [suggestion, setSuggestion] = useState<MetricWorkSuggestion | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
   // Calculate change direction
   const isPositiveChange = changePercent !== undefined ? changePercent >= 0 : undefined;
@@ -61,84 +83,325 @@ export function MetricCard({ data, loading = false }: MetricCardProps) {
     ? (metric.targetDirection === 'up' ? isPositiveChange : !isPositiveChange)
     : undefined;
 
+  // Check if work creation is enabled
+  const canCreateWork = !!companyId && !!companyName;
+
+  // Handle Create Work button click
+  const handleCreateClick = async () => {
+    if (!companyId || !companyName) return;
+
+    setError(null);
+    setIsCreating(true);
+
+    try {
+      const res = await fetch(`/api/analytics/${companyId}/metric-to-work`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          metric: data.metric,
+          points: data.points,
+          companyName,
+          websiteUrl,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || 'Failed to generate suggestion');
+      }
+
+      setSuggestion(json.suggestion);
+      setIsModalOpen(true);
+    } catch (err) {
+      console.error('Error generating work suggestion:', err);
+      setError(err instanceof Error ? err.message : 'Failed to generate suggestion');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  // Handle confirm create work item
+  const handleConfirmCreate = async () => {
+    if (!suggestion || !companyId) return;
+
+    setError(null);
+    setIsSaving(true);
+
+    try {
+      const res = await fetch(`/api/analytics/${companyId}/create-work-from-metric`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          metric: data.metric,
+          suggestion,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || 'Failed to create work item');
+      }
+
+      setSuccess(true);
+      onWorkCreated?.(json.workItem.id);
+
+      // Close modal after short delay to show success
+      setTimeout(() => {
+        setIsModalOpen(false);
+        setSuggestion(null);
+        setSuccess(false);
+      }, 1500);
+    } catch (err) {
+      console.error('Error creating work item:', err);
+      setError(err instanceof Error ? err.message : 'Failed to create work item');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Close modal
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setSuggestion(null);
+    setError(null);
+    setSuccess(false);
+  };
+
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col gap-3 hover:border-slate-700 transition-colors">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-medium text-slate-100 truncate">
-            {metric.label}
-          </h3>
-          <p className="text-xs text-slate-400 line-clamp-2 mt-0.5">
-            {metric.description}
-          </p>
+    <>
+      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col gap-3 hover:border-slate-700 transition-colors">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-medium text-slate-100 truncate">
+              {metric.label}
+            </h3>
+            <p className="text-xs text-slate-400 line-clamp-2 mt-0.5">
+              {metric.description}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span className={`text-[10px] uppercase font-medium px-1.5 py-0.5 rounded ${
+              metric.source === 'ga4'
+                ? 'bg-blue-500/20 text-blue-300'
+                : 'bg-green-500/20 text-green-300'
+            }`}>
+              {metric.source.toUpperCase()}
+            </span>
+            {canCreateWork && (
+              <button
+                onClick={handleCreateClick}
+                disabled={isCreating || loading}
+                className="text-[10px] uppercase font-medium px-2 py-1 rounded border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:border-slate-600 hover:text-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Create work item from this metric"
+              >
+                {isCreating ? (
+                  <span className="flex items-center gap-1">
+                    <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    <span>Thinking...</span>
+                  </span>
+                ) : (
+                  '+ Work'
+                )}
+              </button>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <span className={`text-[10px] uppercase font-medium px-1.5 py-0.5 rounded ${
-            metric.source === 'ga4'
-              ? 'bg-blue-500/20 text-blue-300'
-              : 'bg-green-500/20 text-green-300'
-          }`}>
-            {metric.source.toUpperCase()}
-          </span>
-          <span className={`text-[10px] uppercase font-medium px-1.5 py-0.5 rounded bg-slate-800 ${
-            metric.importance === 'primary' ? 'text-amber-300' : 'text-slate-400'
-          }`}>
-            {metric.group}
-          </span>
-        </div>
+
+        {/* Error message */}
+        {error && !isModalOpen && (
+          <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded px-2 py-1">
+            {error}
+          </div>
+        )}
+
+        {/* Loading State */}
+        {loading && (
+          <div className="h-40 flex items-center justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-400" />
+          </div>
+        )}
+
+        {/* Chart Area */}
+        {!loading && (
+          <div className="h-40">
+            {metric.chartType === 'timeseries' && (
+              <TimeseriesChart points={points} />
+            )}
+
+            {metric.chartType === 'bar' && (
+              <VerticalBarChart points={points} />
+            )}
+
+            {metric.chartType === 'horizontalBar' && (
+              <HorizontalBarChart points={points} />
+            )}
+
+            {metric.chartType === 'pie' && (
+              <PieChartComponent points={points} />
+            )}
+
+            {metric.chartType === 'singleValue' && (
+              <SingleValueDisplay
+                points={points}
+                currentValue={currentValue}
+                changePercent={changePercent}
+                isGoodChange={isGoodChange}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Footer with change indicator */}
+        {!loading && changePercent !== undefined && metric.chartType !== 'singleValue' && (
+          <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+            <span className="text-xs text-slate-400">vs. previous period</span>
+            <span className={`text-sm font-medium ${
+              isGoodChange ? 'text-emerald-400' : 'text-red-400'
+            }`}>
+              {isPositiveChange ? '+' : ''}{changePercent.toFixed(1)}%
+              <span className="ml-1">{isGoodChange ? '↑' : '↓'}</span>
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Loading State */}
-      {loading && (
-        <div className="h-40 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-400" />
+      {/* Work Creation Modal */}
+      {isModalOpen && suggestion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={handleCloseModal}
+          />
+
+          {/* Modal */}
+          <div className="relative w-full max-w-2xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden mx-4">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-800">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-100">
+                  Create Work Item
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  From: {metric.label} ({metric.source.toUpperCase()})
+                </p>
+              </div>
+              <button
+                onClick={handleCloseModal}
+                className="p-1 text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-4 overflow-y-auto max-h-[60vh] space-y-4">
+              {/* Title */}
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">
+                  Title
+                </label>
+                <div className="text-sm font-medium text-slate-100 bg-slate-800/50 border border-slate-700 rounded-lg p-3">
+                  {suggestion.title}
+                </div>
+              </div>
+
+              {/* Summary */}
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">
+                  Summary
+                </label>
+                <div className="text-sm text-slate-300 bg-slate-800/50 border border-slate-700 rounded-lg p-3">
+                  {suggestion.summary}
+                </div>
+              </div>
+
+              {/* How to Implement */}
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">
+                  How to Implement
+                </label>
+                <div className="text-sm text-slate-300 bg-slate-800/50 border border-slate-700 rounded-lg p-3 prose prose-invert prose-sm max-w-none">
+                  <div className="whitespace-pre-wrap">{suggestion.howToImplement}</div>
+                </div>
+              </div>
+
+              {/* Expected Impact */}
+              {suggestion.expectedImpact && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">
+                    Expected Impact
+                  </label>
+                  <div className="text-sm text-slate-300 bg-slate-800/50 border border-slate-700 rounded-lg p-3">
+                    {suggestion.expectedImpact}
+                  </div>
+                </div>
+              )}
+
+              {/* Error */}
+              {error && (
+                <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                  {error}
+                </div>
+              )}
+
+              {/* Success */}
+              {success && (
+                <div className="text-sm text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 flex items-center gap-2">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Work item created successfully!
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 p-4 border-t border-slate-800 bg-slate-900/50">
+              <button
+                onClick={handleCloseModal}
+                disabled={isSaving}
+                className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmCreate}
+                disabled={isSaving || success}
+                className="px-4 py-2 text-sm font-medium bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isSaving ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Creating...
+                  </>
+                ) : success ? (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Created!
+                  </>
+                ) : (
+                  'Create Work Item'
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
-
-      {/* Chart Area */}
-      {!loading && (
-        <div className="h-40">
-          {metric.chartType === 'timeseries' && (
-            <TimeseriesChart points={points} />
-          )}
-
-          {metric.chartType === 'bar' && (
-            <VerticalBarChart points={points} />
-          )}
-
-          {metric.chartType === 'horizontalBar' && (
-            <HorizontalBarChart points={points} />
-          )}
-
-          {metric.chartType === 'pie' && (
-            <PieChartComponent points={points} />
-          )}
-
-          {metric.chartType === 'singleValue' && (
-            <SingleValueDisplay
-              points={points}
-              currentValue={currentValue}
-              changePercent={changePercent}
-              isGoodChange={isGoodChange}
-            />
-          )}
-        </div>
-      )}
-
-      {/* Footer with change indicator */}
-      {!loading && changePercent !== undefined && metric.chartType !== 'singleValue' && (
-        <div className="flex items-center justify-between pt-2 border-t border-slate-800">
-          <span className="text-xs text-slate-400">vs. previous period</span>
-          <span className={`text-sm font-medium ${
-            isGoodChange ? 'text-emerald-400' : 'text-red-400'
-          }`}>
-            {isPositiveChange ? '+' : ''}{changePercent.toFixed(1)}%
-            <span className="ml-1">{isGoodChange ? '↑' : '↓'}</span>
-          </span>
-        </div>
-      )}
-    </div>
+    </>
   );
 }
 

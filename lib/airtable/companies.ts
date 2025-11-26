@@ -9,55 +9,15 @@ import { getBase } from '@/lib/airtable';
 import { randomUUID } from 'crypto';
 import type { AnalyticsBlueprint } from '@/lib/analytics/blueprintTypes';
 
-// ============================================================================
-// Company Stage Types & Utilities
-// ============================================================================
-
-/**
- * Company stage slug type (lowercase, URL-safe)
- */
-export type CompanyStage = 'prospect' | 'client' | 'internal' | 'dormant' | 'lost';
-
-/**
- * Map Airtable stage label to slug
- */
-export const stageLabelToSlug: Record<string, CompanyStage> = {
-  'Prospect': 'prospect',
-  'Client': 'client',
-  'Internal': 'internal',
-  'Dormant': 'dormant',
-  'Lost': 'lost',
-};
-
-/**
- * Map slug to Airtable stage label
- */
-export const stageSlugToLabel: Record<CompanyStage, string> = {
-  'prospect': 'Prospect',
-  'client': 'Client',
-  'internal': 'Internal',
-  'dormant': 'Dormant',
-  'lost': 'Lost',
-};
-
-/**
- * All stage options for filter UI
- */
-export const COMPANY_STAGE_OPTIONS: { slug: CompanyStage; label: string }[] = [
-  { slug: 'prospect', label: 'Prospects' },
-  { slug: 'client', label: 'Clients' },
-  { slug: 'internal', label: 'Internal' },
-  { slug: 'dormant', label: 'Dormant' },
-  { slug: 'lost', label: 'Lost' },
-];
-
-/**
- * Convert Airtable stage label to slug
- */
-export function parseCompanyStage(label: string | undefined | null): CompanyStage | undefined {
-  if (!label) return undefined;
-  return stageLabelToSlug[label] ?? undefined;
-}
+// Re-export shared types and utilities from client-safe types file
+export {
+  type CompanyStage,
+  stageLabelToSlug,
+  stageSlugToLabel,
+  COMPANY_STAGE_OPTIONS,
+  parseCompanyStage,
+  getStageLabel,
+} from '@/lib/types/company';
 
 const COMPANIES_TABLE = process.env.AIRTABLE_COMPANIES_TABLE || 'Companies';
 const FULL_REPORTS_TABLE = process.env.AIRTABLE_FULL_REPORTS_TABLE || 'Full Reports';

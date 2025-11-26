@@ -40,6 +40,7 @@ export async function getWorkspaceGscSummary(
     startDate: range.startDate,
     endDate: range.endDate,
     preset: range.preset,
+    workspaceId: workspaceId || 'default',
   });
 
   // Get GSC client from workspace settings
@@ -60,6 +61,8 @@ export async function getWorkspaceGscSummary(
   }
 
   const { client, siteUrl } = clientConfig;
+
+  console.log('[GSC Workspace] Using siteUrl:', siteUrl);
 
   try {
     // Fetch queries and pages in parallel
@@ -119,12 +122,13 @@ async function fetchTopQueries(
         endDate,
         dimensions: ['query'],
         rowLimit: 50,
-        orderBy: 'clicks',
+        // Note: GSC API doesn't support orderBy - results are always sorted by clicks descending
       },
     });
 
     if (!response.data.rows || response.data.rows.length === 0) {
-      console.log('[GSC Workspace] No query data found');
+      console.log('[GSC Workspace] No query data found for', siteUrl, { startDate, endDate });
+      console.log('[GSC Workspace] Full response:', JSON.stringify(response.data, null, 2));
       return [];
     }
 
@@ -159,7 +163,7 @@ async function fetchTopPages(
         endDate,
         dimensions: ['page'],
         rowLimit: 50,
-        orderBy: 'clicks',
+        // Note: GSC API doesn't support orderBy - results are always sorted by clicks descending
       },
     });
 

@@ -1,8 +1,10 @@
 // lib/os/companies/analyticsAi.ts
 // AI engine for generating per-company analytics insights
 //
-// Phase 2: Now uses aiForCompany() for memory-aware AI interactions.
-// Analytics insights are logged to Company AI Context with type = "Analytics Insight".
+// This module uses the AI Gateway (aiForCompany) which automatically:
+// 1. Loads company memory for context
+// 2. Calls OpenAI
+// 3. Saves insights back to company memory
 
 import { aiForCompany } from '@/lib/ai-gateway';
 import type {
@@ -108,7 +110,7 @@ export async function generateCompanyAnalyticsInsights(
   console.log('[CompanyAnalyticsAI] Generating insights for:', input.companyName);
 
   try {
-    // Build user prompt with the input data
+    // Build task prompt with the input data
     const taskPrompt = `Generate analytics insights for this client:
 
 ${JSON.stringify(input, null, 2)}
@@ -119,21 +121,18 @@ Remember to:
 - Suggest concrete next steps
 - Be actionable and specific to this client`;
 
-    // Use aiForCompany() for memory-aware AI call
-    // This will:
-    // 1. Load prior memory for the company
-    // 2. Inject memory into the prompt
-    // 3. Call OpenAI
-    // 4. Log the response to Company AI Context with type "Analytics Insight"
+    // =========================================================================
+    // Use AI Gateway (aiForCompany) - handles memory automatically
+    // =========================================================================
     const result = await aiForCompany(companyId, {
       type: 'Analytics Insight',
-      tags: ['Analytics', 'Insights', 'Marketing'],
+      tags: deriveAnalyticsTags(input),
       systemPrompt: SYSTEM_PROMPT,
       taskPrompt,
       model: 'gpt-4o-mini',
       temperature: 0.7,
-      jsonMode: true,
       maxTokens: 4000,
+      jsonMode: true,
       memoryOptions: {
         limit: 10,
         types: ['GAP IA', 'GAP Full', 'Analytics Insight', 'Strategy'],
@@ -159,6 +158,44 @@ Remember to:
     console.error('[CompanyAnalyticsAI] Error generating insights:', error);
     return generateFallbackInsights(input);
   }
+}
+
+// ============================================================================
+// Helper: Derive tags from analytics input
+// ============================================================================
+
+function deriveAnalyticsTags(input: CompanyAnalyticsInput): string[] {
+  const tags: string[] = [];
+
+  if (input.ga4) {
+    tags.push('Analytics');
+  }
+  if (input.searchConsole) {
+    tags.push('SEO');
+  }
+  if (input.work.overdue > 0) {
+    tags.push('At Risk');
+  }
+
+  return tags.slice(0, 4);
+}
+
+// ============================================================================
+// Helper: Extract summary for memory storage
+// ============================================================================
+
+function extractAnalyticsSummary(content: string, companyName: string): string {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed.summary) {
+      const summary = parsed.summary.slice(0, 500);
+      return `Analytics Insight for ${companyName}:\n\n${summary}${parsed.summary.length > 500 ? '...' : ''}`;
+    }
+  } catch {
+    // If parsing fails, truncate raw content
+  }
+
+  return `Analytics Insight for ${companyName}:\n\n${content.slice(0, 400)}...`;
 }
 
 // ============================================================================

@@ -13,6 +13,7 @@ import type { CompanyHealth, CompanyActivitySnapshot } from '@/lib/os/companies/
 import { DiagnosticsPanel } from './DiagnosticsPanel';
 import { CompanyAnalyticsTab } from './CompanyAnalyticsTab';
 import { CompanyOpportunitiesTab } from './CompanyOpportunitiesTab';
+import { CompanyAiMemoryTab } from './CompanyAiMemoryTab';
 
 interface CompanyDetailClientProps {
   company: CompanyRecord;
@@ -39,6 +40,7 @@ const TABS = [
   { id: 'gap', label: 'GAP' },
   { id: 'work', label: 'Work' },
   { id: 'analytics', label: 'Analytics' },
+  { id: 'ai-memory', label: 'Client Brain' },
   { id: 'notes', label: 'Notes' },
 ];
 
@@ -151,6 +153,12 @@ export function CompanyDetailClient({
           ga4PropertyId={company.ga4PropertyId}
           searchConsoleSiteUrl={company.searchConsoleSiteUrl}
           analyticsBlueprint={company.analyticsBlueprint}
+        />
+      )}
+      {activeTab === 'ai-memory' && (
+        <CompanyAiMemoryTab
+          companyId={company.id}
+          companyName={company.name}
         />
       )}
       {activeTab === 'notes' && (

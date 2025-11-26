@@ -1,7 +1,7 @@
 /**
  * Pipeline Leads Page
  *
- * Shows all leads with:
+ * Shows all inbound leads with:
  * - Company/domain
  * - Source (DMA, outbound, referral)
  * - Status (New, Contacted, Qualified, Disqualified)
@@ -9,39 +9,11 @@
  * - Link to create company/opportunity
  */
 
-import { base } from '@/lib/airtable/client';
+import { getAllInboundLeads } from '@/lib/airtable/inboundLeads';
 import { PipelineLeadsClient } from '@/components/os/PipelineLeadsClient';
 
-// Fetch leads from Airtable
-async function fetchLeads() {
-  try {
-    const records = await base('Leads')
-      .select({
-        sort: [{ field: 'Created At', direction: 'desc' }],
-        maxRecords: 100,
-      })
-      .all();
-
-    return records.map((record) => ({
-      id: record.id,
-      name: (record.fields['Name'] as string) || 'Unnamed Lead',
-      domain: record.fields['Domain'] as string,
-      email: record.fields['Email'] as string,
-      source: (record.fields['Source'] as string) || 'Unknown',
-      status: (record.fields['Status'] as string) || 'New',
-      notes: record.fields['Notes'] as string,
-      companyId: (record.fields['Company'] as string[])?.[0],
-      opportunityId: (record.fields['Opportunity'] as string[])?.[0],
-      createdAt: record.fields['Created At'] as string,
-    }));
-  } catch (error) {
-    console.warn('[Leads] Failed to fetch leads (table may not exist):', error);
-    return [];
-  }
-}
-
 export default async function LeadsPage() {
-  const leads = await fetchLeads();
+  const leads = await getAllInboundLeads({ maxRecords: 200 });
 
   return (
     <div className="p-8">

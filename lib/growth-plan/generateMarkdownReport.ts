@@ -1,5 +1,9 @@
 // lib/growth-plan/generateMarkdownReport.ts
 // Generates long-form markdown narrative reports from Full GAP JSON output
+//
+// TODO: Migrate to aiForCompany() once companyId is available in the GAP flow.
+// Currently the GAP engine works with URLs, not company IDs.
+// See docs/ai-gateway.md for guidance on using the AI Gateway.
 
 import { getOpenAI } from '@/lib/openai';
 import type { GrowthAccelerationPlan } from './types';

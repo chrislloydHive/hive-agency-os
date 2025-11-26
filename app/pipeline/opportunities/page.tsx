@@ -1,7 +1,7 @@
 /**
  * Pipeline Opportunities Page
  *
- * Shows all opportunities with:
+ * Shows all opportunities from A-Lead Tracker with:
  * - Company (linked)
  * - Stage (Discovery, Proposal, Contract, Won, Lost)
  * - Est. value
@@ -9,14 +9,14 @@
  * - Owner
  */
 
-import { base } from '@/lib/airtable/client';
 import { getAllCompanies, type CompanyRecord } from '@/lib/airtable/companies';
+import { getAllOpportunities } from '@/lib/airtable/opportunities';
 import { PipelineOpportunitiesClient } from '@/components/os/PipelineOpportunitiesClient';
 
 // Fetch opportunities with company data
 async function getOpportunitiesWithCompanies() {
   const [opportunities, companies] = await Promise.all([
-    fetchOpportunities(),
+    getAllOpportunities({ maxRecords: 200 }),
     getAllCompanies(),
   ]);
 
@@ -26,48 +26,19 @@ async function getOpportunitiesWithCompanies() {
     companyLookup.set(company.id, company);
   }
 
-  // Enrich opportunities with company names
-  const enrichedOpportunities = opportunities.map((opp) => ({
-    ...opp,
-    companyName: opp.companyId
-      ? companyLookup.get(opp.companyId)?.name
-      : undefined,
-    companyDomain: opp.companyId
-      ? companyLookup.get(opp.companyId)?.domain
-      : undefined,
-  }));
+  // Enrich opportunities with additional company data
+  const enrichedOpportunities = opportunities.map((opp) => {
+    const company = opp.companyId ? companyLookup.get(opp.companyId) : undefined;
+    return {
+      ...opp,
+      // Use company name from lookup if not already set
+      companyName: opp.companyName || company?.name || 'Unknown Company',
+      companyDomain: opp.companyDomain || company?.domain,
+      companyStage: opp.companyStage || company?.stage,
+    };
+  });
 
   return { opportunities: enrichedOpportunities, companies };
-}
-
-async function fetchOpportunities() {
-  try {
-    const records = await base('Opportunities')
-      .select({
-        sort: [{ field: 'Close Date', direction: 'asc' }],
-        maxRecords: 100,
-      })
-      .all();
-
-    return records.map((record) => ({
-      id: record.id,
-      name: (record.fields['Name'] as string) || 'Unnamed Opportunity',
-      companyId: (record.fields['Company'] as string[])?.[0],
-      stage: (record.fields['Stage'] as string) || 'Discovery',
-      value: record.fields['Value'] as number,
-      probability: record.fields['Probability'] as number,
-      closeDate: record.fields['Close Date'] as string,
-      owner: record.fields['Owner'] as string,
-      notes: record.fields['Notes'] as string,
-      createdAt: record.fields['Created At'] as string,
-    }));
-  } catch (error) {
-    console.warn(
-      '[Opportunities] Failed to fetch opportunities (table may not exist):',
-      error
-    );
-    return [];
-  }
 }
 
 export default async function OpportunitiesPage() {

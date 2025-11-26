@@ -273,7 +273,12 @@ export function BlueprintChartsView({
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {primaryMetrics.map((metricData) => (
-              <MetricCard key={metricData.metric.id} data={metricData} />
+              <MetricCard
+                key={metricData.metric.id}
+                data={metricData}
+                companyId={companyId}
+                companyName={companyName}
+              />
             ))}
           </div>
         </section>
@@ -288,7 +293,12 @@ export function BlueprintChartsView({
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {secondaryMetrics.map((metricData) => (
-              <MetricCard key={metricData.metric.id} data={metricData} />
+              <MetricCard
+                key={metricData.metric.id}
+                data={metricData}
+                companyId={companyId}
+                companyName={companyName}
+              />
             ))}
           </div>
         </section>

@@ -4,12 +4,15 @@
 // This module provides a unified interface for running diagnostic engines.
 // Each function wraps the underlying engine implementation and returns
 // consistent results that can be stored in DiagnosticRuns.
+//
+// GAP engines support a modelCaller parameter to allow memory-aware AI calls
+// via aiForCompany() when called from API routes.
 
 import { getCompanyById, type CompanyRecord } from '@/lib/airtable/companies';
 import { runBrandLab } from '@/lib/gap-heavy/modules/brandLabImpl';
 import { runWebsiteLabV4 } from '@/lib/gap-heavy/modules/website';
 import { runHeavyWorkerV4 } from '@/lib/gap-heavy/orchestratorV4';
-import { runInitialAssessment, runFullGap } from '@/lib/gap/core';
+import { runInitialAssessment, runFullGap, type GapModelCaller } from '@/lib/gap/core';
 import type { DiagnosticToolId } from './runs';
 
 // ============================================================================
@@ -30,6 +33,20 @@ export interface EngineInput {
   websiteUrl: string;
 }
 
+/**
+ * Extended input for GAP engines with optional model caller.
+ * When modelCaller is provided, GAP engines will use it for AI calls,
+ * enabling memory injection via aiForCompany().
+ */
+export interface GapEngineInput extends EngineInput {
+  /**
+   * Optional model caller for AI operations.
+   * If provided, GAP engines will use this instead of direct OpenAI calls.
+   * Use aiForCompany() to create a memory-aware model caller.
+   */
+  modelCaller?: GapModelCaller;
+}
+
 // ============================================================================
 // GAP Snapshot Engine (GAP-IA)
 // ============================================================================
@@ -37,12 +54,18 @@ export interface EngineInput {
 /**
  * Run GAP Snapshot (Initial Assessment)
  * Quick assessment of marketing presence and maturity
+ *
+ * @param input.modelCaller - Optional model caller for memory-aware AI calls via aiForCompany()
  */
-export async function runGapSnapshotEngine(input: EngineInput): Promise<EngineResult> {
+export async function runGapSnapshotEngine(input: GapEngineInput): Promise<EngineResult> {
   console.log('[GAP Snapshot Engine] Starting for:', input.websiteUrl);
+  console.log('[GAP Snapshot Engine] Using modelCaller:', input.modelCaller ? 'custom (aiForCompany)' : 'default (direct OpenAI)');
 
   try {
-    const result = await runInitialAssessment({ url: input.websiteUrl });
+    const result = await runInitialAssessment({
+      url: input.websiteUrl,
+      modelCaller: input.modelCaller,
+    });
 
     // Extract score and summary from initialAssessment
     // The result has structure: { initialAssessment, businessContext, metadata }
@@ -79,20 +102,27 @@ export async function runGapSnapshotEngine(input: EngineInput): Promise<EngineRe
  * Comprehensive growth acceleration plan with roadmap
  *
  * This runs Initial Assessment first, then uses it for Full GAP Plan
+ *
+ * @param input.modelCaller - Optional model caller for memory-aware AI calls via aiForCompany()
  */
-export async function runGapPlanEngine(input: EngineInput): Promise<EngineResult> {
+export async function runGapPlanEngine(input: GapEngineInput): Promise<EngineResult> {
   console.log('[GAP Plan Engine] Starting for:', input.websiteUrl);
+  console.log('[GAP Plan Engine] Using modelCaller:', input.modelCaller ? 'custom (aiForCompany)' : 'default (direct OpenAI)');
 
   try {
     // First, run initial assessment to get the base analysis
     console.log('[GAP Plan Engine] Running initial assessment...');
-    const iaResult = await runInitialAssessment({ url: input.websiteUrl });
+    const iaResult = await runInitialAssessment({
+      url: input.websiteUrl,
+      modelCaller: input.modelCaller,
+    });
 
     // Then run full GAP with the initial assessment
     console.log('[GAP Plan Engine] Generating full GAP plan...');
     const result = await runFullGap({
       url: input.websiteUrl,
       initialAssessment: iaResult.initialAssessment,
+      modelCaller: input.modelCaller,
     });
 
     // Extract score and summary from fullGap
