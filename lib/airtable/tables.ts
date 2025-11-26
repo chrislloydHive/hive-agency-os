@@ -15,6 +15,9 @@ export const AIRTABLE_TABLES = {
   COMPANIES: 'Companies',
   WORK_ITEMS: 'Work Items',
 
+  // AI Memory System (Client Brain)
+  COMPANY_AI_CONTEXT: 'Company AI Context', // Memory entries for AI interactions per company
+
   // Legacy/deprecated (for migration reference)
   // GAP_RUNS_OLD: 'GAP Runs',
   // FULL_REPORTS_OLD: 'Full Reports',

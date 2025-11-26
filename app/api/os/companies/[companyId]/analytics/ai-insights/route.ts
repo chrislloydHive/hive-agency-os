@@ -58,8 +58,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // Build analytics input
     const input = await buildCompanyAnalyticsInput(company, preset);
 
-    // Generate AI insights
-    const insights = await generateCompanyAnalyticsInsights(input);
+    // Generate AI insights (using aiForCompany for memory-aware AI)
+    const insights = await generateCompanyAnalyticsInsights(companyId, input);
 
     console.log('[CompanyAnalyticsInsights API] Insights generated:', {
       company: company.name,

@@ -1,7 +1,10 @@
 // lib/os/companies/analyticsAi.ts
 // AI engine for generating per-company analytics insights
+//
+// Phase 2: Now uses aiForCompany() for memory-aware AI interactions.
+// Analytics insights are logged to Company AI Context with type = "Analytics Insight".
 
-import { getOpenAI } from '@/lib/openai';
+import { aiForCompany } from '@/lib/ai-gateway';
 import type {
   CompanyAnalyticsInput,
   CompanyAnalyticsAiInsight,
@@ -93,17 +96,20 @@ Return ONLY valid JSON, no markdown formatting or code blocks.`;
 
 /**
  * Generate AI insights for a company's analytics
+ *
+ * @param companyId - The canonical company ID (Airtable record ID)
+ * @param input - Analytics data and context for the company
+ * @returns AI-generated insights
  */
 export async function generateCompanyAnalyticsInsights(
+  companyId: string,
   input: CompanyAnalyticsInput
 ): Promise<CompanyAnalyticsAiInsight> {
   console.log('[CompanyAnalyticsAI] Generating insights for:', input.companyName);
 
   try {
-    const openai = getOpenAI();
-
     // Build user prompt with the input data
-    const userPrompt = `Generate analytics insights for this client:
+    const taskPrompt = `Generate analytics insights for this client:
 
 ${JSON.stringify(input, null, 2)}
 
@@ -113,22 +119,31 @@ Remember to:
 - Suggest concrete next steps
 - Be actionable and specific to this client`;
 
-    const completion = await openai.chat.completions.create({
+    // Use aiForCompany() for memory-aware AI call
+    // This will:
+    // 1. Load prior memory for the company
+    // 2. Inject memory into the prompt
+    // 3. Call OpenAI
+    // 4. Log the response to Company AI Context with type "Analytics Insight"
+    const result = await aiForCompany(companyId, {
+      type: 'Analytics Insight',
+      tags: ['Analytics', 'Insights', 'Marketing'],
+      systemPrompt: SYSTEM_PROMPT,
+      taskPrompt,
       model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
-      ],
       temperature: 0.7,
-      max_tokens: 4000, // Increased to accommodate implementation guides
-      response_format: { type: 'json_object' },
+      jsonMode: true,
+      maxTokens: 4000,
+      memoryOptions: {
+        limit: 10,
+        types: ['GAP IA', 'GAP Full', 'Analytics Insight', 'Strategy'],
+      },
     });
 
-    const responseText = completion.choices[0]?.message?.content || '{}';
-    console.log('[CompanyAnalyticsAI] Response received');
+    console.log('[CompanyAnalyticsAI] Response received, memory entry:', result.memoryEntryId);
 
     // Parse and validate the response
-    const insights = parseAndValidateInsights(responseText, input);
+    const insights = parseAndValidateInsights(result.content, input);
 
     console.log('[CompanyAnalyticsAI] Insights generated:', {
       summaryLength: insights.summary.length,
@@ -136,6 +151,7 @@ Remember to:
       quickWins: insights.quickWins.length,
       workSuggestions: insights.workSuggestions.length,
       experiments: insights.experiments.length,
+      memoryEntriesLoaded: result.loadedMemoryCount,
     });
 
     return insights;
