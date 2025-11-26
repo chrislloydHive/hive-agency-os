@@ -47,6 +47,7 @@ export interface InboundLeadItem {
   notes?: string | null;
   companyId?: string | null;
   gapIaRunId?: string | null;
+  gapIaScore?: number | null;
   createdAt?: string | null;
 }
 
@@ -130,3 +131,83 @@ export const ALL_STAGES: (PipelineStage | 'other')[] = [
   'closed_lost',
   'other',
 ];
+
+/**
+ * Inbound lead statuses
+ */
+export const INBOUND_LEAD_STATUSES = [
+  'New',
+  'Contacted',
+  'Qualified',
+  'Converted',
+  'Lost',
+] as const;
+
+export type InboundLeadStatus = (typeof INBOUND_LEAD_STATUSES)[number];
+
+/**
+ * Lead sources
+ */
+export const LEAD_SOURCES = [
+  'DMA',
+  'Referral',
+  'Outbound',
+  'Inbound',
+  'Website',
+  'Event',
+  'Other',
+] as const;
+
+export type LeadSource = (typeof LEAD_SOURCES)[number];
+
+/**
+ * Get color classes for lead status
+ */
+export function getLeadStatusColorClasses(status?: string | null): string {
+  const colors: Record<string, string> = {
+    New: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
+    Contacted: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    Qualified: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
+    Converted: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    Lost: 'bg-red-500/10 text-red-400 border-red-500/30',
+  };
+  return colors[status || ''] || 'bg-slate-500/10 text-slate-400 border-slate-500/30';
+}
+
+/**
+ * Opportunity stages using display labels for UI compatibility
+ */
+export const OPPORTUNITY_STAGES = [
+  'Discovery',
+  'Qualification',
+  'Proposal',
+  'Negotiation',
+  'Won',
+  'Lost',
+] as const;
+
+/**
+ * Active opportunity stages (not closed)
+ */
+export const ACTIVE_OPPORTUNITY_STAGES = [
+  'Discovery',
+  'Qualification',
+  'Proposal',
+  'Negotiation',
+] as const;
+
+/**
+ * Alias for getStageColorClass using display labels
+ */
+export function getStageColorClasses(stage?: string | null): string {
+  const colors: Record<string, string> = {
+    Discovery: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
+    Qualification: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
+    Proposal: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    Negotiation: 'bg-orange-500/10 text-orange-400 border-orange-500/30',
+    Won: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    Lost: 'bg-red-500/10 text-red-400 border-red-500/30',
+    Other: 'bg-slate-500/10 text-slate-400 border-slate-500/30',
+  };
+  return colors[stage || ''] || colors.Other;
+}

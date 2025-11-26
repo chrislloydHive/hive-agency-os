@@ -8,6 +8,7 @@ import {
   OPPORTUNITY_STAGES,
   ACTIVE_OPPORTUNITY_STAGES,
   getStageColorClasses,
+  getStageLabel,
 } from '@/lib/types/pipeline';
 
 // Extended opportunity with enriched company data
@@ -70,9 +71,10 @@ export function PipelineOpportunitiesClient({
       }
 
       // Stage filter
+      const oppStageLabel = getStageLabel(opp.stage);
       if (stageFilter === 'Active') {
-        if (!ACTIVE_STAGES.includes(opp.stage)) return false;
-      } else if (stageFilter !== 'All' && opp.stage !== stageFilter) {
+        if (!ACTIVE_STAGES.includes(oppStageLabel as typeof ACTIVE_STAGES[number])) return false;
+      } else if (stageFilter !== 'All' && oppStageLabel !== stageFilter) {
         return false;
       }
 
@@ -88,7 +90,7 @@ export function PipelineOpportunitiesClient({
   // Stats
   const stats = useMemo(() => {
     const active = opportunities.filter((o) =>
-      ACTIVE_STAGES.includes(o.stage)
+      ACTIVE_STAGES.includes(getStageLabel(o.stage) as typeof ACTIVE_STAGES[number])
     );
     const activeValue = active.reduce((sum, o) => sum + (o.value || 0), 0);
     const weightedValue = active.reduce(
@@ -98,7 +100,7 @@ export function PipelineOpportunitiesClient({
 
     const byStage: Record<string, { count: number; value: number }> = {};
     for (const stage of STAGES) {
-      const stageOpps = opportunities.filter((o) => o.stage === stage);
+      const stageOpps = opportunities.filter((o) => getStageLabel(o.stage) === stage);
       byStage[stage] = {
         count: stageOpps.length,
         value: stageOpps.reduce((sum, o) => sum + (o.value || 0), 0),
@@ -195,7 +197,7 @@ export function PipelineOpportunitiesClient({
         <div className="flex gap-2">
           {STAGES.map((stage) => {
             const data = stats.byStage[stage];
-            const isActive = ACTIVE_STAGES.includes(stage);
+            const isActive = ACTIVE_STAGES.includes(stage as typeof ACTIVE_STAGES[number]);
             return (
               <div
                 key={stage}
