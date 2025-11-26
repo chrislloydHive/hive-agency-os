@@ -56,25 +56,19 @@ function CompaniesLoading() {
 async function CompaniesContent({ searchParams }: CompaniesPageProps) {
   const params = await searchParams;
 
-  // Parse search params into filter
-  const filter: CompanyListFilter = {
-    stage: (params.stage as CompanyStage) || 'All',
-    health: params.health as CompanyHealth | undefined,
-    search: params.q || '',
-    atRiskOnly: params.atRisk === 'true',
-  };
+  // Fetch all companies first (to determine default tab)
+  const companies = await listCompaniesForOsDirectory({ stage: 'All' });
 
-  // Fetch companies with enriched data
-  const companies = await listCompaniesForOsDirectory(filter);
-
-  // Determine default stage view based on data
+  // Determine default stage: show Clients tab if there are any clients
   const hasClients = companies.some((c) => c.stage === 'Client');
   const defaultStage = hasClients ? 'Client' : 'All';
 
-  // If no stage filter was specified, use the default
-  const effectiveFilter = {
-    ...filter,
-    stage: filter.stage || defaultStage,
+  // Parse search params into filter, using Clients as default if not specified
+  const filter: CompanyListFilter = {
+    stage: (params.stage as CompanyStage) || defaultStage,
+    health: params.health as CompanyHealth | undefined,
+    search: params.q || '',
+    atRiskOnly: params.atRisk === 'true',
   };
 
   return (
@@ -99,7 +93,7 @@ async function CompaniesContent({ searchParams }: CompaniesPageProps) {
 
       <CompaniesDirectoryClient
         initialCompanies={companies}
-        initialFilter={effectiveFilter}
+        initialFilter={filter}
       />
     </div>
   );
