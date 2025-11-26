@@ -43,6 +43,14 @@ export async function GET(request: NextRequest) {
     // Fetch company
     const company = await getCompanyById(companyId);
 
+    console.log('[Blueprint Data API] Company analytics config:', {
+      companyName: company?.name,
+      ga4PropertyId: company?.ga4PropertyId,
+      searchConsoleSiteUrl: company?.searchConsoleSiteUrl,
+      hasBlueprint: !!company?.analyticsBlueprint,
+      blueprintMetrics: company?.analyticsBlueprint?.primaryMetrics?.map((m: any) => m.id),
+    });
+
     if (!company) {
       return NextResponse.json(
         { ok: false, error: 'Company not found' },
@@ -88,6 +96,17 @@ export async function GET(request: NextRequest) {
       secondaryMetrics: result.secondaryMetrics.length,
       errors: result.errors.length,
     });
+
+    // Log details about the fetched data
+    console.log('[Blueprint Data API] Primary metrics details:',
+      result.primaryMetrics.map(m => ({
+        id: m.metric.id,
+        chartType: m.metric.chartType,
+        pointsCount: m.points.length,
+        currentValue: m.currentValue,
+        firstPoint: m.points[0],
+      }))
+    );
 
     return NextResponse.json({
       ok: true,

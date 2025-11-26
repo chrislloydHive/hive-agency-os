@@ -91,15 +91,23 @@ export async function fetchMetric(
   metricId: SupportedMetricId,
   options: FetchOptions
 ): Promise<FetchResult> {
+  console.log(`[Fetchers] fetchMetric called for: ${metricId}`);
   const definition = getMetricDefinition(metricId);
 
   if (!definition) {
+    console.log(`[Fetchers] No definition found for metric: ${metricId}`);
     return {
       data: createEmptyMetricData(metricId),
       fromCache: false,
       error: `Unknown metric ID: ${metricId}`,
     };
   }
+  console.log(`[Fetchers] Found definition for ${metricId}:`, {
+    source: definition.source,
+    chartType: definition.defaultChartType,
+    ga4Metric: definition.ga4Metric,
+    gscMetric: definition.gscMetric,
+  });
 
   // Check cache first (unless skipped)
   if (!options.skipCache) {
@@ -113,8 +121,10 @@ export async function fetchMetric(
 
   // Determine which fetcher to use
   const auth = options.auth || getOAuth2Client();
+  console.log(`[Fetchers] Auth check for ${metricId}:`, { hasAuth: !!auth });
 
   if (!auth) {
+    console.log(`[Fetchers] No OAuth credentials for ${metricId}`);
     return {
       data: createEmptyMetricData(metricId, definition),
       fromCache: false,
@@ -124,24 +134,34 @@ export async function fetchMetric(
 
   try {
     let data: AnalyticsMetricData;
+    console.log(`[Fetchers] Options for ${metricId}:`, {
+      ga4PropertyId: options.ga4PropertyId,
+      gscSiteUrl: options.gscSiteUrl,
+      startDate: options.startDate,
+      endDate: options.endDate,
+    });
 
     if (definition.source === 'ga4') {
       if (!options.ga4PropertyId) {
+        console.log(`[Fetchers] No GA4 property ID for ${metricId}`);
         return {
           data: createEmptyMetricData(metricId, definition),
           fromCache: false,
           error: 'No GA4 property ID configured',
         };
       }
+      console.log(`[Fetchers] Fetching GA4 metric ${metricId} from ${options.ga4PropertyId}`);
       data = await fetchGA4Metric(definition, auth, options.ga4PropertyId, options.startDate, options.endDate);
     } else if (definition.source === 'gsc') {
       if (!options.gscSiteUrl) {
+        console.log(`[Fetchers] No GSC site URL for ${metricId}`);
         return {
           data: createEmptyMetricData(metricId, definition),
           fromCache: false,
           error: 'No Search Console site URL configured',
         };
       }
+      console.log(`[Fetchers] Fetching GSC metric ${metricId} from ${options.gscSiteUrl}`);
       data = await fetchGSCMetric(definition, auth, options.gscSiteUrl, options.startDate, options.endDate);
     } else {
       return {
@@ -216,27 +236,36 @@ async function fetchGA4Metric(
 ): Promise<AnalyticsMetricData> {
   const client = google.analyticsdata({ version: 'v1beta', auth });
 
-  // Build the request
-  const request: any = {
-    property: propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`,
+  // Build the property path
+  const property = propertyId.startsWith('properties/') ? propertyId : `properties/${propertyId}`;
+
+  // Build the request body (separate from property)
+  const requestBody: any = {
     dateRanges: [{ startDate, endDate }],
     metrics: [{ name: definition.ga4Metric }],
   };
 
   // Add dimension if this is a dimensional metric
   if (definition.ga4Dimension) {
-    request.dimensions = [{ name: definition.ga4Dimension }];
-    request.orderBys = [{ metric: { metricName: definition.ga4Metric }, desc: true }];
-    request.limit = definition.defaultChartType === 'timeseries' ? 90 : 20;
+    requestBody.dimensions = [{ name: definition.ga4Dimension }];
+    requestBody.orderBys = [{ metric: { metricName: definition.ga4Metric }, desc: true }];
+    requestBody.limit = definition.defaultChartType === 'timeseries' ? 90 : 20;
   } else if (definition.defaultChartType === 'timeseries') {
     // For timeseries without explicit dimension, use date
-    request.dimensions = [{ name: 'date' }];
-    request.orderBys = [{ dimension: { dimensionName: 'date' } }];
-    request.limit = 90;
+    requestBody.dimensions = [{ name: 'date' }];
+    requestBody.orderBys = [{ dimension: { dimensionName: 'date' } }];
+    requestBody.limit = 90;
   }
 
-  const response = await client.properties.runReport(request);
+  console.log(`[Fetchers] GA4 request for ${definition.id}:`, JSON.stringify({ property, requestBody }, null, 2));
+  const response = await client.properties.runReport({ property, requestBody });
+  console.log(`[Fetchers] GA4 response for ${definition.id}:`, {
+    rowCount: response.data?.rowCount,
+    rowsLength: response.data?.rows?.length,
+    firstRow: response.data?.rows?.[0],
+  });
   const points = parseGA4Response(response.data, definition);
+  console.log(`[Fetchers] Parsed ${points.length} points for ${definition.id}`);
 
   // Calculate current value
   const currentValue = calculateCurrentValue(points, definition);
@@ -287,6 +316,33 @@ function parseGA4Response(
 // GSC Fetching
 // ============================================================================
 
+/**
+ * Extract the actual site URL from a Search Console value
+ *
+ * Sometimes the stored value is the Search Console dashboard URL like:
+ * "https://search.google.com/search-console?resource_id=https%3A%2F%2Fwww.example.com%2F"
+ *
+ * This extracts the actual site URL: "https://www.example.com/"
+ */
+function normalizeGscSiteUrl(siteUrl: string): string {
+  // Check if it's a Search Console dashboard URL
+  if (siteUrl.includes('search.google.com/search-console')) {
+    try {
+      const url = new URL(siteUrl);
+      const resourceId = url.searchParams.get('resource_id');
+      if (resourceId) {
+        // Decode the URL-encoded resource_id
+        const decodedUrl = decodeURIComponent(resourceId);
+        console.log(`[Fetchers] Extracted GSC site URL from resource_id: ${decodedUrl}`);
+        return decodedUrl;
+      }
+    } catch {
+      // Fall through to return original
+    }
+  }
+  return siteUrl;
+}
+
 async function fetchGSCMetric(
   definition: MetricDefinition,
   auth: any,
@@ -295,6 +351,9 @@ async function fetchGSCMetric(
   endDate: string
 ): Promise<AnalyticsMetricData> {
   const client = google.searchconsole({ version: 'v1', auth });
+
+  // Normalize the site URL (extract from Search Console dashboard URL if needed)
+  const normalizedSiteUrl = normalizeGscSiteUrl(siteUrl);
 
   // Build the request
   const requestBody: any = {
@@ -308,12 +367,18 @@ async function fetchGSCMetric(
     requestBody.dimensions = [definition.gscDimension];
   }
 
+  console.log(`[Fetchers] GSC request for ${definition.id}:`, { siteUrl: normalizedSiteUrl, requestBody });
   const response = await client.searchanalytics.query({
-    siteUrl,
+    siteUrl: normalizedSiteUrl,
     requestBody,
+  });
+  console.log(`[Fetchers] GSC response for ${definition.id}:`, {
+    rowsLength: response.data?.rows?.length,
+    firstRow: response.data?.rows?.[0],
   });
 
   const points = parseGSCResponse(response.data, definition);
+  console.log(`[Fetchers] Parsed ${points.length} GSC points for ${definition.id}`);
 
   // Calculate current value
   const currentValue = calculateCurrentValue(points, definition);

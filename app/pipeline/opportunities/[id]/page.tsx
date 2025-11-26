@@ -297,7 +297,7 @@ export default async function OpportunityDetailPage({
                   </div>
                 ))}
                 <Link
-                  href={`/c/${company.id}?tab=gap`}
+                  href={`/c/${company.id}/gap`}
                   className="block text-center text-sm text-amber-500 hover:text-amber-400 mt-4"
                 >
                   View all GAP history for {company.name} →

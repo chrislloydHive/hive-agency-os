@@ -83,7 +83,7 @@ export function CompanyAnalyticsTab({
     try {
       const preset = getPreset(days);
       const response = await fetch(
-        `/api/os/c/${companyId}/analytics/ai-insights?range=${preset}`
+        `/api/os/companies/${companyId}/analytics/ai-insights?range=${preset}`
       );
 
       if (!response.ok) {
@@ -567,7 +567,7 @@ export function CompanyAnalyticsTab({
                                     GAP assessment is {daysSinceGap} days old
                                   </div>
                                   <a
-                                    href={`/c/${companyId}?tab=gap`}
+                                    href={`/c/${companyId}/gap`}
                                     className="text-xs text-amber-400 hover:text-amber-300 underline"
                                   >
                                     Run new GAP assessment →
@@ -582,7 +582,7 @@ export function CompanyAnalyticsTab({
                         <div className="p-2 bg-slate-800/50 border border-slate-700 rounded-lg">
                           <div className="text-sm text-slate-400 mb-1">No GAP assessment on record</div>
                           <a
-                            href={`/c/${companyId}?tab=gap`}
+                            href={`/c/${companyId}/gap`}
                             className="text-xs text-amber-400 hover:text-amber-300 underline"
                           >
                             Run initial GAP assessment →
@@ -612,7 +612,7 @@ export function CompanyAnalyticsTab({
                             No recent diagnostics run
                           </div>
                           <a
-                            href={`/c/${companyId}?tab=diagnostics`}
+                            href={`/c/${companyId}/diagnostics`}
                             className="text-xs text-blue-400 hover:text-blue-300 underline"
                           >
                             Run diagnostics →
