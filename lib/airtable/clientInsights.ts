@@ -49,6 +49,25 @@ function mapRecordToInsight(record: any): ClientInsight {
     }
   }
 
+  // Build source from individual fields if Source JSON is missing
+  if (!source || source.type === 'manual') {
+    const sourceType = fields['Source Type'] as string | undefined;
+    if (sourceType === 'tool_run') {
+      source = {
+        type: 'tool_run',
+        toolId: (fields['Tool Slug'] as string) || '',
+        toolName: (fields['Tool Slug'] as string) || '',
+        runId: (fields['Tool Run ID'] as string) || '',
+      };
+    } else if (sourceType === 'document') {
+      source = {
+        type: 'document',
+        documentId: (fields['Document ID'] as string) || '',
+        documentName: '',
+      };
+    }
+  }
+
   return {
     id: record.id,
     companyId,
@@ -57,7 +76,7 @@ function mapRecordToInsight(record: any): ClientInsight {
     category: (fields['Category'] as InsightCategory) || 'other',
     severity: (fields['Severity'] as InsightSeverity) || 'medium',
     createdAt: (fields['Created At'] as string) || new Date().toISOString(),
-    updatedAt: fields['Updated At'] as string | undefined,
+    updatedAt: (fields['Last Modified Time'] as string) || undefined,
     source,
     tags: (fields['Tags'] as string[]) || [],
     workItemCount: (fields['Work Item Count'] as number) || 0,
@@ -75,6 +94,8 @@ function insightToAirtableFields(
 
   if ('companyId' in payload && payload.companyId) {
     fields['Company'] = [payload.companyId];
+    // Also populate the Company ID text field for easier filtering
+    fields['Company ID'] = payload.companyId;
   }
 
   if ('title' in payload && payload.title !== undefined) {
@@ -95,18 +116,19 @@ function insightToAirtableFields(
 
   if ('source' in payload && payload.source !== undefined) {
     fields['Source JSON'] = JSON.stringify(payload.source);
+    // Also populate individual source fields for easier Airtable filtering
+    fields['Source Type'] = payload.source.type;
+
+    if (payload.source.type === 'tool_run') {
+      fields['Tool Slug'] = payload.source.toolId;
+      fields['Tool Run ID'] = payload.source.runId;
+    } else if (payload.source.type === 'document') {
+      fields['Document ID'] = payload.source.documentId;
+    }
   }
 
   if ('tags' in payload && payload.tags !== undefined) {
     fields['Tags'] = payload.tags;
-  }
-
-  // Always set Updated At
-  fields['Updated At'] = new Date().toISOString();
-
-  // Set Created At only on create
-  if (isCreate) {
-    fields['Created At'] = new Date().toISOString();
   }
 
   return fields;
