@@ -187,27 +187,27 @@ export default function DmaFunnelClient({
         <div className="lg:col-span-2 space-y-6">
           {/* KPI Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-6">
-              <div className="text-sm text-slate-400 mb-2">Audits Started</div>
-              <div className="text-3xl font-bold text-slate-100">
+            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-6 overflow-hidden">
+              <div className="text-sm text-slate-400 mb-2 truncate">Audits Started</div>
+              <div className="text-3xl font-bold text-slate-100 truncate">
                 {loadingMetrics ? '...' : formatNumber(snapshot.totals.auditsStarted)}
               </div>
             </div>
-            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-6">
-              <div className="text-sm text-slate-400 mb-2">Audits Completed</div>
-              <div className="text-3xl font-bold text-slate-100">
+            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-6 overflow-hidden">
+              <div className="text-sm text-slate-400 mb-2 truncate">Audits Completed</div>
+              <div className="text-3xl font-bold text-slate-100 truncate">
                 {loadingMetrics ? '...' : formatNumber(snapshot.totals.auditsCompleted)}
               </div>
             </div>
-            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-6">
-              <div className="text-sm text-slate-400 mb-2">Completion Rate</div>
-              <div className="text-3xl font-bold text-emerald-400">
+            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-6 overflow-hidden">
+              <div className="text-sm text-slate-400 mb-2 truncate">Completion Rate</div>
+              <div className="text-3xl font-bold text-emerald-400 truncate">
                 {loadingMetrics ? '...' : formatPercent(snapshot.totals.completionRate)}
               </div>
             </div>
-            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-6">
-              <div className="text-sm text-slate-400 mb-2">Unique Users</div>
-              <div className="text-3xl font-bold text-slate-100">
+            <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-6 overflow-hidden">
+              <div className="text-sm text-slate-400 mb-2 truncate">Unique Users</div>
+              <div className="text-3xl font-bold text-slate-100 truncate">
                 {loadingMetrics
                   ? '...'
                   : snapshot.totals.uniqueUsers !== null
@@ -332,8 +332,8 @@ export default function DmaFunnelClient({
         </div>
 
         {/* Right Column: AI Insights Panel (1/3 width) */}
-        <div className="space-y-6">
-          <div className="bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-lg p-6 sticky top-6">
+        <div className="space-y-6 min-w-0">
+          <div className="bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-lg p-6 sticky top-6 overflow-hidden">
             <div className="flex items-center gap-2 mb-4">
               <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 01-1 1H3a1 1 0 110-2h1a1 1 0 011 1zM8 16v-1h4v1a2 2 0 11-4 0zM12 14c.015-.34.208-.646.477-.859a4 4 0 10-4.954 0c.27.213.462.519.477.859h4z" />
@@ -368,12 +368,12 @@ export default function DmaFunnelClient({
                 {insights.headlineMetrics.length > 0 && (
                   <div className="grid grid-cols-3 gap-2">
                     {insights.headlineMetrics.map((metric, idx) => (
-                      <div key={idx} className="bg-slate-900/50 rounded p-2 text-center">
-                        <div className="text-xs text-slate-500">{metric.label}</div>
-                        <div className="text-sm font-semibold text-slate-200 flex items-center justify-center gap-1">
-                          {metric.value}
-                          {metric.trend === 'up' && <span className="text-emerald-400">↑</span>}
-                          {metric.trend === 'down' && <span className="text-red-400">↓</span>}
+                      <div key={idx} className="bg-slate-900/50 rounded p-2 text-center overflow-hidden">
+                        <div className="text-xs text-slate-500 truncate">{metric.label}</div>
+                        <div className="text-sm font-semibold text-slate-200 flex items-center justify-center gap-1 truncate">
+                          <span className="truncate">{metric.value}</span>
+                          {metric.trend === 'up' && <span className="text-emerald-400 flex-shrink-0">↑</span>}
+                          {metric.trend === 'down' && <span className="text-red-400 flex-shrink-0">↓</span>}
                         </div>
                       </div>
                     ))}
@@ -441,11 +441,11 @@ export default function DmaFunnelClient({
                       {insights.experiments.map((exp, idx) => (
                         <div
                           key={idx}
-                          className="bg-slate-900/50 border border-slate-700 rounded p-3"
+                          className="bg-slate-900/50 border border-slate-700 rounded p-3 overflow-hidden"
                         >
-                          <div className="font-medium text-slate-200 text-sm">{exp.name}</div>
-                          <div className="text-xs text-slate-400 mt-1">{exp.hypothesis}</div>
-                          <div className="text-xs text-purple-400 mt-1">
+                          <div className="font-medium text-slate-200 text-sm break-words">{exp.name}</div>
+                          <div className="text-xs text-slate-400 mt-1 break-words">{exp.hypothesis}</div>
+                          <div className="text-xs text-purple-400 mt-1 break-words">
                             Success: {exp.successMetric}
                           </div>
                         </div>
