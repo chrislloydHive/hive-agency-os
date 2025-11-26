@@ -1,10 +1,22 @@
 'use client';
 
 // app/analytics/dma/DmaFunnelClient.tsx
-// DMA Funnel Analytics Client Component
+// DMA Funnel Analytics Client Component with Charts and Persistent AI Insights
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import {
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts';
 import type { AuditFunnelSnapshot } from '@/lib/ga4Client';
 
 interface DmaFunnelClientProps {
@@ -36,6 +48,70 @@ interface DmaFunnelInsights {
   }>;
 }
 
+// Cache key for localStorage
+const INSIGHTS_CACHE_KEY = 'dma-funnel-insights';
+const CACHE_TTL_HOURS = 24;
+
+interface CachedInsights {
+  insights: DmaFunnelInsights;
+  dateRange: string;
+  timestamp: number;
+}
+
+// Load cached insights from localStorage
+function loadCachedInsights(dateRange: string): DmaFunnelInsights | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const cached = localStorage.getItem(INSIGHTS_CACHE_KEY);
+    if (!cached) return null;
+
+    const data: CachedInsights = JSON.parse(cached);
+    const now = Date.now();
+    const ageHours = (now - data.timestamp) / (1000 * 60 * 60);
+
+    // Check if cache is valid (same date range and not expired)
+    if (data.dateRange === dateRange && ageHours < CACHE_TTL_HOURS) {
+      console.log('[DMA] Loaded cached insights');
+      return data.insights;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Save insights to localStorage
+function saveCachedInsights(insights: DmaFunnelInsights, dateRange: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const data: CachedInsights = {
+      insights,
+      dateRange,
+      timestamp: Date.now(),
+    };
+    localStorage.setItem(INSIGHTS_CACHE_KEY, JSON.stringify(data));
+    console.log('[DMA] Cached insights saved');
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+// Custom tooltip for charts
+function CustomTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 shadow-lg">
+      <p className="text-slate-300 text-sm font-medium mb-1">{label}</p>
+      {payload.map((entry: any, idx: number) => (
+        <p key={idx} className="text-sm" style={{ color: entry.color }}>
+          {entry.name}: {entry.value.toLocaleString()}
+          {entry.name.includes('Rate') ? '%' : ''}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 export default function DmaFunnelClient({
   initialSnapshot,
   initialRange,
@@ -63,8 +139,18 @@ export default function DmaFunnelClient({
 
   const [activeDays, setActiveDays] = useState<DateRangeOption>(getActiveDays());
 
-  // Fetch AI insights
-  const fetchInsights = async (snap: AuditFunnelSnapshot) => {
+  // Generate cache key from date range
+  const dateRangeKey = `${range.startDate}_${range.endDate}`;
+
+  // Fetch AI insights with caching
+  const fetchInsights = async (snap: AuditFunnelSnapshot, rangeKey: string) => {
+    // Check cache first
+    const cached = loadCachedInsights(rangeKey);
+    if (cached) {
+      setInsights(cached);
+      return;
+    }
+
     setLoadingInsights(true);
     setInsightsError(null);
 
@@ -81,6 +167,9 @@ export default function DmaFunnelClient({
 
       const data = await response.json();
       setInsights(data.insights);
+
+      // Cache the insights
+      saveCachedInsights(data.insights, rangeKey);
     } catch (error) {
       console.error('Error fetching DMA insights:', error);
       setInsightsError(error instanceof Error ? error.message : 'Failed to load insights');
@@ -92,7 +181,7 @@ export default function DmaFunnelClient({
   // Fetch insights on mount
   useEffect(() => {
     if (snapshot && !insights && !loadingInsights) {
-      fetchInsights(snapshot);
+      fetchInsights(snapshot, dateRangeKey);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -111,6 +200,7 @@ export default function DmaFunnelClient({
 
       const start = startDate.toISOString().split('T')[0];
       const end = today.toISOString().split('T')[0];
+      const newRangeKey = `${start}_${end}`;
 
       const response = await fetch(`/api/os/dma/metrics?start=${start}&end=${end}`, {
         cache: 'no-store',
@@ -124,8 +214,8 @@ export default function DmaFunnelClient({
       setSnapshot(data.snapshot);
       setRange({ startDate: start, endDate: end });
 
-      // Fetch new insights
-      fetchInsights(data.snapshot);
+      // Fetch new insights (will check cache)
+      fetchInsights(data.snapshot, newRangeKey);
     } catch (error) {
       console.error('Error fetching metrics:', error);
       setMetricsError("We couldn't load DMA metrics. Check GA4 credentials and try again.");
@@ -133,6 +223,25 @@ export default function DmaFunnelClient({
       setLoadingMetrics(false);
     }
   };
+
+  // Prepare chart data
+  const timeSeriesData = useMemo(() => {
+    return snapshot.timeSeries.map((point) => ({
+      date: new Date(point.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      Started: point.auditsStarted,
+      Completed: point.auditsCompleted,
+      'Completion Rate': Math.round(point.completionRate * 100),
+    }));
+  }, [snapshot.timeSeries]);
+
+  const channelData = useMemo(() => {
+    return snapshot.byChannel.map((ch) => ({
+      name: ch.channel,
+      Started: ch.auditsStarted,
+      Completed: ch.auditsCompleted,
+      rate: Math.round(ch.completionRate * 100),
+    }));
+  }, [snapshot.byChannel]);
 
   const formatPercent = (value: number) => `${(value * 100).toFixed(1)}%`;
   const formatNumber = (value: number) => value.toLocaleString();
@@ -217,13 +326,91 @@ export default function DmaFunnelClient({
             </div>
           </div>
 
-          {/* By Channel */}
-          {snapshot.byChannel.length > 0 && (
+          {/* Time Series Chart */}
+          {timeSeriesData.length > 0 && (
+            <div className="bg-slate-900/70 border border-slate-800 rounded-lg overflow-hidden">
+              <div className="p-6 border-b border-slate-800">
+                <h2 className="text-lg font-semibold text-slate-100">Daily Funnel Performance</h2>
+              </div>
+              <div className="p-6">
+                <div className="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={timeSeriesData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                      <XAxis
+                        dataKey="date"
+                        stroke="#64748b"
+                        fontSize={12}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        stroke="#64748b"
+                        fontSize={12}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Legend
+                        wrapperStyle={{ paddingTop: '20px' }}
+                        formatter={(value) => <span className="text-slate-400 text-sm">{value}</span>}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="Started"
+                        stroke="#f59e0b"
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 4, fill: '#f59e0b' }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="Completed"
+                        stroke="#10b981"
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 4, fill: '#10b981' }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Channel Performance Bar Chart */}
+          {channelData.length > 0 && (
             <div className="bg-slate-900/70 border border-slate-800 rounded-lg overflow-hidden">
               <div className="p-6 border-b border-slate-800">
                 <h2 className="text-lg font-semibold text-slate-100">Performance by Channel</h2>
               </div>
-              <div className="overflow-x-auto">
+              <div className="p-6">
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={channelData} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+                      <XAxis type="number" stroke="#64748b" fontSize={12} tickLine={false} />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        stroke="#64748b"
+                        fontSize={12}
+                        tickLine={false}
+                        axisLine={false}
+                        width={100}
+                      />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Legend
+                        wrapperStyle={{ paddingTop: '10px' }}
+                        formatter={(value) => <span className="text-slate-400 text-sm">{value}</span>}
+                      />
+                      <Bar dataKey="Started" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="Completed" fill="#10b981" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+              {/* Channel Table */}
+              <div className="border-t border-slate-800 overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-700 bg-slate-900/50">
@@ -292,56 +479,34 @@ export default function DmaFunnelClient({
               </div>
             </div>
           )}
-
-          {/* Time Series */}
-          {snapshot.timeSeries.length > 0 && (
-            <div className="bg-slate-900/70 border border-slate-800 rounded-lg overflow-hidden">
-              <div className="p-6 border-b border-slate-800">
-                <h2 className="text-lg font-semibold text-slate-100">Daily Performance</h2>
-              </div>
-              <div className="overflow-x-auto max-h-96">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-slate-900">
-                    <tr className="border-b border-slate-700">
-                      <th className="text-left py-3 px-4 text-xs font-semibold text-slate-400 uppercase">Date</th>
-                      <th className="text-right py-3 px-4 text-xs font-semibold text-slate-400 uppercase">Started</th>
-                      <th className="text-right py-3 px-4 text-xs font-semibold text-slate-400 uppercase">Completed</th>
-                      <th className="text-right py-3 px-4 text-xs font-semibold text-slate-400 uppercase">Rate</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {snapshot.timeSeries.map((point) => (
-                      <tr key={point.date} className="border-b border-slate-800/50 last:border-0">
-                        <td className="py-3 px-4 text-slate-300">{point.date}</td>
-                        <td className="py-3 px-4 text-right text-slate-300">
-                          {formatNumber(point.auditsStarted)}
-                        </td>
-                        <td className="py-3 px-4 text-right text-slate-300">
-                          {formatNumber(point.auditsCompleted)}
-                        </td>
-                        <td className="py-3 px-4 text-right text-emerald-400 font-semibold">
-                          {formatPercent(point.completionRate)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Right Column: AI Insights Panel (1/3 width) */}
         <div className="space-y-6 min-w-0">
           <div className="bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-lg p-6 sticky top-6 overflow-hidden">
-            <div className="flex items-center gap-2 mb-4">
-              <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 01-1 1H3a1 1 0 110-2h1a1 1 0 011 1zM8 16v-1h4v1a2 2 0 11-4 0zM12 14c.015-.34.208-.646.477-.859a4 4 0 10-4.954 0c.27.213.462.519.477.859h4z" />
-              </svg>
-              <h2 className="text-lg font-semibold text-blue-100">DMA Funnel Insights</h2>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 01-1 1H3a1 1 0 110-2h1a1 1 0 011 1zM8 16v-1h4v1a2 2 0 11-4 0zM12 14c.015-.34.208-.646.477-.859a4 4 0 10-4.954 0c.27.213.462.519.477.859h4z" />
+                </svg>
+                <h2 className="text-lg font-semibold text-blue-100">AI Insights</h2>
+              </div>
+              {insights && (
+                <button
+                  onClick={() => {
+                    setInsights(null);
+                    localStorage.removeItem(INSIGHTS_CACHE_KEY);
+                    fetchInsights(snapshot, dateRangeKey);
+                  }}
+                  className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                  title="Refresh insights"
+                >
+                  ↻ Refresh
+                </button>
+              )}
             </div>
             <p className="text-xs text-blue-300/70 mb-4">
-              AI-powered analysis of your DigitalMarketingAudit.ai acquisition funnel
+              AI-powered analysis • Cached for 24h
             </p>
 
             {loadingInsights && (
@@ -354,6 +519,12 @@ export default function DmaFunnelClient({
             {insightsError && !loadingInsights && (
               <div className="bg-red-500/10 border border-red-500/30 rounded p-4">
                 <p className="text-red-400 text-sm">{insightsError}</p>
+                <button
+                  onClick={() => fetchInsights(snapshot, dateRangeKey)}
+                  className="mt-2 text-xs text-red-300 hover:text-red-200"
+                >
+                  Try again
+                </button>
               </div>
             )}
 
