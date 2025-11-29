@@ -169,6 +169,7 @@ function mapFieldsToCompanyRecord(record: any): CompanyRecord {
     owner: (fields['Owner'] as string) || undefined,
     tags: (fields['Tags'] as string[]) || undefined,
     source: (fields['Source'] as string) as CompanyRecord['source'] | undefined,
+    icpFitScore: (fields['ICP Fit Score'] as string) as CompanyRecord['icpFitScore'] | undefined,
     primaryContactName: (fields['Primary Contact Name'] as string) || undefined,
     primaryContactEmail: (fields['Primary Contact Email'] as string) || undefined,
     primaryContactRole: (fields['Primary Contact Role'] as string) || undefined,
@@ -225,7 +226,8 @@ export type CompanyRecord = {
   region?: string;
   owner?: string;
   tags?: string[];
-  source?: 'Referral' | 'Inbound' | 'Outbound' | 'Internal' | 'Other';
+  source?: 'Referral' | 'Inbound' | 'Outbound' | 'Internal' | 'Other' | 'Full GAP' | 'GAP IA' | 'Manual Entry';
+  icpFitScore?: 'A' | 'B' | 'C'; // ICP Fit Score from wizard
   primaryContactName?: string;
   primaryContactEmail?: string;
   primaryContactRole?: string;
@@ -589,6 +591,7 @@ export async function createCompany(data: {
   stage?: CompanyRecord['stage'];
   sizeBand?: CompanyRecord['sizeBand'];
   source?: CompanyRecord['source'];
+  icpFitScore?: CompanyRecord['icpFitScore'];
   owner?: string;
   notes?: string;
   primaryContactName?: string;
@@ -617,6 +620,7 @@ export async function createCompany(data: {
     if (data.stage) fields['Stage'] = data.stage;
     if (data.sizeBand) fields['Size Band'] = data.sizeBand;
     if (data.source) fields['Source'] = data.source;
+    if (data.icpFitScore) fields['ICP Fit Score'] = data.icpFitScore;
     if (data.owner) fields['Owner'] = data.owner;
     if (data.notes) fields['Notes'] = data.notes;
     if (data.primaryContactName) fields['Primary Contact Name'] = data.primaryContactName;

@@ -118,7 +118,7 @@ export function CompanyAiMemoryTab({
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-xl font-semibold text-slate-100">
-              Client Brain
+              Brain
             </h2>
             <p className="text-sm text-slate-400 mt-1">
               AI-generated insights and context for {companyName}
@@ -139,7 +139,7 @@ export function CompanyAiMemoryTab({
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-xl font-semibold text-slate-100">
-              Client Brain
+              Brain
             </h2>
             <p className="text-sm text-slate-400 mt-1">
               AI-generated insights and context for {companyName}
@@ -166,7 +166,7 @@ export function CompanyAiMemoryTab({
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-xl font-semibold text-slate-100">
-              Client Brain
+              Brain
             </h2>
             <p className="text-sm text-slate-400 mt-1">
               AI-generated insights and context for {companyName}
@@ -207,7 +207,7 @@ export function CompanyAiMemoryTab({
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-xl font-semibold text-slate-100">Client Brain</h2>
+          <h2 className="text-xl font-semibold text-slate-100">Brain</h2>
           <p className="text-sm text-slate-400 mt-1">
             {entries.length} AI-generated insight{entries.length !== 1 ? 's' : ''}{' '}
             for {companyName}

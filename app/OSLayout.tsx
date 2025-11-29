@@ -106,7 +106,7 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
         </svg>
       ),
       submenu: [
-        { name: 'Workspace Analytics', href: '/analytics/os' },
+        { name: 'OS', href: '/analytics/os' },
         { name: 'DMA Funnel', href: '/analytics/dma' },
       ],
     },
@@ -156,7 +156,7 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
         </Link>
       </div>
 
-      {/* Quick Actions - Add Prospect Button */}
+      {/* Quick Actions - Add Company Button */}
       <div className="px-3 py-3">
         <Link
           href="/c/new"
@@ -165,7 +165,7 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          Add Prospect
+          Add Company
         </Link>
       </div>
 

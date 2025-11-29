@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createDiagnosticRun, updateDiagnosticRun } from '@/lib/os/diagnostics/runs';
 import { runWebsiteLabEngine } from '@/lib/os/diagnostics/engines';
 import { getCompanyById } from '@/lib/airtable/companies';
+import { processDiagnosticRunCompletionAsync } from '@/lib/os/diagnostics/postRunHooks';
 
 export const maxDuration = 240; // 4 minutes timeout
 
@@ -66,6 +67,11 @@ export async function POST(request: NextRequest) {
       success: result.success,
       score: result.score,
     });
+
+    // Process post-run hooks (Brain entry + Strategic Snapshot) in background
+    if (result.success) {
+      processDiagnosticRunCompletionAsync(companyId, updatedRun);
+    }
 
     return NextResponse.json({
       run: updatedRun,

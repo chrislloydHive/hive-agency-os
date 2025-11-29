@@ -181,6 +181,24 @@ function getStatusSortOrder(status?: WorkItemStatus): number {
 }
 
 /**
+ * Get all Work Items across all companies
+ *
+ * @returns Array of all work items
+ */
+export async function getAllWorkItems(): Promise<WorkItemRecord[]> {
+  try {
+    console.log('[Work Items] Fetching all work items');
+    const records = await base('Work Items').select().all();
+    const workItems = records.map(mapWorkItemRecord);
+    console.log('[Work Items] Found', workItems.length, 'total work items');
+    return workItems;
+  } catch (error) {
+    console.error('[Work Items] Error fetching all work items:', error);
+    return [];
+  }
+}
+
+/**
  * Get all Work Items for a company
  *
  * @param companyId - Company record ID

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { getFullReportsForCompany } from '@/lib/airtable/fullReports';
 import { getWorkItemsForCompany, getWorkItemsForCompanyByPriorityId } from '@/lib/airtable/workItems';
+import { getCompanyStrategySnapshot } from '@/lib/os/companies/strategySnapshot';
 import type {
   WorkItemRecord,
   WorkItemStatus,
@@ -11,6 +12,7 @@ import type {
 } from '@/lib/airtable/workItems';
 import type { PriorityItem, PrioritiesPayload } from '@/lib/airtable/fullReports';
 import type { EvidencePayload } from '@/lib/gap/types';
+import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
 import PriorityCardWithAction from './PriorityCardWithAction';
 import WorkItemCardWithStatus from './WorkItemCardWithStatus';
 
@@ -38,6 +40,9 @@ export default async function WorkPage({ params }: PageProps) {
 
   // Load work items indexed by priority ID for quick lookup
   const workItemsByPriorityId = await getWorkItemsForCompanyByPriorityId(companyId);
+
+  // Load strategic snapshot for focus areas
+  const strategicSnapshot = await getCompanyStrategySnapshot(companyId);
 
   // Extract priorities from latest report
   const prioritiesPayload: PrioritiesPayload | undefined = latestReport?.prioritiesJson;
@@ -68,10 +73,10 @@ export default async function WorkPage({ params }: PageProps) {
             Overview
           </Link>
           <Link
-            href={`/c/${companyId}/diagnostics`}
+            href={`/c/${companyId}/tools`}
             className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300 hover:bg-slate-800"
           >
-            Diagnostics
+            Tools
           </Link>
         </div>
       </div>
@@ -204,6 +209,7 @@ export default async function WorkPage({ params }: PageProps) {
             companyId={companyId}
             workItemsByPriorityId={workItemsByPriorityId}
             evidence={evidence}
+            strategicSnapshot={strategicSnapshot}
           />
         </aside>
       </div>
@@ -303,26 +309,71 @@ function SuggestedWork({
   companyId,
   workItemsByPriorityId,
   evidence,
+  strategicSnapshot,
 }: {
   priorities: PriorityItem[];
   latestReport?: any;
   companyId: string;
   workItemsByPriorityId: Record<string, WorkItemRecord>;
   evidence?: EvidencePayload;
+  strategicSnapshot?: CompanyStrategicSnapshot | null;
 }) {
   const hasPriorities = priorities.length > 0;
+  const hasFocusAreas = strategicSnapshot?.focusAreas && strategicSnapshot.focusAreas.length > 0;
   const fullReportId = latestReport?.id;
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
-      <div className="mb-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Suggested Work from OS
-        </h2>
-        <p className="text-xs text-slate-500 mt-1">
-          From latest Full Report
-        </p>
-      </div>
+    <div className="space-y-4">
+      {/* Strategic Focus Areas */}
+      {hasFocusAreas && (
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+          <div className="mb-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+              Strategic Focus Areas
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">
+              From Brain synthesis
+            </p>
+          </div>
+          <ol className="space-y-2">
+            {strategicSnapshot!.focusAreas.slice(0, 5).map((area, index) => (
+              <li key={index} className="flex items-start gap-3 group">
+                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500/20 text-blue-300 text-xs font-medium flex items-center justify-center border border-blue-500/30">
+                  {index + 1}
+                </span>
+                <span className="flex-1 text-sm text-slate-300 pt-0.5">{area}</span>
+              </li>
+            ))}
+          </ol>
+          {strategicSnapshot?.maturityStage && (
+            <div className="mt-4 pt-4 border-t border-slate-800">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Current Stage:</span>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                  strategicSnapshot.maturityStage === 'Leading' ? 'bg-emerald-500/20 text-emerald-300' :
+                  strategicSnapshot.maturityStage === 'Optimizing' ? 'bg-blue-500/20 text-blue-300' :
+                  strategicSnapshot.maturityStage === 'Scaling' ? 'bg-amber-500/20 text-amber-300' :
+                  strategicSnapshot.maturityStage === 'Growing' ? 'bg-orange-500/20 text-orange-300' :
+                  'bg-slate-500/20 text-slate-300'
+                }`}>
+                  {strategicSnapshot.maturityStage}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Suggested Work from Full Report */}
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+        <div className="mb-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Suggested Work from OS
+          </h2>
+          <p className="text-xs text-slate-500 mt-1">
+            From latest Full Report
+          </p>
+        </div>
 
       {!hasPriorities ? (
         <div className="text-center py-8">
@@ -384,6 +435,7 @@ function SuggestedWork({
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

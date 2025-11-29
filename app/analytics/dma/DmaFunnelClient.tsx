@@ -115,6 +115,48 @@ export default function DmaFunnelClient({
   // Active tab
   const [activeTab, setActiveTab] = useState<'insights' | 'blueprint'>('insights');
 
+  // Work item creation state
+  const [creatingWorkItem, setCreatingWorkItem] = useState<string | null>(null);
+  const [workItemSuccess, setWorkItemSuccess] = useState<string | null>(null);
+
+  // Create work item from DMA insight
+  const createDmaWorkItem = async (
+    title: string,
+    description: string,
+    itemType: 'quick_win' | 'experiment' | 'blueprint_action',
+    priority?: 'low' | 'medium' | 'high'
+  ) => {
+    const itemKey = `${itemType}-${title.slice(0, 20)}`;
+    setCreatingWorkItem(itemKey);
+    setWorkItemSuccess(null);
+
+    try {
+      const response = await fetch('/api/os/dma/work-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: title.slice(0, 100),
+          description,
+          itemType,
+          priority: priority || 'medium',
+          dateRange: `${range.startDate} to ${range.endDate}`,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create work item');
+      }
+
+      setWorkItemSuccess(itemKey);
+      setTimeout(() => setWorkItemSuccess(null), 3000);
+    } catch (error) {
+      console.error('Error creating work item:', error);
+      alert('Failed to create work item. Please try again.');
+    } finally {
+      setCreatingWorkItem(null);
+    }
+  };
+
   // Determine active range option
   const getActiveDays = (): DateRangeOption => {
     const start = new Date(range.startDate);
@@ -300,6 +342,19 @@ export default function DmaFunnelClient({
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
+      {/* Workspace Analytics Breadcrumb */}
+      <div className="mb-4">
+        <Link
+          href="/analytics/os"
+          className="text-xs text-slate-500 hover:text-slate-400 transition-colors flex items-center gap-1"
+        >
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Part of Workspace Analytics
+        </Link>
+      </div>
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 lg:mb-8">
         <div>
@@ -662,12 +717,32 @@ export default function DmaFunnelClient({
                     <div>
                       <h3 className="text-sm font-semibold text-blue-100 mb-2">Quick Wins</h3>
                       <ul className="space-y-2">
-                        {insights.quickWins.map((win, idx) => (
-                          <li key={idx} className="flex items-start gap-2 text-sm text-blue-200">
-                            <span className="text-emerald-400 mt-0.5">•</span>
-                            <span>{win}</span>
-                          </li>
-                        ))}
+                        {insights.quickWins.map((win, idx) => {
+                          const itemKey = `quick_win-${win.slice(0, 20)}`;
+                          const isCreating = creatingWorkItem === itemKey;
+                          const isSuccess = workItemSuccess === itemKey;
+                          return (
+                            <li key={idx} className="flex items-start gap-2 text-sm text-blue-200">
+                              <span className="text-emerald-400 mt-0.5 flex-shrink-0">•</span>
+                              <div className="flex-1 min-w-0">
+                                <span className="break-words">{win}</span>
+                                <button
+                                  onClick={() => createDmaWorkItem(win.slice(0, 80), win, 'quick_win', 'medium')}
+                                  disabled={isCreating}
+                                  className={`mt-1.5 text-xs px-2 py-0.5 rounded transition-colors ${
+                                    isSuccess
+                                      ? 'bg-emerald-500/20 text-emerald-300'
+                                      : isCreating
+                                      ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                                      : 'bg-blue-500/10 text-blue-300 hover:bg-blue-500/20'
+                                  }`}
+                                >
+                                  {isSuccess ? 'Created!' : isCreating ? 'Creating...' : '+ Work Item'}
+                                </button>
+                              </div>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   )}
@@ -677,18 +752,37 @@ export default function DmaFunnelClient({
                     <div>
                       <h3 className="text-sm font-semibold text-blue-100 mb-2">Experiments to Try</h3>
                       <div className="space-y-2">
-                        {insights.experiments.map((exp, idx) => (
-                          <div
-                            key={idx}
-                            className="bg-slate-900/50 border border-slate-700 rounded p-3 overflow-hidden"
-                          >
-                            <div className="font-medium text-slate-200 text-sm break-words">{exp.name}</div>
-                            <div className="text-xs text-slate-400 mt-1 break-words">{exp.hypothesis}</div>
-                            <div className="text-xs text-purple-400 mt-1 break-words">
-                              Success: {exp.successMetric}
+                        {insights.experiments.map((exp, idx) => {
+                          const itemKey = `experiment-${exp.name.slice(0, 20)}`;
+                          const isCreating = creatingWorkItem === itemKey;
+                          const isSuccess = workItemSuccess === itemKey;
+                          const description = `${exp.hypothesis}\n\nSuccess Metric: ${exp.successMetric}`;
+                          return (
+                            <div
+                              key={idx}
+                              className="bg-slate-900/50 border border-slate-700 rounded p-3 overflow-hidden"
+                            >
+                              <div className="font-medium text-slate-200 text-sm break-words">{exp.name}</div>
+                              <div className="text-xs text-slate-400 mt-1 break-words">{exp.hypothesis}</div>
+                              <div className="text-xs text-purple-400 mt-1 break-words">
+                                Success: {exp.successMetric}
+                              </div>
+                              <button
+                                onClick={() => createDmaWorkItem(`Experiment: ${exp.name}`, description, 'experiment', 'medium')}
+                                disabled={isCreating}
+                                className={`mt-2 text-xs px-2 py-0.5 rounded transition-colors ${
+                                  isSuccess
+                                    ? 'bg-emerald-500/20 text-emerald-300'
+                                    : isCreating
+                                    ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                                    : 'bg-purple-500/10 text-purple-300 hover:bg-purple-500/20'
+                                }`}
+                              >
+                                {isSuccess ? 'Created!' : isCreating ? 'Creating...' : '+ Add as Experiment'}
+                              </button>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -872,36 +966,56 @@ export default function DmaFunnelClient({
                     <div>
                       <h3 className="text-sm font-semibold text-amber-100 mb-2">Optimization Priorities</h3>
                       <div className="space-y-2">
-                        {blueprint.optimizationPriorities.map((opt, idx) => (
-                          <div key={idx} className="bg-slate-900/50 border border-slate-700 rounded p-3">
-                            <div className="flex items-center gap-2 mb-1 flex-wrap">
-                              <span className="font-medium text-slate-200 text-sm">{opt.title}</span>
-                              <span
-                                className={`text-xs px-1.5 py-0.5 rounded ${
-                                  opt.impact === 'high'
+                        {blueprint.optimizationPriorities.map((opt, idx) => {
+                          const itemKey = `blueprint_action-${opt.title.slice(0, 20)}`;
+                          const isCreating = creatingWorkItem === itemKey;
+                          const isSuccess = workItemSuccess === itemKey;
+                          const description = `${opt.description}\n\nImpact: ${opt.impact}\nEffort: ${opt.effort}`;
+                          const priority = opt.impact === 'high' ? 'high' : opt.impact === 'medium' ? 'medium' : 'low';
+                          return (
+                            <div key={idx} className="bg-slate-900/50 border border-slate-700 rounded p-3">
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                <span className="font-medium text-slate-200 text-sm">{opt.title}</span>
+                                <span
+                                  className={`text-xs px-1.5 py-0.5 rounded ${
+                                    opt.impact === 'high'
+                                      ? 'bg-emerald-500/20 text-emerald-300'
+                                      : opt.impact === 'medium'
+                                      ? 'bg-amber-500/20 text-amber-300'
+                                      : 'bg-slate-600/20 text-slate-300'
+                                  }`}
+                                >
+                                  {opt.impact} impact
+                                </span>
+                                <span
+                                  className={`text-xs px-1.5 py-0.5 rounded ${
+                                    opt.effort === 'low'
+                                      ? 'bg-emerald-500/20 text-emerald-300'
+                                      : opt.effort === 'medium'
+                                      ? 'bg-amber-500/20 text-amber-300'
+                                      : 'bg-red-500/20 text-red-300'
+                                  }`}
+                                >
+                                  {opt.effort} effort
+                                </span>
+                              </div>
+                              <div className="text-xs text-slate-400">{opt.description}</div>
+                              <button
+                                onClick={() => createDmaWorkItem(opt.title, description, 'blueprint_action', priority as 'low' | 'medium' | 'high')}
+                                disabled={isCreating}
+                                className={`mt-2 text-xs px-2 py-0.5 rounded transition-colors ${
+                                  isSuccess
                                     ? 'bg-emerald-500/20 text-emerald-300'
-                                    : opt.impact === 'medium'
-                                    ? 'bg-amber-500/20 text-amber-300'
-                                    : 'bg-slate-600/20 text-slate-300'
+                                    : isCreating
+                                    ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                                    : 'bg-amber-500/10 text-amber-300 hover:bg-amber-500/20'
                                 }`}
                               >
-                                {opt.impact} impact
-                              </span>
-                              <span
-                                className={`text-xs px-1.5 py-0.5 rounded ${
-                                  opt.effort === 'low'
-                                    ? 'bg-emerald-500/20 text-emerald-300'
-                                    : opt.effort === 'medium'
-                                    ? 'bg-amber-500/20 text-amber-300'
-                                    : 'bg-red-500/20 text-red-300'
-                                }`}
-                              >
-                                {opt.effort} effort
-                              </span>
+                                {isSuccess ? 'Created!' : isCreating ? 'Creating...' : '+ Create Work Item'}
+                              </button>
                             </div>
-                            <div className="text-xs text-slate-400">{opt.description}</div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}

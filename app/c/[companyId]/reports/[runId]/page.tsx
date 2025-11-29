@@ -1,11 +1,26 @@
-import { getCompanyById } from '@/lib/airtable/companies';
-import { notFound } from 'next/navigation';
+// app/c/[companyId]/reports/[runId]/page.tsx
+// Report Detail Page - Shows full details of a specific diagnostic run
+//
+// This page attempts to find the run in the unified Diagnostic Runs table first,
+// then falls back to the legacy GAP-Plan Run table for backwards compatibility.
+
+import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
+import { getCompanyById } from '@/lib/airtable/companies';
+import { getDiagnosticRun, isValidToolId } from '@/lib/os/diagnostics/runs';
+import { getToolConfig } from '@/lib/os/diagnostics/tools';
+import { getToolByDiagnosticId } from '@/lib/tools/registry';
+import { extractReportData } from '@/lib/os/diagnostics/adapters';
+import { ToolReportLayout, type ReportSection } from '@/components/tools/ToolReportLayout';
+import { countWorkItemsForRun } from '@/lib/airtable/workItems';
 
 interface ReportPageProps {
   params: Promise<{ companyId: string; runId: string }>;
 }
 
+export const dynamic = 'force-dynamic';
+
+// Legacy function to get GAP-Plan specific runs
 async function getGapPlanRun(runId: string) {
   const { getAirtableConfig } = await import('@/lib/airtable/client');
   const config = getAirtableConfig();
@@ -56,24 +71,61 @@ async function getGapPlanRun(runId: string) {
 export default async function ReportPage({ params }: ReportPageProps) {
   const { companyId, runId } = await params;
 
-  const [company, run] = await Promise.all([
-    getCompanyById(companyId),
-    getGapPlanRun(runId),
-  ]);
-
-  if (!company || !run) {
+  // Fetch company
+  const company = await getCompanyById(companyId);
+  if (!company) {
     notFound();
   }
 
-  if (!run.reportData) {
+  // First, try to find the run in the unified Diagnostic Runs table
+  const diagnosticRun = await getDiagnosticRun(runId);
+
+  if (diagnosticRun && diagnosticRun.companyId === companyId) {
+    // Found in unified table - check if we have a tool definition
+    const tool = getToolConfig(diagnosticRun.toolId);
+    const unifiedTool = getToolByDiagnosticId(diagnosticRun.toolId);
+
+    // If the tool has a dedicated view route, redirect there
+    if (unifiedTool?.urlSlug) {
+      redirect(`/c/${companyId}/diagnostics/${unifiedTool.urlSlug}/${runId}`);
+    }
+
+    // Otherwise, render using the unified report layout if we have a tool config
+    if (tool) {
+      const workItemCount = await countWorkItemsForRun(runId);
+      const reportData = extractReportData(diagnosticRun);
+
+      return (
+        <ToolReportLayout
+          tool={tool}
+          company={company}
+          run={diagnosticRun}
+          scores={reportData.scores}
+          keyFindings={reportData.keyFindings}
+          opportunities={reportData.opportunities}
+          sections={reportData.sections as ReportSection[]}
+          workItemCount={workItemCount}
+        />
+      );
+    }
+  }
+
+  // Fall back to legacy GAP-Plan Run table
+  const legacyRun = await getGapPlanRun(runId);
+
+  if (!legacyRun) {
+    notFound();
+  }
+
+  if (!legacyRun.reportData) {
     return (
       <div className="max-w-4xl mx-auto">
         <div className="mb-6">
           <Link
-            href={`/c/${companyId}/control`}
+            href={`/c/${companyId}/reports`}
             className="text-sm text-slate-400 hover:text-slate-300"
           >
-            ← Back to Control Panel
+            ← Back to Reports
           </Link>
         </div>
         <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg p-6">
@@ -81,14 +133,15 @@ export default async function ReportPage({ params }: ReportPageProps) {
             Report Not Available
           </h2>
           <p className="text-slate-400">
-            This run hasn't completed yet or the report data is missing.
+            This run hasn&apos;t completed yet or the report data is missing.
           </p>
         </div>
       </div>
     );
   }
 
-  const report = run.reportData;
+  // Render legacy GAP Plan report
+  const report = legacyRun.reportData;
   const scorecard = report.scorecard || {};
   const summary = report.executiveSummary || {};
   const quickWins = report.quickWins || [];
@@ -100,16 +153,14 @@ export default async function ReportPage({ params }: ReportPageProps) {
       <div className="flex items-center justify-between">
         <div>
           <Link
-            href={`/c/${companyId}/control`}
+            href={`/c/${companyId}/reports`}
             className="text-sm text-slate-400 hover:text-slate-300 mb-2 inline-block"
           >
-            ← Back to Control Panel
+            ← Back to Reports
           </Link>
-          <h1 className="text-3xl font-bold text-slate-100">
-            Growth Action Plan
-          </h1>
+          <h1 className="text-3xl font-bold text-slate-100">Growth Action Plan</h1>
           <p className="text-slate-400 mt-1">
-            {report.companyName || company.name} • {run.url}
+            {report.companyName || company.name} • {legacyRun.url}
           </p>
           <p className="text-xs text-slate-500 mt-1">
             Generated {new Date(report.generatedAt).toLocaleString()}
@@ -122,18 +173,15 @@ export default async function ReportPage({ params }: ReportPageProps) {
         <h2 className="text-xl font-semibold text-slate-200 mb-4">Scorecard</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {[
-            { label: 'Overall', value: scorecard.overall, color: 'emerald' },
-            { label: 'Website', value: scorecard.website, color: 'blue' },
-            { label: 'Content', value: scorecard.content, color: 'purple' },
-            { label: 'SEO', value: scorecard.seo, color: 'amber' },
-            { label: 'Brand', value: scorecard.brand, color: 'pink' },
-            { label: 'Authority', value: scorecard.authority, color: 'cyan' },
+            { label: 'Overall', value: scorecard.overall, color: 'text-emerald-400' },
+            { label: 'Website', value: scorecard.website, color: 'text-blue-400' },
+            { label: 'Content', value: scorecard.content, color: 'text-purple-400' },
+            { label: 'SEO', value: scorecard.seo, color: 'text-amber-400' },
+            { label: 'Brand', value: scorecard.brand, color: 'text-pink-400' },
+            { label: 'Authority', value: scorecard.authority, color: 'text-cyan-400' },
           ].map((metric) => (
-            <div
-              key={metric.label}
-              className="bg-slate-800/50 rounded-lg p-4 text-center"
-            >
-              <div className={`text-3xl font-bold text-${metric.color}-400`}>
+            <div key={metric.label} className="bg-slate-800/50 rounded-lg p-4 text-center">
+              <div className={`text-3xl font-bold ${metric.color}`}>
                 {metric.value !== undefined ? Math.round(metric.value) : '—'}
               </div>
               <div className="text-xs text-slate-400 mt-1 uppercase tracking-wide">
@@ -146,9 +194,7 @@ export default async function ReportPage({ params }: ReportPageProps) {
 
       {/* Executive Summary */}
       <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-6">
-        <h2 className="text-xl font-semibold text-slate-200 mb-4">
-          Executive Summary
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-200 mb-4">Executive Summary</h2>
 
         <div className="mb-4">
           <span className="inline-block px-3 py-1 bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded-full text-sm font-medium">
@@ -156,9 +202,7 @@ export default async function ReportPage({ params }: ReportPageProps) {
           </span>
         </div>
 
-        <p className="text-slate-300 leading-relaxed mb-6">
-          {summary.narrative}
-        </p>
+        <p className="text-slate-300 leading-relaxed mb-6">{summary.narrative}</p>
 
         {summary.strengths && summary.strengths.length > 0 && (
           <div className="mb-4">
@@ -201,10 +245,7 @@ export default async function ReportPage({ params }: ReportPageProps) {
           </h2>
           <div className="grid gap-4">
             {quickWins.map((win: any, idx: number) => (
-              <div
-                key={idx}
-                className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
-              >
+              <div key={idx} className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
                 <div className="flex items-start justify-between mb-2">
                   <h3 className="font-semibold text-slate-200">{win.title}</h3>
                   <div className="flex gap-2">
@@ -213,8 +254,8 @@ export default async function ReportPage({ params }: ReportPageProps) {
                         win.impact === 'high'
                           ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                           : win.impact === 'medium'
-                          ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                          : 'bg-slate-500/10 text-slate-400 border border-slate-500/30'
+                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                            : 'bg-slate-500/10 text-slate-400 border border-slate-500/30'
                       }`}
                     >
                       {win.impact} impact
@@ -239,22 +280,17 @@ export default async function ReportPage({ params }: ReportPageProps) {
           </h2>
           <div className="grid gap-4">
             {initiatives.map((initiative: any, idx: number) => (
-              <div
-                key={idx}
-                className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
-              >
+              <div key={idx} className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
                 <div className="flex items-start justify-between mb-2">
-                  <h3 className="font-semibold text-slate-200">
-                    {initiative.title}
-                  </h3>
+                  <h3 className="font-semibold text-slate-200">{initiative.title}</h3>
                   <div className="flex gap-2">
                     <span
                       className={`px-2 py-0.5 rounded text-xs font-medium ${
                         initiative.priority === 'high'
                           ? 'bg-red-500/10 text-red-400 border border-red-500/30'
                           : initiative.priority === 'medium'
-                          ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                          : 'bg-slate-500/10 text-slate-400 border border-slate-500/30'
+                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                            : 'bg-slate-500/10 text-slate-400 border border-slate-500/30'
                       }`}
                     >
                       {initiative.priority} priority

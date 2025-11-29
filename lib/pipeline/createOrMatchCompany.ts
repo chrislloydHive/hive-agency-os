@@ -188,3 +188,105 @@ export async function createProspectCompany(params: {
     notes: params.notes,
   });
 }
+
+// ============================================================================
+// Standardized Source Values
+// ============================================================================
+
+/**
+ * Standardized Source values for Companies
+ * These should match the single-select options in Airtable
+ */
+export type CompanySourceValue =
+  | 'Full GAP'
+  | 'GAP IA'
+  | 'Manual Entry'
+  | 'Inbound'
+  | 'Referral'
+  | 'Outbound'
+  | 'Other';
+
+// ============================================================================
+// Unified Company Creation for GAP Tools
+// ============================================================================
+
+export interface FindOrCreateCompanyForGapResult {
+  company: CompanyRecord;
+  isNew: boolean;
+}
+
+/**
+ * Find or create a company for GAP tools (Full GAP, GAP Snapshot)
+ *
+ * This is the unified entry point for GAP tools that can now accept a URL
+ * and auto-create a company if one doesn't exist for that domain.
+ *
+ * Rules:
+ * - If companyId is provided, use that company (existing behavior)
+ * - If only URL is provided, find by domain or create new company
+ * - New companies are created as Stage="Prospect", Source=specified source
+ * - Existing companies are NOT modified (Stage/Source preserved)
+ *
+ * @param params - Either companyId or url must be provided
+ * @returns Company record and whether it was newly created
+ */
+export async function findOrCreateCompanyForGap(params: {
+  companyId?: string;
+  url?: string;
+  source: 'Full GAP' | 'GAP IA';
+}): Promise<FindOrCreateCompanyForGapResult> {
+  const { companyId, url, source } = params;
+
+  // Case 1: companyId provided - use existing company
+  if (companyId) {
+    const { getCompanyById } = await import('@/lib/airtable/companies');
+    const company = await getCompanyById(companyId);
+
+    if (!company) {
+      throw new Error(`Company not found: ${companyId}`);
+    }
+
+    console.log(`[FindOrCreateForGap] Using existing company by ID: ${company.name}`);
+    return { company, isNew: false };
+  }
+
+  // Case 2: URL provided - find by domain or create
+  if (url) {
+    const domain = extractDomain(url);
+
+    if (!domain) {
+      throw new Error('Could not extract domain from URL');
+    }
+
+    // Try to find existing company by domain
+    const existing = await findCompanyByDomain(domain);
+
+    if (existing) {
+      console.log(`[FindOrCreateForGap] Found existing company by domain: ${existing.name}`);
+      return { company: existing, isNew: false };
+    }
+
+    // No existing company - create new one
+    console.log(`[FindOrCreateForGap] Creating new company for domain: ${domain}`);
+
+    const companyName = domainToDisplayName(domain);
+
+    const newCompany = await createCompany({
+      name: companyName,
+      website: url,
+      domain: domain,
+      stage: 'Prospect',
+      source: source,
+    });
+
+    if (!newCompany) {
+      throw new Error(`Failed to create company for domain: ${domain}`);
+    }
+
+    console.log(`[FindOrCreateForGap] ✅ Created new company: ${newCompany.name} (${newCompany.id}) with Source="${source}"`);
+    return { company: newCompany, isNew: true };
+  }
+
+  // Neither companyId nor url provided
+  throw new Error('Either companyId or url must be provided');
+}

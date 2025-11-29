@@ -15,6 +15,8 @@ import { countWorkItemsForRun } from '@/lib/airtable/workItems';
 const slugToToolId: Record<string, DiagnosticToolId> = {
   'gap-snapshot': 'gapSnapshot',
   'gapSnapshot': 'gapSnapshot',
+  'gap-ia': 'gapSnapshot', // Alias for gap-snapshot
+  'gapIa': 'gapSnapshot',
   'gap-plan': 'gapPlan',
   'gapPlan': 'gapPlan',
   'gap-heavy': 'gapHeavy',

@@ -56,7 +56,7 @@ export default async function ClientBrainPage({ params }: PageProps) {
               <Brain className="w-6 h-6 text-amber-400" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-100">Client Brain</h1>
+              <h1 className="text-xl font-bold text-slate-100">Brain</h1>
               <p className="mt-1 text-sm text-slate-400">
                 Strategic memory and insights for {company.name}
               </p>

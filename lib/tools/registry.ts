@@ -1,0 +1,505 @@
+// lib/tools/registry.ts
+// Unified Tool Registry for Hive OS
+//
+// This is the SINGLE SOURCE OF TRUTH for all company-level tools.
+// All tools that can run on a Company are defined here, including:
+// - Strategic assessments (GAP IA, Full GAP, GAP Heavy)
+// - Diagnostic labs (Website, Brand, Content, SEO, Demand, Ops)
+// - Analytics tools
+//
+// This replaces both:
+// - lib/os/diagnostics/tools.ts (DIAGNOSTIC_TOOLS)
+// - lib/tools/companyTools.ts (COMPANY_TOOLS)
+
+import type { DiagnosticToolId } from '@/lib/os/diagnostics/runs';
+
+// ============================================================================
+// Types
+// ============================================================================
+
+/**
+ * Unified tool identifier for all company-level tools
+ */
+export type CompanyToolId =
+  | 'gapIa'          // GAP Initial Assessment (quick snapshot)
+  | 'gapPlan'        // Full GAP Plan (comprehensive)
+  | 'gapHeavy'       // GAP Heavy (deep multi-source)
+  | 'websiteLab'     // Website UX/Conversion Lab
+  | 'brandLab'       // Brand Health Lab
+  | 'contentLab'     // Content Strategy Lab
+  | 'seoLab'         // SEO Lab
+  | 'demandLab'      // Demand Generation Lab
+  | 'opsLab'         // Marketing Operations Lab
+  | 'analyticsScan'; // Analytics Scan (GA4 + GSC)
+
+/**
+ * Tool category for grouping in the UI
+ */
+export type ToolCategory =
+  | 'Strategic Assessment'
+  | 'Website & UX'
+  | 'Brand & Positioning'
+  | 'Content & Messaging'
+  | 'SEO & Search'
+  | 'Demand Generation'
+  | 'Marketing Ops'
+  | 'Analytics';
+
+/**
+ * Tool behavior type
+ * - diagnosticRun: Creates a DiagnosticRun record, runs via API
+ * - openRoute: Simply navigates to another page (e.g., Analytics)
+ */
+export type ToolBehavior = 'diagnosticRun' | 'openRoute';
+
+/**
+ * Tool status for UI display
+ */
+export type ToolStatus = 'enabled' | 'comingSoon' | 'beta';
+
+/**
+ * Icon identifier for tools
+ */
+export type ToolIcon =
+  | 'zap'        // Quick/fast tools
+  | 'fileText'   // Document/plan tools
+  | 'layers'     // Multi-layer/deep tools
+  | 'globe'      // Website tools
+  | 'sparkles'   // Brand/creative tools
+  | 'fileEdit'   // Content tools
+  | 'search'     // SEO/search tools
+  | 'trendingUp' // Growth/demand tools
+  | 'settings'   // Operations tools
+  | 'barChart';  // Analytics tools
+
+/**
+ * Complete tool definition
+ */
+export interface CompanyToolDefinition {
+  /** Unique identifier for the tool */
+  id: CompanyToolId;
+
+  /** Human-readable label (e.g., "GAP IA") */
+  label: string;
+
+  /** Short label for compact displays */
+  shortLabel?: string;
+
+  /** Description of what the tool does */
+  description: string;
+
+  /** Category for grouping in the UI */
+  category: ToolCategory;
+
+  /** How the tool behaves when activated */
+  behavior: ToolBehavior;
+
+  /** Current status of the tool */
+  status: ToolStatus;
+
+  // -------------------------------------------------------------------------
+  // For diagnosticRun tools
+  // -------------------------------------------------------------------------
+
+  /** Maps to DiagnosticRuns.toolId - required for diagnosticRun behavior */
+  diagnosticToolId?: DiagnosticToolId;
+
+  /** API endpoint for running the tool */
+  runApiPath?: string;
+
+  /** URL slug for the tool (used in routes like /reports/{toolSlug}/{runId}) */
+  urlSlug?: string;
+
+  /** Function to generate the view/report path */
+  viewPath?: (companyId: string, runId?: string) => string;
+
+  // -------------------------------------------------------------------------
+  // For openRoute tools
+  // -------------------------------------------------------------------------
+
+  /** Path to open when tool is activated (for openRoute behavior) */
+  openPath?: (companyId: string) => string;
+
+  // -------------------------------------------------------------------------
+  // Common metadata
+  // -------------------------------------------------------------------------
+
+  /** Whether the tool requires a website URL to run */
+  requiresWebsite?: boolean;
+
+  /** Estimated time to complete in minutes */
+  estimatedMinutes?: number;
+
+  /** Icon identifier */
+  icon: ToolIcon;
+
+  /** Label for the primary action button */
+  primaryActionLabel?: string;
+}
+
+// ============================================================================
+// Tool Registry
+// ============================================================================
+
+/**
+ * All company-level tools in Hive OS
+ */
+export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
+  // ==========================================================================
+  // Strategic Assessment
+  // ==========================================================================
+  {
+    id: 'gapIa',
+    label: 'GAP IA',
+    shortLabel: 'IA',
+    description: 'Quick AI-powered marketing assessment across brand, website, content, and SEO. Great for prospects and initial evaluations.',
+    category: 'Strategic Assessment',
+    behavior: 'diagnosticRun',
+    status: 'enabled',
+    diagnosticToolId: 'gapSnapshot',
+    runApiPath: '/api/os/diagnostics/run/gap-snapshot',
+    urlSlug: 'gap-ia',
+    viewPath: (companyId, runId) =>
+      runId ? `/c/${companyId}/diagnostics/gap-ia/${runId}` : `/c/${companyId}/diagnostics?tool=gapIa`,
+    requiresWebsite: true,
+    estimatedMinutes: 2,
+    icon: 'zap',
+    primaryActionLabel: 'Run Assessment',
+  },
+  {
+    id: 'gapPlan',
+    label: 'Full GAP',
+    shortLabel: 'Full',
+    description: 'Comprehensive Growth Acceleration Plan with strategic initiatives, quick wins, and 90-day roadmap.',
+    category: 'Strategic Assessment',
+    behavior: 'diagnosticRun',
+    status: 'enabled',
+    diagnosticToolId: 'gapPlan',
+    runApiPath: '/api/os/diagnostics/run/gap-plan',
+    urlSlug: 'gap-plan',
+    viewPath: (companyId, runId) =>
+      runId ? `/c/${companyId}/diagnostics/gap-plan/${runId}` : `/c/${companyId}/diagnostics?tool=gapPlan`,
+    requiresWebsite: true,
+    estimatedMinutes: 5,
+    icon: 'fileText',
+    primaryActionLabel: 'Generate Plan',
+  },
+  {
+    id: 'gapHeavy',
+    label: 'GAP Heavy',
+    shortLabel: 'Heavy',
+    description: 'Deep multi-source marketing diagnostic. Analyzes competitors, sitemap, social presence, and analytics for comprehensive insights.',
+    category: 'Strategic Assessment',
+    behavior: 'diagnosticRun',
+    status: 'enabled',
+    diagnosticToolId: 'gapHeavy',
+    runApiPath: '/api/tools/gap-heavy/run',
+    urlSlug: 'gap-heavy',
+    viewPath: (companyId, runId) =>
+      runId ? `/c/${companyId}/diagnostics/gap-heavy/${runId}` : `/c/${companyId}/diagnostics?tool=gapHeavy`,
+    requiresWebsite: true,
+    estimatedMinutes: 10,
+    icon: 'layers',
+    primaryActionLabel: 'Run Heavy Diagnostic',
+  },
+
+  // ==========================================================================
+  // Website & UX
+  // ==========================================================================
+  {
+    id: 'websiteLab',
+    label: 'Website Lab',
+    shortLabel: 'Website',
+    description: 'Multi-page UX & conversion diagnostic. Evaluates page structure, CTAs, messaging clarity, and conversion optimization.',
+    category: 'Website & UX',
+    behavior: 'diagnosticRun',
+    status: 'enabled',
+    diagnosticToolId: 'websiteLab',
+    runApiPath: '/api/os/diagnostics/run/website-lab',
+    urlSlug: 'website-lab',
+    viewPath: (companyId, runId) =>
+      runId ? `/c/${companyId}/diagnostics/website-lab/${runId}` : `/c/${companyId}/diagnostics?tool=websiteLab`,
+    requiresWebsite: true,
+    estimatedMinutes: 4,
+    icon: 'globe',
+    primaryActionLabel: 'Run Website Diagnostic',
+  },
+
+  // ==========================================================================
+  // Brand & Positioning
+  // ==========================================================================
+  {
+    id: 'brandLab',
+    label: 'Brand Lab',
+    shortLabel: 'Brand',
+    description: 'Brand health, clarity, and positioning analysis. Evaluates brand coherence, differentiation, and market positioning.',
+    category: 'Brand & Positioning',
+    behavior: 'diagnosticRun',
+    status: 'comingSoon',
+    diagnosticToolId: 'brandLab',
+    runApiPath: '/api/os/diagnostics/run/brand-lab',
+    urlSlug: 'brand-lab',
+    viewPath: (companyId, runId) =>
+      runId ? `/c/${companyId}/diagnostics/brand-lab/${runId}` : `/c/${companyId}/diagnostics?tool=brandLab`,
+    requiresWebsite: true,
+    estimatedMinutes: 3,
+    icon: 'sparkles',
+    primaryActionLabel: 'Run Brand Diagnostic',
+  },
+
+  // ==========================================================================
+  // Content & Messaging
+  // ==========================================================================
+  {
+    id: 'contentLab',
+    label: 'Content Lab',
+    shortLabel: 'Content',
+    description: 'Content inventory and quality assessment. Analyzes blog, resources, case studies, and content strategy.',
+    category: 'Content & Messaging',
+    behavior: 'diagnosticRun',
+    status: 'comingSoon',
+    diagnosticToolId: 'contentLab',
+    runApiPath: '/api/os/diagnostics/run/content-lab',
+    urlSlug: 'content-lab',
+    viewPath: (companyId, runId) =>
+      runId ? `/c/${companyId}/diagnostics/content-lab/${runId}` : `/c/${companyId}/diagnostics?tool=contentLab`,
+    requiresWebsite: true,
+    estimatedMinutes: 3,
+    icon: 'fileEdit',
+    primaryActionLabel: 'Run Content Diagnostic',
+  },
+
+  // ==========================================================================
+  // SEO & Search
+  // ==========================================================================
+  {
+    id: 'seoLab',
+    label: 'SEO Lab',
+    shortLabel: 'SEO',
+    description: 'Search engine optimization analysis. Evaluates technical SEO, content optimization, and search visibility.',
+    category: 'SEO & Search',
+    behavior: 'diagnosticRun',
+    status: 'comingSoon',
+    diagnosticToolId: 'seoLab',
+    runApiPath: '/api/os/diagnostics/run/seo-lab',
+    urlSlug: 'seo-lab',
+    viewPath: (companyId, runId) =>
+      runId ? `/c/${companyId}/diagnostics/seo-lab/${runId}` : `/c/${companyId}/diagnostics?tool=seoLab`,
+    requiresWebsite: true,
+    estimatedMinutes: 3,
+    icon: 'search',
+    primaryActionLabel: 'Run SEO Diagnostic',
+  },
+
+  // ==========================================================================
+  // Demand Generation
+  // ==========================================================================
+  {
+    id: 'demandLab',
+    label: 'Demand Lab',
+    shortLabel: 'Demand',
+    description: 'Demand generation and funnel analysis. Evaluates lead capture, nurture flows, and conversion paths.',
+    category: 'Demand Generation',
+    behavior: 'diagnosticRun',
+    status: 'comingSoon',
+    diagnosticToolId: 'demandLab',
+    runApiPath: '/api/os/diagnostics/run/demand-lab',
+    urlSlug: 'demand-lab',
+    viewPath: (companyId, runId) =>
+      runId ? `/c/${companyId}/diagnostics/demand-lab/${runId}` : `/c/${companyId}/diagnostics?tool=demandLab`,
+    requiresWebsite: true,
+    estimatedMinutes: 3,
+    icon: 'trendingUp',
+    primaryActionLabel: 'Run Demand Diagnostic',
+  },
+
+  // ==========================================================================
+  // Marketing Ops
+  // ==========================================================================
+  {
+    id: 'opsLab',
+    label: 'Ops Lab',
+    shortLabel: 'Ops',
+    description: 'Marketing operations assessment. Evaluates processes, tooling, automation, and operational efficiency.',
+    category: 'Marketing Ops',
+    behavior: 'diagnosticRun',
+    status: 'comingSoon',
+    diagnosticToolId: 'opsLab',
+    runApiPath: '/api/os/diagnostics/run/ops-lab',
+    urlSlug: 'ops-lab',
+    viewPath: (companyId, runId) =>
+      runId ? `/c/${companyId}/diagnostics/ops-lab/${runId}` : `/c/${companyId}/diagnostics?tool=opsLab`,
+    requiresWebsite: false,
+    estimatedMinutes: 3,
+    icon: 'settings',
+    primaryActionLabel: 'Run Ops Diagnostic',
+  },
+
+  // ==========================================================================
+  // Analytics
+  // ==========================================================================
+  {
+    id: 'analyticsScan',
+    label: 'Analytics Scan',
+    shortLabel: 'Analytics',
+    description: 'Live GA4 + Search Console data with AI insights. View traffic, engagement, and search performance.',
+    category: 'Analytics',
+    behavior: 'openRoute',
+    status: 'enabled',
+    openPath: (companyId) => `/c/${companyId}/analytics`,
+    requiresWebsite: false,
+    icon: 'barChart',
+    primaryActionLabel: 'Open Analytics',
+  },
+];
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/**
+ * Get a tool definition by its ID
+ */
+export function getToolById(toolId: CompanyToolId): CompanyToolDefinition | undefined {
+  return COMPANY_TOOL_DEFS.find((tool) => tool.id === toolId);
+}
+
+/**
+ * Get a tool definition by its diagnostic tool ID
+ */
+export function getToolByDiagnosticId(diagnosticToolId: DiagnosticToolId): CompanyToolDefinition | undefined {
+  return COMPANY_TOOL_DEFS.find((tool) => tool.diagnosticToolId === diagnosticToolId);
+}
+
+/**
+ * Get a tool definition by its URL slug
+ */
+export function getToolBySlug(urlSlug: string): CompanyToolDefinition | undefined {
+  return COMPANY_TOOL_DEFS.find((tool) => tool.urlSlug === urlSlug);
+}
+
+/**
+ * Get all enabled tools (status !== 'comingSoon')
+ */
+export function getEnabledTools(): CompanyToolDefinition[] {
+  return COMPANY_TOOL_DEFS.filter((tool) => tool.status === 'enabled');
+}
+
+/**
+ * Get all tools that are coming soon
+ */
+export function getComingSoonTools(): CompanyToolDefinition[] {
+  return COMPANY_TOOL_DEFS.filter((tool) => tool.status === 'comingSoon');
+}
+
+/**
+ * Get tools by category
+ */
+export function getToolsByCategory(category: ToolCategory): CompanyToolDefinition[] {
+  return COMPANY_TOOL_DEFS.filter((tool) => tool.category === category);
+}
+
+/**
+ * Get all unique categories in display order
+ */
+export function getAllCategories(): ToolCategory[] {
+  return [
+    'Strategic Assessment',
+    'Website & UX',
+    'Brand & Positioning',
+    'Content & Messaging',
+    'SEO & Search',
+    'Demand Generation',
+    'Marketing Ops',
+    'Analytics',
+  ];
+}
+
+/**
+ * Get tools grouped by category
+ */
+export function getToolsGroupedByCategory(): Map<ToolCategory, CompanyToolDefinition[]> {
+  const grouped = new Map<ToolCategory, CompanyToolDefinition[]>();
+
+  for (const category of getAllCategories()) {
+    const tools = getToolsByCategory(category);
+    if (tools.length > 0) {
+      grouped.set(category, tools);
+    }
+  }
+
+  return grouped;
+}
+
+/**
+ * Get category color classes for UI
+ */
+export function getCategoryColor(category: ToolCategory): string {
+  const colors: Record<ToolCategory, string> = {
+    'Strategic Assessment': 'text-amber-400 border-amber-400/30 bg-amber-400/10',
+    'Website & UX': 'text-blue-400 border-blue-400/30 bg-blue-400/10',
+    'Brand & Positioning': 'text-purple-400 border-purple-400/30 bg-purple-400/10',
+    'Content & Messaging': 'text-emerald-400 border-emerald-400/30 bg-emerald-400/10',
+    'SEO & Search': 'text-cyan-400 border-cyan-400/30 bg-cyan-400/10',
+    'Demand Generation': 'text-pink-400 border-pink-400/30 bg-pink-400/10',
+    'Marketing Ops': 'text-orange-400 border-orange-400/30 bg-orange-400/10',
+    'Analytics': 'text-indigo-400 border-indigo-400/30 bg-indigo-400/10',
+  };
+  return colors[category] || 'text-slate-400 border-slate-400/30 bg-slate-400/10';
+}
+
+/**
+ * Map from old DiagnosticToolId to new CompanyToolId
+ * Used for backward compatibility during migration
+ */
+export function diagnosticToolIdToCompanyToolId(diagnosticToolId: DiagnosticToolId): CompanyToolId | undefined {
+  const mapping: Record<DiagnosticToolId, CompanyToolId> = {
+    gapSnapshot: 'gapIa',
+    gapPlan: 'gapPlan',
+    gapHeavy: 'gapHeavy',
+    websiteLab: 'websiteLab',
+    brandLab: 'brandLab',
+    contentLab: 'contentLab',
+    seoLab: 'seoLab',
+    demandLab: 'demandLab',
+    opsLab: 'opsLab',
+  };
+  return mapping[diagnosticToolId];
+}
+
+// ============================================================================
+// Legacy Compatibility Re-exports
+// ============================================================================
+
+// Re-export types with old names for backward compatibility during migration
+export type { DiagnosticToolId };
+
+/**
+ * @deprecated Use COMPANY_TOOL_DEFS instead
+ * Legacy alias for backward compatibility
+ */
+export const DIAGNOSTIC_TOOLS = COMPANY_TOOL_DEFS;
+
+/**
+ * @deprecated Use CompanyToolDefinition instead
+ */
+export type DiagnosticToolConfig = CompanyToolDefinition;
+
+/**
+ * @deprecated Use ToolCategory instead
+ */
+export type DiagnosticToolCategory = ToolCategory;
+
+/**
+ * @deprecated Use getToolById instead
+ */
+export function getToolConfig(toolId: CompanyToolId): CompanyToolDefinition | undefined {
+  return getToolById(toolId);
+}
+
+/**
+ * @deprecated Use getCategoryColor instead
+ */
+export function getCategoryLabel(category: ToolCategory): string {
+  return category; // Categories are now human-readable by default
+}

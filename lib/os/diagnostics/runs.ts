@@ -727,6 +727,205 @@ export function isValidToolId(toolId: string): toolId is DiagnosticToolId {
 }
 
 /**
+ * Get recent diagnostic runs for a company (across all tools)
+ * Returns runs sorted by creation date, newest first
+ */
+export async function getRecentRunsForCompany(
+  companyId: string,
+  limit: number = 5
+): Promise<DiagnosticRun[]> {
+  console.log('[DiagnosticRuns] Getting recent runs for company:', { companyId, limit });
+
+  // Get all recent runs from the Diagnostic Runs table
+  const runs = await listDiagnosticRunsForCompany(companyId, { limit });
+
+  // Also try to get legacy runs if we don't have enough
+  if (runs.length < limit) {
+    try {
+      const { getGapIaRunsForCompany } = await import('@/lib/airtable/gapIaRuns');
+      const iaRuns = await getGapIaRunsForCompany(companyId, limit - runs.length);
+
+      for (const iaRun of iaRuns) {
+        // Skip if we already have this run from the Diagnostic Runs table
+        const alreadyExists = runs.some(r => r.id === iaRun.id);
+        if (alreadyExists) continue;
+
+        const iaScore = iaRun.summary?.overallScore
+          ?? iaRun.overallScore
+          ?? iaRun.readinessScore
+          ?? null;
+
+        const maturityStage = iaRun.summary?.maturityStage ?? iaRun.maturityStage;
+        const summary = maturityStage
+          ? `${maturityStage} maturity stage - Score: ${iaScore}/100`
+          : iaRun.summary?.narrative || iaRun.insights?.overallSummary || null;
+
+        runs.push({
+          id: iaRun.id,
+          companyId,
+          toolId: 'gapSnapshot',
+          status: iaRun.status === 'complete' || iaRun.status === 'completed' ? 'complete' : iaRun.status === 'error' || iaRun.status === 'failed' ? 'failed' : 'running',
+          summary,
+          score: typeof iaScore === 'number' ? iaScore : null,
+          createdAt: iaRun.createdAt,
+          updatedAt: iaRun.updatedAt,
+          rawJson: iaRun,
+        });
+      }
+    } catch (error) {
+      console.warn('[DiagnosticRuns] Failed to fetch legacy GAP-IA Runs:', error);
+    }
+  }
+
+  // Sort by creation date, newest first
+  runs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  return runs.slice(0, limit);
+}
+
+// ============================================================================
+// Score Trends
+// ============================================================================
+
+/**
+ * A single score trend data point
+ */
+export interface CompanyScoreTrendPoint {
+  date: string;           // ISO date
+  score: number | null;
+  toolId: DiagnosticToolId;
+  runId: string;
+}
+
+/**
+ * Score trends grouped by category
+ */
+export interface CompanyScoreTrends {
+  overall: CompanyScoreTrendPoint[];   // GAP-IA or GAP-Plan scores
+  website: CompanyScoreTrendPoint[];   // Website Lab scores
+  seo: CompanyScoreTrendPoint[];       // SEO Lab scores
+  brand: CompanyScoreTrendPoint[];     // Brand Lab scores
+}
+
+/**
+ * Computed score trend with delta for a single category
+ */
+export interface ComputedScoreTrend {
+  latestScore: number | null;
+  previousScore: number | null;
+  delta: number | null;
+  direction: 'up' | 'down' | 'same' | null;
+}
+
+/**
+ * All computed score trends for the Overview
+ */
+export interface ComputedScoreTrends {
+  overall: ComputedScoreTrend;
+  website: ComputedScoreTrend;
+  seo: ComputedScoreTrend;
+  brand: ComputedScoreTrend;
+}
+
+/**
+ * Get score trends for a company
+ *
+ * Pulls diagnostic runs and extracts scores over time for key categories:
+ * - overall: GAP-IA, GAP-Plan (prioritized)
+ * - website: Website Lab
+ * - seo: SEO Lab
+ * - brand: Brand Lab
+ */
+export async function getCompanyScoreTrends(companyId: string): Promise<CompanyScoreTrends> {
+  console.log('[ScoreTrends] Getting score trends for company:', companyId);
+
+  const trends: CompanyScoreTrends = {
+    overall: [],
+    website: [],
+    seo: [],
+    brand: [],
+  };
+
+  try {
+    // Get runs grouped by tool
+    const grouped = await getRunsGroupedByTool(companyId);
+
+    // Overall: GAP-Plan > GAP-IA > GAP-Heavy
+    const overallRuns = [
+      ...grouped.gapPlan.filter(r => r.status === 'complete' && r.score !== null),
+      ...grouped.gapSnapshot.filter(r => r.status === 'complete' && r.score !== null),
+      ...grouped.gapHeavy.filter(r => r.status === 'complete' && r.score !== null),
+    ];
+
+    // Sort by date ascending for trend display
+    overallRuns.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    for (const run of overallRuns.slice(-10)) {
+      trends.overall.push({
+        date: run.createdAt,
+        score: run.score,
+        toolId: run.toolId,
+        runId: run.id,
+      });
+    }
+
+    // Website Lab
+    const websiteRuns = grouped.websiteLab
+      .filter(r => r.status === 'complete' && r.score !== null)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    for (const run of websiteRuns.slice(-10)) {
+      trends.website.push({
+        date: run.createdAt,
+        score: run.score,
+        toolId: run.toolId,
+        runId: run.id,
+      });
+    }
+
+    // SEO Lab
+    const seoRuns = grouped.seoLab
+      .filter(r => r.status === 'complete' && r.score !== null)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    for (const run of seoRuns.slice(-10)) {
+      trends.seo.push({
+        date: run.createdAt,
+        score: run.score,
+        toolId: run.toolId,
+        runId: run.id,
+      });
+    }
+
+    // Brand Lab
+    const brandRuns = grouped.brandLab
+      .filter(r => r.status === 'complete' && r.score !== null)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    for (const run of brandRuns.slice(-10)) {
+      trends.brand.push({
+        date: run.createdAt,
+        score: run.score,
+        toolId: run.toolId,
+        runId: run.id,
+      });
+    }
+
+    console.log('[ScoreTrends] Trends found:', {
+      overall: trends.overall.length,
+      website: trends.website.length,
+      seo: trends.seo.length,
+      brand: trends.brand.length,
+    });
+
+    return trends;
+  } catch (error) {
+    console.error('[ScoreTrends] Failed to get score trends:', error);
+    return trends;
+  }
+}
+
+/**
  * Get all runs for a specific tool across all companies
  */
 export async function getRunsByTool(
@@ -778,4 +977,50 @@ export async function getRunsByTool(
     console.error('[DiagnosticRuns] Failed to get runs by tool:', error);
     return [];
   }
+}
+
+/**
+ * Compute a single trend with delta from trend points
+ */
+function computeSingleTrend(points: CompanyScoreTrendPoint[]): ComputedScoreTrend {
+  if (points.length === 0) {
+    return { latestScore: null, previousScore: null, delta: null, direction: null };
+  }
+
+  // Sort by date descending to get latest first
+  const sorted = [...points].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+
+  const latestScore = sorted[0]?.score ?? null;
+  const previousScore = sorted[1]?.score ?? null;
+
+  if (latestScore === null || previousScore === null) {
+    return { latestScore, previousScore, delta: null, direction: null };
+  }
+
+  const delta = latestScore - previousScore;
+  const direction: 'up' | 'down' | 'same' = delta > 0 ? 'up' : delta < 0 ? 'down' : 'same';
+
+  return { latestScore, previousScore, delta, direction };
+}
+
+/**
+ * Compute all score trends with deltas for the Overview
+ */
+export function computeScoreTrendsWithDeltas(trends: CompanyScoreTrends): ComputedScoreTrends {
+  return {
+    overall: computeSingleTrend(trends.overall),
+    website: computeSingleTrend(trends.website),
+    seo: computeSingleTrend(trends.seo),
+    brand: computeSingleTrend(trends.brand),
+  };
+}
+
+/**
+ * Get computed score trends for a company (includes deltas)
+ */
+export async function getComputedScoreTrends(companyId: string): Promise<ComputedScoreTrends> {
+  const trends = await getCompanyScoreTrends(companyId);
+  return computeScoreTrendsWithDeltas(trends);
 }

@@ -157,7 +157,7 @@ export function ToolDiagnosticsPageClient({
     if (extractingInsights || !latestRun) return;
 
     setExtractingInsights(true);
-    showToast('Extracting insights to Client Brain...', 'success');
+    showToast('Extracting insights to Brain...', 'success');
 
     try {
       const response = await fetch(`/api/os/client-brain/${companyId}/extract-insights`, {
@@ -175,7 +175,7 @@ export function ToolDiagnosticsPageClient({
         throw new Error(result.error || 'Failed to extract insights');
       }
 
-      showToast(`${result.count} insights added to Client Brain`, 'success');
+      showToast(`${result.count} insights added to Brain`, 'success');
     } catch (error) {
       console.error('Error extracting insights:', error);
       showToast(error instanceof Error ? error.message : 'Failed to extract insights', 'error');
@@ -276,7 +276,7 @@ export function ToolDiagnosticsPageClient({
                 tool.primaryActionLabel
               )}
             </button>
-            {/* Extract Insights to Client Brain */}
+            {/* Extract Insights to Brain */}
             {hasRun && isComplete && (
               <button
                 onClick={extractInsightsToClientBrain}
@@ -293,7 +293,7 @@ export function ToolDiagnosticsPageClient({
                     Extracting...
                   </span>
                 ) : (
-                  'Extract Insights to Client Brain'
+                  'Extract Insights to Brain'
                 )}
               </button>
             )}

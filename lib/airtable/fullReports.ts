@@ -307,6 +307,65 @@ export async function upsertFullReportForOsRun({
 }
 
 /**
+ * Get all Full Reports across all companies
+ *
+ * @returns Array of all full reports with normalized structure
+ */
+export async function getAllFullReports(): Promise<FullReportRecord[]> {
+  try {
+    console.log('[Full Reports] Fetching all full reports');
+    const table = base(FULL_REPORTS_TABLE_NAME);
+    const records = await table.select().all();
+
+    const reports = records.map((record) => {
+      const fields = record.fields as Record<string, unknown>;
+      const companyIds = fields['Company'] as string[] | undefined;
+
+      return {
+        id: record.id,
+        companyId: companyIds?.[0] || '',
+        snapshotId: fields['Snapshot'] as string | undefined,
+        gapRunId: fields['GAP Run'] as string | undefined,
+        scores: {
+          overall: fields['Overall Score'] as number | undefined,
+          brand: fields['Brand Score'] as number | undefined,
+          content: fields['Content Score'] as number | undefined,
+          seo: fields['SEO Score'] as number | undefined,
+          websiteUx: fields['Website UX Score'] as number | undefined,
+          funnel: fields['Funnel Score'] as number | undefined,
+        },
+        summary: fields['Summary'] as string | undefined,
+        status: (fields['Status'] as FullReportStatus) || 'draft',
+        diagnosticsJson: parseJsonField(fields['Diagnostics JSON']),
+        prioritiesJson: parseJsonField(fields['Priorities JSON']),
+        planJson: parseJsonField(fields['Plan JSON']),
+        evidenceJson: parseJsonField(fields['Evidence JSON']),
+        createdAt: fields['Created At'] as string | undefined,
+        updatedAt: fields['Updated At'] as string | undefined,
+      } as FullReportRecord;
+    });
+
+    console.log('[Full Reports] Found', reports.length, 'total reports');
+    return reports;
+  } catch (error) {
+    console.error('[Full Reports] Error fetching all reports:', error);
+    return [];
+  }
+}
+
+function parseJsonField(value: unknown): unknown | undefined {
+  if (!value) return undefined;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+  return value;
+}
+
+/**
  * Get a Full Report by its record ID
  *
  * @param reportId - Airtable Full Report record ID

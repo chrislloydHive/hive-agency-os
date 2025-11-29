@@ -59,6 +59,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Create the company
+    // Stage is always "Prospect" for manual creation
+    // Source is "Manual Entry" to distinguish from GAP-created companies
     const company = await createCompany({
       name: body.name.trim(),
       website: body.website || undefined,
@@ -66,6 +68,8 @@ export async function POST(request: NextRequest) {
       companyType: body.companyType || undefined,
       sizeBand: body.sizeBand || undefined,
       stage: 'Prospect',
+      source: 'Manual Entry',
+      icpFitScore: (body.icpFitScore as 'A' | 'B' | 'C') || undefined,
       owner: body.owner || undefined,
       notes: body.notes || undefined,
     });

@@ -1,256 +1,132 @@
 // lib/os/diagnostics/tools.ts
-// Central registry of diagnostic tools for Hive OS
+// DEPRECATED: This file is a backward-compatibility shim.
+// All tool definitions have been moved to lib/tools/registry.ts
 //
-// This provides a single source of truth for tool configurations,
-// making it easy to add new tools and keep the UI consistent.
+// New code should import from '@/lib/tools/registry' directly.
+// This file re-exports the unified registry with legacy type mappings.
 
 import type { DiagnosticToolId } from './runs';
+import {
+  COMPANY_TOOL_DEFS,
+  type CompanyToolDefinition,
+  type ToolCategory,
+  getToolById,
+  getToolsByCategory as getToolsByCategoryNew,
+  getEnabledTools as getEnabledToolsNew,
+  getToolsGroupedByCategory as getToolsGroupedByCategoryNew,
+  getAllCategories as getAllCategoriesNew,
+  getCategoryColor as getCategoryColorNew,
+} from '@/lib/tools/registry';
 
 // ============================================================================
-// Types
+// Legacy Type Aliases
 // ============================================================================
 
 /**
- * Tool category groupings
+ * @deprecated Use ToolCategory from lib/tools/registry instead
  */
 export type DiagnosticToolCategory =
-  | 'strategy'  // High-level strategic assessments
-  | 'website'   // Website/UX focused tools
-  | 'brand'     // Brand & positioning tools
-  | 'content'   // Content quality tools
-  | 'seo'       // SEO & search tools
-  | 'demand'    // Demand gen & funnel tools
-  | 'ops';      // Operations & process tools
+  | 'strategy'
+  | 'website'
+  | 'brand'
+  | 'content'
+  | 'seo'
+  | 'demand'
+  | 'ops';
 
 /**
- * Configuration for a single diagnostic tool
+ * @deprecated Use CompanyToolDefinition from lib/tools/registry instead
  */
 export interface DiagnosticToolConfig {
-  /** Unique identifier for the tool */
   id: DiagnosticToolId;
-
-  /** Human-readable label (e.g., "GAP Snapshot") */
   label: string;
-
-  /** Short label for compact displays (e.g., "Website") */
   shortLabel?: string;
-
-  /** Short description of what the tool does */
   description: string;
-
-  /** Label for the primary action button (e.g., "Run Assessment") */
   primaryActionLabel: string;
-
-  /** Category for grouping in the UI */
   category: DiagnosticToolCategory;
-
-  /** API endpoint path for running the tool */
   runApiPath: string;
-
-  /** Path template for hub (use {companyId} placeholder) */
   hubPath: string;
-
-  /** Path template for viewing a run (use {companyId} and {runId} placeholders) */
   viewPath?: string;
-
-  /** Whether this tool produces a numeric score */
   supportsScore: boolean;
-
-  /** Whether this tool is enabled by default */
   defaultEnabled: boolean;
-
-  /** Icon name (Lucide icon name) */
   icon: string;
-
-  /** Estimated run time description */
   estimatedTime?: string;
 }
 
 // ============================================================================
-// Tool Registry
+// Category Mapping
+// ============================================================================
+
+const newCategoryToOld: Record<ToolCategory, DiagnosticToolCategory> = {
+  'Strategic Assessment': 'strategy',
+  'Website & UX': 'website',
+  'Brand & Positioning': 'brand',
+  'Content & Messaging': 'content',
+  'SEO & Search': 'seo',
+  'Demand Generation': 'demand',
+  'Marketing Ops': 'ops',
+  'Analytics': 'ops', // Analytics doesn't map cleanly, but it's rarely used in legacy code
+};
+
+const oldCategoryToNew: Record<DiagnosticToolCategory, ToolCategory> = {
+  strategy: 'Strategic Assessment',
+  website: 'Website & UX',
+  brand: 'Brand & Positioning',
+  content: 'Content & Messaging',
+  seo: 'SEO & Search',
+  demand: 'Demand Generation',
+  ops: 'Marketing Ops',
+};
+
+// ============================================================================
+// Convert New Tool Definition to Legacy Format
+// ============================================================================
+
+function tolegacyConfig(tool: CompanyToolDefinition): DiagnosticToolConfig | null {
+  // Skip tools that don't have a diagnosticToolId (like analyticsScan)
+  if (!tool.diagnosticToolId) return null;
+
+  return {
+    id: tool.diagnosticToolId,
+    label: tool.label,
+    shortLabel: tool.shortLabel,
+    description: tool.description,
+    primaryActionLabel: tool.primaryActionLabel || 'Run',
+    category: newCategoryToOld[tool.category],
+    runApiPath: tool.runApiPath || '',
+    hubPath: `/c/{companyId}/tools`, // Updated to point to new tools hub
+    viewPath: tool.urlSlug ? `/c/{companyId}/reports/${tool.urlSlug}/{runId}` : undefined,
+    supportsScore: true,
+    defaultEnabled: tool.status === 'enabled',
+    icon: tool.icon.charAt(0).toUpperCase() + tool.icon.slice(1), // Capitalize for Lucide
+    estimatedTime: tool.estimatedMinutes ? `${tool.estimatedMinutes} min` : undefined,
+  };
+}
+
+// ============================================================================
+// Legacy Tool Registry
 // ============================================================================
 
 /**
- * All available diagnostic tools in the Diagnostics Suite
+ * @deprecated Use COMPANY_TOOL_DEFS from lib/tools/registry instead
  */
-export const DIAGNOSTIC_TOOLS: DiagnosticToolConfig[] = [
-  // ========================================================================
-  // Strategy Tools
-  // ========================================================================
-  {
-    id: 'gapSnapshot',
-    label: 'GAP Snapshot',
-    shortLabel: 'Snapshot',
-    description: 'Quick initial assessment of marketing presence, scores, and maturity stage. Great for prospects and new companies.',
-    primaryActionLabel: 'Run Snapshot',
-    category: 'strategy',
-    runApiPath: '/api/os/diagnostics/run/gap-snapshot',
-    hubPath: '/c/{companyId}/diagnostics',
-    viewPath: '/c/{companyId}/diagnostics/gap-snapshot/{runId}',
-    supportsScore: true,
-    defaultEnabled: true,
-    icon: 'Zap',
-    estimatedTime: '1-2 min',
-  },
-  {
-    id: 'gapPlan',
-    label: 'GAP Plan',
-    shortLabel: 'Plan',
-    description: 'Comprehensive Growth Acceleration Plan with strategic initiatives, quick wins, and 90-day roadmap.',
-    primaryActionLabel: 'Generate Plan',
-    category: 'strategy',
-    runApiPath: '/api/tools/gap-plan/run',
-    hubPath: '/c/{companyId}/plan',
-    viewPath: '/c/{companyId}/diagnostics/gap-plan/{runId}',
-    supportsScore: true,
-    defaultEnabled: true,
-    icon: 'FileText',
-    estimatedTime: '3-5 min',
-  },
-  {
-    id: 'gapHeavy',
-    label: 'GAP Heavy',
-    shortLabel: 'Heavy',
-    description: 'Deep multi-source marketing diagnostic. Analyzes competitors, sitemap, social presence, and analytics for comprehensive insights.',
-    primaryActionLabel: 'Run Heavy Diagnostic',
-    category: 'strategy',
-    runApiPath: '/api/tools/gap-heavy/run',
-    hubPath: '/c/{companyId}/diagnostics',
-    viewPath: '/c/{companyId}/diagnostics/gap-heavy/{runId}',
-    supportsScore: true,
-    defaultEnabled: true,
-    icon: 'Layers',
-    estimatedTime: '5-10 min',
-  },
-
-  // ========================================================================
-  // Website Tools
-  // ========================================================================
-  {
-    id: 'websiteLab',
-    label: 'Website Lab',
-    shortLabel: 'Website',
-    description: 'Multi-page UX & conversion diagnostic. Evaluates page structure, CTAs, messaging clarity, and conversion optimization.',
-    primaryActionLabel: 'Run Website Diagnostic',
-    category: 'website',
-    runApiPath: '/api/os/diagnostics/run/website-lab',
-    hubPath: '/c/{companyId}/diagnostics/website',
-    viewPath: '/c/{companyId}/diagnostics/website',
-    supportsScore: true,
-    defaultEnabled: true,
-    icon: 'Globe',
-    estimatedTime: '2-4 min',
-  },
-
-  // ========================================================================
-  // Brand Tools
-  // ========================================================================
-  {
-    id: 'brandLab',
-    label: 'Brand Lab',
-    shortLabel: 'Brand',
-    description: 'Brand health, clarity, and positioning analysis. Evaluates brand coherence, differentiation, and market positioning.',
-    primaryActionLabel: 'Run Brand Diagnostic',
-    category: 'brand',
-    runApiPath: '/api/os/diagnostics/run/brand-lab',
-    hubPath: '/c/{companyId}/diagnostics/brand',
-    viewPath: '/c/{companyId}/diagnostics/brand',
-    supportsScore: true,
-    defaultEnabled: true,
-    icon: 'Sparkles',
-    estimatedTime: '2-3 min',
-  },
-
-  // ========================================================================
-  // Content Tools
-  // ========================================================================
-  {
-    id: 'contentLab',
-    label: 'Content Lab',
-    shortLabel: 'Content',
-    description: 'Content inventory and quality assessment. Analyzes blog, resources, case studies, and content strategy.',
-    primaryActionLabel: 'Run Content Diagnostic',
-    category: 'content',
-    runApiPath: '/api/os/diagnostics/run/content-lab',
-    hubPath: '/c/{companyId}/diagnostics/content',
-    viewPath: '/c/{companyId}/diagnostics/content',
-    supportsScore: true,
-    defaultEnabled: true,
-    icon: 'FileEdit',
-    estimatedTime: '2-3 min',
-  },
-
-  // ========================================================================
-  // SEO Tools
-  // ========================================================================
-  {
-    id: 'seoLab',
-    label: 'SEO Lab',
-    shortLabel: 'SEO',
-    description: 'Search engine optimization analysis. Evaluates technical SEO, content optimization, and search visibility.',
-    primaryActionLabel: 'Run SEO Diagnostic',
-    category: 'seo',
-    runApiPath: '/api/os/diagnostics/run/seo-lab',
-    hubPath: '/c/{companyId}/diagnostics/seo',
-    viewPath: '/c/{companyId}/diagnostics/seo',
-    supportsScore: true,
-    defaultEnabled: true,
-    icon: 'Search',
-    estimatedTime: '2-3 min',
-  },
-
-  // ========================================================================
-  // Demand Tools
-  // ========================================================================
-  {
-    id: 'demandLab',
-    label: 'Demand Lab',
-    shortLabel: 'Demand',
-    description: 'Demand generation and funnel analysis. Evaluates lead capture, nurture flows, and conversion paths.',
-    primaryActionLabel: 'Run Demand Diagnostic',
-    category: 'demand',
-    runApiPath: '/api/os/diagnostics/run/demand-lab',
-    hubPath: '/c/{companyId}/diagnostics/demand',
-    viewPath: '/c/{companyId}/diagnostics/demand',
-    supportsScore: true,
-    defaultEnabled: true,
-    icon: 'TrendingUp',
-    estimatedTime: '2-3 min',
-  },
-
-  // ========================================================================
-  // Ops Tools
-  // ========================================================================
-  {
-    id: 'opsLab',
-    label: 'Ops Lab',
-    shortLabel: 'Ops',
-    description: 'Marketing operations assessment. Evaluates processes, tooling, automation, and operational efficiency.',
-    primaryActionLabel: 'Run Ops Diagnostic',
-    category: 'ops',
-    runApiPath: '/api/os/diagnostics/run/ops-lab',
-    hubPath: '/c/{companyId}/diagnostics/ops',
-    viewPath: '/c/{companyId}/diagnostics/ops',
-    supportsScore: true,
-    defaultEnabled: true,
-    icon: 'Settings',
-    estimatedTime: '2-3 min',
-  },
-];
+export const DIAGNOSTIC_TOOLS: DiagnosticToolConfig[] = COMPANY_TOOL_DEFS
+  .map(tolegacyConfig)
+  .filter((t): t is DiagnosticToolConfig => t !== null);
 
 // ============================================================================
-// Helper Functions
+// Legacy Helper Functions
 // ============================================================================
 
 /**
- * Get the hub path for a tool and company
+ * @deprecated Use viewPath from CompanyToolDefinition instead
  */
 export function getToolHubPath(tool: DiagnosticToolConfig, companyId: string): string {
   return tool.hubPath.replace('{companyId}', companyId);
 }
 
 /**
- * Get the view path for a specific run
+ * @deprecated Use viewPath from CompanyToolDefinition instead
  */
 export function getToolViewPath(tool: DiagnosticToolConfig, companyId: string, runId: string): string {
   if (!tool.viewPath) return getToolHubPath(tool, companyId);
@@ -258,28 +134,28 @@ export function getToolViewPath(tool: DiagnosticToolConfig, companyId: string, r
 }
 
 /**
- * Get a tool config by ID
+ * @deprecated Use getToolById or getToolByDiagnosticId from lib/tools/registry instead
  */
 export function getToolConfig(toolId: DiagnosticToolId): DiagnosticToolConfig | undefined {
   return DIAGNOSTIC_TOOLS.find((t) => t.id === toolId);
 }
 
 /**
- * Get all tools in a category
+ * @deprecated Use getToolsByCategory from lib/tools/registry instead
  */
 export function getToolsByCategory(category: DiagnosticToolCategory): DiagnosticToolConfig[] {
   return DIAGNOSTIC_TOOLS.filter((t) => t.category === category);
 }
 
 /**
- * Get all enabled tools
+ * @deprecated Use getEnabledTools from lib/tools/registry instead
  */
 export function getEnabledTools(): DiagnosticToolConfig[] {
   return DIAGNOSTIC_TOOLS.filter((t) => t.defaultEnabled);
 }
 
 /**
- * Get tool categories with their tools
+ * @deprecated Use getToolsGroupedByCategory from lib/tools/registry instead
  */
 export function getToolsGroupedByCategory(): Map<DiagnosticToolCategory, DiagnosticToolConfig[]> {
   const grouped = new Map<DiagnosticToolCategory, DiagnosticToolConfig[]>();
@@ -294,23 +170,14 @@ export function getToolsGroupedByCategory(): Map<DiagnosticToolCategory, Diagnos
 }
 
 /**
- * Get human-readable category label
+ * @deprecated Categories are now human-readable in lib/tools/registry
  */
 export function getCategoryLabel(category: DiagnosticToolCategory): string {
-  const labels: Record<DiagnosticToolCategory, string> = {
-    strategy: 'Strategic Assessment',
-    website: 'Website & UX',
-    brand: 'Brand & Positioning',
-    content: 'Content & Messaging',
-    seo: 'SEO & Search',
-    demand: 'Demand Generation',
-    ops: 'Marketing Ops',
-  };
-  return labels[category] || category;
+  return oldCategoryToNew[category] || category;
 }
 
 /**
- * Get category color class
+ * @deprecated Use getCategoryColor from lib/tools/registry instead
  */
 export function getCategoryColor(category: DiagnosticToolCategory): string {
   const colors: Record<DiagnosticToolCategory, string> = {
@@ -326,7 +193,7 @@ export function getCategoryColor(category: DiagnosticToolCategory): string {
 }
 
 /**
- * Get all diagnostic tool categories in display order
+ * @deprecated Use getAllCategories from lib/tools/registry instead
  */
 export function getAllCategories(): DiagnosticToolCategory[] {
   return ['strategy', 'website', 'brand', 'content', 'seo', 'demand', 'ops'];

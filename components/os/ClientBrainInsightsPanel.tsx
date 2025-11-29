@@ -211,6 +211,11 @@ export function ClientBrainInsightsPanel({ companyId, companyName }: ClientBrain
     }
   };
 
+  // Check if insight is a diagnostic summary (from tool runs)
+  const isDiagnosticSummary = (insight: ClientInsight) => {
+    return insight.source.type === 'tool_run' && insight.title.includes('Diagnostic Summary');
+  };
+
   // Group insights by category for summary
   const categoryGroups = insights.reduce((acc, insight) => {
     const cat = insight.category;
@@ -393,11 +398,16 @@ export function ClientBrainInsightsPanel({ companyId, companyName }: ClientBrain
             const SourceIcon = SOURCE_ICONS[insight.source.type] || Circle;
             const isExpanded = expandedId === insight.id;
             const isDeleting = deletingId === insight.id;
+            const isFromDiagnostic = isDiagnosticSummary(insight);
 
             return (
               <div
                 key={insight.id}
-                className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden"
+                className={`bg-slate-900 border rounded-xl overflow-hidden ${
+                  isFromDiagnostic
+                    ? 'border-blue-500/30 ring-1 ring-blue-500/10'
+                    : 'border-slate-800'
+                }`}
               >
                 {/* Header Row */}
                 <div
@@ -425,9 +435,16 @@ export function ClientBrainInsightsPanel({ companyId, companyName }: ClientBrain
                   {/* Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
-                      <h3 className="text-sm font-medium text-slate-100 line-clamp-2">
-                        {insight.title}
-                      </h3>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h3 className="text-sm font-medium text-slate-100 line-clamp-2">
+                          {insight.title}
+                        </h3>
+                        {isFromDiagnostic && (
+                          <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                            AI Summary
+                          </span>
+                        )}
+                      </div>
                       {insight.severity && (
                         <span
                           className={`px-2 py-0.5 text-xs font-medium rounded border flex-shrink-0 ${getSeverityColorClass(

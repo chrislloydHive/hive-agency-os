@@ -10,13 +10,14 @@
  * Memory entry types - categorize different kinds of AI interactions
  */
 export type MemoryEntryType =
-  | 'GAP IA'           // GAP Initial Assessment results
-  | 'GAP Full'         // Full GAP Plan results
-  | 'Analytics Insight' // Analytics-derived insights
-  | 'Work Item'        // Work item updates/completions
-  | 'Strategy'         // Strategic summaries/decisions
-  | 'Conversation'     // General AI conversation
-  | 'System';          // System-generated entries
+  | 'GAP IA'              // GAP Initial Assessment results
+  | 'GAP Full'            // Full GAP Plan results
+  | 'Analytics Insight'   // Analytics-derived insights
+  | 'Work Item'           // Work item updates/completions
+  | 'Strategy'            // Strategic summaries/decisions
+  | 'Diagnostic Summary'  // Diagnostic tool run summaries (for Brain)
+  | 'Conversation'        // General AI conversation
+  | 'System';             // System-generated entries
 
 /**
  * Memory entry source - where the entry originated

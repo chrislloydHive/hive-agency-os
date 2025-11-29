@@ -156,7 +156,7 @@ export function ToolReportLayout({
         showToast(`Already extracted ${result.insights?.length || 0} insights from this run`, 'info');
       } else {
         const count = result.insights?.length || 0;
-        showToast(`Extracted ${count} insight${count !== 1 ? 's' : ''} to Client Brain`, 'success');
+        showToast(`Extracted ${count} insight${count !== 1 ? 's' : ''} to Brain`, 'success');
       }
     } catch (error) {
       console.error('Failed to extract insights:', error);

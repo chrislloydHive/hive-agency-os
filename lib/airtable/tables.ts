@@ -20,6 +20,7 @@ export const AIRTABLE_TABLES = {
   // Client Brain Tables
   CLIENT_INSIGHTS: 'Client Insights', // Strategic insights per company
   CLIENT_DOCUMENTS: 'Client Documents', // Uploaded documents per company
+  COMPANY_STRATEGY_SNAPSHOTS: 'Company Strategy Snapshots', // Strategic snapshot per company
 
   // Legacy/deprecated (for migration reference)
   // GAP_RUNS_OLD: 'GAP Runs',

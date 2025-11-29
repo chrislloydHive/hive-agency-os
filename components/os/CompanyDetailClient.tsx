@@ -14,6 +14,7 @@ import { DiagnosticsPanel } from './DiagnosticsPanel';
 import { CompanyAnalyticsTab } from './CompanyAnalyticsTab';
 import { CompanyOpportunitiesTab } from './CompanyOpportunitiesTab';
 import { CompanyAiMemoryTab } from './CompanyAiMemoryTab';
+import { CompanyToolsTab } from './CompanyToolsTab';
 
 interface CompanyDetailClientProps {
   company: CompanyRecord;
@@ -35,12 +36,13 @@ interface CompanyDetailClientProps {
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
+  { id: 'tools', label: 'Tools' },
   { id: 'opportunities', label: 'Opportunities' },
   { id: 'diagnostics', label: 'Diagnostics' },
   { id: 'gap', label: 'GAP' },
   { id: 'work', label: 'Work' },
   { id: 'analytics', label: 'Analytics' },
-  { id: 'ai-memory', label: 'Client Brain' },
+  { id: 'ai-memory', label: 'Brain' },
   { id: 'notes', label: 'Notes' },
 ];
 
@@ -120,6 +122,13 @@ export function CompanyDetailClient({
           lastActivityAt={lastActivityAt}
           healthReasons={healthReasons}
           activitySnapshot={activitySnapshot}
+        />
+      )}
+      {activeTab === 'tools' && (
+        <CompanyToolsTab
+          companyId={company.id}
+          company={company}
+          diagnosticRuns={diagnosticRuns}
         />
       )}
       {activeTab === 'opportunities' && (

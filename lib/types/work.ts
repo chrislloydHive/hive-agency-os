@@ -87,7 +87,8 @@ export type WorkSourceType =
   | 'tool_run'
   | 'priority'
   | 'plan_initiative'
-  | 'client_brain_insight';
+  | 'client_brain_insight'
+  | 'dma_funnel';
 
 /**
  * Analytics metric source - when work is created from an analytics insight
@@ -163,6 +164,16 @@ export interface WorkSourceClientBrainInsight {
 }
 
 /**
+ * DMA funnel source - from DMA funnel insights/quick wins/blueprint
+ */
+export interface WorkSourceDmaFunnel {
+  sourceType: 'dma_funnel';
+  itemType: 'quick_win' | 'experiment' | 'blueprint_action';
+  insightText?: string;
+  dateRange?: string;
+}
+
+/**
  * Union of all work source types
  */
 export type WorkSource =
@@ -173,7 +184,8 @@ export type WorkSource =
   | WorkSourceToolRun
   | WorkSourcePriority
   | WorkSourcePlanInitiative
-  | WorkSourceClientBrainInsight;
+  | WorkSourceClientBrainInsight
+  | WorkSourceDmaFunnel;
 
 // ============================================================================
 // Work Item Types

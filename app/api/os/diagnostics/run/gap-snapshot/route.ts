@@ -11,8 +11,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createDiagnosticRun, updateDiagnosticRun } from '@/lib/os/diagnostics/runs';
 import { runGapSnapshotEngine } from '@/lib/os/diagnostics/engines';
-import { getCompanyById } from '@/lib/airtable/companies';
 import { aiForCompany, addCompanyMemoryEntry } from '@/lib/ai-gateway';
+import { findOrCreateCompanyForGap } from '@/lib/pipeline/createOrMatchCompany';
+import { processDiagnosticRunCompletionAsync } from '@/lib/os/diagnostics/postRunHooks';
 import type { GapModelCaller } from '@/lib/gap/core';
 
 export const maxDuration = 120; // 2 minutes timeout
@@ -20,36 +21,52 @@ export const maxDuration = 120; // 2 minutes timeout
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { companyId } = body;
+    const { companyId, url } = body;
 
-    if (!companyId) {
+    // Validate: either companyId or url must be provided
+    if (!companyId && !url) {
       return NextResponse.json(
-        { error: 'Missing companyId' },
+        { error: 'Either companyId or url must be provided' },
         { status: 400 }
       );
     }
 
-    // Verify company exists
-    const company = await getCompanyById(companyId);
-    if (!company) {
+    // Find or create company using unified helper
+    // - If companyId provided: use existing company
+    // - If url provided: find by domain or create new Prospect with Source="GAP IA"
+    let company;
+    let isNewCompany = false;
+
+    try {
+      const result = await findOrCreateCompanyForGap({
+        companyId,
+        url,
+        source: 'GAP IA',
+      });
+      company = result.company;
+      isNewCompany = result.isNew;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to find or create company';
       return NextResponse.json(
-        { error: 'Company not found' },
-        { status: 404 }
+        { error: message },
+        { status: 400 }
       );
     }
 
-    if (!company.website) {
+    // Verify company has a website URL (required for GAP)
+    const websiteUrl = company.website || url;
+    if (!websiteUrl) {
       return NextResponse.json(
         { error: 'Company has no website URL' },
         { status: 400 }
       );
     }
 
-    console.log('[API] Running GAP Snapshot for:', company.name);
+    console.log('[API] Running GAP Snapshot for:', company.name, isNewCompany ? '(newly created)' : '(existing)');
 
     // Create run record with "running" status
     const run = await createDiagnosticRun({
-      companyId,
+      companyId: company.id,
       toolId: 'gapSnapshot',
       status: 'running',
     });
@@ -60,7 +77,7 @@ export async function POST(request: NextRequest) {
     // - Injects that context into prompts
     // - Logs full responses back to Company AI Context
     const gapIaModelCaller: GapModelCaller = async (prompt: string) => {
-      const { content } = await aiForCompany(companyId, {
+      const { content } = await aiForCompany(company.id, {
         type: 'GAP IA',
         tags: ['GAP', 'Snapshot', 'Marketing'],
         relatedEntityId: run.id,
@@ -90,9 +107,9 @@ You must always output valid JSON matching the GAP IA schema.
 
     // Run the engine with the memory-aware model caller
     const result = await runGapSnapshotEngine({
-      companyId,
+      companyId: company.id,
       company,
-      websiteUrl: company.website,
+      websiteUrl: websiteUrl,
       modelCaller: gapIaModelCaller,
     });
 
@@ -128,7 +145,7 @@ You must always output valid JSON matching the GAP IA schema.
         const tags = deriveGapIaTags(result.data);
 
         await addCompanyMemoryEntry({
-          companyId,
+          companyId: company.id,
           type: 'Strategy', // Changed from 'GAP IA' to avoid duplication with aiForCompany() log
           content: memorySummary,
           source: 'AI',
@@ -141,10 +158,21 @@ You must always output valid JSON matching the GAP IA schema.
         // Don't fail the request if memory save fails
         console.error('[API] Failed to save GAP Snapshot summary to company memory:', memoryError);
       }
+
+      // Process post-run hooks (Brain entry + Strategic Snapshot) in background
+      processDiagnosticRunCompletionAsync(company.id, updatedRun);
     }
 
     return NextResponse.json({
       run: updatedRun,
+      company: {
+        id: company.id,
+        name: company.name,
+        domain: company.domain,
+        stage: company.stage,
+        source: company.source,
+        isNew: isNewCompany,
+      },
       result: {
         success: result.success,
         score: result.score,

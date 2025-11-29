@@ -1,29 +1,42 @@
+// app/c/[companyId]/gap/page.tsx
+// GAP Tab - Growth Acceleration Plan quick actions and history
+//
+// Shows GAP-specific runs (GAP IA, GAP Plan, GAP Heavy) with links
+// to the Tools hub for running and Reports hub for viewing.
+
 import Link from 'next/link';
+import { notFound } from 'next/navigation';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { getGapIaRunsForCompany } from '@/lib/airtable/gapIaRuns';
 import { getGapPlanRunsForCompany } from '@/lib/airtable/gapPlanRuns';
+import { listDiagnosticRunsForCompany } from '@/lib/os/diagnostics/runs';
+import { Zap, FileText, Layers, ArrowRight, Clock, CheckCircle, XCircle } from 'lucide-react';
 
-export default async function CompanyGapPage({
-  params,
-}: {
+type PageProps = {
   params: Promise<{ companyId: string }>;
-}) {
+};
+
+export const dynamic = 'force-dynamic';
+
+export default async function CompanyGapPage({ params }: PageProps) {
   const { companyId } = await params;
   const company = await getCompanyById(companyId);
 
   if (!company) {
-    return (
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-        <p className="text-slate-400">Company not found.</p>
-      </div>
-    );
+    return notFound();
   }
 
-  // Fetch GAP runs for this company
-  const [iaRuns, planRuns] = await Promise.all([
-    getGapIaRunsForCompany(companyId, 10),
-    getGapPlanRunsForCompany(companyId, 10),
+  // Fetch GAP runs from both legacy tables and unified diagnostic runs
+  const [iaRuns, planRuns, diagnosticRuns] = await Promise.all([
+    getGapIaRunsForCompany(companyId, 5),
+    getGapPlanRunsForCompany(companyId, 5),
+    listDiagnosticRunsForCompany(companyId),
   ]);
+
+  // Filter diagnostic runs for GAP-related tools
+  const gapDiagnosticRuns = diagnosticRuns.filter(
+    (run) => run.toolId === 'gapSnapshot' || run.toolId === 'gapPlan' || run.toolId === 'gapHeavy'
+  );
 
   const formatDate = (dateStr?: string | null) => {
     if (!dateStr) return '—';
@@ -38,227 +51,229 @@ export default async function CompanyGapPage({
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    const statusMap: Record<string, string> = {
-      completed: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-      ready: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-      running: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
-      processing: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
-      pending: 'bg-slate-500/10 text-slate-400 border-slate-500/30',
-      draft: 'bg-slate-500/10 text-slate-400 border-slate-500/30',
-      error: 'bg-red-500/10 text-red-400 border-red-500/30',
-    };
-    return statusMap[status.toLowerCase()] || 'bg-slate-500/10 text-slate-400 border-slate-500/30';
+  const getStatusIcon = (status: string) => {
+    const normalized = status.toLowerCase();
+    if (normalized === 'completed' || normalized === 'complete' || normalized === 'ready') {
+      return <CheckCircle className="w-4 h-4 text-emerald-400" />;
+    }
+    if (normalized === 'running' || normalized === 'processing') {
+      return <Clock className="w-4 h-4 text-blue-400 animate-pulse" />;
+    }
+    if (normalized === 'error' || normalized === 'failed') {
+      return <XCircle className="w-4 h-4 text-red-400" />;
+    }
+    return <Clock className="w-4 h-4 text-slate-400" />;
   };
+
+  const totalRuns = iaRuns.length + planRuns.length + gapDiagnosticRuns.length;
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-6">
-        <h2 className="text-2xl font-bold text-slate-100 mb-2">
-          GAP for {company.name}
-        </h2>
-        <p className="text-slate-400 text-sm">
-          Growth Acceleration Plans and assessments for this company
-        </p>
-      </div>
-
-      {/* Run GAP Assessment Button */}
-      <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-6">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h3 className="text-lg font-semibold text-slate-100 mb-2">
-              Run GAP Assessment
-            </h3>
-            <p className="text-sm text-slate-400 mb-4">
-              Generate a comprehensive growth acceleration assessment for {company.name}
+            <h1 className="text-xl font-bold text-slate-100">GAP</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              Growth Acceleration Plans for {company.name}
             </p>
           </div>
           <Link
-            href={`/gap-ia?companyId=${companyId}&domain=${encodeURIComponent(company.website || '')}`}
-            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors whitespace-nowrap"
+            href={`/c/${companyId}/tools`}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors"
           >
-            Run Assessment
+            <Zap className="w-4 h-4" />
+            Run GAP Tool
           </Link>
         </div>
       </div>
 
-      {/* GAP History */}
-      <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-slate-100">
-            GAP History
-          </h3>
-          <div className="flex gap-2">
-            <Link
-              href="/gap/ia"
-              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-            >
-              View all assessments →
-            </Link>
-            <span className="text-slate-600">|</span>
-            <Link
-              href="/gap/plans"
-              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-            >
-              View all plans →
-            </Link>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {/* Initial Assessments Section */}
-          <div>
-            <div className="text-sm font-medium text-slate-300 mb-2">
-              Initial Assessments (GAP-IA)
-            </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
-              {iaRuns.length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-4 px-4">
-                  No GAP-IA runs for this company yet
-                </p>
-              ) : (
-                <div className="divide-y divide-slate-800">
-                  {iaRuns.map((run) => (
-                    <div key={run.id} className="p-4 hover:bg-slate-800/30 transition-colors">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm font-medium text-slate-200">
-                              {run.domain || 'Assessment'}
-                            </span>
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getStatusBadge(run.status)}`}>
-                              {run.status}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-3 text-xs text-slate-400">
-                            <span>{formatDate(run.createdAt)}</span>
-                            {run.core?.overallScore && (
-                              <>
-                                <span>•</span>
-                                <span className="text-amber-500 font-semibold">
-                                  Score: {run.core.overallScore}/10
-                                </span>
-                              </>
-                            )}
-                            {run.source && (
-                              <>
-                                <span>•</span>
-                                <span>Source: {run.source}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        <Link
-                          href={`/gap-ia-result?runId=${run.id}`}
-                          className="text-xs text-blue-400 hover:text-blue-300 font-medium whitespace-nowrap"
-                        >
-                          View Report →
-                        </Link>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Plans Section */}
-          <div>
-            <div className="text-sm font-medium text-slate-300 mb-2">
-              Growth Acceleration Plans
-            </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
-              {planRuns.length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-4 px-4">
-                  No GAP Plans for this company yet
-                </p>
-              ) : (
-                <div className="divide-y divide-slate-800">
-                  {planRuns.map((run) => (
-                    <div key={run.id} className="p-4 hover:bg-slate-800/30 transition-colors">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm font-medium text-slate-200">
-                              {run.domain || 'Growth Plan'}
-                            </span>
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getStatusBadge(run.status || 'completed')}`}>
-                              {run.status || 'completed'}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-3 text-xs text-slate-400">
-                            <span>{formatDate(run.createdAt)}</span>
-                            {run.overallScore && (
-                              <>
-                                <span>•</span>
-                                <span className="text-amber-500 font-semibold">
-                                  Score: {run.overallScore}/10
-                                </span>
-                              </>
-                            )}
-                            {run.maturityStage && (
-                              <>
-                                <span>•</span>
-                                <span>{run.maturityStage}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        <Link
-                          href={`/gap-plan-result?planId=${run.id}`}
-                          className="text-xs text-blue-400 hover:text-blue-300 font-medium whitespace-nowrap"
-                        >
-                          View Plan →
-                        </Link>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Info Box */}
-        {iaRuns.length === 0 && planRuns.length === 0 && (
-          <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-            <p className="text-sm text-blue-300">
-              <strong>Tip:</strong> Click "Run Assessment" above to generate your first GAP assessment for {company.name}.
-              All assessments and plans will appear here.
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Quick Actions */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Quick Actions Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* GAP IA */}
         <Link
-          href={`/gap-plan?companyId=${companyId}&domain=${encodeURIComponent(company.website || '')}`}
-          className="bg-slate-900/70 border border-slate-800 rounded-lg p-4 hover:border-amber-500/50 transition-colors"
+          href={`/gap/ia?companyId=${companyId}&domain=${encodeURIComponent(company.website || company.domain || '')}`}
+          className="rounded-xl border border-slate-800 bg-slate-900/50 p-5 hover:border-amber-500/50 hover:bg-slate-900/70 transition-all group"
         >
-          <div className="text-sm font-medium text-slate-100 mb-1">
-            Create Growth Plan
+          <div className="flex items-start justify-between mb-3">
+            <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+              <Zap className="w-5 h-5 text-amber-500" />
+            </div>
+            <ArrowRight className="w-4 h-4 text-slate-600 group-hover:text-amber-500 transition-colors" />
           </div>
-          <div className="text-xs text-slate-400 mb-3">
-            Generate a 90-day growth acceleration plan
-          </div>
-          <span className="text-sm text-amber-400 hover:text-amber-300 transition-colors">
-            Generate Plan →
-          </span>
+          <h3 className="text-sm font-semibold text-slate-100 mb-1">GAP Initial Assessment</h3>
+          <p className="text-xs text-slate-400">
+            Quick 5-minute marketing assessment
+          </p>
         </Link>
 
-        <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-4 opacity-50">
-          <div className="text-sm font-medium text-slate-100 mb-1">
-            Heavy Analysis
+        {/* GAP Plan */}
+        <Link
+          href={`/gap/plans?companyId=${companyId}&domain=${encodeURIComponent(company.website || company.domain || '')}`}
+          className="rounded-xl border border-slate-800 bg-slate-900/50 p-5 hover:border-blue-500/50 hover:bg-slate-900/70 transition-all group"
+        >
+          <div className="flex items-start justify-between mb-3">
+            <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
+              <FileText className="w-5 h-5 text-blue-500" />
+            </div>
+            <ArrowRight className="w-4 h-4 text-slate-600 group-hover:text-blue-500 transition-colors" />
           </div>
-          <div className="text-xs text-slate-400 mb-3">
-            Run deep diagnostic analysis
+          <h3 className="text-sm font-semibold text-slate-100 mb-1">GAP Growth Plan</h3>
+          <p className="text-xs text-slate-400">
+            90-day strategic growth plan
+          </p>
+        </Link>
+
+        {/* GAP Heavy (Coming Soon) */}
+        <div className="rounded-xl border border-slate-800/50 bg-slate-900/30 p-5 opacity-60">
+          <div className="flex items-start justify-between mb-3">
+            <div className="p-2 rounded-lg bg-purple-500/10 border border-purple-500/20">
+              <Layers className="w-5 h-5 text-purple-500" />
+            </div>
           </div>
-          <span className="text-sm text-slate-400">
-            Coming soon
-          </span>
+          <h3 className="text-sm font-semibold text-slate-100 mb-1">GAP Deep Analysis</h3>
+          <p className="text-xs text-slate-400">
+            Comprehensive diagnostic (Coming soon)
+          </p>
         </div>
+      </div>
+
+      {/* History Section */}
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Recent GAP Runs
+          </h2>
+          <Link
+            href={`/c/${companyId}/reports`}
+            className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+          >
+            View all reports →
+          </Link>
+        </div>
+
+        {totalRuns === 0 ? (
+          <div className="text-center py-8">
+            <div className="mb-4">
+              <Zap className="w-12 h-12 text-slate-600 mx-auto" />
+            </div>
+            <h3 className="text-sm font-semibold text-slate-300 mb-2">No GAP runs yet</h3>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto">
+              Run a GAP assessment or growth plan to see results here.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Legacy GAP-IA Runs */}
+            {iaRuns.length > 0 && (
+              <div>
+                <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">
+                  Initial Assessments
+                </p>
+                <div className="space-y-2">
+                  {iaRuns.slice(0, 3).map((run) => (
+                    <Link
+                      key={run.id}
+                      href={`/gap-ia-result?runId=${run.id}`}
+                      className="block rounded-lg border border-slate-800 bg-slate-900/50 p-3 hover:border-slate-700 transition-all"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {getStatusIcon(run.status)}
+                          <div>
+                            <p className="text-sm font-medium text-slate-200">
+                              {run.domain || 'GAP Assessment'}
+                            </p>
+                            <p className="text-xs text-slate-500">{formatDate(run.createdAt)}</p>
+                          </div>
+                        </div>
+                        {run.core?.overallScore && (
+                          <span className="text-sm font-bold text-amber-500 tabular-nums">
+                            {run.core.overallScore}/10
+                          </span>
+                        )}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Legacy GAP Plan Runs */}
+            {planRuns.length > 0 && (
+              <div>
+                <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">
+                  Growth Plans
+                </p>
+                <div className="space-y-2">
+                  {planRuns.slice(0, 3).map((run) => (
+                    <Link
+                      key={run.id}
+                      href={`/gap-plan-result?planId=${run.id}`}
+                      className="block rounded-lg border border-slate-800 bg-slate-900/50 p-3 hover:border-slate-700 transition-all"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {getStatusIcon(run.status || 'completed')}
+                          <div>
+                            <p className="text-sm font-medium text-slate-200">
+                              {run.domain || 'Growth Plan'}
+                            </p>
+                            <p className="text-xs text-slate-500">{formatDate(run.createdAt)}</p>
+                          </div>
+                        </div>
+                        {run.overallScore && (
+                          <span className="text-sm font-bold text-amber-500 tabular-nums">
+                            {run.overallScore}/10
+                          </span>
+                        )}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Unified Diagnostic Runs for GAP tools */}
+            {gapDiagnosticRuns.length > 0 && (
+              <div>
+                <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">
+                  Diagnostic Runs
+                </p>
+                <div className="space-y-2">
+                  {gapDiagnosticRuns.slice(0, 3).map((run) => (
+                    <Link
+                      key={run.id}
+                      href={`/c/${companyId}/reports/${run.id}`}
+                      className="block rounded-lg border border-slate-800 bg-slate-900/50 p-3 hover:border-slate-700 transition-all"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {getStatusIcon(run.status)}
+                          <div>
+                            <p className="text-sm font-medium text-slate-200">
+                              {run.toolId === 'gapSnapshot'
+                                ? 'GAP Snapshot'
+                                : run.toolId === 'gapPlan'
+                                  ? 'GAP Plan'
+                                  : 'GAP Heavy'}
+                            </p>
+                            <p className="text-xs text-slate-500">{formatDate(run.createdAt)}</p>
+                          </div>
+                        </div>
+                        {run.score != null && (
+                          <span className="text-sm font-bold text-amber-500 tabular-nums">
+                            {run.score}
+                          </span>
+                        )}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
