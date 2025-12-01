@@ -155,13 +155,6 @@ export async function buildCompanyAnalyticsSnapshot(
   const ga4Connected = !!company.ga4PropertyId;
   const gscConnected = !!company.searchConsoleSiteUrl;
 
-  console.log('[AnalyticsService] Connection status:', {
-    ga4Connected,
-    gscConnected,
-    ga4PropertyId: company.ga4PropertyId,
-    searchConsoleSiteUrl: company.searchConsoleSiteUrl,
-  });
-
   // Fetch all data in parallel
   const [
     ga4Data,
@@ -602,14 +595,9 @@ async function fetchSearchConsoleData(
   // Import GSC client dynamically to avoid circular deps
   const { getGscClientFromWorkspace } = await import('@/lib/os/integrations/gscClient');
 
-  console.log('[AnalyticsService] Fetching GSC data for:', siteUrl);
-
   try {
     const result = await getGscClientFromWorkspace();
-    if (!result) {
-      console.warn('[AnalyticsService] GSC client not available');
-      return null;
-    }
+    if (!result) return null;
 
     const { client } = result;
 
