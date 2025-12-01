@@ -32,18 +32,6 @@ export async function getGa4ClientFromWorkspace(
     ? settings!.ga4PropertyId!
     : process.env.GA4_PROPERTY_ID;
 
-  // Debug logging - remove after fixing
-  console.error('[GA4Client] Credentials check:', {
-    hasClientId: !!clientId,
-    clientIdPrefix: clientId?.substring(0, 20),
-    hasClientSecret: !!clientSecret,
-    secretPrefix: clientSecret?.substring(0, 10),
-    hasRefreshToken: !!refreshToken,
-    refreshPrefix: refreshToken?.substring(0, 15),
-    hasPropertyId: !!propertyId,
-    source: hasWorkspaceConfig ? 'workspace' : 'env',
-  });
-
   // Check for required credentials
   if (!clientId || !clientSecret || !refreshToken || !propertyId) {
     console.warn('[GA4Client] Missing required credentials', {

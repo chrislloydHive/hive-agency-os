@@ -117,16 +117,6 @@ function getGa4Client(): BetaAnalyticsDataClient | null {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
 
-  // Debug logging - remove after fixing
-  console.error('[AnalyticsService] GA4 credentials check:', {
-    hasClientId: !!clientId,
-    clientIdPrefix: clientId?.substring(0, 15),
-    hasClientSecret: !!clientSecret,
-    secretPrefix: clientSecret?.substring(0, 10),
-    hasRefreshToken: !!refreshToken,
-    refreshPrefix: refreshToken?.substring(0, 10),
-  });
-
   if (!clientId || !clientSecret || !refreshToken) {
     console.warn('[AnalyticsService] Missing Google OAuth credentials');
     return null;
@@ -318,21 +308,7 @@ async function fetchGa4CoreMetrics(
       conversionRate: sessions > 0 ? conversions / sessions : 0,
     };
   } catch (error) {
-    // Debug: Include credential info in error
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
-    console.error('[AnalyticsService] GA4 core metrics error:', error, {
-      credCheck: {
-        hasClientId: !!clientId,
-        clientIdLen: clientId?.length,
-        clientIdPrefix: clientId?.substring(0, 15),
-        hasSecret: !!clientSecret,
-        secretLen: clientSecret?.length,
-        hasRefresh: !!refreshToken,
-        refreshLen: refreshToken?.length,
-      }
-    });
+    console.error('[AnalyticsService] GA4 core metrics error:', error);
     return null;
   }
 }
