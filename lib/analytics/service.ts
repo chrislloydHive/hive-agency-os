@@ -595,9 +595,14 @@ async function fetchSearchConsoleData(
   // Import GSC client dynamically to avoid circular deps
   const { getGscClientFromWorkspace } = await import('@/lib/os/integrations/gscClient');
 
+  console.log('[AnalyticsService] Fetching GSC data for:', siteUrl);
+
   try {
     const result = await getGscClientFromWorkspace();
-    if (!result) return null;
+    if (!result) {
+      console.warn('[AnalyticsService] GSC client not available');
+      return null;
+    }
 
     const { client } = result;
 
