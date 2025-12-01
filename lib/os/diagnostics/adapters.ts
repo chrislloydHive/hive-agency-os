@@ -191,7 +191,31 @@ function extractGapPlanData(rawJson: any): ToolReportData {
   const opportunities: string[] = [];
   const sections: ReportSection[] = [];
 
-  // Extract scorecard
+  // Extract overall score (V3 format)
+  if (typeof plan.overallScore === 'number') {
+    scores.push({
+      label: 'Overall',
+      value: plan.overallScore,
+      maxValue: 100,
+      group: 'Summary',
+    });
+  }
+
+  // Extract dimension scores from dimensionAnalyses (V3 format)
+  if (plan.dimensionAnalyses && Array.isArray(plan.dimensionAnalyses)) {
+    plan.dimensionAnalyses.forEach((dim: any) => {
+      if (dim?.id && typeof dim?.score === 'number') {
+        scores.push({
+          label: formatLabel(dim.id),
+          value: dim.score,
+          maxValue: 100,
+          group: 'Dimensions',
+        });
+      }
+    });
+  }
+
+  // Fallback: Extract scorecard (legacy format)
   if (plan.scorecard && typeof plan.scorecard === 'object') {
     Object.entries(plan.scorecard).forEach(([key, value]) => {
       if (typeof value === 'number') {
@@ -213,16 +237,60 @@ function extractGapPlanData(rawJson: any): ToolReportData {
     });
   }
 
+  // Extract key findings from dimension analyses (V3 format)
+  if (plan.dimensionAnalyses && Array.isArray(plan.dimensionAnalyses)) {
+    plan.dimensionAnalyses.forEach((dim: any) => {
+      if (dim?.keyFindings && Array.isArray(dim.keyFindings)) {
+        dim.keyFindings.slice(0, 2).forEach((finding: string) => {
+          if (finding && !keyFindings.includes(finding)) {
+            keyFindings.push(finding);
+          }
+        });
+      }
+    });
+    // Limit total key findings
+    keyFindings.splice(6);
+  }
+
   // Extract quick wins as opportunities
   if (plan.quickWins && Array.isArray(plan.quickWins)) {
     plan.quickWins.slice(0, 5).forEach((w: any) => {
-      const text = typeof w === 'string' ? w : w?.title || w?.description;
+      const text = typeof w === 'string' ? w : w?.action || w?.title || w?.description;
       if (text) opportunities.push(text);
     });
   }
 
-  // Add 90-day roadmap section
-  if (plan.roadmap && Array.isArray(plan.roadmap)) {
+  // Add executive summary section (V3 format)
+  if (plan.executiveSummary && typeof plan.executiveSummary === 'string') {
+    sections.push({
+      id: 'executive-summary',
+      title: 'Executive Summary',
+      icon: 'FileText',
+      body: createTextSection(plan.executiveSummary),
+    });
+  }
+
+  // Add maturity stage section (V3 format)
+  if (plan.maturityStage) {
+    sections.push({
+      id: 'maturity',
+      title: 'Marketing Maturity',
+      icon: 'Target',
+      body: createMaturityStageContent(plan.maturityStage),
+    });
+  }
+
+  // Add 90-day roadmap section (V3 format: roadmap90Days object)
+  if (plan.roadmap90Days && typeof plan.roadmap90Days === 'object') {
+    sections.push({
+      id: 'roadmap',
+      title: '90-Day Roadmap',
+      icon: 'Map',
+      body: createRoadmap90DaysSection(plan.roadmap90Days),
+    });
+  }
+  // Fallback: legacy roadmap array format
+  else if (plan.roadmap && Array.isArray(plan.roadmap)) {
     sections.push({
       id: 'roadmap',
       title: '90-Day Roadmap',
@@ -231,7 +299,27 @@ function extractGapPlanData(rawJson: any): ToolReportData {
     });
   }
 
-  // Add initiatives section
+  // Add strategic priorities section (V3 format)
+  if (plan.strategicPriorities && Array.isArray(plan.strategicPriorities)) {
+    sections.push({
+      id: 'priorities',
+      title: 'Strategic Priorities',
+      icon: 'Rocket',
+      body: createStrategicPrioritiesSection(plan.strategicPriorities),
+    });
+  }
+
+  // Add KPIs section (V3 format)
+  if (plan.kpis && Array.isArray(plan.kpis)) {
+    sections.push({
+      id: 'kpis',
+      title: 'Key Performance Indicators',
+      icon: 'BarChart2',
+      body: createKpisSection(plan.kpis),
+    });
+  }
+
+  // Legacy: Add initiatives section
   if (plan.initiatives && Array.isArray(plan.initiatives)) {
     sections.push({
       id: 'initiatives',
@@ -1159,5 +1247,118 @@ function createAutomationSection(automation: any): React.ReactNode {
         );
       })
     )
+  );
+}
+
+// ============================================================================
+// V3 GAP Plan Section Creators
+// ============================================================================
+
+/**
+ * Create a simple text paragraph section (for executive summary, etc.)
+ */
+function createTextSection(text: string): React.ReactNode {
+  // Split into paragraphs if there are multiple
+  const paragraphs = text.split(/\n\n+/).filter(Boolean);
+
+  return React.createElement('div', { className: 'space-y-3' },
+    paragraphs.map((para, idx) =>
+      React.createElement('p', { key: idx, className: 'text-sm text-slate-300 leading-relaxed' }, para.trim())
+    )
+  );
+}
+
+/**
+ * Create a 90-day roadmap section from V3 format
+ * V3 roadmap90Days: { phase1: { title, focus, actions[] }, phase2: {...}, phase3: {...} }
+ */
+function createRoadmap90DaysSection(roadmap: any): React.ReactNode {
+  const phases = ['phase1', 'phase2', 'phase3'];
+  const phaseLabels: Record<string, string> = {
+    phase1: 'Days 1-30',
+    phase2: 'Days 31-60',
+    phase3: 'Days 61-90',
+  };
+
+  return React.createElement('div', { className: 'space-y-4' },
+    phases.map((phaseKey) => {
+      const phase = roadmap[phaseKey];
+      if (!phase) return null;
+
+      const title = phase.title || phaseLabels[phaseKey];
+      const focus = phase.focus;
+      const actions = phase.actions || [];
+
+      return React.createElement('div', { key: phaseKey, className: 'rounded-lg bg-slate-800/50 p-4' },
+        React.createElement('div', { className: 'flex items-center gap-2 mb-2' },
+          React.createElement('span', { className: 'text-xs px-2 py-0.5 rounded bg-amber-400/10 text-amber-400 border border-amber-400/30' }, phaseLabels[phaseKey]),
+          React.createElement('h4', { className: 'text-sm font-semibold text-slate-200' }, title)
+        ),
+        focus && React.createElement('p', { className: 'text-sm text-slate-400 mb-3' }, focus),
+        actions.length > 0 && React.createElement('ul', { className: 'space-y-2' },
+          actions.slice(0, 5).map((action: any, idx: number) => {
+            const text = typeof action === 'string' ? action : action?.action || action?.title || action?.description;
+            return React.createElement('li', { key: idx, className: 'text-sm text-slate-300 flex items-start gap-2' },
+              React.createElement('span', { className: 'text-amber-400 mt-0.5' }, '→'),
+              React.createElement('span', null, text)
+            );
+          })
+        )
+      );
+    })
+  );
+}
+
+/**
+ * Create a strategic priorities section from V3 format
+ * V3 strategicPriorities: [{ title, description, timeline?, impact? }]
+ */
+function createStrategicPrioritiesSection(priorities: any[]): React.ReactNode {
+  return React.createElement('div', { className: 'space-y-3' },
+    priorities.slice(0, 5).map((priority, idx) => {
+      const title = typeof priority === 'string' ? priority : priority?.title || priority?.name;
+      const description = priority?.description || priority?.rationale;
+      const timeline = priority?.timeline;
+      const impact = priority?.impact;
+
+      return React.createElement('div', { key: idx, className: 'rounded-lg bg-slate-800/50 p-4' },
+        React.createElement('div', { className: 'flex items-start justify-between gap-3' },
+          React.createElement('h4', { className: 'text-sm font-semibold text-slate-200' }, title),
+          timeline && React.createElement('span', { className: 'text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-400 whitespace-nowrap' }, timeline)
+        ),
+        description && React.createElement('p', { className: 'text-sm text-slate-400 mt-2' }, description),
+        impact && React.createElement('p', { className: 'text-xs text-emerald-400 mt-2' }, `Impact: ${impact}`)
+      );
+    })
+  );
+}
+
+/**
+ * Create a KPIs section from V3 format
+ * V3 kpis: [{ metric, currentBaseline?, target?, timeframe? }]
+ */
+function createKpisSection(kpis: any[]): React.ReactNode {
+  return React.createElement('div', { className: 'grid gap-3 sm:grid-cols-2' },
+    kpis.slice(0, 6).map((kpi, idx) => {
+      const metric = typeof kpi === 'string' ? kpi : kpi?.metric || kpi?.name || kpi?.kpi;
+      const baseline = kpi?.currentBaseline || kpi?.baseline || kpi?.current;
+      const target = kpi?.target;
+      const timeframe = kpi?.timeframe;
+
+      return React.createElement('div', { key: idx, className: 'rounded-lg bg-slate-800/50 p-3' },
+        React.createElement('h4', { className: 'text-sm font-medium text-slate-200 mb-2' }, metric),
+        React.createElement('div', { className: 'flex items-center gap-3 text-xs' },
+          baseline && React.createElement('div', { className: 'text-slate-400' },
+            React.createElement('span', { className: 'text-slate-500' }, 'Now: '),
+            React.createElement('span', { className: 'text-slate-300' }, baseline)
+          ),
+          target && React.createElement('div', { className: 'text-slate-400' },
+            React.createElement('span', { className: 'text-slate-500' }, 'Target: '),
+            React.createElement('span', { className: 'text-emerald-400 font-medium' }, target)
+          )
+        ),
+        timeframe && React.createElement('p', { className: 'text-xs text-slate-500 mt-1' }, timeframe)
+      );
+    })
   );
 }
