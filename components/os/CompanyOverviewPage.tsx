@@ -10,6 +10,7 @@
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 import QuickHealthCheckCard from './QuickHealthCheckCard';
+import { CompanyActivityTimeline } from './CompanyActivityTimeline';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
 import type { DiagnosticRunStatus, DiagnosticToolId, CompanyScoreTrends } from '@/lib/os/diagnostics/runs';
 import type { CompanyWorkSummary } from '@/lib/os/companies/workSummary';
@@ -1176,6 +1177,11 @@ export function CompanyOverviewPage({
           )}
         </div>
       </div>
+
+      {/* ================================================================== */}
+      {/* Band 5: Activity Timeline */}
+      {/* ================================================================== */}
+      <CompanyActivityTimeline companyId={company.id} limit={8} />
 
       {/* ================================================================== */}
       {/* Quick Actions */}

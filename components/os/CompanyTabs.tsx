@@ -20,6 +20,7 @@ export default function CompanyTabs({ companyId }: { companyId: string }) {
     { name: 'Reports', href: `/c/${companyId}/reports` },
     { name: 'GAP', href: `/c/${companyId}/gap` },
     { name: 'Analytics', href: `/c/${companyId}/analytics` },
+    { name: 'Experiments', href: `/c/${companyId}/experiments` },
     { name: 'Brain', href: `/c/${companyId}/brain` },
     { name: 'Work', href: `/c/${companyId}/work` },
   ];

@@ -2,17 +2,23 @@
 // Overview subtab for Company Analytics - executive summary view
 //
 // Displays:
-// - High-level KPI cards (sessions, users, clicks, position)
-// - DMA/GAP funnel metrics
+// - High-level KPI cards (sessions, users, clicks, position) - clickable for drill-through
+// - DMA/GAP funnel metrics - clickable steps for drill-through
 // - AI-generated insights sidebar
 // - Quick wins and work suggestions
 // - Recent activity timeline
 
 'use client';
 
+import { useState } from 'react';
 import type { CompanyAnalyticsSnapshot, AnalyticsAiInsights } from '@/lib/analytics/types';
-import { FunnelMetricsCard } from '../FunnelMetricsCard';
-import { CompanyActivityTimeline } from '@/components/os/CompanyActivityTimeline';
+import { FunnelMetricsCardWithDrill } from '../FunnelMetricsCardWithDrill';
+import { CompanyActivityTimeline, type ActivityEventType } from '@/components/os/CompanyActivityTimeline';
+import { AnalyticsDrillModal } from '../drill/AnalyticsDrillModal';
+import { KpiDrillContent } from '../drill/KpiDrillContent';
+import { useAnalyticsDrillNavigation, type ActivityFilterType } from '@/hooks/useAnalyticsDrillNavigation';
+
+type KpiType = 'sessions' | 'users' | 'pageviews' | 'conversions' | 'bounceRate' | 'searchClicks' | 'impressions' | 'avgPosition' | 'ctr';
 
 interface AnalyticsOverviewSectionProps {
   snapshot: CompanyAnalyticsSnapshot | null;
@@ -23,6 +29,7 @@ interface AnalyticsOverviewSectionProps {
   onRetry?: () => void;
   onFetchInsights?: () => void;
   companyId?: string;
+  onSectionChange?: (section: 'overview' | 'charts' | 'traffic' | 'search') => void;
 }
 
 export function AnalyticsOverviewSection({
@@ -34,7 +41,70 @@ export function AnalyticsOverviewSection({
   onRetry,
   onFetchInsights,
   companyId,
+  onSectionChange,
 }: AnalyticsOverviewSectionProps) {
+  // KPI drill-through modal state
+  const [selectedKpi, setSelectedKpi] = useState<KpiType | null>(null);
+
+  // Activity timeline filter state
+  const [activityFilter, setActivityFilter] = useState<ActivityEventType | null>(null);
+
+  // Handle activity filter change (from funnel drill-through)
+  const handleActivityFilterChange = (filterType: ActivityFilterType | null) => {
+    // Map ActivityFilterType to ActivityEventType (they're compatible)
+    setActivityFilter(filterType as ActivityEventType | null);
+  };
+
+  // Clear activity filter
+  const clearActivityFilter = () => setActivityFilter(null);
+
+  // Navigation helper for drill-through
+  const { goToCompanyCharts, goToCompanySearch } = useAnalyticsDrillNavigation({
+    companyId,
+    onSectionChange,
+    onActivityFilterChange: handleActivityFilterChange,
+  });
+
+  // Handle KPI modal close
+  const closeKpiModal = () => setSelectedKpi(null);
+
+  // Get KPI label for modal title
+  const getKpiLabel = (kpi: KpiType): string => {
+    const labels: Record<KpiType, string> = {
+      sessions: 'Sessions',
+      users: 'Users',
+      pageviews: 'Pageviews',
+      conversions: 'Conversions',
+      bounceRate: 'Bounce Rate',
+      searchClicks: 'Search Clicks',
+      impressions: 'Search Impressions',
+      avgPosition: 'Avg Search Position',
+      ctr: 'Click-Through Rate',
+    };
+    return labels[kpi];
+  };
+
+  // Get navigation action for KPI
+  const getKpiNavigation = (kpi: KpiType): { label: string; onClick: () => void } => {
+    const isSearchKpi = ['searchClicks', 'impressions', 'avgPosition', 'ctr'].includes(kpi);
+    if (isSearchKpi) {
+      return {
+        label: 'Go to Search tab',
+        onClick: () => {
+          closeKpiModal();
+          goToCompanySearch(companyId, 'search-performance');
+        },
+      };
+    }
+    return {
+      label: 'Go to Charts tab',
+      onClick: () => {
+        closeKpiModal();
+        goToCompanyCharts(companyId, `metric-${kpi}`);
+      },
+    };
+  };
+
   // Loading state
   if (isLoading) {
     return (
@@ -98,7 +168,7 @@ export function AnalyticsOverviewSection({
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Main Content */}
       <div className="lg:col-span-2 space-y-6">
-        {/* KPI Cards */}
+        {/* KPI Cards - Clickable for drill-through */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {/* Sessions */}
           <KpiCard
@@ -107,6 +177,7 @@ export function AnalyticsOverviewSection({
             change={comparison?.ga4?.sessionsChange}
             source="GA4"
             connected={snapshot.ga4Connected}
+            onClick={() => setSelectedKpi('sessions')}
           />
 
           {/* Users */}
@@ -116,6 +187,7 @@ export function AnalyticsOverviewSection({
             change={comparison?.ga4?.usersChange}
             source="GA4"
             connected={snapshot.ga4Connected}
+            onClick={() => setSelectedKpi('users')}
           />
 
           {/* Search Clicks */}
@@ -125,6 +197,7 @@ export function AnalyticsOverviewSection({
             change={comparison?.searchConsole?.clicksChange}
             source="GSC"
             connected={snapshot.gscConnected}
+            onClick={() => setSelectedKpi('searchClicks')}
           />
 
           {/* Avg Position */}
@@ -136,6 +209,7 @@ export function AnalyticsOverviewSection({
             source="GSC"
             connected={snapshot.gscConnected}
             invertChange // Lower position is better
+            onClick={() => setSelectedKpi('avgPosition')}
           />
         </div>
 
@@ -147,6 +221,7 @@ export function AnalyticsOverviewSection({
             change={comparison?.ga4?.conversionsChange}
             source="GA4"
             connected={snapshot.ga4Connected}
+            onClick={() => setSelectedKpi('conversions')}
           />
 
           <KpiCard
@@ -157,6 +232,7 @@ export function AnalyticsOverviewSection({
             source="GA4"
             connected={snapshot.ga4Connected}
             invertChange // Lower bounce is better
+            onClick={() => setSelectedKpi('bounceRate')}
           />
 
           <KpiCard
@@ -165,6 +241,7 @@ export function AnalyticsOverviewSection({
             change={comparison?.searchConsole?.impressionsChange}
             source="GSC"
             connected={snapshot.gscConnected}
+            onClick={() => setSelectedKpi('impressions')}
           />
 
           <KpiCard
@@ -174,14 +251,18 @@ export function AnalyticsOverviewSection({
             format="percentage"
             source="GSC"
             connected={snapshot.gscConnected}
+            onClick={() => setSelectedKpi('ctr')}
           />
         </div>
 
-        {/* DMA/GAP Funnel Metrics */}
+        {/* DMA/GAP Funnel Metrics - Clickable steps for drill-through */}
         {snapshot.ga4Connected && (
-          <FunnelMetricsCard
+          <FunnelMetricsCardWithDrill
             funnels={funnels?.metrics}
             comparison={comparison?.funnels}
+            companyId={companyId}
+            onSectionChange={onSectionChange}
+            onActivityFilterChange={handleActivityFilterChange}
           />
         )}
 
@@ -256,7 +337,14 @@ export function AnalyticsOverviewSection({
 
         {/* Activity Timeline */}
         {companyId && (
-          <CompanyActivityTimeline companyId={companyId} limit={10} />
+          <div id="activity-timeline">
+            <CompanyActivityTimeline
+              companyId={companyId}
+              limit={10}
+              filterType={activityFilter}
+              onClearFilter={clearActivityFilter}
+            />
+          </div>
         )}
       </div>
 
@@ -373,11 +461,24 @@ export function AnalyticsOverviewSection({
           )}
         </div>
       </div>
+
+      {/* KPI Drill-Through Modal */}
+      {selectedKpi && snapshot && (
+        <AnalyticsDrillModal
+          isOpen={!!selectedKpi}
+          onClose={closeKpiModal}
+          title={getKpiLabel(selectedKpi)}
+          subtitle={`${snapshot.range.preset} performance`}
+          primaryAction={getKpiNavigation(selectedKpi)}
+        >
+          <KpiDrillContent kpiType={selectedKpi} snapshot={snapshot} />
+        </AnalyticsDrillModal>
+      )}
     </div>
   );
 }
 
-// KPI Card helper component
+// KPI Card helper component - now clickable
 function KpiCard({
   label,
   value,
@@ -386,6 +487,7 @@ function KpiCard({
   source,
   connected = true,
   invertChange = false,
+  onClick,
 }: {
   label: string;
   value?: number | null;
@@ -394,6 +496,7 @@ function KpiCard({
   source: 'GA4' | 'GSC';
   connected?: boolean;
   invertChange?: boolean;
+  onClick?: () => void;
 }) {
   if (!connected) {
     return (
@@ -422,8 +525,20 @@ function KpiCard({
   const isPositiveChange = invertChange ? (change ?? 0) < 0 : (change ?? 0) > 0;
   const isNegativeChange = invertChange ? (change ?? 0) > 0 : (change ?? 0) < 0;
 
+  const isClickable = onClick && value !== undefined && value !== null;
+
   return (
-    <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+    <div
+      className={`bg-slate-900/70 border border-slate-800 rounded-xl p-4 transition-all ${
+        isClickable
+          ? 'cursor-pointer hover:border-slate-600 hover:bg-slate-800/70 active:scale-[0.98]'
+          : ''
+      }`}
+      onClick={isClickable ? onClick : undefined}
+      role={isClickable ? 'button' : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      onKeyDown={isClickable ? (e) => e.key === 'Enter' && onClick() : undefined}
+    >
       <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">{label}</div>
       <div className="text-2xl font-bold text-slate-100">{formattedValue}</div>
       <div className="flex items-center gap-2 mt-1">

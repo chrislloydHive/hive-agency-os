@@ -1,16 +1,21 @@
-// app/os/[companyId]/diagnostics/brand/page.tsx
-// Brand Lab - Brand Diagnostic Tool (Action-First View)
+// app/c/[companyId]/diagnostics/brand/page.tsx
+// Brand Lab - Brand Diagnostic Tool (V4: Action-First View + Narrative + Competitive)
 //
-// This page displays Brand diagnostics as an action-first diagnostic tool.
-// PRIMARY VIEW: What to do (Now / Next / Later)
-// SECONDARY VIEW: Full narrative report (future: BrandNarrativeReport)
+// PRIMARY VIEW: Actions (Now / Next / Later)
+// SECONDARY VIEW: Narrative Report
+// COMPETITIVE: Snapshot in Actions tab
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { getHeavyGapRunsByCompanyId } from '@/lib/airtable/gapHeavyRuns';
 import { buildBrandActionPlan } from '@/lib/gap-heavy/modules/brandActionPlanBuilder';
-import type { BrandLabResult } from '@/lib/gap-heavy/modules/brandLab';
+import type {
+  BrandLabResult,
+  BrandDiagnosticResultWithCompetitive,
+  BrandNarrativeReport,
+} from '@/lib/gap-heavy/modules/brandLab';
+import { BrandLabTabs } from './BrandLabTabs';
 
 type PageProps = {
   params: Promise<{ companyId: string }>;
@@ -37,9 +42,12 @@ export default async function BrandDiagnosticPage({ params }: PageProps) {
 
   // Extract Brand Lab result from evidence pack
   let brandLabResult: BrandLabResult | null = null;
+  let narrativeReport: BrandNarrativeReport | null = null;
 
   if (latestHeavyRun?.evidencePack?.brandLab) {
     brandLabResult = latestHeavyRun.evidencePack.brandLab;
+    // Check for existing narrative
+    narrativeReport = (latestHeavyRun.evidencePack.brandLab as any)?.narrativeReport || null;
   }
 
   // Also check for brand module results (from Heavy Worker V4)
@@ -53,12 +61,12 @@ export default async function BrandDiagnosticPage({ params }: PageProps) {
     hasEvidencePack: !!latestHeavyRun?.evidencePack,
     hasBrandLab: !!latestHeavyRun?.evidencePack?.brandLab,
     hasBrandModule: !!brandModule,
+    hasNarrative: !!narrativeReport,
     brandModuleScore: brandModule?.score,
     evidencePackKeys: latestHeavyRun?.evidencePack ? Object.keys(latestHeavyRun.evidencePack) : [],
   });
 
   // If no Brand Lab diagnostics run yet, show runner
-  // (But inform user if brand module exists)
   if (!brandLabResult) {
     // Dynamic import of client component
     const { BrandDiagnosticRunner } = await import('./BrandDiagnosticRunner');
@@ -70,7 +78,7 @@ export default async function BrandDiagnosticPage({ params }: PageProps) {
             href={`/c/${companyId}/diagnostics`}
             className="text-sm text-slate-400 hover:text-slate-300"
           >
-            ← Back to Diagnostics
+            Back to Diagnostics
           </Link>
         </div>
 
@@ -118,8 +126,9 @@ export default async function BrandDiagnosticPage({ params }: PageProps) {
     runId: latestHeavyRun.id,
   });
 
-  // Dynamic import of Action Board component
-  const { DiagnosticActionBoard } = await import('@/components/os/diagnostics/DiagnosticActionBoard');
+  // Check for competitive landscape
+  const competitiveLandscape = (brandLabResult.diagnostic as BrandDiagnosticResultWithCompetitive)
+    .competitiveLandscape;
 
   return (
     <div className="min-h-screen bg-[#050509]">
@@ -130,19 +139,21 @@ export default async function BrandDiagnosticPage({ params }: PageProps) {
             href={`/c/${companyId}/diagnostics`}
             className="text-sm text-slate-400 hover:text-slate-300"
           >
-            ← Back to Diagnostics
+            Back to Diagnostics
           </Link>
           <span className="text-xs font-medium text-slate-500">
-            Brand Diagnostic Tool (Internal)
+            Brand Lab V4 (Internal)
           </span>
         </div>
       </div>
 
-      {/* PRIMARY VIEW: Action Board (Generic, Reusable) */}
-      <DiagnosticActionBoard board={actionBoard} />
-
-      {/* SECONDARY VIEW: Full Narrative Report (Future) */}
-      {/* TODO: Create BrandNarrativeReport component similar to WebsiteNarrativeReport */}
+      {/* TABBED VIEW: Actions | Narrative */}
+      <BrandLabTabs
+        actionBoard={actionBoard}
+        competitiveLandscape={competitiveLandscape}
+        initialNarrative={narrativeReport}
+        companyId={companyId}
+      />
     </div>
   );
 }

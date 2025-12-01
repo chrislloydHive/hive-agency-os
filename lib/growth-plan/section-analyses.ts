@@ -1094,7 +1094,26 @@ DO NOT comment on brand positioning, value prop differentiation, or visual ident
 }
 
 /**
+ * Brand context from Brand Lab (for GAP integration)
+ */
+export interface BrandLabContext {
+  brandScore: number;
+  benchmarkLabel: string;
+  corePromise: string | null;
+  tagline: string | null;
+  positioningTheme: string;
+  icpSummary: string;
+  keyBrandStrengths: string[];
+  keyBrandWeaknesses: string[];
+  topBrandRisks: string[];
+  recommendedBrandWorkItems: string[];
+}
+
+/**
  * Analyze Brand & Positioning
+ *
+ * V4: Now accepts optional brandLabContext to use pre-analyzed Brand Lab data
+ * instead of re-analyzing brand from scratch.
  */
 export async function analyzeBrandAndPositioning(
   assessment: AssessmentResult,
@@ -1104,7 +1123,8 @@ export async function analyzeBrandAndPositioning(
   marketAnalysis?: Awaited<ReturnType<typeof import('./analyzeMarket').analyzeMarket>>,
   positioningAnalysis?: Awaited<ReturnType<typeof import('./analyzePositioning').analyzePositioning>>,
   dataAvailability?: DataAvailability,
-  detectedMaturity?: MaturityLevel
+  detectedMaturity?: MaturityLevel,
+  brandLabContext?: BrandLabContext
 ): Promise<SectionAnalysis> {
   console.log('🔍 Analyzing Brand & Positioning...');
 
@@ -1270,6 +1290,32 @@ ${positioningAnalysis.localSearchLanguage && positioningAnalysis.localSearchLang
 - Evidence: ${positioningAnalysis.evidenceFromSite.slice(0, 5).join('; ')}
 ${positioningAnalysis.geographicFocus.toLowerCase().includes('hyper-local') || positioningAnalysis.geographicFocus.toLowerCase().includes('neighborhood') || (positioningAnalysis.localSearchLanguage && positioningAnalysis.localSearchLanguage.length > 0) ? `
 CRITICAL: This brand uses hyper-local/neighborhood-focused positioning. You MUST acknowledge this in your analysis and discuss how this geographic focus impacts brand strategy.` : ''}
+` : ''}
+
+${brandLabContext ? `
+=== BRAND LAB CONTEXT (Pre-Analyzed) ===
+IMPORTANT: Use this pre-analyzed brand data. Do NOT re-analyze from scratch.
+
+Brand Lab Score: ${brandLabContext.brandScore}/100 (${brandLabContext.benchmarkLabel})
+${brandLabContext.tagline ? `Tagline: "${brandLabContext.tagline}"` : 'Tagline: Not established'}
+${brandLabContext.corePromise ? `Core Promise: "${brandLabContext.corePromise}"` : 'Core Promise: Not clearly defined'}
+Positioning Theme: ${brandLabContext.positioningTheme}
+ICP Summary: ${brandLabContext.icpSummary}
+
+Pre-Identified Strengths:
+${brandLabContext.keyBrandStrengths.map(s => `- ${s}`).join('\n')}
+
+Pre-Identified Weaknesses:
+${brandLabContext.keyBrandWeaknesses.map(w => `- ${w}`).join('\n')}
+
+Key Brand Risks:
+${brandLabContext.topBrandRisks.map(r => `- ${r}`).join('\n')}
+
+Recommended Work (from Brand Lab):
+${brandLabContext.recommendedBrandWorkItems.map(w => `- ${w}`).join('\n')}
+
+Your analysis should ALIGN with and EXPAND on these Brand Lab findings, not contradict them.
+=== END BRAND LAB CONTEXT ===
 ` : ''}
 
 Provide STRATEGIC brand positioning analysis focusing on:

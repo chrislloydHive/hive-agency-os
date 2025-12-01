@@ -500,6 +500,11 @@ async function runSectionBrandStep(state: GapRunState, _timeLeftMs: number): Pro
       }
     }
     
+    // Log if Brand Lab context is available
+    if (state.brandLabContext) {
+      console.log('[runSectionBrandStep] Using Brand Lab context (score:', state.brandLabContext.brandScore, ')');
+    }
+
     const brandSectionAnalysis = await Promise.race([
       analyzeBrandAndPositioning(
         state.assessment,
@@ -524,7 +529,8 @@ async function runSectionBrandStep(state: GapRunState, _timeLeftMs: number): Pro
           evidenceFromSite: [],
         },
         state.dataAvailability,
-        detectedMaturity
+        detectedMaturity,
+        state.brandLabContext // Pass Brand Lab context if available
       ),
       new Promise<any>((resolve) => 
         setTimeout(() => {

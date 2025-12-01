@@ -3,18 +3,34 @@
 //
 // Displays:
 // - Traffic overview metrics
-// - Traffic by source/medium (channel breakdown)
-// - Top landing pages
+// - Traffic by source/medium (channel breakdown) - clickable for drill-through
+// - Top landing pages - clickable for drill-through
 
 'use client';
 
+import { useState } from 'react';
 import type { CompanyAnalyticsSnapshot } from '@/lib/analytics/types';
+import { AnalyticsDrillModal } from '../drill/AnalyticsDrillModal';
+import {
+  TrafficSourceDrillContent,
+  LandingPageDrillContent,
+  ChannelDrillContent,
+} from '../drill/TableRowDrillContent';
+import { useAnalyticsDrillNavigation } from '@/hooks/useAnalyticsDrillNavigation';
+
+type DrillType = 'source' | 'page' | 'channel';
+
+interface SelectedDrill {
+  type: DrillType;
+  data: Record<string, unknown>;
+}
 
 interface AnalyticsTrafficSectionProps {
   snapshot: CompanyAnalyticsSnapshot | null;
   isLoading: boolean;
   error: string | null;
   onRetry?: () => void;
+  websiteUrl?: string;
 }
 
 export function AnalyticsTrafficSection({
@@ -22,7 +38,12 @@ export function AnalyticsTrafficSection({
   isLoading,
   error,
   onRetry,
+  websiteUrl,
 }: AnalyticsTrafficSectionProps) {
+  const [selectedDrill, setSelectedDrill] = useState<SelectedDrill | null>(null);
+  const { openExternalUrl } = useAnalyticsDrillNavigation();
+
+  const closeDrill = () => setSelectedDrill(null);
   // Loading state
   if (isLoading) {
     return (
@@ -164,15 +185,47 @@ export function AnalyticsTrafficSection({
         </div>
       )}
 
-      {/* Traffic by Channel */}
+      {/* Traffic by Channel - clickable rows */}
       {channelTraffic && channelTraffic.length > 0 && (
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
+        <div id="traffic-channels" className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
           <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
             Traffic by Channel
           </h3>
           <div className="space-y-3">
             {channelTraffic.map((channel) => (
-              <div key={channel.channel} className="flex items-center gap-4">
+              <div
+                key={channel.channel}
+                className="flex items-center gap-4 py-1 px-2 -mx-2 rounded cursor-pointer hover:bg-slate-700/50 transition-colors"
+                onClick={() =>
+                  setSelectedDrill({
+                    type: 'channel',
+                    data: {
+                      channel: channel.channel,
+                      sessions: channel.sessions,
+                      users: channel.users,
+                      conversions: channel.conversions,
+                      bounceRate: channel.bounceRate,
+                      percentOfTotal: channel.percentOfTotal,
+                    },
+                  })
+                }
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) =>
+                  e.key === 'Enter' &&
+                  setSelectedDrill({
+                    type: 'channel',
+                    data: {
+                      channel: channel.channel,
+                      sessions: channel.sessions,
+                      users: channel.users,
+                      conversions: channel.conversions,
+                      bounceRate: channel.bounceRate,
+                      percentOfTotal: channel.percentOfTotal,
+                    },
+                  })
+                }
+              >
                 <div className="w-24 text-sm text-slate-300 capitalize font-medium">
                   {channel.channel}
                 </div>
@@ -204,9 +257,9 @@ export function AnalyticsTrafficSection({
         </div>
       )}
 
-      {/* Traffic by Source */}
+      {/* Traffic by Source - clickable rows */}
       {trafficSources.length > 0 && (
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden">
+        <div id="traffic-sources" className="bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden">
           <div className="p-4 border-b border-slate-800">
             <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
               Traffic by Source / Medium
@@ -225,7 +278,23 @@ export function AnalyticsTrafficSection({
               </thead>
               <tbody>
                 {trafficSources.slice(0, 10).map((source, idx) => (
-                  <tr key={idx} className="border-b border-slate-800/50 last:border-0">
+                  <tr
+                    key={idx}
+                    className="border-b border-slate-800/50 last:border-0 cursor-pointer hover:bg-slate-800/50 transition-colors"
+                    onClick={() =>
+                      setSelectedDrill({
+                        type: 'source',
+                        data: {
+                          source: source.source,
+                          medium: source.medium,
+                          sessions: source.sessions,
+                          users: source.users,
+                          conversions: source.conversions,
+                          bounceRate: source.bounceRate,
+                        },
+                      })
+                    }
+                  >
                     <td className="px-4 py-2 text-slate-200">
                       <span className="font-medium">{source.source}</span>
                       <span className="text-slate-500"> / {source.medium}</span>
@@ -250,9 +319,9 @@ export function AnalyticsTrafficSection({
         </div>
       )}
 
-      {/* Top Landing Pages */}
+      {/* Top Landing Pages - clickable rows */}
       {topPages.length > 0 && (
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden">
+        <div id="traffic-landing-pages" className="bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden">
           <div className="p-4 border-b border-slate-800">
             <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
               Top Pages
@@ -271,7 +340,23 @@ export function AnalyticsTrafficSection({
               </thead>
               <tbody>
                 {topPages.slice(0, 10).map((page, idx) => (
-                  <tr key={idx} className="border-b border-slate-800/50 last:border-0">
+                  <tr
+                    key={idx}
+                    className="border-b border-slate-800/50 last:border-0 cursor-pointer hover:bg-slate-800/50 transition-colors"
+                    onClick={() =>
+                      setSelectedDrill({
+                        type: 'page',
+                        data: {
+                          path: page.path,
+                          fullUrl: websiteUrl ? `${websiteUrl}${page.path}` : undefined,
+                          pageviews: page.pageviews,
+                          users: page.users,
+                          avgTimeOnPage: page.avgTimeOnPage,
+                          bounceRate: page.bounceRate,
+                        },
+                      })
+                    }
+                  >
                     <td className="px-4 py-2 text-slate-200 font-mono text-xs truncate max-w-xs">
                       {page.path}
                     </td>
@@ -293,6 +378,67 @@ export function AnalyticsTrafficSection({
             </table>
           </div>
         </div>
+      )}
+
+      {/* Drill-Through Modal */}
+      {selectedDrill && (
+        <AnalyticsDrillModal
+          isOpen={!!selectedDrill}
+          onClose={closeDrill}
+          title={
+            selectedDrill.type === 'source'
+              ? `${selectedDrill.data.source} / ${selectedDrill.data.medium}`
+              : selectedDrill.type === 'channel'
+              ? `${String(selectedDrill.data.channel).charAt(0).toUpperCase()}${String(selectedDrill.data.channel).slice(1)} Traffic`
+              : String(selectedDrill.data.path)
+          }
+          subtitle="Traffic breakdown"
+          secondaryAction={
+            selectedDrill.type === 'page' && selectedDrill.data.fullUrl
+              ? {
+                  label: 'Open Page',
+                  onClick: () => openExternalUrl(selectedDrill.data.fullUrl as string),
+                }
+              : undefined
+          }
+        >
+          {selectedDrill.type === 'source' && (
+            <TrafficSourceDrillContent
+              source={selectedDrill.data.source as string}
+              medium={selectedDrill.data.medium as string}
+              metrics={{
+                sessions: selectedDrill.data.sessions as number,
+                users: selectedDrill.data.users as number,
+                conversions: selectedDrill.data.conversions as number,
+                bounceRate: selectedDrill.data.bounceRate as number,
+              }}
+            />
+          )}
+          {selectedDrill.type === 'channel' && (
+            <ChannelDrillContent
+              channel={selectedDrill.data.channel as string}
+              metrics={{
+                sessions: selectedDrill.data.sessions as number,
+                users: selectedDrill.data.users as number,
+                conversions: selectedDrill.data.conversions as number,
+                bounceRate: selectedDrill.data.bounceRate as number,
+                percentOfTotal: selectedDrill.data.percentOfTotal as number,
+              }}
+            />
+          )}
+          {selectedDrill.type === 'page' && (
+            <LandingPageDrillContent
+              path={selectedDrill.data.path as string}
+              fullUrl={selectedDrill.data.fullUrl as string | undefined}
+              metrics={{
+                pageviews: selectedDrill.data.pageviews as number,
+                users: selectedDrill.data.users as number,
+                avgTimeOnPage: selectedDrill.data.avgTimeOnPage as number,
+                bounceRate: selectedDrill.data.bounceRate as number,
+              }}
+            />
+          )}
+        </AnalyticsDrillModal>
       )}
     </div>
   );

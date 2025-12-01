@@ -3,6 +3,7 @@
 
 import type { DiagnosticsPayload } from '@/lib/airtable/gapFullReports';
 import type { GrowthAccelerationPlan } from '@/lib/growth-plan/growthActionPlanSchema';
+import { BrandLabSnapshot, type BrandLabSnapshotData } from './BrandLabSnapshot';
 
 interface AreaDiagnostic {
   score?: number; // 0–100
@@ -31,12 +32,18 @@ interface DetailedServiceAssessmentsProps {
     website?: number;
     websiteUx?: number; // Alternative name
   };
+  /** Brand Lab context from pre-analysis (V4) */
+  brandLabContext?: BrandLabSnapshotData;
+  /** Company ID for linking to Brand Lab */
+  companyId?: string;
 }
 
 export function DetailedServiceAssessments({
   plan,
   diagnostics,
   scores,
+  brandLabContext,
+  companyId,
 }: DetailedServiceAssessmentsProps) {
   // Use plan.sectionAnalyses if available, otherwise fall back to diagnostics
   const sectionAnalyses = plan?.sectionAnalyses || {};
@@ -379,6 +386,13 @@ export function DetailedServiceAssessments({
             Concise diagnostics of your marketing system across Brand, Content, SEO, and Website & Conversion.
           </p>
         </div>
+
+        {/* Brand Lab Snapshot (V4) - show when available */}
+        {brandLabContext && (
+          <div className="mb-6">
+            <BrandLabSnapshot data={brandLabContext} companyId={companyId} />
+          </div>
+        )}
 
         {/* 2x2 Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

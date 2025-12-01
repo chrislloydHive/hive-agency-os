@@ -118,6 +118,20 @@ export interface GapRunState {
   marketAnalysis?: MarketAnalysis;
   positioningAnalysis?: PositioningAnalysis;
 
+  // Brand Lab integration (V4)
+  brandLabContext?: {
+    brandScore: number;
+    benchmarkLabel: string;
+    corePromise: string | null;
+    tagline: string | null;
+    positioningTheme: string;
+    icpSummary: string;
+    keyBrandStrengths: string[];
+    keyBrandWeaknesses: string[];
+    topBrandRisks: string[];
+    recommendedBrandWorkItems: string[];
+  };
+
   // Step: Quick wins
   quickWins?: QuickWin[];
 

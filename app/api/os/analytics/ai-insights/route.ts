@@ -26,6 +26,16 @@ export const maxDuration = 60;
 const SYSTEM_PROMPT = `You are an expert digital marketing analyst for a growth-focused marketing agency.
 You analyze structured analytics data (GA4 traffic, channels, pages, Search Console, funnel metrics) and generate actionable strategic insights.
 
+KEY FUNNELS TO ANALYZE:
+1. DMA Funnel: audit_started → dma_audit_complete (Digital Marketing Assessment completion funnel)
+2. GAP-IA Funnel: gap_ia_started → gap_ia_complete → gap_ia_report_viewed → gap_ia_cta_clicked (Instant Assessment funnel)
+3. Full GAP Funnel: gap_started → gap_processing_started → gap_complete → gap_review_cta_clicked (Full Growth Acceleration Plan funnel)
+
+Pay special attention to:
+- Drop-off rates between funnel stages (e.g., high gap_complete but low gap_review_cta_clicked indicates users aren't engaging with the CTA)
+- Completion rates compared to starts (healthy is >30% for DMA, >20% for Full GAP)
+- Review CTA click rates (healthy is >10% of completions)
+
 Your analysis should be:
 - Data-driven: Use specific numbers, percentages, and comparisons from the provided data
 - Actionable: Provide specific recommendations, not generic advice
@@ -77,6 +87,75 @@ JSON Response Format:
     }
   ]
 }`;
+
+// ============================================================================
+// Funnel Analysis Helper
+// ============================================================================
+
+interface FunnelStage {
+  label: string;
+  value: number;
+  prevValue?: number | null;
+}
+
+function deriveFunnelAnalysis(stages: FunnelStage[]): object {
+  // Find key metrics from stages
+  const findStage = (label: string) => stages.find(s => s.label.toLowerCase().includes(label.toLowerCase()));
+
+  // DMA Funnel
+  const dmaStarted = findStage('audit_started') || findStage('DMA Started');
+  const dmaCompleted = findStage('dma_audit_complete') || findStage('DMA Completed');
+
+  // GAP-IA Funnel
+  const gapIaStarted = findStage('gap_ia_started');
+  const gapIaCompleted = findStage('gap_ia_complete');
+  const gapIaCtaClicked = findStage('gap_ia_cta_clicked');
+
+  // Full GAP Funnel
+  const gapFullStarted = findStage('gap_started') || findStage('GAP Started');
+  const gapFullProcessing = findStage('gap_processing_started');
+  const gapFullComplete = findStage('gap_complete') || findStage('GAP Complete');
+  const gapReviewCta = findStage('gap_review_cta_clicked') || findStage('Review CTA');
+
+  return {
+    dmaFunnel: dmaStarted && dmaCompleted ? {
+      started: dmaStarted.value,
+      completed: dmaCompleted.value,
+      completionRate: dmaStarted.value > 0
+        ? ((dmaCompleted.value / dmaStarted.value) * 100).toFixed(1) + '%'
+        : 'N/A',
+      isHealthy: dmaStarted.value > 0 && (dmaCompleted.value / dmaStarted.value) >= 0.3,
+    } : null,
+    gapIaFunnel: gapIaStarted && gapIaCompleted ? {
+      started: gapIaStarted.value,
+      completed: gapIaCompleted.value,
+      ctaClicked: gapIaCtaClicked?.value || 0,
+      completionRate: gapIaStarted.value > 0
+        ? ((gapIaCompleted.value / gapIaStarted.value) * 100).toFixed(1) + '%'
+        : 'N/A',
+    } : null,
+    gapFullFunnel: gapFullStarted && gapFullComplete ? {
+      started: gapFullStarted.value,
+      processingStarted: gapFullProcessing?.value || 0,
+      completed: gapFullComplete.value,
+      reviewCtaClicked: gapReviewCta?.value || 0,
+      completionRate: gapFullStarted.value > 0
+        ? ((gapFullComplete.value / gapFullStarted.value) * 100).toFixed(1) + '%'
+        : 'N/A',
+      reviewCtaRate: gapFullComplete.value > 0
+        ? ((gapReviewCta?.value || 0) / gapFullComplete.value * 100).toFixed(1) + '%'
+        : 'N/A',
+      isHealthyCompletionRate: gapFullStarted.value > 0 && (gapFullComplete.value / gapFullStarted.value) >= 0.2,
+      isHealthyCtaRate: gapFullComplete.value > 0 && ((gapReviewCta?.value || 0) / gapFullComplete.value) >= 0.1,
+      alerts: [
+        ...(gapFullStarted.value > 10 && (gapFullComplete.value / gapFullStarted.value) < 0.2
+          ? ['Low GAP completion rate - users may be abandoning during processing'] : []),
+        ...(gapFullComplete.value >= 5 && ((gapReviewCta?.value || 0) / gapFullComplete.value) < 0.05
+          ? ['Very low Review CTA click rate - CTA may not be prominent enough or copy may not be compelling'] : []),
+      ],
+    } : null,
+  };
+}
 
 // ============================================================================
 // Build Context for AI
@@ -133,15 +212,19 @@ function buildAnalyticsContext(overview: WorkspaceAnalyticsOverview): object {
       })),
     },
     funnel: funnel
-      ? funnel.stages.map((s) => ({
-          label: s.label,
-          value: s.value,
-          prevValue: s.prevValue,
-          changePercent:
-            s.prevValue && s.prevValue > 0
-              ? ((s.value - s.prevValue) / s.prevValue) * 100
-              : null,
-        }))
+      ? {
+          stages: funnel.stages.map((s) => ({
+            label: s.label,
+            value: s.value,
+            prevValue: s.prevValue,
+            changePercent:
+              s.prevValue && s.prevValue > 0
+                ? ((s.value - s.prevValue) / s.prevValue) * 100
+                : null,
+          })),
+          // Derive key funnel metrics for AI analysis
+          analysis: deriveFunnelAnalysis(funnel.stages),
+        }
       : null,
     detectedAlerts: alerts.map((a) => ({
       severity: a.severity,

@@ -93,6 +93,19 @@ function CustomTooltip({ active, payload, label }: any) {
   );
 }
 
+// Per-company funnel breakdown type
+interface CompanyFunnelBreakdown {
+  companyId: string;
+  companyName: string;
+  dmaStarted: number;
+  dmaCompleted: number;
+  dmaCompletionRate: number;
+  gapFullStarted: number;
+  gapFullComplete: number;
+  gapFullReviewCtaClicked: number;
+  gapReviewCtaRate: number;
+}
+
 export default function DmaFunnelClient({
   initialSnapshot,
   initialRange,
@@ -101,6 +114,10 @@ export default function DmaFunnelClient({
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [loadingMetrics, setLoadingMetrics] = useState(false);
   const [metricsError, setMetricsError] = useState<string | null>(null);
+
+  // Per-company breakdown state
+  const [companyBreakdown, setCompanyBreakdown] = useState<CompanyFunnelBreakdown[]>([]);
+  const [loadingBreakdown, setLoadingBreakdown] = useState(false);
 
   // AI Insights state
   const [insights, setInsights] = useState<DmaFunnelInsights | null>(null);
@@ -119,7 +136,7 @@ export default function DmaFunnelClient({
   const [creatingWorkItem, setCreatingWorkItem] = useState<string | null>(null);
   const [workItemSuccess, setWorkItemSuccess] = useState<string | null>(null);
 
-  // Create work item from DMA insight
+  // Create work item from DMA insight (for quick wins)
   const createDmaWorkItem = async (
     title: string,
     description: string,
@@ -152,6 +169,52 @@ export default function DmaFunnelClient({
     } catch (error) {
       console.error('Error creating work item:', error);
       alert('Failed to create work item. Please try again.');
+    } finally {
+      setCreatingWorkItem(null);
+    }
+  };
+
+  // Create experiment from DMA insight
+  const createDmaExperiment = async (
+    name: string,
+    hypothesis: string,
+    successMetric: string,
+    expectedLift?: number
+  ) => {
+    const itemKey = `experiment-${name.slice(0, 20)}`;
+    setCreatingWorkItem(itemKey);
+    setWorkItemSuccess(null);
+
+    try {
+      const response = await fetch('/api/experiments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          hypothesis,
+          successMetric,
+          expectedLift,
+          status: 'Idea',
+          area: 'Funnel',
+          source: 'DMA Funnel',
+          sourceJson: {
+            dateRange: `${range.startDate} to ${range.endDate}`,
+            sourceType: 'dma_funnel_insight',
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!data.ok) {
+        throw new Error(data.error || 'Failed to create experiment');
+      }
+
+      setWorkItemSuccess(itemKey);
+      setTimeout(() => setWorkItemSuccess(null), 3000);
+    } catch (error) {
+      console.error('Error creating experiment:', error);
+      alert('Failed to create experiment. Please try again.');
     } finally {
       setCreatingWorkItem(null);
     }
@@ -246,11 +309,29 @@ export default function DmaFunnelClient({
     }
   };
 
+  // Fetch company breakdown
+  const fetchCompanyBreakdown = async () => {
+    setLoadingBreakdown(true);
+    try {
+      const response = await fetch(`/api/analytics/v2/workspace?range=${activeDays}d`);
+      const data = await response.json();
+      if (data.ok && data.summary?.companyFunnelBreakdown) {
+        setCompanyBreakdown(data.summary.companyFunnelBreakdown);
+      }
+    } catch (error) {
+      console.error('Error fetching company breakdown:', error);
+    } finally {
+      setLoadingBreakdown(false);
+    }
+  };
+
   // Fetch insights on mount
   useEffect(() => {
     if (snapshot && !insights && !loadingInsights) {
       fetchInsights(snapshot, dateRangeKey);
     }
+    // Also fetch company breakdown
+    fetchCompanyBreakdown();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -285,6 +366,9 @@ export default function DmaFunnelClient({
 
       // Fetch new insights (will check cache)
       fetchInsights(data.snapshot, newRangeKey);
+
+      // Also refresh company breakdown
+      fetchCompanyBreakdown();
     } catch (error) {
       console.error('Error fetching metrics:', error);
       setMetricsError("We couldn't load DMA metrics. Check GA4 credentials and try again.");
@@ -575,6 +659,90 @@ export default function DmaFunnelClient({
               </div>
             </div>
           )}
+
+          {/* Per-Company Funnel Breakdown */}
+          <div className="bg-slate-900/70 border border-slate-800 rounded-lg overflow-hidden">
+            <div className="p-4 sm:p-6 border-b border-slate-800">
+              <h2 className="text-base sm:text-lg font-semibold text-slate-100">Per-Company Funnel Performance</h2>
+              <p className="text-xs text-slate-500 mt-1">
+                DMA and Full GAP funnel metrics across all companies
+              </p>
+            </div>
+            {loadingBreakdown ? (
+              <div className="p-8 text-center">
+                <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-amber-400" />
+                <p className="text-slate-400 text-sm mt-3">Loading company data...</p>
+              </div>
+            ) : companyBreakdown.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-700 bg-slate-900/50">
+                      <th className="text-left py-3 px-4 text-xs font-semibold text-slate-400 uppercase">Company</th>
+                      <th className="text-right py-3 px-4 text-xs font-semibold text-slate-400 uppercase">DMA Started</th>
+                      <th className="text-right py-3 px-4 text-xs font-semibold text-slate-400 uppercase">DMA Complete</th>
+                      <th className="text-right py-3 px-4 text-xs font-semibold text-slate-400 uppercase">DMA Rate</th>
+                      <th className="text-right py-3 px-4 text-xs font-semibold text-slate-400 uppercase">GAP Started</th>
+                      <th className="text-right py-3 px-4 text-xs font-semibold text-slate-400 uppercase">GAP Complete</th>
+                      <th className="text-right py-3 px-4 text-xs font-semibold text-slate-400 uppercase">Review CTA</th>
+                      <th className="text-right py-3 px-4 text-xs font-semibold text-slate-400 uppercase">CTA Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {companyBreakdown.map((company) => (
+                      <tr key={company.companyId} className="border-b border-slate-800/50 last:border-0 hover:bg-slate-800/30 transition-colors">
+                        <td className="py-3 px-4">
+                          <Link
+                            href={`/c/${company.companyId}/analytics`}
+                            className="text-slate-200 hover:text-amber-400 transition-colors font-medium"
+                          >
+                            {company.companyName}
+                          </Link>
+                        </td>
+                        <td className="py-3 px-4 text-right text-slate-300 font-mono">
+                          {company.dmaStarted.toLocaleString()}
+                        </td>
+                        <td className="py-3 px-4 text-right text-emerald-400 font-mono">
+                          {company.dmaCompleted.toLocaleString()}
+                        </td>
+                        <td className={`py-3 px-4 text-right font-mono ${
+                          company.dmaCompletionRate < 0.3 && company.dmaStarted >= 10
+                            ? 'text-red-400'
+                            : company.dmaCompletionRate >= 0.5
+                              ? 'text-emerald-400'
+                              : 'text-slate-400'
+                        }`}>
+                          {(company.dmaCompletionRate * 100).toFixed(0)}%
+                        </td>
+                        <td className="py-3 px-4 text-right text-slate-300 font-mono">
+                          {company.gapFullStarted.toLocaleString()}
+                        </td>
+                        <td className="py-3 px-4 text-right text-emerald-400 font-mono">
+                          {company.gapFullComplete.toLocaleString()}
+                        </td>
+                        <td className="py-3 px-4 text-right text-purple-400 font-mono">
+                          {company.gapFullReviewCtaClicked.toLocaleString()}
+                        </td>
+                        <td className={`py-3 px-4 text-right font-mono ${
+                          company.gapReviewCtaRate < 0.05 && company.gapFullComplete >= 5
+                            ? 'text-red-400'
+                            : company.gapReviewCtaRate >= 0.15
+                              ? 'text-emerald-400'
+                              : 'text-slate-400'
+                        }`}>
+                          {(company.gapReviewCtaRate * 100).toFixed(0)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-8 text-center text-slate-500 text-sm">
+                No company funnel data available. Configure GA4 for your companies to see metrics.
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Right Column: AI Panel with Tabs (1/3 width) */}
@@ -750,13 +918,20 @@ export default function DmaFunnelClient({
                   {/* Experiments */}
                   {insights.experiments.length > 0 && (
                     <div>
-                      <h3 className="text-sm font-semibold text-blue-100 mb-2">Experiments to Try</h3>
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-semibold text-blue-100">Experiments to Try</h3>
+                        <Link
+                          href="/experiments"
+                          className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                        >
+                          View All →
+                        </Link>
+                      </div>
                       <div className="space-y-2">
                         {insights.experiments.map((exp, idx) => {
                           const itemKey = `experiment-${exp.name.slice(0, 20)}`;
                           const isCreating = creatingWorkItem === itemKey;
                           const isSuccess = workItemSuccess === itemKey;
-                          const description = `${exp.hypothesis}\n\nSuccess Metric: ${exp.successMetric}`;
                           return (
                             <div
                               key={idx}
@@ -768,7 +943,7 @@ export default function DmaFunnelClient({
                                 Success: {exp.successMetric}
                               </div>
                               <button
-                                onClick={() => createDmaWorkItem(`Experiment: ${exp.name}`, description, 'experiment', 'medium')}
+                                onClick={() => createDmaExperiment(exp.name, exp.hypothesis, exp.successMetric)}
                                 disabled={isCreating}
                                 className={`mt-2 text-xs px-2 py-0.5 rounded transition-colors ${
                                   isSuccess

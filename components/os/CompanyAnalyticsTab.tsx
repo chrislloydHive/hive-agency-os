@@ -226,6 +226,7 @@ export function CompanyAnalyticsTab({
           onRetry={refresh}
           onFetchInsights={fetchInsights}
           companyId={companyId}
+          onSectionChange={setActiveSection}
         />
       )}
 

@@ -5,13 +5,26 @@
 //
 // Displays a timeline of recent activity for a company including
 // work items, experiments, diagnostic runs, and other events.
+// Supports filtering by event type via the filterType prop.
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 
+// Supported activity event types
+export type ActivityEventType =
+  | 'work_item'
+  | 'experiment'
+  | 'diagnostic'
+  | 'report'
+  | 'insight'
+  | 'dma_audit'
+  | 'gap_ia'
+  | 'gap_full'
+  | 'gap_review_cta';
+
 interface ActivityEvent {
   id: string;
-  type: 'work_item' | 'experiment' | 'diagnostic' | 'report' | 'insight';
+  type: ActivityEventType;
   title: string;
   description?: string;
   timestamp: string;
@@ -22,22 +35,34 @@ interface ActivityEvent {
 interface CompanyActivityTimelineProps {
   companyId: string;
   limit?: number;
+  /** Filter to show only events of this type */
+  filterType?: ActivityEventType | null;
+  /** Callback when filter is cleared */
+  onClearFilter?: () => void;
 }
 
-const typeColors: Record<ActivityEvent['type'], string> = {
+const typeColors: Record<ActivityEventType, string> = {
   work_item: 'bg-blue-500',
   experiment: 'bg-purple-500',
   diagnostic: 'bg-amber-500',
   report: 'bg-emerald-500',
   insight: 'bg-cyan-500',
+  dma_audit: 'bg-purple-500',
+  gap_ia: 'bg-amber-500',
+  gap_full: 'bg-emerald-500',
+  gap_review_cta: 'bg-emerald-400',
 };
 
-const typeLabels: Record<ActivityEvent['type'], string> = {
+const typeLabels: Record<ActivityEventType, string> = {
   work_item: 'Work',
   experiment: 'Experiment',
   diagnostic: 'Diagnostic',
   report: 'Report',
   insight: 'Insight',
+  dma_audit: 'DMA Audit',
+  gap_ia: 'GAP-IA',
+  gap_full: 'Full GAP',
+  gap_review_cta: 'Review CTA',
 };
 
 function formatRelativeTime(timestamp: string): string {
@@ -68,6 +93,8 @@ function formatRelativeTime(timestamp: string): string {
 export function CompanyActivityTimeline({
   companyId,
   limit = 10,
+  filterType,
+  onClearFilter,
 }: CompanyActivityTimelineProps) {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,6 +128,13 @@ export function CompanyActivityTimeline({
   useEffect(() => {
     fetchActivity();
   }, [fetchActivity]);
+
+  // Filter events if filterType is provided
+  const filteredEvents = filterType
+    ? events.filter((e) => e.type === filterType)
+    : events;
+
+  const displayedEvents = filteredEvents;
 
   if (loading) {
     return (
@@ -149,20 +183,58 @@ export function CompanyActivityTimeline({
     );
   }
 
+  // No events matching filter
+  if (filterType && filteredEvents.length === 0) {
+    return (
+      <div className="bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden">
+        <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
+            Recent Activity
+          </h3>
+          <FilterChip
+            filterType={filterType}
+            onClear={onClearFilter}
+          />
+        </div>
+        <div className="p-6 text-center">
+          <p className="text-slate-500 text-sm">
+            No {typeLabels[filterType]} events found in recent activity.
+          </p>
+          {onClearFilter && (
+            <button
+              onClick={onClearFilter}
+              className="mt-3 text-xs text-amber-400 hover:text-amber-300 underline"
+            >
+              Clear filter to see all activity
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden">
       <div className="p-4 border-b border-slate-800 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
           Recent Activity
         </h3>
-        {total > limit && (
-          <span className="text-xs text-slate-500">
-            Showing {events.length} of {total}
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {filterType && (
+            <FilterChip
+              filterType={filterType}
+              onClear={onClearFilter}
+            />
+          )}
+          {!filterType && total > limit && (
+            <span className="text-xs text-slate-500">
+              Showing {displayedEvents.length} of {total}
+            </span>
+          )}
+        </div>
       </div>
       <div className="divide-y divide-slate-800/50">
-        {events.map((event) => (
+        {displayedEvents.map((event) => (
           <div
             key={event.id}
             className="p-4 hover:bg-slate-800/30 transition-colors"
@@ -245,7 +317,7 @@ export function CompanyActivityTimeline({
       </div>
 
       {/* View all link */}
-      {total > limit && (
+      {!filterType && total > limit && (
         <div className="p-3 border-t border-slate-800 text-center">
           <Link
             href={`/c/${companyId}/work`}
@@ -254,6 +326,38 @@ export function CompanyActivityTimeline({
             View all activity
           </Link>
         </div>
+      )}
+    </div>
+  );
+}
+
+// Filter chip component for showing active filter with clear button
+function FilterChip({
+  filterType,
+  onClear,
+}: {
+  filterType: ActivityEventType;
+  onClear?: () => void;
+}) {
+  const color = typeColors[filterType] || 'bg-slate-500';
+  const label = typeLabels[filterType] || filterType;
+
+  return (
+    <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-800 rounded-full border border-slate-700">
+      <div className={`w-2 h-2 rounded-full ${color}`} />
+      <span className="text-xs text-slate-300">
+        Filtering: {label}
+      </span>
+      {onClear && (
+        <button
+          onClick={onClear}
+          className="ml-1 text-slate-400 hover:text-slate-200 transition-colors"
+          aria-label="Clear filter"
+        >
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
       )}
     </div>
   );

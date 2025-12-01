@@ -91,57 +91,69 @@ export function AnalyticsChartsSection({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Sessions Chart */}
         {hasGa4Data && (
-          <SimpleLineChart
-            title="Sessions"
-            data={ga4TimeSeries.map(d => ({ date: d.date, value: d.sessions }))}
-            color="emerald"
-          />
+          <div id="metric-sessions">
+            <SimpleLineChart
+              title="Sessions"
+              data={ga4TimeSeries.map(d => ({ date: d.date, value: d.sessions }))}
+              color="emerald"
+            />
+          </div>
         )}
 
         {/* Users Chart */}
         {hasGa4Data && (
-          <SimpleLineChart
-            title="Users"
-            data={ga4TimeSeries.map(d => ({ date: d.date, value: d.users }))}
-            color="blue"
-          />
+          <div id="metric-users">
+            <SimpleLineChart
+              title="Users"
+              data={ga4TimeSeries.map(d => ({ date: d.date, value: d.users }))}
+              color="blue"
+            />
+          </div>
         )}
 
         {/* Search Clicks Chart */}
         {hasGscData && (
-          <SimpleLineChart
-            title="Search Clicks"
-            data={gscTimeSeries.map(d => ({ date: d.date, value: d.clicks }))}
-            color="amber"
-          />
+          <div id="metric-searchClicks">
+            <SimpleLineChart
+              title="Search Clicks"
+              data={gscTimeSeries.map(d => ({ date: d.date, value: d.clicks }))}
+              color="amber"
+            />
+          </div>
         )}
 
         {/* Impressions Chart */}
         {hasGscData && (
-          <SimpleLineChart
-            title="Search Impressions"
-            data={gscTimeSeries.map(d => ({ date: d.date, value: d.impressions }))}
-            color="purple"
-          />
+          <div id="metric-impressions">
+            <SimpleLineChart
+              title="Search Impressions"
+              data={gscTimeSeries.map(d => ({ date: d.date, value: d.impressions }))}
+              color="purple"
+            />
+          </div>
         )}
 
         {/* Conversions Chart */}
         {hasGa4Data && (
-          <SimpleLineChart
-            title="Conversions"
-            data={ga4TimeSeries.map(d => ({ date: d.date, value: d.conversions }))}
-            color="rose"
-          />
+          <div id="metric-conversions">
+            <SimpleLineChart
+              title="Conversions"
+              data={ga4TimeSeries.map(d => ({ date: d.date, value: d.conversions }))}
+              color="rose"
+            />
+          </div>
         )}
 
         {/* Avg Position Chart (inverted - lower is better) */}
         {hasGscData && (
-          <SimpleLineChart
-            title="Avg Search Position"
-            data={gscTimeSeries.map(d => ({ date: d.date, value: d.position }))}
-            color="cyan"
-            format="position"
-          />
+          <div id="metric-avgPosition">
+            <SimpleLineChart
+              title="Avg Search Position"
+              data={gscTimeSeries.map(d => ({ date: d.date, value: d.position }))}
+              color="cyan"
+              format="position"
+            />
+          </div>
         )}
       </div>
 

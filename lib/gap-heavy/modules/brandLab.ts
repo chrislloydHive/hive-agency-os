@@ -281,6 +281,101 @@ export const BrandLabResultSchema = z.object({
 export type BrandLabResult = z.infer<typeof BrandLabResultSchema>;
 
 // ============================================================================
+// BRAND COMPETITIVE LAYER (V4)
+// ============================================================================
+
+export const BrandCompetitorSummarySchema = z.object({
+  name: z.string(),
+  url: z.string(),
+  positioningSnippet: z.string().describe('How competitor positions themselves'),
+  estimatedAngle: z.string().describe('e.g., "low-cost", "premium", "specialized"'),
+  notes: z.string(),
+});
+
+export type BrandCompetitorSummary = z.infer<typeof BrandCompetitorSummarySchema>;
+
+export const BrandCompetitiveLandscapeSchema = z.object({
+  primaryCompetitors: z.array(BrandCompetitorSummarySchema),
+  categoryLanguagePatterns: z.array(z.string()).describe('Common phrases/clichés in the category'),
+  differentiationScore: z.number().min(0).max(100).describe('How differentiated is the brand'),
+  clicheDensityScore: z.number().min(0).max(100).describe('How much generic/cliché language is used'),
+  whiteSpaceOpportunities: z.array(z.string()).describe('Positioning opportunities not claimed by competitors'),
+  similarityNotes: z.array(z.string()).describe('Where brand blends in with competitors'),
+});
+
+export type BrandCompetitiveLandscape = z.infer<typeof BrandCompetitiveLandscapeSchema>;
+
+// ============================================================================
+// BRAND NARRATIVE REPORT
+// ============================================================================
+
+export const BrandNarrativeReportSchema = z.object({
+  meta: z.object({
+    generatedAt: z.string(),
+    companyName: z.string(),
+    websiteUrl: z.string(),
+    brandScore: z.number(),
+    benchmarkLabel: z.string(),
+  }),
+  executiveSummary: z.string().describe('2-3 paragraph overview'),
+  brandStorySection: z.string().describe('Analysis of brand story and origin'),
+  positioningSection: z.string().describe('Positioning analysis'),
+  messagingSection: z.string().describe('Messaging clarity and effectiveness'),
+  trustSection: z.string().describe('Trust and credibility analysis'),
+  visualSection: z.string().describe('Visual brand system analysis'),
+  audienceFitSection: z.string().describe('ICP alignment analysis'),
+  priorityThemesSection: z.string().describe('Key themes for improvement'),
+  quickWinsBullets: z.array(z.string()),
+  strategicInitiativesBullets: z.array(z.string()),
+  risksSection: z.string().describe('Brand risks and mitigation'),
+  recommendedSequencingSection: z.string().describe('NOW/NEXT/LATER sequencing'),
+});
+
+export type BrandNarrativeReport = z.infer<typeof BrandNarrativeReportSchema>;
+
+// ============================================================================
+// BRAND FOR GAP INTEGRATION
+// ============================================================================
+
+export const BrandForGapSchema = z.object({
+  brandScore: z.number(),
+  benchmarkLabel: z.string(),
+  corePromise: z.string().nullable(),
+  tagline: z.string().nullable(),
+  positioningTheme: z.string(),
+  icpSummary: z.string(),
+  keyBrandStrengths: z.array(z.string()),
+  keyBrandWeaknesses: z.array(z.string()),
+  topBrandRisks: z.array(z.string()),
+  recommendedBrandWorkItems: z.array(z.string()),
+});
+
+export type BrandForGap = z.infer<typeof BrandForGapSchema>;
+
+// ============================================================================
+// EXTENDED BRAND DIAGNOSTIC RESULT (with Competitive Layer)
+// ============================================================================
+
+// Extend the existing schema to include competitive landscape
+export const BrandDiagnosticResultWithCompetitiveSchema = BrandDiagnosticResultSchema.extend({
+  competitiveLandscape: BrandCompetitiveLandscapeSchema.optional(),
+});
+
+export type BrandDiagnosticResultWithCompetitive = z.infer<typeof BrandDiagnosticResultWithCompetitiveSchema>;
+
+// ============================================================================
+// EXTENDED BRAND LAB RESULT (with Narrative)
+// ============================================================================
+
+export const BrandLabResultWithNarrativeSchema = z.object({
+  diagnostic: BrandDiagnosticResultWithCompetitiveSchema,
+  actionPlan: BrandActionPlanSchema,
+  narrativeReport: BrandNarrativeReportSchema.optional(),
+});
+
+export type BrandLabResultWithNarrative = z.infer<typeof BrandLabResultWithNarrativeSchema>;
+
+// ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 

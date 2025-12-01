@@ -3,13 +3,25 @@
 //
 // Displays:
 // - Search performance overview (clicks, impressions, CTR, position)
-// - Top search queries
-// - Top pages in search
+// - Top search queries - clickable for drill-through
+// - Top pages in search - clickable for drill-through
 // - Device breakdown (optional)
 
 'use client';
 
+import { useState } from 'react';
 import type { CompanyAnalyticsSnapshot } from '@/lib/analytics/types';
+import { AnalyticsDrillModal } from '../drill/AnalyticsDrillModal';
+import { SearchQueryDrillContent } from '../drill/TableRowDrillContent';
+import { getGoogleSearchUrl } from '@/lib/analytics/searchLinks';
+
+interface SelectedQuery {
+  query: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+}
 
 interface AnalyticsSearchSectionProps {
   snapshot: CompanyAnalyticsSnapshot | null;
@@ -24,6 +36,9 @@ export function AnalyticsSearchSection({
   error,
   onRetry,
 }: AnalyticsSearchSectionProps) {
+  const [selectedQuery, setSelectedQuery] = useState<SelectedQuery | null>(null);
+
+  const closeQueryModal = () => setSelectedQuery(null);
   // Loading state
   if (isLoading) {
     return (
@@ -116,7 +131,7 @@ export function AnalyticsSearchSection({
   return (
     <div className="space-y-6">
       {/* Search Performance Overview */}
-      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
+      <div id="search-performance" className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
         <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
           Search Performance
         </h3>
@@ -169,9 +184,9 @@ export function AnalyticsSearchSection({
         </div>
       )}
 
-      {/* Top Search Queries */}
+      {/* Top Search Queries - clickable rows */}
       {topQueries.length > 0 && (
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden">
+        <div id="search-queries" className="bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden">
           <div className="p-4 border-b border-slate-800">
             <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
               Top Search Queries
@@ -186,16 +201,48 @@ export function AnalyticsSearchSection({
                   <th className="text-right px-4 py-2 text-xs font-semibold text-slate-400 uppercase">Impressions</th>
                   <th className="text-right px-4 py-2 text-xs font-semibold text-slate-400 uppercase">CTR</th>
                   <th className="text-right px-4 py-2 text-xs font-semibold text-slate-400 uppercase">Position</th>
+                  <th className="w-8"></th>
                 </tr>
               </thead>
               <tbody>
                 {topQueries.slice(0, 15).map((query, idx) => (
-                  <tr key={idx} className="border-b border-slate-800/50 last:border-0">
+                  <tr
+                    key={idx}
+                    className="border-b border-slate-800/50 last:border-0 cursor-pointer hover:bg-slate-800/50 transition-colors group"
+                    onClick={() =>
+                      setSelectedQuery({
+                        query: query.query,
+                        clicks: query.clicks,
+                        impressions: query.impressions,
+                        ctr: query.ctr,
+                        position: query.position ?? 0,
+                      })
+                    }
+                  >
                     <td className="px-4 py-2 text-slate-200">{query.query}</td>
                     <td className="px-4 py-2 text-right text-slate-300">{query.clicks.toLocaleString()}</td>
                     <td className="px-4 py-2 text-right text-slate-300">{query.impressions.toLocaleString()}</td>
                     <td className="px-4 py-2 text-right text-slate-300">{(query.ctr * 100).toFixed(2)}%</td>
                     <td className="px-4 py-2 text-right text-slate-300">{query.position?.toFixed(1) ?? '—'}</td>
+                    <td className="px-2 py-2">
+                      <a
+                        href={getGoogleSearchUrl(query.query, snapshot?.domain ? `https://${snapshot.domain}` : undefined)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-amber-400 transition-all"
+                        title="Open in Google"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                          />
+                        </svg>
+                      </a>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -243,6 +290,27 @@ export function AnalyticsSearchSection({
 
       {/* Opportunity Highlights */}
       <OpportunityHighlights queries={topQueries} />
+
+      {/* Query Drill-Through Modal */}
+      {selectedQuery && (
+        <AnalyticsDrillModal
+          isOpen={!!selectedQuery}
+          onClose={closeQueryModal}
+          title={`"${selectedQuery.query}"`}
+          subtitle="Search query performance"
+        >
+          <SearchQueryDrillContent
+            query={selectedQuery.query}
+            metrics={{
+              clicks: selectedQuery.clicks,
+              impressions: selectedQuery.impressions,
+              ctr: selectedQuery.ctr,
+              position: selectedQuery.position,
+            }}
+            websiteUrl={snapshot?.domain ? `https://${snapshot.domain}` : undefined}
+          />
+        </AnalyticsDrillModal>
+      )}
     </div>
   );
 }
