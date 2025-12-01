@@ -155,6 +155,13 @@ export async function buildCompanyAnalyticsSnapshot(
   const ga4Connected = !!company.ga4PropertyId;
   const gscConnected = !!company.searchConsoleSiteUrl;
 
+  console.log('[AnalyticsService] Connection status:', {
+    ga4Connected,
+    gscConnected,
+    ga4PropertyId: company.ga4PropertyId,
+    searchConsoleSiteUrl: company.searchConsoleSiteUrl,
+  });
+
   // Fetch all data in parallel
   const [
     ga4Data,
