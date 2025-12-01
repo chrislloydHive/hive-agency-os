@@ -117,6 +117,16 @@ function getGa4Client(): BetaAnalyticsDataClient | null {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
 
+  // Debug logging - remove after fixing
+  console.log('[AnalyticsService] GA4 credentials check:', {
+    hasClientId: !!clientId,
+    clientIdPrefix: clientId?.substring(0, 15),
+    hasClientSecret: !!clientSecret,
+    secretPrefix: clientSecret?.substring(0, 10),
+    hasRefreshToken: !!refreshToken,
+    refreshPrefix: refreshToken?.substring(0, 10),
+  });
+
   if (!clientId || !clientSecret || !refreshToken) {
     console.warn('[AnalyticsService] Missing Google OAuth credentials');
     return null;
