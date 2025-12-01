@@ -118,7 +118,7 @@ function getGa4Client(): BetaAnalyticsDataClient | null {
   const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
 
   // Debug logging - remove after fixing
-  console.log('[AnalyticsService] GA4 credentials check:', {
+  console.error('[AnalyticsService] GA4 credentials check:', {
     hasClientId: !!clientId,
     clientIdPrefix: clientId?.substring(0, 15),
     hasClientSecret: !!clientSecret,
