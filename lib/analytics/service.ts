@@ -318,7 +318,21 @@ async function fetchGa4CoreMetrics(
       conversionRate: sessions > 0 ? conversions / sessions : 0,
     };
   } catch (error) {
-    console.error('[AnalyticsService] GA4 core metrics error:', error);
+    // Debug: Include credential info in error
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+    console.error('[AnalyticsService] GA4 core metrics error:', error, {
+      credCheck: {
+        hasClientId: !!clientId,
+        clientIdLen: clientId?.length,
+        clientIdPrefix: clientId?.substring(0, 15),
+        hasSecret: !!clientSecret,
+        secretLen: clientSecret?.length,
+        hasRefresh: !!refreshToken,
+        refreshLen: refreshToken?.length,
+      }
+    });
     return null;
   }
 }
