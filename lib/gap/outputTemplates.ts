@@ -173,7 +173,7 @@ export const FullGapDimensionAnalysisSchema = z.object({
   score: z.number().min(0).max(100), // Read-only from GAP-IA
 
   summary: z.string().min(1).max(500), // High-level takeaway
-  detailedAnalysis: z.string().min(500).max(5000), // Deep strategic analysis (3-5 paragraphs)
+  detailedAnalysis: z.string().min(150).max(5000), // Deep strategic analysis (1-5 paragraphs)
 
   keyFindings: z.array(z.string().min(1).max(500))
     .min(3)
