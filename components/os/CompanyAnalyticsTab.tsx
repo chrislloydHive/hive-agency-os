@@ -16,8 +16,10 @@ import {
   AnalyticsChartsSection,
   AnalyticsTrafficSection,
   AnalyticsSearchSection,
+  AnalyticsFunnelSection,
 } from '@/components/analytics/company';
 import { BlueprintChartsView } from '@/components/analytics/BlueprintChartsView';
+import { BlueprintPanel } from '@/components/os/blueprint';
 import type { AnalyticsBlueprint } from '@/lib/analytics/blueprintTypes';
 
 interface CompanyAnalyticsTabProps {
@@ -28,7 +30,7 @@ interface CompanyAnalyticsTabProps {
   analyticsBlueprint?: AnalyticsBlueprint | null;
 }
 
-type ActiveSection = 'overview' | 'charts' | 'traffic' | 'search';
+type ActiveSection = 'overview' | 'charts' | 'traffic' | 'search' | 'funnel' | 'blueprint';
 
 export function CompanyAnalyticsTab({
   companyId,
@@ -212,6 +214,32 @@ export function CompanyAnalyticsTab({
               Search
             </TabButton>
           )}
+          {hasGa4 && (
+            <TabButton
+              active={activeSection === 'funnel'}
+              onClick={() => setActiveSection('funnel')}
+              icon={
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                </svg>
+              }
+            >
+              Funnel
+            </TabButton>
+          )}
+          {hasGa4 && (
+            <TabButton
+              active={activeSection === 'blueprint'}
+              onClick={() => setActiveSection('blueprint')}
+              icon={
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              }
+            >
+              Blueprint
+            </TabButton>
+          )}
         </nav>
       </div>
 
@@ -263,6 +291,75 @@ export function CompanyAnalyticsTab({
           isLoading={isLoading}
           error={error}
           onRetry={refresh}
+        />
+      )}
+
+      {activeSection === 'funnel' && hasGa4 && (
+        <AnalyticsFunnelSection
+          snapshot={snapshot}
+          isLoading={isLoading}
+          error={error}
+          onRetry={refresh}
+          companyId={companyId}
+          companyName={companyName}
+        />
+      )}
+
+      {activeSection === 'blueprint' && hasGa4 && (
+        <BlueprintPanel
+          sourceType="company"
+          companyId={companyId}
+          sourceName={companyName}
+          period={dateRange === '7d' ? '7d' : dateRange === '90d' ? '90d' : '30d'}
+          autoFetch={true}
+          onCreateWorkItem={async (title, description, priority) => {
+            // Create work item via company work API
+            const response = await fetch('/api/os/work', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                title,
+                notes: description,
+                companyId,
+                area: 'Funnel',
+                severity: priority === 'high' ? 'High' : priority === 'low' ? 'Low' : 'Medium',
+                source: {
+                  sourceType: 'funnel_insight',
+                  funnelContext: 'company',
+                  companyId,
+                  companyName,
+                  itemType: 'recommendation',
+                },
+              }),
+            });
+            if (!response.ok) {
+              throw new Error('Failed to create work item');
+            }
+          }}
+          onCreateExperiment={async (name, hypothesis, successMetric) => {
+            // Create experiment
+            const response = await fetch('/api/experiments', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name,
+                hypothesis,
+                successMetric,
+                status: 'Idea',
+                area: 'Funnel',
+                source: `${companyName} Blueprint`,
+                sourceJson: {
+                  sourceType: 'company_blueprint',
+                  companyId,
+                  companyName,
+                },
+              }),
+            });
+            const data = await response.json();
+            if (!data.ok) {
+              throw new Error(data.error || 'Failed to create experiment');
+            }
+          }}
         />
       )}
 

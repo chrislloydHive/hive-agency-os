@@ -1,6 +1,14 @@
 // app/api/os/dma/blueprint/route.ts
 // API Route: Generate AI-powered Analytics Blueprint for DMA Funnel
 //
+// @deprecated This route is being replaced by the unified Blueprint API at /api/os/blueprint
+// The new API supports multiple source types (dma, company, workspace) and provides
+// a richer data model with themes, plays, and experiments.
+//
+// MIGRATION:
+// - Use GET /api/os/blueprint?sourceType=dma&period=30d instead
+// - The response structure is different - see lib/os/analytics/blueprint.ts
+//
 // This route analyzes the DMA funnel performance data and generates
 // a customized analytics configuration with recommended metrics,
 // chart types, and strategic focus areas.

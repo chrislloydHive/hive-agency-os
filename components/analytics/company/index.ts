@@ -5,3 +5,4 @@ export { AnalyticsOverviewSection } from './AnalyticsOverviewSection';
 export { AnalyticsChartsSection } from './AnalyticsChartsSection';
 export { AnalyticsTrafficSection } from './AnalyticsTrafficSection';
 export { AnalyticsSearchSection } from './AnalyticsSearchSection';
+export { AnalyticsFunnelSection } from './AnalyticsFunnelSection';

@@ -10,9 +10,14 @@
 
 export type InsightsCacheContext =
   | 'dma-funnel' // DMA Funnel page
+  | 'company-funnel' // Company funnel analytics
+  | 'workspace-funnel' // Workspace funnel analytics
   | 'company-analytics' // Company analytics tab
   | 'pipeline-dashboard' // Pipeline dashboard
-  | 'os-dashboard'; // OS Dashboard
+  | 'os-dashboard' // OS Dashboard
+  | 'blueprint-dma' // DMA Blueprint
+  | 'blueprint-company' // Company Blueprint
+  | 'blueprint-workspace'; // Workspace Blueprint
 
 export interface CachedInsightsEntry<T = unknown> {
   insights: T;
@@ -225,9 +230,14 @@ export function getInsightsCacheStats(): {
 
   const byContext: Record<InsightsCacheContext, number> = {
     'dma-funnel': 0,
+    'company-funnel': 0,
+    'workspace-funnel': 0,
     'company-analytics': 0,
     'pipeline-dashboard': 0,
     'os-dashboard': 0,
+    'blueprint-dma': 0,
+    'blueprint-company': 0,
+    'blueprint-workspace': 0,
   };
 
   let oldest: number | null = null;

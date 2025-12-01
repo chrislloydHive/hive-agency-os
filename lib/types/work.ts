@@ -88,7 +88,8 @@ export type WorkSourceType =
   | 'priority'
   | 'plan_initiative'
   | 'client_brain_insight'
-  | 'dma_funnel';
+  | 'dma_funnel'
+  | 'funnel_insight';
 
 /**
  * Analytics metric source - when work is created from an analytics insight
@@ -174,6 +175,19 @@ export interface WorkSourceDmaFunnel {
 }
 
 /**
+ * Funnel insight source - from any funnel AI insights (DMA, Company, Workspace)
+ */
+export interface WorkSourceFunnelInsight {
+  sourceType: 'funnel_insight';
+  funnelContext: 'dma' | 'company' | 'workspace';
+  companyId?: string;
+  companyName?: string;
+  itemType: 'quick_win' | 'experiment' | 'recommendation';
+  insightText?: string;
+  dateRange?: string;
+}
+
+/**
  * Union of all work source types
  */
 export type WorkSource =
@@ -185,7 +199,8 @@ export type WorkSource =
   | WorkSourcePriority
   | WorkSourcePlanInitiative
   | WorkSourceClientBrainInsight
-  | WorkSourceDmaFunnel;
+  | WorkSourceDmaFunnel
+  | WorkSourceFunnelInsight;
 
 // ============================================================================
 // Work Item Types
@@ -346,6 +361,12 @@ export function getSourceLabel(source?: WorkSource): string {
       return 'Priority';
     case 'plan_initiative':
       return 'Plan Initiative';
+    case 'client_brain_insight':
+      return `Client Brain → ${source.insightTitle || 'Insight'}`;
+    case 'dma_funnel':
+      return `DMA Funnel → ${source.itemType.replace('_', ' ')}`;
+    case 'funnel_insight':
+      return `${source.funnelContext.charAt(0).toUpperCase() + source.funnelContext.slice(1)} Funnel → ${source.itemType.replace('_', ' ')}`;
     default:
       return 'Unknown';
   }

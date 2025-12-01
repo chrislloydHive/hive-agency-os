@@ -9,8 +9,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import type { WorkspaceAnalyticsSummary, AnalyticsDateRangePreset } from '@/lib/analytics/types';
+import { WorkspaceFunnelView } from './WorkspaceFunnelView';
+
+type ActiveTab = 'overview' | 'funnel';
 
 export function WorkspaceAnalyticsDashboard() {
+  const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
   const [summary, setSummary] = useState<WorkspaceAnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -47,69 +51,107 @@ export function WorkspaceAnalyticsDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header with Tabs */}
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-100">Analytics Overview</h2>
-          <p className="text-slate-400 text-sm mt-1">
-            Aggregated metrics across all companies
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {(['7d', '30d', '90d'] as const).map((r) => (
+        <div className="flex items-center gap-6">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-100">Analytics</h2>
+            <p className="text-slate-400 text-sm mt-1">
+              Aggregated metrics across all companies
+            </p>
+          </div>
+          {/* Tab Buttons */}
+          <div className="flex gap-1 border-b border-slate-700">
             <button
-              key={r}
-              onClick={() => handleRangeChange(r)}
-              disabled={loading}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                range === r
-                  ? 'bg-amber-500 text-slate-900'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              onClick={() => setActiveTab('overview')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'overview'
+                  ? 'border-amber-500 text-amber-400'
+                  : 'border-transparent text-slate-400 hover:text-slate-300'
               }`}
             >
-              {r}
+              Overview
             </button>
-          ))}
-          <button
-            onClick={fetchSummary}
-            disabled={loading}
-            className="px-3 py-1.5 bg-slate-800 text-slate-300 hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors ml-2"
-          >
-            {loading ? (
-              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            <button
+              onClick={() => setActiveTab('funnel')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+                activeTab === 'funnel'
+                  ? 'border-amber-500 text-amber-400'
+                  : 'border-transparent text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
               </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            )}
-          </button>
+              Funnel
+            </button>
+          </div>
         </div>
+        {activeTab === 'overview' && (
+          <div className="flex items-center gap-2">
+            {(['7d', '30d', '90d'] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => handleRangeChange(r)}
+                disabled={loading}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  range === r
+                    ? 'bg-amber-500 text-slate-900'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                {r}
+              </button>
+            ))}
+            <button
+              onClick={fetchSummary}
+              disabled={loading}
+              className="px-3 py-1.5 bg-slate-800 text-slate-300 hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors ml-2"
+            >
+              {loading ? (
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              )}
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Loading State */}
-      {loading && !summary && (
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-12 text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-amber-400" />
-          <p className="text-slate-400 mt-4">Loading workspace analytics...</p>
-          <p className="text-slate-500 text-sm mt-2">This may take a minute as we aggregate all companies.</p>
-        </div>
+      {/* Funnel Tab Content */}
+      {activeTab === 'funnel' && (
+        <WorkspaceFunnelView initialDateRange={range === 'custom' ? '30d' : range} />
       )}
 
-      {/* Error State */}
-      {error && !loading && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 text-center">
-          <p className="text-red-400">{error}</p>
-          <button
-            onClick={fetchSummary}
-            className="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm"
-          >
-            Try Again
-          </button>
-        </div>
-      )}
+      {/* Overview Tab Content */}
+      {activeTab === 'overview' && (
+        <>
+          {/* Loading State */}
+          {loading && !summary && (
+            <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-12 text-center">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-amber-400" />
+              <p className="text-slate-400 mt-4">Loading workspace analytics...</p>
+              <p className="text-slate-500 text-sm mt-2">This may take a minute as we aggregate all companies.</p>
+            </div>
+          )}
+
+          {/* Error State */}
+          {error && !loading && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 text-center">
+              <p className="text-red-400">{error}</p>
+              <button
+                onClick={fetchSummary}
+                className="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm"
+              >
+                Try Again
+              </button>
+            </div>
+          )}
 
       {/* Content */}
       {summary && (
@@ -551,6 +593,8 @@ export function WorkspaceAnalyticsDashboard() {
           <div className="text-center text-xs text-slate-500">
             Generated at {new Date(summary.generatedAt).toLocaleString()}
           </div>
+        </>
+      )}
         </>
       )}
     </div>

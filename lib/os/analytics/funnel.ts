@@ -1,6 +1,9 @@
 // lib/os/analytics/funnel.ts
-// Workspace Funnel Summary Helper
-// Calculates funnel metrics: Sessions → DMA Audits → Leads → GAP Assessments → GAP Plans
+// Unified Funnel Engine for Hive OS
+// Provides a single data model and fetching logic for DMA, Company, and Workspace funnels
+//
+// NOTE: Types and pure transformation functions are in funnelTypes.ts for client-side use.
+// This file contains server-side functions that call GA4/Airtable.
 
 import { listRecentGapIaRuns } from '@/lib/airtable/gapIaRuns';
 import { listRecentGapPlanRuns } from '@/lib/airtable/gapPlanRuns';
@@ -11,9 +14,38 @@ import type {
   FunnelStageMetrics,
 } from './types';
 import { getWorkspaceGa4Summary } from './ga4';
+import { getAuditFunnelSnapshot, type AuditFunnelSnapshot } from '@/lib/ga4Client';
+
+// Re-export types from funnelTypes for backward compatibility
+export type {
+  FunnelStageId,
+  FunnelStageSummary,
+  FunnelTimePoint,
+  FunnelChannelPerformance,
+  FunnelCampaignPerformance,
+  FunnelSummary,
+  FunnelDataset,
+} from './funnelTypes';
+export {
+  calculateConversionRate,
+  getFunnelConversionRates,
+  getDatasetConversionRates,
+  transformDmaSnapshotToDataset,
+} from './funnelTypes';
+
+import type {
+  FunnelStageId,
+  FunnelStageSummary,
+  FunnelTimePoint,
+  FunnelChannelPerformance,
+  FunnelCampaignPerformance,
+  FunnelSummary,
+  FunnelDataset,
+} from './funnelTypes';
+import { transformDmaSnapshotToDataset } from './funnelTypes';
 
 // ============================================================================
-// Types
+// Legacy Types (for internal use only)
 // ============================================================================
 
 interface FunnelCounts {
@@ -290,17 +322,19 @@ function createPreviousPeriodRange(currentRange: WorkspaceDateRange): WorkspaceD
 }
 
 /**
- * Calculate conversion rate between funnel stages
+ * Calculate conversion rate between funnel stages (legacy version with percentage)
+ * Use calculateConversionRate from funnelTypes for the new API (returns 0-1)
  */
-export function calculateConversionRate(from: number, to: number): number | null {
+function calculateConversionRatePercent(from: number, to: number): number | null {
   if (from === 0) return null;
   return (to / from) * 100;
 }
 
 /**
- * Get funnel stage conversion rates
+ * Get funnel stage conversion rates for legacy WorkspaceFunnelSummary
+ * Use getFunnelConversionRates from funnelTypes for the new FunnelDataset API
  */
-export function getFunnelConversionRates(
+export function getWorkspaceFunnelConversionRates(
   funnel: WorkspaceFunnelSummary
 ): Array<{ from: string; to: string; rate: number | null }> {
   const stages = funnel.stages;
@@ -310,9 +344,202 @@ export function getFunnelConversionRates(
     rates.push({
       from: stages[i].label,
       to: stages[i + 1].label,
-      rate: calculateConversionRate(stages[i].value, stages[i + 1].value),
+      rate: calculateConversionRatePercent(stages[i].value, stages[i + 1].value),
     });
   }
 
   return rates;
 }
+
+// ============================================================================
+// Unified Funnel Dataset Fetchers (NEW)
+// ============================================================================
+
+/**
+ * Get unified DMA funnel dataset
+ * Transforms the legacy AuditFunnelSnapshot into the new FunnelDataset format
+ */
+export async function getDmaFunnelDataset(
+  startDate: string,
+  endDate: string,
+  preset?: '7d' | '30d' | '90d'
+): Promise<FunnelDataset> {
+  // Fetch the legacy DMA snapshot
+  const snapshot = await getAuditFunnelSnapshot(startDate, endDate);
+
+  // Transform to unified format using the function from funnelTypes
+  return transformDmaSnapshotToDataset(
+    snapshot,
+    { startDate, endDate },
+    preset
+  );
+}
+
+/**
+ * Get unified Workspace funnel dataset
+ * Combines GA4 traffic with Airtable pipeline data
+ */
+export async function getWorkspaceFunnelDataset(
+  range: WorkspaceDateRange,
+  workspaceId?: string
+): Promise<FunnelDataset> {
+  // Get the legacy funnel summary
+  const legacyFunnel = await getWorkspaceFunnelSummary(range, workspaceId);
+
+  // Also get DMA data for time series/channels if available
+  let dmaDataset: FunnelDataset | null = null;
+  try {
+    dmaDataset = await getDmaFunnelDataset(range.startDate, range.endDate, range.preset);
+  } catch (error) {
+    console.warn('[Funnel] Could not fetch DMA dataset for workspace:', error);
+  }
+
+  // Build stages from legacy funnel
+  const stages: FunnelStageSummary[] = legacyFunnel.stages.map((stage, idx, arr) => {
+    const prevStage = idx > 0 ? arr[idx - 1] : null;
+    const conversionFromPrevious =
+      prevStage && prevStage.value > 0 ? stage.value / prevStage.value : null;
+
+    // Map labels to stage IDs
+    let id: FunnelStageId = 'custom';
+    if (stage.label === 'Sessions') id = 'sessions';
+    else if (stage.label === 'DMA Audits') id = 'audits_started';
+    else if (stage.label === 'Leads') id = 'leads';
+    else if (stage.label === 'GAP Assessments') id = 'gap_assessments';
+    else if (stage.label === 'GAP Plans') id = 'gap_plans';
+
+    return {
+      id,
+      label: stage.label,
+      value: stage.value,
+      prevValue: stage.prevValue,
+      conversionFromPrevious,
+    };
+  });
+
+  // Use DMA time series and channels if available
+  const timeSeries = dmaDataset?.timeSeries ?? [];
+  const channels = dmaDataset?.channels ?? [];
+  const campaigns = dmaDataset?.campaigns ?? [];
+
+  // Calculate summary
+  const sessionsStage = stages.find((s) => s.id === 'sessions');
+  const plansStage = stages.find((s) => s.id === 'gap_plans');
+  const totalSessions = sessionsStage?.value ?? 0;
+  const totalConversions = plansStage?.value ?? 0;
+
+  const summary: FunnelSummary = {
+    totalSessions,
+    totalConversions,
+    overallConversionRate: totalSessions > 0 ? totalConversions / totalSessions : 0,
+    topChannel: channels.length > 0 ? channels[0].channel : null,
+    topCampaign: campaigns.length > 0 ? campaigns[0].campaign : null,
+    periodChange: calculatePeriodChange(stages),
+  };
+
+  return {
+    context: 'workspace',
+    range: {
+      startDate: range.startDate,
+      endDate: range.endDate,
+      preset: range.preset,
+    },
+    generatedAt: new Date().toISOString(),
+    summary,
+    stages,
+    timeSeries,
+    channels,
+    campaigns,
+  };
+}
+
+/**
+ * Get unified Company funnel dataset
+ * Uses company-specific GA4 property if available
+ */
+export async function getCompanyFunnelDataset(
+  companyId: string,
+  startDate: string,
+  endDate: string,
+  preset?: '7d' | '30d' | '90d',
+  ga4PropertyId?: string
+): Promise<FunnelDataset> {
+  // For now, return a basic dataset
+  // Company-specific funnel data would come from company's GA4 property
+  // TODO: Implement company-specific GA4 calls when properties are configured
+
+  const stages: FunnelStageSummary[] = [
+    {
+      id: 'sessions',
+      label: 'Sessions',
+      value: 0,
+      prevValue: null,
+      conversionFromPrevious: null,
+    },
+    {
+      id: 'audits_started',
+      label: 'Audits Started',
+      value: 0,
+      prevValue: null,
+      conversionFromPrevious: null,
+    },
+    {
+      id: 'audits_completed',
+      label: 'Audits Completed',
+      value: 0,
+      prevValue: null,
+      conversionFromPrevious: null,
+    },
+  ];
+
+  const summary: FunnelSummary = {
+    totalSessions: 0,
+    totalConversions: 0,
+    overallConversionRate: 0,
+    topChannel: null,
+    topCampaign: null,
+    periodChange: null,
+  };
+
+  return {
+    context: 'company',
+    contextId: companyId,
+    range: {
+      startDate,
+      endDate,
+      preset,
+    },
+    generatedAt: new Date().toISOString(),
+    summary,
+    stages,
+    timeSeries: [],
+    channels: [],
+    campaigns: [],
+  };
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/**
+ * Calculate period change percentage from stages with prevValue
+ */
+function calculatePeriodChange(stages: FunnelStageSummary[]): number | null {
+  // Use the first stage with both current and previous values
+  const stageWithChange = stages.find(
+    (s) => s.value > 0 && s.prevValue !== null && s.prevValue > 0
+  );
+
+  if (!stageWithChange || stageWithChange.prevValue === null) {
+    return null;
+  }
+
+  return (
+    ((stageWithChange.value - stageWithChange.prevValue) /
+      stageWithChange.prevValue) *
+    100
+  );
+}
+
+// getDatasetConversionRates is re-exported from funnelTypes.ts

@@ -1,9 +1,10 @@
 // app/analytics/dma/page.tsx
 // DMA Funnel Analytics page for Hive OS
 // Performance analytics for the DigitalMarketingAudit.ai acquisition funnel
+// Now using unified funnel components (V2)
 
 import { getAuditFunnelSnapshot } from '@/lib/ga4Client';
-import DmaFunnelClient from './DmaFunnelClient';
+import DmaFunnelClientV2 from './DmaFunnelClientV2';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -27,7 +28,7 @@ export default async function DmaFunnelPage() {
     const snapshot = await getAuditFunnelSnapshot(startDate, endDate);
 
     return (
-      <DmaFunnelClient
+      <DmaFunnelClientV2
         initialSnapshot={snapshot}
         initialRange={{ startDate, endDate }}
       />
