@@ -13,7 +13,7 @@ import { notFound } from 'next/navigation';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { getCompanyStrategySnapshot } from '@/lib/os/companies/strategySnapshot';
 import { getCompanyAlerts } from '@/lib/os/companies/alerts';
-import { getRecentRunsForCompany, getToolLabel, type DiagnosticRun } from '@/lib/os/diagnostics/runs';
+import { getRecentRunsWithToolCoverage, getToolLabel, type DiagnosticRun } from '@/lib/os/diagnostics/runs';
 import { getPerformancePulse } from '@/lib/os/analytics/performancePulse';
 import { getInsightsSummary } from '@/lib/airtable/clientBrain';
 import {
@@ -76,7 +76,7 @@ export default async function BlueprintPage({ params }: PageProps) {
   ] = await Promise.all([
     getCompanyById(companyId),
     getCompanyStrategySnapshot(companyId).catch(() => null),
-    getRecentRunsForCompany(companyId, 10).catch(() => []),
+    getRecentRunsWithToolCoverage(companyId, 10).catch(() => []),
     getCompanyAlerts(companyId).catch(() => []),
     getPerformancePulse().catch(() => null),
     getInsightsSummary(companyId).catch(() => null),

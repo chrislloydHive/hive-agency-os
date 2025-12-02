@@ -812,6 +812,108 @@ export async function getRecentRunsForCompany(
   return runs.slice(0, limit);
 }
 
+/**
+ * Get the latest run for each tool type for a company
+ * This is useful for the Blueprint page which needs to know if each tool has been run
+ * Returns a map of toolId -> latest completed run (or null if never run)
+ */
+export async function getLatestRunPerToolForCompany(
+  companyId: string
+): Promise<Map<DiagnosticToolId, DiagnosticRun | null>> {
+  console.log('[DiagnosticRuns] Getting latest run per tool for company:', { companyId });
+
+  // Fetch a larger batch to ensure we capture at least one run per tool
+  // With 9 tools, 100 records should be more than enough
+  const allRuns = await listDiagnosticRunsForCompany(companyId, { limit: 100 });
+
+  // Group runs by tool and get the latest completed one for each
+  const latestByTool = new Map<DiagnosticToolId, DiagnosticRun | null>();
+
+  // Initialize all known tools with null
+  const allToolIds: DiagnosticToolId[] = [
+    'gapSnapshot', 'gapPlan', 'gapHeavy', 'websiteLab',
+    'brandLab', 'contentLab', 'seoLab', 'demandLab', 'opsLab'
+  ];
+  for (const toolId of allToolIds) {
+    latestByTool.set(toolId, null);
+  }
+
+  // Group and find latest completed run for each tool
+  for (const run of allRuns) {
+    const existing = latestByTool.get(run.toolId);
+
+    // Only consider completed runs
+    if (run.status !== 'complete') continue;
+
+    // If no existing run or this run is newer, use it
+    if (!existing || new Date(run.createdAt) > new Date(existing.createdAt)) {
+      latestByTool.set(run.toolId, run);
+    }
+  }
+
+  console.log('[DiagnosticRuns] Latest runs per tool:', {
+    companyId,
+    tools: Array.from(latestByTool.entries()).map(([toolId, run]) => ({
+      toolId,
+      hasRun: !!run,
+      runId: run?.id,
+      score: run?.score,
+    })),
+  });
+
+  return latestByTool;
+}
+
+/**
+ * Get recent runs including at least the latest run for each tool type
+ * Combines recency with tool coverage to ensure Blueprint shows all tool statuses
+ */
+export async function getRecentRunsWithToolCoverage(
+  companyId: string,
+  recentLimit: number = 10
+): Promise<DiagnosticRun[]> {
+  console.log('[DiagnosticRuns] Getting recent runs with tool coverage:', { companyId, recentLimit });
+
+  // Fetch enough runs to cover all tools
+  const allRuns = await listDiagnosticRunsForCompany(companyId, { limit: 100 });
+
+  // Sort by date descending
+  allRuns.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  // Track which tools we've seen
+  const seenTools = new Set<DiagnosticToolId>();
+  const result: DiagnosticRun[] = [];
+
+  // First pass: take recent runs up to limit, tracking tools
+  for (const run of allRuns) {
+    if (result.length < recentLimit) {
+      result.push(run);
+      if (run.status === 'complete') {
+        seenTools.add(run.toolId);
+      }
+    }
+  }
+
+  // Second pass: add latest completed run for any missing tools
+  for (const run of allRuns) {
+    if (run.status === 'complete' && !seenTools.has(run.toolId)) {
+      // This is the latest completed run for this tool (since allRuns is sorted desc)
+      result.push(run);
+      seenTools.add(run.toolId);
+    }
+  }
+
+  console.log('[DiagnosticRuns] Runs with tool coverage:', {
+    totalRuns: result.length,
+    toolsCovered: Array.from(seenTools),
+  });
+
+  // Re-sort by date
+  result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  return result;
+}
+
 // ============================================================================
 // Score Trends
 // ============================================================================
