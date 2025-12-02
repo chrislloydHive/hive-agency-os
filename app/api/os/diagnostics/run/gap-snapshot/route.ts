@@ -14,7 +14,24 @@ import { runGapSnapshotEngine } from '@/lib/os/diagnostics/engines';
 import { aiForCompany, addCompanyMemoryEntry } from '@/lib/ai-gateway';
 import { findOrCreateCompanyForGap } from '@/lib/pipeline/createOrMatchCompany';
 import { processDiagnosticRunCompletionAsync } from '@/lib/os/diagnostics/postRunHooks';
+import { createDiagnosticError, detectErrorCode, type DiagnosticErrorCode } from '@/lib/os/diagnostics/messages';
 import type { GapModelCaller } from '@/lib/gap/core';
+
+/**
+ * Helper to create structured error response
+ */
+function errorResponse(code: DiagnosticErrorCode, status: number) {
+  const error = createDiagnosticError(code);
+  return NextResponse.json(
+    {
+      error: error.userMessage,
+      errorCode: error.code,
+      suggestion: error.suggestion,
+      retryable: error.retryable,
+    },
+    { status }
+  );
+}
 
 export const maxDuration = 120; // 2 minutes timeout
 
@@ -25,10 +42,7 @@ export async function POST(request: NextRequest) {
 
     // Validate: either companyId or url must be provided
     if (!companyId && !url) {
-      return NextResponse.json(
-        { error: 'Either companyId or url must be provided' },
-        { status: 400 }
-      );
+      return errorResponse('MISSING_URL', 400);
     }
 
     // Find or create company using unified helper
@@ -46,20 +60,14 @@ export async function POST(request: NextRequest) {
       company = result.company;
       isNewCompany = result.isNew;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to find or create company';
-      return NextResponse.json(
-        { error: message },
-        { status: 400 }
-      );
+      console.error('[API] Failed to find or create company:', error);
+      return errorResponse('COMPANY_NOT_FOUND', 400);
     }
 
     // Verify company has a website URL (required for GAP)
     const websiteUrl = company.website || url;
     if (!websiteUrl) {
-      return NextResponse.json(
-        { error: 'Company has no website URL' },
-        { status: 400 }
-      );
+      return errorResponse('NO_WEBSITE_URL', 400);
     }
 
     console.log('[API] Running GAP Snapshot for:', company.name, isNewCompany ? '(newly created)' : '(existing)');
@@ -182,8 +190,19 @@ You must always output valid JSON matching the GAP IA schema.
     });
   } catch (error) {
     console.error('[API] GAP Snapshot error:', error);
+
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    const errorCode = detectErrorCode(errorMessage);
+    const structuredError = createDiagnosticError(errorCode);
+
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
+      {
+        error: structuredError.userMessage,
+        errorCode: structuredError.code,
+        suggestion: structuredError.suggestion,
+        retryable: structuredError.retryable,
+        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
+      },
       { status: 500 }
     );
   }
