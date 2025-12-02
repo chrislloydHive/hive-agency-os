@@ -43,10 +43,10 @@ export default async function PageEvaluatorPage({ params, searchParams }: PagePr
             </p>
           </div>
           <Link
-            href={`/c/${companyId}/diagnostics`}
+            href={`/c/${companyId}/blueprint`}
             className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors"
           >
-            ← Back to Diagnostics
+            ← Back to Blueprint
           </Link>
         </div>
       </div>

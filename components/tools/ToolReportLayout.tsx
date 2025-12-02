@@ -182,8 +182,8 @@ export function ToolReportLayout({
           {company.name}
         </Link>
         <span>/</span>
-        <Link href={`/c/${company.id}/diagnostics`} className="hover:text-slate-300 transition-colors">
-          Diagnostics
+        <Link href={`/c/${company.id}/blueprint`} className="hover:text-slate-300 transition-colors">
+          Blueprint
         </Link>
         <span>/</span>
         <span className="text-slate-300">{tool.label}</span>
@@ -266,11 +266,11 @@ export function ToolReportLayout({
                 )}
               </button>
               <Link
-                href={`/c/${company.id}/diagnostics`}
+                href={`/c/${company.id}/blueprint`}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition-all text-sm font-medium"
               >
                 <LucideIcons.ArrowLeft className="w-4 h-4" />
-                Back
+                Back to Blueprint
               </Link>
             </div>
           </div>

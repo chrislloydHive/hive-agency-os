@@ -61,10 +61,10 @@ export default async function GapSnapshotPage({ params }: GapSnapshotPageProps) 
       {/* Header */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
         <Link
-          href={`/c/${companyId}/diagnostics`}
+          href={`/c/${companyId}/blueprint`}
           className="text-sm text-slate-400 hover:text-slate-300 mb-4 inline-block"
         >
-          ← Back to Diagnostics
+          ← Back to Blueprint
         </Link>
 
         <div className="flex items-start justify-between gap-4">
@@ -257,10 +257,10 @@ export default async function GapSnapshotPage({ params }: GapSnapshotPageProps) 
       {/* Actions */}
       <div className="flex gap-4">
         <Link
-          href={`/c/${companyId}/diagnostics`}
+          href={`/c/${companyId}/blueprint`}
           className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-medium transition-colors"
         >
-          ← Back to Diagnostics
+          ← Back to Blueprint
         </Link>
         <Link
           href={`/c/${companyId}/plan`}

@@ -75,10 +75,10 @@ export default async function BrandDiagnosticPage({ params }: PageProps) {
       <div className="mx-auto max-w-4xl space-y-6 p-6">
         <div className="mb-6">
           <Link
-            href={`/c/${companyId}/diagnostics`}
+            href={`/c/${companyId}/blueprint`}
             className="text-sm text-slate-400 hover:text-slate-300"
           >
-            Back to Diagnostics
+            ← Back to Blueprint
           </Link>
         </div>
 
@@ -136,10 +136,10 @@ export default async function BrandDiagnosticPage({ params }: PageProps) {
       <div className="border-b border-slate-800 bg-slate-900/50">
         <div className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between">
           <Link
-            href={`/c/${companyId}/diagnostics`}
+            href={`/c/${companyId}/blueprint`}
             className="text-sm text-slate-400 hover:text-slate-300"
           >
-            Back to Diagnostics
+            ← Back to Blueprint
           </Link>
           <span className="text-xs font-medium text-slate-500">
             Brand Lab V4 (Internal)

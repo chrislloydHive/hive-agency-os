@@ -219,10 +219,10 @@ export function ToolDiagnosticsPageClient({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <Link
-                href={`/c/${companyId}/diagnostics`}
+                href={`/c/${companyId}/blueprint`}
                 className="text-sm text-slate-400 hover:text-slate-300"
               >
-                ← Back to Diagnostics
+                ← Back to Blueprint
               </Link>
               <span className="text-slate-600">|</span>
               <span className="text-sm text-slate-500">{companyName}</span>

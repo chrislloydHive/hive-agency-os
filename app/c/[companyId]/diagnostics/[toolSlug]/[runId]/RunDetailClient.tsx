@@ -87,7 +87,7 @@ export function RunDetailClient({
           router.push(`/c/${companyId}/diagnostics/${toolId}/${result.run.id}`);
           router.refresh();
         } else {
-          router.push(`/c/${companyId}/diagnostics`);
+          router.push(`/c/${companyId}/blueprint`);
           router.refresh();
         }
       }, 1500);
