@@ -88,6 +88,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      run: {
+        id: run.id,
+        status: 'running',
+        companyId,
+      },
       runId: run.id,
       companyId,
       companyName: company.name,

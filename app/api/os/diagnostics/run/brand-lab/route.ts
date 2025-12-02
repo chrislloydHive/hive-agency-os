@@ -79,6 +79,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      run: {
+        id: run.id,
+        status: 'running',
+        companyId,
+      },
       runId: run.id,
       message: 'Brand Lab diagnostic started. Poll /api/os/diagnostics/status/brand-lab?companyId=... for status.',
     });
