@@ -195,8 +195,9 @@ function diagnosticRunToAirtableFields(
   const fields: Record<string, unknown> = {};
 
   if ('companyId' in run && run.companyId) {
-    // Store as text - works with any field type
-    fields['Company'] = run.companyId;
+    // Store as linked record array - Airtable expects an array of record IDs for link fields
+    // If the field is configured as text, this will still work
+    fields['Company'] = [run.companyId];
   }
   if ('toolId' in run && run.toolId) {
     fields['Tool ID'] = run.toolId;
@@ -406,7 +407,10 @@ export async function listDiagnosticRunsForCompany(
   const limit = opts?.limit || 50;
 
   // Build filter formula
-  let filterParts: string[] = [`FIND('${companyId}', ARRAYJOIN({Company}, ','))`];
+  // The Company field might be a linked record (array) or a text field (string)
+  // We use OR to match either case
+  const companyFilter = `OR(FIND('${companyId}', ARRAYJOIN({Company}, ',')), {Company} = '${companyId}')`;
+  let filterParts: string[] = [companyFilter];
 
   if (opts?.toolId) {
     filterParts.push(`{Tool ID} = '${opts.toolId}'`);
