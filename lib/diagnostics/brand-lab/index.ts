@@ -127,9 +127,10 @@ export async function runBrandLab(params: RunBrandLabParams): Promise<BrandLabRe
 }
 
 /**
- * Internal helper to build BrandLabResult from V1 result
+ * Build BrandLabResult from V1 result.
+ * Exported for use in Inngest function where V1 is run separately.
  */
-async function buildBrandLabResultFromV1(
+export async function buildBrandLabResultFromV1(
   v1Result: Awaited<ReturnType<typeof runBrandLabV1>>,
   params: RunBrandLabParams
 ): Promise<BrandLabResult> {

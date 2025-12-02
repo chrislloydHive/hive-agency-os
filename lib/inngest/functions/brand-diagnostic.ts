@@ -223,10 +223,10 @@ export const brandDiagnostic = inngest.createFunction(
     });
 
     // ========================================================================
-    // STEP 3: Build Quick Wins and Projects
+    // STEP 3: Build Full V2 Result (using V1 result from Step 1)
     // ========================================================================
-    const fullResult = await step.run('build-actions', async () => {
-      console.log('[BrandDiagnostic] Step 3/4: Building quick wins and projects...');
+    const fullResult = await step.run('build-full-result', async () => {
+      console.log('[BrandDiagnostic] Step 3/4: Building full V2 result...');
 
       await inngest.send({
         name: 'brand.diagnostic.updated',
@@ -239,11 +239,11 @@ export const brandDiagnostic = inngest.createFunction(
         },
       });
 
-      // Import the full V2 runner to get quick wins and projects
-      const { runBrandLab } = await import('@/lib/diagnostics/brand-lab');
+      // Use the SAME V1 result from Step 1 - don't re-run V1!
+      // This ensures we use the validated result, not a potentially different re-run
+      const { buildBrandLabResultFromV1 } = await import('@/lib/diagnostics/brand-lab');
 
-      // Run the full V2 transformation (this re-runs V1 but we have the result cached)
-      const result = await runBrandLab({
+      const result = await buildBrandLabResultFromV1(v1Result, {
         company,
         websiteUrl,
         companyId,
