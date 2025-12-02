@@ -301,6 +301,92 @@ export function BlueprintClient({
     return toolRuns[0] || null;
   };
 
+  // Poll for async tool completion
+  const pollForCompletion = useCallback(
+    async (toolId: CompanyToolId, runId: string, toolLabel: string) => {
+      // Map tool IDs to their status endpoints
+      const statusEndpoints: Record<string, string> = {
+        brandLab: `/api/os/diagnostics/status/brand-lab?companyId=${company.id}`,
+        // Add more async tools here as needed
+      };
+
+      const statusEndpoint = statusEndpoints[toolId];
+      if (!statusEndpoint) {
+        // No status endpoint, just refresh after a delay
+        setTimeout(() => {
+          setRunningTools((prev) => {
+            const next = new Set(prev);
+            next.delete(toolId);
+            return next;
+          });
+          router.refresh();
+        }, 3000);
+        return;
+      }
+
+      // Poll every 5 seconds, max 60 attempts (5 minutes)
+      let attempts = 0;
+      const maxAttempts = 60;
+
+      const poll = async () => {
+        attempts++;
+        try {
+          const response = await fetch(statusEndpoint);
+          const data = await response.json();
+
+          if (data.status === 'completed' || data.status === 'complete') {
+            // Done! Remove from running and refresh
+            setRunningTools((prev) => {
+              const next = new Set(prev);
+              next.delete(toolId);
+              return next;
+            });
+            setNewDataBanner(`${toolLabel} completed! Refreshing...`);
+            setTimeout(() => {
+              setNewDataBanner(null);
+              router.refresh();
+            }, 2000);
+            return;
+          }
+
+          if (data.status === 'failed') {
+            // Failed, stop polling
+            setRunningTools((prev) => {
+              const next = new Set(prev);
+              next.delete(toolId);
+              return next;
+            });
+            setNewDataBanner(`${toolLabel} failed: ${data.error || 'Unknown error'}`);
+            setTimeout(() => setNewDataBanner(null), 5000);
+            return;
+          }
+
+          // Still running, continue polling if under max attempts
+          if (attempts < maxAttempts) {
+            setTimeout(poll, 5000);
+          } else {
+            // Timeout, stop polling but leave as potentially running
+            console.warn(`[Blueprint] Polling timeout for ${toolLabel}`);
+            setRunningTools((prev) => {
+              const next = new Set(prev);
+              next.delete(toolId);
+              return next;
+            });
+          }
+        } catch (error) {
+          console.error(`[Blueprint] Error polling ${toolLabel} status:`, error);
+          if (attempts < maxAttempts) {
+            setTimeout(poll, 5000);
+          }
+        }
+      };
+
+      // Start polling after initial delay
+      setTimeout(poll, 3000);
+    },
+    [company.id, router]
+  );
+
   // Handle running a tool
   const handleRunTool = useCallback(
     async (tool: CompanyToolDefinition) => {
@@ -328,12 +414,30 @@ export function BlueprintClient({
         if (response.ok && data.run) {
           setNewDataBanner(`${tool.label} started - strategy will update when complete`);
           setTimeout(() => setNewDataBanner(null), 5000);
+
+          // For async tools (like Brand Lab), start polling for completion
+          const asyncTools = ['brandLab'];
+          if (asyncTools.includes(tool.id)) {
+            pollForCompletion(tool.id, data.run.id, tool.label);
+          } else {
+            // Synchronous tools - remove from running immediately and refresh
+            setRunningTools((prev) => {
+              const next = new Set(prev);
+              next.delete(tool.id);
+              return next;
+            });
+            setTimeout(() => router.refresh(), 2000);
+          }
         } else {
           console.error(`[Blueprint] Failed to run ${tool.label}:`, data.error);
+          setRunningTools((prev) => {
+            const next = new Set(prev);
+            next.delete(tool.id);
+            return next;
+          });
         }
       } catch (error) {
         console.error(`[Blueprint] Error running ${tool.label}:`, error);
-      } finally {
         setRunningTools((prev) => {
           const next = new Set(prev);
           next.delete(tool.id);
@@ -341,7 +445,7 @@ export function BlueprintClient({
         });
       }
     },
-    [company.id, company.website, company.domain, router]
+    [company.id, company.website, company.domain, router, pollForCompletion]
   );
 
   // Handle sending an action to Work
