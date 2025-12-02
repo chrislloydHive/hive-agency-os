@@ -30,6 +30,7 @@ const slugToToolId: Record<string, DiagnosticToolId> = {
   'contentLab': 'contentLab',
   'seo-lab': 'seoLab',
   'seoLab': 'seoLab',
+  'seo-heavy': 'seoLab', // Redirect old slug to seoLab
   'demand-lab': 'demandLab',
   'demandLab': 'demandLab',
   'ops-lab': 'opsLab',

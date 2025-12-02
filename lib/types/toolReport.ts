@@ -11,6 +11,11 @@ export interface ScoreItem {
   value: number;
   maxValue?: number;
   group?: string;
+  /** Optional metadata for special handling (e.g., not_evaluated subscores) */
+  metadata?: {
+    notEvaluated?: boolean;
+    [key: string]: unknown;
+  };
 }
 
 /**

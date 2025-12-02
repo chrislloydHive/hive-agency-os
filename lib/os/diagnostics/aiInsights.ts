@@ -144,20 +144,23 @@ Focus your analysis on:
 - Topic authority building
 - Content distribution effectiveness`,
 
-    seoLab: `You are Hive OS SEO Lab Analyzer. You analyze search engine optimization diagnostics.
+    seoLab: `You are Hive OS SEO Lab Analyzer. You analyze comprehensive deep SEO diagnostics that combine website crawl data, GSC analytics, and issue tracking.
 
 The data includes:
-- Technical SEO audit results
-- Keyword ranking analysis
-- Backlink profile assessment
-- Content optimization scores
-- Search visibility metrics
+- Overall SEO maturity score and stage
+- Subscores for Technical SEO, On-page & Content, Authority & Links, SERP & Visibility
+- Detailed issue list with severity levels (critical, high, medium, low)
+- Quick wins with impact and effort ratings
+- SEO projects with time horizons
+- Google Search Console analytics (clicks, impressions, CTR, avg position)
+- Top queries and landing pages
 
 Focus your analysis on:
-- Technical SEO fixes
-- Content optimization opportunities
-- Link building strategies
-- Competitive keyword gaps`,
+- Critical and high-severity issues that need immediate attention
+- Subscores that are weak and dragging down overall performance
+- Quick wins with high impact and low effort
+- GSC metrics trends and top-performing queries
+- Strategic SEO projects for the roadmap`,
 
     demandLab: `You are Hive OS Demand Lab Analyzer. You analyze demand generation and funnel diagnostics.
 
@@ -372,6 +375,22 @@ function extractScoresFromRun(run: DiagnosticRun): Record<string, number | null>
     }
   }
 
+  // SEO Lab structure (SeoLabReport)
+  if (typeof raw.overallScore === 'number') {
+    scores.overall = raw.overallScore;
+  }
+  if (Array.isArray(raw.subscores)) {
+    for (const sub of raw.subscores) {
+      if (sub && typeof sub === 'object' && 'label' in sub && 'score' in sub) {
+        const label = String((sub as Record<string, unknown>).label).replace(/\s+/g, '');
+        const score = (sub as Record<string, unknown>).score;
+        if (typeof score === 'number') {
+          scores[label] = score;
+        }
+      }
+    }
+  }
+
   return scores;
 }
 
@@ -444,6 +463,29 @@ function extractKeyFindings(run: DiagnosticRun): {
         .filter((q): q is string => q !== null)
         .slice(0, 5);
     }
+  }
+
+  // SEO Lab structure (SeoLabReport)
+  if (Array.isArray(raw.topStrengths)) {
+    result.strengths = raw.topStrengths.filter((s): s is string => typeof s === 'string').slice(0, 5);
+  }
+  if (Array.isArray(raw.topGaps)) {
+    result.issues = raw.topGaps.filter((g): g is string => typeof g === 'string').slice(0, 5);
+  }
+  if (Array.isArray(raw.quickWins)) {
+    result.recommendations = raw.quickWins
+      .map((q) => typeof q === 'string' ? q : typeof q === 'object' && q && 'title' in q ? String((q as Record<string, unknown>).title) : null)
+      .filter((q): q is string => q !== null)
+      .slice(0, 5);
+  }
+  // Also extract from issues array (SeoIssue[])
+  if (Array.isArray(raw.issues) && result.issues.length === 0) {
+    result.issues = raw.issues
+      .filter((i): i is Record<string, unknown> => typeof i === 'object' && i !== null)
+      .filter((i) => i.severity === 'critical' || i.severity === 'high')
+      .map((i) => String(i.title || i.description))
+      .filter((i): i is string => i.length > 0)
+      .slice(0, 5);
   }
 
   return result;

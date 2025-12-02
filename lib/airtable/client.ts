@@ -76,7 +76,7 @@ export async function createRecord(
     url: url.replace(config.apiKey, '***'),
     tableName,
     fieldCount: Object.keys(fields).length,
-    fields: tableName === 'GAP-Heavy Run' ? fields : undefined, // Log fields for Heavy Run table
+    fields: (tableName === 'GAP-Heavy Run' || tableName === 'Diagnostic Runs') ? fields : undefined, // Log fields for Heavy Run and Diagnostic Runs tables
   });
 
   const response = await fetch(url, {

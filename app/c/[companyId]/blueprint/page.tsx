@@ -138,6 +138,7 @@ export default async function BlueprintPage({ params }: PageProps) {
     hasRecentRun: rt.hasRecentRun,
     lastRunAt: rt.lastRunAt,
     lastScore: rt.lastScore,
+    lastRunId: rt.lastRunId,
     daysSinceRun: rt.daysSinceRun,
     // Tool definition (without functions)
     toolLabel: rt.tool.label,

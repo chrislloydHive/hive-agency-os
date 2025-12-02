@@ -36,6 +36,8 @@ export interface RecommendedTool {
   hasRecentRun: boolean;
   lastRunAt?: string;
   lastScore?: number | null;
+  /** ID of the last run, for building view/report URLs */
+  lastRunId?: string;
   /** Days since last run, null if never run */
   daysSinceRun: number | null;
 }
@@ -215,6 +217,34 @@ export async function getRecommendedToolsForBlueprint(
         }
         break;
 
+      case 'seoLab':
+        if (neverRun) {
+          // Check if we have any SEO-related data indicating issues
+          const hasSeoFocusArea = strategySynthesis?.topFocusAreas?.some(
+            a => a.title.toLowerCase().includes('seo') || a.title.toLowerCase().includes('search')
+          );
+          if (hasSeoFocusArea) {
+            scoreImpact = 'high';
+            urgency = 'now';
+            reason = 'SEO is a strategic focus area but no deep analysis exists. Run SEO Lab for comprehensive insights.';
+          } else {
+            scoreImpact = 'medium';
+            urgency = 'next';
+            reason = 'No deep SEO analysis exists. Run SEO Lab for technical audit, issue tracking, and GSC analytics.';
+          }
+        } else if (isStale) {
+          scoreImpact = 'medium';
+          urgency = 'next';
+          reason = `SEO Lab analysis is ${daysSinceRun} days old. Re-run to catch SEO drift and track issues.`;
+        } else if (latestRun?.score !== undefined && latestRun.score !== null && latestRun.score < 60) {
+          scoreImpact = 'high';
+          urgency = 'now';
+          reason = `Previous SEO score was ${latestRun.score}/100. Re-run to track improvement and prioritize fixes.`;
+        } else {
+          continue;
+        }
+        break;
+
       default:
         // For other tools, basic staleness logic
         if (neverRun) {
@@ -259,6 +289,7 @@ export async function getRecommendedToolsForBlueprint(
       hasRecentRun,
       lastRunAt: latestRun?.createdAt,
       lastScore: latestRun?.score ?? null,
+      lastRunId: latestRun?.id,
       daysSinceRun,
     });
   }

@@ -27,7 +27,7 @@ export type CompanyToolId =
   | 'websiteLab'     // Website UX/Conversion Lab
   | 'brandLab'       // Brand Health Lab
   | 'contentLab'     // Content Strategy Lab
-  | 'seoLab'         // SEO Lab
+  | 'seoLab'         // SEO Lab (deep SEO + GSC + analytics)
   | 'demandLab'      // Demand Generation Lab
   | 'opsLab'         // Marketing Operations Lab
   | 'analyticsScan'; // Analytics Scan (GA4 + GSC)
@@ -338,25 +338,25 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     id: 'seoLab',
     label: 'SEO Lab',
     shortLabel: 'SEO',
-    description: 'Search engine optimization analysis. Evaluates technical SEO, content optimization, and search visibility.',
+    description: 'Comprehensive SEO diagnostic combining website crawl, technical analysis, GSC data, and issue tracking with work item creation.',
     category: 'SEO & Search',
     behavior: 'diagnosticRun',
-    status: 'comingSoon',
+    status: 'enabled',
     diagnosticToolId: 'seoLab',
     runApiPath: '/api/os/diagnostics/run/seo-lab',
     urlSlug: 'seo-lab',
     viewPath: (companyId, runId) =>
       runId ? `/c/${companyId}/diagnostics/seo-lab/${runId}` : `/c/${companyId}/diagnostics?tool=seoLab`,
     requiresWebsite: true,
-    estimatedMinutes: 3,
+    estimatedMinutes: 5,
     icon: 'search',
-    primaryActionLabel: 'Run SEO Diagnostic',
+    primaryActionLabel: 'Run SEO Lab',
     blueprintMeta: {
-      whyRun: 'Analyze technical SEO, on-page optimization, and search visibility opportunities.',
-      answersQuestion: 'What\'s holding back organic search performance and visibility?',
-      influences: ['Strategy', 'Blueprint Focus', 'Work', 'Analytics'],
+      whyRun: 'Get a comprehensive SEO analysis with subscores, issue tracking, GSC analytics, quick wins, and projects - all actionable with one-click work item creation.',
+      answersQuestion: 'What are all the SEO issues affecting this site and how should we prioritize fixing them?',
+      influences: ['Strategy', 'Blueprint Focus', 'Work', 'Brain', 'Analytics'],
       inputs: ['Website', 'Content', 'SEO', 'Analytics'],
-      typicalUseWhen: 'Organic traffic is declining, search positions are dropping, or planning SEO investments.',
+      typicalUseWhen: 'Need deep SEO insights, planning an SEO project, or when organic performance needs a comprehensive audit.',
     },
   },
 

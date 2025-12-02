@@ -6,10 +6,19 @@ import {
   COMPANY_TOOL_DEFS,
   getEnabledTools,
   getComingSoonTools,
+  getToolById,
   type CompanyToolDefinition,
   type CompanyToolId,
   type ToolIcon,
 } from '@/lib/tools/registry';
+import {
+  OS_TOOL_DEFINITIONS,
+  getAvailableOsTools,
+  getComingSoonOsTools,
+  osToolIdToCompanyToolId,
+  getToolIconName,
+  type OsToolDefinition,
+} from '@/lib/os/tools/definitions';
 import type { DiagnosticRun } from '@/lib/os/diagnostics/runs';
 import type { CompanyRecord } from '@/lib/airtable/companies';
 
@@ -24,6 +33,7 @@ interface CompanyToolsTabProps {
 }
 
 interface ToolCardProps {
+  osTool: OsToolDefinition;
   tool: CompanyToolDefinition;
   companyId: string;
   company: CompanyRecord;
@@ -134,7 +144,12 @@ function getToolIconSvg(icon: ToolIcon): ReactNode {
 // Tool Card Component
 // ============================================================================
 
+/**
+ * Tool Card - Uses OsToolDefinition for rich metadata display
+ * Maps to CompanyToolDefinition for runtime behavior
+ */
 function ToolCard({
+  osTool,
   tool,
   companyId,
   company,
@@ -143,7 +158,8 @@ function ToolCard({
   isRunning,
 }: ToolCardProps) {
   const router = useRouter();
-  const isEnabled = tool.status === 'enabled';
+  const isEnabled = osTool.status === 'available';
+  const isLocked = osTool.status === 'locked';
   const hasWebsite = Boolean(company.website || company.domain);
   const canRun = isEnabled && (!tool.requiresWebsite || hasWebsite);
 
@@ -188,11 +204,27 @@ function ToolCard({
     statusColor = 'text-emerald-400';
   }
 
+  // Get impact badge style
+  const getImpactBadgeStyle = (impact: string) => {
+    switch (impact) {
+      case 'foundational':
+        return 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+      case 'high':
+        return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+      case 'medium':
+        return 'bg-blue-500/20 text-blue-300 border-blue-500/30';
+      default:
+        return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
+    }
+  };
+
   return (
     <div
       className={`rounded-2xl bg-slate-900/80 border p-5 flex flex-col justify-between transition-all ${
         isEnabled
           ? 'border-slate-800 hover:border-slate-700'
+          : isLocked
+          ? 'border-amber-500/20 opacity-80'
           : 'border-slate-800/50 opacity-60'
       }`}
     >
@@ -200,34 +232,49 @@ function ToolCard({
       <div>
         <div className="flex items-start justify-between mb-3">
           <div className={`p-2 rounded-lg ${isEnabled ? 'bg-slate-800 text-amber-500' : 'bg-slate-800/50 text-slate-600'}`}>
-            {getToolIconSvg(tool.icon)}
+            {getToolIconSvg(getToolIconName(osTool.id) as ToolIcon)}
           </div>
-          {lastRun?.score !== null && lastRun?.score !== undefined && (
-            <span className="text-lg font-bold text-amber-500">
-              {lastRun.score}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {isLocked && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                Locked
+              </span>
+            )}
+            {lastRun?.score !== null && lastRun?.score !== undefined && (
+              <span className="text-lg font-bold text-amber-500">
+                {lastRun.score}
+              </span>
+            )}
+          </div>
         </div>
 
+        {/* Tool Name - from OsToolDefinition */}
         <h3 className="text-sm font-semibold text-slate-50 mb-1">
-          {tool.label}
+          {osTool.name}
         </h3>
-        <p className="text-xs text-slate-400 mb-1">
-          {tool.category}
-        </p>
-        <p className="text-xs text-slate-300 leading-relaxed">
-          {tool.description}
+
+        {/* Short Summary - from OsToolDefinition */}
+        <p className="text-xs text-slate-300 leading-relaxed mb-2">
+          {osTool.shortSummary}
         </p>
 
-        {/* Estimated time */}
-        {tool.estimatedMinutes && tool.behavior === 'diagnosticRun' && (
-          <p className="text-xs text-slate-500 mt-2">
-            ~{tool.estimatedMinutes} min
-          </p>
-        )}
+        {/* Impact & Timing badges - from OsToolDefinition */}
+        <div className="flex items-center gap-2 flex-wrap mb-2">
+          <span className={`text-[10px] px-1.5 py-0.5 rounded border ${getImpactBadgeStyle(osTool.impact)}`}>
+            {osTool.impact}
+          </span>
+          <span className="text-[10px] text-slate-500">
+            {osTool.estimatedRunTime}
+          </span>
+        </div>
+
+        {/* Helps Answer - from OsToolDefinition */}
+        <p className="text-[10px] text-slate-500 italic mb-2">
+          Helps answer: {osTool.helpsAnswer}
+        </p>
 
         {/* Status */}
-        <div className={`text-xs mt-3 ${statusColor}`}>
+        <div className={`text-xs mt-2 ${statusColor}`}>
           {isRunning ? (
             <span className="flex items-center gap-1.5">
               <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -251,10 +298,10 @@ function ToolCard({
           </div>
         )}
 
-        {/* Not available */}
-        {!isEnabled && (
-          <div className="text-xs text-slate-500 mt-2">
-            Coming soon
+        {/* Requirements - from OsToolDefinition */}
+        {osTool.requirements && osTool.requirements.length > 0 && (
+          <div className="text-[10px] text-slate-500 mt-2">
+            {osTool.requirements.join(' • ')}
           </div>
         )}
       </div>
@@ -263,9 +310,9 @@ function ToolCard({
       <div className="flex gap-2 mt-4 pt-4 border-t border-slate-800">
         <button
           onClick={handleRun}
-          disabled={!canRun || isRunning}
+          disabled={!canRun || isRunning || isLocked}
           className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
-            canRun && !isRunning
+            canRun && !isRunning && !isLocked
               ? 'bg-amber-500 hover:bg-amber-400 text-slate-900'
               : 'bg-slate-800 text-slate-500 cursor-not-allowed'
           }`}
@@ -293,6 +340,11 @@ function ToolCard({
 // Main Component
 // ============================================================================
 
+/**
+ * Company Tools Tab - Driven by OS_TOOL_DEFINITIONS
+ * Uses OsToolDefinition for rich metadata display
+ * Maps to CompanyToolDefinition for runtime behavior
+ */
 export function CompanyToolsTab({
   companyId,
   company,
@@ -353,50 +405,66 @@ export function CompanyToolsTab({
     [companyId, company.website, company.domain]
   );
 
-  // Group tools by status
-  const enabledTools = getEnabledTools();
-  const comingSoonTools = getComingSoonTools();
+  // Get tools from OS_TOOL_DEFINITIONS (available = available + locked)
+  const availableOsTools = getAvailableOsTools();
+  const comingSoonOsTools = getComingSoonOsTools();
 
   return (
     <div className="space-y-8">
-      {/* Active Tools Grid */}
+      {/* Active Tools Grid - Driven by OS_TOOL_DEFINITIONS */}
       <div>
         <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
-          Available Tools ({enabledTools.length})
+          Available Tools ({availableOsTools.length})
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {enabledTools.map((tool) => (
-            <ToolCard
-              key={tool.id}
-              tool={tool}
-              companyId={companyId}
-              company={company}
-              lastRun={getLastRunForTool(tool)}
-              onRunTool={handleRunTool}
-              isRunning={runningTools.has(tool.id)}
-            />
-          ))}
-        </div>
-      </div>
+          {availableOsTools.map((osTool) => {
+            // Map OS tool ID to company tool ID for runtime behavior
+            const companyToolId = osToolIdToCompanyToolId(osTool.id) as CompanyToolId | undefined;
+            const tool = companyToolId ? getToolById(companyToolId) : undefined;
+            if (!tool) return null;
 
-      {/* Coming Soon Tools */}
-      {comingSoonTools.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-4">
-            Coming Soon ({comingSoonTools.length})
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {comingSoonTools.map((tool) => (
+            return (
               <ToolCard
-                key={tool.id}
+                key={osTool.id}
+                osTool={osTool}
                 tool={tool}
                 companyId={companyId}
                 company={company}
                 lastRun={getLastRunForTool(tool)}
                 onRunTool={handleRunTool}
-                isRunning={false}
+                isRunning={runningTools.has(tool.id)}
               />
-            ))}
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Coming Soon Tools - Driven by OS_TOOL_DEFINITIONS */}
+      {comingSoonOsTools.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-4">
+            Coming Soon ({comingSoonOsTools.length})
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {comingSoonOsTools.map((osTool) => {
+              // Map OS tool ID to company tool ID for runtime behavior
+              const companyToolId = osToolIdToCompanyToolId(osTool.id) as CompanyToolId | undefined;
+              const tool = companyToolId ? getToolById(companyToolId) : undefined;
+              if (!tool) return null;
+
+              return (
+                <ToolCard
+                  key={osTool.id}
+                  osTool={osTool}
+                  tool={tool}
+                  companyId={companyId}
+                  company={company}
+                  lastRun={getLastRunForTool(tool)}
+                  onRunTool={handleRunTool}
+                  isRunning={false}
+                />
+              );
+            })}
           </div>
         </div>
       )}

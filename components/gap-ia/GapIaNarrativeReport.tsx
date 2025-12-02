@@ -214,9 +214,11 @@ export function GapIaNarrativeReport({ run }: Props) {
           context={{
             businessType: run.businessContext?.businessType,
             brandTier: run.businessContext?.brandTier,
-            maturityStage: run.businessContext?.maturityStage,
+            maturityStage: run.businessContext?.maturityStage || summary?.maturityStage,
             overallScore: overallScore,
           }}
+          coreCompanyType={core?.companyType}
+          coreBrandTier={core?.brandTier}
         />
 
         <details open className="group">
@@ -232,9 +234,16 @@ export function GapIaNarrativeReport({ run }: Props) {
           </summary>
 
           <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-6 space-y-4">
-            {/* V3 Executive Summary - Clean, No Labels */}
+            {/* V3 Executive Summary - Uses summary.headlineDiagnosis and summary.narrative */}
             {summary?.narrative ? (
               <div className="prose prose-invert prose-sm max-w-none">
+                {/* Headline Diagnosis - Bold lead-in */}
+                {summary?.headlineDiagnosis && (
+                  <p className="text-base font-semibold text-slate-100 mb-3">
+                    {summary.headlineDiagnosis}
+                  </p>
+                )}
+                {/* Full Narrative */}
                 <p className="text-sm leading-relaxed text-slate-300">
                   {summary.narrative}
                 </p>
@@ -248,7 +257,7 @@ export function GapIaNarrativeReport({ run }: Props) {
                   </p>
                 </div>
 
-                {/* Quick Summary */}
+                {/* Quick Summary - fallback */}
                 {core?.quickSummary && (
                   <div>
                     <p className="text-sm leading-relaxed text-slate-300">
@@ -257,7 +266,7 @@ export function GapIaNarrativeReport({ run }: Props) {
                   </div>
                 )}
 
-                {/* Overall Summary from insights */}
+                {/* Overall Summary from insights - fallback */}
                 {!core?.quickSummary && insights?.overallSummary && (
                   <div>
                     <p className="text-sm leading-relaxed text-slate-300">
@@ -310,14 +319,15 @@ export function GapIaNarrativeReport({ run }: Props) {
               </div>
             )}
 
-            {/* Top Opportunities */}
-            {core?.topOpportunities && core.topOpportunities.length > 0 && (
+            {/* Top Opportunities - prefer summary.topOpportunities, fallback to core.topOpportunities */}
+            {((summary?.topOpportunities && summary.topOpportunities.length > 0) ||
+              (core?.topOpportunities && core.topOpportunities.length > 0)) && (
               <div>
                 <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
                   Top Opportunities
                 </h3>
                 <ul className="space-y-1 text-sm text-slate-300">
-                  {core.topOpportunities.map((opp, idx) => (
+                  {(summary?.topOpportunities || core?.topOpportunities || []).map((opp, idx) => (
                     <li key={idx}>• {opp}</li>
                   ))}
                 </ul>

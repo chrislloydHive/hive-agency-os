@@ -175,9 +175,13 @@ Before writing each dimension, understand its scope AND which signals to referen
 - **Example (correct):** "Missing meta descriptions on 3 of 5 pages sampled; no structured data markup for local business schema"
 - **Example (WRONG - too generic):** "SEO fundamentals need significant work" ❌
 
-**Website** = navigation, UX, CTAs, accessibility, conversion flows, page speed, mobile experience, information architecture
-- **Use signals:** missingSchedule, missingContactInfo, weakCTAs, confusingNavigation, mobile responsiveness
-- **Example (correct):** "Missing essential visitor information: no event schedule or vendor directory visible on homepage"
+**Website** = navigation, UX, CTAs, accessibility, conversion flows, page speed, mobile experience, information architecture, pricing transparency
+- **Use signals:** missingSchedule, missingContactInfo, weakCTAs, confusingNavigation, mobile responsiveness, hasPricingPage
+- **CRITICAL: Check signals.website.hasPricingPage and multiPageSnapshot.contentSignals.pricingFound BEFORE writing about pricing:**
+  - If hasPricingPage = true OR pricingFound = true → DO NOT claim "no pricing page". Instead, evaluate pricing clarity/transparency.
+  - If BOTH are false → You may flag missing pricing as an issue.
+- **Example (correct - when pricing exists):** "Pricing page exists but lacks tiered options or service comparisons that help buyers self-qualify"
+- **Example (correct - when pricing missing):** "No pricing page or framework—buyers can't self-qualify or understand investment level"
 - **Example (WRONG - too vague):** "Website lacks essential information and has UX issues" ❌
 
 **Digital Footprint** = GBP, reviews, social presence (LinkedIn/Instagram/Facebook/YouTube), external profiles, local listings
@@ -486,8 +490,8 @@ EXAMPLE OUTPUT (Structure only - must be site-specific)
     {
       "id": "website",
       "score": 50,
-      "summary": "Clear service pages and clean design, but missing pricing transparency and weak CTAs create conversion friction.",
-      "keyIssue": "No pricing page or framework—buyers can't self-qualify or understand investment level"
+      "summary": "Clear service pages and clean design, but weak CTAs and unclear next steps create conversion friction.",
+      "keyIssue": "Primary CTA is buried below the fold and lacks urgency—visitors may leave without taking action"
     },
     {
       "id": "digitalFootprint",

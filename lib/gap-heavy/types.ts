@@ -1,9 +1,19 @@
 // lib/gap-heavy/types.ts
-// Heavy Worker V4 - Modular Diagnostic Pipeline Types
+// Heavy Worker V4 - Evidence Collection Types
 //
-// This file introduces the foundational types for the new modular architecture.
-// Each module (seo, content, website, brand, demand, ops) can run independently
-// and contribute to a shared EvidencePack.
+// Heavy Worker V4 is the evidence collection layer for GAP Heavy. It runs
+// modular diagnostic modules (seo, content, website, brand, demand) to gather
+// raw data that feeds into the Strategic Intelligence Orchestrator.
+//
+// IMPORTANT: Heavy Worker V4 collects EVIDENCE. Strategic analysis and
+// competitive intelligence is handled by strategicOrchestrator.ts, which
+// produces the GapHeavyResult (see strategicTypes.ts).
+//
+// For the GAP Heavy strategic intelligence output types, see:
+// - strategicTypes.ts - GapHeavyResult and related types
+// - strategicOrchestrator.ts - Strategic synthesis logic
+// - mapToBlueprint.ts - Blueprint integration
+// - mapToWork.ts - Work Items integration
 
 // ============================================================================
 // Diagnostic Module Keys

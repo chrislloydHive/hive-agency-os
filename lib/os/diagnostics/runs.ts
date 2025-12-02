@@ -27,7 +27,7 @@ export type DiagnosticToolId =
   | 'websiteLab'     // Website UX/Conversion diagnostic
   | 'brandLab'       // Brand health diagnostic
   | 'contentLab'     // Content diagnostic
-  | 'seoLab'         // SEO diagnostic
+  | 'seoLab'         // SEO Lab diagnostic (deep SEO + GSC + analytics)
   | 'demandLab'      // Demand generation diagnostic
   | 'opsLab';        // Marketing operations diagnostic
 
@@ -118,9 +118,14 @@ function airtableRecordToDiagnosticRun(record: {
 }): DiagnosticRun {
   const fields = record.fields;
 
-  // Handle Company field - linked record format
+  // Handle Company field - check both "Company copy" (link) and "Company" (text)
   let companyId = '';
-  if (Array.isArray(fields['Company'])) {
+  // First try the link field "Company copy"
+  if (Array.isArray(fields['Company copy']) && fields['Company copy'].length > 0) {
+    companyId = fields['Company copy'][0] as string;
+  }
+  // Fall back to the text field "Company"
+  else if (Array.isArray(fields['Company'])) {
     companyId = fields['Company'][0] as string;
   } else if (typeof fields['Company'] === 'string') {
     companyId = fields['Company'];
@@ -195,9 +200,16 @@ function diagnosticRunToAirtableFields(
   const fields: Record<string, unknown> = {};
 
   if ('companyId' in run && run.companyId) {
-    // Store as linked record array - Airtable expects an array of record IDs for link fields
-    // If the field is configured as text, this will still work
-    fields['Company'] = [run.companyId];
+    // The Diagnostic Runs table has two Company-related fields:
+    // - "Company" (single line text) - stores the record ID as text
+    // - "Company copy" (link field) - links to Companies table
+    // We write to both for compatibility
+    console.log('[DiagnosticRuns] Setting Company fields:', {
+      companyId: run.companyId,
+      isValidRecordId: run.companyId.startsWith('rec'),
+    });
+    fields['Company'] = run.companyId; // Text field
+    fields['Company copy'] = [run.companyId]; // Link field (array format)
   }
   if ('toolId' in run && run.toolId) {
     fields['Tool ID'] = run.toolId;
@@ -407,9 +419,8 @@ export async function listDiagnosticRunsForCompany(
   const limit = opts?.limit || 50;
 
   // Build filter formula
-  // The Company field might be a linked record (array) or a text field (string)
-  // We use OR to match either case
-  const companyFilter = `OR(FIND('${companyId}', ARRAYJOIN({Company}, ',')), {Company} = '${companyId}')`;
+  // Check both "Company copy" (link field) and "Company" (text field)
+  const companyFilter = `OR(FIND('${companyId}', ARRAYJOIN({Company copy}, ',')), {Company} = '${companyId}')`;
   let filterParts: string[] = [companyFilter];
 
   if (opts?.toolId) {

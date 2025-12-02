@@ -12,12 +12,21 @@ import {
   COMPANY_TOOL_DEFS,
   getEnabledTools,
   getComingSoonTools,
+  getToolById,
   type CompanyToolDefinition,
   type CompanyToolId,
   type ToolIcon,
   type ToolCategory,
   type BlueprintToolMeta,
 } from '@/lib/tools/registry';
+import {
+  OS_TOOL_DEFINITIONS,
+  getAvailableOsTools,
+  getComingSoonOsTools,
+  osToolIdToCompanyToolId,
+  getToolIconName,
+  type OsToolDefinition,
+} from '@/lib/os/tools/definitions';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
 import type { DiagnosticRunStatus, DiagnosticToolId } from '@/lib/os/diagnostics/runs';
 import type { CompanyAlert } from '@/lib/os/companies/alerts';
@@ -81,6 +90,7 @@ export interface SerializedRecommendedTool {
   hasRecentRun: boolean;
   lastRunAt?: string;
   lastScore?: number | null;
+  lastRunId?: string;
   daysSinceRun: number | null;
   // Tool definition fields (serialized)
   toolLabel: string;
@@ -422,10 +432,39 @@ export function BlueprintClient({
         const data = await response.json();
 
         if (response.ok && data.run) {
-          setNewDataBanner(`${rec.toolLabel} started - strategy will update when complete`);
+          const run = data.run;
+          const isComplete = run.status === 'complete';
+          const score = run.score !== null ? ` (Score: ${run.score}/100)` : '';
+
+          if (isComplete) {
+            // Build the report URL
+            const slugMap: Record<string, string> = {
+              gapSnapshot: 'gap-ia',
+              gapPlan: 'gap-plan',
+              gapHeavy: 'gap-heavy',
+              websiteLab: 'website-lab',
+              brandLab: 'brand-lab',
+              contentLab: 'content-lab',
+              seoLab: 'seo-lab',
+              demandLab: 'demand-lab',
+              opsLab: 'ops-lab',
+            };
+            const slug = slugMap[rec.toolId] || rec.toolId;
+            const reportUrl = `/c/${company.id}/diagnostics/${slug}/${run.id}`;
+
+            setNewDataBanner(`${rec.toolLabel} complete${score} - View Report`);
+            // Navigate to the report after a short delay
+            setTimeout(() => {
+              router.push(reportUrl);
+            }, 1500);
+          } else {
+            setNewDataBanner(`${rec.toolLabel} started - strategy will update when complete`);
+          }
           setTimeout(() => setNewDataBanner(null), 5000);
         } else {
           console.error(`[Blueprint] Failed to run ${rec.toolLabel}:`, data.error);
+          setNewDataBanner(`${rec.toolLabel} failed: ${data.error || 'Unknown error'}`);
+          setTimeout(() => setNewDataBanner(null), 8000);
         }
       } catch (error) {
         console.error(`[Blueprint] Error running ${rec.toolLabel}:`, error);
@@ -917,9 +956,9 @@ export function BlueprintClient({
                           {isPlanning ? 'Adding...' : 'Plan this work'}
                         </button>
 
-                        {rec.hasRecentRun && rec.urlSlug && (
+                        {rec.lastRunId && rec.urlSlug && (
                           <Link
-                            href={`/c/${company.id}/diagnostics/${rec.urlSlug}`}
+                            href={`/c/${company.id}/diagnostics/${rec.urlSlug}/${rec.lastRunId}`}
                             className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700/50 hover:bg-slate-600/50 text-slate-400 transition-colors"
                           >
                             View Report
@@ -961,6 +1000,7 @@ export function BlueprintClient({
 
       {/* ================================================================== */}
       {/* Section 8: Diagnostics & Tools (Full Grid) */}
+      {/* Driven by OS_TOOL_DEFINITIONS from lib/os/tools/definitions.ts */}
       {/* ================================================================== */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
@@ -974,20 +1014,26 @@ export function BlueprintClient({
           </div>
         </div>
 
-        {/* Tool Grid */}
+        {/* Tool Grid - Driven by OS_TOOL_DEFINITIONS */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {enabledTools.map((tool) => {
+          {getAvailableOsTools().map((osTool) => {
+            // Map OS tool ID to company tool ID for runtime behavior
+            const companyToolId = osToolIdToCompanyToolId(osTool.id) as CompanyToolId | undefined;
+            const tool = companyToolId ? getToolById(companyToolId) : undefined;
+            if (!tool) return null;
+
             const lastRun = getLastRunForTool(tool);
             const isRunning = runningTools.has(tool.id);
             const hasWebsite = Boolean(company.website || company.domain);
-            const canRun = !tool.requiresWebsite || hasWebsite;
+            const canRun = osTool.status === 'available' && (!tool.requiresWebsite || hasWebsite);
 
             // Get intelligence from pipeline data
             const toolStatus = toolStatuses.find(s => s.toolId === tool.diagnosticToolId);
 
             return (
-              <ToolCardIntelligent
-                key={tool.id}
+              <OsToolCard
+                key={osTool.id}
+                osTool={osTool}
                 tool={tool}
                 lastRun={lastRun}
                 isRunning={isRunning}
@@ -1000,18 +1046,18 @@ export function BlueprintClient({
           })}
         </div>
 
-        {/* Coming Soon */}
-        {comingSoonTools.length > 0 && (
+        {/* Coming Soon - Driven by OS_TOOL_DEFINITIONS */}
+        {getComingSoonOsTools().length > 0 && (
           <div className="mt-6 pt-6 border-t border-slate-800">
             <p className="text-xs text-slate-500 uppercase tracking-wide mb-3">Coming Soon</p>
             <div className="flex flex-wrap gap-2">
-              {comingSoonTools.map((tool) => (
+              {getComingSoonOsTools().map((osTool) => (
                 <span
-                  key={tool.id}
+                  key={osTool.id}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/50 border border-slate-700/50 text-xs text-slate-500"
                 >
-                  {getToolIconSvg(tool.icon)}
-                  {tool.label}
+                  {getToolIconSvg(getToolIconName(osTool.id) as ToolIcon)}
+                  {osTool.name}
                 </span>
               ))}
             </div>
@@ -1374,6 +1420,161 @@ function SuggestedToolCard({
       >
         {isRunning ? 'Running...' : 'Run'}
       </button>
+    </div>
+  );
+}
+
+/**
+ * OS Tool Card - Uses OsToolDefinition for rich metadata display
+ * Maps to CompanyToolDefinition for runtime behavior (API calls, view paths)
+ */
+function OsToolCard({
+  osTool,
+  tool,
+  lastRun,
+  isRunning,
+  canRun,
+  onRun,
+  companyId,
+  toolStatus,
+}: {
+  osTool: OsToolDefinition;
+  tool: CompanyToolDefinition;
+  lastRun: RecentDiagnostic | null;
+  isRunning: boolean;
+  canRun: boolean;
+  onRun: () => void;
+  companyId: string;
+  toolStatus?: ToolRunStatus;
+}) {
+  let statusText = 'Not run yet';
+  let statusColor = 'text-slate-500';
+  let showRecommendation = false;
+
+  if (lastRun) {
+    if (lastRun.status === 'running') {
+      statusText = 'Running...';
+      statusColor = 'text-blue-400';
+    } else if (lastRun.status === 'complete') {
+      statusText = formatRelativeTime(lastRun.completedAt);
+      statusColor = 'text-slate-400';
+    } else if (lastRun.status === 'failed') {
+      statusText = 'Failed';
+      statusColor = 'text-red-400';
+    }
+  }
+
+  if (tool.behavior === 'openRoute') {
+    statusText = 'Live data';
+    statusColor = 'text-emerald-400';
+  }
+
+  // Check if stale
+  if (toolStatus?.status === 'stale') {
+    statusColor = 'text-amber-400';
+    showRecommendation = true;
+  }
+
+  // Get impact badge style
+  const getImpactBadgeStyle = (impact: string) => {
+    switch (impact) {
+      case 'foundational':
+        return 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+      case 'high':
+        return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+      case 'medium':
+        return 'bg-blue-500/20 text-blue-300 border-blue-500/30';
+      default:
+        return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
+    }
+  };
+
+  // Status badge for locked tools
+  const isLocked = osTool.status === 'locked';
+
+  return (
+    <div className={`rounded-xl bg-slate-800/50 border p-4 flex flex-col justify-between hover:border-slate-600 transition-colors ${
+      toolStatus?.status === 'stale' ? 'border-amber-500/30' : isLocked ? 'border-slate-700/30 opacity-75' : 'border-slate-700/50'
+    }`}>
+      <div>
+        <div className="flex items-start justify-between mb-2">
+          <div className="p-1.5 rounded-lg bg-slate-700/50 text-amber-500">
+            {getToolIconSvg(getToolIconName(osTool.id) as ToolIcon)}
+          </div>
+          <div className="flex items-center gap-2">
+            {isLocked && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                Locked
+              </span>
+            )}
+            {lastRun?.score !== null && lastRun?.score !== undefined && (
+              <span className={`text-sm font-bold tabular-nums ${getScoreColor(lastRun.score)}`}>
+                {lastRun.score}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Tool Name - from OsToolDefinition */}
+        <h3 className="text-sm font-medium text-slate-100">{osTool.name}</h3>
+
+        {/* Short Summary - from OsToolDefinition */}
+        <p className="text-xs text-slate-400 mt-1 line-clamp-2">{osTool.shortSummary}</p>
+
+        {/* Impact & Timing badges */}
+        <div className="flex items-center gap-2 mt-2 flex-wrap">
+          <span className={`text-[10px] px-1.5 py-0.5 rounded border ${getImpactBadgeStyle(osTool.impact)}`}>
+            {osTool.impact}
+          </span>
+          <span className="text-[10px] text-slate-500">
+            {osTool.estimatedRunTime}
+          </span>
+        </div>
+
+        {/* Status */}
+        <p className={`text-xs mt-3 ${statusColor}`}>
+          {isRunning ? (
+            <span className="flex items-center gap-1">
+              <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Running...
+            </span>
+          ) : (
+            statusText
+          )}
+        </p>
+
+        {/* Intelligent Recommendation */}
+        {showRecommendation && toolStatus?.recommendation && (
+          <p className="text-[10px] text-amber-300/80 mt-2 p-2 rounded bg-amber-500/10 border border-amber-500/20">
+            {toolStatus.recommendation}
+          </p>
+        )}
+      </div>
+
+      <div className="flex gap-2 mt-3">
+        <button
+          onClick={onRun}
+          disabled={!canRun || isRunning || isLocked}
+          className={`flex-1 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+            canRun && !isRunning && !isLocked
+              ? 'bg-amber-500 hover:bg-amber-400 text-slate-900'
+              : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+          }`}
+        >
+          {isRunning ? 'Running...' : tool.behavior === 'openRoute' ? 'Open' : 'Run'}
+        </button>
+        {tool.viewPath && lastRun && lastRun.status === 'complete' && (
+          <Link
+            href={lastRun.reportPath || tool.viewPath(companyId, lastRun.id)}
+            className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+          >
+            View
+          </Link>
+        )}
+      </div>
     </div>
   );
 }

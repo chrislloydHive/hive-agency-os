@@ -19,6 +19,54 @@ export interface ToolReportData {
   sections: ReportSection[];
 }
 
+// Types for GAP IA breakdown bullets
+type ImpactLevel = 'high' | 'medium' | 'low';
+
+interface GapIaIssueBullet {
+  category: string;
+  impactLevel: ImpactLevel;
+  statement: string;
+}
+
+interface GroupedIssues {
+  category: string;
+  impactLevel: ImpactLevel; // highest impact in this group
+  statements: string[];
+}
+
+/**
+ * Group GAP IA breakdown bullets by category and order by impact level
+ */
+function groupIssuesByCategory(bullets: GapIaIssueBullet[] = []): GroupedIssues[] {
+  const map = new Map<string, GroupedIssues>();
+
+  for (const b of bullets) {
+    const existing = map.get(b.category);
+    if (!existing) {
+      map.set(b.category, {
+        category: b.category,
+        impactLevel: b.impactLevel,
+        statements: [b.statement],
+      });
+    } else {
+      existing.statements.push(b.statement);
+      // Keep the highest impact level for the group
+      const order: ImpactLevel[] = ['low', 'medium', 'high'];
+      if (order.indexOf(b.impactLevel) > order.indexOf(existing.impactLevel)) {
+        existing.impactLevel = b.impactLevel;
+      }
+    }
+  }
+
+  const groups = Array.from(map.values());
+
+  // Sort: high → medium → low
+  const order: ImpactLevel[] = ['high', 'medium', 'low'];
+  groups.sort((a, b) => order.indexOf(a.impactLevel) - order.indexOf(b.impactLevel));
+
+  return groups;
+}
+
 // ============================================================================
 // Main Adapter Function
 // ============================================================================
@@ -164,11 +212,21 @@ function extractGapSnapshotData(rawJson: any): ToolReportData {
     });
   }
 
-  // Add breakdown section (V2 format)
+  // Add breakdown section (V2 format) - uses breakdown.bullets with category/impactLevel/statement
   if (ia.breakdown?.bullets && Array.isArray(ia.breakdown.bullets)) {
-    const breakdownItems = ia.breakdown.bullets.slice(0, 6).map((b: any) =>
-      typeof b === 'string' ? b : `${b.category}: ${b.finding}${b.impact ? ` (${b.impact})` : ''}`
-    );
+    // Group bullets by category and sort by impact level (high → medium → low)
+    const grouped = groupIssuesByCategory(ia.breakdown.bullets);
+
+    // Create formatted items - one item per category with all statements combined
+    const breakdownItems = grouped.map((group) => {
+      const impactLabel = group.impactLevel === 'high' ? 'high' : group.impactLevel === 'medium' ? 'medium' : 'lower';
+      if (group.statements.length === 1) {
+        return `${group.category}: ${group.statements[0]} — ${impactLabel} impact`;
+      }
+      // Multiple statements: combine with semicolons
+      return `${group.category}: ${group.statements.join('; ')} — ${impactLabel} impact`;
+    });
+
     sections.push({
       id: 'breakdown',
       title: 'Key Issues Breakdown',
@@ -667,85 +725,300 @@ function extractContentLabData(rawJson: any): ToolReportData {
 // ============================================================================
 
 function extractSeoLabData(rawJson: any): ToolReportData {
-  const seo = rawJson.diagnostic || rawJson.seoAssessment || rawJson;
+  // SEO Lab uses SeoLabReport structure with split scoring
+  const report = rawJson;
   const scores: ScoreItem[] = [];
   const keyFindings: string[] = [];
   const opportunities: string[] = [];
   const sections: ReportSection[] = [];
 
-  // Extract SEO dimension scores
-  if (seo.dimensions && typeof seo.dimensions === 'object') {
-    Object.entries(seo.dimensions).forEach(([key, dim]: [string, any]) => {
-      if (typeof dim?.score === 'number') {
+  // Extract split scores (new format)
+  if (report.onSiteScore != null) {
+    scores.push({
+      label: 'On-site SEO',
+      value: report.onSiteScore,
+      maxValue: 100,
+      group: 'Core Scores',
+    });
+  }
+
+  if (report.searchPerformanceScore != null) {
+    scores.push({
+      label: 'Search Performance',
+      value: report.searchPerformanceScore,
+      maxValue: 100,
+      group: 'Core Scores',
+    });
+  }
+
+  // Overall score (capped)
+  if (report.overallScore != null) {
+    scores.push({
+      label: 'Overall',
+      value: report.overallScore,
+      maxValue: 100,
+      group: 'Summary',
+    });
+  }
+
+  // Extract subscores (skip Local & GBP if not_evaluated)
+  if (report.subscores && Array.isArray(report.subscores)) {
+    report.subscores.forEach((sub: any) => {
+      // Include all subscores, even not_evaluated ones, for display
+      if (sub.label && (sub.score != null || sub.status === 'not_evaluated')) {
         scores.push({
-          label: formatLabel(key),
-          value: dim.score,
+          label: sub.label,
+          value: sub.score ?? 0, // Use 0 for not_evaluated
           maxValue: 100,
           group: 'SEO Dimensions',
+          // Add metadata for special handling
+          metadata: sub.status === 'not_evaluated' ? { notEvaluated: true } : undefined,
         });
       }
     });
   }
 
-  // Extract technical SEO scores
-  if (seo.technical && typeof seo.technical === 'object') {
-    Object.entries(seo.technical).forEach(([key, value]) => {
-      if (typeof value === 'number') {
-        scores.push({
-          label: formatLabel(key),
-          value: value,
-          maxValue: 100,
-          group: 'Technical SEO',
-        });
-      }
+  // Extract top strengths as positive findings
+  if (report.topStrengths && Array.isArray(report.topStrengths)) {
+    report.topStrengths.slice(0, 3).forEach((s: string) => {
+      if (s) keyFindings.push(`✓ ${s}`);
     });
   }
 
-  // Extract issues as findings
-  if (seo.issues && Array.isArray(seo.issues)) {
-    seo.issues.slice(0, 5).forEach((issue: any) => {
-      const text = typeof issue === 'string' ? issue : issue?.issue || issue?.description;
-      if (text) keyFindings.push(`Issue: ${text}`);
+  // Extract top gaps as findings
+  if (report.topGaps && Array.isArray(report.topGaps)) {
+    report.topGaps.slice(0, 3).forEach((g: string) => {
+      if (g) keyFindings.push(`Gap: ${g}`);
     });
   }
 
-  // Extract findings
-  if (seo.findings && Array.isArray(seo.findings)) {
-    seo.findings.slice(0, 3).forEach((f: any) => {
-      const text = typeof f === 'string' ? f : f?.finding || f?.description;
-      if (text) keyFindings.push(text);
-    });
-  }
-
-  // Extract recommendations as opportunities
-  if (seo.recommendations && Array.isArray(seo.recommendations)) {
-    seo.recommendations.slice(0, 5).forEach((r: any) => {
-      const text = typeof r === 'string' ? r : r?.title || r?.description;
+  // Extract quick wins as opportunities (now derived from issues)
+  if (report.quickWins && Array.isArray(report.quickWins)) {
+    report.quickWins.slice(0, 5).forEach((qw: any) => {
+      const text = typeof qw === 'string' ? qw : qw?.title || qw?.description;
       if (text) opportunities.push(text);
     });
   }
 
-  // Add keyword analysis section
-  if (seo.keywords || seo.keywordAnalysis) {
+  // Add maturity stage and data confidence section
+  if (report.maturityStage) {
     sections.push({
-      id: 'keywords',
-      title: 'Keyword Analysis',
-      icon: 'Search',
-      body: createKeywordSection(seo.keywords || seo.keywordAnalysis),
+      id: 'maturity',
+      title: 'SEO Assessment',
+      icon: 'Target',
+      body: createSeoAssessmentSection(report),
     });
   }
 
-  // Add technical audit section
-  if (seo.technicalAudit) {
+  // Add issues section
+  if (report.issues && Array.isArray(report.issues) && report.issues.length > 0) {
     sections.push({
-      id: 'technical',
-      title: 'Technical SEO Audit',
-      icon: 'Settings',
-      body: createTechnicalAuditSection(seo.technicalAudit),
+      id: 'issues',
+      title: 'SEO Issues',
+      icon: 'AlertCircle',
+      body: createSeoIssuesSection(report.issues),
+    });
+  }
+
+  // Add projects section (now with issue counts)
+  if (report.projects && Array.isArray(report.projects) && report.projects.length > 0) {
+    sections.push({
+      id: 'projects',
+      title: 'SEO Projects',
+      icon: 'FolderKanban',
+      body: createSeoProjectsSection(report.projects),
+    });
+  }
+
+  // Add analytics snapshot section with context-aware messaging
+  if (report.analyticsSnapshot) {
+    sections.push({
+      id: 'analytics',
+      title: 'Search Console Snapshot',
+      icon: 'BarChart2',
+      body: createGscSnapshotSection(report.analyticsSnapshot, report.dataConfidence),
     });
   }
 
   return { scores, keyFindings, opportunities, sections };
+}
+
+/**
+ * Create SEO Assessment section with maturity stage and data confidence
+ */
+function createSeoAssessmentSection(report: any): React.ReactNode {
+  const maturityLabels: Record<string, string> = {
+    unproven: 'Unproven',
+    emerging: 'Emerging',
+    scaling: 'Scaling',
+    established: 'Established',
+  };
+
+  const maturityColors: Record<string, string> = {
+    unproven: 'bg-slate-400/10 text-slate-400 border-slate-400/30',
+    emerging: 'bg-amber-400/10 text-amber-400 border-amber-400/30',
+    scaling: 'bg-cyan-400/10 text-cyan-400 border-cyan-400/30',
+    established: 'bg-emerald-400/10 text-emerald-400 border-emerald-400/30',
+  };
+
+  const confidenceColors: Record<string, string> = {
+    low: 'bg-amber-400/10 text-amber-400 border-amber-400/30',
+    medium: 'bg-cyan-400/10 text-cyan-400 border-cyan-400/30',
+    high: 'bg-emerald-400/10 text-emerald-400 border-emerald-400/30',
+  };
+
+  const maturityStage = report.maturityStage || 'unproven';
+  const dataConfidence = report.dataConfidence || { score: 0, level: 'low', reason: 'No data available' };
+
+  return React.createElement('div', { className: 'space-y-4' },
+    // Maturity and Confidence badges
+    React.createElement('div', { className: 'flex flex-wrap items-center gap-3' },
+      React.createElement('div', { className: `inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${maturityColors[maturityStage] || maturityColors.unproven}` },
+        React.createElement('span', { className: 'text-xs uppercase tracking-wider opacity-70' }, 'Maturity'),
+        React.createElement('span', { className: 'text-sm font-semibold' }, maturityLabels[maturityStage] || maturityStage)
+      ),
+      React.createElement('div', { className: `inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${confidenceColors[dataConfidence.level] || confidenceColors.low}` },
+        React.createElement('span', { className: 'text-xs uppercase tracking-wider opacity-70' }, 'Data Confidence'),
+        React.createElement('span', { className: 'text-sm font-semibold' }, `${dataConfidence.score}/100`),
+        React.createElement('span', { className: 'text-xs opacity-70' }, `(${dataConfidence.level.charAt(0).toUpperCase() + dataConfidence.level.slice(1)})`)
+      )
+    ),
+
+    // Split scores display
+    (report.onSiteScore != null || report.searchPerformanceScore != null) && React.createElement('div', { className: 'grid grid-cols-2 gap-3' },
+      report.onSiteScore != null && React.createElement('div', { className: 'rounded-lg bg-slate-800/50 p-3' },
+        React.createElement('p', { className: 'text-xs text-slate-400 mb-1' }, 'On-site SEO'),
+        React.createElement('p', { className: `text-2xl font-bold ${report.onSiteScore >= 70 ? 'text-emerald-400' : report.onSiteScore >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `${report.onSiteScore}/100`)
+      ),
+      report.searchPerformanceScore != null && React.createElement('div', { className: 'rounded-lg bg-slate-800/50 p-3' },
+        React.createElement('p', { className: 'text-xs text-slate-400 mb-1' }, 'Search Performance'),
+        React.createElement('p', { className: `text-2xl font-bold ${report.searchPerformanceScore >= 70 ? 'text-emerald-400' : report.searchPerformanceScore >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `${report.searchPerformanceScore}/100`)
+      )
+    ),
+
+    // Narrative summary
+    report.narrativeSummary && React.createElement('p', { className: 'text-sm text-slate-300 leading-relaxed' }, report.narrativeSummary),
+
+    // Data confidence reason (if low)
+    dataConfidence.level === 'low' && React.createElement('p', { className: 'text-xs text-amber-400/80 italic' }, dataConfidence.reason)
+  );
+}
+
+/**
+ * Create SEO issues section
+ */
+function createSeoIssuesSection(issues: any[]): React.ReactNode {
+  // Group issues by severity
+  const critical = issues.filter((i: any) => i.severity === 'critical');
+  const high = issues.filter((i: any) => i.severity === 'high');
+  const medium = issues.filter((i: any) => i.severity === 'medium');
+  const low = issues.filter((i: any) => i.severity === 'low');
+
+  const severityOrder = [
+    { label: 'Critical', items: critical, color: 'text-red-400' },
+    { label: 'High', items: high, color: 'text-orange-400' },
+    { label: 'Medium', items: medium, color: 'text-amber-400' },
+    { label: 'Low', items: low, color: 'text-slate-400' },
+  ].filter(g => g.items.length > 0);
+
+  return React.createElement('div', { className: 'space-y-4' },
+    severityOrder.map((group) =>
+      React.createElement('div', { key: group.label, className: 'space-y-2' },
+        React.createElement('h4', { className: `text-sm font-medium ${group.color}` }, `${group.label} (${group.items.length})`),
+        React.createElement('ul', { className: 'space-y-1' },
+          group.items.slice(0, 5).map((issue: any, idx: number) =>
+            React.createElement('li', { key: idx, className: 'text-sm text-slate-400 flex items-start gap-2 pl-2' },
+              React.createElement('span', { className: group.color }, '•'),
+              React.createElement('span', null, issue.title || issue.description)
+            )
+          )
+        )
+      )
+    )
+  );
+}
+
+/**
+ * Create SEO projects section (now with issue counts)
+ */
+function createSeoProjectsSection(projects: any[]): React.ReactNode {
+  return React.createElement('div', { className: 'space-y-3' },
+    projects.slice(0, 5).map((project: any, idx: number) => {
+      const impactColor = project.impact === 'high' ? 'text-emerald-400' : project.impact === 'medium' ? 'text-amber-400' : 'text-slate-400';
+      const horizonLabel = project.timeHorizon === 'now' ? 'Now' : project.timeHorizon === 'next' ? 'Next' : 'Later';
+      const issueCount = project.issueCount || project.issueIds?.length || 0;
+
+      return React.createElement('div', { key: idx, className: 'rounded-lg bg-slate-800/50 p-3' },
+        React.createElement('div', { className: 'flex items-start justify-between gap-2' },
+          React.createElement('h4', { className: 'text-sm font-medium text-slate-200' }, project.title),
+          React.createElement('div', { className: 'flex items-center gap-2' },
+            issueCount > 0 && React.createElement('span', { className: 'text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-400' }, `${issueCount} issue${issueCount > 1 ? 's' : ''}`),
+            React.createElement('span', { className: `text-xs px-2 py-0.5 rounded ${project.timeHorizon === 'now' ? 'bg-amber-400/10 text-amber-400' : 'bg-slate-700 text-slate-400'}` }, horizonLabel)
+          )
+        ),
+        project.description && React.createElement('p', { className: 'text-xs text-slate-400 mt-1' }, project.description),
+        React.createElement('p', { className: `text-xs mt-2 ${impactColor}` }, `Impact: ${project.impact}`)
+      );
+    })
+  );
+}
+
+/**
+ * Create GSC snapshot section with context-aware messaging for data confidence
+ */
+function createGscSnapshotSection(snapshot: any, dataConfidence?: any): React.ReactNode {
+  const isLowConfidence = dataConfidence?.level === 'low';
+  const clicks = snapshot.clicks ?? 0;
+  const impressions = snapshot.impressions ?? 0;
+
+  return React.createElement('div', { className: 'space-y-4' },
+    // Low data warning (context-aware messaging)
+    isLowConfidence && React.createElement('div', { className: 'rounded-lg bg-amber-400/10 border border-amber-400/30 p-3' },
+      React.createElement('p', { className: 'text-xs text-amber-400' },
+        clicks === 0 && impressions < 100
+          ? 'Limited search data available. This site has very low or no organic search traffic yet. Metrics below are directional only.'
+          : 'Sample size is small. Treat these metrics as directional rather than statistically significant.'
+      )
+    ),
+
+    // Metrics summary
+    React.createElement('div', { className: 'grid grid-cols-2 sm:grid-cols-4 gap-3' },
+      snapshot.clicks != null && React.createElement('div', { className: 'rounded-lg bg-slate-800/50 p-3 text-center' },
+        React.createElement('p', { className: 'text-xl font-bold text-slate-200' }, snapshot.clicks.toLocaleString()),
+        React.createElement('p', { className: 'text-xs text-slate-400' }, 'Clicks')
+      ),
+      snapshot.impressions != null && React.createElement('div', { className: 'rounded-lg bg-slate-800/50 p-3 text-center' },
+        React.createElement('p', { className: 'text-xl font-bold text-slate-200' }, snapshot.impressions.toLocaleString()),
+        React.createElement('p', { className: 'text-xs text-slate-400' }, 'Impressions')
+      ),
+      snapshot.ctr != null && React.createElement('div', { className: 'rounded-lg bg-slate-800/50 p-3 text-center' },
+        React.createElement('p', { className: 'text-xl font-bold text-slate-200' }, `${(snapshot.ctr * 100).toFixed(1)}%`),
+        React.createElement('p', { className: 'text-xs text-slate-400' }, 'CTR')
+      ),
+      snapshot.avgPosition != null && React.createElement('div', { className: 'rounded-lg bg-slate-800/50 p-3 text-center' },
+        React.createElement('p', { className: 'text-xl font-bold text-slate-200' }, snapshot.avgPosition.toFixed(1)),
+        React.createElement('p', { className: 'text-xs text-slate-400' }, 'Avg Position')
+      )
+    ),
+
+    // Top queries
+    snapshot.topQueries && snapshot.topQueries.length > 0 && React.createElement('div', null,
+      React.createElement('h4', { className: 'text-sm font-medium text-slate-300 mb-2' }, 'Top Queries'),
+      React.createElement('div', { className: 'space-y-1' },
+        snapshot.topQueries.slice(0, 5).map((q: any, idx: number) =>
+          React.createElement('div', { key: idx, className: 'flex items-center justify-between text-xs py-1 border-b border-slate-800 last:border-0' },
+            React.createElement('span', { className: 'text-slate-300 truncate max-w-[60%]' }, q.query),
+            React.createElement('span', { className: 'text-slate-400' }, `${q.clicks} clicks`)
+          )
+        )
+      )
+    ),
+
+    // No queries message for low data scenarios
+    (!snapshot.topQueries || snapshot.topQueries.length === 0) && React.createElement('p', { className: 'text-xs text-slate-500 italic' },
+      'No search queries recorded yet.'
+    )
+  );
 }
 
 // ============================================================================
