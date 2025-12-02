@@ -103,10 +103,21 @@ export async function fetchBlueprintAnalytics(
       return { ok: false, summary: null, error: 'Company not found' };
     }
 
-    // Check which integrations are configured
+    // Check if this COMPANY has analytics configured (not just the workspace)
+    // We only show analytics for companies that have their own GA4/GSC credentials
+    const companyHasGa4 = Boolean(company.ga4PropertyId);
+    const companyHasGsc = Boolean(company.searchConsoleSiteUrl);
+
+    // If company doesn't have analytics configured, return early
+    if (!companyHasGa4 && !companyHasGsc) {
+      console.log('[BlueprintAnalytics] Company has no analytics configured:', companyId);
+      return { ok: true, summary: null };
+    }
+
+    // Check if workspace integrations are available to fetch the data
     const [hasGa4, hasGsc] = await Promise.all([
-      isGa4Configured(workspaceId),
-      isGscConfigured(workspaceId),
+      companyHasGa4 ? isGa4Configured(workspaceId) : Promise.resolve(false),
+      companyHasGsc ? isGscConfigured(workspaceId) : Promise.resolve(false),
     ]);
 
     // Create date ranges for current and previous period
