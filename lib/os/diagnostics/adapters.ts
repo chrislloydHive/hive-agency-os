@@ -555,6 +555,7 @@ function extractWebsiteLabData(rawJson: any): ToolReportData {
 function extractBrandLabData(rawJson: any): ToolReportData {
   // V2 format has dimensions array directly on root, V1 has diagnostic wrapper
   const content = rawJson.diagnostic || rawJson.brandAssessment || rawJson;
+  const actionPlan = rawJson.actionPlan;
   const scores: ScoreItem[] = [];
   const keyFindings: string[] = [];
   const opportunities: string[] = [];
@@ -584,6 +585,35 @@ function extractBrandLabData(rawJson: any): ToolReportData {
         });
       }
     });
+  } else {
+    // V1 format: Extract scores from individual subsystems
+    const v1Subsystems = [
+      { key: 'identitySystem', label: 'Identity & Promise', scoreFields: ['taglineClarityScore', 'corePromiseClarityScore', 'toneConsistencyScore'] },
+      { key: 'messagingSystem', label: 'Messaging & Value Props', scoreFields: ['benefitVsFeatureRatio', 'icpClarityScore', 'messagingFocusScore'] },
+      { key: 'positioning', label: 'Positioning & Differentiation', scoreFields: ['positioningClarityScore'] },
+      { key: 'audienceFit', label: 'Audience Fit & ICP', scoreFields: ['alignmentScore'] },
+      { key: 'trustAndProof', label: 'Trust & Proof', scoreFields: ['trustSignalsScore', 'humanPresenceScore'] },
+      { key: 'visualSystem', label: 'Visual System', scoreFields: ['visualConsistencyScore', 'brandRecognitionScore'] },
+      { key: 'brandAssets', label: 'Brand Assets', scoreFields: ['assetCoverageScore'] },
+    ];
+
+    v1Subsystems.forEach(({ key, label, scoreFields }) => {
+      const subsystem = content[key];
+      if (subsystem) {
+        const scoreValues = scoreFields
+          .map(f => subsystem[f])
+          .filter((v): v is number => typeof v === 'number');
+        if (scoreValues.length > 0) {
+          const avgScore = Math.round(scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length);
+          scores.push({
+            label,
+            value: avgScore,
+            maxValue: 100,
+            group: 'Brand Dimensions',
+          });
+        }
+      }
+    });
   }
 
   // V2: Extract issues as key findings
@@ -594,6 +624,33 @@ function extractBrandLabData(rawJson: any): ToolReportData {
         keyFindings.push(`${severity} ${issue.title}`);
       }
     });
+  }
+
+  // V1: Extract from inconsistencies, opportunities, risks as key findings
+  if (keyFindings.length === 0) {
+    // Inconsistencies
+    if (content.inconsistencies && Array.isArray(content.inconsistencies)) {
+      content.inconsistencies.slice(0, 3).forEach((inc: any) => {
+        if (inc?.description) {
+          const severity = inc.severity === 'high' ? '!' : inc.severity === 'medium' ? '*' : '';
+          keyFindings.push(`${severity} ${inc.type}: ${inc.description}`);
+        }
+      });
+    }
+    // Risks
+    if (content.risks && Array.isArray(content.risks)) {
+      content.risks.slice(0, 2).forEach((risk: any) => {
+        if (risk?.description) {
+          keyFindings.push(`Risk: ${risk.description}`);
+        }
+      });
+    }
+    // Identity gaps
+    if (content.identitySystem?.identityGaps && Array.isArray(content.identitySystem.identityGaps)) {
+      content.identitySystem.identityGaps.slice(0, 2).forEach((gap: string) => {
+        keyFindings.push(`Gap: ${gap}`);
+      });
+    }
   }
 
   // V2: Extract quick wins as opportunities
@@ -612,6 +669,26 @@ function extractBrandLabData(rawJson: any): ToolReportData {
         opportunities.push(`[Project] ${proj.title}`);
       }
     });
+  }
+
+  // V1: Extract from opportunities array and actionPlan
+  if (opportunities.length === 0) {
+    // V1 opportunities
+    if (content.opportunities && Array.isArray(content.opportunities)) {
+      content.opportunities.slice(0, 5).forEach((opp: any) => {
+        if (opp?.title) {
+          opportunities.push(opp.title);
+        }
+      });
+    }
+    // V1 actionPlan now items
+    if (actionPlan?.now && Array.isArray(actionPlan.now)) {
+      actionPlan.now.slice(0, 3).forEach((item: any) => {
+        if (item?.title && !opportunities.includes(item.title)) {
+          opportunities.push(item.title);
+        }
+      });
+    }
   }
 
   // V2: Add maturity stage section
@@ -638,8 +715,8 @@ function extractBrandLabData(rawJson: any): ToolReportData {
     });
   }
 
-  // Add messaging section from V2 findings or V1 messaging
-  const messaging = findings.messagingSystem || content.messaging;
+  // Add messaging section from V2 findings or V1 messagingSystem
+  const messaging = findings.messagingSystem || content.messagingSystem || content.messaging;
   if (messaging) {
     sections.push({
       id: 'messaging',
@@ -649,31 +726,83 @@ function extractBrandLabData(rawJson: any): ToolReportData {
     });
   }
 
-  // V1 fallback: Extract strengths/gaps if V2 issues not present
-  if (keyFindings.length === 0) {
-    if (content.strengths && Array.isArray(content.strengths)) {
-      content.strengths.slice(0, 4).forEach((s: any) => {
-        const text = typeof s === 'string' ? s : s?.strength || s?.description;
-        if (text) keyFindings.push(`+ ${text}`);
-      });
-    }
-    if (content.gaps && Array.isArray(content.gaps)) {
-      content.gaps.slice(0, 3).forEach((g: any) => {
-        const text = typeof g === 'string' ? g : g?.gap || g?.description;
-        if (text) keyFindings.push(`Gap: ${text}`);
-      });
-    }
+  // V1: Add identity section
+  if (content.identitySystem && !findings.identitySystem) {
+    sections.push({
+      id: 'identity',
+      title: 'Brand Identity',
+      icon: 'Fingerprint',
+      body: createIdentitySection(content.identitySystem),
+    });
   }
 
-  // V1 fallback: Extract recommendations if V2 quickWins not present
-  if (opportunities.length === 0 && content.recommendations && Array.isArray(content.recommendations)) {
-    content.recommendations.slice(0, 5).forEach((r: any) => {
-      const text = typeof r === 'string' ? r : r?.title || r?.description;
-      if (text) opportunities.push(text);
+  // V1: Add trust section
+  if (content.trustAndProof && !findings.trustAndProof) {
+    sections.push({
+      id: 'trust',
+      title: 'Trust & Proof',
+      icon: 'Shield',
+      body: createTrustSection(content.trustAndProof),
     });
   }
 
   return { scores, keyFindings, opportunities, sections };
+}
+
+/**
+ * Create Identity Section for V1 Brand Lab reports
+ */
+function createIdentitySection(identity: any): React.ReactNode {
+  const items: string[] = [];
+
+  if (identity.tagline) {
+    items.push(`Tagline: "${identity.tagline}"`);
+  }
+  if (identity.corePromise) {
+    items.push(`Core Promise: "${identity.corePromise}"`);
+  }
+  if (identity.toneOfVoice) {
+    items.push(`Tone: ${identity.toneOfVoice}`);
+  }
+  if (identity.personalityTraits && Array.isArray(identity.personalityTraits)) {
+    items.push(`Personality: ${identity.personalityTraits.join(', ')}`);
+  }
+
+  if (items.length === 0) return null;
+
+  return React.createElement('div', { className: 'space-y-2' },
+    items.map((item, i) =>
+      React.createElement('p', { key: i, className: 'text-sm text-slate-300' }, item)
+    )
+  );
+}
+
+/**
+ * Create Trust Section for V1 Brand Lab reports
+ */
+function createTrustSection(trust: any): React.ReactNode {
+  const items: string[] = [];
+
+  if (trust.trustArchetype) {
+    items.push(`Trust Archetype: ${trust.trustArchetype}`);
+  }
+  if (typeof trust.trustSignalsScore === 'number') {
+    items.push(`Trust Signals: ${trust.trustSignalsScore}/100`);
+  }
+  if (typeof trust.humanPresenceScore === 'number') {
+    items.push(`Human Presence: ${trust.humanPresenceScore}/100`);
+  }
+  if (trust.credibilityGaps && Array.isArray(trust.credibilityGaps) && trust.credibilityGaps.length > 0) {
+    items.push(`Gaps: ${trust.credibilityGaps.join('; ')}`);
+  }
+
+  if (items.length === 0) return null;
+
+  return React.createElement('div', { className: 'space-y-2' },
+    items.map((item, i) =>
+      React.createElement('p', { key: i, className: 'text-sm text-slate-300' }, item)
+    )
+  );
 }
 
 /**
