@@ -9,6 +9,39 @@ import {
 } from '@/lib/airtable/client';
 import { saveDiagnosticDetail } from '@/lib/airtable/diagnosticDetails';
 
+// ============================================================================
+// Rate Limit Handling
+// ============================================================================
+
+/**
+ * Fetch with automatic retry on rate limit (429)
+ */
+async function fetchWithRateLimitRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries = 3
+): Promise<Response> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const response = await fetch(url, options);
+
+    if (response.status === 429) {
+      // Rate limited - wait and retry
+      const retryAfter = response.headers.get('Retry-After');
+      const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : (attempt + 1) * 1000;
+      console.warn(`[gapHeavyRuns] Rate limited, waiting ${waitMs}ms before retry ${attempt + 1}/${maxRetries}`);
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+      lastError = new Error('Rate limit exceeded');
+      continue;
+    }
+
+    return response;
+  }
+
+  throw lastError || new Error('Max retries exceeded');
+}
+
 const HEAVY_TABLE =
   process.env.AIRTABLE_HEAVY_GAP_RUNS_TABLE || 'GAP-Heavy Run';
 
@@ -702,7 +735,7 @@ export async function getHeavyGapRunsByCompanyId(
 
     console.log('[gapHeavyRuns] Fetching recent Heavy Runs and filtering by Company in JavaScript');
 
-    const response = await fetch(url, {
+    const response = await fetchWithRateLimitRetry(url, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
