@@ -73,6 +73,23 @@ export type ToolIcon =
   | 'barChart';  // Analytics tools
 
 /**
+ * Blueprint-specific metadata for tool recommendations
+ * Used by the strategy engine to explain WHY each tool matters
+ */
+export interface BlueprintToolMeta {
+  /** Short explanation in plain language of why to run this tool */
+  whyRun: string;
+  /** Key strategic question this tool answers */
+  answersQuestion: string;
+  /** What this tool influences in the system */
+  influences: ('Strategy' | 'Blueprint Focus' | 'Work' | 'Brain' | 'Analytics')[];
+  /** What inputs/data sources this tool uses */
+  inputs: ('Website' | 'Content' | 'SEO' | 'Analytics' | 'GAP IA' | 'Social' | 'Competitors')[];
+  /** When you should typically run this tool */
+  typicalUseWhen: string;
+}
+
+/**
  * Complete tool definition
  */
 export interface CompanyToolDefinition {
@@ -135,6 +152,9 @@ export interface CompanyToolDefinition {
 
   /** Label for the primary action button */
   primaryActionLabel?: string;
+
+  /** Blueprint-specific metadata for intelligent recommendations */
+  blueprintMeta?: BlueprintToolMeta;
 }
 
 // ============================================================================
@@ -165,6 +185,13 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     estimatedMinutes: 2,
     icon: 'zap',
     primaryActionLabel: 'Run Assessment',
+    blueprintMeta: {
+      whyRun: 'Get a quick baseline of marketing health across brand, website, content, and SEO in under 2 minutes.',
+      answersQuestion: 'What are the biggest gaps in this company\'s marketing foundation?',
+      influences: ['Strategy', 'Blueprint Focus', 'Work', 'Brain'],
+      inputs: ['Website', 'Content', 'SEO'],
+      typicalUseWhen: 'Starting with a new company, onboarding a prospect, or when you need a quick health check.',
+    },
   },
   {
     id: 'gapPlan',
@@ -183,6 +210,13 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     estimatedMinutes: 5,
     icon: 'fileText',
     primaryActionLabel: 'Generate Plan',
+    blueprintMeta: {
+      whyRun: 'Generate a complete 90-day growth plan with strategic initiatives, quick wins, and prioritized actions.',
+      answersQuestion: 'What should be the strategic priorities and 90-day roadmap for this company?',
+      influences: ['Strategy', 'Blueprint Focus', 'Work', 'Brain'],
+      inputs: ['Website', 'Content', 'SEO', 'GAP IA'],
+      typicalUseWhen: 'After GAP IA confirms issues, when building a quarterly plan, or when strategy needs a refresh.',
+    },
   },
   {
     id: 'gapHeavy',
@@ -201,6 +235,13 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     estimatedMinutes: 10,
     icon: 'layers',
     primaryActionLabel: 'Run Heavy Diagnostic',
+    blueprintMeta: {
+      whyRun: 'Get deep competitive intelligence and multi-source analysis including social, sitemap, and competitor data.',
+      answersQuestion: 'How does this company compare to competitors and what are the hidden growth opportunities?',
+      influences: ['Strategy', 'Blueprint Focus', 'Work', 'Brain', 'Analytics'],
+      inputs: ['Website', 'Content', 'SEO', 'Social', 'Competitors', 'Analytics'],
+      typicalUseWhen: 'For strategic planning, competitive analysis, or when you need the most comprehensive view.',
+    },
   },
 
   // ==========================================================================
@@ -223,6 +264,13 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     estimatedMinutes: 4,
     icon: 'globe',
     primaryActionLabel: 'Run Website Diagnostic',
+    blueprintMeta: {
+      whyRun: 'Evaluate website UX, conversion paths, CTAs, and messaging clarity across multiple pages.',
+      answersQuestion: 'Is the website effectively converting visitors and communicating value?',
+      influences: ['Strategy', 'Blueprint Focus', 'Work'],
+      inputs: ['Website'],
+      typicalUseWhen: 'Conversion rates are low, after website changes, or when evaluating user experience.',
+    },
   },
 
   // ==========================================================================
@@ -245,6 +293,13 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     estimatedMinutes: 3,
     icon: 'sparkles',
     primaryActionLabel: 'Run Brand Diagnostic',
+    blueprintMeta: {
+      whyRun: 'Analyze brand clarity, differentiation, and positioning relative to the market.',
+      answersQuestion: 'Is the brand clearly differentiated and compelling to the target audience?',
+      influences: ['Strategy', 'Blueprint Focus', 'Work', 'Brain'],
+      inputs: ['Website', 'Content'],
+      typicalUseWhen: 'Brand feels unclear, after rebranding, or when differentiation needs strengthening.',
+    },
   },
 
   // ==========================================================================
@@ -267,6 +322,13 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     estimatedMinutes: 3,
     icon: 'fileEdit',
     primaryActionLabel: 'Run Content Diagnostic',
+    blueprintMeta: {
+      whyRun: 'Audit content inventory, quality, and strategic alignment across blog, resources, and case studies.',
+      answersQuestion: 'Is the content strategy supporting business goals and audience needs?',
+      influences: ['Strategy', 'Blueprint Focus', 'Work'],
+      inputs: ['Website', 'Content', 'SEO'],
+      typicalUseWhen: 'Content feels stale, organic traffic is declining, or planning a content refresh.',
+    },
   },
 
   // ==========================================================================
@@ -289,6 +351,13 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     estimatedMinutes: 3,
     icon: 'search',
     primaryActionLabel: 'Run SEO Diagnostic',
+    blueprintMeta: {
+      whyRun: 'Analyze technical SEO, on-page optimization, and search visibility opportunities.',
+      answersQuestion: 'What\'s holding back organic search performance and visibility?',
+      influences: ['Strategy', 'Blueprint Focus', 'Work', 'Analytics'],
+      inputs: ['Website', 'Content', 'SEO', 'Analytics'],
+      typicalUseWhen: 'Organic traffic is declining, search positions are dropping, or planning SEO investments.',
+    },
   },
 
   // ==========================================================================
@@ -311,6 +380,13 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     estimatedMinutes: 3,
     icon: 'trendingUp',
     primaryActionLabel: 'Run Demand Diagnostic',
+    blueprintMeta: {
+      whyRun: 'Evaluate lead capture, nurture flows, and conversion funnel effectiveness.',
+      answersQuestion: 'Is the demand generation engine efficiently converting prospects to leads?',
+      influences: ['Strategy', 'Blueprint Focus', 'Work', 'Analytics'],
+      inputs: ['Website', 'Analytics'],
+      typicalUseWhen: 'Lead volume is low, conversion rates are dropping, or optimizing the funnel.',
+    },
   },
 
   // ==========================================================================
@@ -333,6 +409,13 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     estimatedMinutes: 3,
     icon: 'settings',
     primaryActionLabel: 'Run Ops Diagnostic',
+    blueprintMeta: {
+      whyRun: 'Assess marketing operations maturity including processes, tooling, and automation.',
+      answersQuestion: 'Is marketing operations efficient and scalable for growth?',
+      influences: ['Strategy', 'Work'],
+      inputs: ['Analytics'],
+      typicalUseWhen: 'Scaling operations, evaluating tech stack, or improving marketing efficiency.',
+    },
   },
 
   // ==========================================================================
@@ -350,6 +433,13 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     requiresWebsite: false,
     icon: 'barChart',
     primaryActionLabel: 'Open Analytics',
+    blueprintMeta: {
+      whyRun: 'Review real-time traffic, engagement, and search performance with AI-powered insights.',
+      answersQuestion: 'What do the numbers say about current performance and trends?',
+      influences: ['Strategy', 'Blueprint Focus', 'Analytics'],
+      inputs: ['Analytics'],
+      typicalUseWhen: 'Checking performance trends, before strategy sessions, or investigating anomalies.',
+    },
   },
 ];
 

@@ -1,11 +1,8 @@
 // app/c/[companyId]/analytics/page.tsx
-// Company Analytics page - Shows GA4 + Search Console data with AI insights
+// REDIRECT: Analytics page now redirects to Analytics Deep Dive
+// Analytics is now accessible via Blueprint -> Analytics Deep Dive
 
-import { notFound } from 'next/navigation';
-import { getCompanyById } from '@/lib/airtable/companies';
-import { CompanyAnalyticsTab } from '@/components/os/CompanyAnalyticsTab';
-
-export const dynamic = 'force-dynamic';
+import { redirect } from 'next/navigation';
 
 type PageProps = {
   params: Promise<{ companyId: string }>;
@@ -13,23 +10,5 @@ type PageProps = {
 
 export default async function CompanyAnalyticsPage({ params }: PageProps) {
   const { companyId } = await params;
-
-  // Fetch company data
-  const company = await getCompanyById(companyId);
-
-  if (!company) {
-    return notFound();
-  }
-
-  return (
-    <div className="space-y-6">
-      <CompanyAnalyticsTab
-        companyId={companyId}
-        companyName={company.name}
-        ga4PropertyId={company.ga4PropertyId}
-        searchConsoleSiteUrl={company.searchConsoleSiteUrl}
-        analyticsBlueprint={company.analyticsBlueprint}
-      />
-    </div>
-  );
+  redirect(`/c/${companyId}/analytics/deep-dive`);
 }

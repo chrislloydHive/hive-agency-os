@@ -6,21 +6,14 @@ import { usePathname } from 'next/navigation';
 export default function CompanyTabs({ companyId }: { companyId: string }) {
   const pathname = usePathname();
 
-  // Canonical tabs for company detail experience
-  // - Overview: Company summary and quick stats
-  // - Tools: Run diagnostic and planning tools
-  // - Reports: View historical diagnostic reports
-  // - GAP: Growth Acceleration Plan shortcuts
-  // - Analytics: Live GA4/GSC data
-  // - Brain: Strategic AI memory and insights
-  // - Work: Active work items and suggested priorities
+  // NEW: Simplified 4-tab navigation model
+  // - Overview: Lightweight pulse-check with health summary
+  // - Blueprint: Strategic hub (strategy, tools, analytics, insights)
+  // - Brain: Strategic AI memory and documents
+  // - Work: Active tasks, experiments, backlog
   const tabs = [
     { name: 'Overview', href: `/c/${companyId}` },
-    { name: 'Tools', href: `/c/${companyId}/tools` },
-    { name: 'Reports', href: `/c/${companyId}/reports` },
-    { name: 'GAP', href: `/c/${companyId}/gap` },
-    { name: 'Analytics', href: `/c/${companyId}/analytics` },
-    { name: 'Experiments', href: `/c/${companyId}/experiments` },
+    { name: 'Blueprint', href: `/c/${companyId}/blueprint` },
     { name: 'Brain', href: `/c/${companyId}/brain` },
     { name: 'Work', href: `/c/${companyId}/work` },
   ];

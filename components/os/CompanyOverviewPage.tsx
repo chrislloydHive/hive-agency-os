@@ -619,6 +619,31 @@ export function CompanyOverviewPage({
       </div>
 
       {/* ================================================================== */}
+      {/* CTA: Go to Blueprint for Full Strategy */}
+      {/* ================================================================== */}
+      <Link
+        href={`/c/${company.id}/blueprint`}
+        className="block bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-xl p-4 hover:border-amber-500/50 transition-colors group"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center">
+              <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-amber-300">Open Blueprint</p>
+              <p className="text-xs text-slate-400">Full strategy, tools, analytics & insights</p>
+            </div>
+          </div>
+          <svg className="w-5 h-5 text-amber-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </Link>
+
+      {/* ================================================================== */}
       {/* Band 1: Strategic Snapshot + Score Trends + Performance Pulse */}
       {/* ================================================================== */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -681,7 +706,6 @@ export function CompanyOverviewPage({
                 <div className="flex-1 lg:pl-6 lg:border-l lg:border-slate-800">
                   {strategySnapshot.focusAreas && strategySnapshot.focusAreas.length > 0 ? (
                     <p className="text-sm text-slate-300 leading-relaxed">
-                      Based on the latest diagnostics, Hive OS recommends focusing on{' '}
                       <span className="text-slate-100 font-medium">
                         {strategySnapshot.focusAreas.slice(0, 3).join(', ')}
                       </span>{' '}
@@ -1081,7 +1105,7 @@ export function CompanyOverviewPage({
               Recent Diagnostics
             </h2>
             <Link
-              href={`/c/${company.id}/tools`}
+              href={`/c/${company.id}/blueprint`}
               className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
             >
               See all diagnostics
@@ -1188,7 +1212,7 @@ export function CompanyOverviewPage({
       {/* ================================================================== */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Link
-          href={`/c/${company.id}/tools`}
+          href={`/c/${company.id}/blueprint`}
           className="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-700 hover:bg-slate-800/50 transition-all group"
         >
           <div className="flex items-center gap-3">

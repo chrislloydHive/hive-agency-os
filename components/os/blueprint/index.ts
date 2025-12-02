@@ -6,3 +6,4 @@ export { BlueprintPanel } from './BlueprintPanel';
 export { BlueprintThemeCard } from './BlueprintThemeCard';
 export { BlueprintPlayCard } from './BlueprintPlayCard';
 export { BlueprintExperimentList } from './BlueprintExperimentList';
+export { BlueprintAnalyticsPanel } from './BlueprintAnalyticsPanel';

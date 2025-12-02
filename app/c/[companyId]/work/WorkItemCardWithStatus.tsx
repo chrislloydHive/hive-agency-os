@@ -4,13 +4,15 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { WorkItemRecord, WorkItemStatus } from '@/lib/airtable/workItems';
 
-interface WorkItemCardWithStatusProps {
+export interface WorkItemCardWithStatusProps {
   item: WorkItemRecord;
+  isSelected?: boolean;
+  onClick?: () => void;
 }
 
 const STATUS_OPTIONS: WorkItemStatus[] = ['Backlog', 'Planned', 'In Progress', 'Done'];
 
-export default function WorkItemCardWithStatus({ item }: WorkItemCardWithStatusProps) {
+export default function WorkItemCardWithStatus({ item, isSelected, onClick }: WorkItemCardWithStatusProps) {
   const router = useRouter();
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);

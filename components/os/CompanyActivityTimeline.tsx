@@ -296,7 +296,7 @@ export function CompanyActivityTimeline({
                 {/* Link to detail */}
                 {event.meta && 'experimentId' in event.meta && (
                   <Link
-                    href={`/c/${companyId}/experiments`}
+                    href={`/c/${companyId}/work`}
                     className="text-[10px] text-amber-400 hover:text-amber-300 mt-1.5 inline-block"
                   >
                     View experiment
