@@ -1,13 +1,14 @@
 // app/api/os/diagnostics/run/brand-lab/route.ts
-// API endpoint for running Brand Lab diagnostic
+// API endpoint for starting Brand Lab diagnostic via Inngest
+//
+// This endpoint now triggers an async Inngest job instead of running synchronously.
+// Use the /api/os/diagnostics/status/brand-lab endpoint to poll for status.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createDiagnosticRun, updateDiagnosticRun } from '@/lib/os/diagnostics/runs';
-import { runBrandLabEngine } from '@/lib/os/diagnostics/engines';
+import { createDiagnosticRun } from '@/lib/os/diagnostics/runs';
 import { getCompanyById } from '@/lib/airtable/companies';
-import { processDiagnosticRunCompletionAsync } from '@/lib/os/diagnostics/postRunHooks';
-
-export const maxDuration = 180; // 3 minutes timeout
+import { inngest } from '@/lib/inngest/client';
+import { setDiagnosticStatus, makeStatusKey } from '@/lib/os/diagnostics/statusStore';
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,7 +38,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('[API] Running Brand Lab for:', company.name);
+    console.log('[Brand Lab API] Starting async diagnostic for:', company.name);
+
+    // Initialize status in store
+    const statusKey = makeStatusKey('brandLab', companyId);
+    setDiagnosticStatus(statusKey, {
+      status: 'pending',
+      currentStep: 'Initializing...',
+      percent: 0,
+    });
 
     // Create run record with "running" status
     const run = await createDiagnosticRun({
@@ -46,44 +55,35 @@ export async function POST(request: NextRequest) {
       status: 'running',
     });
 
-    // Run the engine
-    const result = await runBrandLabEngine({
-      companyId,
-      company,
-      websiteUrl: company.website,
+    // Update status
+    setDiagnosticStatus(statusKey, {
+      status: 'running',
+      currentStep: 'Starting Brand Lab analysis...',
+      percent: 5,
+      runId: run.id,
     });
 
-    // Update run with results
-    const updatedRun = await updateDiagnosticRun(run.id, {
-      status: result.success ? 'complete' : 'failed',
-      score: result.score ?? null,
-      summary: result.summary ?? null,
-      rawJson: result.data,
-      metadata: result.error ? { error: result.error } : undefined,
-    });
-
-    console.log('[API] Brand Lab complete:', {
-      runId: updatedRun.id,
-      success: result.success,
-      score: result.score,
-    });
-
-    // Process post-run hooks (Brain entry + Strategic Snapshot) in background
-    if (result.success) {
-      processDiagnosticRunCompletionAsync(companyId, updatedRun);
-    }
-
-    return NextResponse.json({
-      run: updatedRun,
-      result: {
-        success: result.success,
-        score: result.score,
-        summary: result.summary,
-        error: result.error,
+    // Send event to Inngest to start the background job
+    await inngest.send({
+      name: 'brand.diagnostic.start',
+      data: {
+        companyId,
+        runId: run.id,
       },
     });
+
+    console.log('[Brand Lab API] Inngest job triggered:', {
+      runId: run.id,
+      companyId,
+    });
+
+    return NextResponse.json({
+      success: true,
+      runId: run.id,
+      message: 'Brand Lab diagnostic started. Poll /api/os/diagnostics/status/brand-lab?companyId=... for status.',
+    });
   } catch (error) {
-    console.error('[API] Brand Lab error:', error);
+    console.error('[Brand Lab API] Error:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Internal server error' },
       { status: 500 }

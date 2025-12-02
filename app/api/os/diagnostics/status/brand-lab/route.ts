@@ -1,0 +1,69 @@
+// app/api/os/diagnostics/status/brand-lab/route.ts
+// API endpoint for polling Brand Lab diagnostic status
+
+import { NextRequest, NextResponse } from 'next/server';
+import { getDiagnosticStatus, makeStatusKey } from '@/lib/os/diagnostics/statusStore';
+import { getLatestRunForCompanyAndTool } from '@/lib/os/diagnostics/runs';
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const companyId = searchParams.get('companyId');
+
+    if (!companyId) {
+      return NextResponse.json(
+        { error: 'Missing companyId' },
+        { status: 400 }
+      );
+    }
+
+    const statusKey = makeStatusKey('brandLab', companyId);
+    const status = getDiagnosticStatus(statusKey);
+
+    // If we have in-memory status, return it
+    if (status) {
+      return NextResponse.json({
+        status: status.status,
+        currentStep: status.currentStep,
+        percent: status.percent,
+        error: status.error,
+        runId: status.runId,
+      });
+    }
+
+    // Fallback: Check database for latest run status
+    const latestRun = await getLatestRunForCompanyAndTool(companyId, 'brandLab');
+
+    if (latestRun) {
+      // Map database status to polling status
+      const mappedStatus =
+        latestRun.status === 'complete' ? 'completed' :
+        latestRun.status === 'failed' ? 'failed' :
+        latestRun.status === 'running' ? 'running' :
+        'pending';
+
+      return NextResponse.json({
+        status: mappedStatus,
+        currentStep: latestRun.status === 'running' ? 'Processing...' : '',
+        percent: latestRun.status === 'complete' ? 100 : latestRun.status === 'running' ? 50 : 0,
+        error: latestRun.metadata?.error as string | undefined,
+        runId: latestRun.id,
+        score: latestRun.score,
+        summary: latestRun.summary,
+      });
+    }
+
+    // No status found
+    return NextResponse.json({
+      status: 'not_started',
+      currentStep: '',
+      percent: 0,
+    });
+  } catch (error) {
+    console.error('[Brand Lab Status] Error:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to get status' },
+      { status: 500 }
+    );
+  }
+}

@@ -1,19 +1,21 @@
 // app/api/os/diagnostics/run-brand/route.ts
 // Brand Lab V2 diagnostic API endpoint
+//
+// This endpoint now triggers an async Inngest job instead of running synchronously.
+// Use the /api/os/diagnostics/status/brand-lab endpoint to poll for status.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { createDiagnosticRun } from '@/lib/os/diagnostics/runs';
 import { getCompanyById } from '@/lib/airtable/companies';
-import { runBrandLab } from '@/lib/diagnostics/brand-lab';
-import { getHeavyGapRunsByCompanyId, createHeavyGapRun, updateHeavyGapRunState } from '@/lib/airtable/gapHeavyRuns';
-import { HeavyGapRunState } from '@/lib/gap-heavy/state';
+import { inngest } from '@/lib/inngest/client';
+import { setDiagnosticStatus, makeStatusKey } from '@/lib/os/diagnostics/statusStore';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // 1 minute timeout
 
 /**
  * POST /api/os/diagnostics/run-brand
  *
- * Run Brand Lab V2 diagnostic for a company
+ * Run Brand Lab V2 diagnostic for a company (async via Inngest)
  *
  * Body: { companyId: string }
  */
@@ -28,8 +30,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    console.log('[Brand Lab API V2] Running diagnostic for company:', companyId);
 
     // Get company data
     const company = await getCompanyById(companyId);
@@ -47,70 +47,60 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get or create Heavy GAP run for this company
-    const existingRuns = await getHeavyGapRunsByCompanyId(companyId, 1);
-    let heavyRun: HeavyGapRunState;
+    console.log('[Brand Lab API] Starting async diagnostic for:', company.name);
 
-    if (existingRuns.length > 0) {
-      // Update existing run
-      heavyRun = existingRuns[0];
-      console.log('[Brand Lab API V2] Found existing Heavy Run:', heavyRun.id);
-    } else {
-      // Create new run
-      heavyRun = await createHeavyGapRun({
-        gapPlanRunId: '',
+    // Initialize status in store
+    const statusKey = makeStatusKey('brandLab', companyId);
+    setDiagnosticStatus(statusKey, {
+      status: 'pending',
+      currentStep: 'Initializing...',
+      percent: 0,
+    });
+
+    // Create run record with "running" status
+    const run = await createDiagnosticRun({
+      companyId,
+      toolId: 'brandLab',
+      status: 'running',
+    });
+
+    // Update status
+    setDiagnosticStatus(statusKey, {
+      status: 'running',
+      currentStep: 'Starting Brand Lab analysis...',
+      percent: 5,
+      runId: run.id,
+    });
+
+    // Send event to Inngest to start the background job
+    await inngest.send({
+      name: 'brand.diagnostic.start',
+      data: {
         companyId,
-        url: company.website,
-        domain: new URL(company.website).hostname,
-      });
-      console.log('[Brand Lab API V2] Created new Heavy Run:', heavyRun.id);
-    }
+        runId: run.id,
+      },
+    });
 
-    // Run Brand Lab V2
-    const result = await runBrandLab({
-      company,
-      websiteUrl: company.website,
+    console.log('[Brand Lab API] Inngest job triggered:', {
+      runId: run.id,
       companyId,
     });
-
-    console.log('[Brand Lab API V2] ✓ Diagnostic complete:', {
-      score: result.overallScore,
-      maturityStage: result.maturityStage,
-      dimensions: result.dimensions.length,
-    });
-
-    // Save result to Heavy Run evidencePack
-    const updatedState: HeavyGapRunState = {
-      ...heavyRun,
-      evidencePack: {
-        ...(heavyRun.evidencePack || {}),
-        brandLab: result,
-        modules: heavyRun.evidencePack?.modules || [],
-      },
-      status: 'completed',
-      updatedAt: new Date().toISOString(),
-    };
-
-    await updateHeavyGapRunState(updatedState);
-    console.log('[Brand Lab API V2] ✓ Saved to Airtable');
 
     return NextResponse.json({
       success: true,
+      runId: run.id,
       companyId,
       companyName: company.name,
       websiteUrl: company.website,
-      score: result.overallScore,
-      maturityStage: result.maturityStage,
-      summary: result.narrativeSummary,
-      result,
+      message: 'Brand Lab diagnostic started. Poll /api/os/diagnostics/status/brand-lab?companyId=... for status.',
     });
 
   } catch (error) {
-    console.error('[Brand Lab API V2] Error:', error);
+    console.error('[Brand Lab API] Error:', error);
 
     return NextResponse.json(
       {
-        error: 'Failed to run brand diagnostic',
+        error: 'Failed to start brand diagnostic',
         message: error instanceof Error ? error.message : String(error),
       },
       { status: 500 }
