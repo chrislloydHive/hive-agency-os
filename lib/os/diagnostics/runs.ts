@@ -419,9 +419,16 @@ export async function listDiagnosticRunsForCompany(
   const limit = opts?.limit || 50;
 
   // Build filter formula
-  // Check both "Company copy" (link field) and "Company" (text field)
-  const companyFilter = `OR(FIND('${companyId}', ARRAYJOIN({Company copy}, ',')), {Company} = '${companyId}')`;
-  let filterParts: string[] = [companyFilter];
+  // Check multiple ways the company ID might be stored:
+  // 1. "Company copy" link field (array of record IDs)
+  // 2. "Company" text field (record ID as string)
+  // 3. Direct RECORD_ID match on linked record
+  const companyFilter = `OR(
+    FIND('${companyId}', ARRAYJOIN({Company copy}, ',')),
+    {Company} = '${companyId}',
+    SEARCH('${companyId}', ARRAYJOIN({Company copy}))
+  )`;
+  let filterParts: string[] = [companyFilter.replace(/\s+/g, ' ')];
 
   if (opts?.toolId) {
     filterParts.push(`{Tool ID} = '${opts.toolId}'`);
@@ -435,6 +442,8 @@ export async function listDiagnosticRunsForCompany(
     ? `AND(${filterParts.join(', ')})`
     : filterParts[0];
 
+  console.log('[DiagnosticRuns] Filter formula:', filterFormula);
+
   const url = new URL(
     `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(DIAGNOSTIC_RUNS_TABLE)}`
   );
@@ -442,6 +451,9 @@ export async function listDiagnosticRunsForCompany(
   url.searchParams.set('maxRecords', String(limit));
   url.searchParams.set('sort[0][field]', 'Created At');
   url.searchParams.set('sort[0][direction]', 'desc');
+
+  console.log('[DiagnosticRuns] Fetching from:', DIAGNOSTIC_RUNS_TABLE);
+  console.log('[DiagnosticRuns] Full URL:', url.toString().replace(config.apiKey || '', '[REDACTED]'));
 
   try {
     const response = await fetch(url.toString(), {
@@ -454,16 +466,18 @@ export async function listDiagnosticRunsForCompany(
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error('[DiagnosticRuns] Airtable API error:', {
+        status: response.status,
+        errorText,
+        companyId,
+        filterFormula,
+      });
       // Return empty array for common errors (table not found, invalid formula, etc.)
       // This allows the app to work even if the Diagnostic Runs table isn't fully set up
       if (response.status === 404 || response.status === 422 || response.status === 400) {
         console.warn(`[DiagnosticRuns] Table query failed (${response.status}), returning empty array`);
         return [];
       }
-      console.error('[DiagnosticRuns] Airtable API error:', {
-        status: response.status,
-        errorText,
-      });
       throw new Error(`Airtable API error (${response.status}): ${errorText}`);
     }
 
