@@ -830,6 +830,7 @@ export function BlueprintClient({
         summary={analyticsSummary ?? null}
         insights={analyticsInsights}
         onSendInsightToWork={handleSendInsightToWork}
+        performancePulse={performancePulse}
       />
 
       {/* ================================================================== */}
@@ -1066,42 +1067,7 @@ export function BlueprintClient({
       </div>
 
       {/* ================================================================== */}
-      {/* Section 9: Legacy Analytics Summary (kept for backwards compat) */}
-      {/* ================================================================== */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
-            Analytics Summary
-          </h2>
-          {hasGa4 && (
-            <Link
-              href={`/c/${company.id}/analytics/deep-dive`}
-              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-            >
-              View Analytics Deep Dive
-            </Link>
-          )}
-        </div>
-
-        {hasGa4 || hasSearchConsole ? (
-          <AnalyticsSummaryIntelligent
-            performancePulse={performancePulse}
-            analyticsData={pipelineData?.analytics}
-            hasGa4={hasGa4}
-            hasSearchConsole={hasSearchConsole}
-            companyId={company.id}
-          />
-        ) : (
-          <EmptyState
-            icon="chart"
-            title="Analytics Not Connected"
-            description="Connect Google Analytics or Search Console in Settings to see performance data."
-          />
-        )}
-      </div>
-
-      {/* ================================================================== */}
-      {/* Section 10: Insights (from Brain) */}
+      {/* Section 9: Insights (from Brain) */}
       {/* ================================================================== */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
@@ -1684,153 +1650,6 @@ function ToolCardIntelligent({
           </Link>
         )}
       </div>
-    </div>
-  );
-}
-
-function AnalyticsSummaryIntelligent({
-  performancePulse,
-  analyticsData,
-  hasGa4,
-  hasSearchConsole,
-  companyId,
-}: {
-  performancePulse: PerformancePulse | null | undefined;
-  analyticsData?: BlueprintPipelineData['analytics'] | null;
-  hasGa4: boolean;
-  hasSearchConsole: boolean;
-  companyId: string;
-}) {
-  const hasData = performancePulse && (
-    performancePulse.trafficChange7d !== null ||
-    performancePulse.conversionsChange7d !== null ||
-    performancePulse.seoVisibilityChange7d !== null ||
-    performancePulse.currentSessions !== null ||
-    performancePulse.currentClicks !== null
-  );
-
-  const getChangeColor = (value: number | null) => {
-    if (value === null) return 'text-slate-400';
-    if (value > 0) return 'text-emerald-400';
-    if (value < 0) return 'text-red-400';
-    return 'text-slate-400';
-  };
-
-  const getChangeArrow = (value: number | null) => {
-    if (value === null || value === 0) return '';
-    return value > 0 ? ' ' : ' ';
-  };
-
-  const formatChange = (value: number | null) => {
-    if (value === null) return '';
-    if (value === 0) return '0%';
-    return value > 0 ? `+${value}%` : `${value}%`;
-  };
-
-  // Generate AI pulse message
-  let pulseMessage = '';
-  if (analyticsData) {
-    if (analyticsData.trafficTrend === 'down' && performancePulse?.trafficChange7d) {
-      pulseMessage = `Traffic softened ${Math.abs(performancePulse.trafficChange7d)}% week-over-week.`;
-    } else if (analyticsData.trafficTrend === 'up' && performancePulse?.trafficChange7d) {
-      pulseMessage = `Traffic grew ${performancePulse.trafficChange7d}% week-over-week.`;
-    }
-    if (analyticsData.conversionTrend === 'down' && performancePulse?.conversionsChange7d) {
-      pulseMessage += ` Conversions dropped ${Math.abs(performancePulse.conversionsChange7d)}%.`;
-    }
-    if (analyticsData.hasAnomalies && analyticsData.anomalySummary) {
-      pulseMessage = analyticsData.anomalySummary;
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* AI Pulse Message */}
-      {pulseMessage && (
-        <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-          <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center">
-            <svg className="w-3 h-3 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <p className="text-sm text-blue-200">{pulseMessage}</p>
-        </div>
-      )}
-
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Traffic */}
-        <div className="bg-slate-800/50 rounded-lg p-4">
-          <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Traffic (7d)</p>
-          {hasData && performancePulse ? (
-            <div className="flex items-end justify-between">
-              <span className="text-2xl font-bold tabular-nums text-slate-100">
-                {performancePulse.currentSessions?.toLocaleString() ?? ''}
-              </span>
-              {performancePulse.trafficChange7d !== null && (
-                <span className={`text-sm font-medium ${getChangeColor(performancePulse.trafficChange7d)}`}>
-                  {getChangeArrow(performancePulse.trafficChange7d)} {formatChange(performancePulse.trafficChange7d)}
-                </span>
-              )}
-            </div>
-          ) : (
-            <span className="text-sm text-slate-500">No data</span>
-          )}
-        </div>
-
-        {/* Conversions */}
-        <div className="bg-slate-800/50 rounded-lg p-4">
-          <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Conversions (7d)</p>
-          {hasData && performancePulse ? (
-            <div className="flex items-end justify-between">
-              <span className="text-2xl font-bold tabular-nums text-slate-100">
-                {performancePulse.currentConversions?.toLocaleString() ?? ''}
-              </span>
-              {performancePulse.conversionsChange7d !== null && (
-                <span className={`text-sm font-medium ${getChangeColor(performancePulse.conversionsChange7d)}`}>
-                  {getChangeArrow(performancePulse.conversionsChange7d)} {formatChange(performancePulse.conversionsChange7d)}
-                </span>
-              )}
-            </div>
-          ) : (
-            <span className="text-sm text-slate-500">No data</span>
-          )}
-        </div>
-
-        {/* SEO Visibility */}
-        <div className="bg-slate-800/50 rounded-lg p-4">
-          <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Search Clicks (7d)</p>
-          {hasData && performancePulse ? (
-            <div className="flex items-end justify-between">
-              <span className="text-2xl font-bold tabular-nums text-slate-100">
-                {performancePulse.currentClicks?.toLocaleString() ?? ''}
-              </span>
-              {performancePulse.seoVisibilityChange7d !== null && (
-                <span className={`text-sm font-medium ${getChangeColor(performancePulse.seoVisibilityChange7d)}`}>
-                  {getChangeArrow(performancePulse.seoVisibilityChange7d)} {formatChange(performancePulse.seoVisibilityChange7d)}
-                </span>
-              )}
-            </div>
-          ) : (
-            <span className="text-sm text-slate-500">No data</span>
-          )}
-        </div>
-      </div>
-
-      {/* Analytics Issues from Pipeline */}
-      {analyticsData?.topIssues && analyticsData.topIssues.length > 0 && (
-        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-          <p className="text-xs text-red-400 font-medium mb-2">Analytics Issues</p>
-          <ul className="space-y-1">
-            {analyticsData.topIssues.map((issue, i) => (
-              <li key={i} className="text-xs text-red-300 flex items-start gap-2">
-                <span className="text-red-400"></span>
-                {issue}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 }

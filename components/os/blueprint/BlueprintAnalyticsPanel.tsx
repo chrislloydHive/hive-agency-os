@@ -16,6 +16,7 @@ import type {
   BlueprintAnalyticsSummary,
   AnalyticsStrategicInsight,
 } from '@/lib/os/analytics/blueprintDataFetcher';
+import type { PerformancePulse } from '@/lib/os/analytics/performancePulse';
 
 // ============================================================================
 // Types
@@ -27,6 +28,8 @@ interface BlueprintAnalyticsPanelProps {
   insights?: AnalyticsStrategicInsight[];
   isLoading?: boolean;
   onSendInsightToWork?: (insight: AnalyticsStrategicInsight) => Promise<void>;
+  /** 7-day performance pulse for anomaly detection */
+  performancePulse?: PerformancePulse | null;
 }
 
 // ============================================================================
@@ -144,6 +147,7 @@ export function BlueprintAnalyticsPanel({
   insights = [],
   isLoading = false,
   onSendInsightToWork,
+  performancePulse,
 }: BlueprintAnalyticsPanelProps) {
   const [sendingInsights, setSendingInsights] = useState<Set<number>>(new Set());
   const [sentInsights, setSentInsights] = useState<Set<number>>(new Set());
@@ -316,6 +320,42 @@ export function BlueprintAnalyticsPanel({
           </div>
         </div>
       </div>
+
+      {/* 7-Day Pulse Card - Anomaly Detection */}
+      {performancePulse?.hasAnomalies && performancePulse.anomalySummary && (
+        <div className="mb-6 flex items-start gap-3 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30">
+          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center">
+            <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <p className="text-sm font-medium text-amber-300">7-Day Pulse</p>
+              <span className="text-xs text-amber-400/60">Week-over-week</span>
+            </div>
+            <p className="text-sm text-amber-200/90">{performancePulse.anomalySummary}</p>
+            {/* Quick metrics row */}
+            <div className="flex items-center gap-4 mt-2 text-xs">
+              {performancePulse.currentSessions !== null && performancePulse.trafficChange7d !== null && (
+                <span className={getChangeColor(performancePulse.trafficChange7d)}>
+                  Traffic: {formatChange(performancePulse.trafficChange7d)}
+                </span>
+              )}
+              {performancePulse.currentConversions !== null && performancePulse.conversionsChange7d !== null && (
+                <span className={getChangeColor(performancePulse.conversionsChange7d)}>
+                  Conversions: {formatChange(performancePulse.conversionsChange7d)}
+                </span>
+              )}
+              {performancePulse.currentClicks !== null && performancePulse.seoVisibilityChange7d !== null && (
+                <span className={getChangeColor(performancePulse.seoVisibilityChange7d)}>
+                  Search: {formatChange(performancePulse.seoVisibilityChange7d)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Channel Breakdown */}
       {summary.topChannels.length > 0 && (
