@@ -234,6 +234,35 @@ export interface BrandLabResult {
 // Engine Result Wrapper
 // ============================================================================
 
+/**
+ * Engine status for Brand Lab diagnostic
+ * - ok: Diagnostic completed successfully with valid results
+ * - failed: Diagnostic could not complete a reliable analysis
+ */
+export type BrandLabEngineStatus = 'ok' | 'failed';
+
+/**
+ * Error details when Brand Lab fails validation
+ */
+export interface BrandLabEngineError {
+  reason: string;
+  details?: string[];
+}
+
+/**
+ * Result wrapper that includes validation status.
+ * Used by the engine to indicate whether the diagnostic is valid.
+ */
+export interface BrandLabValidatedResult {
+  status: BrandLabEngineStatus;
+  result?: BrandLabResult;
+  error?: BrandLabEngineError;
+}
+
+/**
+ * Legacy engine result wrapper for backward compatibility.
+ * Used by runBrandLabEngine() function.
+ */
 export interface BrandLabEngineResult {
   success: boolean;
   score?: number;
@@ -241,6 +270,16 @@ export interface BrandLabEngineResult {
   report?: BrandLabResult;
   error?: string;
 }
+
+/**
+ * Fallback data confidence for failed runs.
+ * Used when the diagnostic fails validation.
+ */
+export const BRAND_LAB_FAILED_CONFIDENCE: BrandDataConfidence = {
+  score: 20,
+  level: 'low',
+  reason: 'Brand Lab could not complete a reliable analysis. Insights are not available for this run.',
+};
 
 // ============================================================================
 // Helper Functions

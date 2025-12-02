@@ -3,14 +3,16 @@
 //
 // This is the main orchestrator that:
 // 1. Runs the V1 engine to collect brand signals
-// 2. Transforms V1 output into V2 dimension-based scoring
-// 3. Generates narrative summary
-// 4. Builds quick wins and projects
-// 5. Returns the complete BrandLabResult
+// 2. Validates that the diagnostic is not a fallback/scaffold
+// 3. Transforms V1 output into V2 dimension-based scoring
+// 4. Generates narrative summary
+// 5. Builds quick wins and projects
+// 6. Returns the complete BrandLabResult (or error for failed diagnostics)
 
 import type {
   BrandLabResult,
   BrandLabEngineResult,
+  BrandLabValidatedResult,
   BrandLabQuickWin,
   BrandLabProject,
   BrandLabFindings,
@@ -18,11 +20,13 @@ import type {
 } from './types';
 import { buildBrandDimensionsFromV1, computeBrandDataConfidence } from './scoring';
 import { generateBrandNarrative } from './narrative';
+import { detectBrandLabFailure } from './validation';
 import { runBrandLab as runBrandLabV1 } from '@/lib/gap-heavy/modules/brandLabImpl';
 import type { CompanyRecord } from '@/lib/airtable/companies';
 
 // Re-export types for convenience
 export * from './types';
+export { detectBrandLabFailure } from './validation';
 
 // ============================================================================
 // Main Run Function
@@ -36,13 +40,75 @@ export interface RunBrandLabParams {
 }
 
 /**
- * Run Brand Lab V2 diagnostic
+ * Run Brand Lab V2 diagnostic with validation
  *
- * This is the main entry point that orchestrates:
- * 1. V1 signal collection (LLM-powered brand analysis)
- * 2. V2 dimension-based scoring
- * 3. Narrative generation
- * 4. Quick wins and projects derivation
+ * This is the RECOMMENDED entry point that:
+ * 1. Runs V1 signal collection
+ * 2. Validates the result is not a fallback/scaffold
+ * 3. Returns status: 'ok' with result, or status: 'failed' with error
+ *
+ * Use this when you need to handle failure states explicitly.
+ */
+export async function runBrandLabWithValidation(params: RunBrandLabParams): Promise<BrandLabValidatedResult> {
+  const { company, websiteUrl, companyId, companyType } = params;
+
+  console.log('[Brand Lab V2] Starting analysis with validation:', { companyId: company.id, websiteUrl });
+
+  try {
+    // 1. Run V1 engine to collect brand signals
+    const v1Result = await runBrandLabV1({
+      company,
+      websiteUrl,
+      skipCompetitive: false,
+    });
+
+    // 2. Validate the diagnostic is not a fallback
+    const validation = detectBrandLabFailure(v1Result);
+
+    if (validation.failed) {
+      console.warn('[Brand Lab V2] Diagnostic failed validation:', validation.reasons);
+
+      return {
+        status: 'failed',
+        error: {
+          reason: 'Brand Lab could not complete a reliable analysis.',
+          details: validation.reasons,
+        },
+      };
+    }
+
+    // 3. Build full V2 result
+    const result = await buildBrandLabResultFromV1(v1Result, params);
+
+    console.log('[Brand Lab V2] Analysis complete:', {
+      overallScore: result.overallScore,
+      maturityStage: result.maturityStage,
+    });
+
+    return {
+      status: 'ok',
+      result,
+    };
+  } catch (error) {
+    console.error('[Brand Lab V2] Unexpected error:', error);
+
+    return {
+      status: 'failed',
+      error: {
+        reason: 'Brand Lab encountered an unexpected error.',
+        details: [error instanceof Error ? error.message : String(error)],
+      },
+    };
+  }
+}
+
+/**
+ * Run Brand Lab V2 diagnostic (legacy, no validation)
+ *
+ * WARNING: This function does NOT validate if the diagnostic is a fallback.
+ * It will return scaffold/fake results if the LLM fails.
+ *
+ * Use runBrandLabWithValidation() instead for new code.
  */
 export async function runBrandLab(params: RunBrandLabParams): Promise<BrandLabResult> {
   const { company, websiteUrl, companyId, companyType } = params;
@@ -55,6 +121,19 @@ export async function runBrandLab(params: RunBrandLabParams): Promise<BrandLabRe
     websiteUrl,
     skipCompetitive: false, // Include competitive layer
   });
+
+  // 2. Build full V2 result (no validation)
+  return buildBrandLabResultFromV1(v1Result, params);
+}
+
+/**
+ * Internal helper to build BrandLabResult from V1 result
+ */
+async function buildBrandLabResultFromV1(
+  v1Result: Awaited<ReturnType<typeof runBrandLabV1>>,
+  params: RunBrandLabParams
+): Promise<BrandLabResult> {
+  const { company, websiteUrl, companyId, companyType } = params;
 
   const diagnostic = v1Result.diagnostic;
   const actionPlan = v1Result.actionPlan;
@@ -135,11 +214,24 @@ export async function runBrandLab(params: RunBrandLabParams): Promise<BrandLabRe
 }
 
 /**
- * Run Brand Lab and wrap result in engine result format
+ * Run Brand Lab and wrap result in engine result format.
+ * Uses validation to detect fallback/scaffold results.
  */
 export async function runBrandLabEngine(params: RunBrandLabParams): Promise<BrandLabEngineResult> {
   try {
-    const report = await runBrandLab(params);
+    // Use the validated version
+    const validated = await runBrandLabWithValidation(params);
+
+    if (validated.status === 'failed') {
+      console.warn('[Brand Lab V2] Engine detected failed diagnostic:', validated.error);
+
+      return {
+        success: false,
+        error: validated.error?.reason ?? 'Brand Lab could not complete a reliable analysis.',
+      };
+    }
+
+    const report = validated.result!;
 
     return {
       success: true,

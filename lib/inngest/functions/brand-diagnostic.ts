@@ -96,7 +96,7 @@ export const brandDiagnostic = inngest.createFunction(
     });
 
     // ========================================================================
-    // STEP 1: Run V1 Brand Lab Engine (LLM Analysis)
+    // STEP 1: Run V1 Brand Lab Engine (LLM Analysis) + Validation
     // ========================================================================
     const v1Result = await step.run('run-v1-engine', async () => {
       console.log('[BrandDiagnostic] Step 1/4: Running V1 Brand Lab engine...');
@@ -125,6 +125,38 @@ export const brandDiagnostic = inngest.createFunction(
         v1Score: result.diagnostic.score,
         benchmarkLabel: result.diagnostic.benchmarkLabel,
       });
+
+      // Validate the diagnostic is not a fallback/scaffold
+      const { detectBrandLabFailure } = await import('@/lib/diagnostics/brand-lab/validation');
+      const validation = detectBrandLabFailure(result);
+
+      if (validation.failed) {
+        console.error('[BrandDiagnostic] V1 diagnostic failed validation:', validation.reasons);
+
+        // Update run to failed status before throwing
+        await updateDiagnosticRun(runId, {
+          status: 'failed',
+          metadata: {
+            error: 'Brand Lab could not complete a reliable analysis.',
+            validationReasons: validation.reasons,
+          },
+        });
+
+        // Emit failure event
+        await inngest.send({
+          name: 'brand.diagnostic.updated',
+          data: {
+            companyId,
+            runId,
+            status: 'failed',
+            error: 'Brand Lab could not complete a reliable analysis: ' + validation.reasons.join(' '),
+          },
+        });
+
+        throw new NonRetriableError(
+          `Brand Lab validation failed: ${validation.reasons.join('; ')}`
+        );
+      }
 
       return result;
     });
