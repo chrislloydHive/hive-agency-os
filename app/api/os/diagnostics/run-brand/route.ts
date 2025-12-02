@@ -1,11 +1,11 @@
 // app/api/os/diagnostics/run-brand/route.ts
-// Brand Lab diagnostic API endpoint
+// Brand Lab V2 diagnostic API endpoint
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getCompanyById } from '@/lib/airtable/companies';
-import { runBrandLab } from '@/lib/gap-heavy/modules/brandLabImpl';
+import { runBrandLab } from '@/lib/diagnostics/brand-lab';
 import { getHeavyGapRunsByCompanyId, createHeavyGapRun, updateHeavyGapRunState } from '@/lib/airtable/gapHeavyRuns';
-import { HeavyGapRunState, createInitialState } from '@/lib/gap-heavy/state';
+import { HeavyGapRunState } from '@/lib/gap-heavy/state';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // 1 minute timeout
@@ -13,7 +13,7 @@ export const maxDuration = 60; // 1 minute timeout
 /**
  * POST /api/os/diagnostics/run-brand
  *
- * Run Brand Lab diagnostic for a company
+ * Run Brand Lab V2 diagnostic for a company
  *
  * Body: { companyId: string }
  */
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('[Brand Lab API] Running diagnostic for company:', companyId);
+    console.log('[Brand Lab API V2] Running diagnostic for company:', companyId);
 
     // Get company data
     const company = await getCompanyById(companyId);
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     if (existingRuns.length > 0) {
       // Update existing run
       heavyRun = existingRuns[0];
-      console.log('[Brand Lab API] Found existing Heavy Run:', heavyRun.id);
+      console.log('[Brand Lab API V2] Found existing Heavy Run:', heavyRun.id);
     } else {
       // Create new run
       heavyRun = await createHeavyGapRun({
@@ -63,17 +63,21 @@ export async function POST(request: NextRequest) {
         url: company.website,
         domain: new URL(company.website).hostname,
       });
-      console.log('[Brand Lab API] Created new Heavy Run:', heavyRun.id);
+      console.log('[Brand Lab API V2] Created new Heavy Run:', heavyRun.id);
     }
 
-    // Run Brand Lab
+    // Run Brand Lab V2
     const result = await runBrandLab({
       company,
       websiteUrl: company.website,
-      // TODO: Pull existing GAP data if available
+      companyId,
     });
 
-    console.log('[Brand Lab API] ✓ Diagnostic complete');
+    console.log('[Brand Lab API V2] ✓ Diagnostic complete:', {
+      score: result.overallScore,
+      maturityStage: result.maturityStage,
+      dimensions: result.dimensions.length,
+    });
 
     // Save result to Heavy Run evidencePack
     const updatedState: HeavyGapRunState = {
@@ -88,21 +92,21 @@ export async function POST(request: NextRequest) {
     };
 
     await updateHeavyGapRunState(updatedState);
-    console.log('[Brand Lab API] ✓ Saved to Airtable');
+    console.log('[Brand Lab API V2] ✓ Saved to Airtable');
 
     return NextResponse.json({
       success: true,
       companyId,
       companyName: company.name,
       websiteUrl: company.website,
-      score: result.diagnostic.score,
-      benchmarkLabel: result.diagnostic.benchmarkLabel,
-      summary: result.actionPlan.summary,
+      score: result.overallScore,
+      maturityStage: result.maturityStage,
+      summary: result.narrativeSummary,
       result,
     });
 
   } catch (error) {
-    console.error('[Brand Lab API] Error:', error);
+    console.error('[Brand Lab API V2] Error:', error);
 
     return NextResponse.json(
       {

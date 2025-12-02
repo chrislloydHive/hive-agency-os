@@ -1,18 +1,18 @@
 // app/api/os/diagnostics/run/content-lab/route.ts
-// API endpoint for running Content Lab diagnostic
+// API endpoint for running Content Lab V1 diagnostic
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createDiagnosticRun, updateDiagnosticRun } from '@/lib/os/diagnostics/runs';
-import { runContentLabEngine } from '@/lib/os/diagnostics/engines';
+import { runContentLabEngine } from '@/lib/diagnostics/content-lab';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { processDiagnosticRunCompletionAsync } from '@/lib/os/diagnostics/postRunHooks';
 
-export const maxDuration = 180; // 3 minutes timeout
+export const maxDuration = 300; // 5 minutes timeout
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { companyId } = body;
+    const { companyId, workspaceId } = body;
 
     if (!companyId) {
       return NextResponse.json(
@@ -37,20 +37,45 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('[API] Running Content Lab for:', company.name);
+    // Use the Airtable record ID for linking
+    const airtableCompanyId = company.id;
+
+    // Extract company type for company-type-aware scoring
+    const companyType = company.companyType || null;
+
+    console.log('[API] Running Content Lab V1 for:', {
+      companyName: company.name,
+      airtableCompanyId,
+      website: company.website,
+      companyType,
+    });
+
+    // Validate that we have a proper Airtable record ID
+    if (!airtableCompanyId || !airtableCompanyId.startsWith('rec')) {
+      console.error('[API] Invalid company record ID:', {
+        id: airtableCompanyId,
+        companyId,
+        companyName: company.name,
+      });
+      return NextResponse.json(
+        { error: `Invalid company record ID: ${airtableCompanyId}. Expected Airtable record ID starting with "rec".` },
+        { status: 400 }
+      );
+    }
 
     // Create run record with "running" status
     const run = await createDiagnosticRun({
-      companyId,
+      companyId: airtableCompanyId,
       toolId: 'contentLab',
       status: 'running',
     });
 
-    // Run the engine
+    // Run the Content Lab V1 engine (company-type aware)
     const result = await runContentLabEngine({
-      companyId,
-      company,
-      websiteUrl: company.website,
+      companyId: airtableCompanyId,
+      url: company.website,
+      companyType,
+      workspaceId,
     });
 
     // Update run with results
@@ -58,7 +83,7 @@ export async function POST(request: NextRequest) {
       status: result.success ? 'complete' : 'failed',
       score: result.score ?? null,
       summary: result.summary ?? null,
-      rawJson: result.data,
+      rawJson: result.report,
       metadata: result.error ? { error: result.error } : undefined,
     });
 
@@ -66,11 +91,14 @@ export async function POST(request: NextRequest) {
       runId: updatedRun.id,
       success: result.success,
       score: result.score,
+      issues: result.report?.issues?.length ?? 0,
+      quickWins: result.report?.quickWins?.length ?? 0,
+      topics: result.report?.findings?.topics?.length ?? 0,
     });
 
     // Process post-run hooks (Brain entry + Strategic Snapshot) in background
     if (result.success) {
-      processDiagnosticRunCompletionAsync(companyId, updatedRun);
+      processDiagnosticRunCompletionAsync(airtableCompanyId, updatedRun);
     }
 
     return NextResponse.json({
@@ -79,13 +107,29 @@ export async function POST(request: NextRequest) {
         success: result.success,
         score: result.score,
         summary: result.summary,
+        report: result.report,
         error: result.error,
       },
     });
   } catch (error) {
     console.error('[API] Content Lab error:', error);
+
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+
+    // Provide helpful guidance for common Airtable errors
+    let hint = '';
+    if (errorMessage.includes('INVALID_VALUE_FOR_COLUMN')) {
+      if (errorMessage.includes('Tool ID')) {
+        hint = ' HINT: Add "contentLab" to the Tool ID single select options in the Diagnostic Runs Airtable table.';
+      } else if (errorMessage.includes('Company')) {
+        hint = ' HINT: Ensure the Company field in Diagnostic Runs is a Link field pointing to the Companies table, and the company record exists.';
+      } else {
+        hint = ' HINT: Check that all field values match the expected Airtable field types (single select options, link fields, etc).';
+      }
+    }
+
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
+      { error: errorMessage + hint },
       { status: 500 }
     );
   }

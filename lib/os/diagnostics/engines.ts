@@ -9,7 +9,7 @@
 // via aiForCompany() when called from API routes.
 
 import { getCompanyById, type CompanyRecord } from '@/lib/airtable/companies';
-import { runBrandLab } from '@/lib/gap-heavy/modules/brandLabImpl';
+import { runBrandLab as runBrandLabV2, type BrandLabEngineResult } from '@/lib/diagnostics/brand-lab';
 import { runWebsiteLabV4 } from '@/lib/gap-heavy/modules/website';
 import { runHeavyWorkerV4 } from '@/lib/gap-heavy/orchestratorV4';
 import { runStrategicOrchestrator } from '@/lib/gap-heavy/strategicOrchestrator';
@@ -225,37 +225,38 @@ export async function runWebsiteLabEngine(input: EngineInput): Promise<EngineRes
 }
 
 // ============================================================================
-// Brand Lab Engine
+// Brand Lab Engine (V2)
 // ============================================================================
 
 /**
- * Run Brand Lab diagnostic
- * Brand health, clarity, and positioning analysis
+ * Run Brand Lab V2 diagnostic
+ * Brand health, clarity, and positioning analysis with dimension-based scoring
  */
 export async function runBrandLabEngine(input: EngineInput): Promise<EngineResult> {
-  console.log('[Brand Lab Engine] Starting for:', input.websiteUrl);
+  console.log('[Brand Lab Engine V2] Starting for:', input.websiteUrl);
 
   try {
-    const result = await runBrandLab({
+    const result = await runBrandLabV2({
       company: input.company,
       websiteUrl: input.websiteUrl,
+      companyId: input.companyId,
     });
 
-    // Extract score and summary
-    const score = result.diagnostic.score;
-    const summary = result.actionPlan?.summary
-      || `Brand health score: ${score}/100 (${result.diagnostic.benchmarkLabel})`;
-
-    console.log('[Brand Lab Engine] ✓ Complete:', { score });
+    console.log('[Brand Lab Engine V2] ✓ Complete:', {
+      score: result.overallScore,
+      maturityStage: result.maturityStage,
+      dimensions: result.dimensions.length,
+      issues: result.issues.length,
+    });
 
     return {
       success: true,
-      score,
-      summary,
+      score: result.overallScore,
+      summary: result.narrativeSummary,
       data: result,
     };
   } catch (error) {
-    console.error('[Brand Lab Engine] Error:', error);
+    console.error('[Brand Lab Engine V2] Error:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),

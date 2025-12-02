@@ -5,7 +5,7 @@
 
 import { notFound } from 'next/navigation';
 import { getCompanyById } from '@/lib/airtable/companies';
-import { getLatestRunForCompanyAndTool } from '@/lib/os/diagnostics/runs';
+import { listDiagnosticRunsForCompany } from '@/lib/os/diagnostics/runs';
 import { getToolConfig } from '@/lib/os/diagnostics/tools';
 import { ToolDiagnosticsPageClient } from '@/components/os/diagnostics';
 
@@ -30,8 +30,12 @@ export default async function OpsDetailPage({ params }: PageProps) {
     return notFound();
   }
 
-  // Fetch latest diagnostic run
-  const latestRun = await getLatestRunForCompanyAndTool(companyId, 'opsLab');
+  // Fetch all diagnostic runs for this tool (sorted by date desc)
+  const allRuns = await listDiagnosticRunsForCompany(companyId, {
+    toolId: 'opsLab',
+    limit: 20,
+  });
+  const latestRun = allRuns.length > 0 ? allRuns[0] : null;
 
   return (
     <ToolDiagnosticsPageClient
@@ -39,16 +43,12 @@ export default async function OpsDetailPage({ params }: PageProps) {
       companyName={company.name}
       tool={tool}
       latestRun={latestRun}
+      allRuns={allRuns}
     >
-      {/* Tool-specific content can be added here if needed */}
+      {/* Ops Lab coming soon - minimal content */}
       {latestRun?.rawJson ? (
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400 mb-3">
-            Operations Analysis Details
-          </h2>
-          <pre className="text-xs text-slate-400 overflow-x-auto bg-[#050509]/50 p-4 rounded-lg max-h-96">
-            {JSON.stringify(latestRun.rawJson, null, 2)}
-          </pre>
+        <div className="text-sm text-slate-400">
+          <p>Ops Lab diagnostic data available. View full report for details.</p>
         </div>
       ) : null}
     </ToolDiagnosticsPageClient>

@@ -553,18 +553,31 @@ function extractWebsiteLabData(rawJson: any): ToolReportData {
 // ============================================================================
 
 function extractBrandLabData(rawJson: any): ToolReportData {
-  const brand = rawJson.diagnostic || rawJson.brandAssessment || rawJson;
+  // V2 format has dimensions array directly on root, V1 has diagnostic wrapper
+  const content = rawJson.diagnostic || rawJson.brandAssessment || rawJson;
   const scores: ScoreItem[] = [];
   const keyFindings: string[] = [];
   const opportunities: string[] = [];
   const sections: ReportSection[] = [];
 
-  // Extract dimension scores
-  if (brand.dimensions && typeof brand.dimensions === 'object') {
-    Object.entries(brand.dimensions).forEach(([key, dim]: [string, any]) => {
+  // V2: dimensions is an array with { key, label, score, status, summary }
+  if (content.dimensions && Array.isArray(content.dimensions)) {
+    content.dimensions.forEach((dim: any) => {
+      if (dim?.score != null) {
+        scores.push({
+          label: dim.label || formatLabel(dim.key || 'unknown'),
+          value: dim.score,
+          maxValue: 100,
+          group: 'Brand Dimensions',
+        });
+      }
+    });
+  } else if (content.dimensions && typeof content.dimensions === 'object') {
+    // Legacy V1 object format fallback
+    Object.entries(content.dimensions).forEach(([key, dim]: [string, any]) => {
       if (typeof dim?.score === 'number') {
         scores.push({
-          label: formatLabel(key),
+          label: dim.label || formatLabel(key),
           value: dim.score,
           maxValue: 100,
           group: 'Brand Dimensions',
@@ -573,65 +586,143 @@ function extractBrandLabData(rawJson: any): ToolReportData {
     });
   }
 
-  // Extract brand scores (alternative structure)
-  if (brand.scores && typeof brand.scores === 'object') {
-    Object.entries(brand.scores).forEach(([key, value]) => {
-      if (typeof value === 'number') {
-        scores.push({
-          label: formatLabel(key),
-          value: value,
-          maxValue: 100,
-          group: 'Brand Scores',
-        });
+  // V2: Extract issues as key findings
+  if (content.issues && Array.isArray(content.issues)) {
+    content.issues.slice(0, 5).forEach((issue: any) => {
+      if (issue?.title) {
+        const severity = issue.severity === 'high' ? '!' : issue.severity === 'medium' ? '*' : '';
+        keyFindings.push(`${severity} ${issue.title}`);
       }
     });
   }
 
-  // Extract strengths
-  if (brand.strengths && Array.isArray(brand.strengths)) {
-    brand.strengths.slice(0, 4).forEach((s: any) => {
-      const text = typeof s === 'string' ? s : s?.strength || s?.description;
-      if (text) keyFindings.push(`✓ ${text}`);
+  // V2: Extract quick wins as opportunities
+  if (content.quickWins && Array.isArray(content.quickWins)) {
+    content.quickWins.slice(0, 5).forEach((win: any) => {
+      if (win?.action) {
+        opportunities.push(win.action);
+      }
     });
   }
 
-  // Extract gaps
-  if (brand.gaps && Array.isArray(brand.gaps)) {
-    brand.gaps.slice(0, 3).forEach((g: any) => {
-      const text = typeof g === 'string' ? g : g?.gap || g?.description;
-      if (text) keyFindings.push(`Gap: ${text}`);
+  // V2: Extract projects as additional opportunities
+  if (content.projects && Array.isArray(content.projects)) {
+    content.projects.slice(0, 3).forEach((proj: any) => {
+      if (proj?.title) {
+        opportunities.push(`[Project] ${proj.title}`);
+      }
     });
   }
 
-  // Extract recommendations as opportunities
-  if (brand.recommendations && Array.isArray(brand.recommendations)) {
-    brand.recommendations.slice(0, 5).forEach((r: any) => {
+  // V2: Add maturity stage section
+  if (content.maturityStage) {
+    sections.push({
+      id: 'maturity',
+      title: 'Brand Maturity',
+      icon: 'Target',
+      body: createBrandMaturitySection(content),
+    });
+  }
+
+  // Legacy: Extract from V1 findings
+  const findings = content.findings || {};
+
+  // Add positioning section from V2 findings or V1 positioning
+  const positioning = findings.positioning || content.positioning;
+  if (positioning) {
+    sections.push({
+      id: 'positioning',
+      title: 'Brand Positioning',
+      icon: 'Crosshair',
+      body: createPositioningSection(positioning),
+    });
+  }
+
+  // Add messaging section from V2 findings or V1 messaging
+  const messaging = findings.messagingSystem || content.messaging;
+  if (messaging) {
+    sections.push({
+      id: 'messaging',
+      title: 'Messaging Analysis',
+      icon: 'MessageSquare',
+      body: createMessagingSection(messaging),
+    });
+  }
+
+  // V1 fallback: Extract strengths/gaps if V2 issues not present
+  if (keyFindings.length === 0) {
+    if (content.strengths && Array.isArray(content.strengths)) {
+      content.strengths.slice(0, 4).forEach((s: any) => {
+        const text = typeof s === 'string' ? s : s?.strength || s?.description;
+        if (text) keyFindings.push(`+ ${text}`);
+      });
+    }
+    if (content.gaps && Array.isArray(content.gaps)) {
+      content.gaps.slice(0, 3).forEach((g: any) => {
+        const text = typeof g === 'string' ? g : g?.gap || g?.description;
+        if (text) keyFindings.push(`Gap: ${text}`);
+      });
+    }
+  }
+
+  // V1 fallback: Extract recommendations if V2 quickWins not present
+  if (opportunities.length === 0 && content.recommendations && Array.isArray(content.recommendations)) {
+    content.recommendations.slice(0, 5).forEach((r: any) => {
       const text = typeof r === 'string' ? r : r?.title || r?.description;
       if (text) opportunities.push(text);
     });
   }
 
-  // Add positioning section
-  if (brand.positioning) {
-    sections.push({
-      id: 'positioning',
-      title: 'Brand Positioning',
-      icon: 'Crosshair',
-      body: createPositioningSection(brand.positioning),
-    });
-  }
-
-  // Add messaging section
-  if (brand.messaging) {
-    sections.push({
-      id: 'messaging',
-      title: 'Messaging Analysis',
-      icon: 'MessageSquare',
-      body: createMessagingSection(brand.messaging),
-    });
-  }
-
   return { scores, keyFindings, opportunities, sections };
+}
+
+/**
+ * Create Brand Maturity Section for V2 reports
+ */
+function createBrandMaturitySection(content: any): React.ReactNode {
+  const maturityLabels: Record<string, string> = {
+    unproven: 'Unproven',
+    emerging: 'Emerging',
+    scaling: 'Scaling',
+    established: 'Established',
+  };
+
+  const maturityColors: Record<string, string> = {
+    unproven: 'bg-red-400/10 text-red-400 border-red-400/30',
+    emerging: 'bg-amber-400/10 text-amber-400 border-amber-400/30',
+    scaling: 'bg-cyan-400/10 text-cyan-400 border-cyan-400/30',
+    established: 'bg-emerald-400/10 text-emerald-400 border-emerald-400/30',
+  };
+
+  const confidenceColors: Record<string, string> = {
+    low: 'bg-amber-400/10 text-amber-400 border-amber-400/30',
+    medium: 'bg-cyan-400/10 text-cyan-400 border-cyan-400/30',
+    high: 'bg-emerald-400/10 text-emerald-400 border-emerald-400/30',
+  };
+
+  const maturityStage = content.maturityStage || 'unproven';
+  const dataConfidence = content.dataConfidence || { score: 0, level: 'low', reason: 'No data available' };
+
+  return React.createElement('div', { className: 'space-y-4' },
+    // Maturity and Confidence badges
+    React.createElement('div', { className: 'flex flex-wrap items-center gap-3' },
+      React.createElement('div', { className: `inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${maturityColors[maturityStage] || maturityColors.unproven}` },
+        React.createElement('span', { className: 'text-xs uppercase tracking-wider opacity-70' }, 'Maturity'),
+        React.createElement('span', { className: 'text-sm font-semibold' }, maturityLabels[maturityStage] || maturityStage)
+      ),
+      React.createElement('div', { className: `inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${confidenceColors[dataConfidence.level] || confidenceColors.low}` },
+        React.createElement('span', { className: 'text-xs uppercase tracking-wider opacity-70' }, 'Data Confidence'),
+        React.createElement('span', { className: 'text-sm font-semibold' }, `${dataConfidence.score}/100`),
+        React.createElement('span', { className: 'text-xs opacity-70' }, `(${dataConfidence.level.charAt(0).toUpperCase() + dataConfidence.level.slice(1)})`)
+      )
+    ),
+
+    // Narrative summary
+    content.narrativeSummary && React.createElement('p', { className: 'text-sm text-slate-300 leading-relaxed' }, content.narrativeSummary),
+
+    // Data confidence reason (if low)
+    dataConfidence.level === 'low' && React.createElement('p', { className: 'text-xs text-amber-400/80 italic' }, dataConfidence.reason)
+  );
 }
 
 // ============================================================================
@@ -645,12 +736,34 @@ function extractContentLabData(rawJson: any): ToolReportData {
   const opportunities: string[] = [];
   const sections: ReportSection[] = [];
 
-  // Extract content dimension scores
-  if (content.dimensions && typeof content.dimensions === 'object') {
+  // V2: dimensions is an array with { key, label, score, status, summary }
+  if (content.dimensions && Array.isArray(content.dimensions)) {
+    content.dimensions.forEach((dim: any) => {
+      // Skip not_evaluated dimensions or null scores
+      if (dim?.score != null && dim.status !== 'not_evaluated') {
+        scores.push({
+          label: dim.label || formatLabel(dim.key || 'unknown'),
+          value: dim.score,
+          maxValue: 100,
+          group: 'Content Dimensions',
+        });
+      } else if (dim.status === 'not_evaluated') {
+        // Add with special metadata for not_evaluated
+        scores.push({
+          label: dim.label || formatLabel(dim.key || 'unknown'),
+          value: 0,
+          maxValue: 100,
+          group: 'Content Dimensions',
+          metadata: { notEvaluated: true, reason: dim.summary },
+        });
+      }
+    });
+  } else if (content.dimensions && typeof content.dimensions === 'object') {
+    // Legacy object format fallback
     Object.entries(content.dimensions).forEach(([key, dim]: [string, any]) => {
       if (typeof dim?.score === 'number') {
         scores.push({
-          label: formatLabel(key),
+          label: dim.label || formatLabel(key),
           value: dim.score,
           maxValue: 100,
           group: 'Content Dimensions',
@@ -659,29 +772,53 @@ function extractContentLabData(rawJson: any): ToolReportData {
     });
   }
 
-  // Extract content type scores
-  if (content.contentTypes && typeof content.contentTypes === 'object') {
-    Object.entries(content.contentTypes).forEach(([key, ct]: [string, any]) => {
-      if (typeof ct?.score === 'number') {
-        scores.push({
-          label: formatLabel(key),
-          value: ct.score,
-          maxValue: 100,
-          group: 'Content Types',
-        });
+  // V2: Extract issues as key findings
+  if (content.issues && Array.isArray(content.issues)) {
+    content.issues.slice(0, 5).forEach((issue: any) => {
+      if (issue?.title) {
+        const severity = issue.severity === 'high' ? '⚠️' : issue.severity === 'medium' ? '⚡' : '';
+        keyFindings.push(`${severity} ${issue.title}`);
       }
     });
   }
 
-  // Extract findings
-  if (content.findings && Array.isArray(content.findings)) {
+  // V2: Extract quick wins as opportunities
+  if (content.quickWins && Array.isArray(content.quickWins)) {
+    content.quickWins.slice(0, 5).forEach((win: any) => {
+      if (win?.action) {
+        opportunities.push(win.action);
+      }
+    });
+  }
+
+  // V2: Extract projects as additional opportunities
+  if (content.projects && Array.isArray(content.projects)) {
+    content.projects.slice(0, 3).forEach((proj: any) => {
+      if (proj?.title) {
+        opportunities.push(`[Project] ${proj.title}`);
+      }
+    });
+  }
+
+  // Legacy: Extract findings
+  if (content.findings && typeof content.findings === 'object' && !Array.isArray(content.findings)) {
+    // V2 findings object with topics, contentUrls, articleTitles
+    if (content.findings.topics && Array.isArray(content.findings.topics) && content.findings.topics.length > 0) {
+      sections.push({
+        id: 'topics',
+        title: 'Identified Topics',
+        icon: 'Hash',
+        body: createTopicCoverageSection(content.findings.topics),
+      });
+    }
+  } else if (content.findings && Array.isArray(content.findings)) {
     content.findings.slice(0, 5).forEach((f: any) => {
       const text = typeof f === 'string' ? f : f?.finding || f?.description;
       if (text) keyFindings.push(text);
     });
   }
 
-  // Extract content gaps as findings
+  // Legacy: Extract content gaps as findings
   if (content.gaps && Array.isArray(content.gaps)) {
     content.gaps.slice(0, 3).forEach((g: any) => {
       const text = typeof g === 'string' ? g : g?.gap || g?.description;
@@ -689,15 +826,17 @@ function extractContentLabData(rawJson: any): ToolReportData {
     });
   }
 
-  // Extract opportunities
-  if (content.opportunities && Array.isArray(content.opportunities)) {
-    content.opportunities.slice(0, 5).forEach((o: any) => {
-      const text = typeof o === 'string' ? o : o?.title || o?.description;
-      if (text) opportunities.push(text);
+  // V2: Add maturity stage section
+  if (content.maturityStage) {
+    sections.push({
+      id: 'maturity',
+      title: 'Content Maturity',
+      icon: 'Target',
+      body: createContentMaturitySection(content),
     });
   }
 
-  // Add content inventory section
+  // Legacy: Add content inventory section
   if (content.inventory) {
     sections.push({
       id: 'inventory',
@@ -707,7 +846,7 @@ function extractContentLabData(rawJson: any): ToolReportData {
     });
   }
 
-  // Add topic coverage section
+  // Legacy: Add topic coverage section
   if (content.topicCoverage && Array.isArray(content.topicCoverage)) {
     sections.push({
       id: 'topics',
@@ -718,6 +857,74 @@ function extractContentLabData(rawJson: any): ToolReportData {
   }
 
   return { scores, keyFindings, opportunities, sections };
+}
+
+/**
+ * Create Content Lab maturity section
+ */
+function createContentMaturitySection(content: any): React.ReactNode {
+  const maturityLabels: Record<string, string> = {
+    unproven: 'Unproven',
+    emerging: 'Emerging',
+    scaling: 'Scaling',
+    established: 'Established',
+  };
+
+  const maturityColors: Record<string, string> = {
+    unproven: 'bg-red-400/10 text-red-400 border-red-400/30',
+    emerging: 'bg-amber-400/10 text-amber-400 border-amber-400/30',
+    scaling: 'bg-cyan-400/10 text-cyan-400 border-cyan-400/30',
+    established: 'bg-emerald-400/10 text-emerald-400 border-emerald-400/30',
+  };
+
+  const confidenceColors: Record<string, string> = {
+    low: 'bg-amber-400/10 text-amber-400 border-amber-400/30',
+    medium: 'bg-cyan-400/10 text-cyan-400 border-cyan-400/30',
+    high: 'bg-emerald-400/10 text-emerald-400 border-emerald-400/30',
+  };
+
+  const maturityStage = content.maturityStage || 'unproven';
+  const dataConfidence = content.dataConfidence || { score: 0, level: 'low', reason: 'No data available' };
+
+  return React.createElement('div', { className: 'space-y-4' },
+    // Maturity and Confidence badges
+    React.createElement('div', { className: 'flex flex-wrap items-center gap-3' },
+      React.createElement('div', { className: `inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${maturityColors[maturityStage] || maturityColors.unproven}` },
+        React.createElement('span', { className: 'text-xs uppercase tracking-wider opacity-70' }, 'Maturity'),
+        React.createElement('span', { className: 'text-sm font-semibold' }, maturityLabels[maturityStage] || maturityStage)
+      ),
+      React.createElement('div', { className: `inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${confidenceColors[dataConfidence.level] || confidenceColors.low}` },
+        React.createElement('span', { className: 'text-xs uppercase tracking-wider opacity-70' }, 'Data Confidence'),
+        React.createElement('span', { className: 'text-sm font-semibold' }, `${dataConfidence.score}/100`),
+        React.createElement('span', { className: 'text-xs opacity-70' }, `(${dataConfidence.level.charAt(0).toUpperCase() + dataConfidence.level.slice(1)})`)
+      ),
+      content.companyType && React.createElement('div', { className: 'inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-700/50' },
+        React.createElement('span', { className: 'text-xs uppercase tracking-wider text-slate-500' }, 'Type'),
+        React.createElement('span', { className: 'text-sm font-medium text-slate-300' }, formatCompanyType(content.companyType))
+      )
+    ),
+
+    // Narrative summary
+    content.narrativeSummary && React.createElement('p', { className: 'text-sm text-slate-300 leading-relaxed' }, content.narrativeSummary),
+
+    // Data confidence reason (if low)
+    dataConfidence.level === 'low' && React.createElement('p', { className: 'text-xs text-amber-400/80 italic' }, dataConfidence.reason)
+  );
+}
+
+/**
+ * Format company type for display
+ */
+function formatCompanyType(type: string): string {
+  const labels: Record<string, string> = {
+    b2b_services: 'B2B Services',
+    local_service: 'Local Service',
+    ecommerce: 'E-commerce',
+    saas: 'SaaS',
+    other: 'Other',
+    unknown: 'Unknown',
+  };
+  return labels[type] || type;
 }
 
 // ============================================================================
@@ -1033,42 +1240,93 @@ function extractDemandLabData(rawJson: any): ToolReportData {
   const sections: ReportSection[] = [];
 
   // Extract demand dimension scores
-  if (demand.dimensions && typeof demand.dimensions === 'object') {
+  // V2 dimensions is an array with label/key/score properties
+  if (demand.dimensions && Array.isArray(demand.dimensions)) {
+    demand.dimensions.forEach((dim: any) => {
+      if (typeof dim?.score === 'number') {
+        scores.push({
+          label: dim.label || formatLabel(dim.key || 'unknown'),
+          value: dim.score,
+          maxValue: 100,
+          group: 'Demand Dimensions',
+        });
+      }
+    });
+  } else if (demand.dimensions && typeof demand.dimensions === 'object') {
+    // Legacy object format fallback
     Object.entries(demand.dimensions).forEach(([key, dim]: [string, any]) => {
       if (typeof dim?.score === 'number') {
         scores.push({
-          label: formatLabel(key),
+          label: dim.label || formatLabel(key),
           value: dim.score,
           maxValue: 100,
-          group: 'Demand Gen Dimensions',
+          group: 'Demand Dimensions',
         });
       }
     });
   }
 
-  // Extract funnel stage scores
-  if (demand.funnelStages && typeof demand.funnelStages === 'object') {
-    Object.entries(demand.funnelStages).forEach(([stage, data]: [string, any]) => {
-      if (typeof data?.score === 'number') {
-        scores.push({
-          label: formatLabel(stage),
-          value: data.score,
-          maxValue: 100,
-          group: 'Funnel Stages',
-        });
+  // V2: Extract issues as key findings
+  if (demand.issues && Array.isArray(demand.issues)) {
+    demand.issues.slice(0, 5).forEach((issue: any) => {
+      if (issue?.title) {
+        const severity = issue.severity ? `[${issue.severity}]` : '';
+        keyFindings.push(`${severity} ${issue.title}`);
       }
     });
   }
 
-  // Extract findings
-  if (demand.findings && Array.isArray(demand.findings)) {
+  // V2: Extract quick wins as opportunities
+  if (demand.quickWins && Array.isArray(demand.quickWins)) {
+    demand.quickWins.slice(0, 5).forEach((win: any) => {
+      if (win?.action) {
+        opportunities.push(win.action);
+      }
+    });
+  }
+
+  // V2: Extract projects as additional opportunities
+  if (demand.projects && Array.isArray(demand.projects)) {
+    demand.projects.slice(0, 3).forEach((proj: any) => {
+      if (proj?.title) {
+        opportunities.push(`[Project] ${proj.title}`);
+      }
+    });
+  }
+
+  // V2: Add detailed findings section
+  if (demand.findings && typeof demand.findings === 'object' && !Array.isArray(demand.findings)) {
+    const findingsBody = createDemandFindingsSection(demand.findings);
+    if (findingsBody) {
+      sections.push({
+        id: 'findings',
+        title: 'Analysis Findings',
+        icon: 'Search',
+        body: findingsBody,
+      });
+    }
+  } else if (demand.findings && Array.isArray(demand.findings)) {
+    // Legacy V1 format
     demand.findings.slice(0, 5).forEach((f: any) => {
       const text = typeof f === 'string' ? f : f?.finding || f?.description;
       if (text) keyFindings.push(text);
     });
   }
 
-  // Extract gaps
+  // V2: Add analytics snapshot section
+  if (demand.analyticsSnapshot) {
+    const snapshotBody = createDemandAnalyticsSection(demand.analyticsSnapshot);
+    if (snapshotBody) {
+      sections.push({
+        id: 'analytics',
+        title: 'Analytics Snapshot',
+        icon: 'BarChart',
+        body: snapshotBody,
+      });
+    }
+  }
+
+  // Legacy: Extract gaps
   if (demand.gaps && Array.isArray(demand.gaps)) {
     demand.gaps.slice(0, 3).forEach((g: any) => {
       const text = typeof g === 'string' ? g : g?.gap || g?.description;
@@ -1076,15 +1334,7 @@ function extractDemandLabData(rawJson: any): ToolReportData {
     });
   }
 
-  // Extract opportunities
-  if (demand.opportunities && Array.isArray(demand.opportunities)) {
-    demand.opportunities.slice(0, 5).forEach((o: any) => {
-      const text = typeof o === 'string' ? o : o?.title || o?.description;
-      if (text) opportunities.push(text);
-    });
-  }
-
-  // Add lead capture section
+  // Legacy: Add lead capture section
   if (demand.leadCapture) {
     sections.push({
       id: 'leads',
@@ -1094,7 +1344,7 @@ function extractDemandLabData(rawJson: any): ToolReportData {
     });
   }
 
-  // Add conversion paths section
+  // Legacy: Add conversion paths section
   if (demand.conversionPaths && Array.isArray(demand.conversionPaths)) {
     sections.push({
       id: 'paths',
@@ -1105,6 +1355,127 @@ function extractDemandLabData(rawJson: any): ToolReportData {
   }
 
   return { scores, keyFindings, opportunities, sections };
+}
+
+// ============================================================================
+// Demand Lab V2 Section Helpers
+// ============================================================================
+
+function createDemandFindingsSection(findings: any): React.ReactElement | null {
+  const items: React.ReactElement[] = [];
+
+  // Pages analyzed
+  if (findings.pagesAnalyzed && Array.isArray(findings.pagesAnalyzed) && findings.pagesAnalyzed.length > 0) {
+    items.push(
+      React.createElement('div', { key: 'pages', className: 'mb-3' },
+        React.createElement('p', { className: 'text-xs font-medium text-slate-400 mb-1' },
+          `${findings.pagesAnalyzed.length} Pages Analyzed`
+        ),
+        React.createElement('div', { className: 'flex flex-wrap gap-1' },
+          findings.pagesAnalyzed.slice(0, 5).map((page: any, i: number) =>
+            React.createElement('span', {
+              key: i,
+              className: 'text-[10px] bg-slate-800 rounded px-1.5 py-0.5 text-slate-300'
+            }, page.type || 'page')
+          )
+        )
+      )
+    );
+  }
+
+  // CTAs found
+  if (findings.ctasFound && Array.isArray(findings.ctasFound) && findings.ctasFound.length > 0) {
+    items.push(
+      React.createElement('div', { key: 'ctas', className: 'mb-3' },
+        React.createElement('p', { className: 'text-xs font-medium text-slate-400 mb-1' },
+          `${findings.ctasFound.length} CTAs Found`
+        ),
+        React.createElement('div', { className: 'space-y-1' },
+          findings.ctasFound.slice(0, 3).map((cta: any, i: number) =>
+            React.createElement('p', {
+              key: i,
+              className: `text-xs ${cta.isPrimary ? 'text-emerald-400' : 'text-slate-400'}`
+            }, `${cta.isPrimary ? '★ ' : ''}${cta.text} (${cta.type})`)
+          )
+        )
+      )
+    );
+  }
+
+  // Tracking detected
+  if (findings.trackingDetected && Array.isArray(findings.trackingDetected)) {
+    const detected = findings.trackingDetected.filter((t: any) => t.detected);
+    if (detected.length > 0) {
+      items.push(
+        React.createElement('div', { key: 'tracking', className: 'mb-3' },
+          React.createElement('p', { className: 'text-xs font-medium text-slate-400 mb-1' }, 'Tracking Detected'),
+          React.createElement('div', { className: 'flex flex-wrap gap-1' },
+            detected.map((t: any, i: number) =>
+              React.createElement('span', {
+                key: i,
+                className: 'text-[10px] bg-emerald-900/30 text-emerald-300 rounded px-1.5 py-0.5'
+              }, t.name)
+            )
+          )
+        )
+      );
+    }
+  }
+
+  if (items.length === 0) return null;
+
+  return React.createElement('div', { className: 'space-y-2' }, ...items);
+}
+
+function createDemandAnalyticsSection(snapshot: any): React.ReactElement | null {
+  const items: React.ReactElement[] = [];
+
+  // Session volume
+  const sessions = snapshot.sessionVolume ?? snapshot.totalSessions;
+  if (sessions != null) {
+    items.push(
+      React.createElement('div', { key: 'sessions', className: 'flex justify-between text-xs' },
+        React.createElement('span', { className: 'text-slate-500' }, 'Sessions (30d)'),
+        React.createElement('span', { className: 'text-slate-300 tabular-nums' }, sessions.toLocaleString())
+      )
+    );
+  }
+
+  // Conversion rate
+  if (snapshot.conversionRate != null) {
+    const cr = snapshot.conversionRate > 1 ? snapshot.conversionRate : snapshot.conversionRate * 100;
+    items.push(
+      React.createElement('div', { key: 'cr', className: 'flex justify-between text-xs' },
+        React.createElement('span', { className: 'text-slate-500' }, 'Conversion Rate'),
+        React.createElement('span', { className: 'text-slate-300 tabular-nums' }, `${cr.toFixed(2)}%`)
+      )
+    );
+  }
+
+  // Paid share
+  const paidShare = snapshot.paidShare ?? snapshot.paidTrafficShare;
+  if (paidShare != null) {
+    items.push(
+      React.createElement('div', { key: 'paid', className: 'flex justify-between text-xs' },
+        React.createElement('span', { className: 'text-slate-500' }, 'Paid Traffic'),
+        React.createElement('span', { className: 'text-slate-300 tabular-nums' }, `${(paidShare * 100).toFixed(1)}%`)
+      )
+    );
+  }
+
+  // Top channels
+  if (snapshot.topChannels && Array.isArray(snapshot.topChannels) && snapshot.topChannels.length > 0) {
+    items.push(
+      React.createElement('div', { key: 'channels', className: 'mt-2' },
+        React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Top Channels'),
+        React.createElement('p', { className: 'text-xs text-slate-300' }, snapshot.topChannels.slice(0, 4).join(', '))
+      )
+    );
+  }
+
+  if (items.length === 0) return null;
+
+  return React.createElement('div', { className: 'space-y-2' }, ...items);
 }
 
 // ============================================================================

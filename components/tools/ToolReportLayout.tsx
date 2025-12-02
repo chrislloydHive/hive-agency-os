@@ -266,6 +266,13 @@ export function ToolReportLayout({
                 )}
               </button>
               <Link
+                href={`/c/${company.id}/diagnostics/${tool.id.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '')}`}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/30 hover:bg-blue-500/20 transition-all text-sm font-medium"
+              >
+                <LucideIcons.History className="w-4 h-4" />
+                Run History
+              </Link>
+              <Link
                 href={`/c/${company.id}/blueprint`}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition-all text-sm font-medium"
               >

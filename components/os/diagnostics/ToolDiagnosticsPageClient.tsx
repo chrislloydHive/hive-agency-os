@@ -16,6 +16,8 @@ export interface ToolDiagnosticsPageClientProps {
   companyName: string;
   tool: DiagnosticToolConfig;
   latestRun: DiagnosticRun | null;
+  /** Optional: All runs for this company+tool (for run history) */
+  allRuns?: DiagnosticRun[];
   /** Optional: Custom content to render for tool-specific data */
   children?: React.ReactNode;
 }
@@ -29,18 +31,37 @@ export function ToolDiagnosticsPageClient({
   companyName,
   tool,
   latestRun,
+  allRuns,
   children,
 }: ToolDiagnosticsPageClientProps) {
   const router = useRouter();
 
   // State
   const [isRunning, setIsRunning] = useState(false);
+  const [runComplete, setRunComplete] = useState(false);
+  const [lastRunScore, setLastRunScore] = useState<number | null>(null);
+  const [runStartTime, setRunStartTime] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [insights, setInsights] = useState<DiagnosticInsights | null>(null);
   const [insightsError, setInsightsError] = useState<string | null>(null);
   const [creatingWorkItems, setCreatingWorkItems] = useState(false);
   const [extractingInsights, setExtractingInsights] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // Elapsed time counter while running
+  useEffect(() => {
+    if (!isRunning || !runStartTime) {
+      setElapsedSeconds(0);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - runStartTime) / 1000));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isRunning, runStartTime]);
 
   // Toast helper
   const showToast = useCallback((message: string, type: 'success' | 'error') => {
@@ -84,38 +105,64 @@ export function ToolDiagnosticsPageClient({
   };
 
   const runDiagnostic = async () => {
-    if (isRunning) return;
+    if (isRunning) {
+      console.log('[Diagnostic] Already running, ignoring click');
+      return;
+    }
+
+    console.log('[Diagnostic] Starting run for:', { companyId, toolId: tool.id, apiPath: tool.runApiPath });
+
+    // Validate runApiPath
+    if (!tool.runApiPath) {
+      console.error('[Diagnostic] No runApiPath configured for tool:', tool.id);
+      showToast(`Error: No API path configured for ${tool.label}`, 'error');
+      return;
+    }
 
     setIsRunning(true);
+    setRunStartTime(Date.now());
     showToast(`Starting ${tool.label}...`, 'success');
 
     try {
+      console.log('[Diagnostic] Making API request to:', tool.runApiPath);
       const response = await fetch(tool.runApiPath, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId }),
       });
 
+      console.log('[Diagnostic] Response received:', { status: response.status, ok: response.ok });
       const result = await response.json();
+      console.log('[Diagnostic] Result:', result);
 
       if (!response.ok) {
         throw new Error(result.error || 'Failed to run diagnostic');
       }
 
-      showToast(`${tool.label} completed! Refreshing...`, 'success');
+      const score = result.result?.score;
+      setLastRunScore(score ?? null);
+      setRunComplete(true);
+      setIsRunning(false);
+
+      const scoreText = score !== undefined ? ` Score: ${score}/100` : '';
+      showToast(`${tool.label} completed!${scoreText}`, 'success');
 
       // Reset insights to trigger re-fetch
       setInsights(null);
 
-      // Refresh page
+      // Refresh page after showing completion state
       setTimeout(() => {
+        console.log('[Diagnostic] Triggering page refresh');
+        setRunComplete(false);
+        setRunStartTime(null);
         router.refresh();
-      }, 1000);
+      }, 2000);
     } catch (error) {
-      console.error('Error running diagnostic:', error);
+      console.error('[Diagnostic] Error running diagnostic:', error);
       showToast(error instanceof Error ? error.message : 'Failed to run diagnostic', 'error');
-    } finally {
       setIsRunning(false);
+      setRunStartTime(null);
+      setRunComplete(false);
     }
   };
 
@@ -297,13 +344,94 @@ export function ToolDiagnosticsPageClient({
                 )}
               </button>
             )}
-            {tool.estimatedTime && (
+            {tool.estimatedTime && !isRunning && (
               <span className="self-center text-xs text-slate-500">
                 Est. {tool.estimatedTime}
               </span>
             )}
           </div>
         </div>
+
+        {/* Running State Banner */}
+        {isRunning && (
+          <div className="rounded-2xl border border-emerald-900/50 bg-emerald-900/20 p-6 mb-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  <div className="h-12 w-12 rounded-full border-4 border-emerald-500/30 border-t-emerald-500 animate-spin" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-xs font-bold text-emerald-400 tabular-nums">
+                      {elapsedSeconds}s
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-emerald-200">
+                    Running {tool.label}...
+                  </h3>
+                  <p className="text-sm text-emerald-300/70 mt-0.5">
+                    Analyzing website, collecting signals, and scoring dimensions
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-emerald-400/70 uppercase tracking-wide">Elapsed</p>
+                <p className="text-2xl font-bold text-emerald-300 tabular-nums">
+                  {Math.floor(elapsedSeconds / 60)}:{(elapsedSeconds % 60).toString().padStart(2, '0')}
+                </p>
+                {tool.estimatedTime && (
+                  <p className="text-xs text-emerald-400/50 mt-1">
+                    Est. {tool.estimatedTime}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <div className="flex-1 h-1.5 rounded-full bg-emerald-900/50 overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 rounded-full transition-all duration-1000 ease-out"
+                  style={{
+                    width: `${Math.min(100, (elapsedSeconds / 180) * 100)}%`
+                  }}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-emerald-400/50 mt-2 text-center">
+              This may take 2-3 minutes depending on website complexity
+            </p>
+          </div>
+        )}
+
+        {/* Completion Banner */}
+        {runComplete && (
+          <div className="rounded-2xl border border-emerald-500/50 bg-emerald-900/30 p-6 mb-6 animate-pulse">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="h-12 w-12 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                  <svg className="h-6 w-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-emerald-200">
+                    {tool.label} Complete!
+                  </h3>
+                  <p className="text-sm text-emerald-300/70 mt-0.5">
+                    Refreshing page with new results...
+                  </p>
+                </div>
+              </div>
+              {lastRunScore !== null && (
+                <div className="text-right">
+                  <p className="text-xs text-emerald-400/70 uppercase tracking-wide">Score</p>
+                  <p className="text-4xl font-bold text-emerald-300 tabular-nums">
+                    {lastRunScore}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Content Grid */}
         {hasRun && isComplete && (
@@ -375,10 +503,10 @@ export function ToolDiagnosticsPageClient({
                 </div>
               )}
 
-              {/* Run History Placeholder */}
+              {/* Current Run Info */}
               <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-4">
-                  Run Info
+                  Current Run
                 </h3>
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between">
@@ -395,8 +523,63 @@ export function ToolDiagnosticsPageClient({
                       {new Date(latestRun.createdAt).toLocaleString()}
                     </span>
                   </div>
+                  {/* View Full Report Link */}
+                  <div className="pt-2 mt-2 border-t border-slate-700">
+                    <Link
+                      href={`/c/${companyId}/diagnostics/${tool.id.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '')}/${latestRun.id}`}
+                      className="text-amber-400 hover:text-amber-300 text-xs font-medium"
+                    >
+                      View Full Report →
+                    </Link>
+                  </div>
                 </div>
               </div>
+
+              {/* Run History */}
+              {allRuns && allRuns.length > 1 && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-4">
+                    Prior Runs ({allRuns.length - 1})
+                  </h3>
+                  <div className="space-y-2">
+                    {allRuns.slice(1, 6).map((run) => (
+                      <Link
+                        key={run.id}
+                        href={`/c/${companyId}/diagnostics/${tool.id.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '')}/${run.id}`}
+                        className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-800/50 transition-colors group"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${
+                            run.status === 'complete' ? 'bg-emerald-400' :
+                            run.status === 'failed' ? 'bg-red-400' :
+                            'bg-amber-400'
+                          }`} />
+                          <span className="text-xs text-slate-400 group-hover:text-slate-300">
+                            {new Date(run.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {run.score != null && (
+                            <span className={`text-xs font-medium tabular-nums ${
+                              run.score >= 70 ? 'text-emerald-400' :
+                              run.score >= 50 ? 'text-amber-400' :
+                              'text-red-400'
+                            }`}>
+                              {run.score}
+                            </span>
+                          )}
+                          <span className="text-xs text-slate-600 group-hover:text-slate-500">→</span>
+                        </div>
+                      </Link>
+                    ))}
+                    {allRuns.length > 6 && (
+                      <p className="text-xs text-slate-600 text-center pt-1">
+                        +{allRuns.length - 6} more runs
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
