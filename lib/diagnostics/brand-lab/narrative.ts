@@ -76,9 +76,9 @@ function buildOpeningStatement(
   };
 
   const stageDesc = stageDescriptions[stage];
-  const benchmarkText = benchmarkLabel ? ` (${benchmarkLabel.toUpperCase()})` : '';
 
-  return `Brand performance is currently ${stageDesc}, with an overall score of ${score}/100${benchmarkText}.`;
+  // Use maturity stage as the label (don't show both benchmarkLabel and stage)
+  return `Brand performance is currently ${stageDesc}, with an overall score of ${score}/100.`;
 }
 
 function buildStrengthsStatement(strongDims: BrandLabDimension[]): string {

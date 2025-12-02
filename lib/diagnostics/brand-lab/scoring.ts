@@ -467,6 +467,7 @@ export function buildBrandDimensionsFromV1(diagnostic: any): ScoringOutput {
 
 /**
  * Compute data confidence based on available brand signals
+ * Score clamped between 40-90 (never 100), reduced if missing guidelines or low asset coverage
  */
 export function computeBrandDataConfidence(diagnostic: any): BrandDataConfidence {
   let score = 40; // Base score
@@ -484,11 +485,11 @@ export function computeBrandDataConfidence(diagnostic: any): BrandDataConfidence
     reasons.push('Visual system analyzed');
   }
   if (hasAssets) {
-    score += 8;
+    score += 10;
     reasons.push('Brand assets evaluated');
   }
   if (hasMessaging) {
-    score += 12;
+    score += 10;
     reasons.push('Messaging system analyzed');
   }
   if (hasPillars) {
@@ -504,15 +505,27 @@ export function computeBrandDataConfidence(diagnostic: any): BrandDataConfidence
     reasons.push('Trust signals assessed');
   }
 
-  const finalScore = Math.max(20, Math.min(100, score));
+  // Clamp between 40 and 90 (never 100)
+  score = Math.max(40, Math.min(90, score));
+
+  // Reduce if missing brand guidelines or low asset coverage
+  const assets = diagnostic.brandAssets ?? {};
+  if (assets.hasBrandGuidelines === false ||
+      (typeof assets.assetCoverageScore === 'number' && assets.assetCoverageScore < 60)) {
+    score -= 5;
+  }
+
+  // Final clamp between 40 and 90
+  score = Math.max(40, Math.min(90, score));
+
   const level: BrandDataConfidence['level'] =
-    finalScore >= 70 ? 'high' : finalScore >= 45 ? 'medium' : 'low';
+    score >= 70 ? 'high' : score >= 50 ? 'medium' : 'low';
 
   const reason = reasons.length > 0
     ? reasons.join('. ') + '.'
     : 'Limited brand signals detected. Treat insights as directional.';
 
-  return { score: finalScore, level, reason };
+  return { score, level, reason };
 }
 
 // ============================================================================

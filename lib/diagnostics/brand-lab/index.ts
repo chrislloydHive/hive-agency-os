@@ -162,11 +162,29 @@ export async function runBrandLabEngine(params: RunBrandLabParams): Promise<Bran
 // ============================================================================
 
 /**
+ * Normalize quick win category to a consistent set
+ */
+function normalizeQuickWinCategory(rawDim?: string, rawArea?: string): string {
+  const source = (rawDim || rawArea || '').toLowerCase();
+
+  if (source.includes('position')) return 'positioning';
+  if (source.includes('trust')) return 'trust';
+  if (source.includes('identity')) return 'identity';
+  if (source.includes('messaging')) return 'messaging';
+  if (source.includes('visual')) return 'visual';
+  if (source.includes('audience')) return 'audience';
+
+  return 'brand';
+}
+
+/**
  * Build quick wins from action plan and diagnostic
+ * Deduplicates by category+action and normalizes categories
  */
 function buildBrandQuickWins(actionPlan: any, diagnostic: any): BrandLabQuickWin[] {
   const wins: BrandLabQuickWin[] = [];
   let idCounter = 0;
+  const seen = new Set<string>();
 
   const add = (
     category: string,
@@ -174,6 +192,11 @@ function buildBrandQuickWins(actionPlan: any, diagnostic: any): BrandLabQuickWin
     impact: 'low' | 'medium' | 'high',
     effort: 'low' | 'medium' | 'high'
   ) => {
+    // Dedupe by category::action
+    const key = `${category}::${action}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+
     wins.push({
       id: `bq-${idCounter++}`,
       category,
@@ -186,46 +209,47 @@ function buildBrandQuickWins(actionPlan: any, diagnostic: any): BrandLabQuickWin
   // Extract quick wins from NOW items in action plan
   const nowItems = Array.isArray(actionPlan?.now) ? actionPlan.now : [];
 
-  nowItems.slice(0, 5).forEach((item: any) => {
-    const category = item.dimension ?? item.serviceArea ?? 'brand';
+  nowItems.forEach((item: any) => {
+    const category = normalizeQuickWinCategory(item.dimension, item.serviceArea);
+    const action = item.title ?? item.description ?? 'Brand improvement';
     const impact: 'low' | 'medium' | 'high' =
       item.impactScore >= 4 ? 'high' : item.impactScore >= 2 ? 'medium' : 'low';
     const effort: 'low' | 'medium' | 'high' =
       item.effortScore <= 2 ? 'low' : item.effortScore <= 3 ? 'medium' : 'high';
 
-    add(category, item.title ?? item.description ?? 'Brand improvement', impact, effort);
+    add(category, action, impact, effort);
   });
 
   // Add from V1 opportunities if we need more
   const opportunities = Array.isArray(diagnostic?.opportunities) ? diagnostic.opportunities : [];
   opportunities
     .filter((opp: any) => opp.estimatedImpactScore >= 3)
-    .slice(0, 5 - wins.length)
     .forEach((opp: any) => {
+      const category = normalizeQuickWinCategory(opp.theme, opp.area);
       const impact: 'low' | 'medium' | 'high' =
         opp.estimatedImpactScore >= 4 ? 'high' : opp.estimatedImpactScore >= 3 ? 'medium' : 'low';
-      add(opp.area ?? 'brand', opp.title, impact, 'medium');
+      add(category, opp.title, impact, 'medium');
     });
 
   // Add based on diagnostic gaps if we still need more
   if (wins.length < 3) {
     // Identity quick win
     if (diagnostic.identitySystem?.identityGaps?.length > 0 || diagnostic.identitySystem?.corePromiseClarityScore < 60) {
-      add('Identity', 'Clarify your core brand promise and tagline.', 'high', 'medium');
+      add('identity', 'Clarify your core brand promise and tagline.', 'high', 'medium');
     }
 
     // Trust quick win
     if (diagnostic.trustAndProof?.trustSignalsScore < 60) {
-      add('Trust', 'Add testimonials or case study excerpts to your homepage.', 'high', 'low');
+      add('trust', 'Add testimonials or case study excerpts to your homepage.', 'high', 'low');
     }
 
     // Messaging quick win
     if (diagnostic.messagingSystem?.messagingFocusScore < 60) {
-      add('Messaging', 'Rewrite your homepage headline to focus on benefits.', 'high', 'low');
+      add('messaging', 'Rewrite your homepage headline to focus on benefits.', 'high', 'low');
     }
   }
 
-  // Sort by impact and limit
+  // Sort by impact and limit to 5
   return wins
     .sort((a, b) => {
       const impactOrder = { high: 0, medium: 1, low: 2 };
