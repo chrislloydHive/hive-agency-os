@@ -146,7 +146,7 @@ export const OS_TOOL_DEFINITIONS: OsToolDefinition[] = [
       'Channel-by-channel strategy recommendations',
     ],
     influences: ['Strategy', 'Blueprint Focus', 'Work', 'Brain'],
-    status: 'locked',
+    status: 'available',
   },
   {
     id: 'gap-heavy',
@@ -168,7 +168,7 @@ export const OS_TOOL_DEFINITIONS: OsToolDefinition[] = [
       'Funnel and category gaps',
     ],
     influences: ['Strategy', 'Blueprint Focus', 'Work', 'Brain', 'Analytics'],
-    status: 'locked',
+    status: 'available',
   },
 
   // ==========================================================================
@@ -223,9 +223,9 @@ export const OS_TOOL_DEFINITIONS: OsToolDefinition[] = [
     id: 'brand-lab',
     name: 'Brand Lab',
     kind: 'lab',
-    recommendedOrder: 'asNeeded',
-    impact: 'medium',
-    estimatedRunTime: '~5–8 min',
+    recommendedOrder: 'runNext',
+    impact: 'high',
+    estimatedRunTime: '~3–5 min',
     frequencyHint: 'Run when repositioning or before major campaigns.',
     shortSummary: 'Brand clarity, positioning, and proof lab.',
     detailedSummary:
@@ -238,7 +238,7 @@ export const OS_TOOL_DEFINITIONS: OsToolDefinition[] = [
       'Proof and trust-building opportunities',
     ],
     influences: ['Strategy', 'Blueprint Focus', 'Brain'],
-    status: 'comingSoon',
+    status: 'available',
   },
   {
     id: 'content-lab',
