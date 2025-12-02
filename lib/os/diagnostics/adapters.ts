@@ -7,6 +7,7 @@
 import * as React from 'react';
 import type { DiagnosticToolId, DiagnosticRun } from './runs';
 import type { ScoreItem, ReportSection } from '@/lib/types/toolReport';
+import { normalizeBrandLab, DIMENSION_LABELS } from '@/lib/brandLab/normalizeBrandLab';
 
 // ============================================================================
 // Types
@@ -553,203 +554,412 @@ function extractWebsiteLabData(rawJson: any): ToolReportData {
 // ============================================================================
 
 function extractBrandLabData(rawJson: any): ToolReportData {
-  // V2 format has dimensions array directly on root, V1 has diagnostic wrapper
-  const content = rawJson.diagnostic || rawJson.brandAssessment || rawJson;
-  const actionPlan = rawJson.actionPlan;
+  // Use the normalizer to get a consistent, deduped result
+  const normalized = normalizeBrandLab(rawJson);
+
   const scores: ScoreItem[] = [];
   const keyFindings: string[] = [];
   const opportunities: string[] = [];
   const sections: ReportSection[] = [];
 
-  // V2: dimensions is an array with { key, label, score, status, summary }
-  if (content.dimensions && Array.isArray(content.dimensions)) {
-    content.dimensions.forEach((dim: any) => {
-      if (dim?.score != null) {
-        scores.push({
-          label: dim.label || formatLabel(dim.key || 'unknown'),
-          value: dim.score,
-          maxValue: 100,
-          group: 'Brand Dimensions',
-        });
-      }
+  // =========================================================================
+  // A) Dimension scores - Using standardized labels from DIMENSION_LABELS
+  // =========================================================================
+  normalized.dimensions.forEach((dim) => {
+    scores.push({
+      label: dim.label, // Already standardized: "Identity & Promise", etc.
+      value: dim.score,
+      maxValue: 100,
+      group: 'Brand Dimensions',
     });
-  } else if (content.dimensions && typeof content.dimensions === 'object') {
-    // Legacy V1 object format fallback
-    Object.entries(content.dimensions).forEach(([key, dim]: [string, any]) => {
-      if (typeof dim?.score === 'number') {
-        scores.push({
-          label: dim.label || formatLabel(key),
-          value: dim.score,
-          maxValue: 100,
-          group: 'Brand Dimensions',
-        });
-      }
-    });
-  } else {
-    // V1 format: Extract scores from individual subsystems
-    const v1Subsystems = [
-      { key: 'identitySystem', label: 'Identity & Promise', scoreFields: ['taglineClarityScore', 'corePromiseClarityScore', 'toneConsistencyScore'] },
-      { key: 'messagingSystem', label: 'Messaging & Value Props', scoreFields: ['benefitVsFeatureRatio', 'icpClarityScore', 'messagingFocusScore'] },
-      { key: 'positioning', label: 'Positioning & Differentiation', scoreFields: ['positioningClarityScore'] },
-      { key: 'audienceFit', label: 'Audience Fit & ICP', scoreFields: ['alignmentScore'] },
-      { key: 'trustAndProof', label: 'Trust & Proof', scoreFields: ['trustSignalsScore', 'humanPresenceScore'] },
-      { key: 'visualSystem', label: 'Visual System', scoreFields: ['visualConsistencyScore', 'brandRecognitionScore'] },
-      { key: 'brandAssets', label: 'Brand Assets', scoreFields: ['assetCoverageScore'] },
-    ];
+  });
 
-    v1Subsystems.forEach(({ key, label, scoreFields }) => {
-      const subsystem = content[key];
-      if (subsystem) {
-        const scoreValues = scoreFields
-          .map(f => subsystem[f])
-          .filter((v): v is number => typeof v === 'number');
-        if (scoreValues.length > 0) {
-          const avgScore = Math.round(scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length);
-          scores.push({
-            label,
-            value: avgScore,
-            maxValue: 100,
-            group: 'Brand Dimensions',
-          });
-        }
-      }
-    });
-  }
+  // =========================================================================
+  // B) Key Findings - From issues[], sorted by severity then category
+  // =========================================================================
+  normalized.issues.forEach((issue) => {
+    const severityMarker = issue.severity === 'high' ? '!' : issue.severity === 'medium' ? '*' : '';
+    keyFindings.push(`${severityMarker} ${issue.title}`);
+  });
 
-  // V2: Extract issues as key findings
-  if (content.issues && Array.isArray(content.issues)) {
-    content.issues.slice(0, 5).forEach((issue: any) => {
-      if (issue?.title) {
-        const severity = issue.severity === 'high' ? '!' : issue.severity === 'medium' ? '*' : '';
-        keyFindings.push(`${severity} ${issue.title}`);
-      }
-    });
-  }
+  // =========================================================================
+  // C) Top Opportunities - Deduped quickWins then projects, limit 5
+  // =========================================================================
+  normalized.topOpportunities.forEach((opp) => {
+    const prefix = opp.type === 'project' ? '[Project] ' : '';
+    opportunities.push(`${prefix}${opp.title}`);
+  });
 
-  // V1: Extract from inconsistencies, opportunities, risks as key findings
-  if (keyFindings.length === 0) {
-    // Inconsistencies
-    if (content.inconsistencies && Array.isArray(content.inconsistencies)) {
-      content.inconsistencies.slice(0, 3).forEach((inc: any) => {
-        if (inc?.description) {
-          const severity = inc.severity === 'high' ? '!' : inc.severity === 'medium' ? '*' : '';
-          keyFindings.push(`${severity} ${inc.type}: ${inc.description}`);
-        }
-      });
-    }
-    // Risks
-    if (content.risks && Array.isArray(content.risks)) {
-      content.risks.slice(0, 2).forEach((risk: any) => {
-        if (risk?.description) {
-          keyFindings.push(`Risk: ${risk.description}`);
-        }
-      });
-    }
-    // Identity gaps
-    if (content.identitySystem?.identityGaps && Array.isArray(content.identitySystem.identityGaps)) {
-      content.identitySystem.identityGaps.slice(0, 2).forEach((gap: string) => {
-        keyFindings.push(`Gap: ${gap}`);
-      });
-    }
-  }
+  // =========================================================================
+  // D) Brand Maturity Section - Using JSON-provided maturityStage
+  // =========================================================================
+  sections.push({
+    id: 'maturity',
+    title: 'Brand Maturity',
+    icon: 'Target',
+    body: createBrandMaturitySectionNormalized(normalized),
+  });
 
-  // V2: Extract quick wins as opportunities
-  if (content.quickWins && Array.isArray(content.quickWins)) {
-    content.quickWins.slice(0, 5).forEach((win: any) => {
-      if (win?.action) {
-        opportunities.push(win.action);
-      }
-    });
-  }
-
-  // V2: Extract projects as additional opportunities
-  if (content.projects && Array.isArray(content.projects)) {
-    content.projects.slice(0, 3).forEach((proj: any) => {
-      if (proj?.title) {
-        opportunities.push(`[Project] ${proj.title}`);
-      }
-    });
-  }
-
-  // V1: Extract from opportunities array and actionPlan
-  if (opportunities.length === 0) {
-    // V1 opportunities
-    if (content.opportunities && Array.isArray(content.opportunities)) {
-      content.opportunities.slice(0, 5).forEach((opp: any) => {
-        if (opp?.title) {
-          opportunities.push(opp.title);
-        }
-      });
-    }
-    // V1 actionPlan now items
-    if (actionPlan?.now && Array.isArray(actionPlan.now)) {
-      actionPlan.now.slice(0, 3).forEach((item: any) => {
-        if (item?.title && !opportunities.includes(item.title)) {
-          opportunities.push(item.title);
-        }
-      });
-    }
-  }
-
-  // V2: Add maturity stage section
-  if (content.maturityStage) {
-    sections.push({
-      id: 'maturity',
-      title: 'Brand Maturity',
-      icon: 'Target',
-      body: createBrandMaturitySection(content),
-    });
-  }
-
-  // Legacy: Extract from V1 findings
-  const findings = content.findings || {};
-
-  // Add positioning section from V2 findings or V1 positioning (with audience fit)
-  const positioning = findings.positioning || content.positioning;
-  const audienceFit = findings.audienceFit || content.audienceFit;
-  if (positioning) {
+  // =========================================================================
+  // E) Positioning Section - Using JSON-driven data
+  // =========================================================================
+  if (normalized.positioning.theme || normalized.positioning.competitiveAngle) {
     sections.push({
       id: 'positioning',
       title: 'Brand Positioning',
       icon: 'Crosshair',
-      body: createPositioningSection(positioning, audienceFit),
+      body: createPositioningSectionNormalized(normalized.positioning, normalized.audienceFit),
     });
   }
 
-  // Add messaging section from V2 findings or V1 messagingSystem
-  const messaging = findings.messagingSystem || content.messagingSystem || content.messaging;
-  if (messaging) {
+  // =========================================================================
+  // F) Messaging Section - Using JSON-driven data
+  // =========================================================================
+  if (normalized.messaging.valueProps.length > 0 || normalized.messaging.messagingFocus > 0) {
     sections.push({
       id: 'messaging',
       title: 'Messaging Analysis',
       icon: 'MessageSquare',
-      body: createMessagingSection(messaging),
+      body: createMessagingSectionNormalized(normalized.messaging),
     });
   }
 
-  // Add identity section (for V2 findings or V1 identitySystem)
-  const identitySystem = findings.identitySystem || content.identitySystem;
-  if (identitySystem) {
+  // =========================================================================
+  // G) Identity Section - Using JSON-driven data
+  // =========================================================================
+  if (normalized.identity.tagline || normalized.identity.corePromise) {
     sections.push({
       id: 'identity',
       title: 'Brand Identity',
       icon: 'Fingerprint',
-      body: createIdentitySectionEnhanced(identitySystem),
+      body: createIdentitySectionNormalized(normalized.identity),
     });
   }
 
-  // Add trust section (for V2 findings or V1 trustAndProof)
-  const trustAndProof = findings.trustAndProof || content.trustAndProof;
-  if (trustAndProof) {
+  // =========================================================================
+  // H) Trust Section - Using JSON-driven data
+  // =========================================================================
+  if (normalized.trust.trustArchetype || normalized.trust.trustSignalsScore > 0) {
     sections.push({
       id: 'trust',
       title: 'Trust & Proof',
       icon: 'Shield',
-      body: createTrustSectionEnhanced(trustAndProof),
+      body: createTrustSectionNormalized(normalized.trust),
     });
   }
 
   return { scores, keyFindings, opportunities, sections };
+}
+
+// ============================================================================
+// Normalized Section Creators for Brand Lab
+// ============================================================================
+
+/**
+ * Create Brand Maturity Section using normalized data
+ */
+function createBrandMaturitySectionNormalized(normalized: ReturnType<typeof normalizeBrandLab>): React.ReactNode {
+  const maturityLabels: Record<string, string> = {
+    unproven: 'Unproven',
+    emerging: 'Emerging',
+    scaling: 'Scaling',
+    established: 'Established',
+  };
+
+  const maturityColors: Record<string, string> = {
+    unproven: 'bg-red-400/10 text-red-400 border-red-400/30',
+    emerging: 'bg-amber-400/10 text-amber-400 border-amber-400/30',
+    scaling: 'bg-cyan-400/10 text-cyan-400 border-cyan-400/30',
+    established: 'bg-emerald-400/10 text-emerald-400 border-emerald-400/30',
+  };
+
+  const confidenceColors: Record<string, string> = {
+    low: 'bg-amber-400/10 text-amber-400 border-amber-400/30',
+    medium: 'bg-cyan-400/10 text-cyan-400 border-cyan-400/30',
+    high: 'bg-emerald-400/10 text-emerald-400 border-emerald-400/30',
+  };
+
+  const { maturityStage, dataConfidence, narrativeSummary, brandPillars } = normalized;
+
+  return React.createElement('div', { className: 'space-y-4' },
+    // Maturity and Confidence badges
+    React.createElement('div', { className: 'flex flex-wrap items-center gap-3' },
+      React.createElement('div', { className: `inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${maturityColors[maturityStage] || maturityColors.unproven}` },
+        React.createElement('span', { className: 'text-xs uppercase tracking-wider opacity-70' }, 'Maturity'),
+        React.createElement('span', { className: 'text-sm font-semibold' }, maturityLabels[maturityStage] || maturityStage)
+      ),
+      React.createElement('div', { className: `inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${confidenceColors[dataConfidence.level] || confidenceColors.low}` },
+        React.createElement('span', { className: 'text-xs uppercase tracking-wider opacity-70' }, 'Data Confidence'),
+        React.createElement('span', { className: 'text-sm font-semibold' }, `${dataConfidence.score}/100`),
+        React.createElement('span', { className: 'text-xs opacity-70' }, `(${dataConfidence.level.charAt(0).toUpperCase() + dataConfidence.level.slice(1)})`)
+      )
+    ),
+
+    // Narrative summary - directly from JSON, no regeneration
+    narrativeSummary && React.createElement('p', { className: 'text-sm text-slate-300 leading-relaxed' }, narrativeSummary),
+
+    // Brand Pillars (if available) - exactly from JSON
+    brandPillars.length > 0 && React.createElement('div', { className: 'mt-4 pt-4 border-t border-slate-700/50' },
+      React.createElement('h4', { className: 'text-xs uppercase tracking-wider text-slate-500 mb-3' }, 'Brand Pillars'),
+      React.createElement('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-2' },
+        brandPillars.map((pillar, idx) =>
+          React.createElement('div', { key: idx, className: 'rounded-lg bg-slate-800/50 p-3' },
+            React.createElement('div', { className: 'flex items-center justify-between mb-1' },
+              React.createElement('span', { className: 'text-sm font-medium text-slate-200' }, pillar.name),
+              React.createElement('span', { className: `text-xs font-semibold ${pillar.strengthScore >= 70 ? 'text-emerald-400' : pillar.strengthScore >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `${pillar.strengthScore}/100`)
+            ),
+            pillar.description && React.createElement('p', { className: 'text-xs text-slate-400' }, pillar.description),
+            React.createElement('div', { className: 'flex gap-2 mt-1' },
+              pillar.isExplicit && React.createElement('span', { className: 'text-[10px] px-1.5 py-0.5 rounded bg-emerald-400/10 text-emerald-400' }, 'Explicit'),
+              pillar.isPerceived && React.createElement('span', { className: 'text-[10px] px-1.5 py-0.5 rounded bg-blue-400/10 text-blue-400' }, 'Perceived')
+            )
+          )
+        )
+      )
+    ),
+
+    // Data confidence reason (if low)
+    dataConfidence.level === 'low' && dataConfidence.reason && React.createElement('p', { className: 'text-xs text-amber-400/80 italic mt-2' }, dataConfidence.reason)
+  );
+}
+
+/**
+ * Create Positioning Section using normalized data
+ */
+function createPositioningSectionNormalized(
+  positioning: ReturnType<typeof normalizeBrandLab>['positioning'],
+  audienceFit: ReturnType<typeof normalizeBrandLab>['audienceFit']
+): React.ReactNode {
+  const { theme, competitiveAngle, clarityScore, risks } = positioning;
+  const { primaryICPDescription, alignmentScore, icpSignals } = audienceFit;
+
+  return React.createElement('div', { className: 'space-y-4' },
+    // Two-column layout for theme and angle
+    React.createElement('div', { className: 'grid grid-cols-1 sm:grid-cols-2 gap-4' },
+      theme && React.createElement('div', { className: 'rounded-lg bg-slate-800/50 p-3' },
+        React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Positioning Theme'),
+        React.createElement('p', { className: 'text-sm text-slate-200 font-medium' }, theme)
+      ),
+      competitiveAngle && React.createElement('div', { className: 'rounded-lg bg-slate-800/50 p-3' },
+        React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Competitive Angle'),
+        React.createElement('p', { className: 'text-sm text-slate-200 font-medium' }, competitiveAngle)
+      )
+    ),
+
+    // Clarity score
+    clarityScore > 0 && React.createElement('div', { className: 'flex items-center gap-2' },
+      React.createElement('span', { className: 'text-xs text-slate-500' }, 'Clarity Score:'),
+      React.createElement('span', { className: `text-sm font-semibold ${clarityScore >= 70 ? 'text-emerald-400' : clarityScore >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `${clarityScore}/100`)
+    ),
+
+    // Target Audience section
+    primaryICPDescription && React.createElement('div', { className: 'rounded-lg bg-purple-500/10 border border-purple-500/30 p-3' },
+      React.createElement('div', { className: 'flex items-center justify-between mb-2' },
+        React.createElement('span', { className: 'text-xs text-purple-400 uppercase tracking-wider' }, 'Target Audience'),
+        alignmentScore > 0 && React.createElement('span', { className: `text-xs font-semibold ${alignmentScore >= 70 ? 'text-emerald-400' : alignmentScore >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `${alignmentScore}/100 alignment`)
+      ),
+      React.createElement('p', { className: 'text-sm text-slate-200' }, primaryICPDescription),
+      icpSignals.length > 0 && React.createElement('div', { className: 'flex flex-wrap gap-1 mt-2' },
+        icpSignals.slice(0, 4).map((signal, idx) =>
+          React.createElement('span', { key: idx, className: 'text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300' }, signal)
+        )
+      )
+    ),
+
+    // Positioning risks
+    risks.length > 0 && React.createElement('div', null,
+      React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Risks:'),
+      React.createElement('ul', { className: 'space-y-1' },
+        risks.slice(0, 3).map((risk, idx) =>
+          React.createElement('li', { key: idx, className: 'text-xs text-amber-400/80 flex items-start gap-1' },
+            React.createElement('span', null, '•'),
+            React.createElement('span', null, risk)
+          )
+        )
+      )
+    )
+  );
+}
+
+/**
+ * Create Messaging Section using normalized data
+ */
+function createMessagingSectionNormalized(messaging: ReturnType<typeof normalizeBrandLab>['messaging']): React.ReactNode {
+  const { benefitVsFeature, icpClarity, messagingFocus, valueProps, clarityIssues, differentiators, headlines } = messaging;
+
+  return React.createElement('div', { className: 'space-y-4' },
+    // Scores row
+    (messagingFocus > 0 || icpClarity > 0 || benefitVsFeature > 0) && React.createElement('div', { className: 'flex flex-wrap gap-4' },
+      messagingFocus > 0 && React.createElement('div', { className: 'flex items-center gap-2' },
+        React.createElement('span', { className: 'text-xs text-slate-500' }, 'Messaging Focus:'),
+        React.createElement('span', { className: `text-sm font-semibold ${messagingFocus >= 70 ? 'text-emerald-400' : messagingFocus >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `${messagingFocus}/100`)
+      ),
+      icpClarity > 0 && React.createElement('div', { className: 'flex items-center gap-2' },
+        React.createElement('span', { className: 'text-xs text-slate-500' }, 'ICP Clarity:'),
+        React.createElement('span', { className: `text-sm font-semibold ${icpClarity >= 70 ? 'text-emerald-400' : icpClarity >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `${icpClarity}/100`)
+      ),
+      benefitVsFeature > 0 && React.createElement('div', { className: 'flex items-center gap-2' },
+        React.createElement('span', { className: 'text-xs text-slate-500' }, 'Benefit vs Feature:'),
+        React.createElement('span', { className: `text-sm font-semibold ${benefitVsFeature >= 70 ? 'text-emerald-400' : benefitVsFeature >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `${benefitVsFeature}/100`)
+      )
+    ),
+
+    // Value Propositions
+    valueProps.length > 0 && React.createElement('div', { className: 'rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-3' },
+      React.createElement('p', { className: 'text-xs text-emerald-400 uppercase tracking-wider mb-2' }, 'Value Propositions'),
+      React.createElement('div', { className: 'space-y-2' },
+        valueProps.slice(0, 3).map((vp, idx) =>
+          React.createElement('div', { key: idx, className: 'text-sm text-slate-200' },
+            React.createElement('p', null, vp.statement),
+            (vp.clarityScore != null || vp.uniquenessScore != null) && React.createElement('div', { className: 'flex gap-3 mt-1 text-xs' },
+              vp.clarityScore != null && React.createElement('span', { className: `${vp.clarityScore >= 70 ? 'text-emerald-400' : vp.clarityScore >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `Clarity: ${vp.clarityScore}`),
+              vp.uniquenessScore != null && React.createElement('span', { className: `${vp.uniquenessScore >= 70 ? 'text-emerald-400' : vp.uniquenessScore >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `Uniqueness: ${vp.uniquenessScore}`)
+            )
+          )
+        )
+      )
+    ),
+
+    // Sample headlines
+    headlines.length > 0 && React.createElement('div', null,
+      React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Sample Headlines'),
+      React.createElement('ul', { className: 'space-y-1' },
+        headlines.slice(0, 3).map((h, idx) =>
+          React.createElement('li', { key: idx, className: 'text-sm text-slate-300 italic' }, `"${h}"`)
+        )
+      )
+    ),
+
+    // Differentiators
+    differentiators.length > 0 && React.createElement('div', null,
+      React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Differentiators'),
+      React.createElement('div', { className: 'flex flex-wrap gap-1' },
+        differentiators.slice(0, 5).map((d, idx) =>
+          React.createElement('span', { key: idx, className: 'text-xs px-2 py-0.5 rounded-full bg-purple-400/10 text-purple-400 border border-purple-400/30' }, d)
+        )
+      )
+    ),
+
+    // Clarity issues
+    clarityIssues.length > 0 && React.createElement('div', null,
+      React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Clarity Issues'),
+      React.createElement('ul', { className: 'space-y-1' },
+        clarityIssues.slice(0, 3).map((issue, idx) =>
+          React.createElement('li', { key: idx, className: 'text-xs text-amber-400/80 flex items-start gap-1' },
+            React.createElement('span', null, '•'),
+            React.createElement('span', null, issue)
+          )
+        )
+      )
+    )
+  );
+}
+
+/**
+ * Create Identity Section using normalized data
+ */
+function createIdentitySectionNormalized(identity: ReturnType<typeof normalizeBrandLab>['identity']): React.ReactNode {
+  const { tagline, taglineClarityScore, corePromise, corePromiseClarityScore, toneOfVoice, toneConsistencyScore, personalityTraits, identityGaps } = identity;
+
+  return React.createElement('div', { className: 'space-y-4' },
+    // Tagline with clarity score
+    tagline && React.createElement('div', { className: 'rounded-lg bg-blue-500/10 border border-blue-500/30 p-3' },
+      React.createElement('div', { className: 'flex items-center justify-between mb-1' },
+        React.createElement('span', { className: 'text-xs text-blue-400 uppercase tracking-wider' }, 'Tagline'),
+        taglineClarityScore > 0 && React.createElement('span', { className: `text-xs font-semibold ${taglineClarityScore >= 70 ? 'text-emerald-400' : taglineClarityScore >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `${taglineClarityScore}/100 clarity`)
+      ),
+      React.createElement('p', { className: 'text-sm text-slate-200 font-medium' }, `"${tagline}"`)
+    ),
+
+    // Core Promise with clarity score
+    corePromise && React.createElement('div', { className: 'rounded-lg bg-purple-500/10 border border-purple-500/30 p-3' },
+      React.createElement('div', { className: 'flex items-center justify-between mb-1' },
+        React.createElement('span', { className: 'text-xs text-purple-400 uppercase tracking-wider' }, 'Core Promise'),
+        corePromiseClarityScore > 0 && React.createElement('span', { className: `text-xs font-semibold ${corePromiseClarityScore >= 70 ? 'text-emerald-400' : corePromiseClarityScore >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `${corePromiseClarityScore}/100 clarity`)
+      ),
+      React.createElement('p', { className: 'text-sm text-slate-200' }, corePromise)
+    ),
+
+    // Tone and personality
+    (toneOfVoice || personalityTraits.length > 0) && React.createElement('div', { className: 'flex flex-wrap gap-4' },
+      toneOfVoice && React.createElement('div', null,
+        React.createElement('span', { className: 'text-xs text-slate-500 block mb-1' }, 'Tone of Voice'),
+        React.createElement('span', { className: 'text-sm text-slate-200' }, toneOfVoice),
+        toneConsistencyScore > 0 && React.createElement('span', { className: `ml-2 text-xs ${toneConsistencyScore >= 70 ? 'text-emerald-400' : toneConsistencyScore >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `(${toneConsistencyScore}/100)`)
+      ),
+      personalityTraits.length > 0 && React.createElement('div', null,
+        React.createElement('span', { className: 'text-xs text-slate-500 block mb-1' }, 'Personality Traits'),
+        React.createElement('div', { className: 'flex flex-wrap gap-1' },
+          personalityTraits.map((trait, idx) =>
+            React.createElement('span', { key: idx, className: 'text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-300' }, trait)
+          )
+        )
+      )
+    ),
+
+    // Identity gaps
+    identityGaps.length > 0 && React.createElement('div', null,
+      React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Identity Gaps'),
+      React.createElement('ul', { className: 'space-y-1' },
+        identityGaps.slice(0, 3).map((gap, idx) =>
+          React.createElement('li', { key: idx, className: 'text-xs text-amber-400/80 flex items-start gap-1' },
+            React.createElement('span', null, '•'),
+            React.createElement('span', null, gap)
+          )
+        )
+      )
+    )
+  );
+}
+
+/**
+ * Create Trust Section using normalized data
+ */
+function createTrustSectionNormalized(trust: ReturnType<typeof normalizeBrandLab>['trust']): React.ReactNode {
+  const { trustArchetype, trustSignalsScore, humanPresenceScore, credibilityGaps } = trust;
+
+  return React.createElement('div', { className: 'space-y-4' },
+    // Trust archetype badge
+    trustArchetype && React.createElement('div', { className: 'flex items-center gap-2' },
+      React.createElement('span', { className: 'text-xs text-slate-500' }, 'Trust Archetype:'),
+      React.createElement('span', { className: 'text-sm font-medium text-cyan-400 px-2 py-0.5 rounded bg-cyan-400/10 border border-cyan-400/30' }, trustArchetype)
+    ),
+
+    // Score meters
+    (trustSignalsScore > 0 || humanPresenceScore > 0) && React.createElement('div', { className: 'grid grid-cols-2 gap-4' },
+      trustSignalsScore > 0 && React.createElement('div', { className: 'rounded-lg bg-slate-800/50 p-3' },
+        React.createElement('div', { className: 'flex items-center justify-between mb-2' },
+          React.createElement('span', { className: 'text-xs text-slate-400' }, 'Trust Signals'),
+          React.createElement('span', { className: `text-lg font-bold ${trustSignalsScore >= 70 ? 'text-emerald-400' : trustSignalsScore >= 50 ? 'text-amber-400' : 'text-red-400'}` }, trustSignalsScore)
+        ),
+        React.createElement('div', { className: 'h-1.5 bg-slate-700 rounded-full overflow-hidden' },
+          React.createElement('div', { className: `h-full rounded-full ${trustSignalsScore >= 70 ? 'bg-emerald-400' : trustSignalsScore >= 50 ? 'bg-amber-400' : 'bg-red-400'}`, style: { width: `${trustSignalsScore}%` } })
+        )
+      ),
+      humanPresenceScore > 0 && React.createElement('div', { className: 'rounded-lg bg-slate-800/50 p-3' },
+        React.createElement('div', { className: 'flex items-center justify-between mb-2' },
+          React.createElement('span', { className: 'text-xs text-slate-400' }, 'Human Presence'),
+          React.createElement('span', { className: `text-lg font-bold ${humanPresenceScore >= 70 ? 'text-emerald-400' : humanPresenceScore >= 50 ? 'text-amber-400' : 'text-red-400'}` }, humanPresenceScore)
+        ),
+        React.createElement('div', { className: 'h-1.5 bg-slate-700 rounded-full overflow-hidden' },
+          React.createElement('div', { className: `h-full rounded-full ${humanPresenceScore >= 70 ? 'bg-emerald-400' : humanPresenceScore >= 50 ? 'bg-amber-400' : 'bg-red-400'}`, style: { width: `${humanPresenceScore}%` } })
+        )
+      )
+    ),
+
+    // Credibility gaps
+    credibilityGaps.length > 0 && React.createElement('div', null,
+      React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Credibility Gaps'),
+      React.createElement('ul', { className: 'space-y-1' },
+        credibilityGaps.slice(0, 3).map((gap, idx) =>
+          React.createElement('li', { key: idx, className: 'text-xs text-amber-400/80 flex items-start gap-1' },
+            React.createElement('span', null, '•'),
+            React.createElement('span', null, gap)
+          )
+        )
+      )
+    )
+  );
 }
 
 /**

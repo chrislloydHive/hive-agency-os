@@ -230,7 +230,7 @@ export async function runWebsiteLabEngine(input: EngineInput): Promise<EngineRes
 
 /**
  * Run Brand Lab V2 diagnostic
- * Brand health, clarity, and positioning analysis with dimension-based scoring
+ * Brand health, clarity, differentiation, and positioning analysis with dimension-based scoring
  */
 export async function runBrandLabEngine(input: EngineInput): Promise<EngineResult> {
   console.log('[Brand Lab Engine V2] Starting for:', input.websiteUrl);

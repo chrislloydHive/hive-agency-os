@@ -388,7 +388,7 @@ export interface EvidencePack {
   /** Website Action Plan (prioritized work items from Website Lab) */
   websiteActionPlan?: any; // Using any for now to avoid circular imports
 
-  /** Brand Lab result (Brand health, clarity, positioning & coherence) */
+  /** Brand Lab result (Brand health, clarity, differentiation, positioning & coherence) */
   // Import type: import type { BrandLabResult } from './modules/brandLab';
   brandLab?: any; // BrandLabResult - using any for now to avoid circular imports
 

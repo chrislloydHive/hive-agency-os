@@ -280,7 +280,7 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     id: 'brandLab',
     label: 'Brand Lab',
     shortLabel: 'Brand',
-    description: 'Brand health, clarity, and positioning analysis. Evaluates brand coherence, differentiation, and market positioning.',
+    description: 'Brand health, clarity, differentiation, and positioning analysis. Evaluates brand coherence, differentiation, and market positioning.',
     category: 'Brand & Positioning',
     behavior: 'diagnosticRun',
     status: 'enabled',
