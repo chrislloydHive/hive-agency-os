@@ -1880,16 +1880,42 @@ function createPageDetailsSection(pages: any[]): React.ReactNode {
 }
 
 function createPositioningSection(positioning: any): React.ReactNode {
-  return React.createElement('div', { className: 'space-y-2' },
-    positioning.statement && React.createElement('p', { className: 'text-sm text-slate-300 italic' }, `"${positioning.statement}"`),
-    positioning.category && React.createElement('p', { className: 'text-sm text-slate-400' },
-      'Category: ', React.createElement('span', { className: 'text-slate-200' }, positioning.category)
+  // Support both V1 (positioningTheme, competitiveAngle) and V2 (statement, category) field names
+  const theme = positioning.positioningTheme || positioning.statement;
+  const angle = positioning.competitiveAngle || positioning.category;
+  const clarity = positioning.positioningClarityScore;
+  const risks = positioning.positioningRisks;
+
+  // Check if we have any content to display
+  if (!theme && !angle && clarity == null) {
+    return React.createElement('p', { className: 'text-sm text-slate-500 italic' }, 'No positioning data available');
+  }
+
+  return React.createElement('div', { className: 'space-y-3' },
+    // Positioning theme/statement
+    theme && React.createElement('div', null,
+      React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Positioning Theme'),
+      React.createElement('p', { className: 'text-sm text-slate-300' }, theme)
     ),
-    positioning.differentiators && Array.isArray(positioning.differentiators) && React.createElement('div', { className: 'mt-2' },
-      React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Differentiators:'),
-      React.createElement('div', { className: 'flex flex-wrap gap-1' },
-        positioning.differentiators.slice(0, 4).map((d: string, idx: number) =>
-          React.createElement('span', { key: idx, className: 'text-xs px-2 py-0.5 rounded-full bg-purple-400/10 text-purple-400 border border-purple-400/30' }, d)
+    // Competitive angle/category
+    angle && React.createElement('div', null,
+      React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Competitive Angle'),
+      React.createElement('p', { className: 'text-sm text-slate-200' }, angle)
+    ),
+    // Clarity score
+    clarity != null && React.createElement('div', { className: 'flex items-center gap-2' },
+      React.createElement('span', { className: 'text-xs text-slate-500' }, 'Clarity Score:'),
+      React.createElement('span', { className: `text-sm font-semibold ${clarity >= 70 ? 'text-emerald-400' : clarity >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `${clarity}/100`)
+    ),
+    // Positioning risks
+    risks && Array.isArray(risks) && risks.length > 0 && React.createElement('div', { className: 'mt-2' },
+      React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Risks:'),
+      React.createElement('ul', { className: 'space-y-1' },
+        risks.slice(0, 3).map((risk: string, idx: number) =>
+          React.createElement('li', { key: idx, className: 'text-xs text-amber-400/80 flex items-start gap-1' },
+            React.createElement('span', null, '•'),
+            React.createElement('span', null, risk)
+          )
         )
       )
     )
@@ -1897,11 +1923,60 @@ function createPositioningSection(positioning: any): React.ReactNode {
 }
 
 function createMessagingSection(messaging: any): React.ReactNode {
-  return React.createElement('div', { className: 'space-y-2' },
-    messaging.headline && React.createElement('p', { className: 'text-sm font-medium text-slate-200' }, messaging.headline),
-    messaging.subheadline && React.createElement('p', { className: 'text-sm text-slate-400' }, messaging.subheadline),
-    messaging.clarity != null && React.createElement('p', { className: 'text-sm text-slate-400' },
-      'Clarity Score: ', React.createElement('span', { className: 'font-semibold' }, messaging.clarity)
+  // Support V1 Brand Lab fields: headlinePatterns, valueProps, differentiators, messagingFocusScore
+  const headlines = messaging.headlinePatterns || [];
+  const valueProps = messaging.valueProps || [];
+  const differentiators = messaging.differentiators || [];
+  const focusScore = messaging.messagingFocusScore ?? messaging.clarity;
+  const icpClarity = messaging.icpClarityScore;
+  const clarityIssues = messaging.clarityIssues || [];
+
+  // Check if we have any content to display
+  if (!headlines.length && !valueProps.length && !differentiators.length && focusScore == null) {
+    return React.createElement('p', { className: 'text-sm text-slate-500 italic' }, 'No messaging data available');
+  }
+
+  return React.createElement('div', { className: 'space-y-4' },
+    // Scores row
+    (focusScore != null || icpClarity != null) && React.createElement('div', { className: 'flex flex-wrap gap-4' },
+      focusScore != null && React.createElement('div', { className: 'flex items-center gap-2' },
+        React.createElement('span', { className: 'text-xs text-slate-500' }, 'Messaging Focus:'),
+        React.createElement('span', { className: `text-sm font-semibold ${focusScore >= 70 ? 'text-emerald-400' : focusScore >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `${focusScore}/100`)
+      ),
+      icpClarity != null && React.createElement('div', { className: 'flex items-center gap-2' },
+        React.createElement('span', { className: 'text-xs text-slate-500' }, 'ICP Clarity:'),
+        React.createElement('span', { className: `text-sm font-semibold ${icpClarity >= 70 ? 'text-emerald-400' : icpClarity >= 50 ? 'text-amber-400' : 'text-red-400'}` }, `${icpClarity}/100`)
+      )
+    ),
+    // Sample headlines
+    headlines.length > 0 && React.createElement('div', null,
+      React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Sample Headlines'),
+      React.createElement('ul', { className: 'space-y-1' },
+        headlines.slice(0, 3).map((h: string, idx: number) =>
+          React.createElement('li', { key: idx, className: 'text-sm text-slate-300 italic' }, `"${h}"`)
+        )
+      )
+    ),
+    // Differentiators
+    differentiators.length > 0 && React.createElement('div', null,
+      React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Differentiators'),
+      React.createElement('div', { className: 'flex flex-wrap gap-1' },
+        differentiators.slice(0, 5).map((d: string, idx: number) =>
+          React.createElement('span', { key: idx, className: 'text-xs px-2 py-0.5 rounded-full bg-purple-400/10 text-purple-400 border border-purple-400/30' }, d)
+        )
+      )
+    ),
+    // Clarity issues
+    clarityIssues.length > 0 && React.createElement('div', null,
+      React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Clarity Issues'),
+      React.createElement('ul', { className: 'space-y-1' },
+        clarityIssues.slice(0, 3).map((issue: string, idx: number) =>
+          React.createElement('li', { key: idx, className: 'text-xs text-amber-400/80 flex items-start gap-1' },
+            React.createElement('span', null, '•'),
+            React.createElement('span', null, issue)
+          )
+        )
+      )
     )
   );
 }
