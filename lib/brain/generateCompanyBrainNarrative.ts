@@ -74,6 +74,7 @@ WRITING STYLE:
 - Include specific numbers, scores, and data points inline
 - Use professional but accessible language
 - Each section should be 2-4 sentences of substantive analysis
+- Add a blank line after each section's content before the next header for visual breathing room
 
 NARRATIVE STRUCTURE (use exactly these markdown headers):
 
