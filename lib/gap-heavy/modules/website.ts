@@ -420,6 +420,16 @@ export interface WebsiteEvidenceV3 {
     /** Confidence level (0-100) */
     confidence: number;
   };
+
+  /** Technology stack detection (V3.2) */
+  techStack?: {
+    /** Detected platform/framework (e.g., "Framer", "WordPress", "Webflow") */
+    platform: string | null;
+    /** Confidence level (0-100) */
+    confidence: number;
+    /** Detection signals found */
+    signals: string[];
+  };
 }
 
 /**
@@ -997,6 +1007,182 @@ export async function runWebsiteModule(input: {
 // ============================================================================
 // Helper Functions - Website Module V3 Ultimate
 // ============================================================================
+
+/**
+ * V3.2: Tech Stack Detection
+ *
+ * Detects the website platform/framework from HTML signals.
+ * Returns platform name, confidence, and detection signals.
+ */
+function detectTechStack(rawHtml: string, $: cheerio.CheerioAPI): {
+  platform: string | null;
+  confidence: number;
+  signals: string[];
+} {
+  const signals: string[] = [];
+  const html = rawHtml.toLowerCase();
+
+  // Platform detection patterns with weights
+  const platforms: Array<{
+    name: string;
+    patterns: Array<{ pattern: string | RegExp; weight: number; signal: string }>;
+  }> = [
+    {
+      name: 'Framer',
+      patterns: [
+        { pattern: 'framer.com', weight: 40, signal: 'framer.com in source' },
+        { pattern: 'data-framer', weight: 50, signal: 'data-framer attributes' },
+        { pattern: 'framer-', weight: 30, signal: 'framer- CSS classes' },
+        { pattern: '--framer-', weight: 40, signal: '--framer CSS variables' },
+        { pattern: 'framer.website', weight: 50, signal: 'framer.website reference' },
+      ],
+    },
+    {
+      name: 'WordPress',
+      patterns: [
+        { pattern: 'wp-content', weight: 50, signal: 'wp-content paths' },
+        { pattern: 'wp-includes', weight: 50, signal: 'wp-includes paths' },
+        { pattern: /wordpress/i, weight: 40, signal: 'WordPress meta' },
+        { pattern: 'wp-json', weight: 40, signal: 'WP REST API' },
+        { pattern: 'elementor', weight: 30, signal: 'Elementor builder' },
+        { pattern: 'woocommerce', weight: 30, signal: 'WooCommerce' },
+      ],
+    },
+    {
+      name: 'Webflow',
+      patterns: [
+        { pattern: 'webflow.com', weight: 40, signal: 'webflow.com in source' },
+        { pattern: 'w-', weight: 20, signal: 'w- CSS classes' },
+        { pattern: 'wf-', weight: 30, signal: 'wf- prefixes' },
+        { pattern: 'data-wf', weight: 50, signal: 'data-wf attributes' },
+        { pattern: 'webflow.io', weight: 50, signal: 'webflow.io domain' },
+      ],
+    },
+    {
+      name: 'Shopify',
+      patterns: [
+        { pattern: 'shopify.com', weight: 40, signal: 'shopify.com in source' },
+        { pattern: 'cdn.shopify', weight: 50, signal: 'Shopify CDN' },
+        { pattern: 'myshopify.com', weight: 50, signal: 'myshopify.com domain' },
+        { pattern: 'shopify-section', weight: 40, signal: 'Shopify sections' },
+        { pattern: /liquid/i, weight: 20, signal: 'Liquid templates' },
+      ],
+    },
+    {
+      name: 'Squarespace',
+      patterns: [
+        { pattern: 'squarespace.com', weight: 40, signal: 'squarespace.com in source' },
+        { pattern: 'static.squarespace', weight: 50, signal: 'Squarespace CDN' },
+        { pattern: 'sqsp', weight: 40, signal: 'SQSP identifiers' },
+        { pattern: 'sqs-', weight: 30, signal: 'SQS prefixes' },
+      ],
+    },
+    {
+      name: 'Wix',
+      patterns: [
+        { pattern: 'wix.com', weight: 40, signal: 'wix.com in source' },
+        { pattern: 'static.wixstatic', weight: 50, signal: 'Wix static CDN' },
+        { pattern: 'wixsite.com', weight: 50, signal: 'wixsite.com domain' },
+        { pattern: '_wix', weight: 40, signal: '_wix identifiers' },
+      ],
+    },
+    {
+      name: 'Next.js',
+      patterns: [
+        { pattern: '_next/', weight: 50, signal: '_next/ paths' },
+        { pattern: '__next', weight: 40, signal: '__next container' },
+        { pattern: 'next/dist', weight: 30, signal: 'Next.js dist' },
+        { pattern: 'data-nscript', weight: 40, signal: 'Next.js script tags' },
+      ],
+    },
+    {
+      name: 'React',
+      patterns: [
+        { pattern: 'react', weight: 20, signal: 'React reference' },
+        { pattern: 'data-reactroot', weight: 50, signal: 'React root' },
+        { pattern: '__react', weight: 40, signal: '__react identifiers' },
+      ],
+    },
+    {
+      name: 'Vue.js',
+      patterns: [
+        { pattern: 'vue.js', weight: 40, signal: 'Vue.js script' },
+        { pattern: 'data-v-', weight: 50, signal: 'Vue scoped styles' },
+        { pattern: '__vue__', weight: 40, signal: '__vue__ identifiers' },
+      ],
+    },
+    {
+      name: 'HubSpot CMS',
+      patterns: [
+        { pattern: 'hs-scripts.com', weight: 50, signal: 'HubSpot scripts CDN' },
+        { pattern: 'hubspot.net', weight: 40, signal: 'HubSpot CDN' },
+        { pattern: 'hs-banner', weight: 30, signal: 'HubSpot banner' },
+        { pattern: 'hubspot-forms', weight: 40, signal: 'HubSpot forms' },
+      ],
+    },
+    {
+      name: 'Drupal',
+      patterns: [
+        { pattern: 'drupal', weight: 40, signal: 'Drupal reference' },
+        { pattern: '/sites/default', weight: 50, signal: 'Drupal paths' },
+        { pattern: 'drupal.js', weight: 50, signal: 'Drupal scripts' },
+      ],
+    },
+    {
+      name: 'Ghost',
+      patterns: [
+        { pattern: 'ghost.io', weight: 50, signal: 'Ghost.io reference' },
+        { pattern: 'ghost-', weight: 30, signal: 'Ghost classes' },
+        { pattern: '/ghost/', weight: 40, signal: '/ghost/ paths' },
+      ],
+    },
+  ];
+
+  // Score each platform
+  const scores: Array<{ name: string; score: number; signals: string[] }> = [];
+
+  for (const platform of platforms) {
+    let score = 0;
+    const matchedSignals: string[] = [];
+
+    for (const { pattern, weight, signal } of platform.patterns) {
+      const matches = typeof pattern === 'string'
+        ? html.includes(pattern)
+        : pattern.test(html);
+
+      if (matches) {
+        score += weight;
+        matchedSignals.push(signal);
+      }
+    }
+
+    if (score > 0) {
+      scores.push({ name: platform.name, score, signals: matchedSignals });
+    }
+  }
+
+  // Sort by score descending
+  scores.sort((a, b) => b.score - a.score);
+
+  // Return top match if confidence is high enough
+  if (scores.length > 0 && scores[0].score >= 30) {
+    const top = scores[0];
+    // Normalize confidence: 30 = 50%, 100+ = 95%
+    const confidence = Math.min(95, Math.round(50 + (top.score - 30) * 0.65));
+
+    return {
+      platform: top.name,
+      confidence,
+      signals: top.signals,
+    };
+  }
+
+  return {
+    platform: null,
+    confidence: 0,
+    signals: [],
+  };
+}
 
 /**
  * V3.1: Analyze CTA patterns with clarity and action scoring
@@ -1726,6 +1912,12 @@ export async function extractWebsiteEvidenceV3(url: string): Promise<WebsiteEvid
     });
 
     // ========================================================================
+    // V3.2: Tech Stack Detection
+    // ========================================================================
+
+    const techStack = detectTechStack(rawHtml, $);
+
+    // ========================================================================
     // Return WebsiteEvidenceV3
     // ========================================================================
 
@@ -1789,6 +1981,8 @@ export async function extractWebsiteEvidenceV3(url: string): Promise<WebsiteEvid
       ctaPatterns,
       // V3.1: Intent signal extraction with confidence scoring
       intentSignals,
+      // V3.2: Tech stack detection
+      techStack,
       rawHtml: rawHtml.substring(0, 50000), // Limit to 50KB
     };
   } catch (error) {

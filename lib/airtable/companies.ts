@@ -12,11 +12,13 @@ import type { AnalyticsBlueprint } from '@/lib/analytics/blueprintTypes';
 // Re-export shared types and utilities from client-safe types file
 export {
   type CompanyStage,
+  type MediaProgramStatus,
   stageLabelToSlug,
   stageSlugToLabel,
   COMPANY_STAGE_OPTIONS,
   parseCompanyStage,
   getStageLabel,
+  isMediaProgramActive,
 } from '@/lib/types/company';
 
 const COMPANIES_TABLE = process.env.AIRTABLE_COMPANIES_TABLE || 'Companies';
@@ -152,6 +154,12 @@ function mapFieldsToCompanyRecord(record: any): CompanyRecord {
   const website = (fields['Website'] as string) || (fields['URL'] as string) || undefined;
   const domain = (fields['Domain'] as string) || (website ? normalizeDomain(website) : 'unknown.com');
 
+  // Media Program Status mapping
+  const mediaProgramStatusRaw = (fields['Media Program Status'] as string | undefined) ?? 'none';
+  const mediaProgramStatus: import('@/lib/types/company').MediaProgramStatus =
+    mediaProgramStatusRaw === 'active' ? 'active' : 'none';
+  const hasMediaProgram = mediaProgramStatus === 'active';
+
   return {
     id: record.id,
     airtableRecordId: record.id, // Alias for clarity when linking
@@ -190,6 +198,10 @@ function mapFieldsToCompanyRecord(record: any): CompanyRecord {
 
     // Analytics Blueprint (stored as JSON string in Airtable)
     analyticsBlueprint: parseAnalyticsBlueprint(fields['Analytics Blueprint JSON'] as string),
+
+    // Media Program fields
+    mediaProgramStatus,
+    hasMediaProgram,
   };
 }
 
@@ -248,6 +260,10 @@ export type CompanyRecord = {
 
   // Analytics Blueprint (AI-generated configuration for which metrics to show)
   analyticsBlueprint?: AnalyticsBlueprint | null;
+
+  // Media Program fields
+  mediaProgramStatus: import('@/lib/types/company').MediaProgramStatus; // "none" | "active"
+  hasMediaProgram: boolean; // Convenience boolean derived from mediaProgramStatus
 };
 
 /**

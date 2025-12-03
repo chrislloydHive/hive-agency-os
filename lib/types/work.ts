@@ -89,7 +89,8 @@ export type WorkSourceType =
   | 'plan_initiative'
   | 'client_brain_insight'
   | 'dma_funnel'
-  | 'funnel_insight';
+  | 'funnel_insight'
+  | 'media_scorecard';
 
 /**
  * Analytics metric source - when work is created from an analytics insight
@@ -188,6 +189,18 @@ export interface WorkSourceFunnelInsight {
 }
 
 /**
+ * Media scorecard source - from Media performance scorecards
+ */
+export interface WorkSourceMediaScorecard {
+  sourceType: 'media_scorecard';
+  storeId?: string;
+  marketId?: string;
+  scoreType: 'visibility' | 'demand' | 'conversion';
+  score: number;
+  generatedAt: string;
+}
+
+/**
  * Union of all work source types
  */
 export type WorkSource =
@@ -200,7 +213,8 @@ export type WorkSource =
   | WorkSourcePlanInitiative
   | WorkSourceClientBrainInsight
   | WorkSourceDmaFunnel
-  | WorkSourceFunnelInsight;
+  | WorkSourceFunnelInsight
+  | WorkSourceMediaScorecard;
 
 // ============================================================================
 // Work Item Types
@@ -367,6 +381,8 @@ export function getSourceLabel(source?: WorkSource): string {
       return `DMA Funnel → ${source.itemType.replace('_', ' ')}`;
     case 'funnel_insight':
       return `${source.funnelContext.charAt(0).toUpperCase() + source.funnelContext.slice(1)} Funnel → ${source.itemType.replace('_', ' ')}`;
+    case 'media_scorecard':
+      return `Media Scorecard → ${source.scoreType}`;
     default:
       return 'Unknown';
   }

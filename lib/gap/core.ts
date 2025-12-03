@@ -874,6 +874,7 @@ export interface FullGapInput {
  * @param input.url - The website URL to analyze
  * @param input.initialAssessment - The GAP-IA result to build upon
  * @param input.modelCaller - Optional model caller (defaults to direct OpenAI)
+ * @deprecated Use runFullGapV4() for the multi-pass pipeline used by digitalmarketingaudit.ai
  */
 export async function runFullGap(input: FullGapInput) {
   const { url, initialAssessment, modelCaller } = input;
@@ -897,5 +898,235 @@ export async function runFullGap(input: FullGapInput) {
       domain,
       analyzedAt: new Date().toISOString(),
     },
+  };
+}
+
+// ============================================================================
+// Full GAP V4 - Multi-Pass Pipeline (same as digitalmarketingaudit.ai)
+// ============================================================================
+
+/**
+ * Input options for Full GAP V4 multi-pass pipeline
+ */
+export interface FullGapV4Input {
+  gapIaRun: any; // GapIaRun with V2 enhanced fields
+  url: string;
+  domain: string;
+  /**
+   * If true, skips the refinement pass for faster execution (used in tests)
+   */
+  skipRefinement?: boolean;
+}
+
+/**
+ * Result from Full GAP V4 generation
+ */
+export interface FullGapV4Result {
+  /**
+   * Light JSON structure (strategicInitiatives, ninetyDayPlan, kpis)
+   */
+  lightPlan: any;
+  /**
+   * Refined markdown narrative (consultant-grade)
+   */
+  refinedMarkdown: string | null;
+  /**
+   * Combined GrowthAccelerationPlan object
+   */
+  plan: any;
+}
+
+/**
+ * Run Full GAP V4 using the multi-pass pipeline (same as digitalmarketingaudit.ai)
+ *
+ * This function uses the same flow as the Inngest `generate-full-gap` function:
+ * 1. generateFullGapDraft() - Light draft pass (gpt-4o-mini)
+ * 2. refineFullGapReport() - Heavy refinement pass (gpt-4o)
+ * 3. generateLightFullGapFromIa() - Generates JSON structure
+ * 4. reviewFullGap() - Quality assurance pass
+ *
+ * This ensures consistent output between OS and digitalmarketingaudit.ai
+ */
+export async function runFullGapV4(input: FullGapV4Input): Promise<FullGapV4Result> {
+  const { gapIaRun, url, domain, skipRefinement = false } = input;
+
+  console.log('[gap/core/V4] Starting Full GAP V4 multi-pass pipeline for:', domain);
+
+  // Import the DMA pipeline functions dynamically to avoid circular dependencies
+  const { generateFullGapDraft } = await import('@/lib/gap/generateFullGapDraft');
+  const { refineFullGapReport } = await import('@/lib/gap/refineFullGap');
+  const { generateLightFullGapFromIa } = await import('@/lib/growth-plan/generateLightFullGapFromIa');
+  const { reviewFullGap } = await import('@/lib/growth-plan/reviewFullGap');
+
+  // Step 1: Generate Full GAP Draft (light, fast LLM call)
+  console.log('[gap/core/V4] Step 1: Generating Full GAP draft...');
+  const draftMarkdown = await generateFullGapDraft(gapIaRun);
+  console.log('[gap/core/V4] Draft generated, length:', draftMarkdown.length);
+
+  // Step 2: Refine Full GAP (heavy, comprehensive LLM call)
+  let refinedMarkdown: string | null = null;
+  if (!skipRefinement) {
+    console.log('[gap/core/V4] Step 2: Refining Full GAP...');
+    refinedMarkdown = await refineFullGapReport({
+      iaJson: gapIaRun,
+      fullGapDraftMarkdown: draftMarkdown,
+    });
+    console.log('[gap/core/V4] Refinement complete, length:', refinedMarkdown.length);
+  } else {
+    console.log('[gap/core/V4] Step 2: Skipping refinement (skipRefinement=true)');
+    refinedMarkdown = draftMarkdown;
+  }
+
+  // Step 3: Generate Light Full GAP JSON structure
+  console.log('[gap/core/V4] Step 3: Generating JSON structure...');
+  const lightPlanDraft = await generateLightFullGapFromIa(gapIaRun, domain, url);
+  console.log('[gap/core/V4] JSON structure generated');
+
+  // Step 4: Internal Reviewer - Quality assurance pass
+  console.log('[gap/core/V4] Step 4: Running Internal Reviewer...');
+  let lightPlan;
+  try {
+    lightPlan = await reviewFullGap({
+      gapIa: gapIaRun,
+      draft: lightPlanDraft,
+      siteMetadata: {
+        domain,
+        url,
+        companyName: gapIaRun.core?.businessName,
+        industry: gapIaRun.core?.industry,
+        brandTier: gapIaRun.core?.brandTier,
+      },
+    });
+    console.log('[gap/core/V4] ✓ Internal review complete');
+  } catch (error) {
+    console.warn('[gap/core/V4] Review failed, using draft:', error);
+    lightPlan = lightPlanDraft;
+  }
+
+  // Step 5: Compose the full plan object (same structure as Inngest function)
+  console.log('[gap/core/V4] Step 5: Composing final plan object...');
+  const plan = composeFullGapPlan(gapIaRun, lightPlan, refinedMarkdown);
+
+  console.log('[gap/core/V4] ✓ Full GAP V4 complete:', {
+    hasLightPlan: !!lightPlan,
+    hasRefinedMarkdown: !!refinedMarkdown,
+    overallScore: plan.scorecard?.overall,
+  });
+
+  return {
+    lightPlan,
+    refinedMarkdown,
+    plan,
+  };
+}
+
+/**
+ * Compose the full GrowthAccelerationPlan from GAP-IA data and light plan
+ * (Same logic as Inngest generate-full-gap function)
+ */
+function composeFullGapPlan(gapIaRun: any, lightPlan: any, refinedMarkdown: string | null): any {
+  return {
+    companyName: gapIaRun.core?.businessName || 'Unknown Company',
+    websiteUrl: gapIaRun.url,
+    generatedAt: new Date().toISOString(),
+
+    // Carry over scores from GAP-IA (canonical source of truth)
+    scorecard: {
+      overall: gapIaRun.summary?.overallScore || gapIaRun.core?.overallScore || 0,
+      brand: gapIaRun.dimensions?.brand?.score || gapIaRun.core?.brand?.brandScore || 0,
+      content: gapIaRun.dimensions?.content?.score || gapIaRun.core?.content?.contentScore || 0,
+      website: gapIaRun.dimensions?.website?.score || gapIaRun.core?.website?.websiteScore || 0,
+      seo: gapIaRun.dimensions?.seo?.score || gapIaRun.core?.seo?.seoScore || 0,
+      authority: gapIaRun.dimensions?.authority?.score || 0,
+      digitalFootprint: gapIaRun.dimensions?.digitalFootprint?.score || 0,
+    },
+
+    // Executive summary with expanded narrative
+    executiveSummary: {
+      strengths: [],
+      keyIssues: gapIaRun.dimensions?.brand?.issues || [],
+      strategicPriorities: gapIaRun.quickWins?.bullets?.slice(0, 3).map((w: any) => w.action) || [],
+      maturityStage: gapIaRun.core?.marketingMaturity || 'developing',
+      narrative: lightPlan.executiveSummaryNarrative,
+      expectedOutcomes: [],
+    },
+
+    // Dimension narratives from GAP-IA
+    dimensionNarratives: {
+      brand: gapIaRun.dimensions?.brand?.narrative,
+      content: gapIaRun.dimensions?.content?.narrative,
+      seo: gapIaRun.dimensions?.seo?.narrative,
+      website: gapIaRun.dimensions?.website?.narrative,
+      digitalFootprint: gapIaRun.dimensions?.digitalFootprint?.narrative,
+      authority: gapIaRun.dimensions?.authority?.narrative,
+    },
+
+    // Section analyses from GAP-IA dimensions
+    sectionAnalyses: {
+      brand: gapIaRun.dimensions?.brand ? {
+        summary: gapIaRun.dimensions.brand.oneLiner,
+        keyFindings: gapIaRun.dimensions.brand.issues || [],
+      } : undefined,
+      content: gapIaRun.dimensions?.content ? {
+        summary: gapIaRun.dimensions.content.oneLiner,
+        keyFindings: gapIaRun.dimensions.content.issues || [],
+      } : undefined,
+      seo: gapIaRun.dimensions?.seo ? {
+        summary: gapIaRun.dimensions.seo.oneLiner,
+        keyFindings: gapIaRun.dimensions.seo.issues || [],
+      } : undefined,
+      website: gapIaRun.dimensions?.website ? {
+        summary: gapIaRun.dimensions.website.oneLiner,
+        keyFindings: gapIaRun.dimensions.website.issues || [],
+      } : undefined,
+      digitalFootprint: gapIaRun.dimensions?.digitalFootprint ? {
+        summary: gapIaRun.dimensions.digitalFootprint.oneLiner,
+        keyFindings: gapIaRun.dimensions.digitalFootprint.issues || [],
+      } : undefined,
+      authority: gapIaRun.dimensions?.authority ? {
+        summary: gapIaRun.dimensions.authority.oneLiner,
+        keyFindings: gapIaRun.dimensions.authority.issues || [],
+      } : undefined,
+    },
+
+    // Quick wins from GAP-IA
+    quickWins: gapIaRun.quickWins?.bullets?.map((w: any) => ({
+      title: w.action,
+      description: w.action,
+      category: w.category,
+      expectedImpact: w.expectedImpact,
+      effortLevel: w.effortLevel,
+      timeframe: '0-30 days',
+      implementationSteps: [],
+    })) || [],
+
+    // Strategic initiatives from Light Full GAP
+    strategicInitiatives: lightPlan.strategicInitiatives.map((init: any) => ({
+      title: init.title,
+      description: init.description,
+      category: init.dimension,
+      timeline: init.timeframe === 'short' ? '0-30 days' : init.timeframe === 'medium' ? '30-60 days' : '60-90 days',
+      expectedImpact: init.expectedImpact,
+      keyActions: [],
+      successMetrics: [],
+      resourcesNeeded: [],
+    })),
+
+    // 90-day roadmap from Light Full GAP
+    roadmap: lightPlan.ninetyDayPlan.map((phase: any) => ({
+      phase: phase.phase,
+      focus: phase.focus,
+      actions: phase.actions,
+      businessRationale: phase.businessRationale,
+    })),
+
+    // KPIs from Light Full GAP
+    kpis: lightPlan.kpisToWatch,
+
+    // Refined markdown narrative
+    refinedMarkdown: refinedMarkdown,
+
+    // Model version identifier
+    modelVersion: 'gap-v4-multipass',
   };
 }

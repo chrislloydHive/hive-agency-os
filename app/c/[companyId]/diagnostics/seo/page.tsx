@@ -49,20 +49,12 @@ export default async function SeoDetailPage({ params }: PageProps) {
       tool={tool}
       latestRun={latestRun}
       allRuns={allRuns}
+      dataConfidence={seoResult?.dataConfidence}
+      maturityStage={seoResult?.maturityStage}
     >
       {/* SEO Lab-specific content */}
       {seoResult && (
         <div className="space-y-6">
-          {/* Maturity & Data Confidence Badges */}
-          <div className="flex flex-wrap gap-3">
-            {seoResult.maturityStage && (
-              <MaturityBadge stage={seoResult.maturityStage} />
-            )}
-            {seoResult.dataConfidence && (
-              <DataConfidenceBadge confidence={seoResult.dataConfidence} />
-            )}
-          </div>
-
           {/* Split Scores */}
           {(seoResult.onSiteScore !== undefined || seoResult.searchPerformanceScore !== undefined) && (
             <div className="grid gap-4 sm:grid-cols-2">
@@ -196,46 +188,6 @@ export default async function SeoDetailPage({ params }: PageProps) {
 // ============================================================================
 // Sub-Components
 // ============================================================================
-
-function MaturityBadge({ stage }: { stage: string }) {
-  const colors: Record<string, string> = {
-    unproven: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
-    emerging: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-    scaling: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
-    established: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-  };
-
-  const labels: Record<string, string> = {
-    unproven: 'Unproven',
-    emerging: 'Emerging',
-    scaling: 'Scaling',
-    established: 'Established',
-  };
-
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${colors[stage] || colors.unproven}`}>
-      <span className="text-[10px] uppercase tracking-wider opacity-70">Maturity:</span>
-      {labels[stage] || stage}
-    </span>
-  );
-}
-
-function DataConfidenceBadge({ confidence }: { confidence: SeoLabReport['dataConfidence'] }) {
-  const colors: Record<string, string> = {
-    high: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-    medium: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
-    low: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-  };
-
-  if (!confidence || !confidence.level) return null;
-
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${colors[confidence.level] || colors.low}`}>
-      <span className="text-[10px] uppercase tracking-wider opacity-70">Data:</span>
-      {confidence.level} ({confidence.score ?? 0}%)
-    </span>
-  );
-}
 
 function ScoreCard({ label, score, description }: { label: string; score: number; description: string }) {
   const scoreColor = score >= 70 ? 'text-emerald-400' : score >= 50 ? 'text-amber-400' : 'text-red-400';

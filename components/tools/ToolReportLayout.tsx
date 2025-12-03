@@ -174,6 +174,64 @@ export function ToolReportLayout({
     minute: '2-digit',
   });
 
+  // Extract score, maturity stage, and data confidence from rawJson if not on run
+  // Check multiple locations based on tool format:
+  // - Direct: rawJson.overallScore, rawJson.maturityStage (most tools)
+  // - Full GAP V3 (OS): rawJson.fullGap.overallScore, rawJson.fullGap.maturityStage
+  // - Full GAP V4 (DMA): rawJson.scorecard.overall, rawJson.executiveSummary.maturityStage
+  // - GAP IA: rawJson.initialAssessment.summary.overallScore, rawJson.initialAssessment.summary.maturityStage
+  const rawData = run.rawJson as Record<string, unknown> | null | undefined;
+  const fullGap = rawData?.fullGap as Record<string, unknown> | undefined;
+  const initialAssessment = rawData?.initialAssessment as Record<string, unknown> | undefined;
+  const iaSummary = initialAssessment?.summary as Record<string, unknown> | undefined;
+  // DMA Full GAP V4 format
+  const scorecard = rawData?.scorecard as Record<string, unknown> | undefined;
+  const execSummary = rawData?.executiveSummary as Record<string, unknown> | undefined;
+  const businessContext = rawData?.businessContext as Record<string, unknown> | undefined;
+  const dataConfidenceScore = rawData?.dataConfidenceScore as Record<string, unknown> | undefined;
+
+  // Extract score - fallback to rawJson if run.score is null
+  const displayScore = run.score ?? (
+    rawData?.overallScore ||
+    fullGap?.overallScore ||
+    scorecard?.overall ||  // DMA V4 format
+    iaSummary?.overallScore ||
+    initialAssessment?.overallScore
+  ) as number | null | undefined;
+
+  const maturityStage = (
+    rawData?.maturityStage ||
+    fullGap?.maturityStage ||
+    execSummary?.maturityStage ||  // DMA V4 format
+    businessContext?.maturityStage ||  // DMA V4 format
+    iaSummary?.maturityStage ||
+    initialAssessment?.maturityStage
+  ) as string | null | undefined;
+
+  // Data confidence can be in multiple formats:
+  // - Object format: { level: string, score: number, reason?: string }
+  // - String format (Full GAP V3): 'low' | 'medium' | 'high'
+  // - DMA V4 format: dataConfidenceScore: { level: string, score: number, summary: string }
+  const rawConfidence =
+    rawData?.dataConfidence ||
+    fullGap?.dataConfidence ||
+    fullGap?.confidence ||
+    dataConfidenceScore ||  // DMA V4 format
+    rawData?.assessmentConfidence ||  // DMA V4 alternative
+    initialAssessment?.dataConfidence ||
+    iaSummary?.dataConfidence;
+
+  // Normalize to object format
+  const dataConfidence: { level: string; score: number; reason?: string } | null | undefined =
+    rawConfidence == null ? null :
+    typeof rawConfidence === 'string'
+      ? { level: rawConfidence, score: rawConfidence === 'high' ? 85 : rawConfidence === 'medium' ? 60 : 35 }
+      : {
+          level: (rawConfidence as any).level || 'medium',
+          score: (rawConfidence as any).score || 50,
+          reason: (rawConfidence as any).reason || (rawConfidence as any).summary,
+        };
+
   return (
     <div className="space-y-6">
       {/* Breadcrumb */}
@@ -215,63 +273,95 @@ export function ToolReportLayout({
           {/* Right: Score & Actions */}
           <div className="flex flex-col items-end gap-4">
             {/* Score Badge */}
-            {run.score != null && (
-              <div className={`rounded-xl border px-4 py-3 ${getScoreBgColor(run.score)}`}>
+            {displayScore != null && (
+              <div className={`rounded-xl border px-4 py-3 ${getScoreBgColor(displayScore)}`}>
                 <div className="flex items-baseline gap-2">
-                  <span className={`text-4xl font-bold tabular-nums ${getScoreColor(run.score)}`}>
-                    {run.score}
+                  <span className={`text-4xl font-bold tabular-nums ${getScoreColor(displayScore)}`}>
+                    {displayScore}
                   </span>
                   <span className="text-sm text-slate-400">/100</span>
                 </div>
-                <p className={`text-xs uppercase tracking-wide mt-1 ${getScoreColor(run.score)}`}>
-                  {getScoreLabel(run.score)}
+                <p className={`text-xs uppercase tracking-wide mt-1 ${getScoreColor(displayScore)}`}>
+                  {getScoreLabel(displayScore)}
                 </p>
               </div>
             )}
 
+            {/* Maturity & Data Confidence Badges */}
+            {(maturityStage || dataConfidence) && (
+              <div className="flex flex-wrap gap-2 justify-end">
+                {maturityStage && (
+                  <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                    maturityStage === 'established' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
+                    maturityStage === 'scaling' ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30' :
+                    maturityStage === 'emerging' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' :
+                    'bg-red-500/10 text-red-300 border-red-500/30'
+                  }`}>
+                    <span className="text-[10px] uppercase tracking-wider text-slate-500">Maturity:</span>
+                    {maturityStage.charAt(0).toUpperCase() + maturityStage.slice(1)}
+                  </span>
+                )}
+                {dataConfidence && (
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                      dataConfidence.level === 'high' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
+                      dataConfidence.level === 'medium' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' :
+                      'bg-red-500/10 text-red-300 border-red-500/30'
+                    }`}
+                    title={dataConfidence.reason || ''}
+                  >
+                    <span className="text-[10px] uppercase tracking-wider text-slate-500">Data:</span>
+                    {dataConfidence.level} ({dataConfidence.score}%)
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* Action Buttons */}
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={handleGenerateWork}
-                disabled={isGeneratingWork || run.status !== 'complete'}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-medium"
-              >
-                {isGeneratingWork ? (
-                  <>
-                    <LucideIcons.Loader2 className="w-4 h-4 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <LucideIcons.Sparkles className="w-4 h-4" />
-                    Generate Work Plan
-                  </>
-                )}
-              </button>
-              <button
-                onClick={handleExtractInsights}
-                disabled={isExtractingInsights || run.status !== 'complete'}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-medium"
-              >
-                {isExtractingInsights ? (
-                  <>
-                    <LucideIcons.Loader2 className="w-4 h-4 animate-spin" />
-                    Extracting...
-                  </>
-                ) : (
-                  <>
-                    <LucideIcons.Lightbulb className="w-4 h-4" />
-                    Extract Insights
-                  </>
-                )}
-              </button>
-              <Link
-                href={`/c/${company.id}/diagnostics/${tool.id.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '')}`}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/30 hover:bg-blue-500/20 transition-all text-sm font-medium"
-              >
-                <LucideIcons.History className="w-4 h-4" />
-                Run History
-              </Link>
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={handleGenerateWork}
+                  disabled={isGeneratingWork || run.status !== 'complete'}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-medium"
+                >
+                  {isGeneratingWork ? (
+                    <>
+                      <LucideIcons.Loader2 className="w-4 h-4 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <LucideIcons.Sparkles className="w-4 h-4" />
+                      Generate Work Plan
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={handleExtractInsights}
+                  disabled={isExtractingInsights || run.status !== 'complete'}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-medium"
+                >
+                  {isExtractingInsights ? (
+                    <>
+                      <LucideIcons.Loader2 className="w-4 h-4 animate-spin" />
+                      Extracting...
+                    </>
+                  ) : (
+                    <>
+                      <LucideIcons.Lightbulb className="w-4 h-4" />
+                      Extract Insights
+                    </>
+                  )}
+                </button>
+                <Link
+                  href={`/c/${company.id}/diagnostics/${tool.id.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '')}`}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/30 hover:bg-blue-500/20 transition-all text-sm font-medium"
+                >
+                  <LucideIcons.History className="w-4 h-4" />
+                  Run History
+                </Link>
+              </div>
               <Link
                 href={`/c/${company.id}/blueprint`}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition-all text-sm font-medium"
@@ -292,7 +382,7 @@ export function ToolReportLayout({
 
         // If summary contains "undefined", try to build a better one from scores
         if (rawSummary.includes('undefined') && scores.length > 0) {
-          const overallScore = scores.find(s => s.label === 'Overall')?.value ?? run.score;
+          const overallScore = scores.find(s => s.label === 'Overall')?.value ?? displayScore;
 
           if (overallScore != null) {
             displaySummary = `Overall Score: ${overallScore}/100`;
@@ -304,11 +394,30 @@ export function ToolReportLayout({
         if (run.rawJson && typeof run.rawJson === 'object') {
           const raw = run.rawJson as any;
           const ia = raw.initialAssessment || raw;
-          narrative = ia?.summary?.narrative || ia?.insights?.overallSummary || null;
+          // Check multiple possible locations for the executive summary / narrative:
+          // - GAP IA V2: summary.narrative
+          // - GAP IA legacy: insights.overallSummary
+          // - Full GAP V3: fullGap.executiveSummary
+          // - Full GAP mapped: executiveSummary directly on plan
+          const fullGap = raw.fullGap || raw;
+          narrative =
+            ia?.summary?.narrative ||
+            ia?.insights?.overallSummary ||
+            fullGap?.executiveSummary ||
+            null;
         }
 
+        // Skip this section if we found the narrative - it will be shown in the sections
+        // Also skip if summary is just "Overall Score: X/100" (redundant with score display)
+        const isRedundantScoreSummary = displaySummary.match(/^Overall Score: \d+\/100$/);
+
         // Fallback: if we have no valid summary and no narrative, skip the section
-        if ((!displaySummary || displaySummary.includes('undefined')) && !narrative) {
+        if ((!displaySummary || displaySummary.includes('undefined') || isRedundantScoreSummary) && !narrative) {
+          return null;
+        }
+
+        // If narrative exists and will be shown in sections, skip this duplicate
+        if (narrative && sections.some(s => s.id === 'executive-summary')) {
           return null;
         }
 
@@ -320,7 +429,7 @@ export function ToolReportLayout({
             </h2>
             {narrative ? (
               <p className="text-slate-400 whitespace-pre-wrap leading-relaxed">{narrative}</p>
-            ) : !displaySummary.includes('undefined') ? (
+            ) : !displaySummary.includes('undefined') && !isRedundantScoreSummary ? (
               <p className="text-slate-400 whitespace-pre-wrap leading-relaxed">{displaySummary}</p>
             ) : null}
           </div>

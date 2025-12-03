@@ -6,16 +6,18 @@ import { usePathname } from 'next/navigation';
 export default function CompanyTabs({ companyId }: { companyId: string }) {
   const pathname = usePathname();
 
-  // NEW: Simplified 4-tab navigation model
+  // NEW: Simplified 5-tab navigation model
   // - Overview: Lightweight pulse-check with health summary
   // - Blueprint: Strategic hub (strategy, tools, analytics, insights)
   // - Brain: Strategic AI memory and documents
   // - Work: Active tasks, experiments, backlog
+  // - Media: Performance media programs, campaigns, stores
   const tabs = [
     { name: 'Overview', href: `/c/${companyId}` },
     { name: 'Blueprint', href: `/c/${companyId}/blueprint` },
     { name: 'Brain', href: `/c/${companyId}/brain` },
     { name: 'Work', href: `/c/${companyId}/work` },
+    { name: 'Media', href: `/c/${companyId}/media` },
   ];
 
   // Check if current path matches a tab or is a child route of that tab

@@ -14,7 +14,7 @@ import { runWebsiteLabV4 } from '@/lib/gap-heavy/modules/website';
 import { runHeavyWorkerV4 } from '@/lib/gap-heavy/orchestratorV4';
 import { runStrategicOrchestrator } from '@/lib/gap-heavy/strategicOrchestrator';
 import type { GapHeavyResult } from '@/lib/gap-heavy/strategicTypes';
-import { runInitialAssessment, runFullGap, type GapModelCaller } from '@/lib/gap/core';
+import { runInitialAssessment, runFullGap, runFullGapV4, type GapModelCaller } from '@/lib/gap/core';
 import type { DiagnosticToolId } from './runs';
 import type {
   SeoLabReport,
@@ -120,54 +120,90 @@ export async function runGapSnapshotEngine(input: GapEngineInput): Promise<Engin
 }
 
 // ============================================================================
-// GAP Plan Engine (Full GAP)
+// GAP Plan Engine (Full GAP) - V4 Multi-Pass Pipeline
 // ============================================================================
 
 /**
- * Run Full GAP Plan generation
- * Comprehensive growth acceleration plan with roadmap
+ * Run Full GAP Plan generation using the V4 multi-pass pipeline
+ * (same engine as digitalmarketingaudit.ai)
  *
- * This runs Initial Assessment first, then uses it for Full GAP Plan
+ * This runs Initial Assessment first, then uses it for Full GAP Plan.
+ * The Full GAP uses a multi-pass approach:
+ * 1. Draft generation (light LLM call)
+ * 2. Refinement (heavy LLM call)
+ * 3. JSON structure generation
+ * 4. Quality review
  *
  * @param input.modelCaller - Optional model caller for memory-aware AI calls via aiForCompany()
+ *                           (Note: V4 pipeline uses direct OpenAI calls internally for now)
  */
 export async function runGapPlanEngine(input: GapEngineInput): Promise<EngineResult> {
-  console.log('[GAP Plan Engine] Starting for:', input.websiteUrl);
-  console.log('[GAP Plan Engine] Using modelCaller:', input.modelCaller ? 'custom (aiForCompany)' : 'default (direct OpenAI)');
+  console.log('[GAP Plan Engine V4] Starting for:', input.websiteUrl);
+  console.log('[GAP Plan Engine V4] Using multi-pass pipeline (same as digitalmarketingaudit.ai)');
 
   try {
     // First, run initial assessment to get the base analysis
-    console.log('[GAP Plan Engine] Running initial assessment...');
+    console.log('[GAP Plan Engine V4] Step 1/2: Running initial assessment...');
     const iaResult = await runInitialAssessment({
       url: input.websiteUrl,
       modelCaller: input.modelCaller,
     });
 
-    // Then run full GAP with the initial assessment
-    console.log('[GAP Plan Engine] Generating full GAP plan...');
-    const result = await runFullGap({
+    // The IA result needs to be in the V2 enhanced format for V4 pipeline
+    // Map the IA output to GapIaRun-like structure
+    const gapIaRun = {
       url: input.websiteUrl,
-      initialAssessment: iaResult.initialAssessment,
-      modelCaller: input.modelCaller,
+      domain: iaResult.metadata.domain,
+      // V2 enhanced fields (from the IA output)
+      summary: (iaResult.initialAssessment as any)?.summary,
+      dimensions: (iaResult.initialAssessment as any)?.dimensions,
+      quickWins: (iaResult.initialAssessment as any)?.quickWins,
+      breakdown: (iaResult.initialAssessment as any)?.breakdown,
+      // Legacy fields
+      core: (iaResult.initialAssessment as any)?.core,
+      insights: (iaResult.initialAssessment as any)?.insights,
+      businessContext: iaResult.businessContext,
+    };
+
+    // Run the V4 multi-pass Full GAP pipeline
+    console.log('[GAP Plan Engine V4] Step 2/2: Running V4 multi-pass Full GAP pipeline...');
+    const v4Result = await runFullGapV4({
+      gapIaRun,
+      url: input.websiteUrl,
+      domain: iaResult.metadata.domain,
+      // Don't skip refinement for full quality
+      skipRefinement: false,
     });
 
-    // Extract score and summary from fullGap
-    const fg = result.fullGap as any;
-    const overallScore = fg?.scorecard?.overall ?? fg?.executiveSummary?.overallScore;
-    const summary = fg?.executiveSummary?.narrative
-      ?? fg?.executiveSummary?.companyOverview
+    // Extract score and summary from the V4 result
+    const overallScore = v4Result.plan?.scorecard?.overall;
+    const summary = v4Result.plan?.executiveSummary?.narrative
+      ?? v4Result.lightPlan?.executiveSummaryNarrative
       ?? `Growth Plan generated - Score: ${overallScore}/100`;
 
-    console.log('[GAP Plan Engine] ✓ Complete:', { score: overallScore });
+    console.log('[GAP Plan Engine V4] ✓ Complete:', {
+      score: overallScore,
+      hasRefinedMarkdown: !!v4Result.refinedMarkdown,
+      modelVersion: v4Result.plan?.modelVersion,
+    });
 
     return {
       success: true,
       score: typeof overallScore === 'number' ? overallScore : undefined,
       summary: typeof summary === 'string' ? summary.substring(0, 500) : undefined,
-      data: { ...result, initialAssessment: iaResult },
+      data: {
+        // Full plan object (V4 format with scorecard, roadmap, strategic initiatives)
+        growthPlan: v4Result.plan,
+        // Refined markdown narrative
+        refinedMarkdown: v4Result.refinedMarkdown,
+        // Light JSON structure
+        lightPlan: v4Result.lightPlan,
+        // Initial assessment for reference
+        initialAssessment: iaResult,
+      },
     };
   } catch (error) {
-    console.error('[GAP Plan Engine] Error:', error);
+    console.error('[GAP Plan Engine V4] Error:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),

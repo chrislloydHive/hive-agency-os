@@ -19,7 +19,7 @@ import {
   type DiagnosticError,
   type DiagnosticSuccessMessage,
 } from '@/lib/os/diagnostics/messages';
-import { Zap, FileText, Globe, Sparkles, FileEdit, Loader2, CheckCircle2, XCircle, Clock, Search, TrendingUp, Settings, ArrowRight, RefreshCw } from 'lucide-react';
+import { Zap, FileText, Globe, Sparkles, FileEdit, Loader2, CheckCircle2, XCircle, Clock, Search, TrendingUp, Settings, ArrowRight, RefreshCw, Layers, BarChart } from 'lucide-react';
 
 // ============================================================================
 // Toast Types
@@ -36,16 +36,18 @@ interface ToastState {
   viewPath?: string;
 }
 
-// Icon map for tool icons
+// Icon map for tool icons (keys match ToolIcon type from registry)
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
-  Zap,
-  FileText,
-  Globe,
-  Sparkles,
-  FileEdit,
-  Search,
-  TrendingUp,
-  Settings,
+  zap: Zap,
+  fileText: FileText,
+  layers: Layers,
+  globe: Globe,
+  sparkles: Sparkles,
+  fileEdit: FileEdit,
+  search: Search,
+  trendingUp: TrendingUp,
+  settings: Settings,
+  barChart: BarChart,
 };
 
 interface DiagnosticsPanelProps {

@@ -227,11 +227,23 @@ export default async function BrandDiagnosticPage({ params }: PageProps) {
 
   // Map to generic Action Board format
   const { mapBrandToActionBoard } = await import('@/lib/diagnostics/mappers/brandMapper');
+
+  // Extract maturity and data confidence from V2 format
+  let maturityStage: string | null = null;
+  let dataConfidence: { level: 'low' | 'medium' | 'high'; score: number; reason?: string } | null = null;
+
+  if (isV2Format(brandLabResult)) {
+    maturityStage = brandLabResult.maturityStage;
+    dataConfidence = brandLabResult.dataConfidence;
+  }
+
   const actionBoard = mapBrandToActionBoard(actionPlan, companyId, {
     labResult: labResultForMapper,
     companyName: company.name,
     companyUrl: displayUrl,
     runId: latestHeavyRun.id,
+    maturityStage,
+    dataConfidence,
   });
 
   return (

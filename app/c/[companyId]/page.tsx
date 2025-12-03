@@ -4,8 +4,11 @@
 // This is the main landing page when viewing a company in Hive OS.
 // It surfaces the company's Strategic Snapshot (scores, focus areas, 90-day plan),
 // active work, score trends, alerts, and recent diagnostic activity.
+//
+// MEDIA PROGRAM: Includes conditional media summary based on company.hasMediaProgram
 
 import { getCompanyById } from '@/lib/airtable/companies';
+import { companyHasMediaProgram } from '@/lib/companies/media';
 import { getCompanyStrategySnapshot } from '@/lib/os/companies/strategySnapshot';
 import { getCompanyWorkSummary } from '@/lib/os/companies/workSummary';
 import { getCompanyAlerts } from '@/lib/os/companies/alerts';
@@ -98,6 +101,9 @@ export default async function OsOverviewPage({
     };
   });
 
+  // Check if company has an active media program
+  const hasMediaProgram = companyHasMediaProgram(company);
+
   return (
     <CompanyOverviewPage
       company={{
@@ -109,6 +115,7 @@ export default async function OsOverviewPage({
         companyType: company.companyType,
         sizeBand: company.sizeBand,
         owner: company.owner,
+        hasMediaProgram,
       }}
       strategySnapshot={strategySnapshot}
       recentDiagnostics={recentDiagnostics}

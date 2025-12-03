@@ -49,22 +49,18 @@ export default async function DemandDetailPage({ params }: PageProps) {
       tool={tool}
       latestRun={latestRun}
       allRuns={allRuns}
+      dataConfidence={demandResult?.dataConfidence}
+      maturityStage={demandResult?.maturityStage}
     >
       {/* Demand Lab-specific content */}
       {demandResult && (
         <div className="space-y-6">
-          {/* Maturity, Confidence & Company Type Badges */}
-          <div className="flex flex-wrap gap-3">
-            {demandResult.maturityStage && (
-              <MaturityBadge stage={demandResult.maturityStage} />
-            )}
-            {demandResult.dataConfidence && (
-              <DataConfidenceBadge confidence={demandResult.dataConfidence} />
-            )}
-            {demandResult.companyType && (
+          {/* Company Type Badge (maturity & confidence now in hero) */}
+          {demandResult.companyType && (
+            <div className="flex flex-wrap gap-3">
               <CompanyTypeBadge companyType={demandResult.companyType} />
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Dimension Cards Grid */}
           {demandResult.dimensions && demandResult.dimensions.length > 0 && (
@@ -140,48 +136,6 @@ export default async function DemandDetailPage({ params }: PageProps) {
 // ============================================================================
 // Sub-Components
 // ============================================================================
-
-function MaturityBadge({ stage }: { stage: DemandLabResult['maturityStage'] }) {
-  const colors: Record<string, string> = {
-    unproven: 'bg-red-500/20 text-red-300 border-red-500/30',
-    emerging: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-    scaling: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-    established: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-  };
-
-  const labels: Record<string, string> = {
-    unproven: 'Unproven',
-    emerging: 'Emerging',
-    scaling: 'Scaling',
-    established: 'Established',
-  };
-
-  if (!stage) return null;
-
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${colors[stage] || 'bg-slate-500/20 text-slate-300 border-slate-500/30'}`}>
-      <span className="text-[10px] uppercase tracking-wider text-slate-500">Maturity:</span>
-      {labels[stage] || stage}
-    </span>
-  );
-}
-
-function DataConfidenceBadge({ confidence }: { confidence: DemandLabResult['dataConfidence'] }) {
-  const colors: Record<string, string> = {
-    high: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-    medium: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-    low: 'bg-red-500/20 text-red-300 border-red-500/30',
-  };
-
-  if (!confidence || !confidence.level) return null;
-
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${colors[confidence.level] || 'bg-slate-500/20 text-slate-300 border-slate-500/30'}`}>
-      <span className="text-[10px] uppercase tracking-wider text-slate-500">Data:</span>
-      {confidence.level} ({confidence.score ?? 0}%)
-    </span>
-  );
-}
 
 function CompanyTypeBadge({ companyType }: { companyType: string }) {
   const labels: Record<string, string> = {

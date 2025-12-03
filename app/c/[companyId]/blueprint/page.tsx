@@ -8,9 +8,11 @@
 // - Insights (from GAP, labs, analytics, Brain memories tagged strategy/insight)
 // - Diagnostics & Tools (consolidated list of all tools with status)
 // - Analytics Summary (traffic, search, funnel metrics)
+// - Media & Demand Engine (conditional on media program status)
 
 import { notFound } from 'next/navigation';
 import { getCompanyById } from '@/lib/airtable/companies';
+import { companyHasMediaProgram } from '@/lib/companies/media';
 import { getCompanyStrategySnapshot } from '@/lib/os/companies/strategySnapshot';
 import { getCompanyAlerts } from '@/lib/os/companies/alerts';
 import { getRecentRunsWithToolCoverage, getToolLabel, type DiagnosticRun } from '@/lib/os/diagnostics/runs';
@@ -151,6 +153,9 @@ export default async function BlueprintPage({ params }: PageProps) {
     estimatedMinutes: rt.tool.estimatedMinutes,
   }));
 
+  // Check if company has an active media program
+  const hasMediaProgram = companyHasMediaProgram(company);
+
   return (
     <BlueprintClient
       company={{
@@ -161,6 +166,7 @@ export default async function BlueprintPage({ params }: PageProps) {
         industry: company.industry,
         ga4PropertyId: company.ga4PropertyId,
         searchConsoleSiteUrl: company.searchConsoleSiteUrl,
+        hasMediaProgram,
       }}
       strategySnapshot={strategySnapshot}
       recentDiagnostics={recentDiagnostics}

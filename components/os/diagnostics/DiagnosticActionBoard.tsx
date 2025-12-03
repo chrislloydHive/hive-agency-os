@@ -41,9 +41,23 @@ export function DiagnosticActionBoard({ board, onSendToWork }: Props) {
             <h1 className="text-3xl font-bold text-slate-100">
               {board.companyName || 'Diagnostic Results'}
             </h1>
-            {board.targetUrl && (
-              <p className="mt-1 text-sm text-slate-400">{board.targetUrl}</p>
-            )}
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              {board.targetUrl && (
+                <span className="text-sm text-slate-400">{board.targetUrl}</span>
+              )}
+              {/* Tech Stack Badge */}
+              {board.metadata?.custom?.techStack?.platform && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full border border-slate-600 bg-slate-800/50 px-2 py-0.5 text-xs font-medium text-slate-300"
+                  title={`Detected: ${board.metadata.custom.techStack.signals?.join(', ') || 'Unknown signals'} (${board.metadata.custom.techStack.confidence}% confidence)`}
+                >
+                  <svg className="h-3 w-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                  </svg>
+                  {board.metadata.custom.techStack.platform}
+                </span>
+              )}
+            </div>
             <p className="mt-1 text-xs text-slate-500 capitalize">
               {board.diagnosticType} Diagnostics
             </p>
@@ -60,6 +74,35 @@ export function DiagnosticActionBoard({ board, onSendToWork }: Props) {
                   ({board.overallScore}/100)
                 </span>
               </div>
+              {/* Maturity & Data Confidence Badges */}
+              {(board.metadata?.custom?.maturityStage || board.metadata?.custom?.dataConfidence) && (
+                <div className="flex flex-wrap gap-2 ml-auto">
+                  {board.metadata?.custom?.maturityStage && (
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                      board.metadata.custom.maturityStage === 'established' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
+                      board.metadata.custom.maturityStage === 'scaling' ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30' :
+                      board.metadata.custom.maturityStage === 'emerging' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' :
+                      'bg-red-500/10 text-red-300 border-red-500/30'
+                    }`}>
+                      <span className="text-[10px] uppercase tracking-wider text-slate-500">Maturity:</span>
+                      {String(board.metadata.custom.maturityStage).charAt(0).toUpperCase() + String(board.metadata.custom.maturityStage).slice(1)}
+                    </span>
+                  )}
+                  {board.metadata?.custom?.dataConfidence && (
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                        board.metadata.custom.dataConfidence.level === 'high' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
+                        board.metadata.custom.dataConfidence.level === 'medium' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' :
+                        'bg-red-500/10 text-red-300 border-red-500/30'
+                      }`}
+                      title={board.metadata.custom.dataConfidence.reason || ''}
+                    >
+                      <span className="text-[10px] uppercase tracking-wider text-slate-500">Data:</span>
+                      {board.metadata.custom.dataConfidence.level} ({board.metadata.custom.dataConfidence.score}%)
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             <p className="whitespace-pre-line text-sm leading-relaxed text-slate-300">
               {board.summary}

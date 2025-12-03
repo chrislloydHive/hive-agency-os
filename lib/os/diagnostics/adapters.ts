@@ -154,43 +154,77 @@ function extractGapSnapshotData(rawJson: any): ToolReportData {
     });
   }
 
-  // Extract strengths as key findings
-  if (ia.strengths && Array.isArray(ia.strengths)) {
-    ia.strengths.slice(0, 5).forEach((s: any) => {
-      const text = typeof s === 'string' ? s : s?.title || s?.description;
+  // =========================================================================
+  // Key Findings - Extract from breakdown bullets (most specific) or gaps
+  // =========================================================================
+
+  // Prefer breakdown bullets as Key Findings (V2 format) - they're categorized and prioritized
+  if (ia.breakdown?.bullets && Array.isArray(ia.breakdown.bullets)) {
+    // Sort by impact level (high first) and take top findings
+    const sortedBullets = [...ia.breakdown.bullets].sort((a: any, b: any) => {
+      const order: Record<string, number> = { high: 0, medium: 1, low: 2 };
+      return (order[a.impactLevel] ?? 2) - (order[b.impactLevel] ?? 2);
+    });
+
+    sortedBullets.slice(0, 5).forEach((bullet: any) => {
+      const text = bullet?.statement || bullet?.description;
+      const category = bullet?.category;
+      if (text) {
+        keyFindings.push(category ? `${category}: ${text}` : text);
+      }
+    });
+  }
+  // Fallback: Use gaps as key findings
+  else if (ia.gaps && Array.isArray(ia.gaps)) {
+    ia.gaps.slice(0, 5).forEach((g: any) => {
+      const text = typeof g === 'string' ? g : g?.title || g?.description;
       if (text) keyFindings.push(text);
     });
   }
-
-  // Extract gaps as key findings (negative)
-  if (ia.gaps && Array.isArray(ia.gaps)) {
-    ia.gaps.slice(0, 3).forEach((g: any) => {
-      const text = typeof g === 'string' ? g : g?.title || g?.description;
-      if (text) keyFindings.push(`Gap: ${text}`);
+  // Fallback: Extract from dimension issues
+  else if (ia.dimensions && typeof ia.dimensions === 'object') {
+    Object.entries(ia.dimensions).forEach(([key, dim]: [string, any]) => {
+      if (dim?.issues && Array.isArray(dim.issues)) {
+        dim.issues.slice(0, 1).forEach((issue: string) => {
+          if (issue && keyFindings.length < 5) {
+            keyFindings.push(`${formatLabel(key)}: ${issue}`);
+          }
+        });
+      }
     });
   }
 
-  // Extract quick wins as opportunities (V2 format: bullets array with action field)
-  if (ia.quickWins?.bullets && Array.isArray(ia.quickWins.bullets)) {
-    ia.quickWins.bullets.slice(0, 5).forEach((w: any) => {
-      const text = w?.action || w?.title || w?.description;
-      if (text) opportunities.push(text);
-    });
-  } else if (ia.quickWins && Array.isArray(ia.quickWins)) {
-    // Legacy format
-    ia.quickWins.slice(0, 5).forEach((w: any) => {
-      const text = typeof w === 'string' ? w : w?.title || w?.description || w?.action;
-      if (text) opportunities.push(text);
-    });
-  }
+  // =========================================================================
+  // Top Opportunities - Extract from topOpportunities or quickWins
+  // =========================================================================
 
-  // Extract top opportunities from summary (V2 format)
+  // Prefer top opportunities from summary (V2 format) - strategic level
   if (ia.summary?.topOpportunities && Array.isArray(ia.summary.topOpportunities)) {
-    ia.summary.topOpportunities.slice(0, 3).forEach((opp: any) => {
+    ia.summary.topOpportunities.slice(0, 5).forEach((opp: any) => {
       const text = typeof opp === 'string' ? opp : opp?.title || opp?.opportunity || opp?.description;
       if (text && !opportunities.includes(text)) opportunities.push(text);
     });
   }
+
+  // Add quick wins if we need more opportunities (V2 format: bullets array with action field)
+  if (opportunities.length < 3) {
+    if (ia.quickWins?.bullets && Array.isArray(ia.quickWins.bullets)) {
+      ia.quickWins.bullets.slice(0, 5 - opportunities.length).forEach((w: any) => {
+        const text = w?.action || w?.title || w?.description;
+        if (text && !opportunities.includes(text)) opportunities.push(text);
+      });
+    } else if (ia.quickWins && Array.isArray(ia.quickWins)) {
+      // Legacy format
+      ia.quickWins.slice(0, 5 - opportunities.length).forEach((w: any) => {
+        const text = typeof w === 'string' ? w : w?.title || w?.description || w?.action;
+        if (text && !opportunities.includes(text)) opportunities.push(text);
+      });
+    }
+  }
+
+  // =========================================================================
+  // Sections - Maturity stage and strategic recommendations
+  // =========================================================================
 
   // Add maturity stage section if available (V2 format: in summary)
   const maturityStage = ia.summary?.maturityStage ?? ia.maturityStage;
@@ -213,29 +247,6 @@ function extractGapSnapshotData(rawJson: any): ToolReportData {
     });
   }
 
-  // Add breakdown section (V2 format) - uses breakdown.bullets with category/impactLevel/statement
-  if (ia.breakdown?.bullets && Array.isArray(ia.breakdown.bullets)) {
-    // Group bullets by category and sort by impact level (high → medium → low)
-    const grouped = groupIssuesByCategory(ia.breakdown.bullets);
-
-    // Create formatted items - one item per category with all statements combined
-    const breakdownItems = grouped.map((group) => {
-      const impactLabel = group.impactLevel === 'high' ? 'high' : group.impactLevel === 'medium' ? 'medium' : 'lower';
-      if (group.statements.length === 1) {
-        return `${group.category}: ${group.statements[0]} — ${impactLabel} impact`;
-      }
-      // Multiple statements: combine with semicolons
-      return `${group.category}: ${group.statements.join('; ')} — ${impactLabel} impact`;
-    });
-
-    sections.push({
-      id: 'breakdown',
-      title: 'Key Issues Breakdown',
-      icon: 'AlertCircle',
-      body: createListSection(breakdownItems),
-    });
-  }
-
   return { scores, keyFindings, opportunities, sections };
 }
 
@@ -244,61 +255,130 @@ function extractGapSnapshotData(rawJson: any): ToolReportData {
 // ============================================================================
 
 function extractGapPlanData(rawJson: any): ToolReportData {
+  // Handle multiple data locations:
+  // - OS V3 format: data is under rawJson.fullGap
+  // - DMA V4 format: data is at rawJson directly (scorecard, executiveSummary, etc.)
   const plan = rawJson.growthPlan || rawJson.fullGap || rawJson;
   const scores: ScoreItem[] = [];
   const keyFindings: string[] = [];
   const opportunities: string[] = [];
   const sections: ReportSection[] = [];
 
-  // Extract overall score (V3 format)
-  if (typeof plan.overallScore === 'number') {
+  // =========================================================================
+  // Scores Extraction
+  // =========================================================================
+
+  // DMA V4 format: scorecard object with overall, brand, content, etc.
+  if (rawJson.scorecard && typeof rawJson.scorecard === 'object') {
+    Object.entries(rawJson.scorecard).forEach(([key, value]) => {
+      if (typeof value === 'number') {
+        scores.push({
+          label: formatLabel(key),
+          value: value,
+          maxValue: 100,
+          group: key === 'overall' ? 'Summary' : 'Dimensions',
+        });
+      }
+    });
+  }
+  // OS V3 format: overallScore directly on plan
+  else if (typeof plan.overallScore === 'number') {
     scores.push({
       label: 'Overall',
       value: plan.overallScore,
       maxValue: 100,
       group: 'Summary',
     });
-  }
 
-  // Extract dimension scores from dimensionAnalyses (V3 format)
-  if (plan.dimensionAnalyses && Array.isArray(plan.dimensionAnalyses)) {
-    plan.dimensionAnalyses.forEach((dim: any) => {
-      if (dim?.id && typeof dim?.score === 'number') {
-        scores.push({
-          label: formatLabel(dim.id),
-          value: dim.score,
-          maxValue: 100,
-          group: 'Dimensions',
-        });
-      }
-    });
+    // Extract dimension scores from dimensionAnalyses (V3 raw format)
+    if (plan.dimensionAnalyses && Array.isArray(plan.dimensionAnalyses)) {
+      plan.dimensionAnalyses.forEach((dim: any) => {
+        if (dim?.id && typeof dim?.score === 'number') {
+          scores.push({
+            label: formatLabel(dim.id),
+            value: dim.score,
+            maxValue: 100,
+            group: 'Dimensions',
+          });
+        }
+      });
+    }
+    // V3 API mapped format: dimensionScores object
+    else if (plan.dimensionScores && typeof plan.dimensionScores === 'object') {
+      Object.entries(plan.dimensionScores).forEach(([key, value]) => {
+        if (typeof value === 'number') {
+          scores.push({
+            label: formatLabel(key),
+            value: value,
+            maxValue: 100,
+            group: 'Dimensions',
+          });
+        }
+      });
+    }
   }
-
-  // Fallback: Extract scorecard (legacy format)
-  if (plan.scorecard && typeof plan.scorecard === 'object') {
+  // Legacy scorecard format (nested under plan)
+  else if (plan.scorecard && typeof plan.scorecard === 'object') {
     Object.entries(plan.scorecard).forEach(([key, value]) => {
       if (typeof value === 'number') {
         scores.push({
           label: formatLabel(key),
           value: value,
           maxValue: 100,
-          group: 'Scorecard',
+          group: key === 'overall' ? 'Summary' : 'Scorecard',
         });
       }
     });
   }
 
-  // Extract strategic priorities as key findings
-  if (plan.strategicPriorities && Array.isArray(plan.strategicPriorities)) {
+  // =========================================================================
+  // Key Findings Extraction
+  // =========================================================================
+
+  // DMA V4 format: executiveSummary.keyIssues or executiveSummary.strategicPriorities
+  const execSummary = rawJson.executiveSummary;
+  if (execSummary && typeof execSummary === 'object') {
+    // Key issues from executive summary
+    if (execSummary.keyIssues && Array.isArray(execSummary.keyIssues)) {
+      execSummary.keyIssues.slice(0, 3).forEach((issue: string) => {
+        if (issue && !keyFindings.includes(issue)) keyFindings.push(issue);
+      });
+    }
+    // Strategic priorities from executive summary
+    if (execSummary.strategicPriorities && Array.isArray(execSummary.strategicPriorities)) {
+      execSummary.strategicPriorities.slice(0, 3).forEach((p: string) => {
+        if (p && !keyFindings.includes(p)) keyFindings.push(p);
+      });
+    }
+  }
+
+  // DMA V4 format: strategicInitiatives array
+  if (rawJson.strategicInitiatives && Array.isArray(rawJson.strategicInitiatives)) {
+    rawJson.strategicInitiatives.slice(0, 5).forEach((si: any) => {
+      const text = si?.title || si?.description;
+      if (text && !keyFindings.includes(text)) keyFindings.push(text);
+    });
+  }
+
+  // OS V3 format: strategicPriorities on plan
+  if (keyFindings.length === 0 && plan.strategicPriorities && Array.isArray(plan.strategicPriorities)) {
     plan.strategicPriorities.slice(0, 5).forEach((p: any) => {
       const text = typeof p === 'string' ? p : p?.title || p?.name || p?.description;
       if (text) keyFindings.push(text);
     });
   }
+  // V3 API mapped format: strategicPrioritiesSummary
+  else if (keyFindings.length === 0 && plan.strategicPrioritiesSummary && Array.isArray(plan.strategicPrioritiesSummary)) {
+    plan.strategicPrioritiesSummary.slice(0, 5).forEach((p: any) => {
+      const text = typeof p === 'string' ? p : p?.title || p?.name || p?.description;
+      if (text) keyFindings.push(text);
+    });
+  }
 
-  // Extract key findings from dimension analyses (V3 format)
-  if (plan.dimensionAnalyses && Array.isArray(plan.dimensionAnalyses)) {
-    plan.dimensionAnalyses.forEach((dim: any) => {
+  // Extract key findings from dimension analyses (V3 and DMA V4 format)
+  const dimAnalyses = plan.dimensionAnalyses || rawJson.dimensionAnalyses;
+  if (dimAnalyses && Array.isArray(dimAnalyses)) {
+    dimAnalyses.forEach((dim: any) => {
       if (dim?.keyFindings && Array.isArray(dim.keyFindings)) {
         dim.keyFindings.slice(0, 2).forEach((finding: string) => {
           if (finding && !keyFindings.includes(finding)) {
@@ -307,20 +387,46 @@ function extractGapPlanData(rawJson: any): ToolReportData {
         });
       }
     });
-    // Limit total key findings
-    keyFindings.splice(6);
   }
+  // Limit total key findings
+  keyFindings.splice(6);
 
-  // Extract quick wins as opportunities
-  if (plan.quickWins && Array.isArray(plan.quickWins)) {
-    plan.quickWins.slice(0, 5).forEach((w: any) => {
+  // =========================================================================
+  // Opportunities Extraction
+  // =========================================================================
+
+  // DMA V4 and OS V3: quickWins array (check rawJson first, then plan)
+  const quickWins = rawJson.quickWins || plan.quickWins;
+  if (quickWins && Array.isArray(quickWins)) {
+    quickWins.slice(0, 5).forEach((w: any) => {
+      const text = typeof w === 'string' ? w : w?.action || w?.title || w?.description;
+      if (text) opportunities.push(text);
+    });
+  }
+  // V3 API mapped format: quickWinsSummary
+  else if (plan.quickWinsSummary && Array.isArray(plan.quickWinsSummary)) {
+    plan.quickWinsSummary.slice(0, 5).forEach((w: any) => {
       const text = typeof w === 'string' ? w : w?.action || w?.title || w?.description;
       if (text) opportunities.push(text);
     });
   }
 
-  // Add executive summary section (V3 format)
-  if (plan.executiveSummary && typeof plan.executiveSummary === 'string') {
+  // =========================================================================
+  // Sections Extraction
+  // =========================================================================
+
+  // Executive Summary section
+  // DMA V4 format: executiveSummary is an object with narrative, companyOverview, etc.
+  if (execSummary && typeof execSummary === 'object' && execSummary.narrative) {
+    sections.push({
+      id: 'executive-summary',
+      title: 'Executive Summary',
+      icon: 'FileText',
+      body: createTextSection(execSummary.narrative),
+    });
+  }
+  // OS V3 format: executiveSummary is a string
+  else if (plan.executiveSummary && typeof plan.executiveSummary === 'string') {
     sections.push({
       id: 'executive-summary',
       title: 'Executive Summary',
@@ -329,23 +435,44 @@ function extractGapPlanData(rawJson: any): ToolReportData {
     });
   }
 
-  // Add maturity stage section (V3 format)
-  if (plan.maturityStage) {
+  // Maturity Stage section
+  // DMA V4 format: maturityStage in executiveSummary or businessContext
+  const maturityStage = execSummary?.maturityStage || rawJson.businessContext?.maturityStage || plan.maturityStage;
+  if (maturityStage) {
     sections.push({
       id: 'maturity',
       title: 'Marketing Maturity',
       icon: 'Target',
-      body: createMaturityStageContent(plan.maturityStage),
+      body: createMaturityStageContent(maturityStage),
     });
   }
 
-  // Add 90-day roadmap section (V3 format: roadmap90Days object)
-  if (plan.roadmap90Days && typeof plan.roadmap90Days === 'object') {
+  // 90-Day Roadmap section
+  // DMA V4 format: roadmap is an array of phase objects with name, weeks, focus, actions, kpis
+  if (rawJson.roadmap && Array.isArray(rawJson.roadmap)) {
+    sections.push({
+      id: 'roadmap',
+      title: '90-Day Roadmap',
+      icon: 'Map',
+      body: createDmaRoadmapSection(rawJson.roadmap),
+    });
+  }
+  // OS V3 raw format: roadmap90Days object
+  else if (plan.roadmap90Days && typeof plan.roadmap90Days === 'object') {
     sections.push({
       id: 'roadmap',
       title: '90-Day Roadmap',
       icon: 'Map',
       body: createRoadmap90DaysSection(plan.roadmap90Days),
+    });
+  }
+  // V3 API mapped format: roadmapPhases
+  else if (plan.roadmapPhases && typeof plan.roadmapPhases === 'object') {
+    sections.push({
+      id: 'roadmap',
+      title: '90-Day Roadmap',
+      icon: 'Map',
+      body: createRoadmapPhasesSection(plan.roadmapPhases),
     });
   }
   // Fallback: legacy roadmap array format
@@ -358,8 +485,18 @@ function extractGapPlanData(rawJson: any): ToolReportData {
     });
   }
 
-  // Add strategic priorities section (V3 format)
-  if (plan.strategicPriorities && Array.isArray(plan.strategicPriorities)) {
+  // Strategic Initiatives / Priorities section
+  // DMA V4 format: strategicInitiatives array with title, description, priority, expectedOutcome
+  if (rawJson.strategicInitiatives && Array.isArray(rawJson.strategicInitiatives) && rawJson.strategicInitiatives.length > 0) {
+    sections.push({
+      id: 'initiatives',
+      title: 'Strategic Initiatives',
+      icon: 'Rocket',
+      body: createDmaStrategicInitiativesSection(rawJson.strategicInitiatives),
+    });
+  }
+  // OS V3 raw format: strategicPriorities
+  else if (plan.strategicPriorities && Array.isArray(plan.strategicPriorities)) {
     sections.push({
       id: 'priorities',
       title: 'Strategic Priorities',
@@ -367,24 +504,54 @@ function extractGapPlanData(rawJson: any): ToolReportData {
       body: createStrategicPrioritiesSection(plan.strategicPriorities),
     });
   }
-
-  // Add KPIs section (V3 format)
-  if (plan.kpis && Array.isArray(plan.kpis)) {
+  // V3 API mapped format: strategicPrioritiesSummary
+  else if (plan.strategicPrioritiesSummary && Array.isArray(plan.strategicPrioritiesSummary)) {
     sections.push({
-      id: 'kpis',
-      title: 'Key Performance Indicators',
-      icon: 'BarChart2',
-      body: createKpisSection(plan.kpis),
+      id: 'priorities',
+      title: 'Strategic Priorities',
+      icon: 'Rocket',
+      body: createStrategicPrioritiesSummarySection(plan.strategicPrioritiesSummary),
     });
   }
-
-  // Legacy: Add initiatives section
-  if (plan.initiatives && Array.isArray(plan.initiatives)) {
+  // Legacy: initiatives section
+  else if (plan.initiatives && Array.isArray(plan.initiatives)) {
     sections.push({
       id: 'initiatives',
       title: 'Strategic Initiatives',
       icon: 'Rocket',
       body: createInitiativesSection(plan.initiatives),
+    });
+  }
+
+  // KPIs section
+  // DMA V4 format: kpis may be in roadmap phases or separate
+  const kpis = rawJson.kpis || plan.kpis;
+  if (kpis && Array.isArray(kpis)) {
+    sections.push({
+      id: 'kpis',
+      title: 'Key Performance Indicators',
+      icon: 'BarChart2',
+      body: createKpisSection(kpis),
+    });
+  }
+  // V3 API mapped format: kpisSummary
+  else if (plan.kpisSummary && Array.isArray(plan.kpisSummary)) {
+    sections.push({
+      id: 'kpis',
+      title: 'Key Performance Indicators',
+      icon: 'BarChart2',
+      body: createKpisSummarySection(plan.kpisSummary),
+    });
+  }
+
+  // Quick Wins section (both formats have this)
+  const qwList = rawJson.quickWins || plan.quickWins;
+  if (qwList && Array.isArray(qwList) && qwList.length > 0) {
+    sections.push({
+      id: 'quick-wins',
+      title: 'Quick Wins',
+      icon: 'Zap',
+      body: createQuickWinsSection(qwList),
     });
   }
 
@@ -586,7 +753,7 @@ function extractBrandLabData(rawJson: any): ToolReportData {
   // C) Top Opportunities - Deduped quickWins then projects, limit 5
   // =========================================================================
   normalized.topOpportunities.forEach((opp) => {
-    const prefix = opp.type === 'project' ? '[Project] ' : '';
+    const prefix = opp.type === 'project' ? 'Project: ' : '';
     opportunities.push(`${prefix}${opp.title}`);
   });
 
@@ -1285,7 +1452,7 @@ function extractContentLabData(rawJson: any): ToolReportData {
   if (content.projects && Array.isArray(content.projects)) {
     content.projects.slice(0, 3).forEach((proj: any) => {
       if (proj?.title) {
-        opportunities.push(`[Project] ${proj.title}`);
+        opportunities.push(`Project: ${proj.title}`);
       }
     });
   }
@@ -1760,7 +1927,7 @@ function extractDemandLabData(rawJson: any): ToolReportData {
   if (demand.issues && Array.isArray(demand.issues)) {
     demand.issues.slice(0, 5).forEach((issue: any) => {
       if (issue?.title) {
-        const severity = issue.severity ? `[${issue.severity}]` : '';
+        const severity = issue.severity ? `${issue.severity.charAt(0).toUpperCase() + issue.severity.slice(1)}:` : '';
         keyFindings.push(`${severity} ${issue.title}`);
       }
     });
@@ -1779,7 +1946,7 @@ function extractDemandLabData(rawJson: any): ToolReportData {
   if (demand.projects && Array.isArray(demand.projects)) {
     demand.projects.slice(0, 3).forEach((proj: any) => {
       if (proj?.title) {
-        opportunities.push(`[Project] ${proj.title}`);
+        opportunities.push(`Project: ${proj.title}`);
       }
     });
   }
@@ -1969,22 +2136,45 @@ function createDemandAnalyticsSection(snapshot: any): React.ReactElement | null 
 }
 
 // ============================================================================
-// Ops Lab Adapter
+// Ops Lab Adapter (V1)
 // ============================================================================
 
 function extractOpsLabData(rawJson: any): ToolReportData {
-  const ops = rawJson.diagnostic || rawJson.opsAssessment || rawJson;
+  // Support both new V1 format and legacy formats
+  const ops = rawJson.report || rawJson.diagnostic || rawJson.opsAssessment || rawJson;
   const scores: ScoreItem[] = [];
   const keyFindings: string[] = [];
   const opportunities: string[] = [];
   const sections: ReportSection[] = [];
 
-  // Extract ops dimension scores
-  if (ops.dimensions && typeof ops.dimensions === 'object') {
+  // V1: Extract overall score
+  if (ops.overallScore != null) {
+    scores.push({
+      label: 'Overall',
+      value: ops.overallScore,
+      maxValue: 100,
+      group: 'Summary',
+    });
+  }
+
+  // V1: Extract dimension scores (array format)
+  if (ops.dimensions && Array.isArray(ops.dimensions)) {
+    ops.dimensions.forEach((dim: any) => {
+      if (typeof dim?.score === 'number') {
+        scores.push({
+          label: dim.label || formatLabel(dim.key || 'unknown'),
+          value: dim.score,
+          maxValue: 100,
+          group: 'Ops Dimensions',
+        });
+      }
+    });
+  } else if (ops.dimensions && typeof ops.dimensions === 'object') {
+    // Legacy object format fallback
     Object.entries(ops.dimensions).forEach(([key, dim]: [string, any]) => {
       if (typeof dim?.score === 'number') {
         scores.push({
-          label: formatLabel(key),
+          label: dim.label || formatLabel(key),
           value: dim.score,
           maxValue: 100,
           group: 'Ops Dimensions',
@@ -1993,29 +2183,67 @@ function extractOpsLabData(rawJson: any): ToolReportData {
     });
   }
 
-  // Extract process scores
-  if (ops.processes && typeof ops.processes === 'object') {
-    Object.entries(ops.processes).forEach(([key, proc]: [string, any]) => {
-      if (typeof proc?.score === 'number') {
-        scores.push({
-          label: formatLabel(key),
-          value: proc.score,
-          maxValue: 100,
-          group: 'Processes',
-        });
+  // V1: Extract issues as key findings
+  if (ops.issues && Array.isArray(ops.issues)) {
+    ops.issues.slice(0, 5).forEach((issue: any) => {
+      if (issue?.title) {
+        const severity = issue.severity ? `${issue.severity.charAt(0).toUpperCase() + issue.severity.slice(1)}:` : '';
+        keyFindings.push(`${severity} ${issue.title}`);
       }
     });
   }
 
-  // Extract findings
-  if (ops.findings && Array.isArray(ops.findings)) {
+  // V1: Extract quick wins as opportunities
+  if (ops.quickWins && Array.isArray(ops.quickWins)) {
+    ops.quickWins.slice(0, 5).forEach((win: any) => {
+      if (win?.action) {
+        opportunities.push(win.action);
+      }
+    });
+  }
+
+  // V1: Extract projects as additional opportunities
+  if (ops.projects && Array.isArray(ops.projects)) {
+    ops.projects.slice(0, 3).forEach((proj: any) => {
+      if (proj?.title) {
+        opportunities.push(`Project: ${proj.title}`);
+      }
+    });
+  }
+
+  // V1: Add findings section with tracking/CRM/automation signals
+  if (ops.findings && typeof ops.findings === 'object' && !Array.isArray(ops.findings)) {
+    const findingsBody = createOpsFindingsSection(ops.findings);
+    if (findingsBody) {
+      sections.push({
+        id: 'findings',
+        title: 'Analysis Findings',
+        icon: 'Search',
+        body: findingsBody,
+      });
+    }
+  } else if (ops.findings && Array.isArray(ops.findings)) {
+    // Legacy array format
     ops.findings.slice(0, 5).forEach((f: any) => {
       const text = typeof f === 'string' ? f : f?.finding || f?.description;
       if (text) keyFindings.push(text);
     });
   }
 
-  // Extract inefficiencies as findings
+  // V1: Add analytics snapshot section (stack & signals)
+  if (ops.analyticsSnapshot) {
+    const snapshotBody = createOpsStackSection(ops.analyticsSnapshot);
+    if (snapshotBody) {
+      sections.push({
+        id: 'stack',
+        title: 'Stack & Signals',
+        icon: 'Settings',
+        body: snapshotBody,
+      });
+    }
+  }
+
+  // Legacy: Extract inefficiencies as findings
   if (ops.inefficiencies && Array.isArray(ops.inefficiencies)) {
     ops.inefficiencies.slice(0, 3).forEach((i: any) => {
       const text = typeof i === 'string' ? i : i?.issue || i?.description;
@@ -2023,7 +2251,7 @@ function extractOpsLabData(rawJson: any): ToolReportData {
     });
   }
 
-  // Extract recommendations as opportunities
+  // Legacy: Extract recommendations as opportunities
   if (ops.recommendations && Array.isArray(ops.recommendations)) {
     ops.recommendations.slice(0, 5).forEach((r: any) => {
       const text = typeof r === 'string' ? r : r?.title || r?.description;
@@ -2031,7 +2259,7 @@ function extractOpsLabData(rawJson: any): ToolReportData {
     });
   }
 
-  // Add tooling section
+  // Legacy: Add tooling section
   if (ops.tooling) {
     sections.push({
       id: 'tooling',
@@ -2041,7 +2269,7 @@ function extractOpsLabData(rawJson: any): ToolReportData {
     });
   }
 
-  // Add automation section
+  // Legacy: Add automation section
   if (ops.automation) {
     sections.push({
       id: 'automation',
@@ -2052,6 +2280,205 @@ function extractOpsLabData(rawJson: any): ToolReportData {
   }
 
   return { scores, keyFindings, opportunities, sections };
+}
+
+// ============================================================================
+// Ops Lab V1 Section Helpers
+// ============================================================================
+
+function createOpsFindingsSection(findings: any): React.ReactElement | null {
+  // Define all categories with their styling
+  const categories = [
+    {
+      key: 'tracking',
+      label: 'Tracking & Analytics',
+      color: 'blue',
+      tools: findings.trackingDetected?.tools || [],
+      notes: findings.trackingDetected?.notes || [],
+    },
+    {
+      key: 'crm',
+      label: 'CRM & Pipeline',
+      color: 'purple',
+      tools: findings.crmSignals?.tools || [],
+      notes: findings.crmSignals?.notes || [],
+    },
+    {
+      key: 'automation',
+      label: 'Automation & Journeys',
+      color: 'amber',
+      tools: findings.automationSignals?.tools || [],
+      notes: findings.automationSignals?.notes || [],
+    },
+    {
+      key: 'process',
+      label: 'Data & Process',
+      color: 'cyan',
+      tools: [],
+      notes: findings.processSignals?.notes || [],
+    },
+  ];
+
+  const colorStyles: Record<string, { bg: string; text: string; border: string; badgeBg: string }> = {
+    blue: { bg: 'bg-blue-500/10', text: 'text-blue-300', border: 'border-blue-500/20', badgeBg: 'bg-blue-900/30' },
+    purple: { bg: 'bg-purple-500/10', text: 'text-purple-300', border: 'border-purple-500/20', badgeBg: 'bg-purple-900/30' },
+    amber: { bg: 'bg-amber-500/10', text: 'text-amber-300', border: 'border-amber-500/20', badgeBg: 'bg-amber-900/30' },
+    cyan: { bg: 'bg-cyan-500/10', text: 'text-cyan-300', border: 'border-cyan-500/20', badgeBg: 'bg-cyan-900/30' },
+  };
+
+  // Filter to only show categories with content
+  const activeCategories = categories.filter(cat => cat.tools.length > 0 || cat.notes.length > 0);
+
+  if (activeCategories.length === 0) return null;
+
+  return React.createElement('div', { className: 'space-y-3' },
+    activeCategories.map((category) => {
+      const styles = colorStyles[category.color];
+      const categoryItems: React.ReactElement[] = [];
+
+      // Category header
+      categoryItems.push(
+        React.createElement('p', {
+          key: 'header',
+          className: `text-xs font-medium ${styles.text} mb-2`
+        }, category.label)
+      );
+
+      // Tools badges
+      if (category.tools.length > 0) {
+        categoryItems.push(
+          React.createElement('div', { key: 'tools', className: 'mb-2' },
+            React.createElement('p', { className: 'text-[10px] text-slate-500 uppercase tracking-wider mb-1' }, 'Detected'),
+            React.createElement('div', { className: 'flex flex-wrap gap-1' },
+              category.tools.map((tool: string, i: number) =>
+                React.createElement('span', {
+                  key: i,
+                  className: `text-[10px] ${styles.badgeBg} ${styles.text} rounded px-1.5 py-0.5`
+                }, tool)
+              )
+            )
+          )
+        );
+      }
+
+      // Notes
+      if (category.notes.length > 0) {
+        categoryItems.push(
+          React.createElement('ul', { key: 'notes', className: 'space-y-1' },
+            category.notes.slice(0, 3).map((note: string, i: number) =>
+              React.createElement('li', {
+                key: i,
+                className: 'text-xs text-slate-300'
+              }, `• ${note}`)
+            )
+          )
+        );
+      }
+
+      return React.createElement('div', {
+        key: category.key,
+        className: `rounded-lg border ${styles.border} ${styles.bg} p-3`
+      }, ...categoryItems);
+    })
+  );
+}
+
+function createOpsStackSection(snapshot: any): React.ReactElement | null {
+  const items: React.ReactElement[] = [];
+
+  // Define all core signals with descriptions
+  const coreSignals = [
+    { label: 'Google Analytics 4', key: 'hasGa4', active: snapshot.hasGa4, description: 'Web analytics & conversion tracking' },
+    { label: 'Google Search Console', key: 'hasGsc', active: snapshot.hasGsc, description: 'Search performance & indexing' },
+    { label: 'Google Tag Manager', key: 'hasGtm', active: snapshot.hasGtm, description: 'Tag deployment & governance' },
+    { label: 'Facebook Pixel', key: 'hasFacebookPixel', active: snapshot.hasFacebookPixel, description: 'Meta retargeting & attribution' },
+    { label: 'LinkedIn Insight', key: 'hasLinkedinInsight', active: snapshot.hasLinkedinInsight, description: 'B2B retargeting & attribution' },
+    { label: 'CRM Integration', key: 'hasCrm', active: snapshot.hasCrm, description: 'Lead capture & pipeline tracking' },
+    { label: 'Marketing Automation', key: 'hasAutomationPlatform', active: snapshot.hasAutomationPlatform, description: 'Email & journey automation' },
+  ];
+
+  const detectedCount = coreSignals.filter(s => s.active).length;
+  const totalCount = coreSignals.length;
+
+  // Summary header with detected count
+  const countColor = detectedCount === 0 ? 'text-red-400' : detectedCount < 3 ? 'text-amber-400' : 'text-emerald-400';
+  items.push(
+    React.createElement('div', { key: 'header', className: 'flex items-center justify-between mb-3 pb-3 border-b border-slate-700/50' },
+      React.createElement('div', null,
+        React.createElement('p', { className: 'text-xs font-medium text-slate-300' }, 'Marketing Stack Coverage'),
+        React.createElement('p', { className: 'text-[10px] text-slate-500 mt-0.5' }, 'Core infrastructure signals')
+      ),
+      React.createElement('div', { className: 'text-right' },
+        React.createElement('p', { className: `text-lg font-bold tabular-nums ${countColor}` }, `${detectedCount}/${totalCount}`),
+        React.createElement('p', { className: 'text-[9px] text-slate-500 uppercase tracking-wider' }, 'Detected')
+      )
+    )
+  );
+
+  // Active tools badges (if any)
+  if (snapshot.trackingStack && Array.isArray(snapshot.trackingStack) && snapshot.trackingStack.length > 0) {
+    items.push(
+      React.createElement('div', { key: 'stack', className: 'mb-3' },
+        React.createElement('p', { className: 'text-[10px] text-slate-500 uppercase tracking-wider mb-1.5' }, 'Active Tools'),
+        React.createElement('div', { className: 'flex flex-wrap gap-1' },
+          snapshot.trackingStack.map((tool: string, i: number) =>
+            React.createElement('span', {
+              key: i,
+              className: 'text-[10px] bg-emerald-900/30 text-emerald-300 border border-emerald-500/30 rounded-full px-2 py-0.5'
+            }, tool)
+          )
+        )
+      )
+    );
+  }
+
+  // Signal grid with descriptions
+  items.push(
+    React.createElement('div', { key: 'signals', className: 'grid grid-cols-2 gap-2 mb-3' },
+      coreSignals.map((sig, i) =>
+        React.createElement('div', {
+          key: i,
+          className: `rounded-lg p-2 ${sig.active ? 'bg-emerald-500/5 border border-emerald-500/20' : 'bg-slate-800/30 border border-slate-700/30'}`
+        },
+          React.createElement('div', { className: 'flex items-center gap-1.5 mb-0.5' },
+            React.createElement('span', {
+              className: `w-1.5 h-1.5 rounded-full flex-shrink-0 ${sig.active ? 'bg-emerald-400' : 'bg-slate-600'}`
+            }),
+            React.createElement('span', {
+              className: `text-[10px] font-medium ${sig.active ? 'text-emerald-300' : 'text-slate-500'}`
+            }, sig.label)
+          ),
+          React.createElement('p', {
+            className: `text-[9px] ml-3 ${sig.active ? 'text-emerald-400/60' : 'text-slate-600'}`
+          }, sig.description)
+        )
+      )
+    )
+  );
+
+  // UTM usage section with more detail
+  const utmStyles: Record<string, { label: string; color: string; bg: string; description: string }> = {
+    none: { label: 'Not Detected', color: 'text-red-300', bg: 'bg-red-900/30', description: 'No UTM parameters found. Campaign attribution will be limited.' },
+    basic: { label: 'Partial', color: 'text-amber-300', bg: 'bg-amber-900/30', description: 'Some UTM usage but inconsistent across campaigns.' },
+    consistent: { label: 'Consistent', color: 'text-emerald-300', bg: 'bg-emerald-900/30', description: 'UTM parameters consistently used for attribution.' },
+  };
+
+  const utmLevel = snapshot.utmUsageLevel || 'none';
+  const utmStyle = utmStyles[utmLevel] || utmStyles.none;
+
+  items.push(
+    React.createElement('div', { key: 'utm', className: 'pt-3 border-t border-slate-700/50' },
+      React.createElement('div', { className: 'flex items-center justify-between mb-1' },
+        React.createElement('span', { className: 'text-xs font-medium text-slate-300' }, 'UTM Parameter Usage'),
+        React.createElement('span', {
+          className: `text-[10px] font-medium rounded px-1.5 py-0.5 ${utmStyle.bg} ${utmStyle.color}`
+        }, utmStyle.label)
+      ),
+      React.createElement('p', { className: 'text-[10px] text-slate-500' }, utmStyle.description)
+    )
+  );
+
+  return React.createElement('div', { className: 'space-y-2' }, ...items);
 }
 
 // ============================================================================
@@ -2625,6 +3052,185 @@ function createKpisSection(kpis: any[]): React.ReactNode {
           )
         ),
         timeframe && React.createElement('p', { className: 'text-xs text-slate-500 mt-1' }, timeframe)
+      );
+    })
+  );
+}
+
+/**
+ * Create a roadmap phases section from V3 API mapped format
+ * V3 API mapped: roadmapPhases: { phase0_30: { actions: [], rationale }, ... }
+ */
+function createRoadmapPhasesSection(roadmapPhases: any): React.ReactNode {
+  const phases = [
+    { key: 'phase0_30', label: 'Days 1-30' },
+    { key: 'phase30_60', label: 'Days 31-60' },
+    { key: 'phase60_90', label: 'Days 61-90' },
+  ];
+
+  return React.createElement('div', { className: 'space-y-4' },
+    phases.map(({ key, label }) => {
+      const phase = roadmapPhases[key];
+      if (!phase) return null;
+
+      const actions = phase.actions || [];
+      const rationale = phase.rationale;
+
+      return React.createElement('div', { key, className: 'rounded-lg bg-slate-800/50 p-4' },
+        React.createElement('div', { className: 'flex items-center gap-2 mb-2' },
+          React.createElement('span', { className: 'text-xs px-2 py-0.5 rounded bg-amber-400/10 text-amber-400 border border-amber-400/30' }, label)
+        ),
+        rationale && React.createElement('p', { className: 'text-sm text-slate-400 mb-3 italic' }, rationale),
+        actions.length > 0 && React.createElement('ul', { className: 'space-y-2' },
+          actions.slice(0, 5).map((action: string, idx: number) =>
+            React.createElement('li', { key: idx, className: 'text-sm text-slate-300 flex items-start gap-2' },
+              React.createElement('span', { className: 'text-amber-400 mt-0.5' }, '→'),
+              React.createElement('span', null, action)
+            )
+          )
+        )
+      );
+    })
+  );
+}
+
+/**
+ * Create a strategic priorities summary section from V3 API mapped format
+ * V3 API mapped: strategicPrioritiesSummary: [{ title, description }]
+ */
+function createStrategicPrioritiesSummarySection(priorities: any[]): React.ReactNode {
+  return React.createElement('div', { className: 'space-y-3' },
+    priorities.slice(0, 5).map((priority, idx) => {
+      const title = priority?.title || priority?.name;
+      const description = priority?.description;
+
+      return React.createElement('div', { key: idx, className: 'rounded-lg bg-slate-800/50 p-4' },
+        React.createElement('h4', { className: 'text-sm font-semibold text-slate-200' }, title),
+        description && React.createElement('p', { className: 'text-sm text-slate-400 mt-2' }, description)
+      );
+    })
+  );
+}
+
+/**
+ * Create a KPIs summary section from V3 API mapped format
+ * V3 API mapped: kpisSummary: [{ name, description }]
+ */
+function createKpisSummarySection(kpis: any[]): React.ReactNode {
+  return React.createElement('div', { className: 'grid gap-3 sm:grid-cols-2' },
+    kpis.slice(0, 6).map((kpi, idx) => {
+      const name = kpi?.name;
+      const description = kpi?.description;
+
+      return React.createElement('div', { key: idx, className: 'rounded-lg bg-slate-800/50 p-3' },
+        React.createElement('h4', { className: 'text-sm font-medium text-slate-200 mb-2' }, name),
+        description && React.createElement('p', { className: 'text-xs text-slate-400' }, description)
+      );
+    })
+  );
+}
+
+/**
+ * Create a roadmap section from DMA V4 format
+ * DMA V4: roadmap: [{ name, weeks, focus, actions: string[], kpis: string[] }]
+ */
+function createDmaRoadmapSection(roadmap: any[]): React.ReactNode {
+  return React.createElement('div', { className: 'space-y-4' },
+    roadmap.slice(0, 3).map((phase, idx) => {
+      const name = phase?.name || `Phase ${idx + 1}`;
+      const weeks = phase?.weeks;
+      const focus = phase?.focus;
+      const actions = phase?.actions || [];
+      const phaseKpis = phase?.kpis || [];
+
+      return React.createElement('div', { key: idx, className: 'rounded-lg bg-slate-800/50 p-4' },
+        // Phase header with name and weeks
+        React.createElement('div', { className: 'flex items-center justify-between mb-2' },
+          React.createElement('h4', { className: 'text-sm font-semibold text-slate-200' }, name),
+          weeks && React.createElement('span', { className: 'text-xs px-2 py-0.5 rounded bg-blue-400/10 text-blue-400' }, weeks)
+        ),
+        // Focus area
+        focus && React.createElement('p', { className: 'text-sm text-slate-300 mb-3' }, focus),
+        // Actions list
+        actions.length > 0 && React.createElement('div', { className: 'mb-3' },
+          React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'Actions'),
+          React.createElement('ul', { className: 'space-y-1' },
+            actions.slice(0, 4).map((action: string, i: number) =>
+              React.createElement('li', { key: i, className: 'text-xs text-slate-400 flex items-start gap-2' },
+                React.createElement('span', { className: 'text-emerald-400' }, '→'),
+                React.createElement('span', null, action)
+              )
+            )
+          )
+        ),
+        // KPIs list
+        phaseKpis.length > 0 && React.createElement('div', null,
+          React.createElement('p', { className: 'text-xs text-slate-500 mb-1' }, 'KPIs'),
+          React.createElement('ul', { className: 'flex flex-wrap gap-2' },
+            phaseKpis.slice(0, 3).map((kpi: string, i: number) =>
+              React.createElement('li', { key: i, className: 'text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-300' }, kpi)
+            )
+          )
+        )
+      );
+    })
+  );
+}
+
+/**
+ * Create a strategic initiatives section from DMA V4 format
+ * DMA V4: strategicInitiatives: [{ title, description, priority, expectedOutcome }]
+ */
+function createDmaStrategicInitiativesSection(initiatives: any[]): React.ReactNode {
+  const priorityColors: Record<string, string> = {
+    high: 'text-red-400 bg-red-400/10',
+    medium: 'text-amber-400 bg-amber-400/10',
+    low: 'text-slate-400 bg-slate-400/10',
+  };
+
+  return React.createElement('div', { className: 'space-y-3' },
+    initiatives.slice(0, 5).map((init, idx) => {
+      const title = init?.title || `Initiative ${idx + 1}`;
+      const description = init?.description;
+      const priority = init?.priority?.toLowerCase();
+      const outcome = init?.expectedOutcome;
+      const colorClass = priorityColors[priority] || 'text-slate-400 bg-slate-400/10';
+
+      return React.createElement('div', { key: idx, className: 'rounded-lg bg-slate-800/50 p-4' },
+        React.createElement('div', { className: 'flex items-start justify-between gap-2 mb-2' },
+          React.createElement('h4', { className: 'text-sm font-semibold text-slate-200' }, title),
+          priority && React.createElement('span', { className: `text-xs px-2 py-0.5 rounded capitalize ${colorClass}` }, priority)
+        ),
+        description && React.createElement('p', { className: 'text-sm text-slate-400 mb-2' }, description),
+        outcome && React.createElement('p', { className: 'text-xs text-slate-500' },
+          React.createElement('span', { className: 'text-slate-400' }, 'Expected: '),
+          outcome
+        )
+      );
+    })
+  );
+}
+
+/**
+ * Create a quick wins section
+ * Both formats: quickWins: [{ action, impact, effort, timeline } | string]
+ */
+function createQuickWinsSection(quickWins: any[]): React.ReactNode {
+  return React.createElement('div', { className: 'grid gap-3 sm:grid-cols-2' },
+    quickWins.slice(0, 6).map((qw, idx) => {
+      const isString = typeof qw === 'string';
+      const action = isString ? qw : qw?.action || qw?.title || qw?.description;
+      const impact = !isString && qw?.impact;
+      const effort = !isString && qw?.effort;
+      const timeline = !isString && qw?.timeline;
+
+      return React.createElement('div', { key: idx, className: 'rounded-lg bg-slate-800/50 p-3' },
+        React.createElement('p', { className: 'text-sm text-slate-200 mb-2' }, action),
+        !isString && (impact || effort || timeline) && React.createElement('div', { className: 'flex flex-wrap gap-2' },
+          impact && React.createElement('span', { className: 'text-xs px-2 py-0.5 rounded bg-emerald-400/10 text-emerald-400' }, `Impact: ${impact}`),
+          effort && React.createElement('span', { className: 'text-xs px-2 py-0.5 rounded bg-blue-400/10 text-blue-400' }, `Effort: ${effort}`),
+          timeline && React.createElement('span', { className: 'text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-300' }, timeline)
+        )
       );
     })
   );

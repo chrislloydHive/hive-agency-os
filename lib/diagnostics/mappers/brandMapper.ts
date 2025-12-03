@@ -36,9 +36,15 @@ export function mapBrandToActionBoard(
     companyName?: string;
     companyUrl?: string;
     runId?: string;
+    maturityStage?: string | null;
+    dataConfidence?: {
+      level: 'low' | 'medium' | 'high';
+      score: number;
+      reason?: string;
+    } | null;
   }
 ): DiagnosticActionBoard {
-  const { labResult, companyName, companyUrl, runId } = options || {};
+  const { labResult, companyName, companyUrl, runId, maturityStage, dataConfidence } = options || {};
 
   // Map themes
   const themes: DiagnosticTheme[] = actionPlan.keyThemes.map((theme) => ({
@@ -107,6 +113,9 @@ export function mapBrandToActionBoard(
         inconsistenciesCount: diagnostic?.inconsistencies?.length || 0,
         opportunitiesCount: diagnostic?.opportunities?.length || 0,
         risksCount: diagnostic?.risks?.length || 0,
+        // Maturity and data confidence
+        maturityStage: maturityStage || null,
+        dataConfidence: dataConfidence || null,
       },
     },
   };

@@ -87,6 +87,15 @@ export function mapWebsiteToActionBoard(
   // Build metadata
   const pagesAnalyzed = labResult?.siteGraph?.pages?.length || undefined;
 
+  // Extract tech stack from homepage evidence (first page or "/" path)
+  let techStack: { platform: string | null; confidence: number; signals: string[] } | undefined;
+  if (labResult?.siteGraph?.pages?.length) {
+    const homePage = labResult.siteGraph.pages.find(p => p.path === '/') || labResult.siteGraph.pages[0];
+    if (homePage?.evidenceV3?.techStack) {
+      techStack = homePage.evidenceV3.techStack;
+    }
+  }
+
   return {
     diagnosticType: 'website',
     companyId,
@@ -110,6 +119,8 @@ export function mapWebsiteToActionBoard(
         // Website-specific metadata
         hasPersonaSimulation: (labResult?.personas?.length || 0) > 0,
         hasIntelligenceEngines: !!labResult?.ctaIntelligence,
+        // Tech stack detection
+        techStack,
       },
     },
   };

@@ -290,23 +290,25 @@ export const OS_TOOL_DEFINITIONS: OsToolDefinition[] = [
     id: 'ops-lab',
     name: 'Ops Lab',
     kind: 'lab',
-    recommendedOrder: 'asNeeded',
+    recommendedOrder: 'runNext',
     impact: 'medium',
-    estimatedRunTime: '~5–10 min',
+    estimatedRunTime: '~3–5 min',
     frequencyHint:
-      'Run when scaling or when handoffs, tracking, or ops start to break.',
-    shortSummary: 'Marketing operations, tracking, and handoff lab.',
+      'Run when evaluating marketing tech stack, scaling operations, or assessing analytics maturity.',
+    shortSummary: 'Marketing operations & analytics readiness across 5 dimensions.',
     detailedSummary:
-      'Ops Lab looks at tracking, handoffs, systems, and workflows that connect marketing to sales and revenue.',
+      'Ops Lab evaluates marketing operations readiness across 5 dimensions: tracking & instrumentation, data quality & governance, CRM & pipeline hygiene, automation & journeys, and experimentation & optimization. Returns maturity stage, scored dimensions, quick wins, and strategic projects.',
     helpsAnswer:
-      'Are the systems, tracking, and handoffs in place to turn marketing activity into measurable revenue?',
+      'Is this company set up to measure, automate, and scale what marketing is doing?',
     primaryOutputs: [
-      'Ops & tracking health check',
-      'Handoff and workflow gaps',
-      'Priority fixes for reliability and reporting',
+      'Ops maturity score (0-100)',
+      '5 dimension scores with evidence',
+      'Stack & signals (GA4, GTM, CRM, automation tools)',
+      'Quick wins for immediate action',
+      'Strategic projects for deeper improvement',
     ],
     influences: ['Strategy', 'Blueprint Focus', 'Work', 'Analytics'],
-    status: 'comingSoon',
+    status: 'available',
   },
 
   // ==========================================================================

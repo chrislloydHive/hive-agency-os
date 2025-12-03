@@ -3,6 +3,24 @@
 // This file should NOT import any server-only code (Airtable, etc.)
 
 // ============================================================================
+// Media Program Status Types
+// ============================================================================
+
+/**
+ * Media Program Status - indicates whether a company has an active media program
+ * - "none": No media program active (default)
+ * - "active": Company has an active performance media program
+ */
+export type MediaProgramStatus = 'none' | 'active';
+
+/**
+ * Check if a MediaProgramStatus indicates an active program
+ */
+export function isMediaProgramActive(status: MediaProgramStatus | undefined | null): boolean {
+  return status === 'active';
+}
+
+// ============================================================================
 // Company Stage Types & Utilities
 // ============================================================================
 

@@ -20,6 +20,14 @@ export interface ToolDiagnosticsPageClientProps {
   allRuns?: DiagnosticRun[];
   /** Optional: Custom content to render for tool-specific data */
   children?: React.ReactNode;
+  /** Optional: Data confidence from tool result (shown in hero banner) */
+  dataConfidence?: {
+    level: 'low' | 'medium' | 'high';
+    score: number;
+    reason?: string;
+  } | null;
+  /** Optional: Maturity stage from tool result (shown in hero banner) */
+  maturityStage?: string | null;
 }
 
 // ============================================================================
@@ -33,6 +41,8 @@ export function ToolDiagnosticsPageClient({
   latestRun,
   allRuns,
   children,
+  dataConfidence,
+  maturityStage,
 }: ToolDiagnosticsPageClientProps) {
   const router = useRouter();
 
@@ -287,6 +297,35 @@ export function ToolDiagnosticsPageClient({
             <div>
               <h1 className="text-2xl font-bold text-slate-100">{tool.label}</h1>
               <p className="mt-1 text-sm text-slate-400">{tool.description}</p>
+              {/* Badges Row */}
+              {(maturityStage || dataConfidence) && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {maturityStage && (
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                      maturityStage === 'established' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
+                      maturityStage === 'scaling' ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30' :
+                      maturityStage === 'emerging' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' :
+                      'bg-red-500/10 text-red-300 border-red-500/30'
+                    }`}>
+                      <span className="text-[10px] uppercase tracking-wider text-slate-500">Maturity:</span>
+                      {maturityStage.charAt(0).toUpperCase() + maturityStage.slice(1)}
+                    </span>
+                  )}
+                  {dataConfidence && (
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                        dataConfidence.level === 'high' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
+                        dataConfidence.level === 'medium' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' :
+                        'bg-red-500/10 text-red-300 border-red-500/30'
+                      }`}
+                      title={dataConfidence.reason || ''}
+                    >
+                      <span className="text-[10px] uppercase tracking-wider text-slate-500">Data:</span>
+                      {dataConfidence.level} ({dataConfidence.score}%)
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             <div className="text-right">
               <p className="text-xs text-slate-500 uppercase tracking-wide">Score</p>

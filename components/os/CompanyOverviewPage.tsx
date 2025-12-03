@@ -6,11 +6,14 @@
 // This is the main landing page when viewing a company in Hive OS.
 // It surfaces the company's Strategic Snapshot (scores, focus areas, 90-day plan),
 // Score Trends with deltas, Performance Pulse, and recent diagnostic activity.
+//
+// MEDIA PROGRAM: Includes conditional media card based on company.hasMediaProgram
 
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 import QuickHealthCheckCard from './QuickHealthCheckCard';
 import { CompanyActivityTimeline } from './CompanyActivityTimeline';
+import { MediaEmptyStateCompact } from './media';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
 import type { DiagnosticRunStatus, DiagnosticToolId, CompanyScoreTrends } from '@/lib/os/diagnostics/runs';
 import type { CompanyWorkSummary } from '@/lib/os/companies/workSummary';
@@ -31,6 +34,7 @@ interface CompanyData {
   companyType?: string | null;
   sizeBand?: string | null;
   owner?: string | null;
+  hasMediaProgram?: boolean;
 }
 
 interface RecentDiagnostic {
@@ -1004,6 +1008,47 @@ export function CompanyOverviewPage({
 
         {/* Grouped Alerts Card */}
         <GroupedAlertsCard alerts={alerts} companyId={company.id} />
+      </div>
+
+      {/* ================================================================== */}
+      {/* Band 3.5: Media & Demand */}
+      {/* ================================================================== */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+              Media & Demand
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Performance media, paid campaigns, and demand generation
+            </p>
+          </div>
+          <Link
+            href={`/c/${company.id}/media`}
+            className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
+          >
+            View Media →
+          </Link>
+        </div>
+
+        {company.hasMediaProgram ? (
+          // Media Program Active - show placeholder for now
+          <div className="p-4 rounded-lg bg-slate-800/50 border border-slate-700/50">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-slate-200">Media Program Active</p>
+                <p className="text-xs text-slate-400">View channels, campaigns, and store performance</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <MediaEmptyStateCompact />
+        )}
       </div>
 
       {/* ================================================================== */}
