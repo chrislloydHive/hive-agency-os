@@ -1,27 +1,27 @@
-// components/analytics/ClientFunnelsPanel.tsx
+// components/analytics/TrainrhubFunnelsPanel.tsx
 // ============================================================================
-// Client Funnels Panel - Company-specific funnel visualization
+// TrainrHub-Specific Funnels Panel
 // ============================================================================
 //
-// Displays marketing funnels for a company using their GA4 data.
-// This replaces the Hive-specific DMA/GAP funnels in company analytics views.
+// Displays TrainrHub-specific funnels:
+// - Trainer Acquisition Funnel (supply side)
+// - Demand & Contacts Funnel (demand side)
 //
-// For TrainrHub specifically, shows Trainer Acquisition and Demand funnels.
+// Only renders for TrainrHub company, returns null for others.
 
 'use client';
 
 import { useMemo } from 'react';
 import { StandardFunnelPanel } from './StandardFunnelPanel';
-import { getClientFunnelsFromSnapshot, type ClientFunnelMetrics } from '@/lib/analytics/clientFunnels';
 import { isTrainrhubCompany } from '@/lib/analytics/funnels/trainrhub';
-import { TrainrhubFunnelsPanel } from './TrainrhubFunnelsPanel';
+import { buildTrainrhubFunnelsFromSnapshot } from '@/lib/analytics/funnels/buildTrainrhubFunnels';
 import type { CompanyAnalyticsSnapshot } from '@/lib/analytics/types';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-interface ClientFunnelsPanelProps {
+interface TrainrhubFunnelsPanelProps {
   snapshot: CompanyAnalyticsSnapshot | null;
   companyId: string;
   companyName: string;
@@ -33,37 +33,29 @@ interface ClientFunnelsPanelProps {
 // Component
 // ============================================================================
 
-export function ClientFunnelsPanel({
+export function TrainrhubFunnelsPanel({
   snapshot,
   companyId,
   companyName,
   isLoading = false,
   dateRangeLabel,
-}: ClientFunnelsPanelProps) {
-  // Check if this is TrainrHub - use specialized funnels
+}: TrainrhubFunnelsPanelProps) {
+  // Check if this is TrainrHub - if not, render nothing
   const domain = snapshot?.domain || '';
   const isTrainrhub = isTrainrhubCompany(companyName, domain);
 
-  // For TrainrHub, render the specialized funnels panel
-  if (isTrainrhub) {
-    return (
-      <TrainrhubFunnelsPanel
-        snapshot={snapshot}
-        companyId={companyId}
-        companyName={companyName}
-        isLoading={isLoading}
-        dateRangeLabel={dateRangeLabel}
-      />
-    );
+  // Build TrainrHub funnels from snapshot
+  const funnels = useMemo(() => {
+    if (!isTrainrhub || !snapshot) return [];
+    return buildTrainrhubFunnelsFromSnapshot(snapshot);
+  }, [isTrainrhub, snapshot]);
+
+  // Don't render for non-TrainrHub companies
+  if (!isTrainrhub) {
+    return null;
   }
 
-  // Build client funnels from snapshot (for non-TrainrHub companies)
-  const funnels = useMemo(() => {
-    if (!snapshot) return [];
-    return getClientFunnelsFromSnapshot(snapshot, companyName);
-  }, [snapshot, companyName]);
-
-  // Check if GA4 is connected
+  // Check if we have GA4 connected
   const hasGa4 = snapshot?.ga4 && snapshot.ga4.metrics?.sessions !== undefined;
 
   // No GA4 connection - show setup message
@@ -72,8 +64,8 @@ export function ClientFunnelsPanel({
       <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
         <div className="flex items-start gap-4">
           <div className="flex-shrink-0">
-            <div className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center">
-              <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+              <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -85,13 +77,13 @@ export function ClientFunnelsPanel({
           </div>
           <div className="flex-1">
             <h3 className="text-base font-semibold text-slate-200 mb-1">
-              Funnels Unavailable
+              TrainrHub Funnels
             </h3>
             <p className="text-sm text-slate-400 mb-3">
-              Connect GA4 to unlock funnel analysis for {companyName}.
+              Connect GA4 to unlock Trainer Acquisition and Demand funnels.
             </p>
             <p className="text-xs text-slate-500">
-              Funnels require GA4 event tracking for CTA clicks, form submissions, and page engagement.
+              Funnels require GA4 event tracking for trainer signups, profile views, and contact actions.
             </p>
           </div>
         </div>
@@ -104,7 +96,7 @@ export function ClientFunnelsPanel({
     return (
       <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6 text-center">
         <svg
-          className="w-12 h-12 mx-auto text-slate-600 mb-4"
+          className="w-12 h-12 mx-auto text-purple-600 mb-4"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -117,11 +109,10 @@ export function ClientFunnelsPanel({
           />
         </svg>
         <h3 className="text-lg font-semibold text-slate-300 mb-2">
-          Not Enough Event Data
+          Building TrainrHub Funnels
         </h3>
         <p className="text-sm text-slate-500 max-w-md mx-auto">
-          Not enough event data to build funnels yet. Make sure GA4 is connected and key events
-          (CTA clicks, form submissions) are configured.
+          Waiting for GA4 event data. Make sure trainer signup and contact events are configured.
         </p>
       </div>
     );
@@ -132,9 +123,9 @@ export function ClientFunnelsPanel({
       {/* Section Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-slate-100">Marketing Funnels</h2>
+          <h2 className="text-lg font-semibold text-slate-100">TrainrHub Funnels</h2>
           <p className="text-sm text-slate-500 mt-0.5">
-            Conversion pathways for {companyName}
+            Supply (Trainers) and Demand (Users) conversion pathways
           </p>
         </div>
         {dateRangeLabel && (
@@ -143,82 +134,112 @@ export function ClientFunnelsPanel({
       </div>
 
       {/* Funnel Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         {funnels.map((funnel) => (
           <StandardFunnelPanel
-            key={funnel.definition.id}
-            title={funnel.definition.name}
-            subtitle={funnel.definition.description}
+            key={funnel.key}
+            title={funnel.name}
+            subtitle={funnel.description}
             steps={funnel.steps}
             overallConversionRate={funnel.overallConversionRate}
             totalSessions={funnel.totalSessions}
-            trendLabel={funnel.trendLabel}
             isLoading={isLoading}
-            emptyStateMessage="No data for this funnel in the selected period."
+            emptyStateMessage="Not enough data yet to calculate this funnel."
           />
         ))}
       </div>
 
-      {/* Quick Insights */}
+      {/* TrainrHub-specific insights */}
       {funnels.some(f => f.hasData) && (
-        <FunnelInsightsCard funnels={funnels} companyName={companyName} />
+        <TrainrhubFunnelInsights funnels={funnels} />
       )}
     </div>
   );
 }
 
 // ============================================================================
-// Insights Card Sub-component
+// Insights Sub-component
 // ============================================================================
 
-function FunnelInsightsCard({
+function TrainrhubFunnelInsights({
   funnels,
-  companyName,
 }: {
-  funnels: ClientFunnelMetrics[];
-  companyName: string;
+  funnels: Array<{
+    key: string;
+    name: string;
+    steps: Array<{ id: string; label: string; count: number | null; dropoffRate?: number | null }>;
+    overallConversionRate: number | null;
+    hasData: boolean;
+  }>;
 }) {
-  // Generate quick insights from funnel data
   const insights = useMemo(() => {
-    const results: string[] = [];
+    const results: { type: 'warning' | 'success' | 'info'; text: string }[] = [];
 
     for (const funnel of funnels) {
       if (!funnel.hasData) continue;
 
-      // Check for significant drop-offs
+      // Check for high drop-offs
       for (let i = 1; i < funnel.steps.length; i++) {
         const step = funnel.steps[i];
         if (step.dropoffRate !== null && step.dropoffRate !== undefined && step.dropoffRate > 0.7) {
-          results.push(
-            `High drop-off (${Math.round(step.dropoffRate * 100)}%) at "${step.label}" step in ${funnel.definition.name}`
-          );
+          results.push({
+            type: 'warning',
+            text: `High drop-off (${Math.round(step.dropoffRate * 100)}%) at "${step.label}" in ${funnel.name}`,
+          });
         }
       }
 
       // Check overall conversion
       if (funnel.overallConversionRate !== null) {
         if (funnel.overallConversionRate < 0.01) {
-          results.push(
-            `${funnel.definition.name} has low overall conversion (${(funnel.overallConversionRate * 100).toFixed(1)}%)`
-          );
+          results.push({
+            type: 'warning',
+            text: `${funnel.name} has very low conversion (${(funnel.overallConversionRate * 100).toFixed(1)}%)`,
+          });
         } else if (funnel.overallConversionRate > 0.05) {
-          results.push(
-            `${funnel.definition.name} is performing well with ${(funnel.overallConversionRate * 100).toFixed(1)}% conversion`
-          );
+          results.push({
+            type: 'success',
+            text: `${funnel.name} is converting well at ${(funnel.overallConversionRate * 100).toFixed(1)}%`,
+          });
+        }
+      }
+
+      // TrainrHub-specific insights
+      if (funnel.key === 'trainer_acquisition') {
+        const signupStep = funnel.steps.find(s => s.id === 'signup_completed');
+        if (signupStep && signupStep.count !== null && signupStep.count > 0) {
+          results.push({
+            type: 'info',
+            text: `${signupStep.count} verified trainers signed up this period`,
+          });
+        }
+      }
+
+      if (funnel.key === 'demand_contacts') {
+        const bookStep = funnel.steps.find(s => s.id === 'book_consult');
+        const callStep = funnel.steps.find(s => s.id === 'call_click');
+        const msgStep = funnel.steps.find(s => s.id === 'message_click');
+
+        const totalContacts = (bookStep?.count || 0) + (callStep?.count || 0) + (msgStep?.count || 0);
+        if (totalContacts > 0) {
+          results.push({
+            type: 'success',
+            text: `${totalContacts} total contact actions (consults, calls, messages)`,
+          });
         }
       }
     }
 
-    return results.slice(0, 3); // Limit to 3 insights
+    return results.slice(0, 4); // Limit to 4 insights
   }, [funnels]);
 
   if (insights.length === 0) return null;
 
   return (
-    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+    <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4">
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0 mt-0.5">
-          <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -228,12 +249,18 @@ function FunnelInsightsCard({
           </svg>
         </div>
         <div>
-          <h4 className="text-sm font-medium text-slate-200 mb-2">Quick Insights</h4>
-          <ul className="space-y-1">
+          <h4 className="text-sm font-medium text-purple-200 mb-2">TrainrHub Insights</h4>
+          <ul className="space-y-1.5">
             {insights.map((insight, idx) => (
-              <li key={idx} className="text-xs text-slate-400 flex items-start gap-2">
-                <span className="text-slate-600 mt-1">•</span>
-                <span>{insight}</span>
+              <li key={idx} className="text-xs flex items-start gap-2">
+                <span className={`mt-0.5 ${
+                  insight.type === 'warning' ? 'text-amber-400' :
+                  insight.type === 'success' ? 'text-emerald-400' :
+                  'text-purple-400'
+                }`}>
+                  {insight.type === 'warning' ? '⚠' : insight.type === 'success' ? '✓' : '•'}
+                </span>
+                <span className="text-slate-300">{insight.text}</span>
               </li>
             ))}
           </ul>
@@ -247,4 +274,4 @@ function FunnelInsightsCard({
 // Exports
 // ============================================================================
 
-export default ClientFunnelsPanel;
+export default TrainrhubFunnelsPanel;
