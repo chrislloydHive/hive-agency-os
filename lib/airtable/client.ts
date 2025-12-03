@@ -246,14 +246,14 @@ export async function findRecordByField(
 
   if (!response.ok) {
     const errorText = await response.text();
-    const errorDetails = {
+    console.error('[Airtable] API error:', {
       status: response.status,
       statusText: response.statusText,
       errorText,
-      url: url.replace(config.apiKey, '***'),
       tableName,
-    };
-    console.error('[Airtable] API error:', errorDetails);
+      fieldName,
+      value,
+    });
     throw new Error(
       `Airtable API error (${response.status}): ${errorText}`
     );

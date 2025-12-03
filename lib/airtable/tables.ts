@@ -22,6 +22,16 @@ export const AIRTABLE_TABLES = {
   CLIENT_DOCUMENTS: 'Client Documents', // Uploaded documents per company
   COMPANY_STRATEGY_SNAPSHOTS: 'Company Strategy Snapshots', // Strategic snapshot per company
 
+  // Workspace Settings
+  WORKSPACE_SETTINGS: 'WorkspaceSettings', // OAuth tokens and workspace config
+
+  // Media System Tables
+  MEDIA_PROGRAMS: 'Media Programs',
+  MEDIA_CAMPAIGNS: 'Media Campaigns',
+  MEDIA_MARKETS: 'Media Markets',
+  MEDIA_STORES: 'Media Stores',
+  MEDIA_PERFORMANCE: 'Media Performance',
+
   // Legacy/deprecated (for migration reference)
   // GAP_RUNS_OLD: 'GAP Runs',
   // FULL_REPORTS_OLD: 'Full Reports',
