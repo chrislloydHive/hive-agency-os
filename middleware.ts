@@ -26,12 +26,13 @@ export const config = {
     /*
      * Match all request paths except:
      * - api/auth (NextAuth routes)
+     * - api/inngest (Inngest webhook endpoint)
      * - auth (sign-in and error pages)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public folder files
      */
-    '/((?!api/auth|auth|_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.svg$|.*\\.jpg$|.*\\.ico$).*)',
+    '/((?!api/auth|api/inngest|auth|_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.svg$|.*\\.jpg$|.*\\.ico$).*)',
   ],
 };
