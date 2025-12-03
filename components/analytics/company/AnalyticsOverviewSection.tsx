@@ -12,11 +12,11 @@
 
 import { useState } from 'react';
 import type { CompanyAnalyticsSnapshot, AnalyticsAiInsights } from '@/lib/analytics/types';
-import { FunnelMetricsCardWithDrill } from '../FunnelMetricsCardWithDrill';
 import { CompanyActivityTimeline, type ActivityEventType } from '@/components/os/CompanyActivityTimeline';
 import { AnalyticsDrillModal } from '../drill/AnalyticsDrillModal';
 import { KpiDrillContent } from '../drill/KpiDrillContent';
 import { useAnalyticsDrillNavigation, type ActivityFilterType } from '@/hooks/useAnalyticsDrillNavigation';
+import { ClientFunnelsPanel } from '@/components/analytics/ClientFunnelsPanel';
 
 type KpiType = 'sessions' | 'users' | 'pageviews' | 'conversions' | 'bounceRate' | 'searchClicks' | 'impressions' | 'avgPosition' | 'ctr';
 
@@ -29,6 +29,7 @@ interface AnalyticsOverviewSectionProps {
   onRetry?: () => void;
   onFetchInsights?: () => void;
   companyId?: string;
+  companyName?: string;
   onSectionChange?: (section: 'overview' | 'charts' | 'traffic' | 'search') => void;
 }
 
@@ -41,6 +42,7 @@ export function AnalyticsOverviewSection({
   onRetry,
   onFetchInsights,
   companyId,
+  companyName,
   onSectionChange,
 }: AnalyticsOverviewSectionProps) {
   // KPI drill-through modal state
@@ -255,14 +257,13 @@ export function AnalyticsOverviewSection({
           />
         </div>
 
-        {/* DMA/GAP Funnel Metrics - Clickable steps for drill-through */}
+        {/* Client Marketing Funnels - powered by GA4 data */}
         {snapshot.ga4Connected && (
-          <FunnelMetricsCardWithDrill
-            funnels={funnels?.metrics}
-            comparison={comparison?.funnels}
-            companyId={companyId}
-            onSectionChange={onSectionChange}
-            onActivityFilterChange={handleActivityFilterChange}
+          <ClientFunnelsPanel
+            snapshot={snapshot}
+            companyId={companyId || ''}
+            companyName={companyName || 'Company'}
+            isLoading={isLoading}
           />
         )}
 
