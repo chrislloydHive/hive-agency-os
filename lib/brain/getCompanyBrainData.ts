@@ -51,6 +51,11 @@ export interface CompanyProfile {
   markets?: string[];
   description?: string;
   createdAt?: string;
+  // Analytics connections
+  ga4PropertyId?: string;
+  ga4Connected: boolean;
+  searchConsoleSiteUrl?: string;
+  gscConnected: boolean;
 }
 
 /**
@@ -133,6 +138,11 @@ function mapToCompanyProfile(company: any): CompanyProfile {
     markets: company.markets,
     description: company.description,
     createdAt: company.createdAt,
+    // Analytics connections
+    ga4PropertyId: company.ga4PropertyId,
+    ga4Connected: !!company.ga4PropertyId,
+    searchConsoleSiteUrl: company.searchConsoleSiteUrl,
+    gscConnected: !!company.searchConsoleSiteUrl,
   };
 }
 
