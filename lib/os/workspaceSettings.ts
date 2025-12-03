@@ -65,24 +65,27 @@ export async function getWorkspaceSettings(
 ): Promise<WorkspaceSettings | null> {
   try {
     // Try to find existing settings
+    console.log('[WorkspaceSettings] Looking for workspace:', workspaceId);
     const record = await findRecordByField(TABLE_NAME, 'WorkspaceId', workspaceId);
 
     if (record) {
+      console.log('[WorkspaceSettings] Found existing record:', record.id);
       return mapAirtableToWorkspaceSettings(record);
     }
 
-    // Create new settings record if none exists
-    console.log('[WorkspaceSettings] Creating new settings record for workspace:', workspaceId);
+    // No record found - create new settings record
+    console.log('[WorkspaceSettings] No record found, creating new settings for workspace:', workspaceId);
     const newRecord = await createRecord(TABLE_NAME, {
       WorkspaceId: workspaceId,
       CreatedAt: new Date().toISOString(),
     });
 
+    console.log('[WorkspaceSettings] Created new record:', newRecord?.id);
     return mapAirtableToWorkspaceSettings(newRecord);
   } catch (error) {
     // If the table doesn't exist or there's an API error, return null
     // This allows graceful fallback to environment variables
-    console.warn('[WorkspaceSettings] Could not fetch settings (table may not exist):', error);
+    console.warn('[WorkspaceSettings] Error fetching/creating settings:', error);
     return null;
   }
 }
