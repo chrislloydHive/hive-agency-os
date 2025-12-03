@@ -2,7 +2,7 @@
 
 // app/c/[companyId]/blueprint/BlueprintClient.tsx
 // Client component for the Blueprint page - the strategic hub
-// Enhanced with Strategy Engine and full intelligence layer
+// Two-column layout: Left = Diagnostics/Findings, Right = Actions/Roadmap
 
 import { useState, useCallback, type ReactNode } from 'react';
 import Link from 'next/link';
@@ -47,7 +47,15 @@ import type {
   BlueprintAnalyticsSummary,
   AnalyticsStrategicInsight,
 } from '@/lib/os/analytics/blueprintDataFetcher';
-import { BlueprintAnalyticsPanel } from '@/components/os/blueprint';
+import { MediaBlueprintEmptyState } from '@/components/os/media';
+
+// Import new two-column layout components
+import {
+  BlueprintHeaderSummary,
+  BlueprintDiagnosticsColumn,
+  BlueprintActionsColumn,
+  BlueprintMiniNav,
+} from '@/components/os/blueprint';
 
 // ============================================================================
 // Types
@@ -61,6 +69,7 @@ interface CompanyData {
   industry?: string | null;
   ga4PropertyId?: string | null;
   searchConsoleSiteUrl?: string | null;
+  hasMediaProgram?: boolean;
 }
 
 interface RecentDiagnostic {
@@ -135,83 +144,12 @@ function getScoreBgColor(score: number | null): string {
   return 'bg-red-500/20';
 }
 
-function getMaturityStageStyle(stage: string | undefined): string {
-  switch (stage) {
-    case 'World-Class':
-      return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
-    case 'Advanced':
-      return 'bg-blue-500/20 text-blue-300 border-blue-500/30';
-    case 'Good':
-      return 'bg-amber-500/20 text-amber-300 border-amber-500/30';
-    case 'Developing':
-      return 'bg-orange-500/20 text-orange-300 border-orange-500/30';
-    case 'Basic':
-    default:
-      return 'bg-slate-500/20 text-slate-300 border-slate-500/30';
-  }
-}
-
 function formatRelativeTime(dateStr: string | null | undefined): string {
   if (!dateStr) return '';
   try {
     return formatDistanceToNow(new Date(dateStr), { addSuffix: true });
   } catch {
     return '';
-  }
-}
-
-function getImpactStyle(impact: 'high' | 'medium' | 'low'): string {
-  switch (impact) {
-    case 'high':
-      return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
-    case 'medium':
-      return 'bg-amber-500/20 text-amber-300 border-amber-500/30';
-    case 'low':
-      return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
-  }
-}
-
-function getEffortStyle(effort: 'low' | 'medium' | 'high'): string {
-  switch (effort) {
-    case 'low':
-      return 'bg-emerald-500/20 text-emerald-300';
-    case 'medium':
-      return 'bg-amber-500/20 text-amber-300';
-    case 'high':
-      return 'bg-red-500/20 text-red-300';
-  }
-}
-
-function getUrgencyStyle(urgency: 'run-now' | 'stale' | 'not-run'): string {
-  switch (urgency) {
-    case 'run-now':
-      return 'bg-red-500/20 text-red-300 border-red-500/30';
-    case 'stale':
-      return 'bg-amber-500/20 text-amber-300 border-amber-500/30';
-    case 'not-run':
-      return 'bg-blue-500/20 text-blue-300 border-blue-500/30';
-  }
-}
-
-function getRecommendationUrgencyStyle(urgency: 'now' | 'next' | 'later'): { bg: string; text: string; border: string; label: string } {
-  switch (urgency) {
-    case 'now':
-      return { bg: 'bg-red-500/20', text: 'text-red-300', border: 'border-red-500/30', label: 'Run Now' };
-    case 'next':
-      return { bg: 'bg-amber-500/20', text: 'text-amber-300', border: 'border-amber-500/30', label: 'Run Next' };
-    case 'later':
-      return { bg: 'bg-blue-500/20', text: 'text-blue-300', border: 'border-blue-500/30', label: 'Later' };
-  }
-}
-
-function getRecommendationImpactStyle(impact: 'high' | 'medium' | 'low'): { bg: string; text: string; label: string } {
-  switch (impact) {
-    case 'high':
-      return { bg: 'bg-emerald-500/20', text: 'text-emerald-300', label: 'High Impact' };
-    case 'medium':
-      return { bg: 'bg-amber-500/20', text: 'text-amber-300', label: 'Medium Impact' };
-    case 'low':
-      return { bg: 'bg-slate-500/20', text: 'text-slate-400', label: 'Low Impact' };
   }
 }
 
@@ -251,6 +189,25 @@ function getToolIconSvg(icon: ToolIcon): ReactNode {
       return (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+      );
+    case 'fileEdit':
+      return (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+        </svg>
+      );
+    case 'trendingUp':
+      return (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+        </svg>
+      );
+    case 'settings':
+      return (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
       );
     case 'barChart':
@@ -304,15 +261,12 @@ export function BlueprintClient({
   // Poll for async tool completion
   const pollForCompletion = useCallback(
     async (toolId: CompanyToolId, runId: string, toolLabel: string) => {
-      // Map tool IDs to their status endpoints
       const statusEndpoints: Record<string, string> = {
         brandLab: `/api/os/diagnostics/status/brand-lab?companyId=${company.id}`,
-        // Add more async tools here as needed
       };
 
       const statusEndpoint = statusEndpoints[toolId];
       if (!statusEndpoint) {
-        // No status endpoint, just refresh after a delay
         setTimeout(() => {
           setRunningTools((prev) => {
             const next = new Set(prev);
@@ -324,7 +278,6 @@ export function BlueprintClient({
         return;
       }
 
-      // Poll every 5 seconds, max 60 attempts (5 minutes)
       let attempts = 0;
       const maxAttempts = 60;
 
@@ -335,7 +288,6 @@ export function BlueprintClient({
           const data = await response.json();
 
           if (data.status === 'completed' || data.status === 'complete') {
-            // Done! Remove from running and refresh
             setRunningTools((prev) => {
               const next = new Set(prev);
               next.delete(toolId);
@@ -350,7 +302,6 @@ export function BlueprintClient({
           }
 
           if (data.status === 'failed') {
-            // Failed, stop polling
             setRunningTools((prev) => {
               const next = new Set(prev);
               next.delete(toolId);
@@ -361,11 +312,9 @@ export function BlueprintClient({
             return;
           }
 
-          // Still running, continue polling if under max attempts
           if (attempts < maxAttempts) {
             setTimeout(poll, 5000);
           } else {
-            // Timeout, stop polling but leave as potentially running
             console.warn(`[Blueprint] Polling timeout for ${toolLabel}`);
             setRunningTools((prev) => {
               const next = new Set(prev);
@@ -381,7 +330,6 @@ export function BlueprintClient({
         }
       };
 
-      // Start polling after initial delay
       setTimeout(poll, 3000);
     },
     [company.id, router]
@@ -415,12 +363,10 @@ export function BlueprintClient({
           setNewDataBanner(`${tool.label} started - strategy will update when complete`);
           setTimeout(() => setNewDataBanner(null), 5000);
 
-          // For async tools (like Brand Lab), start polling for completion
           const asyncTools = ['brandLab'];
           if (asyncTools.includes(tool.id)) {
             pollForCompletion(tool.id, data.run.id, tool.label);
           } else {
-            // Synchronous tools - remove from running immediately and refresh
             setRunningTools((prev) => {
               const next = new Set(prev);
               next.delete(tool.id);
@@ -541,7 +487,6 @@ export function BlueprintClient({
           const score = run.score !== null ? ` (Score: ${run.score}/100)` : '';
 
           if (isComplete) {
-            // Build the report URL
             const slugMap: Record<string, string> = {
               gapSnapshot: 'gap-ia',
               gapPlan: 'gap-plan',
@@ -557,7 +502,6 @@ export function BlueprintClient({
             const reportUrl = `/c/${company.id}/diagnostics/${slug}/${run.id}`;
 
             setNewDataBanner(`${rec.toolLabel} complete${score} - View Report`);
-            // Navigate to the report after a short delay
             setTimeout(() => {
               router.push(reportUrl);
             }, 1500);
@@ -580,10 +524,10 @@ export function BlueprintClient({
         });
       }
     },
-    [company.id, company.website, company.domain]
+    [company.id, company.website, company.domain, router]
   );
 
-  // Handle creating work from a recommended tool (Part 3: Auto-Create Work)
+  // Handle creating work from a recommended tool
   const handlePlanWorkFromTool = useCallback(
     async (rec: SerializedRecommendedTool) => {
       setPlanningWork((prev) => new Set(prev).add(rec.toolId));
@@ -656,7 +600,7 @@ export function BlueprintClient({
     [company.id]
   );
 
-  // Handle sending a focus area's suggested action to Work (Part 2: Micro-Actions)
+  // Handle sending a focus area's suggested action to Work
   const handleSendFocusActionToWork = useCallback(
     async (area: StrategicFocusArea, focusId: string) => {
       if (!area.suggestedAction) return;
@@ -706,19 +650,15 @@ export function BlueprintClient({
     [company.id]
   );
 
-  const hasSnapshot = !!strategySnapshot;
-  const hasSynthesis = !!strategySynthesis;
   const hasGa4 = !!company.ga4PropertyId;
-  const hasSearchConsole = !!company.searchConsoleSiteUrl;
-
   const enabledTools = getEnabledTools();
-  const comingSoonTools = getComingSoonTools();
-
-  // Get tool statuses from pipeline data
   const toolStatuses = pipelineData?.diagnostics?.toolStatuses || [];
 
+  // Find last updated timestamp from recent diagnostics
+  const lastUpdated = recentDiagnostics.length > 0 ? recentDiagnostics[0].createdAt : null;
+
   return (
-    <div className="space-y-6">
+    <div className="max-w-[1400px] mx-auto space-y-6">
       {/* New Data Banner */}
       {newDataBanner && (
         <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4">
@@ -734,395 +674,122 @@ export function BlueprintClient({
       )}
 
       {/* ================================================================== */}
-      {/* Section 1: Strategic Narrative (from AI Synthesis) */}
+      {/* Header Summary - Full Width */}
       {/* ================================================================== */}
-      {hasSynthesis && strategySynthesis.strategicNarrative && (
-        <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20 rounded-xl p-6">
-          <div className="flex items-start gap-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
-              <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-              </svg>
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-2">
-                <h2 className="text-sm font-semibold text-blue-300 uppercase tracking-wide">
-                  Strategic Narrative
-                </h2>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                  strategySynthesis.confidence === 'high'
-                    ? 'bg-emerald-500/20 text-emerald-300'
-                    : strategySynthesis.confidence === 'medium'
-                    ? 'bg-amber-500/20 text-amber-300'
-                    : 'bg-slate-500/20 text-slate-400'
-                }`}>
-                  {strategySynthesis.confidence} confidence
-                </span>
-              </div>
-              <p className="text-base text-slate-200 leading-relaxed">
-                {strategySynthesis.strategicNarrative}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ================================================================== */}
-      {/* Section 2: Strategic Overview (Scores + Snapshot) */}
-      {/* ================================================================== */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-4">
-          Strategic Overview
-        </h2>
-
-        {hasSnapshot || pipelineData?.diagnostics?.overallScore !== null ? (
-          <div className="space-y-4">
-            {/* Headline Recommendation */}
-            {strategySnapshot?.headlineRecommendation && (
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">
-                  <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                </div>
-                <p className="text-sm text-blue-200 font-medium">{strategySnapshot.headlineRecommendation}</p>
-              </div>
-            )}
-
-            <div className="flex flex-col lg:flex-row lg:items-center gap-6">
-              {/* Overall Score + Maturity */}
-              <div className="flex items-center gap-6">
-                {(strategySnapshot?.overallScore ?? pipelineData?.diagnostics?.overallScore) !== null && (
-                  <div className="text-center">
-                    <div className={`text-5xl font-bold tabular-nums ${getScoreColor(strategySnapshot?.overallScore ?? pipelineData?.diagnostics?.overallScore ?? null)}`}>
-                      {strategySnapshot?.overallScore ?? pipelineData?.diagnostics?.overallScore}
-                    </div>
-                    <p className="text-xs text-slate-500 uppercase tracking-wide mt-1">Health Score</p>
-                  </div>
-                )}
-
-                {strategySnapshot?.maturityStage && (
-                  <div className="text-center">
-                    <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium border ${getMaturityStageStyle(strategySnapshot.maturityStage)}`}>
-                      {strategySnapshot.maturityStage}
-                    </span>
-                    <p className="text-xs text-slate-500 uppercase tracking-wide mt-2">Maturity Stage</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Score Breakdown */}
-              {pipelineData?.diagnostics?.scores && (
-                <div className="flex-1 lg:pl-6 lg:border-l lg:border-slate-800">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {pipelineData.diagnostics.scores.website !== null && (
-                      <ScorePill label="Website" score={pipelineData.diagnostics.scores.website} />
-                    )}
-                    {pipelineData.diagnostics.scores.brand !== null && (
-                      <ScorePill label="Brand" score={pipelineData.diagnostics.scores.brand} />
-                    )}
-                    {pipelineData.diagnostics.scores.seo !== null && (
-                      <ScorePill label="SEO" score={pipelineData.diagnostics.scores.seo} />
-                    )}
-                    {pipelineData.diagnostics.scores.content !== null && (
-                      <ScorePill label="Content" score={pipelineData.diagnostics.scores.content} />
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <EmptyState
-            icon="chart"
-            title="No Strategic Snapshot Yet"
-            description="Run GAP or Website Lab diagnostics to generate a strategic snapshot with scores, focus areas, and a 90-day plan."
-          />
-        )}
-      </div>
-
-      {/* ================================================================== */}
-      {/* Section 3: Top Focus Areas (from AI Synthesis) */}
-      {/* ================================================================== */}
-      {hasSynthesis && strategySynthesis.topFocusAreas.length > 0 && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-4">
-            Top Focus Areas
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {strategySynthesis.topFocusAreas.slice(0, 5).map((area, index) => (
-              <FocusAreaCard
-                key={index}
-                area={area}
-                index={index}
-                onSendToWork={() => handleSendFocusActionToWork(area, `focus-${index}`)}
-                isSending={sendingFocusAction.has(`focus-${index}`)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ================================================================== */}
-      {/* Section 4: Prioritized Actions (from AI Synthesis) */}
-      {/* ================================================================== */}
-      {hasSynthesis && strategySynthesis.prioritizedActions.length > 0 && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
-              Prioritized Actions
-            </h2>
-            <Link
-              href={`/c/${company.id}/work`}
-              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-            >
-              View all in Work
-            </Link>
-          </div>
-          <div className="space-y-3">
-            {strategySynthesis.prioritizedActions.slice(0, 8).map((action, index) => (
-              <ActionCard
-                key={index}
-                action={action}
-                onSendToWork={() => handleSendToWork(action, `action-${index}`)}
-                isSending={sendingToWork.has(`action-${index}`)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ================================================================== */}
-      {/* Section 5: 90-Day Plan (from AI Synthesis) */}
-      {/* ================================================================== */}
-      {hasSynthesis && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-4">
-            90-Day Plan
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <NinetyDayColumn
-              title="Now"
-              subtitle="Week 1-2"
-              items={strategySynthesis.ninetyDayPlan.now}
-              color="emerald"
-              companyId={company.id}
-            />
-            <NinetyDayColumn
-              title="Next"
-              subtitle="Week 3-6"
-              items={strategySynthesis.ninetyDayPlan.next}
-              color="amber"
-              companyId={company.id}
-            />
-            <NinetyDayColumn
-              title="Later"
-              subtitle="Week 7-12"
-              items={strategySynthesis.ninetyDayPlan.later}
-              color="blue"
-              companyId={company.id}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* ================================================================== */}
-      {/* Section 6: Analytics & Performance (New Panel) */}
-      {/* ================================================================== */}
-      <BlueprintAnalyticsPanel
-        companyId={company.id}
-        summary={analyticsSummary ?? null}
-        insights={analyticsInsights}
-        onSendInsightToWork={handleSendInsightToWork}
-        performancePulse={performancePulse}
+      <BlueprintHeaderSummary
+        company={company}
+        strategySnapshot={strategySnapshot}
+        strategySynthesis={strategySynthesis}
+        pipelineData={pipelineData}
+        lastUpdated={lastUpdated}
       />
 
       {/* ================================================================== */}
-      {/* Section 7: Recommended Tools to Run (Enhanced with BlueprintToolMeta) */}
+      {/* Sticky Mini Navigation */}
       {/* ================================================================== */}
-      {recommendedTools && recommendedTools.length > 0 ? (
+      <BlueprintMiniNav />
+
+      {/* ================================================================== */}
+      {/* Two Column Layout */}
+      {/* ================================================================== */}
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-6 items-start">
+        {/* Left Column: Diagnostics / Findings / Evidence */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                Recommended Tools to Run
-              </h2>
-              <p className="text-xs text-slate-500 mt-1">
-                AI-selected based on your diagnostic history and analytics trends
-              </p>
+          <BlueprintDiagnosticsColumn
+            company={company}
+            strategySnapshot={strategySnapshot}
+            strategySynthesis={strategySynthesis}
+            pipelineData={pipelineData}
+            brainSummary={brainSummary}
+            analyticsSummary={analyticsSummary}
+            analyticsInsights={analyticsInsights}
+            performancePulse={performancePulse}
+            onSendInsightToWork={handleSendInsightToWork}
+          />
+        </div>
+
+        {/* Right Column: Actions / Priorities / Roadmap - Sticky on desktop */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 xl:sticky xl:top-[calc(4rem+3rem)] xl:self-start xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto">
+          <BlueprintActionsColumn
+            company={company}
+            strategySynthesis={strategySynthesis}
+            recommendedTools={recommendedTools}
+            onSendActionToWork={handleSendToWork}
+            onSendFocusActionToWork={handleSendFocusActionToWork}
+            onRunTool={handleRunRecommendedTool}
+            onPlanWork={handlePlanWorkFromTool}
+            sendingActions={sendingToWork}
+            sendingFocusActions={sendingFocusAction}
+            runningTools={runningTools}
+            planningWork={planningWork}
+          />
+        </div>
+      </div>
+
+      {/* ================================================================== */}
+      {/* Media & Demand Engine - Full Width Below Columns */}
+      {/* ================================================================== */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-zinc-100">Media & Demand Engine</h3>
+            <p className="text-xs text-zinc-400">
+              How reliably paid media and demand programs are driving installs, leads, or pipeline.
+            </p>
+          </div>
+          <Link
+            href={`/c/${company.id}/media`}
+            className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
+          >
+            View Media
+          </Link>
+        </div>
+
+        {company.hasMediaProgram ? (
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                <svg className="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-slate-200">Media Program Active</p>
+                <p className="text-xs text-slate-400">
+                  Performance media channels, store scorecards, and demand metrics are available.
+                </p>
+              </div>
+              <Link
+                href={`/c/${company.id}/media`}
+                className="inline-flex items-center rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-100 hover:border-zinc-500 hover:bg-zinc-800 transition-colors"
+              >
+                Open Media Dashboard
+              </Link>
             </div>
           </div>
-          <div className="space-y-4">
-            {recommendedTools.map((rec) => {
-              const urgencyStyle = getRecommendationUrgencyStyle(rec.urgency);
-              const impactStyle = getRecommendationImpactStyle(rec.scoreImpact);
-              const isRunning = runningTools.has(rec.toolId);
-              const isPlanning = planningWork.has(rec.toolId);
-              const canRun = !rec.requiresWebsite || Boolean(company.website || company.domain);
-
-              return (
-                <div
-                  key={rec.toolId}
-                  className={`rounded-xl border p-4 ${urgencyStyle.border} ${urgencyStyle.bg}`}
-                >
-                  <div className="flex items-start gap-4">
-                    {/* Tool Icon */}
-                    <div className="flex-shrink-0 p-2 rounded-lg bg-slate-800/50 text-amber-500">
-                      {getToolIconSvg(rec.toolIcon)}
-                    </div>
-
-                    {/* Main Content */}
-                    <div className="flex-1 min-w-0">
-                      {/* Header Row */}
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <h3 className="text-sm font-semibold text-slate-100">{rec.toolLabel}</h3>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${urgencyStyle.bg} ${urgencyStyle.text} border ${urgencyStyle.border}`}>
-                          {urgencyStyle.label}
-                        </span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${impactStyle.bg} ${impactStyle.text}`}>
-                          {impactStyle.label}
-                        </span>
-                        {rec.estimatedMinutes && (
-                          <span className="text-[10px] text-slate-500">
-                            ~{rec.estimatedMinutes} min
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Why run this tool */}
-                      <p className="text-sm text-slate-300 mb-2">{rec.blueprintMeta.whyRun}</p>
-
-                      {/* This helps answer */}
-                      <p className="text-xs text-slate-400 mb-3">
-                        <span className="text-slate-500">This helps answer:</span> {rec.blueprintMeta.answersQuestion}
-                      </p>
-
-                      {/* Influences pills */}
-                      <div className="flex items-center gap-2 flex-wrap mb-3">
-                        <span className="text-[10px] text-slate-500">Influences:</span>
-                        {rec.blueprintMeta.influences.map((influence) => (
-                          <span
-                            key={influence}
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700/50 text-slate-400 border border-slate-600/50"
-                          >
-                            {influence}
-                          </span>
-                        ))}
-                      </div>
-
-                      {/* Status & Reason */}
-                      <div className="flex items-center gap-3 text-xs text-slate-500 mb-3">
-                        {rec.hasRecentRun && rec.lastRunAt ? (
-                          <>
-                            <span>Last run: {formatRelativeTime(rec.lastRunAt)}</span>
-                            {rec.lastScore !== null && rec.lastScore !== undefined && (
-                              <span className={getScoreColor(rec.lastScore)}>Score: {rec.lastScore}</span>
-                            )}
-                          </>
-                        ) : rec.daysSinceRun !== null ? (
-                          <span className="text-amber-400">{rec.daysSinceRun} days since last run</span>
-                        ) : (
-                          <span className="text-blue-400">Never run</span>
-                        )}
-                      </div>
-
-                      {/* Recommendation reason */}
-                      <p className="text-xs text-slate-400 italic mb-3">{rec.reason}</p>
-
-                      {/* Actions */}
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleRunRecommendedTool(rec)}
-                          disabled={!canRun || isRunning}
-                          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                            canRun && !isRunning
-                              ? 'bg-amber-500 hover:bg-amber-400 text-slate-900'
-                              : 'bg-slate-700 text-slate-500 cursor-not-allowed'
-                          }`}
-                        >
-                          {isRunning ? (
-                            <span className="flex items-center gap-1.5">
-                              <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                              </svg>
-                              Running...
-                            </span>
-                          ) : (
-                            'Run Diagnostic'
-                          )}
-                        </button>
-
-                        <button
-                          onClick={() => handlePlanWorkFromTool(rec)}
-                          disabled={isPlanning}
-                          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600 transition-colors disabled:opacity-50"
-                        >
-                          {isPlanning ? 'Adding...' : 'Plan this work'}
-                        </button>
-
-                        {rec.lastRunId && rec.urlSlug && (
-                          <Link
-                            href={`/c/${company.id}/diagnostics/${rec.urlSlug}/${rec.lastRunId}`}
-                            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700/50 hover:bg-slate-600/50 text-slate-400 transition-colors"
-                          >
-                            View Report
-                          </Link>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : hasSynthesis && strategySynthesis.suggestedTools.length > 0 ? (
-        // Fallback to old suggested tools if no recommended tools available
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-4">
-            Recommended Tools to Run
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {strategySynthesis.suggestedTools.map((suggestion, index) => {
-              const tool = enabledTools.find(t => t.diagnosticToolId === suggestion.toolId || t.id === suggestion.toolId);
-              if (!tool) return null;
-
-              return (
-                <SuggestedToolCard
-                  key={index}
-                  suggestion={suggestion}
-                  tool={tool}
-                  isRunning={runningTools.has(tool.id)}
-                  onRun={() => handleRunTool(tool)}
-                  canRun={!tool.requiresWebsite || Boolean(company.website || company.domain)}
-                />
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
+        ) : (
+          <MediaBlueprintEmptyState companyId={company.id} />
+        )}
+      </section>
 
       {/* ================================================================== */}
-      {/* Section 8: Diagnostics & Tools (Full Grid) */}
-      {/* Driven by OS_TOOL_DEFINITIONS from lib/os/tools/definitions.ts */}
+      {/* Diagnostics & Tools Grid - Full Width */}
       {/* ================================================================== */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+      <div id="tools" className="bg-slate-900 border border-slate-800 rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
-              Diagnostics & Tools
+            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-0.5">Deep-dive diagnostics</p>
+            <h2 className="text-sm font-semibold text-slate-200">
+              All Diagnostics & Tools
             </h2>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-slate-500 mt-0.5">
               Run tools to strengthen your strategy
             </p>
           </div>
         </div>
 
-        {/* Tool Grid - Driven by OS_TOOL_DEFINITIONS */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {getAvailableOsTools().map((osTool) => {
-            // Map OS tool ID to company tool ID for runtime behavior
             const companyToolId = osToolIdToCompanyToolId(osTool.id) as CompanyToolId | undefined;
             const tool = companyToolId ? getToolById(companyToolId) : undefined;
             if (!tool) return null;
@@ -1131,8 +798,6 @@ export function BlueprintClient({
             const isRunning = runningTools.has(tool.id);
             const hasWebsite = Boolean(company.website || company.domain);
             const canRun = osTool.status === 'available' && (!tool.requiresWebsite || hasWebsite);
-
-            // Get intelligence from pipeline data
             const toolStatus = toolStatuses.find(s => s.toolId === tool.diagnosticToolId);
 
             return (
@@ -1151,7 +816,6 @@ export function BlueprintClient({
           })}
         </div>
 
-        {/* Coming Soon - Driven by OS_TOOL_DEFINITIONS */}
         {getComingSoonOsTools().length > 0 && (
           <div className="mt-6 pt-6 border-t border-slate-800">
             <p className="text-xs text-slate-500 uppercase tracking-wide mb-3">Coming Soon</p>
@@ -1171,89 +835,7 @@ export function BlueprintClient({
       </div>
 
       {/* ================================================================== */}
-      {/* Section 9: Insights (from Brain) */}
-      {/* ================================================================== */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
-            Insights
-          </h2>
-          <Link
-            href={`/c/${company.id}/brain`}
-            className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-          >
-            View all in Brain
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Key Strengths */}
-          <div>
-            <h3 className="text-xs font-semibold text-emerald-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              Key Strengths
-            </h3>
-            {strategySnapshot?.keyStrengths && strategySnapshot.keyStrengths.length > 0 ? (
-              <ul className="space-y-2">
-                {strategySnapshot.keyStrengths.slice(0, 5).map((strength, index) => (
-                  <li key={index} className="flex items-start gap-2 text-sm text-slate-300">
-                    <span className="text-emerald-400 flex-shrink-0 mt-1">+</span>
-                    <span>{strength}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-slate-500">No key strengths highlighted yet.</p>
-            )}
-          </div>
-
-          {/* Key Gaps */}
-          <div>
-            <h3 className="text-xs font-semibold text-red-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              Key Gaps
-            </h3>
-            {strategySnapshot?.keyGaps && strategySnapshot.keyGaps.length > 0 ? (
-              <ul className="space-y-2">
-                {strategySnapshot.keyGaps.slice(0, 5).map((gap, index) => (
-                  <li key={index} className="flex items-start gap-2 text-sm text-slate-300">
-                    <span className="text-red-400 flex-shrink-0 mt-1">-</span>
-                    <span>{gap}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-slate-500">No gaps identified yet.</p>
-            )}
-          </div>
-        </div>
-
-        {/* Brain Summary */}
-        {brainSummary && brainSummary.total > 0 && (
-          <div className="mt-6 pt-6 border-t border-slate-800">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                </svg>
-                <span className="text-sm text-slate-300">
-                  <span className="font-semibold text-slate-100">{brainSummary.total}</span> insights in Brain
-                </span>
-              </div>
-              {brainSummary.recentCount !== undefined && brainSummary.recentCount > 0 && (
-                <span className="text-xs text-emerald-400">+{brainSummary.recentCount} this week</span>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ================================================================== */}
-      {/* Quick Actions */}
+      {/* Quick Actions Footer */}
       {/* ================================================================== */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <QuickActionLink
@@ -1292,212 +874,9 @@ export function BlueprintClient({
 }
 
 // ============================================================================
-// Sub-Components
+// Sub-Components (kept for tool grid compatibility)
 // ============================================================================
 
-function ScorePill({ label, score }: { label: string; score: number }) {
-  return (
-    <div className={`rounded-lg p-2 ${getScoreBgColor(score)}`}>
-      <p className="text-xs text-slate-400 mb-1">{label}</p>
-      <p className={`text-lg font-bold tabular-nums ${getScoreColor(score)}`}>
-        {score}
-      </p>
-    </div>
-  );
-}
-
-function FocusAreaCard({
-  area,
-  index,
-  onSendToWork,
-  isSending,
-}: {
-  area: StrategicFocusArea;
-  index: number;
-  onSendToWork?: () => void;
-  isSending?: boolean;
-}) {
-  return (
-    <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
-      <div className="flex items-start gap-3 mb-2">
-        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500/20 text-blue-300 text-xs font-medium flex items-center justify-center border border-blue-500/30">
-          {index + 1}
-        </span>
-        <h3 className="text-sm font-medium text-slate-100">{area.title}</h3>
-      </div>
-      <p className="text-xs text-slate-400 mb-3">{area.rationale}</p>
-
-      {/* Suggested Action (Micro-Action) */}
-      {area.suggestedAction && (
-        <div className="bg-slate-700/30 rounded-lg p-3 mb-3 border border-slate-600/30">
-          <div className="flex items-start gap-2 mb-2">
-            <svg className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-slate-200">{area.suggestedAction.title}</p>
-              {area.suggestedAction.description && (
-                <p className="text-[10px] text-slate-400 mt-0.5">{area.suggestedAction.description}</p>
-              )}
-            </div>
-          </div>
-          {onSendToWork && (
-            <button
-              onClick={onSendToWork}
-              disabled={isSending}
-              className="w-full px-2 py-1 text-[10px] font-medium rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/30 transition-colors disabled:opacity-50"
-            >
-              {isSending ? 'Adding...' : 'Send to Work'}
-            </button>
-          )}
-        </div>
-      )}
-
-      {area.supportingSignals.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {area.supportingSignals.slice(0, 3).map((signal, i) => (
-            <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700/50 text-slate-400">
-              {signal.length > 40 ? signal.slice(0, 37) + '...' : signal}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ActionCard({
-  action,
-  onSendToWork,
-  isSending,
-}: {
-  action: PrioritizedAction;
-  onSendToWork: () => void;
-  isSending: boolean;
-}) {
-  return (
-    <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 hover:border-slate-600 transition-colors">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <h3 className="text-sm font-medium text-slate-100 truncate">{action.title}</h3>
-          <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded border ${getImpactStyle(action.impact)}`}>
-            {action.impact} impact
-          </span>
-          <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded ${getEffortStyle(action.effort)}`}>
-            {action.effort} effort
-          </span>
-        </div>
-        {action.description && (
-          <p className="text-xs text-slate-500 truncate">{action.description}</p>
-        )}
-        <div className="flex items-center gap-2 mt-1">
-          <span className="text-[10px] text-slate-600">
-            From: {action.source}
-          </span>
-          {action.area && (
-            <span className="text-[10px] text-slate-600">
-              | {action.area}
-            </span>
-          )}
-        </div>
-      </div>
-      <button
-        onClick={onSendToWork}
-        disabled={isSending}
-        className="flex-shrink-0 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/30 transition-colors disabled:opacity-50"
-      >
-        {isSending ? 'Adding...' : 'Send to Work'}
-      </button>
-    </div>
-  );
-}
-
-function NinetyDayColumn({
-  title,
-  subtitle,
-  items,
-  color,
-  companyId,
-}: {
-  title: string;
-  subtitle: string;
-  items: string[];
-  color: 'emerald' | 'amber' | 'blue';
-  companyId: string;
-}) {
-  const colorClasses = {
-    emerald: 'border-emerald-500/30 bg-emerald-500/5',
-    amber: 'border-amber-500/30 bg-amber-500/5',
-    blue: 'border-blue-500/30 bg-blue-500/5',
-  };
-  const dotColor = {
-    emerald: 'bg-emerald-400',
-    amber: 'bg-amber-400',
-    blue: 'bg-blue-400',
-  };
-
-  return (
-    <div className={`rounded-lg border p-4 ${colorClasses[color]}`}>
-      <div className="mb-3">
-        <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
-        <p className="text-xs text-slate-500">{subtitle}</p>
-      </div>
-      <ul className="space-y-2">
-        {items.map((item, index) => (
-          <li key={index} className="flex items-start gap-2 text-sm text-slate-300">
-            <span className={`flex-shrink-0 w-1.5 h-1.5 rounded-full ${dotColor[color]} mt-1.5`} />
-            <span>{item}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function SuggestedToolCard({
-  suggestion,
-  tool,
-  isRunning,
-  onRun,
-  canRun,
-}: {
-  suggestion: SuggestedTool;
-  tool: CompanyToolDefinition;
-  isRunning: boolean;
-  onRun: () => void;
-  canRun: boolean;
-}) {
-  return (
-    <div className={`rounded-xl p-4 border ${getUrgencyStyle(suggestion.urgency)}`}>
-      <div className="flex items-start justify-between mb-2">
-        <div className="p-1.5 rounded-lg bg-slate-700/50 text-amber-500">
-          {getToolIconSvg(tool.icon)}
-        </div>
-        <span className={`text-[10px] px-1.5 py-0.5 rounded ${getUrgencyStyle(suggestion.urgency)}`}>
-          {suggestion.urgency === 'run-now' ? 'Run Now' : suggestion.urgency === 'stale' ? 'Stale' : 'Not Run'}
-        </span>
-      </div>
-      <h3 className="text-sm font-medium text-slate-100 mb-1">{suggestion.toolLabel}</h3>
-      <p className="text-xs text-slate-400 mb-3 line-clamp-2">{suggestion.reason}</p>
-      <button
-        onClick={onRun}
-        disabled={!canRun || isRunning}
-        className={`w-full px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-          canRun && !isRunning
-            ? 'bg-amber-500 hover:bg-amber-400 text-slate-900'
-            : 'bg-slate-700 text-slate-500 cursor-not-allowed'
-        }`}
-      >
-        {isRunning ? 'Running...' : 'Run'}
-      </button>
-    </div>
-  );
-}
-
-/**
- * OS Tool Card - Uses OsToolDefinition for rich metadata display
- * Maps to CompanyToolDefinition for runtime behavior (API calls, view paths)
- */
 function OsToolCard({
   osTool,
   tool,
@@ -1539,13 +918,11 @@ function OsToolCard({
     statusColor = 'text-emerald-400';
   }
 
-  // Check if stale
   if (toolStatus?.status === 'stale') {
     statusColor = 'text-amber-400';
     showRecommendation = true;
   }
 
-  // Get impact badge style
   const getImpactBadgeStyle = (impact: string) => {
     switch (impact) {
       case 'foundational':
@@ -1559,76 +936,68 @@ function OsToolCard({
     }
   };
 
-  // Status badge for locked tools
   const isLocked = osTool.status === 'locked';
 
   return (
-    <div className={`rounded-xl bg-slate-800/50 border p-4 flex flex-col justify-between hover:border-slate-600 transition-colors ${
+    <div className={`rounded-lg bg-slate-800/50 border p-3 flex flex-col justify-between hover:border-slate-600 transition-colors ${
       toolStatus?.status === 'stale' ? 'border-amber-500/30' : isLocked ? 'border-slate-700/30 opacity-75' : 'border-slate-700/50'
     }`}>
       <div>
-        <div className="flex items-start justify-between mb-2">
-          <div className="p-1.5 rounded-lg bg-slate-700/50 text-amber-500">
+        {/* Header row: Icon, Name, Score */}
+        <div className="flex items-center gap-2 mb-2">
+          <div className="p-1 rounded bg-slate-700/50 text-amber-500">
             {getToolIconSvg(getToolIconName(osTool.id) as ToolIcon)}
           </div>
-          <div className="flex items-center gap-2">
-            {isLocked && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                Locked
-              </span>
-            )}
-            {lastRun?.score !== null && lastRun?.score !== undefined && (
-              <span className={`text-sm font-bold tabular-nums ${getScoreColor(lastRun.score)}`}>
-                {lastRun.score}
-              </span>
-            )}
-          </div>
+          <h3 className="text-sm font-medium text-slate-100 flex-1 truncate">{osTool.name}</h3>
+          {lastRun?.score !== null && lastRun?.score !== undefined && (
+            <span className={`text-sm font-bold tabular-nums ${getScoreColor(lastRun.score)}`}>
+              {lastRun.score}
+            </span>
+          )}
+          {isLocked && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              Locked
+            </span>
+          )}
         </div>
 
-        {/* Tool Name - from OsToolDefinition */}
-        <h3 className="text-sm font-medium text-slate-100">{osTool.name}</h3>
-
-        {/* Short Summary - from OsToolDefinition */}
-        <p className="text-xs text-slate-400 mt-1 line-clamp-2">{osTool.shortSummary}</p>
-
-        {/* Impact & Timing badges */}
-        <div className="flex items-center gap-2 mt-2 flex-wrap">
+        {/* Chip row: Impact, Est. Time, Last Run */}
+        <div className="flex items-center gap-1.5 flex-wrap mb-2">
           <span className={`text-[10px] px-1.5 py-0.5 rounded border ${getImpactBadgeStyle(osTool.impact)}`}>
             {osTool.impact}
           </span>
-          <span className="text-[10px] text-slate-500">
-            {osTool.estimatedRunTime}
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700/50 text-slate-400">
+            ~{osTool.estimatedRunTime}
+          </span>
+          <span className={`text-[10px] ${statusColor}`}>
+            {isRunning ? (
+              <span className="flex items-center gap-1">
+                <svg className="w-2.5 h-2.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Running
+              </span>
+            ) : (
+              statusText
+            )}
           </span>
         </div>
 
-        {/* Status */}
-        <p className={`text-xs mt-3 ${statusColor}`}>
-          {isRunning ? (
-            <span className="flex items-center gap-1">
-              <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              Running...
-            </span>
-          ) : (
-            statusText
-          )}
-        </p>
-
-        {/* Intelligent Recommendation */}
+        {/* Stale recommendation (only if stale) */}
         {showRecommendation && toolStatus?.recommendation && (
-          <p className="text-[10px] text-amber-300/80 mt-2 p-2 rounded bg-amber-500/10 border border-amber-500/20">
+          <p className="text-[10px] text-amber-300/80 mb-2 p-1.5 rounded bg-amber-500/10 border border-amber-500/20 line-clamp-2">
             {toolStatus.recommendation}
           </p>
         )}
       </div>
 
-      <div className="flex gap-2 mt-3">
+      {/* Action buttons */}
+      <div className="flex gap-2">
         <button
           onClick={onRun}
           disabled={!canRun || isRunning || isLocked}
-          className={`flex-1 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+          className={`flex-1 px-2 py-1.5 text-xs font-medium rounded transition-colors ${
             canRun && !isRunning && !isLocked
               ? 'bg-amber-500 hover:bg-amber-400 text-slate-900'
               : 'bg-slate-700 text-slate-500 cursor-not-allowed'
@@ -1639,116 +1008,7 @@ function OsToolCard({
         {tool.viewPath && lastRun && lastRun.status === 'complete' && (
           <Link
             href={lastRun.reportPath || tool.viewPath(companyId, lastRun.id)}
-            className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-          >
-            View
-          </Link>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ToolCardIntelligent({
-  tool,
-  lastRun,
-  isRunning,
-  canRun,
-  onRun,
-  companyId,
-  toolStatus,
-}: {
-  tool: CompanyToolDefinition;
-  lastRun: RecentDiagnostic | null;
-  isRunning: boolean;
-  canRun: boolean;
-  onRun: () => void;
-  companyId: string;
-  toolStatus?: ToolRunStatus;
-}) {
-  let statusText = 'Not run yet';
-  let statusColor = 'text-slate-500';
-  let showRecommendation = false;
-
-  if (lastRun) {
-    if (lastRun.status === 'running') {
-      statusText = 'Running...';
-      statusColor = 'text-blue-400';
-    } else if (lastRun.status === 'complete') {
-      statusText = formatRelativeTime(lastRun.completedAt);
-      statusColor = 'text-slate-400';
-    } else if (lastRun.status === 'failed') {
-      statusText = 'Failed';
-      statusColor = 'text-red-400';
-    }
-  }
-
-  if (tool.behavior === 'openRoute') {
-    statusText = 'Live data';
-    statusColor = 'text-emerald-400';
-  }
-
-  // Check if stale
-  if (toolStatus?.status === 'stale') {
-    statusColor = 'text-amber-400';
-    showRecommendation = true;
-  }
-
-  return (
-    <div className={`rounded-xl bg-slate-800/50 border p-4 flex flex-col justify-between hover:border-slate-600 transition-colors ${
-      toolStatus?.status === 'stale' ? 'border-amber-500/30' : 'border-slate-700/50'
-    }`}>
-      <div>
-        <div className="flex items-start justify-between mb-2">
-          <div className="p-1.5 rounded-lg bg-slate-700/50 text-amber-500">
-            {getToolIconSvg(tool.icon)}
-          </div>
-          {lastRun?.score !== null && lastRun?.score !== undefined && (
-            <span className={`text-sm font-bold tabular-nums ${getScoreColor(lastRun.score)}`}>
-              {lastRun.score}
-            </span>
-          )}
-        </div>
-
-        <h3 className="text-sm font-medium text-slate-100">{tool.label}</h3>
-        <p className={`text-xs mt-1 ${statusColor}`}>
-          {isRunning ? (
-            <span className="flex items-center gap-1">
-              <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              Running...
-            </span>
-          ) : (
-            statusText
-          )}
-        </p>
-
-        {/* Intelligent Recommendation */}
-        {showRecommendation && toolStatus?.recommendation && (
-          <p className="text-[10px] text-amber-300/80 mt-2 p-2 rounded bg-amber-500/10 border border-amber-500/20">
-            {toolStatus.recommendation}
-          </p>
-        )}
-      </div>
-
-      <div className="flex gap-2 mt-3">
-        <button
-          onClick={onRun}
-          disabled={!canRun || isRunning}
-          className={`flex-1 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-            canRun && !isRunning
-              ? 'bg-amber-500 hover:bg-amber-400 text-slate-900'
-              : 'bg-slate-700 text-slate-500 cursor-not-allowed'
-          }`}
-        >
-          {isRunning ? 'Running...' : tool.behavior === 'openRoute' ? 'Open' : 'Run'}
-        </button>
-        {tool.viewPath && lastRun && lastRun.status === 'complete' && (
-          <Link
-            href={lastRun.reportPath || tool.viewPath(companyId, lastRun.id)}
-            className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+            className="px-2 py-1.5 text-xs font-medium rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
           >
             View
           </Link>
@@ -1822,39 +1082,5 @@ function QuickActionLink({
         </div>
       </div>
     </Link>
-  );
-}
-
-function EmptyState({
-  icon,
-  title,
-  description,
-}: {
-  icon: 'chart' | 'brain' | 'work';
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="text-center py-8">
-      <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-3">
-        {icon === 'chart' && (
-          <svg className="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-          </svg>
-        )}
-        {icon === 'brain' && (
-          <svg className="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-          </svg>
-        )}
-        {icon === 'work' && (
-          <svg className="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-          </svg>
-        )}
-      </div>
-      <h3 className="text-sm font-medium text-slate-200 mb-1">{title}</h3>
-      <p className="text-xs text-slate-400 max-w-sm mx-auto">{description}</p>
-    </div>
   );
 }
