@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { extractDomain, domainToDisplayName, isValidDomain } from '@/lib/utils/extractDomain';
@@ -9,6 +9,23 @@ interface TeamMember {
   id: string;
   name: string;
   specialty: string;
+}
+
+interface GapRunResult {
+  id: string;
+  domain: string;
+  url: string;
+  status: string;
+  overallScore?: number;
+  createdAt: string;
+  businessName?: string;
+  industry?: string;
+  maturityStage?: string;
+  summary?: {
+    headline?: string;
+    overallScore?: number;
+    maturityStage?: string;
+  };
 }
 
 interface ProspectWizardProps {
@@ -79,6 +96,60 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
   const [runGapSnapshot, setRunGapSnapshot] = useState(true);
   const [runWebsiteLab, setRunWebsiteLab] = useState(false);
 
+  // GAP Run Import
+  const [gapRuns, setGapRuns] = useState<GapRunResult[]>([]);
+  const [isSearchingGap, setIsSearchingGap] = useState(false);
+  const [selectedGapRunId, setSelectedGapRunId] = useState<string | null>(null);
+  const [lastSearchedDomain, setLastSearchedDomain] = useState<string>('');
+
+  // Search for existing GAP runs when domain changes
+  const searchGapRuns = useCallback(async (domain: string) => {
+    if (!domain || domain === lastSearchedDomain) return;
+
+    setIsSearchingGap(true);
+    setLastSearchedDomain(domain);
+
+    try {
+      const response = await fetch(`/api/gap/search?domain=${encodeURIComponent(domain)}`);
+      if (response.ok) {
+        const data = await response.json();
+        setGapRuns(data.runs || []);
+        // Auto-select the first run if available
+        if (data.runs?.length > 0) {
+          setSelectedGapRunId(data.runs[0].id);
+          // If we have a business name from GAP, use it
+          if (data.runs[0].businessName && !companyName) {
+            setCompanyName(data.runs[0].businessName);
+          }
+          // If we have industry from GAP, use it
+          if (data.runs[0].industry && !industry) {
+            setIndustry(data.runs[0].industry);
+          }
+          // Don't run new GAP snapshot if we have existing data
+          setRunGapSnapshot(false);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to search GAP runs:', error);
+    } finally {
+      setIsSearchingGap(false);
+    }
+  }, [lastSearchedDomain, companyName, industry]);
+
+  // Debounced search when URL changes
+  useEffect(() => {
+    const domain = extractDomain(websiteUrl);
+    if (domain && isValidDomain(domain)) {
+      const timer = setTimeout(() => {
+        searchGapRuns(domain);
+      }, 500);
+      return () => clearTimeout(timer);
+    } else {
+      setGapRuns([]);
+      setSelectedGapRunId(null);
+    }
+  }, [websiteUrl, searchGapRuns]);
+
   // Auto-extract domain and suggest company name
   const handleWebsiteChange = (url: string) => {
     setWebsiteUrl(url);
@@ -131,8 +202,9 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
           owner: owner || undefined,
           notes: notes.trim() || undefined,
           createOpportunity,
-          runGapSnapshot,
+          runGapSnapshot: runGapSnapshot && !selectedGapRunId, // Don't run if importing existing
           runWebsiteLab,
+          importGapRunId: selectedGapRunId || undefined,
         }),
       });
 
@@ -245,6 +317,78 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
                 </p>
               )}
             </div>
+
+            {/* Show existing GAP runs */}
+            {isSearchingGap && (
+              <div className="p-3 bg-slate-800/50 border border-slate-700 rounded-lg">
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24">
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      fill="none"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    />
+                  </svg>
+                  Searching for existing GAP data...
+                </div>
+              </div>
+            )}
+
+            {gapRuns.length > 0 && (
+              <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-emerald-500/20 rounded-lg">
+                    <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-sm font-medium text-emerald-300">
+                      Existing GAP Data Found
+                    </h4>
+                    <p className="text-xs text-emerald-200/70 mt-1">
+                      We found {gapRuns.length} existing GAP assessment{gapRuns.length > 1 ? 's' : ''} for this domain.
+                      The data will be imported into the OS.
+                    </p>
+
+                    {/* Show the most recent GAP run details */}
+                    {gapRuns[0] && (
+                      <div className="mt-3 p-2 bg-slate-900/50 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-sm text-slate-200">
+                              {gapRuns[0].businessName || gapRuns[0].domain}
+                            </span>
+                            {gapRuns[0].summary?.overallScore !== undefined && (
+                              <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-amber-500/20 text-amber-300 rounded">
+                                Score: {gapRuns[0].summary.overallScore}/100
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs text-slate-500">
+                            {new Date(gapRuns[0].createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        {gapRuns[0].summary?.headline && (
+                          <p className="text-xs text-slate-400 mt-1 line-clamp-2">
+                            {gapRuns[0].summary.headline}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -386,21 +530,37 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
               </div>
             </label>
 
-            <label className="flex items-start gap-3 p-3 bg-slate-800/50 border border-slate-700 rounded-lg cursor-pointer hover:bg-slate-800/70 transition-colors">
-              <input
-                type="checkbox"
-                checked={runGapSnapshot}
-                onChange={(e) => setRunGapSnapshot(e.target.checked)}
-                disabled={!websiteUrl}
-                className="mt-0.5 w-4 h-4 rounded border-slate-600 text-amber-500 focus:ring-amber-500/50 disabled:opacity-50"
-              />
-              <div className={!websiteUrl ? 'opacity-50' : ''}>
-                <span className="text-slate-200 font-medium">Run GAP Snapshot</span>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Quick marketing assessment (requires website)
-                </p>
+            {selectedGapRunId ? (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <span className="text-emerald-300 font-medium">Import Existing GAP Data</span>
+                    <p className="text-xs text-emerald-200/70 mt-0.5">
+                      GAP assessment will be linked to this company
+                    </p>
+                  </div>
+                </div>
               </div>
-            </label>
+            ) : (
+              <label className="flex items-start gap-3 p-3 bg-slate-800/50 border border-slate-700 rounded-lg cursor-pointer hover:bg-slate-800/70 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={runGapSnapshot}
+                  onChange={(e) => setRunGapSnapshot(e.target.checked)}
+                  disabled={!websiteUrl}
+                  className="mt-0.5 w-4 h-4 rounded border-slate-600 text-amber-500 focus:ring-amber-500/50 disabled:opacity-50"
+                />
+                <div className={!websiteUrl ? 'opacity-50' : ''}>
+                  <span className="text-slate-200 font-medium">Run GAP Snapshot</span>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Quick marketing assessment (requires website)
+                  </p>
+                </div>
+              </label>
+            )}
 
             <label className="flex items-start gap-3 p-3 bg-slate-800/50 border border-slate-700 rounded-lg cursor-pointer hover:bg-slate-800/70 transition-colors">
               <input

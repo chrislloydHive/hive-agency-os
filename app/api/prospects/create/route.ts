@@ -9,6 +9,7 @@ import {
 } from '@/lib/airtable/companies';
 import { createOpportunity } from '@/lib/airtable/opportunities';
 import { extractDomain } from '@/lib/utils/extractDomain';
+import { updateGapIaRun } from '@/lib/airtable/gapIaRuns';
 
 export const maxDuration = 60;
 
@@ -24,6 +25,8 @@ interface CreateProspectRequest {
   createOpportunity?: boolean;
   runGapSnapshot?: boolean;
   runWebsiteLab?: boolean;
+  // New: Import existing GAP run
+  importGapRunId?: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -162,6 +165,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Link existing GAP run to the new company if provided
+    if (body.importGapRunId) {
+      operations.push(
+        (async () => {
+          try {
+            await updateGapIaRun(body.importGapRunId!, {
+              companyId: company.id,
+            });
+            console.log(`[Prospects] Linked GAP run ${body.importGapRunId} to ${company.name}`);
+          } catch (error) {
+            console.error(`[Prospects] Failed to link GAP run:`, error);
+          }
+        })()
+      );
+    }
+
     // Wait for all operations (don't block response on them)
     // These run in background - user gets immediate response
     Promise.all(operations).catch((error) => {
@@ -180,6 +199,7 @@ export async function POST(request: NextRequest) {
         opportunityCreated: body.createOpportunity || false,
         gapSnapshotTriggered: (body.runGapSnapshot && body.website) || false,
         websiteLabTriggered: (body.runWebsiteLab && body.website) || false,
+        gapRunLinked: !!body.importGapRunId,
       },
     });
   } catch (error) {
