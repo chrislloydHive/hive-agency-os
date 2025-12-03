@@ -122,12 +122,11 @@ Identify 3-5 actionable opportunities with expected impact. Use **bold** for the
 ## Recommended Actions
 Provide 3-5 prioritized recommendations as a numbered list. Each should include the action, rationale, and expected impact.
 
----
+END OF NARRATIVE - Do not include anything below this line in the narrativeMarkdown output.
 
-SECTION SUMMARIES (for sidebar cards - these are separate from the narrative):
-- Write 2-3 concise sentences per section
-- Focus on: key score, top finding, and one recommended action
-- If no lab data exists for a section, return empty string
+=== SEPARATE JSON FIELDS (not part of narrativeMarkdown) ===
+
+For the "sections" object in the JSON response, write 2-3 concise sentences per field summarizing that topic. Focus on key score, top finding, and one recommended action. If no lab data exists for a section, return empty string.
 
 CONFIDENCE SCORING:
 - 75-100 (High): 5+ labs complete with recent data
