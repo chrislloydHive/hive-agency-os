@@ -11,13 +11,8 @@ import { getWorkspaceSettings, type WorkspaceSettings } from '../workspaceSettin
 export async function getGa4ClientFromWorkspace(
   workspaceId?: string
 ): Promise<{ client: BetaAnalyticsDataClient; propertyId: string } | null> {
-  // Get workspace settings
-  let settings: WorkspaceSettings | null = null;
-  try {
-    settings = await getWorkspaceSettings(workspaceId);
-  } catch (error) {
-    console.warn('[GA4Client] Could not fetch workspace settings, falling back to env vars:', error);
-  }
+  // Get workspace settings (returns null if table doesn't exist)
+  const settings = await getWorkspaceSettings(workspaceId);
 
   // Check if we have workspace-level GA4 configuration
   const hasWorkspaceConfig = settings?.ga4RefreshToken && settings?.ga4PropertyId;

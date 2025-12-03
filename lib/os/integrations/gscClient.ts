@@ -11,13 +11,8 @@ import { getWorkspaceSettings, type WorkspaceSettings } from '../workspaceSettin
 export async function getGscClientFromWorkspace(
   workspaceId?: string
 ): Promise<{ client: ReturnType<typeof google.searchconsole>; siteUrl: string } | null> {
-  // Get workspace settings
-  let settings: WorkspaceSettings | null = null;
-  try {
-    settings = await getWorkspaceSettings(workspaceId);
-  } catch (error) {
-    console.warn('[GSCClient] Could not fetch workspace settings, falling back to env vars:', error);
-  }
+  // Get workspace settings (returns null if table doesn't exist)
+  const settings = await getWorkspaceSettings(workspaceId);
 
   // Check if we have workspace-level GSC configuration
   const hasWorkspaceConfig = settings?.gscRefreshToken && settings?.gscPropertyUri;

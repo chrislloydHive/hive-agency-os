@@ -58,11 +58,11 @@ function mapAirtableToWorkspaceSettings(record: any): WorkspaceSettings {
 
 /**
  * Get workspace settings for the default workspace
- * Creates a new record if one doesn't exist
+ * Returns null if table doesn't exist or there's an error
  */
 export async function getWorkspaceSettings(
   workspaceId: string = DEFAULT_WORKSPACE_ID
-): Promise<WorkspaceSettings> {
+): Promise<WorkspaceSettings | null> {
   try {
     // Try to find existing settings
     const record = await findRecordByField(TABLE_NAME, 'WorkspaceId', workspaceId);
@@ -80,8 +80,10 @@ export async function getWorkspaceSettings(
 
     return mapAirtableToWorkspaceSettings(newRecord);
   } catch (error) {
-    console.error('[WorkspaceSettings] Error fetching settings:', error);
-    throw error;
+    // If the table doesn't exist or there's an API error, return null
+    // This allows graceful fallback to environment variables
+    console.warn('[WorkspaceSettings] Could not fetch settings (table may not exist):', error);
+    return null;
   }
 }
 
@@ -92,43 +94,42 @@ export async function updateWorkspaceSettings(
   updates: Partial<Omit<WorkspaceSettings, 'id' | 'workspaceId' | 'createdAt'>>,
   workspaceId: string = DEFAULT_WORKSPACE_ID
 ): Promise<WorkspaceSettings> {
-  try {
-    // Get current settings (or create if doesn't exist)
-    const current = await getWorkspaceSettings(workspaceId);
+  // Get current settings (or create if doesn't exist)
+  const current = await getWorkspaceSettings(workspaceId);
 
-    // Build Airtable fields from updates
-    const fields: Partial<AirtableWorkspaceSettingsFields> = {
-      UpdatedAt: new Date().toISOString(),
-    };
-
-    if (updates.ga4RefreshToken !== undefined) {
-      fields.GA4RefreshToken = updates.ga4RefreshToken || '';
-    }
-    if (updates.ga4PropertyId !== undefined) {
-      fields.GA4PropertyId = updates.ga4PropertyId || '';
-    }
-    if (updates.ga4ConnectedAt !== undefined) {
-      fields.GA4ConnectedAt = updates.ga4ConnectedAt || '';
-    }
-    if (updates.gscRefreshToken !== undefined) {
-      fields.GSCRefreshToken = updates.gscRefreshToken || '';
-    }
-    if (updates.gscPropertyUri !== undefined) {
-      fields.GSCPropertyUri = updates.gscPropertyUri || '';
-    }
-    if (updates.gscConnectedAt !== undefined) {
-      fields.GSCConnectedAt = updates.gscConnectedAt || '';
-    }
-    if (updates.gscScopes !== undefined) {
-      fields.GSCScopes = updates.gscScopes ? updates.gscScopes.join(',') : '';
-    }
-
-    const updatedRecord = await updateRecord(TABLE_NAME, current.id, fields);
-    return mapAirtableToWorkspaceSettings(updatedRecord);
-  } catch (error) {
-    console.error('[WorkspaceSettings] Error updating settings:', error);
-    throw error;
+  if (!current) {
+    throw new Error('Could not get or create workspace settings - WorkspaceSettings table may not exist in Airtable');
   }
+
+  // Build Airtable fields from updates
+  const fields: Partial<AirtableWorkspaceSettingsFields> = {
+    UpdatedAt: new Date().toISOString(),
+  };
+
+  if (updates.ga4RefreshToken !== undefined) {
+    fields.GA4RefreshToken = updates.ga4RefreshToken || '';
+  }
+  if (updates.ga4PropertyId !== undefined) {
+    fields.GA4PropertyId = updates.ga4PropertyId || '';
+  }
+  if (updates.ga4ConnectedAt !== undefined) {
+    fields.GA4ConnectedAt = updates.ga4ConnectedAt || '';
+  }
+  if (updates.gscRefreshToken !== undefined) {
+    fields.GSCRefreshToken = updates.gscRefreshToken || '';
+  }
+  if (updates.gscPropertyUri !== undefined) {
+    fields.GSCPropertyUri = updates.gscPropertyUri || '';
+  }
+  if (updates.gscConnectedAt !== undefined) {
+    fields.GSCConnectedAt = updates.gscConnectedAt || '';
+  }
+  if (updates.gscScopes !== undefined) {
+    fields.GSCScopes = updates.gscScopes ? updates.gscScopes.join(',') : '';
+  }
+
+  const updatedRecord = await updateRecord(TABLE_NAME, current.id, fields);
+  return mapAirtableToWorkspaceSettings(updatedRecord);
 }
 
 /**
@@ -136,7 +137,7 @@ export async function updateWorkspaceSettings(
  */
 export async function isGa4Connected(workspaceId: string = DEFAULT_WORKSPACE_ID): Promise<boolean> {
   const settings = await getWorkspaceSettings(workspaceId);
-  return !!settings.ga4RefreshToken && !!settings.ga4PropertyId;
+  return !!settings?.ga4RefreshToken && !!settings?.ga4PropertyId;
 }
 
 /**
@@ -144,7 +145,7 @@ export async function isGa4Connected(workspaceId: string = DEFAULT_WORKSPACE_ID)
  */
 export async function isGscConnected(workspaceId: string = DEFAULT_WORKSPACE_ID): Promise<boolean> {
   const settings = await getWorkspaceSettings(workspaceId);
-  return !!settings.gscRefreshToken && !!settings.gscPropertyUri;
+  return !!settings?.gscRefreshToken && !!settings?.gscPropertyUri;
 }
 
 /**
