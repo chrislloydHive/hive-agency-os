@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type {
@@ -10,6 +10,31 @@ import type {
   CompanyHealth,
 } from '@/lib/os/companies/list';
 import { CompanyPreviewPanel } from './CompanyPreviewPanel';
+
+// ============================================================================
+// Pinned Companies Storage (shared with My Companies)
+// ============================================================================
+
+const PINNED_STORAGE_KEY = 'hive-os-pinned-companies';
+
+function getPinnedCompanies(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const stored = localStorage.getItem(PINNED_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function setPinnedCompaniesStorage(ids: string[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(ids));
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 // ============================================================================
 // Types
@@ -101,6 +126,24 @@ export function CompaniesDirectoryClient({
   const [atRiskOnly, setAtRiskOnly] = useState(initialFilter.atRiskOnly || false);
   const [searchQuery, setSearchQuery] = useState(initialFilter.search || '');
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+
+  // Load pinned companies from localStorage on mount
+  useEffect(() => {
+    setPinnedIds(getPinnedCompanies());
+  }, []);
+
+  // Toggle pin status
+  const handleTogglePin = useCallback((companyId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent row selection
+    setPinnedIds(prev => {
+      const newPinned = prev.includes(companyId)
+        ? prev.filter(id => id !== companyId)
+        : [...prev, companyId];
+      setPinnedCompaniesStorage(newPinned);
+      return newPinned;
+    });
+  }, []);
 
   // Update URL when filters change
   const updateUrl = useCallback(
@@ -297,6 +340,9 @@ export function CompaniesDirectoryClient({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-800">
+                  <th className="w-10 px-2 py-3 text-center">
+                    <span className="sr-only">Pin</span>
+                  </th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
                     Company
                   </th>
@@ -329,19 +375,37 @@ export function CompaniesDirectoryClient({
               <tbody>
                 {filteredCompanies.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
                       No companies match the selected filters
                     </td>
                   </tr>
                 ) : (
-                  filteredCompanies.map((company) => (
+                  filteredCompanies.map((company) => {
+                    const isPinned = pinnedIds.includes(company.id);
+                    return (
                     <tr
                       key={company.id}
                       onClick={() => setSelectedCompanyId(company.id)}
                       className={`border-b border-slate-800/50 last:border-0 hover:bg-slate-800/30 transition-colors cursor-pointer ${
                         selectedCompanyId === company.id ? 'bg-slate-800/50' : ''
-                      }`}
+                      } ${isPinned ? 'bg-amber-500/5' : ''}`}
                     >
+                      {/* Pin Button */}
+                      <td className="px-2 py-3 text-center">
+                        <button
+                          onClick={(e) => handleTogglePin(company.id, e)}
+                          className={`p-1 rounded transition-colors ${
+                            isPinned
+                              ? 'text-amber-400 hover:text-amber-300'
+                              : 'text-slate-600 hover:text-slate-400'
+                          }`}
+                          title={isPinned ? 'Remove from My Companies' : 'Add to My Companies'}
+                        >
+                          <svg className="w-4 h-4" fill={isPinned ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                          </svg>
+                        </button>
+                      </td>
                       {/* Company Name + Domain */}
                       <td className="px-4 py-3">
                         <div className="flex flex-col">
@@ -444,7 +508,8 @@ export function CompaniesDirectoryClient({
                         </Link>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>

@@ -11,6 +11,7 @@ import { trackEvent } from '@/lib/analytics';
 import { getUTM } from '@/lib/utm';
 import { CoreMarketingScores } from './CoreMarketingScores';
 import { BusinessContextSnapshot } from './BusinessContextSnapshot';
+import { getDataConfidenceColor, getDataConfidenceBgColor } from '@/lib/gap/dataConfidence';
 
 type Props = {
   run: GapIaRun;
@@ -199,6 +200,30 @@ export function GapIaNarrativeReport({ run }: Props) {
             Powered by Hive — an on-demand marketing operations partner.
           </p>
         </div>
+
+        {/* Data Confidence Badge (aligned with Ops Lab pattern) */}
+        {run.dataConfidence && (
+          <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${getDataConfidenceBgColor(run.dataConfidence.level)}`}>
+              <div className="flex items-center gap-1.5">
+                <span className={`text-2xl font-bold tabular-nums ${getDataConfidenceColor(run.dataConfidence.level)}`}>
+                  {run.dataConfidence.score}
+                </span>
+                <span className="text-sm text-slate-400">/100</span>
+              </div>
+              <div className="border-l border-slate-600 pl-2 ml-1">
+                <span className="text-xs text-slate-500 uppercase tracking-wide">Data Confidence</span>
+              </div>
+            </div>
+            {run.dataConfidence.issues && run.dataConfidence.issues.length > 0 && (
+              <div className="text-xs text-slate-500" title={run.dataConfidence.issues.join('; ')}>
+                <span className="cursor-help underline decoration-dotted">
+                  {run.dataConfidence.issues.length} signal{run.dataConfidence.issues.length > 1 ? 's' : ''} limited
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         <CoreMarketingScores
           scores={{
@@ -1598,6 +1623,99 @@ export function GapIaNarrativeReport({ run }: Props) {
           </details>
         </section>
       )}
+
+      {/* ====================================================================== */}
+      {/* ASSESSMENT SCOPE & METHODOLOGY */}
+      {/* ====================================================================== */}
+      <section className="space-y-3">
+        <details className="group">
+          <summary className="cursor-pointer list-none">
+            <div className="mb-4 flex items-center gap-2">
+              <span className="text-slate-400 transition-transform group-open:rotate-90">
+                ▶
+              </span>
+              <h2 className="text-xl font-bold text-slate-100">
+                Assessment Scope & Methodology
+              </h2>
+            </div>
+          </summary>
+          <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-6 space-y-6">
+            {/* Data Confidence Summary */}
+            {run.dataConfidence && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className={`px-2 py-1 rounded text-xs font-medium uppercase ${
+                    run.dataConfidence.level === 'high' ? 'bg-emerald-500/20 text-emerald-400' :
+                    run.dataConfidence.level === 'medium' ? 'bg-cyan-500/20 text-cyan-400' :
+                    'bg-amber-500/20 text-amber-400'
+                  }`}>
+                    {run.dataConfidence.level} confidence
+                  </span>
+                  <span className="text-sm text-slate-400">
+                    Data Confidence: <span className="font-semibold text-slate-200">{run.dataConfidence.score}/100</span>
+                  </span>
+                </div>
+                <p className="text-sm text-slate-300">{run.dataConfidence.reason}</p>
+                {run.dataConfidence.issues && run.dataConfidence.issues.length > 0 && (
+                  <ul className="space-y-1">
+                    {run.dataConfidence.issues.map((issue, idx) => (
+                      <li key={idx} className="text-xs text-slate-500 flex items-center gap-2">
+                        <span className="text-amber-400">•</span>
+                        {issue}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {/* What Was Analyzed */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-700 pb-2">
+                What This Assessment Analyzed
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">Website</p>
+                  <p className="text-sm text-slate-200">Homepage + discovered pages</p>
+                </div>
+                {run.digitalFootprint && (
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">External Profiles Checked</p>
+                    <div className="flex flex-wrap gap-1">
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        run.digitalFootprint.gbp.found ? 'bg-green-900/30 text-green-400' : 'bg-slate-700 text-slate-400'
+                      }`}>GBP</span>
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        run.digitalFootprint.linkedin.found ? 'bg-green-900/30 text-green-400' : 'bg-slate-700 text-slate-400'
+                      }`}>LinkedIn</span>
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        run.digitalFootprint.otherSocials.instagram ? 'bg-green-900/30 text-green-400' : 'bg-slate-700 text-slate-400'
+                      }`}>Instagram</span>
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        run.digitalFootprint.otherSocials.facebook ? 'bg-green-900/30 text-green-400' : 'bg-slate-700 text-slate-400'
+                      }`}>Facebook</span>
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        run.digitalFootprint.otherSocials.youtube ? 'bg-green-900/30 text-green-400' : 'bg-slate-700 text-slate-400'
+                      }`}>YouTube</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Engine Info */}
+            <div className="flex items-center justify-between text-xs text-slate-500 pt-3 border-t border-slate-700">
+              <span>Engine: GAP-IA v3</span>
+              <span>Generated: {new Date(run.createdAt).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'numeric',
+                day: 'numeric',
+              })}</span>
+            </div>
+          </div>
+        </details>
+      </section>
 
       {/* ====================================================================== */}
       {/* HOW THIS ASSESSMENT WAS GENERATED */}

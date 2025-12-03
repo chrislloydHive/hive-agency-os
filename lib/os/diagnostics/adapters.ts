@@ -256,6 +256,7 @@ function extractGapSnapshotData(rawJson: any): ToolReportData {
 
 function extractGapPlanData(rawJson: any): ToolReportData {
   // Handle multiple data locations:
+  // - OS V4 multi-pass: data is under rawJson.growthPlan (from runGapPlanEngine)
   // - OS V3 format: data is under rawJson.fullGap
   // - DMA V4 format: data is at rawJson directly (scorecard, executiveSummary, etc.)
   const plan = rawJson.growthPlan || rawJson.fullGap || rawJson;
@@ -268,9 +269,11 @@ function extractGapPlanData(rawJson: any): ToolReportData {
   // Scores Extraction
   // =========================================================================
 
-  // DMA V4 format: scorecard object with overall, brand, content, etc.
-  if (rawJson.scorecard && typeof rawJson.scorecard === 'object') {
-    Object.entries(rawJson.scorecard).forEach(([key, value]) => {
+  // V4 multi-pass format: scorecard is on plan (growthPlan.scorecard)
+  // Also check rawJson for DMA V4 format where scorecard is at root
+  const scorecard = plan.scorecard || rawJson.scorecard;
+  if (scorecard && typeof scorecard === 'object') {
+    Object.entries(scorecard).forEach(([key, value]) => {
       if (typeof value === 'number') {
         scores.push({
           label: formatLabel(key),
@@ -335,8 +338,9 @@ function extractGapPlanData(rawJson: any): ToolReportData {
   // Key Findings Extraction
   // =========================================================================
 
-  // DMA V4 format: executiveSummary.keyIssues or executiveSummary.strategicPriorities
-  const execSummary = rawJson.executiveSummary;
+  // V4 multi-pass format: executiveSummary is on plan (growthPlan.executiveSummary)
+  // Also check rawJson for DMA V4 format where it's at root
+  const execSummary = plan.executiveSummary || rawJson.executiveSummary;
   if (execSummary && typeof execSummary === 'object') {
     // Key issues from executive summary
     if (execSummary.keyIssues && Array.isArray(execSummary.keyIssues)) {
@@ -352,9 +356,10 @@ function extractGapPlanData(rawJson: any): ToolReportData {
     }
   }
 
-  // DMA V4 format: strategicInitiatives array
-  if (rawJson.strategicInitiatives && Array.isArray(rawJson.strategicInitiatives)) {
-    rawJson.strategicInitiatives.slice(0, 5).forEach((si: any) => {
+  // V4 multi-pass format: strategicInitiatives is on plan (growthPlan.strategicInitiatives)
+  const strategicInitiatives = plan.strategicInitiatives || rawJson.strategicInitiatives;
+  if (strategicInitiatives && Array.isArray(strategicInitiatives)) {
+    strategicInitiatives.slice(0, 5).forEach((si: any) => {
       const text = si?.title || si?.description;
       if (text && !keyFindings.includes(text)) keyFindings.push(text);
     });
@@ -395,8 +400,8 @@ function extractGapPlanData(rawJson: any): ToolReportData {
   // Opportunities Extraction
   // =========================================================================
 
-  // DMA V4 and OS V3: quickWins array (check rawJson first, then plan)
-  const quickWins = rawJson.quickWins || plan.quickWins;
+  // V4 multi-pass format: quickWins is on plan (growthPlan.quickWins)
+  const quickWins = plan.quickWins || rawJson.quickWins;
   if (quickWins && Array.isArray(quickWins)) {
     quickWins.slice(0, 5).forEach((w: any) => {
       const text = typeof w === 'string' ? w : w?.action || w?.title || w?.description;
@@ -448,13 +453,14 @@ function extractGapPlanData(rawJson: any): ToolReportData {
   }
 
   // 90-Day Roadmap section
-  // DMA V4 format: roadmap is an array of phase objects with name, weeks, focus, actions, kpis
-  if (rawJson.roadmap && Array.isArray(rawJson.roadmap)) {
+  // V4 multi-pass format: roadmap is on plan (growthPlan.roadmap)
+  const roadmap = plan.roadmap || rawJson.roadmap;
+  if (roadmap && Array.isArray(roadmap)) {
     sections.push({
       id: 'roadmap',
       title: '90-Day Roadmap',
       icon: 'Map',
-      body: createDmaRoadmapSection(rawJson.roadmap),
+      body: createDmaRoadmapSection(roadmap),
     });
   }
   // OS V3 raw format: roadmap90Days object
@@ -475,24 +481,15 @@ function extractGapPlanData(rawJson: any): ToolReportData {
       body: createRoadmapPhasesSection(plan.roadmapPhases),
     });
   }
-  // Fallback: legacy roadmap array format
-  else if (plan.roadmap && Array.isArray(plan.roadmap)) {
-    sections.push({
-      id: 'roadmap',
-      title: '90-Day Roadmap',
-      icon: 'Map',
-      body: createRoadmapSection(plan.roadmap),
-    });
-  }
 
   // Strategic Initiatives / Priorities section
-  // DMA V4 format: strategicInitiatives array with title, description, priority, expectedOutcome
-  if (rawJson.strategicInitiatives && Array.isArray(rawJson.strategicInitiatives) && rawJson.strategicInitiatives.length > 0) {
+  // V4 multi-pass format: strategicInitiatives is on plan (already extracted above)
+  if (strategicInitiatives && Array.isArray(strategicInitiatives) && strategicInitiatives.length > 0) {
     sections.push({
       id: 'initiatives',
       title: 'Strategic Initiatives',
       icon: 'Rocket',
-      body: createDmaStrategicInitiativesSection(rawJson.strategicInitiatives),
+      body: createDmaStrategicInitiativesSection(strategicInitiatives),
     });
   }
   // OS V3 raw format: strategicPriorities
@@ -524,8 +521,8 @@ function extractGapPlanData(rawJson: any): ToolReportData {
   }
 
   // KPIs section
-  // DMA V4 format: kpis may be in roadmap phases or separate
-  const kpis = rawJson.kpis || plan.kpis;
+  // V4 multi-pass format: kpis is on plan (growthPlan.kpis)
+  const kpis = plan.kpis || rawJson.kpis;
   if (kpis && Array.isArray(kpis)) {
     sections.push({
       id: 'kpis',
@@ -544,8 +541,8 @@ function extractGapPlanData(rawJson: any): ToolReportData {
     });
   }
 
-  // Quick Wins section (both formats have this)
-  const qwList = rawJson.quickWins || plan.quickWins;
+  // Quick Wins section (already extracted quickWins above)
+  const qwList = quickWins;
   if (qwList && Array.isArray(qwList) && qwList.length > 0) {
     sections.push({
       id: 'quick-wins',

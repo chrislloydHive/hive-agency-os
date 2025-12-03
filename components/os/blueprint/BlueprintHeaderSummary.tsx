@@ -1,10 +1,12 @@
 // components/os/blueprint/BlueprintHeaderSummary.tsx
 // Full-width strategist header for the Blueprint page
 // Shows: company info, overall score, maturity, confidence, last updated, action buttons
+//
+// MIGRATION: This component now supports CompanySummary as an optional prop.
+// When summary is provided, it takes precedence for company info and scores.
 
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
 import {
   getScoreColor,
@@ -12,10 +14,11 @@ import {
   getMaturityStageStyle,
   formatRelativeTime,
 } from './utils';
-import type { CompanyData, StrategySynthesis, BlueprintPipelineData } from './types';
+import type { CompanyData, StrategySynthesis, BlueprintPipelineData, CompanySummary } from './types';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
 
 interface BlueprintHeaderSummaryProps {
+  // Option 1: Traditional props (backward compatible)
   company: CompanyData;
   strategySnapshot: CompanyStrategicSnapshot | null;
   strategySynthesis?: StrategySynthesis | null;
@@ -23,6 +26,9 @@ interface BlueprintHeaderSummaryProps {
   lastUpdated?: string | null;
   onRerunBlueprint?: () => void;
   isRerunning?: boolean;
+
+  // Option 2: New unified data model (preferred)
+  summary?: CompanySummary;
 }
 
 export function BlueprintHeaderSummary({
@@ -33,11 +39,30 @@ export function BlueprintHeaderSummary({
   lastUpdated,
   onRerunBlueprint,
   isRerunning,
+  summary,
 }: BlueprintHeaderSummaryProps) {
-  const overallScore = strategySnapshot?.overallScore ?? pipelineData?.diagnostics?.overallScore ?? null;
-  const maturityStage = strategySnapshot?.maturityStage;
-  const confidence = strategySynthesis?.confidence;
+  // When summary is provided, prefer its values
+  const companyName = summary?.meta.name ?? company.name;
+  const companyId = summary?.companyId ?? company.id;
+  const companyWebsite = summary?.meta.url ?? company.website;
+  const companyDomain = summary?.meta.domain ?? company.domain;
+  const hasMediaProgram = summary?.media.hasMediaProgram ?? company.hasMediaProgram;
+
+  // Scores: prefer summary, then strategy snapshot, then pipeline
+  const overallScore = summary?.scores.latestBlueprintScore ??
+    strategySnapshot?.overallScore ??
+    pipelineData?.diagnostics?.overallScore ?? null;
+  const maturityStage = summary?.scores.maturityStage ?? strategySnapshot?.maturityStage;
+
+  // Confidence from summary or synthesis
+  const confidenceFromSummary = summary?.scores.confidenceLabel?.toLowerCase() as 'high' | 'medium' | 'low' | undefined;
+  const confidence = confidenceFromSummary ?? strategySynthesis?.confidence;
+
+  // Narrative from synthesis or strategy snapshot
   const narrative = strategySynthesis?.strategicNarrative || strategySnapshot?.headlineRecommendation;
+
+  // Health tag from summary
+  const healthTag = summary?.meta.healthTag;
 
   // Confidence score mapping
   const confidenceScore = confidence === 'high' ? 85 : confidence === 'medium' ? 60 : confidence === 'low' ? 35 : null;
@@ -46,24 +71,35 @@ export function BlueprintHeaderSummary({
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
       <div className="flex flex-col lg:flex-row lg:items-center gap-6">
-        {/* Left: Company Info + Maturity */}
+        {/* Left: Company Info + Maturity + Health */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-xl font-semibold text-slate-100 truncate">{company.name}</h1>
+            <h1 className="text-xl font-semibold text-slate-100 truncate">{companyName}</h1>
             {maturityStage && (
               <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${getMaturityStageStyle(maturityStage)}`}>
                 {maturityStage}
               </span>
             )}
+            {healthTag && (
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${
+                healthTag === 'Healthy'
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  : healthTag === 'At Risk'
+                  ? 'bg-red-500/10 text-red-400 border-red-500/30'
+                  : 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+              }`}>
+                {healthTag}
+              </span>
+            )}
           </div>
-          {company.website && (
+          {companyWebsite && (
             <a
-              href={company.website.startsWith('http') ? company.website : `https://${company.website}`}
+              href={companyWebsite.startsWith('http') ? companyWebsite : `https://${companyWebsite}`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-sm text-slate-400 hover:text-slate-300 transition-colors"
             >
-              {company.domain || company.website}
+              {companyDomain || companyWebsite}
             </a>
           )}
           {narrative && (
@@ -137,7 +173,7 @@ export function BlueprintHeaderSummary({
               </button>
             )}
             <Link
-              href={`/c/${company.id}/work`}
+              href={`/c/${companyId}/work`}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

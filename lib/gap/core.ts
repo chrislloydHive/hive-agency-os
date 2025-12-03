@@ -40,6 +40,7 @@ import {
   GapIaV2AiOutputSchema,
   GapIaAiOutputSchema,
 } from '@/lib/gap/schemas';
+import { computeGapDataConfidence } from '@/lib/gap/dataConfidence';
 import {
   discoverCandidateUrls,
   fetchPageSnippets,
@@ -841,13 +842,34 @@ export async function runInitialAssessment(input: InitialAssessmentInput) {
     modelCaller,
   });
 
+  // Compute data confidence (aligned with Ops Lab pattern)
+  const pagesAnalyzed = 1 + (multiPageSnapshot?.discoveredPages?.length ?? 0);
+  const dataConfidence = computeGapDataConfidence({
+    htmlSignals: signals,
+    digitalFootprint: {
+      gbp: digitalFootprint.gbp,
+      linkedin: digitalFootprint.linkedin,
+      otherSocials: digitalFootprint.otherSocials,
+    },
+    pagesAnalyzed,
+    businessType: businessContext?.businessType,
+  });
+
+  console.log('[gap/core] Data confidence computed:', {
+    score: dataConfidence.score,
+    level: dataConfidence.level,
+    pagesAnalyzed,
+  });
+
   return {
     initialAssessment: gapIaOutput,
     businessContext,
+    dataConfidence,
     metadata: {
       url,
       domain,
       analyzedAt: new Date().toISOString(),
+      pagesAnalyzed,
     },
   };
 }

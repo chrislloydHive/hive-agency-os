@@ -47,7 +47,13 @@ import type {
   BlueprintAnalyticsSummary,
   AnalyticsStrategicInsight,
 } from '@/lib/os/analytics/blueprintDataFetcher';
+import type { MediaLabSummary } from '@/lib/types/mediaLab';
 import { MediaBlueprintEmptyState } from '@/components/os/media';
+import {
+  formatMediaBudget,
+  getObjectiveLabel,
+  COMPANY_MEDIA_STATUS_CONFIG,
+} from '@/lib/types/mediaLab';
 
 // Import new two-column layout components
 import {
@@ -124,6 +130,7 @@ export interface BlueprintClientProps {
   analyticsSummary?: BlueprintAnalyticsSummary | null;
   analyticsInsights?: AnalyticsStrategicInsight[];
   recommendedTools?: SerializedRecommendedTool[];
+  mediaLabSummary?: MediaLabSummary | null;
 }
 
 // ============================================================================
@@ -241,6 +248,7 @@ export function BlueprintClient({
   analyticsSummary,
   analyticsInsights,
   recommendedTools,
+  mediaLabSummary,
 }: BlueprintClientProps) {
   const router = useRouter();
   const [runningTools, setRunningTools] = useState<Set<CompanyToolId>>(new Set());
@@ -261,22 +269,8 @@ export function BlueprintClient({
   // Poll for async tool completion
   const pollForCompletion = useCallback(
     async (toolId: CompanyToolId, runId: string, toolLabel: string) => {
-      const statusEndpoints: Record<string, string> = {
-        brandLab: `/api/os/diagnostics/status/brand-lab?companyId=${company.id}`,
-      };
-
-      const statusEndpoint = statusEndpoints[toolId];
-      if (!statusEndpoint) {
-        setTimeout(() => {
-          setRunningTools((prev) => {
-            const next = new Set(prev);
-            next.delete(toolId);
-            return next;
-          });
-          router.refresh();
-        }, 3000);
-        return;
-      }
+      // Use generic status endpoint for all diagnostic tools
+      const statusEndpoint = `/api/os/diagnostics/status/${toolId}?companyId=${company.id}`;
 
       let attempts = 0;
       const maxAttempts = 60;
@@ -363,17 +357,8 @@ export function BlueprintClient({
           setNewDataBanner(`${tool.label} started - strategy will update when complete`);
           setTimeout(() => setNewDataBanner(null), 5000);
 
-          const asyncTools = ['brandLab'];
-          if (asyncTools.includes(tool.id)) {
-            pollForCompletion(tool.id, data.run.id, tool.label);
-          } else {
-            setRunningTools((prev) => {
-              const next = new Set(prev);
-              next.delete(tool.id);
-              return next;
-            });
-            setTimeout(() => router.refresh(), 2000);
-          }
+          // Poll for completion on all diagnostic tools
+          pollForCompletion(tool.id, data.run.id, tool.label);
         } else {
           console.error(`[Blueprint] Failed to run ${tool.label}:`, data.error);
           setRunningTools((prev) => {
@@ -737,15 +722,95 @@ export function BlueprintClient({
               How reliably paid media and demand programs are driving installs, leads, or pipeline.
             </p>
           </div>
-          <Link
-            href={`/c/${company.id}/media`}
-            className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
-          >
-            View Media
-          </Link>
+          <div className="flex items-center gap-3">
+            {(mediaLabSummary?.hasMediaProgram || mediaLabSummary?.activePlanCount) && (
+              <Link
+                href={`/c/${company.id}/diagnostics/media`}
+                className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                Media Lab
+              </Link>
+            )}
+            <Link
+              href={`/c/${company.id}/media`}
+              className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
+            >
+              View Media
+            </Link>
+          </div>
         </div>
 
-        {company.hasMediaProgram ? (
+        {/* Show Media Lab summary if there are plans */}
+        {mediaLabSummary && (mediaLabSummary.hasMediaProgram || mediaLabSummary.activePlanCount > 0) ? (
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-medium text-slate-200">Media Program</p>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                    mediaLabSummary.mediaStatus === 'running'
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                      : mediaLabSummary.mediaStatus === 'planning'
+                      ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                      : mediaLabSummary.mediaStatus === 'paused'
+                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                      : 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+                  }`}>
+                    {COMPANY_MEDIA_STATUS_CONFIG[mediaLabSummary.mediaStatus]?.label || 'Unknown'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                  {mediaLabSummary.primaryObjective && (
+                    <span>
+                      <span className="text-slate-500">Objective:</span>{' '}
+                      <span className="text-slate-300">{getObjectiveLabel(mediaLabSummary.primaryObjective)}</span>
+                    </span>
+                  )}
+                  {mediaLabSummary.totalActiveBudget != null && (
+                    <span>
+                      <span className="text-slate-500">Budget:</span>{' '}
+                      <span className="text-emerald-400">{formatMediaBudget(mediaLabSummary.totalActiveBudget)}</span>
+                    </span>
+                  )}
+                  {mediaLabSummary.primaryMarkets && (
+                    <span>
+                      <span className="text-slate-500">Markets:</span>{' '}
+                      <span className="text-slate-300 truncate max-w-[200px] inline-block align-bottom">{mediaLabSummary.primaryMarkets}</span>
+                    </span>
+                  )}
+                  {mediaLabSummary.activePlanCount > 0 && (
+                    <span className="text-slate-500">
+                      {mediaLabSummary.activePlanCount} active plan{mediaLabSummary.activePlanCount !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Link
+                  href={`/c/${company.id}/diagnostics/media`}
+                  className="inline-flex items-center rounded-lg border border-blue-700/50 bg-blue-900/30 px-3 py-1.5 text-xs font-medium text-blue-300 hover:border-blue-500 hover:bg-blue-800/30 transition-colors"
+                >
+                  View Plan in Media Lab
+                </Link>
+                {company.hasMediaProgram && (
+                  <Link
+                    href={`/c/${company.id}/media`}
+                    className="inline-flex items-center rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-100 hover:border-zinc-500 hover:bg-zinc-800 transition-colors"
+                  >
+                    Performance
+                  </Link>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : company.hasMediaProgram ? (
+          /* Operational media program active but no Media Lab plans */
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-lg bg-emerald-500/20 flex items-center justify-center">
@@ -759,12 +824,20 @@ export function BlueprintClient({
                   Performance media channels, store scorecards, and demand metrics are available.
                 </p>
               </div>
-              <Link
-                href={`/c/${company.id}/media`}
-                className="inline-flex items-center rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-100 hover:border-zinc-500 hover:bg-zinc-800 transition-colors"
-              >
-                Open Media Dashboard
-              </Link>
+              <div className="flex items-center gap-2">
+                <Link
+                  href={`/c/${company.id}/diagnostics/media`}
+                  className="inline-flex items-center rounded-lg border border-dashed border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-400 hover:border-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  Create Plan
+                </Link>
+                <Link
+                  href={`/c/${company.id}/media`}
+                  className="inline-flex items-center rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-100 hover:border-zinc-500 hover:bg-zinc-800 transition-colors"
+                >
+                  Open Media Dashboard
+                </Link>
+              </div>
             </div>
           </div>
         ) : (

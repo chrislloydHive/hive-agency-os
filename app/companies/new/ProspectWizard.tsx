@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { extractDomain, domainToDisplayName, isValidDomain } from '@/lib/utils/extractDomain';
+import type { GapLookupResult } from '@/app/api/gap/lookup/route';
 
 interface TeamMember {
   id: string;
@@ -79,18 +80,95 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
   const [runGapSnapshot, setRunGapSnapshot] = useState(true);
   const [runWebsiteLab, setRunWebsiteLab] = useState(false);
 
-  // Auto-extract domain and suggest company name
+  // GAP lookup state
+  const [isLookingUpGap, setIsLookingUpGap] = useState(false);
+  const [gapData, setGapData] = useState<GapLookupResult['data'] | null>(null);
+  const [existingCompanyId, setExistingCompanyId] = useState<string | null>(null);
+  const lookupTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Lookup GAP data by URL
+  const lookupGapData = useCallback(async (url: string) => {
+    const domain = extractDomain(url);
+    if (!domain || !isValidDomain(domain)) return;
+
+    setIsLookingUpGap(true);
+    try {
+      const response = await fetch(`/api/gap/lookup?url=${encodeURIComponent(url)}`);
+      if (!response.ok) {
+        setGapData(null);
+        return;
+      }
+
+      const result: GapLookupResult = await response.json();
+
+      if (result.found && result.data) {
+        setGapData(result.data);
+
+        // Auto-fill form fields from GAP data
+        if (result.data.companyName && !companyName) {
+          setCompanyName(result.data.companyName);
+        }
+        if (result.data.companyType && !companyType) {
+          // Map GAP company types to our form values
+          const typeMap: Record<string, string> = {
+            'saas': 'SaaS',
+            'services': 'Services',
+            'marketplace': 'Marketplace',
+            'ecommerce': 'eCom',
+            'e-commerce': 'eCom',
+            'local': 'Local',
+            'local_service': 'Local',
+          };
+          const mappedType = typeMap[result.data.companyType.toLowerCase()] || result.data.companyType;
+          if (COMPANY_TYPES.some(t => t.value === mappedType)) {
+            setCompanyType(mappedType);
+          }
+        }
+
+        // If already linked to a company, store the ID
+        if (result.data.existingCompanyId) {
+          setExistingCompanyId(result.data.existingCompanyId);
+        }
+
+        // If GAP data exists, don't run GAP snapshot again by default
+        setRunGapSnapshot(false);
+      } else {
+        setGapData(null);
+        setExistingCompanyId(null);
+      }
+    } catch (err) {
+      console.error('GAP lookup failed:', err);
+      setGapData(null);
+    } finally {
+      setIsLookingUpGap(false);
+    }
+  }, [companyName, companyType]);
+
+  // Auto-extract domain, suggest company name, and lookup GAP data
   const handleWebsiteChange = (url: string) => {
     setWebsiteUrl(url);
+    setGapData(null);
+    setExistingCompanyId(null);
 
-    if (url && !companyName) {
-      const domain = extractDomain(url);
-      if (isValidDomain(domain)) {
+    // Clear previous timeout
+    if (lookupTimeoutRef.current) {
+      clearTimeout(lookupTimeoutRef.current);
+    }
+
+    const domain = extractDomain(url);
+    if (domain && isValidDomain(domain)) {
+      // Set fallback name from domain if no name yet
+      if (!companyName) {
         const suggestedName = domainToDisplayName(domain);
         if (suggestedName) {
           setCompanyName(suggestedName);
         }
       }
+
+      // Debounce GAP lookup
+      lookupTimeoutRef.current = setTimeout(() => {
+        lookupGapData(url);
+      }, 500);
     }
   };
 
@@ -232,17 +310,56 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
               <label className="block text-sm font-medium text-slate-300 mb-1">
                 Website URL
               </label>
-              <input
-                type="url"
-                value={websiteUrl}
-                onChange={(e) => handleWebsiteChange(e.target.value)}
-                placeholder="https://acme.com"
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50"
-              />
-              {websiteUrl && (
+              <div className="relative">
+                <input
+                  type="url"
+                  value={websiteUrl}
+                  onChange={(e) => handleWebsiteChange(e.target.value)}
+                  placeholder="https://acme.com"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50"
+                />
+                {isLookingUpGap && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <svg className="w-4 h-4 animate-spin text-slate-400" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                  </div>
+                )}
+              </div>
+              {websiteUrl && !gapData && !isLookingUpGap && (
                 <p className="mt-1 text-xs text-slate-500">
                   Domain: {extractDomain(websiteUrl) || '—'}
                 </p>
+              )}
+
+              {/* GAP Data Found Indicator */}
+              {gapData && (
+                <div className="mt-2 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <svg className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <div className="flex-1">
+                      <p className="text-sm text-emerald-300 font-medium">
+                        GAP data found
+                      </p>
+                      <p className="text-xs text-emerald-400/80 mt-0.5">
+                        {gapData.companyName && `Company: ${gapData.companyName}`}
+                        {gapData.overallScore != null && gapData.overallScore > 0 && ` • Score: ${gapData.overallScore}`}
+                        {gapData.maturityStage && ` • ${gapData.maturityStage}`}
+                      </p>
+                      {existingCompanyId && (
+                        <p className="text-xs text-amber-400 mt-1">
+                          This company already exists in the OS.{' '}
+                          <Link href={`/c/${existingCompanyId}`} className="underline hover:text-amber-300">
+                            View company →
+                          </Link>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
 

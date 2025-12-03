@@ -577,12 +577,44 @@ export const generateFullGap = inngest.createFunction(
       });
     });
 
+    // Step 8: Update OS Diagnostic Run (if provided)
+    // This connects the Inngest background job back to the OS diagnostic run
+    const diagnosticRunId = event.data.diagnosticRunId;
+    console.log('[inngest:generate-full-gap] Step 8 - diagnosticRunId from event:', diagnosticRunId, 'event.data keys:', Object.keys(event.data));
+
+    if (diagnosticRunId) {
+      await step.run('update-diagnostic-run', async () => {
+        const { updateDiagnosticRun } = await import('@/lib/os/diagnostics/runs');
+
+        console.log('[inngest:generate-full-gap] Updating diagnostic run:', diagnosticRunId);
+
+        await updateDiagnosticRun(diagnosticRunId, {
+          status: 'complete',
+          score: plan.scorecard?.overall ?? null,
+          summary: plan.executiveSummary?.narrative?.substring(0, 500) ?? 'Full GAP plan generated successfully',
+          rawJson: {
+            growthPlan: plan,
+            refinedMarkdown,
+            lightPlan,
+            gapIaRunId,
+            gapPlanRunId,
+            gapFullReportId,
+          },
+        });
+
+        console.log('[inngest:generate-full-gap] Diagnostic run updated');
+      });
+    } else {
+      console.log('[inngest:generate-full-gap] No diagnosticRunId provided, skipping diagnostic run update');
+    }
+
     console.log('[inngest:generate-full-gap] Successfully generated full GAP from IA');
 
     return {
       success: true,
       gapPlanRunId,
       gapFullReportId,
+      diagnosticRunId,
     };
   }
 );

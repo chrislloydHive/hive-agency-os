@@ -19,6 +19,10 @@ import type {
   BlueprintAnalyticsSummary,
   AnalyticsStrategicInsight,
 } from '@/lib/os/analytics/blueprintDataFetcher';
+import type { CompanySummary } from '@/lib/os/companySummary';
+
+// Re-export CompanySummary for components that need it
+export type { CompanySummary } from '@/lib/os/companySummary';
 
 export interface CompanyData {
   id: string;
@@ -29,6 +33,23 @@ export interface CompanyData {
   ga4PropertyId?: string | null;
   searchConsoleSiteUrl?: string | null;
   hasMediaProgram?: boolean;
+}
+
+/**
+ * Utility to extract CompanyData from CompanySummary
+ * Enables gradual migration to CompanySummary without breaking existing code
+ */
+export function companyDataFromSummary(summary: CompanySummary): CompanyData {
+  return {
+    id: summary.companyId,
+    name: summary.meta.name,
+    website: summary.meta.url,
+    domain: summary.meta.domain || undefined,
+    industry: null, // Not tracked in CompanySummary currently
+    ga4PropertyId: null, // Would need to add to CompanySummary if needed
+    searchConsoleSiteUrl: null,
+    hasMediaProgram: summary.media.hasMediaProgram,
+  };
 }
 
 export interface RecentDiagnostic {

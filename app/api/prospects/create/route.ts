@@ -9,6 +9,7 @@ import {
 } from '@/lib/airtable/companies';
 import { createOpportunity } from '@/lib/airtable/opportunities';
 import { extractDomain } from '@/lib/utils/extractDomain';
+import { linkGapRunsToCompanyByUrl } from '@/lib/airtable/linkGapRuns';
 
 export const maxDuration = 60;
 
@@ -85,6 +86,24 @@ export async function POST(request: NextRequest) {
 
     // Track async operations
     const operations: Promise<void>[] = [];
+
+    // Link existing GAP runs to this company (if website provided)
+    // This runs synchronously so GAP data is available immediately when user views company
+    let gapRunsLinked = { gapPlanRunsLinked: 0, gapIaRunsLinked: 0 };
+    if (body.website) {
+      try {
+        const linkResult = await linkGapRunsToCompanyByUrl(company.id, body.website);
+        gapRunsLinked = linkResult;
+        if (linkResult.gapPlanRunsLinked > 0 || linkResult.gapIaRunsLinked > 0) {
+          console.log(`[Prospects] Linked ${linkResult.gapPlanRunsLinked} GAP-Plan runs and ${linkResult.gapIaRunsLinked} GAP-IA runs to ${company.name}`);
+        }
+        if (linkResult.errors.length > 0) {
+          console.warn(`[Prospects] GAP linking warnings:`, linkResult.errors);
+        }
+      } catch (error) {
+        console.error(`[Prospects] Failed to link GAP runs:`, error);
+      }
+    }
 
     // Create opportunity if requested
     if (body.createOpportunity) {
@@ -180,6 +199,7 @@ export async function POST(request: NextRequest) {
         opportunityCreated: body.createOpportunity || false,
         gapSnapshotTriggered: (body.runGapSnapshot && body.website) || false,
         websiteLabTriggered: (body.runWebsiteLab && body.website) || false,
+        gapRunsLinked: gapRunsLinked.gapPlanRunsLinked + gapRunsLinked.gapIaRunsLinked,
       },
     });
   } catch (error) {

@@ -143,6 +143,7 @@ function gapIaRunToAirtableFields(
   if ((run as any).authorityScore !== undefined) dataJson.authorityScore = (run as any).authorityScore;
   if ((run as any).maturityStage) dataJson.maturityStage = (run as any).maturityStage;
   if ((run as any).readinessScore !== undefined) dataJson.readinessScore = (run as any).readinessScore;
+  if ((run as any).dataConfidence) dataJson.dataConfidence = (run as any).dataConfidence;
   if (run.errorMessage) dataJson.errorMessage = run.errorMessage;
 
   // Caching fields
@@ -278,6 +279,7 @@ function airtableRecordToGapIaRun(record: any): any {
     authorityScore: dataJson.authorityScore,
     maturityStage: dataJson.maturityStage,
     readinessScore: dataJson.readinessScore,
+    dataConfidence: dataJson.dataConfidence,
 
     errorMessage: dataJson.errorMessage,
 

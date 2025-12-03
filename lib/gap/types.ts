@@ -279,6 +279,27 @@ export interface BusinessContextData {
   maturityStage?: string; // e.g., "Foundational", "Emerging", "Established"
 }
 
+// ============================================================================
+// Data Confidence (aligned with Ops Lab pattern)
+// ============================================================================
+
+export type GapDataConfidenceLevel = 'low' | 'medium' | 'high';
+
+/**
+ * Data confidence assessment for GAP-IA reports
+ * Indicates how reliable the assessment is based on available signals
+ */
+export interface GapDataConfidence {
+  /** Confidence score from 0-100 */
+  score: number;
+  /** Confidence level bucket */
+  level: GapDataConfidenceLevel;
+  /** Human-readable explanation of confidence factors */
+  reason: string;
+  /** Specific issues that lowered confidence */
+  issues?: string[];
+}
+
 /**
  * GAP-IA Run - the lightweight initial assessment
  * Used for lead magnets and quick marketing snapshots
@@ -328,6 +349,9 @@ export interface GapIaRun {
   // V3 Metadata fields (added for frontend visibility)
   businessContext?: BusinessContextData;
   digitalFootprint?: DigitalFootprintData;
+
+  // Data confidence (aligned with Ops Lab pattern)
+  dataConfidence?: GapDataConfidence;
 
   // Consultant Report fields
   iaReportMarkdown?: string | null;

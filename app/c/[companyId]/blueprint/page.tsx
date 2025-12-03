@@ -27,6 +27,7 @@ import {
   fetchBlueprintAnalytics,
   generateAnalyticsInsights,
 } from '@/lib/os/analytics/blueprintDataFetcher';
+import { getMediaLabSummary } from '@/lib/mediaLab';
 import { BlueprintClient } from './BlueprintClient';
 
 type PageProps = {
@@ -75,6 +76,7 @@ export default async function BlueprintPage({ params }: PageProps) {
     brainSummary,
     pipelineData,
     analyticsResult,
+    mediaLabSummary,
   ] = await Promise.all([
     getCompanyById(companyId),
     getCompanyStrategySnapshot(companyId).catch(() => null),
@@ -84,6 +86,7 @@ export default async function BlueprintPage({ params }: PageProps) {
     getInsightsSummary(companyId).catch(() => null),
     runBlueprintPipeline(companyId).catch(() => null),
     fetchBlueprintAnalytics(companyId, { preset: '30d' }).catch(() => ({ ok: false, summary: null })),
+    getMediaLabSummary(companyId).catch(() => null),
   ]);
 
   if (!company) {
@@ -178,6 +181,7 @@ export default async function BlueprintPage({ params }: PageProps) {
       analyticsSummary={analyticsSummary}
       analyticsInsights={analyticsInsights}
       recommendedTools={serializedRecommendedTools}
+      mediaLabSummary={mediaLabSummary}
     />
   );
 }

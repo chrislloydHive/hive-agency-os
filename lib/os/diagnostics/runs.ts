@@ -177,14 +177,54 @@ function airtableRecordToDiagnosticRun(record: {
   // Debug: log score parsing
   console.log('[DiagnosticRuns] Score parsing:', { recordId: record.id, rawScore, parsedScore: score, rawType: typeof rawScore, hasRawJson: !!rawJson });
 
+  // Detect stale "running" status - if running for more than 10 minutes, mark as failed
+  const rawStatus = (fields['Status'] as DiagnosticRunStatus) || 'pending';
+  const createdAt = (fields['Created At'] as string) || new Date().toISOString();
+  let status = rawStatus;
+  let needsStaleUpdate = false;
+
+  if (rawStatus === 'running') {
+    const createdTime = new Date(createdAt).getTime();
+    const now = Date.now();
+    const tenMinutes = 10 * 60 * 1000;
+
+    if (now - createdTime > tenMinutes) {
+      console.log('[DiagnosticRuns] Detected stale running run:', { recordId: record.id, createdAt, ageMinutes: Math.round((now - createdTime) / 60000) });
+      status = 'failed';
+      needsStaleUpdate = true;
+    }
+  }
+
+  // Fire-and-forget update to Airtable for stale runs
+  if (needsStaleUpdate) {
+    const config = getAirtableConfig();
+    fetch(`https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(DIAGNOSTIC_RUNS_TABLE)}/${record.id}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fields: {
+          Status: 'failed',
+          Summary: 'Run timed out (stale)',
+        },
+      }),
+    }).then(() => {
+      console.log('[DiagnosticRuns] Updated stale run to failed in Airtable:', record.id);
+    }).catch((err) => {
+      console.error('[DiagnosticRuns] Failed to update stale run:', err);
+    });
+  }
+
   return {
     id: record.id,
     companyId,
     toolId: (fields['Tool ID'] as DiagnosticToolId) || 'gapSnapshot',
-    status: (fields['Status'] as DiagnosticRunStatus) || 'pending',
+    status,
     summary: (fields['Summary'] as string) || null,
     score,
-    createdAt: (fields['Created At'] as string) || new Date().toISOString(),
+    createdAt,
     updatedAt: (fields['Updated At'] as string) || new Date().toISOString(),
     metadata,
     rawJson,

@@ -202,7 +202,32 @@ function mapFieldsToCompanyRecord(record: any): CompanyRecord {
     // Media Program fields
     mediaProgramStatus,
     hasMediaProgram,
+
+    // Media Lab fields (strategic planning)
+    mediaLabStatus: parseMediaLabStatus(fields['Media Status'] as string | undefined),
+    mediaPrimaryObjective: parseMediaObjective(fields['Media Primary Objective'] as string | undefined),
+    mediaLabNotes: (fields['Media Notes'] as string) || undefined,
   };
+}
+
+/**
+ * Parse Media Lab status from Airtable
+ */
+function parseMediaLabStatus(raw: string | undefined): 'none' | 'planning' | 'running' | 'paused' | undefined {
+  if (!raw) return undefined;
+  const normalized = raw.toLowerCase();
+  const valid = ['none', 'planning', 'running', 'paused'];
+  return valid.includes(normalized) ? (normalized as 'none' | 'planning' | 'running' | 'paused') : undefined;
+}
+
+/**
+ * Parse Media objective from Airtable
+ */
+function parseMediaObjective(raw: string | undefined): 'installs' | 'leads' | 'store_visits' | 'calls' | 'awareness' | undefined {
+  if (!raw) return undefined;
+  const normalized = raw.toLowerCase().replace(/\s+/g, '_');
+  const valid = ['installs', 'leads', 'store_visits', 'calls', 'awareness'];
+  return valid.includes(normalized) ? (normalized as 'installs' | 'leads' | 'store_visits' | 'calls' | 'awareness') : undefined;
 }
 
 /**
@@ -261,9 +286,14 @@ export type CompanyRecord = {
   // Analytics Blueprint (AI-generated configuration for which metrics to show)
   analyticsBlueprint?: AnalyticsBlueprint | null;
 
-  // Media Program fields
+  // Media Program fields (operational - from Media tables)
   mediaProgramStatus: import('@/lib/types/company').MediaProgramStatus; // "none" | "active"
   hasMediaProgram: boolean; // Convenience boolean derived from mediaProgramStatus
+
+  // Media Lab fields (strategic planning - from Companies table)
+  mediaLabStatus?: 'none' | 'planning' | 'running' | 'paused'; // Media Lab status
+  mediaPrimaryObjective?: 'installs' | 'leads' | 'store_visits' | 'calls' | 'awareness'; // Primary media objective
+  mediaLabNotes?: string; // Freeform notes for media planning
 };
 
 /**

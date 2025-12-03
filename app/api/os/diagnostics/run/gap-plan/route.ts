@@ -1,22 +1,27 @@
 // app/api/os/diagnostics/run/gap-plan/route.ts
 // API endpoint for running Full GAP Plan generation
 //
-// This API integrates with Company AI Memory (Client Brain) via aiForCompany():
-// - All GAP model calls go through aiForCompany() which:
-//   - Loads prior memory (previous GAP runs, analytics insights, work items)
-//   - Injects context into prompts
-//   - Logs full responses into Company AI Context
-// - Additional summary entries are saved with type "Strategy" to avoid duplication
+// Flow:
+// 1. Run GAP-IA synchronously (quick ~30s)
+// 2. Create GAP-IA run record in Airtable
+// 3. Trigger Inngest for Full GAP background processing
+// 4. Return immediately with "processing" status
+//
+// The Inngest function (generate-full-gap) will:
+// - Generate the full growth plan
+// - Update the diagnostic run with results
+// - Save to Company AI Memory
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createDiagnosticRun, updateDiagnosticRun } from '@/lib/os/diagnostics/runs';
-import { runGapPlanEngine } from '@/lib/os/diagnostics/engines';
-import { aiForCompany, addCompanyMemoryEntry } from '@/lib/ai-gateway';
+import { runGapSnapshotEngine } from '@/lib/os/diagnostics/engines';
+import { aiForCompany } from '@/lib/ai-gateway';
 import { findOrCreateCompanyForGap } from '@/lib/pipeline/createOrMatchCompany';
-import { processDiagnosticRunCompletionAsync } from '@/lib/os/diagnostics/postRunHooks';
+import { createGapIaRun, updateGapIaRun } from '@/lib/airtable/gapIaRuns';
+import { inngest } from '@/lib/inngest/client';
 import type { GapModelCaller } from '@/lib/gap/core';
 
-export const maxDuration = 300; // 5 minutes timeout for full plan generation
+export const maxDuration = 120; // 2 minutes for GAP-IA (Full GAP runs in background)
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,8 +37,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Find or create company using unified helper
-    // - If companyId provided: use existing company
-    // - If url provided: find by domain or create new Prospect with Source="Full GAP"
     let company;
     let isNewCompany = false;
 
@@ -64,36 +67,25 @@ export async function POST(request: NextRequest) {
 
     console.log('[API] Running GAP Plan for:', company.name, isNewCompany ? '(newly created)' : '(existing)');
 
-    // Create run record with "running" status
-    const run = await createDiagnosticRun({
+    // Create diagnostic run record with "running" status
+    const diagnosticRun = await createDiagnosticRun({
       companyId: company.id,
       toolId: 'gapPlan',
       status: 'running',
     });
 
-    // Create a model caller that uses aiForCompany() for memory-aware AI calls
-    // This ensures the GAP engine:
-    // - Loads prior company memory (previous GAP runs, analytics insights, work items)
-    // - Injects that context into prompts
-    // - Logs full responses back to Company AI Context
-    //
-    // Note: Full GAP runs both GAP-IA and Full GAP sequentially. The model caller
-    // will be used for both steps, with appropriate type tags for each.
-    let currentGapStage: 'GAP IA' | 'GAP Full' = 'GAP IA';
-    const fullGapModelCaller: GapModelCaller = async (prompt: string) => {
-      // Detect which stage we're in based on prompt content
-      if (prompt.includes('FULL_GAP') || prompt.includes('Full Growth Acceleration Plan')) {
-        currentGapStage = 'GAP Full';
-      }
+    // =========================================================================
+    // Step 1: Run GAP-IA synchronously (quick ~30s)
+    // =========================================================================
+    console.log('[API] Step 1: Running GAP-IA...');
 
+    // Create a model caller that uses aiForCompany() for memory-aware AI calls
+    const gapIaModelCaller: GapModelCaller = async (prompt: string) => {
       const { content } = await aiForCompany(company.id, {
-        type: currentGapStage,
-        tags: currentGapStage === 'GAP IA'
-          ? ['GAP', 'Snapshot', 'Marketing']
-          : ['GAP', 'Growth Plan', 'Strategy'],
-        relatedEntityId: run.id,
-        systemPrompt: currentGapStage === 'GAP IA'
-          ? `
+        type: 'GAP IA',
+        tags: ['GAP', 'Snapshot', 'Marketing'],
+        relatedEntityId: diagnosticRun.id,
+        systemPrompt: `
 You are the GAP IA (Initial Assessment) engine inside Hive OS.
 
 You perform a fast, URL-based marketing assessment across:
@@ -103,21 +95,9 @@ You perform a fast, URL-based marketing assessment across:
 - SEO fundamentals
 
 You must always output valid JSON matching the GAP IA schema.
-          `.trim()
-          : `
-You are the Full Growth Acceleration Plan (GAP) engine inside Hive OS.
-
-You generate a detailed, consultant-grade marketing plan across:
-- Brand strategy and positioning
-- Website optimization and conversion
-- Content strategy and execution
-- SEO and organic visibility
-- Analytics and optimization tracking
-
-You must always output valid JSON matching the Full GAP schema.
-          `.trim(),
+        `.trim(),
         taskPrompt: prompt,
-        model: currentGapStage === 'GAP IA' ? 'gpt-4o' : 'gpt-4o-mini',
+        model: 'gpt-4o',
         temperature: 0.7,
         memoryOptions: {
           limit: 20,
@@ -129,66 +109,125 @@ You must always output valid JSON matching the Full GAP schema.
       return content;
     };
 
-    // Run the engine with the memory-aware model caller
-    const result = await runGapPlanEngine({
+    // Run GAP-IA engine
+    const iaResult = await runGapSnapshotEngine({
       companyId: company.id,
       company,
-      websiteUrl: websiteUrl,
-      modelCaller: fullGapModelCaller,
+      websiteUrl,
+      modelCaller: gapIaModelCaller,
     });
 
-    // Update run with results
-    const updatedRun = await updateDiagnosticRun(run.id, {
-      status: result.success ? 'complete' : 'failed',
-      score: result.score ?? null,
-      summary: result.summary ?? null,
-      rawJson: result.data,
-      metadata: result.error ? { error: result.error } : undefined,
-    });
+    if (!iaResult.success) {
+      // Update diagnostic run as failed
+      await updateDiagnosticRun(diagnosticRun.id, {
+        status: 'failed',
+        metadata: { error: iaResult.error || 'GAP-IA failed' },
+      });
 
-    console.log('[API] GAP Plan complete:', {
-      runId: updatedRun.id,
-      success: result.success,
-      score: result.score,
-    });
-
-    // =========================================================================
-    // Save Summary to Company AI Memory (Client Brain)
-    // =========================================================================
-    // Note: The full GAP responses are already saved via aiForCompany() with types
-    // "GAP IA" and "GAP Full". This additional entry saves a compact, human-readable
-    // summary with type "Strategy" to avoid duplicate entries.
-    if (result.success && result.data) {
-      try {
-        console.log('[API] Saving GAP Full summary to company AI memory...');
-
-        // Extract key insights from the GAP Full result
-        const memorySummary = extractGapFullMemorySummary(result.data, company.name, result.score);
-
-        // Derive tags from the result
-        const tags = deriveGapFullTags(result.data);
-
-        await addCompanyMemoryEntry({
-          companyId: company.id,
-          type: 'Strategy', // Changed from 'GAP Full' to avoid duplication with aiForCompany() log
-          content: memorySummary,
-          source: 'AI',
-          tags: [...tags, 'Summary', 'GAP Full Summary'],
-          relatedEntityId: updatedRun.id,
-        });
-
-        console.log('[API] ✅ Saved GAP Full summary to company AI memory');
-      } catch (memoryError) {
-        // Don't fail the request if memory save fails
-        console.error('[API] Failed to save GAP Full summary to company memory:', memoryError);
-      }
-
-      // Process post-run hooks (Brain entry + Strategic Snapshot) in background
-      processDiagnosticRunCompletionAsync(company.id, updatedRun);
+      return NextResponse.json(
+        { error: iaResult.error || 'GAP-IA assessment failed' },
+        { status: 500 }
+      );
     }
 
+    console.log('[API] GAP-IA complete, score:', iaResult.score);
+
+    // =========================================================================
+    // Step 2: Create GAP-IA Run record in Airtable
+    // =========================================================================
+    console.log('[API] Step 2: Creating GAP-IA run record...');
+
+    // Extract domain from URL
+    let domain = '';
+    try {
+      domain = new URL(websiteUrl).hostname.replace(/^www\./, '');
+    } catch {
+      domain = websiteUrl.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+    }
+
+    // Create GAP-IA run record
+    const gapIaRun = await createGapIaRun({
+      url: websiteUrl,
+      domain,
+      source: 'internal',
+      companyId: company.id,
+    });
+
+    // Update with the IA results
+    // Cast to any since the data structure varies by GAP version
+    const resultData = iaResult.data as any;
+    const iaData = resultData?.initialAssessment || resultData;
+    await updateGapIaRun(gapIaRun.id, {
+      status: 'completed',
+      core: iaData?.core,
+      insights: iaData?.insights,
+      // V2 enhanced fields
+      ...(iaData?.summary && { summary: iaData.summary }),
+      ...(iaData?.dimensions && { dimensions: iaData.dimensions }),
+      ...(iaData?.breakdown && { breakdown: iaData.breakdown }),
+      ...(iaData?.quickWins && { quickWins: iaData.quickWins }),
+      // Scores
+      overallScore: iaResult.score,
+      brandScore: iaData?.dimensions?.brand?.score || iaData?.core?.brand?.brandScore,
+      contentScore: iaData?.dimensions?.content?.score || iaData?.core?.content?.contentScore,
+      seoScore: iaData?.dimensions?.seo?.score || iaData?.core?.seo?.seoScore,
+      websiteScore: iaData?.dimensions?.website?.score || iaData?.core?.website?.websiteScore,
+      digitalFootprintScore: iaData?.dimensions?.digitalFootprint?.score,
+      authorityScore: iaData?.dimensions?.authority?.score,
+      maturityStage: iaData?.summary?.maturityStage || iaData?.maturityStage,
+      // Context
+      businessContext: resultData?.businessContext,
+      digitalFootprint: resultData?.digitalFootprint || iaData?.digitalFootprint,
+      dataConfidence: resultData?.dataConfidence,
+    } as any);
+
+    console.log('[API] GAP-IA run created:', gapIaRun.id);
+
+    // =========================================================================
+    // Step 3: Trigger Inngest for Full GAP background processing
+    // =========================================================================
+    console.log('[API] Step 3: Triggering Inngest for Full GAP...');
+    console.log('[API] Inngest event data:', {
+      gapIaRunId: gapIaRun.id,
+      diagnosticRunId: diagnosticRun.id,
+      companyId: company.id,
+    });
+
+    const sendResult = await inngest.send({
+      name: 'gap/generate-full',
+      data: {
+        gapIaRunId: gapIaRun.id,
+        diagnosticRunId: diagnosticRun.id,
+        companyId: company.id,
+      },
+    });
+
+    console.log('[API] Inngest event sent: gap/generate-full, result:', sendResult);
+
+    // Update diagnostic run to indicate processing
+    await updateDiagnosticRun(diagnosticRun.id, {
+      status: 'running',
+      summary: `GAP-IA complete (${iaResult.score}/100). Full GAP generating in background...`,
+      metadata: {
+        gapIaRunId: gapIaRun.id,
+        gapIaScore: iaResult.score,
+        stage: 'full-gap-processing',
+      },
+    });
+
+    // =========================================================================
+    // Return immediately with processing status
+    // =========================================================================
     return NextResponse.json({
-      run: updatedRun,
+      run: {
+        id: diagnosticRun.id,
+        status: 'running',
+        stage: 'full-gap-processing',
+      },
+      gapIaRun: {
+        id: gapIaRun.id,
+        score: iaResult.score,
+      },
       company: {
         id: company.id,
         name: company.name,
@@ -197,12 +236,7 @@ You must always output valid JSON matching the Full GAP schema.
         source: company.source,
         isNew: isNewCompany,
       },
-      result: {
-        success: result.success,
-        score: result.score,
-        summary: result.summary,
-        error: result.error,
-      },
+      message: 'GAP-IA complete. Full GAP plan generating in background.',
     });
   } catch (error) {
     console.error('[API] GAP Plan error:', error);
@@ -211,90 +245,4 @@ You must always output valid JSON matching the Full GAP schema.
       { status: 500 }
     );
   }
-}
-
-// ============================================================================
-// Helper: Extract memory summary from GAP Full result
-// ============================================================================
-
-/**
- * Extract executive summary + top 5 strategic priorities for memory storage
- */
-function extractGapFullMemorySummary(
-  data: any,
-  companyName: string,
-  score?: number
-): string {
-  const plan = data?.growthPlan || data;
-
-  const parts: string[] = [];
-
-  // Header
-  parts.push(`GAP Full Growth Plan for ${companyName}`);
-  if (score !== undefined) {
-    parts.push(`Overall Score: ${score}/100`);
-  }
-
-  // Executive summary
-  if (plan?.executiveSummary) {
-    parts.push(`\nExecutive Summary:\n${plan.executiveSummary}`);
-  }
-
-  // Strategic priorities (top 5)
-  if (plan?.strategicPriorities && Array.isArray(plan.strategicPriorities)) {
-    const priorities = plan.strategicPriorities.slice(0, 5).map((p: any, i: number) => {
-      if (typeof p === 'string') return `${i + 1}. ${p}`;
-      return `${i + 1}. ${p?.title || p?.name || p?.description || JSON.stringify(p)}`;
-    }).join('\n');
-    parts.push(`\nTop Strategic Priorities:\n${priorities}`);
-  } else if (plan?.priorities && Array.isArray(plan.priorities)) {
-    const priorities = plan.priorities.slice(0, 5).map((p: any, i: number) => {
-      if (typeof p === 'string') return `${i + 1}. ${p}`;
-      return `${i + 1}. ${p?.title || p?.name || p?.description || JSON.stringify(p)}`;
-    }).join('\n');
-    parts.push(`\nTop Strategic Priorities:\n${priorities}`);
-  }
-
-  // Key recommendations (if available and different from priorities)
-  if (plan?.recommendations && Array.isArray(plan.recommendations) && plan.recommendations.length > 0) {
-    const recs = plan.recommendations.slice(0, 3).map((r: any) =>
-      typeof r === 'string' ? r : r?.title || r?.description || JSON.stringify(r)
-    ).join('\n- ');
-    parts.push(`\nKey Recommendations:\n- ${recs}`);
-  }
-
-  return parts.join('\n');
-}
-
-/**
- * Derive tags from GAP Full result based on content areas covered
- */
-function deriveGapFullTags(data: any): string[] {
-  const tags: string[] = [];
-  const plan = data?.growthPlan || data;
-
-  // Check for various sections to determine relevant tags
-  const content = JSON.stringify(plan).toLowerCase();
-
-  if (content.includes('seo') || content.includes('search engine') || content.includes('organic')) {
-    tags.push('SEO');
-  }
-  if (content.includes('website') || content.includes('ux') || content.includes('user experience') || content.includes('conversion')) {
-    tags.push('Website');
-  }
-  if (content.includes('content') || content.includes('blog') || content.includes('article') || content.includes('thought leadership')) {
-    tags.push('Content');
-  }
-  if (content.includes('brand') || content.includes('positioning') || content.includes('messaging') || content.includes('differentiation')) {
-    tags.push('Brand');
-  }
-  if (content.includes('analytics') || content.includes('tracking') || content.includes('metrics') || content.includes('measurement')) {
-    tags.push('Analytics');
-  }
-  if (content.includes('paid') || content.includes('advertising') || content.includes('ppc') || content.includes('ads')) {
-    tags.push('Paid Media');
-  }
-
-  // Limit to 4 tags
-  return tags.slice(0, 4);
 }

@@ -19,7 +19,10 @@ import type { DiagnosticRunStatus, DiagnosticToolId, CompanyScoreTrends } from '
 import type { CompanyWorkSummary } from '@/lib/os/companies/workSummary';
 import type { CompanyAlert, AlertSeverity } from '@/lib/os/companies/alerts';
 import type { PerformancePulse } from '@/lib/os/analytics/performancePulse';
+import type { MediaLabSummary } from '@/lib/types/mediaLab';
+import { COMPANY_MEDIA_STATUS_CONFIG, formatMediaBudget, getObjectiveLabel } from '@/lib/types/mediaLab';
 import { deriveNextBestAction, getPriorityColorClasses, type NextBestAction } from '@/lib/os/companies/nextBestAction';
+import type { CompanySummary } from '@/lib/os/companySummary';
 
 // ============================================================================
 // Types
@@ -61,6 +64,10 @@ export interface CompanyOverviewPageProps {
   scoreTrends: CompanyScoreTrends;
   alerts: CompanyAlert[];
   performancePulse?: PerformancePulse | null;
+  mediaLabSummary?: MediaLabSummary | null;
+
+  // New: unified data model (when provided, takes precedence for common values)
+  summary?: CompanySummary;
 }
 
 // ============================================================================
@@ -497,7 +504,24 @@ export function CompanyOverviewPage({
   scoreTrends,
   alerts,
   performancePulse,
+  mediaLabSummary,
+  summary,
 }: CompanyOverviewPageProps) {
+  // When summary is provided, prefer its values for common fields
+  const companyId = summary?.companyId ?? company.id;
+  const companyName = summary?.meta.name ?? company.name;
+  const companyWebsite = summary?.meta.url ?? company.website;
+  const companyIndustry = company.industry; // Keep from company prop (not in summary)
+  const companyStage = summary?.meta.stage ?? company.stage;
+  const healthTag = summary?.meta.healthTag;
+  const hasMediaProgram = summary?.media.hasMediaProgram ?? company.hasMediaProgram;
+
+  // Prefer summary scores when available
+  const overallScore = summary?.scores.latestBlueprintScore ??
+    strategySnapshot?.overallScore ?? null;
+  const maturityStage = summary?.scores.maturityStage ??
+    strategySnapshot?.maturityStage;
+
   const hasSnapshot = !!strategySnapshot;
   const hasDiagnostics = recentDiagnostics.length > 0;
   const hasActiveWork = workSummary.active.length > 0 || workSummary.doneRecently.length > 0;
@@ -526,7 +550,7 @@ export function CompanyOverviewPage({
     });
 
   // Derive next best action
-  const nextBestAction = deriveNextBestAction(company.id, {
+  const nextBestAction = deriveNextBestAction(companyId, {
     alerts,
     snapshot: strategySnapshot,
   });
@@ -547,28 +571,41 @@ export function CompanyOverviewPage({
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           {/* Left: Company Info */}
           <div className="flex-1">
-            <h1 className="text-2xl font-bold text-slate-100 mb-2">
-              {company.name}
-            </h1>
+            <div className="flex items-center gap-3 mb-2">
+              <h1 className="text-2xl font-bold text-slate-100">
+                {companyName}
+              </h1>
+              {healthTag && (
+                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${
+                  healthTag === 'Healthy'
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                    : healthTag === 'At Risk'
+                    ? 'bg-red-500/10 text-red-400 border-red-500/30'
+                    : 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+                }`}>
+                  {healthTag}
+                </span>
+              )}
+            </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-400">
-              {company.website && (
+              {companyWebsite && (
                 <a
-                  href={company.website}
+                  href={companyWebsite.startsWith('http') ? companyWebsite : `https://${companyWebsite}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-blue-400 hover:text-blue-300 transition-colors"
                 >
-                  {company.website.replace(/^https?:\/\//, '')}
+                  {companyWebsite.replace(/^https?:\/\//, '')}
                 </a>
               )}
-              {company.industry && (
+              {companyIndustry && (
                 <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-xs">
-                  {company.industry}
+                  {companyIndustry}
                 </span>
               )}
-              {company.stage && (
+              {companyStage && (
                 <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-xs">
-                  {company.stage}
+                  {companyStage}
                 </span>
               )}
               {company.sizeBand && (
@@ -587,8 +624,8 @@ export function CompanyOverviewPage({
           {/* Right: Quick Health Check */}
           <div className="w-full lg:w-80">
             <QuickHealthCheckCard
-              companyId={company.id}
-              companyName={company.name}
+              companyId={companyId}
+              companyName={companyName}
             />
           </div>
         </div>
@@ -626,7 +663,7 @@ export function CompanyOverviewPage({
       {/* CTA: Go to Blueprint for Full Strategy */}
       {/* ================================================================== */}
       <Link
-        href={`/c/${company.id}/blueprint`}
+        href={`/c/${companyId}/blueprint`}
         className="block bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-xl p-4 hover:border-amber-500/50 transition-colors group"
       >
         <div className="flex items-center justify-between">
@@ -674,14 +711,12 @@ export function CompanyOverviewPage({
               <div className="flex flex-col lg:flex-row lg:items-center gap-6">
                 {/* Overall Score */}
                 <div className="flex items-center gap-6">
-                  {strategySnapshot.overallScore !== null && (
+                  {overallScore !== null && (
                     <div className="text-center">
                       <div
-                        className={`text-5xl font-bold tabular-nums ${getScoreColor(
-                          strategySnapshot.overallScore
-                        )}`}
+                        className={`text-5xl font-bold tabular-nums ${getScoreColor(overallScore)}`}
                       >
-                        {strategySnapshot.overallScore}
+                        {overallScore}
                       </div>
                       <p className="text-xs text-slate-500 uppercase tracking-wide mt-1">
                         Overall Score
@@ -690,14 +725,12 @@ export function CompanyOverviewPage({
                   )}
 
                   {/* Maturity Stage Badge */}
-                  {strategySnapshot.maturityStage && (
+                  {maturityStage && (
                     <div className="text-center">
                       <span
-                        className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium border ${getMaturityStageStyle(
-                          strategySnapshot.maturityStage
-                        )}`}
+                        className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium border ${getMaturityStageStyle(maturityStage)}`}
                       >
-                        {strategySnapshot.maturityStage}
+                        {maturityStage}
                       </span>
                       <p className="text-xs text-slate-500 uppercase tracking-wide mt-2">
                         Maturity Stage
@@ -936,7 +969,7 @@ export function CompanyOverviewPage({
                   Strengths & Gaps
                 </h2>
                 <Link
-                  href={`/c/${company.id}/brain`}
+                  href={`/c/${companyId}/brain`}
                   className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
                 >
                   View all insights
@@ -1023,27 +1056,106 @@ export function CompanyOverviewPage({
               Performance media, paid campaigns, and demand generation
             </p>
           </div>
-          <Link
-            href={`/c/${company.id}/media`}
-            className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
-          >
-            View Media →
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href={`/c/${companyId}/diagnostics/media`}
+              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              Media Lab
+            </Link>
+            <Link
+              href={`/c/${companyId}/media`}
+              className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
+            >
+              View Media →
+            </Link>
+          </div>
         </div>
 
-        {company.hasMediaProgram ? (
-          // Media Program Active - show placeholder for now
+        {mediaLabSummary && (mediaLabSummary.hasMediaProgram || mediaLabSummary.activePlanCount > 0) ? (
+          // Media Lab plans exist - show summary
           <div className="p-4 rounded-lg bg-slate-800/50 border border-slate-700/50">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-                <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
                 </svg>
               </div>
-              <div>
-                <p className="text-sm font-medium text-slate-200">Media Program Active</p>
-                <p className="text-xs text-slate-400">View channels, campaigns, and store performance</p>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-medium text-slate-200">Media Program</p>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                    mediaLabSummary.mediaStatus === 'running'
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                      : mediaLabSummary.mediaStatus === 'planning'
+                      ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                      : mediaLabSummary.mediaStatus === 'paused'
+                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                      : 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+                  }`}>
+                    {COMPANY_MEDIA_STATUS_CONFIG[mediaLabSummary.mediaStatus]?.label || 'Unknown'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                  {mediaLabSummary.primaryObjective && (
+                    <span>
+                      <span className="text-slate-500">Objective:</span>{' '}
+                      <span className="text-slate-300">{getObjectiveLabel(mediaLabSummary.primaryObjective)}</span>
+                    </span>
+                  )}
+                  {mediaLabSummary.totalActiveBudget != null && (
+                    <span>
+                      <span className="text-slate-500">Budget:</span>{' '}
+                      <span className="text-emerald-400">{formatMediaBudget(mediaLabSummary.totalActiveBudget)}</span>
+                    </span>
+                  )}
+                  {mediaLabSummary.activePlanCount > 0 && (
+                    <span className="text-slate-500">
+                      {mediaLabSummary.activePlanCount} active plan{mediaLabSummary.activePlanCount !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
               </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Link
+                  href={`/c/${companyId}/diagnostics/media`}
+                  className="inline-flex items-center rounded-lg border border-blue-700/50 bg-blue-900/30 px-3 py-1.5 text-xs font-medium text-blue-300 hover:border-blue-500 hover:bg-blue-800/30 transition-colors"
+                >
+                  View Plan
+                </Link>
+                {hasMediaProgram && (
+                  <Link
+                    href={`/c/${companyId}/media`}
+                    className="inline-flex items-center rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-100 hover:border-slate-500 hover:bg-slate-800 transition-colors"
+                  >
+                    Performance
+                  </Link>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : hasMediaProgram ? (
+          // Operational media program active but no Media Lab plans
+          <div className="p-4 rounded-lg bg-slate-800/50 border border-slate-700/50">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-200">Media Program Active</p>
+                  <p className="text-xs text-slate-400">View channels, campaigns, and store performance</p>
+                </div>
+              </div>
+              <Link
+                href={`/c/${companyId}/diagnostics/media`}
+                className="text-xs text-slate-400 hover:text-slate-300 transition-colors"
+              >
+                Plan →
+              </Link>
             </div>
           </div>
         ) : (
@@ -1062,7 +1174,7 @@ export function CompanyOverviewPage({
               Active Work
             </h2>
             <Link
-              href={`/c/${company.id}/work`}
+              href={`/c/${companyId}/work`}
               className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
             >
               Open Workboard
@@ -1150,7 +1262,7 @@ export function CompanyOverviewPage({
               Recent Diagnostics
             </h2>
             <Link
-              href={`/c/${company.id}/blueprint`}
+              href={`/c/${companyId}/blueprint`}
               className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
             >
               See all diagnostics
@@ -1250,14 +1362,14 @@ export function CompanyOverviewPage({
       {/* ================================================================== */}
       {/* Band 5: Activity Timeline */}
       {/* ================================================================== */}
-      <CompanyActivityTimeline companyId={company.id} limit={8} />
+      <CompanyActivityTimeline companyId={companyId} limit={8} />
 
       {/* ================================================================== */}
       {/* Quick Actions */}
       {/* ================================================================== */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Link
-          href={`/c/${company.id}/blueprint`}
+          href={`/c/${companyId}/blueprint`}
           className="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-700 hover:bg-slate-800/50 transition-all group"
         >
           <div className="flex items-center gap-3">
@@ -1274,7 +1386,7 @@ export function CompanyOverviewPage({
         </Link>
 
         <Link
-          href={`/c/${company.id}/reports`}
+          href={`/c/${companyId}/reports`}
           className="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-700 hover:bg-slate-800/50 transition-all group"
         >
           <div className="flex items-center gap-3">
@@ -1291,7 +1403,7 @@ export function CompanyOverviewPage({
         </Link>
 
         <Link
-          href={`/c/${company.id}/brain`}
+          href={`/c/${companyId}/brain`}
           className="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-700 hover:bg-slate-800/50 transition-all group"
         >
           <div className="flex items-center gap-3">
@@ -1308,7 +1420,7 @@ export function CompanyOverviewPage({
         </Link>
 
         <Link
-          href={`/c/${company.id}/work`}
+          href={`/c/${companyId}/work`}
           className="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-700 hover:bg-slate-800/50 transition-all group"
         >
           <div className="flex items-center gap-3">

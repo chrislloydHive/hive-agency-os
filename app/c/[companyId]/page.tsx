@@ -5,7 +5,7 @@
 // It surfaces the company's Strategic Snapshot (scores, focus areas, 90-day plan),
 // active work, score trends, alerts, and recent diagnostic activity.
 //
-// MEDIA PROGRAM: Includes conditional media summary based on company.hasMediaProgram
+// MEDIA PROGRAM: Shows Media Lab summary (derived from plans) + operational media status
 
 import { getCompanyById } from '@/lib/airtable/companies';
 import { companyHasMediaProgram } from '@/lib/companies/media';
@@ -19,6 +19,7 @@ import {
   type DiagnosticRun,
 } from '@/lib/os/diagnostics/runs';
 import { getPerformancePulse } from '@/lib/os/analytics/performancePulse';
+import { getMediaLabSummary } from '@/lib/mediaLab';
 import { CompanyOverviewPage } from '@/components/os/CompanyOverviewPage';
 
 // ============================================================================
@@ -57,6 +58,7 @@ export default async function OsOverviewPage({
     scoreTrends,
     alerts,
     performancePulse,
+    mediaLabSummary,
   ] = await Promise.all([
     getCompanyById(companyId),
     getCompanyStrategySnapshot(companyId).catch(() => null),
@@ -74,6 +76,7 @@ export default async function OsOverviewPage({
     })),
     getCompanyAlerts(companyId).catch(() => []),
     getPerformancePulse().catch(() => null),
+    getMediaLabSummary(companyId).catch(() => null),
   ]);
 
   if (!company) {
@@ -123,6 +126,7 @@ export default async function OsOverviewPage({
       scoreTrends={scoreTrends}
       alerts={alerts}
       performancePulse={performancePulse}
+      mediaLabSummary={mediaLabSummary}
     />
   );
 }

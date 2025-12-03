@@ -9,6 +9,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import ReactMarkdown from 'react-markdown';
 import type { DiagnosticToolConfig, DiagnosticToolCategory } from '@/lib/os/diagnostics/tools';
 import type { DiagnosticRun } from '@/lib/os/diagnostics/runs';
 import type { CompanyRecord } from '@/lib/airtable/companies';
@@ -87,6 +88,7 @@ export function ToolReportLayout({
   const [isExtractingInsights, setIsExtractingInsights] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [showRawJson, setShowRawJson] = useState(false);
+  const [showFullReport, setShowFullReport] = useState(false);
 
   // Get icon component
   const IconComponent = (LucideIcons as unknown as Record<string, React.ComponentType<{ className?: string }>>)[tool.icon] || LucideIcons.HelpCircle;
@@ -231,6 +233,17 @@ export function ToolReportLayout({
           score: (rawConfidence as any).score || 50,
           reason: (rawConfidence as any).reason || (rawConfidence as any).summary,
         };
+
+  // Extract full report markdown if available
+  // - Full GAP V4 multi-pass: rawData.growthPlan.refinedMarkdown or rawData.refinedMarkdown
+  // - GAP IA: rawData.iaReportMarkdown (stored on the run record)
+  const growthPlan = rawData?.growthPlan as Record<string, unknown> | undefined;
+  const fullReportMarkdown: string | null =
+    (growthPlan?.refinedMarkdown as string) ||
+    (rawData?.refinedMarkdown as string) ||
+    (rawData?.iaReportMarkdown as string) ||
+    (fullGap?.refinedMarkdown as string) ||
+    null;
 
   return (
     <div className="space-y-6">
@@ -518,6 +531,29 @@ export function ToolReportLayout({
           </div>
         );
       })}
+
+      {/* View Full Report (Collapsible) - Shows formatted markdown report */}
+      {fullReportMarkdown && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden">
+          <button
+            onClick={() => setShowFullReport(!showFullReport)}
+            className="w-full px-5 py-4 text-left text-sm font-medium text-slate-300 hover:bg-slate-800/50 transition-colors flex items-center justify-between"
+          >
+            <span className="flex items-center gap-2">
+              <LucideIcons.FileText className="w-4 h-4" />
+              View Full Report
+            </span>
+            <LucideIcons.ChevronDown className={`w-4 h-4 transition-transform ${showFullReport ? 'rotate-180' : ''}`} />
+          </button>
+          {showFullReport && (
+            <div className="px-5 pb-5">
+              <div className="prose prose-invert prose-sm max-w-none prose-headings:text-slate-100 prose-h1:text-2xl prose-h2:text-xl prose-h2:border-b prose-h2:border-slate-700 prose-h2:pb-2 prose-h2:mt-8 prose-h3:text-lg prose-p:text-slate-300 prose-strong:text-slate-200 prose-ul:text-slate-300 prose-ol:text-slate-300 prose-li:text-slate-300 prose-table:text-sm prose-th:text-slate-300 prose-th:bg-slate-800/50 prose-th:px-3 prose-th:py-2 prose-td:text-slate-400 prose-td:px-3 prose-td:py-2 prose-td:border-slate-700 prose-hr:border-slate-700">
+                <ReactMarkdown>{fullReportMarkdown}</ReactMarkdown>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Raw JSON (Collapsible) */}
       {run.rawJson !== undefined && run.rawJson !== null ? (
