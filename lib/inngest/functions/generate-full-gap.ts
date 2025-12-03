@@ -9,6 +9,7 @@ import { generateLightFullGapFromIa } from '@/lib/growth-plan/generateLightFullG
 import { reviewFullGap } from '@/lib/growth-plan/reviewFullGap';
 import { generateFullGapDraft } from '@/lib/gap/generateFullGapDraft';
 import { refineFullGapReport } from '@/lib/gap/refineFullGap';
+import { generateFullGapAnalysisCore } from '@/lib/gap/core';
 import type { GrowthAccelerationPlan } from '@/lib/growth-plan/types';
 
 // ============================================================================
@@ -298,6 +299,29 @@ export const generateFullGap = inngest.createFunction(
       }
     });
 
+    // Step 4f: Generate V4 Dimension Analyses (rich consultant-style content)
+    const v4DimensionAnalyses = await step.run('generate-v4-dimension-analyses', async () => {
+      console.log('[inngest:generate-full-gap] Generating V4 dimension analyses...');
+
+      try {
+        const v4Output = await generateFullGapAnalysisCore({
+          gapIa: gapIaRun as any,
+          domain: gapIaRun.domain,
+          url: gapIaRun.url,
+        });
+
+        console.log('[inngest:generate-full-gap] ✓ V4 dimension analyses generated:', {
+          dimensionCount: (v4Output as any).dimensionAnalyses?.length || 0,
+        });
+
+        return (v4Output as any).dimensionAnalyses || [];
+      } catch (error) {
+        console.warn('[inngest:generate-full-gap] V4 dimension analyses failed, using fallback:', error);
+        // Fallback: return empty array (UI will use iaDimensions)
+        return [];
+      }
+    });
+
     // Compose the Full GAP Lite by merging GAP-IA data with the light strategic layers
     const plan: GrowthAccelerationPlan = {
       companyName: gapIaRun.core?.businessName || 'Unknown Company',
@@ -314,6 +338,47 @@ export const generateFullGap = inngest.createFunction(
         authority: gapIaRun.dimensions?.authority?.score || 0,
         digitalFootprint: gapIaRun.dimensions?.digitalFootprint?.score || 0,
       },
+
+      // V3+ Business Context & Data Confidence (from GAP-IA) - defensive access
+      businessContext: (gapIaRun as any).businessContext ? {
+        businessType: (gapIaRun as any).businessContext.businessType,
+        businessName: (gapIaRun as any).businessContext.businessName,
+        brandTier: (gapIaRun as any).businessContext.brandTier,
+        maturityStage: (gapIaRun as any).businessContext.maturityStage,
+        primaryOffer: (gapIaRun as any).businessContext?.primaryOffer,
+        targetAudience: (gapIaRun as any).businessContext?.targetAudience,
+        businessIdentitySummary: (gapIaRun as any).businessContext?.businessIdentitySummary,
+      } : undefined,
+
+      // Digital Footprint detection results (from GAP-IA) - defensive access
+      digitalFootprint: (gapIaRun as any).digitalFootprint ? {
+        gbp: (gapIaRun as any).digitalFootprint.gbp,
+        linkedin: (gapIaRun as any).digitalFootprint.linkedin,
+        otherSocials: (gapIaRun as any).digitalFootprint.otherSocials,
+      } : undefined,
+
+      // Data Confidence Score (from GAP-IA, upgraded to full_gap runMode) - defensive access
+      dataConfidenceScore: (gapIaRun as any).dataConfidenceScore ? {
+        score: (gapIaRun as any).dataConfidenceScore.score,
+        level: (gapIaRun as any).dataConfidenceScore.level,
+        subscores: (gapIaRun as any).dataConfidenceScore.subscores,
+        summary: ((gapIaRun as any).dataConfidenceScore.summary || '').replace('Initial Assessment', 'Full GAP Analysis'),
+        dataGaps: (gapIaRun as any).dataConfidenceScore.dataGaps,
+        runMode: 'full_gap' as const,
+      } : undefined,
+
+      // GAP-IA dimensions data (for beefed up dimension scores in UI)
+      iaDimensions: gapIaRun.dimensions ? {
+        brand: gapIaRun.dimensions.brand,
+        content: gapIaRun.dimensions.content,
+        seo: gapIaRun.dimensions.seo,
+        website: gapIaRun.dimensions.website,
+        digitalFootprint: gapIaRun.dimensions.digitalFootprint,
+        authority: gapIaRun.dimensions.authority,
+      } : undefined,
+
+      // Benchmarks data (from GAP-IA)
+      benchmarks: (gapIaRun as any).benchmarks,
 
       // Executive summary with expanded narrative
       executiveSummary: {
@@ -362,6 +427,9 @@ export const generateFullGap = inngest.createFunction(
           keyFindings: gapIaRun.dimensions.authority.issues || [],
         } : undefined,
       },
+
+      // V4 Dimension Analyses - rich consultant-style content (strengths, gaps, opportunities, etc.)
+      dimensionAnalyses: v4DimensionAnalyses && v4DimensionAnalyses.length > 0 ? v4DimensionAnalyses : undefined,
 
       // Quick wins from GAP-IA (already exists)
       quickWins: gapIaRun.quickWins?.bullets?.map(w => ({
@@ -435,6 +503,15 @@ export const generateFullGap = inngest.createFunction(
 
       // Model version
       modelVersion: 'gpt-4o-mini-light-full-gap-v1',
+
+      // Assessment transparency fields (inherited from GAP-IA with upgraded runMode) - defensive access
+      assessmentConfidence: (gapIaRun as any).assessmentConfidence,
+      assessmentScope: (gapIaRun as any).assessmentScope ? {
+        ...(gapIaRun as any).assessmentScope,
+        runMode: 'full_gap' as const,
+        engineVersion: 'Full-GAP v4',
+        runDateIso: new Date().toISOString(),
+      } : undefined,
     } as any as GrowthAccelerationPlan;
 
     console.log('[inngest:generate-full-gap] GAP generation completed');
