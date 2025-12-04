@@ -5,9 +5,9 @@
 // This provides a strategic summary of analytics for decision-making.
 
 import { getCompanyById } from '@/lib/airtable/companies';
-import type { WorkspaceDateRange } from './types';
-import { createDateRange, getWorkspaceGa4Summary, getWorkspaceDailySessions } from './ga4';
-import { getWorkspaceGscSummary } from './gsc';
+import type { WorkspaceDateRange, Ga4ChannelBreakdownItem } from './types';
+import { createDateRange, getWorkspaceGa4Summary, getWorkspaceDailySessions, getCompanyGa4Summary, getCompanyDailySessions } from './ga4';
+import { getWorkspaceGscSummary, getCompanyGscSummary } from './gsc';
 import { isGa4Configured } from '@/lib/os/integrations/ga4Client';
 import { isGscConfigured } from '@/lib/os/integrations/gscClient';
 
@@ -105,8 +105,10 @@ export async function fetchBlueprintAnalytics(
 
     // Check if this COMPANY has analytics configured (not just the workspace)
     // We only show analytics for companies that have their own GA4/GSC credentials
-    const companyHasGa4 = Boolean(company.ga4PropertyId);
-    const companyHasGsc = Boolean(company.searchConsoleSiteUrl);
+    const companyGa4PropertyId = company.ga4PropertyId || null;
+    const companyGscSiteUrl = company.searchConsoleSiteUrl || null;
+    const companyHasGa4 = Boolean(companyGa4PropertyId);
+    const companyHasGsc = Boolean(companyGscSiteUrl);
 
     // If company doesn't have analytics configured, return early
     if (!companyHasGa4 && !companyHasGsc) {
@@ -115,10 +117,14 @@ export async function fetchBlueprintAnalytics(
     }
 
     // Check if workspace integrations are available to fetch the data
-    const [hasGa4, hasGsc] = await Promise.all([
+    const [hasWorkspaceGa4, hasWorkspaceGsc] = await Promise.all([
       companyHasGa4 ? isGa4Configured(workspaceId) : Promise.resolve(false),
       companyHasGsc ? isGscConfigured(workspaceId) : Promise.resolve(false),
     ]);
+
+    // Determine if we can actually fetch data
+    const hasGa4 = companyHasGa4 && hasWorkspaceGa4;
+    const hasGsc = companyHasGsc && hasWorkspaceGsc;
 
     // Create date ranges for current and previous period
     const currentRange = createDateRange(preset);
@@ -128,21 +134,22 @@ export async function fetchBlueprintAnalytics(
     const trendlineRange = createDateRange('30d');
 
     // Fetch current period data + daily sessions for trendline
+    // Use company-specific GA4 property and GSC site URL when available
     const [currentGa4, currentGsc, previousGa4, previousGsc, dailySessions] = await Promise.all([
       hasGa4
-        ? getWorkspaceGa4Summary(currentRange, workspaceId)
+        ? getCompanyGa4Summary(currentRange, companyGa4PropertyId!, workspaceId)
         : Promise.resolve({ traffic: null, channels: [], landingPages: [] }),
       hasGsc
-        ? getWorkspaceGscSummary(currentRange, workspaceId)
+        ? getCompanyGscSummary(currentRange, companyGscSiteUrl!, workspaceId)
         : Promise.resolve({ queries: [], pages: [], totals: { clicks: 0, impressions: 0, avgCtr: null, avgPosition: null } }),
       hasGa4
-        ? getWorkspaceGa4Summary(previousRange, workspaceId).catch(() => ({ traffic: null, channels: [], landingPages: [] }))
+        ? getCompanyGa4Summary(previousRange, companyGa4PropertyId!, workspaceId).catch(() => ({ traffic: null, channels: [], landingPages: [] }))
         : Promise.resolve({ traffic: null, channels: [], landingPages: [] }),
       hasGsc
-        ? getWorkspaceGscSummary(previousRange, workspaceId).catch(() => ({ queries: [], pages: [], totals: { clicks: 0, impressions: 0, avgCtr: null, avgPosition: null } }))
+        ? getCompanyGscSummary(previousRange, companyGscSiteUrl!, workspaceId).catch(() => ({ queries: [], pages: [], totals: { clicks: 0, impressions: 0, avgCtr: null, avgPosition: null } }))
         : Promise.resolve({ queries: [], pages: [], totals: { clicks: 0, impressions: 0, avgCtr: null, avgPosition: null } }),
       hasGa4
-        ? getWorkspaceDailySessions(trendlineRange, workspaceId).catch(() => [])
+        ? getCompanyDailySessions(trendlineRange, companyGa4PropertyId!, workspaceId).catch(() => [])
         : Promise.resolve([]),
     ]);
 
@@ -154,11 +161,11 @@ export async function fetchBlueprintAnalytics(
     const users = currentTraffic?.users ?? 0;
     // Calculate conversions from channels (sum of all channel conversions)
     const conversions = currentGa4.channels.reduce(
-      (sum, ch) => sum + (ch.conversions ?? 0),
+      (sum: number, ch: Ga4ChannelBreakdownItem) => sum + (ch.conversions ?? 0),
       0
     );
     const previousConversions = previousGa4.channels.reduce(
-      (sum, ch) => sum + (ch.conversions ?? 0),
+      (sum: number, ch: Ga4ChannelBreakdownItem) => sum + (ch.conversions ?? 0),
       0
     );
     const bounceRate = currentTraffic?.bounceRate ?? null;
@@ -194,7 +201,7 @@ export async function fetchBlueprintAnalytics(
     // Build top channels
     const topChannels: TopChannel[] = currentGa4.channels
       .slice(0, 3)
-      .map((ch) => {
+      .map((ch: Ga4ChannelBreakdownItem) => {
         const chConversions = ch.conversions ?? 0;
         return {
           channel: ch.channel,
@@ -207,7 +214,7 @@ export async function fetchBlueprintAnalytics(
 
     // Build trendline from real daily sessions data
     const trendline = dailySessions.length > 0
-      ? dailySessions.map(d => d.sessions)
+      ? dailySessions.map((d: { date: string; sessions: number }) => d.sessions)
       : [];
 
     const summary: BlueprintAnalyticsSummary = {

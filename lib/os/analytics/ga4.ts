@@ -288,6 +288,149 @@ export async function getWorkspaceDailySessions(
 }
 
 // ============================================================================
+// Company-Level GA4 Functions (for per-company analytics)
+// ============================================================================
+// These functions use a company's specific GA4 property ID instead of the
+// workspace's default property. This allows fetching per-company analytics.
+
+/**
+ * Get GA4 client configured for a specific company's property
+ * Uses workspace OAuth credentials but targets the company's GA4 property
+ */
+async function getGa4ClientForCompany(
+  companyPropertyId: string,
+  workspaceId?: string
+): Promise<{ client: any; propertyId: string } | null> {
+  // Get the workspace's OAuth credentials (we use workspace auth, company property)
+  const clientConfig = await getGa4ClientFromWorkspace(workspaceId);
+  if (!clientConfig) {
+    return null;
+  }
+
+  // Use the company's property ID instead of the workspace's
+  const formattedPropertyId = companyPropertyId.startsWith('properties/')
+    ? companyPropertyId
+    : `properties/${companyPropertyId}`;
+
+  return {
+    client: clientConfig.client,
+    propertyId: formattedPropertyId,
+  };
+}
+
+/**
+ * Fetches GA4 analytics summary for a specific company's GA4 property
+ */
+export async function getCompanyGa4Summary(
+  range: WorkspaceDateRange,
+  companyPropertyId: string,
+  workspaceId?: string
+): Promise<Ga4WorkspaceSummary> {
+  console.log('[GA4 Company] Fetching data...', {
+    propertyId: companyPropertyId,
+    startDate: range.startDate,
+    endDate: range.endDate,
+  });
+
+  const clientConfig = await getGa4ClientForCompany(companyPropertyId, workspaceId);
+
+  if (!clientConfig) {
+    console.warn('[GA4 Company] Unable to get GA4 client');
+    return {
+      traffic: null,
+      channels: [],
+      landingPages: [],
+    };
+  }
+
+  const { client, propertyId } = clientConfig;
+
+  try {
+    const [traffic, channels, landingPages] = await Promise.all([
+      fetchTrafficSummary(client, propertyId, range.startDate, range.endDate),
+      fetchChannelBreakdown(client, propertyId, range.startDate, range.endDate),
+      fetchLandingPages(client, propertyId, range.startDate, range.endDate),
+    ]);
+
+    console.log('[GA4 Company] Data fetched:', {
+      propertyId: companyPropertyId,
+      sessions: traffic?.sessions,
+      channelCount: channels.length,
+    });
+
+    return { traffic, channels, landingPages };
+  } catch (error) {
+    console.error('[GA4 Company] Error fetching data:', error);
+    return {
+      traffic: null,
+      channels: [],
+      landingPages: [],
+    };
+  }
+}
+
+/**
+ * Fetches daily sessions for a specific company's GA4 property (for trendlines)
+ */
+export async function getCompanyDailySessions(
+  range: WorkspaceDateRange,
+  companyPropertyId: string,
+  workspaceId?: string
+): Promise<DailySessionsItem[]> {
+  console.log('[GA4 Company] Fetching daily sessions...', {
+    propertyId: companyPropertyId,
+    startDate: range.startDate,
+    endDate: range.endDate,
+  });
+
+  const clientConfig = await getGa4ClientForCompany(companyPropertyId, workspaceId);
+
+  if (!clientConfig) {
+    console.warn('[GA4 Company] Unable to get GA4 client for daily sessions');
+    return [];
+  }
+
+  const { client, propertyId } = clientConfig;
+
+  try {
+    const [response] = await client.runReport({
+      property: propertyId,
+      dateRanges: [{ startDate: range.startDate, endDate: range.endDate }],
+      dimensions: [{ name: 'date' }],
+      metrics: [{ name: 'sessions' }],
+      orderBys: [{ dimension: { dimensionName: 'date' }, desc: false }],
+    });
+
+    if (!response.rows || response.rows.length === 0) {
+      console.log('[GA4 Company] No daily sessions data found');
+      return [];
+    }
+
+    const dailyData = response.rows.map((row: any) => {
+      const dateStr = row.dimensionValues?.[0]?.value || '';
+      const formattedDate = dateStr.length === 8
+        ? `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`
+        : dateStr;
+      const sessions = row.metricValues?.[0]?.value
+        ? parseInt(row.metricValues[0].value)
+        : 0;
+
+      return { date: formattedDate, sessions };
+    });
+
+    console.log('[GA4 Company] Daily sessions fetched:', {
+      propertyId: companyPropertyId,
+      days: dailyData.length,
+    });
+
+    return dailyData;
+  } catch (error) {
+    console.error('[GA4 Company] Error fetching daily sessions:', error);
+    return [];
+  }
+}
+
+// ============================================================================
 // Utility Functions
 // ============================================================================
 

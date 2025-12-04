@@ -105,6 +105,100 @@ export async function getWorkspaceGscSummary(
 }
 
 // ============================================================================
+// Company-Level GSC Functions (for per-company analytics)
+// ============================================================================
+// These functions use a company's specific Search Console site URL instead of
+// the workspace's default site. This allows fetching per-company search analytics.
+
+/**
+ * Get GSC client configured for a specific company's site
+ * Uses workspace OAuth credentials but targets the company's GSC site URL
+ */
+async function getGscClientForCompany(
+  companySiteUrl: string,
+  workspaceId?: string
+): Promise<{ client: any; siteUrl: string } | null> {
+  // Get the workspace's OAuth credentials (we use workspace auth, company site)
+  const clientConfig = await getGscClientFromWorkspace(workspaceId);
+  if (!clientConfig) {
+    return null;
+  }
+
+  return {
+    client: clientConfig.client,
+    siteUrl: companySiteUrl,
+  };
+}
+
+/**
+ * Fetches GSC summary for a specific company's site URL
+ */
+export async function getCompanyGscSummary(
+  range: WorkspaceDateRange,
+  companySiteUrl: string,
+  workspaceId?: string
+): Promise<GscWorkspaceSummary> {
+  console.log('[GSC Company] Fetching data...', {
+    siteUrl: companySiteUrl,
+    startDate: range.startDate,
+    endDate: range.endDate,
+  });
+
+  const clientConfig = await getGscClientForCompany(companySiteUrl, workspaceId);
+
+  if (!clientConfig) {
+    console.warn('[GSC Company] Unable to get GSC client');
+    return {
+      queries: [],
+      pages: [],
+      totals: {
+        clicks: 0,
+        impressions: 0,
+        avgCtr: null,
+        avgPosition: null,
+      },
+    };
+  }
+
+  const { client, siteUrl } = clientConfig;
+
+  try {
+    const [queries, pages] = await Promise.all([
+      fetchTopQueries(client, siteUrl, range.startDate, range.endDate),
+      fetchTopPages(client, siteUrl, range.startDate, range.endDate),
+    ]);
+
+    const totals = calculateTotals(queries);
+
+    console.log('[GSC Company] Data fetched:', {
+      siteUrl: companySiteUrl,
+      queryCount: queries.length,
+      pageCount: pages.length,
+      totalClicks: totals.clicks,
+    });
+
+    return { queries, pages, totals };
+  } catch (error: any) {
+    if (error?.message?.includes('permission') || error?.code === 403) {
+      console.warn('[GSC Company] Permission denied for site:', companySiteUrl);
+    } else {
+      console.error('[GSC Company] Error fetching data:', error);
+    }
+
+    return {
+      queries: [],
+      pages: [],
+      totals: {
+        clicks: 0,
+        impressions: 0,
+        avgCtr: null,
+        avgPosition: null,
+      },
+    };
+  }
+}
+
+// ============================================================================
 // Query Fetching
 // ============================================================================
 
