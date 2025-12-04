@@ -48,7 +48,7 @@ import type {
   AnalyticsStrategicInsight,
 } from '@/lib/os/analytics/blueprintDataFetcher';
 import type { MediaLabSummary } from '@/lib/types/mediaLab';
-import { MediaBlueprintEmptyState } from '@/components/os/media';
+import type { AudienceLabSummary } from '@/lib/audience/storage';
 import {
   formatMediaBudget,
   getObjectiveLabel,
@@ -131,6 +131,7 @@ export interface BlueprintClientProps {
   analyticsInsights?: AnalyticsStrategicInsight[];
   recommendedTools?: SerializedRecommendedTool[];
   mediaLabSummary?: MediaLabSummary | null;
+  audienceLabSummary?: AudienceLabSummary | null;
 }
 
 // ============================================================================
@@ -223,6 +224,18 @@ function getToolIconSvg(icon: ToolIcon): ReactNode {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
         </svg>
       );
+    case 'tv':
+      return (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+        </svg>
+      );
+    case 'users':
+      return (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+        </svg>
+      );
     default:
       return (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -249,6 +262,7 @@ export function BlueprintClient({
   analyticsInsights,
   recommendedTools,
   mediaLabSummary,
+  audienceLabSummary,
 }: BlueprintClientProps) {
   const router = useRouter();
   const [runningTools, setRunningTools] = useState<Set<CompanyToolId>>(new Set());
@@ -713,36 +727,33 @@ export function BlueprintClient({
       </div>
 
       {/* ================================================================== */}
-      {/* Media & Demand Engine - Full Width Below Columns */}
+      {/* Media Program Summary - Only show if there's actual output */}
       {/* ================================================================== */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-zinc-100">Media & Demand Engine</h3>
-            <p className="text-xs text-zinc-400">
-              How reliably paid media and demand programs are driving installs, leads, or pipeline.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            {(mediaLabSummary?.hasMediaProgram || mediaLabSummary?.activePlanCount) && (
+      {mediaLabSummary && (mediaLabSummary.hasMediaProgram || mediaLabSummary.activePlanCount > 0) && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-zinc-100">Media Program</h3>
+              <p className="text-xs text-zinc-400">
+                Active media plans and demand programs.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
               <Link
                 href={`/c/${company.id}/diagnostics/media`}
                 className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
               >
                 Media Lab
               </Link>
-            )}
-            <Link
-              href={`/c/${company.id}/media`}
-              className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
-            >
-              View Media
-            </Link>
+              <Link
+                href={`/c/${company.id}/media`}
+                className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
+              >
+                View Media
+              </Link>
+            </div>
           </div>
-        </div>
 
-        {/* Show Media Lab summary if there are plans */}
-        {mediaLabSummary && (mediaLabSummary.hasMediaProgram || mediaLabSummary.activePlanCount > 0) ? (
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
             <div className="flex items-start gap-4">
               <div className="w-12 h-12 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0">
@@ -810,41 +821,76 @@ export function BlueprintClient({
               </div>
             </div>
           </div>
-        ) : company.hasMediaProgram ? (
-          /* Operational media program active but no Media Lab plans */
+        </section>
+      )}
+
+      {/* ================================================================== */}
+      {/* Audience Model Summary - Only show if there's actual output */}
+      {/* ================================================================== */}
+      {audienceLabSummary?.hasAudienceModel && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-zinc-100">Audience Model</h3>
+              <p className="text-xs text-zinc-400">
+                Target segments and personas for this company.
+              </p>
+            </div>
+            <Link
+              href={`/c/${company.id}/diagnostics/audience`}
+              className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+            >
+              Audience Lab
+            </Link>
+          </div>
+
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-                <svg className="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-lg bg-violet-500/20 flex items-center justify-center flex-shrink-0">
+                <svg className="w-6 h-6 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                 </svg>
               </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-slate-200">Media Program Active</p>
-                <p className="text-xs text-slate-400">
-                  Performance media channels, store scorecards, and demand metrics are available.
-                </p>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-medium text-slate-200">Audience Model</p>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                    audienceLabSummary.source === 'ai_seeded'
+                      ? 'bg-violet-500/10 text-violet-400 border-violet-500/30'
+                      : audienceLabSummary.source === 'manual'
+                      ? 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+                      : 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                  }`}>
+                    {audienceLabSummary.source === 'ai_seeded' ? 'AI Generated' : audienceLabSummary.source === 'manual' ? 'Manual' : 'Mixed'}
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    v{audienceLabSummary.version}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                  <span>
+                    <span className="text-slate-500">Segments:</span>{' '}
+                    <span className="text-slate-300">{audienceLabSummary.segmentCount}</span>
+                  </span>
+                  {audienceLabSummary.primarySegments.length > 0 && (
+                    <span className="truncate max-w-[300px]">
+                      {audienceLabSummary.primarySegments.join(', ')}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-shrink-0">
                 <Link
-                  href={`/c/${company.id}/diagnostics/media`}
-                  className="inline-flex items-center rounded-lg border border-dashed border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-400 hover:border-slate-500 hover:text-slate-300 transition-colors"
+                  href={`/c/${company.id}/diagnostics/audience`}
+                  className="inline-flex items-center rounded-lg border border-violet-700/50 bg-violet-900/30 px-3 py-1.5 text-xs font-medium text-violet-300 hover:border-violet-500 hover:bg-violet-800/30 transition-colors"
                 >
-                  Create Plan
-                </Link>
-                <Link
-                  href={`/c/${company.id}/media`}
-                  className="inline-flex items-center rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-100 hover:border-zinc-500 hover:bg-zinc-800 transition-colors"
-                >
-                  Open Media Dashboard
+                  Edit Segments
                 </Link>
               </div>
             </div>
           </div>
-        ) : (
-          <MediaBlueprintEmptyState companyId={company.id} />
-        )}
-      </section>
+        </section>
+      )}
 
       {/* ================================================================== */}
       {/* Diagnostics & Tools Grid - Full Width */}

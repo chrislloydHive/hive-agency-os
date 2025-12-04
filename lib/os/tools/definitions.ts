@@ -337,6 +337,54 @@ export const OS_TOOL_DEFINITIONS: OsToolDefinition[] = [
     requirements: ['Connect GA4', 'Connect Search Console (recommended)'],
     status: 'available',
   },
+
+  // ==========================================================================
+  // Strategic Tools
+  // ==========================================================================
+  {
+    id: 'media-lab',
+    name: 'Media Lab',
+    kind: 'other',
+    recommendedOrder: 'asNeeded',
+    impact: 'high',
+    estimatedRunTime: '~5–10 min',
+    frequencyHint: 'Run when planning or optimizing paid media programs.',
+    shortSummary: 'AI-powered media strategy planner with channel mix and budgets.',
+    detailedSummary:
+      'Media Lab designs AI-powered media strategies with channel recommendations, budget allocation, and performance forecasts. Compare scenarios and promote plans into active media programs.',
+    helpsAnswer:
+      'What is the optimal media mix and budget allocation to achieve our marketing objectives?',
+    primaryOutputs: [
+      'Channel mix recommendations',
+      'Budget allocation plan',
+      'Performance forecasts',
+      'Scenario comparisons',
+    ],
+    influences: ['Strategy', 'Blueprint Focus', 'Work'],
+    status: 'available',
+  },
+  {
+    id: 'audience-lab',
+    name: 'Audience Lab',
+    kind: 'other',
+    recommendedOrder: 'asNeeded',
+    impact: 'high',
+    estimatedRunTime: '~5–10 min',
+    frequencyHint: 'Run when defining or refining target audiences and personas.',
+    shortSummary: 'Define audience segments and personas for targeting and messaging.',
+    detailedSummary:
+      'Audience Lab helps define and manage audience segments and personas. AI-powered generation from diagnostic signals, with packs for Media Lab and Creative briefs.',
+    helpsAnswer:
+      'Who are our target audiences and how should we speak to them?',
+    primaryOutputs: [
+      'Audience segments',
+      'Persona profiles',
+      'Targeting recommendations',
+      'Messaging guidance',
+    ],
+    influences: ['Strategy', 'Blueprint Focus', 'Brain'],
+    status: 'available',
+  },
 ];
 
 // ============================================================================
@@ -408,6 +456,8 @@ export function osToolIdToCompanyToolId(osToolId: string): string | undefined {
     'demand-lab': 'demandLab',
     'ops-lab': 'opsLab',
     'analytics-scan': 'analyticsScan',
+    'media-lab': 'mediaLab',
+    'audience-lab': 'audienceLab',
   };
   return mapping[osToolId];
 }
@@ -427,6 +477,8 @@ export function companyToolIdToOsToolId(companyToolId: string): string | undefin
     demandLab: 'demand-lab',
     opsLab: 'ops-lab',
     analyticsScan: 'analytics-scan',
+    mediaLab: 'media-lab',
+    audienceLab: 'audience-lab',
   };
   return mapping[companyToolId];
 }
@@ -476,6 +528,8 @@ export function getToolIconName(toolId: string): string {
     'demand-lab': 'trendingUp',
     'ops-lab': 'settings',
     'analytics-scan': 'barChart',
+    'media-lab': 'tv',
+    'audience-lab': 'users',
   };
   return iconMapping[toolId] || 'zap';
 }
