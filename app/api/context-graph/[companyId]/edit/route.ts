@@ -7,6 +7,7 @@ import { loadContextGraph, saveContextGraph } from '@/lib/contextGraph/storage';
 import { createEmptyContextGraph } from '@/lib/contextGraph/companyContextGraph';
 import { createProvenance, ProvenanceSource } from '@/lib/contextGraph/mutate';
 import { getFieldEditability } from '@/lib/contextGraph/editability';
+import { calculateGraphSummary, formatSummaryForLog } from '@/lib/contextGraph/sectionSummary';
 import type { ProvenanceTag } from '@/lib/contextGraph/types';
 
 interface EditRequestBody {
@@ -136,8 +137,8 @@ export async function POST(
     // Update graph metadata
     graph.meta.updatedAt = new Date().toISOString();
 
-    // Save the graph
-    const saved = await saveContextGraph(graph);
+    // Save the graph with source tracking
+    const saved = await saveContextGraph(graph, 'manual');
     if (!saved) {
       return NextResponse.json(
         { error: 'Failed to save context graph' },
@@ -145,12 +146,23 @@ export async function POST(
       );
     }
 
-    // Return the updated graph
+    // Calculate and log summary for debugging
+    const summary = calculateGraphSummary(graph);
+    console.log(`[Context Graph Edit] ${action} ${path}`);
+    console.log(formatSummaryForLog(summary));
+
+    // Return the updated graph with summary
     return NextResponse.json({
       success: true,
       path,
       action,
       graph: saved.graph,
+      summary: {
+        health: Math.round(summary.health * 100),
+        completeness: Math.round(summary.completeness * 100),
+        totalPopulated: summary.totalPopulated,
+        totalFields: summary.totalFields,
+      },
     });
   } catch (error) {
     console.error('[Context Graph Edit] Error:', error);

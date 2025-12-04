@@ -268,6 +268,59 @@ export async function batchUpdate(
 }
 
 /**
+ * Update a single field and persist with summary recalculation
+ * This is the main entry point for UI edits and Lab writes
+ *
+ * @returns Updated graph and summary info
+ */
+export async function updateFieldAndSave(
+  companyId: string,
+  path: string,
+  value: unknown,
+  provenance: ProvenanceTag
+): Promise<{
+  graph: CompanyContextGraph;
+  summary: { health: number; completeness: number } | null;
+}> {
+  // Lazy import to avoid circular dependency
+  const { loadContextGraph } = await import('./storage');
+  const { calculateGraphSummary } = await import('./sectionSummary');
+
+  const graph = await loadContextGraph(companyId);
+  if (!graph) {
+    throw new Error(`No context graph found for company ${companyId}`);
+  }
+
+  // Parse path
+  const [domain, ...fieldParts] = path.split('.');
+  const field = fieldParts.join('.');
+
+  if (!field) {
+    throw new Error(`Invalid path: ${path}`);
+  }
+
+  // Update the field
+  setFieldUntyped(graph, domain, field, value, provenance);
+
+  // Save the graph
+  await saveContextGraph(graph);
+
+  // Calculate updated summary
+  const summary = calculateGraphSummary(graph);
+
+  // Log for debugging
+  console.log(`[MergeField] Updated ${path} for ${companyId}: health=${Math.round(summary.health * 100)}%, completeness=${Math.round(summary.completeness * 100)}%`);
+
+  return {
+    graph,
+    summary: {
+      health: summary.health,
+      completeness: summary.completeness,
+    },
+  };
+}
+
+/**
  * Get the most confident value for a field
  * Returns the value with the highest confidence provenance
  */

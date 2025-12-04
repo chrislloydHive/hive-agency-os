@@ -56,7 +56,31 @@ export {
   getLatestProvenance,
   clearField,
   markFusionComplete,
+  updateFieldAndSave,
 } from './mutate';
+
+// ============================================================================
+// Section Summary & Service
+// ============================================================================
+export {
+  type ContextGraphSectionSummary,
+  type ContextGraphSummary,
+  calculateSectionSummary,
+  calculateGraphSummary,
+  recalculateSectionFromPath,
+  formatSummaryForLog,
+} from './sectionSummary';
+
+export {
+  type ContextGraphRecordWithSummary,
+  getOrCreateContextGraphRecord,
+  recalculateContextGraphSummary,
+  updateContextGraphForNode,
+  getContextGraphSummary,
+  getContextGraphSections,
+  contextGraphExists,
+  getQuickStats,
+} from './contextGraphService';
 
 // ============================================================================
 // Fusion Pipeline

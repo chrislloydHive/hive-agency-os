@@ -123,8 +123,8 @@ export async function runFusion(
     // 6. Mark fusion complete
     markFusionComplete(graph, runId);
 
-    // 7. Save the graph
-    await saveContextGraph(graph);
+    // 7. Save the graph with fusion source
+    await saveContextGraph(graph, 'fusion');
 
     // 8. Create snapshot if requested (default: true)
     let versionId: string | undefined;

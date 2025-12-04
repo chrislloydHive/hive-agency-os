@@ -15,16 +15,17 @@ const CONTEXT_GRAPHS_TABLE = AIRTABLE_TABLES.CONTEXT_GRAPHS;
 /**
  * Airtable record structure for Context Graph storage
  *
- * Expected Airtable columns:
+ * Actual Airtable columns (from ContextGraphs table):
  * - Company ID (text) - Links to Companies table by canonical ID
  * - Company Name (text) - Denormalized for easy viewing
  * - Graph JSON (long text) - The full context graph as JSON
  * - Version (text) - Schema version
  * - Completeness Score (number) - 0-100 percentage
- * - Last Fusion At (date) - When AI fusion last ran
- * - Last Fusion Run ID (text) - Run ID of last fusion
+ * - Last Updated By (text) - Source that last updated (e.g., "audience_lab")
  * - Created At (date)
  * - Updated At (date)
+ * - Company (link) - Link to Companies table
+ * - ContextGraphHistory (link) - Link to history table
  */
 
 export interface ContextGraphRecord {
@@ -34,8 +35,7 @@ export interface ContextGraphRecord {
   graph: CompanyContextGraph;
   version: string;
   completenessScore: number | null;
-  lastFusionAt: string | null;
-  lastFusionRunId: string | null;
+  lastUpdatedBy: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -62,8 +62,7 @@ function mapAirtableRecord(record: any): ContextGraphRecord | null {
       graph,
       version: (fields['Version'] as string) || '1.0.0',
       completenessScore: (fields['Completeness Score'] as number) || null,
-      lastFusionAt: (fields['Last Fusion At'] as string) || null,
-      lastFusionRunId: (fields['Last Fusion Run ID'] as string) || null,
+      lastUpdatedBy: (fields['Last Updated By'] as string) || null,
       createdAt: (fields['Created At'] as string) || new Date().toISOString(),
       updatedAt: (fields['Updated At'] as string) || new Date().toISOString(),
     };
@@ -142,10 +141,12 @@ export async function loadContextGraphRecord(
  * Save context graph for a company (create or update)
  *
  * @param graph - The context graph to save
+ * @param source - Optional source identifier for Last Updated By field
  * @returns Saved record or null on error
  */
 export async function saveContextGraph(
-  graph: CompanyContextGraph
+  graph: CompanyContextGraph,
+  source?: string
 ): Promise<ContextGraphRecord | null> {
   try {
     const base = getBase();
@@ -168,16 +169,21 @@ export async function saveContextGraph(
       })
       .firstPage();
 
-    const fields = {
+    const fields: Record<string, unknown> = {
       'Company ID': graph.companyId,
       'Company Name': graph.companyName,
       'Graph JSON': JSON.stringify(graph),
       'Version': graph.meta.version,
       'Completeness Score': completenessScore,
-      'Last Fusion At': graph.meta.lastFusionAt,
-      'Last Fusion Run ID': graph.meta.lastFusionRunId,
       'Updated At': now,
     };
+
+    // Set Last Updated By
+    if (source) {
+      fields['Last Updated By'] = source;
+    } else if (graph.meta.lastFusionRunId) {
+      fields['Last Updated By'] = 'fusion';
+    }
 
     let savedRecord: any;
 

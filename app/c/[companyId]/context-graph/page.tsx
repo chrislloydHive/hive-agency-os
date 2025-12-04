@@ -4,9 +4,10 @@
 import { Suspense } from 'react';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
-import { createEmptyContextGraph, calculateDomainCoverage } from '@/lib/contextGraph/companyContextGraph';
+import { createEmptyContextGraph } from '@/lib/contextGraph/companyContextGraph';
 import { getNeedsRefreshReport } from '@/lib/contextGraph/needsRefresh';
 import { checkContextGraphHealth } from '@/lib/contextGraph/health';
+import { calculateGraphSummary, formatSummaryForLog } from '@/lib/contextGraph/sectionSummary';
 import { ContextGraphClient } from './ContextGraphClient';
 
 interface ContextGraphPageProps {
@@ -37,9 +38,20 @@ export default async function ContextGraphPage({ params }: ContextGraphPageProps
     isNewGraph = true;
   }
 
-  // Calculate health and refresh flags
+  // Calculate health, coverage, and section summaries
   const health = checkContextGraphHealth(graph);
-  const domainCoverage = calculateDomainCoverage(graph);
+  const graphSummary = calculateGraphSummary(graph);
+
+  // Convert section summaries to domain coverage format (0-100 percentage)
+  const domainCoverage = graphSummary.sections.reduce((acc, section) => {
+    acc[section.id] = Math.round(section.coverage * 100);
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Log summary for debugging (server-side)
+  if (!isNewGraph) {
+    console.log(formatSummaryForLog(graphSummary));
+  }
 
   // Get refresh flags (only if graph has data)
   let refreshReport = null;
