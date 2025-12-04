@@ -52,10 +52,18 @@ type PlannerStep =
   | 'refine'
   | 'summary';
 
+interface PrefillSourceTag {
+  source: FieldMetadata['source'];
+  confidence?: number;
+  diagnosticSource?: string;
+}
+
 interface SmartIntakePlannerProps {
   companyId: string;
   companyName: string;
-  initialInputs?: MediaPlanningInputsWithMetadata;
+  initialInputs?: MediaPlanningInputsWithMetadata & {
+    sourceTags?: Record<string, PrefillSourceTag>;
+  };
   onClose?: () => void;
 }
 
@@ -138,28 +146,82 @@ function StepIndicator({
 // Source Badge
 // ============================================================================
 
-function SourceBadge({ source }: { source: FieldMetadata['source'] }) {
+/**
+ * Enhanced source badge that shows specific diagnostic tool when available
+ */
+function SourceBadge({
+  source,
+  diagnosticSource,
+  confidence,
+}: {
+  source: FieldMetadata['source'];
+  diagnosticSource?: string;
+  confidence?: number;
+}) {
   // Skip unknown sources
   if (source === 'unknown') return null;
 
   // Only call getSourceBadgeColor for valid sources
   const validSource = source as 'brain' | 'diagnostics' | 'profile' | 'manual';
   const colors = getSourceBadgeColor(validSource);
-  const labels: Record<string, string> = {
+
+  // Base labels
+  const baseLabels: Record<string, string> = {
     brain: 'From Brain',
     diagnostics: 'From Diagnostics',
     profile: 'From Profile',
     manual: 'Manual',
   };
 
-  return (
-    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${colors.text} ${colors.bg} border ${colors.border}`}>
-      {source === 'brain' && (
+  // Specific diagnostic tool labels
+  const diagnosticLabels: Record<string, string> = {
+    gap: 'From GAP',
+    gap_ia: 'From GAP-IA',
+    gap_full: 'From Full GAP',
+    gap_heavy: 'From Heavy GAP',
+    website_lab: 'From Website Lab',
+    brand_lab: 'From Brand Lab',
+    content_lab: 'From Content Lab',
+    seo_lab: 'From SEO Lab',
+    demand_lab: 'From Demand Lab',
+    ops_lab: 'From Ops Lab',
+  };
+
+  // Determine display label
+  let displayLabel = baseLabels[source];
+  if (source === 'diagnostics' && diagnosticSource) {
+    displayLabel = diagnosticLabels[diagnosticSource] || `From ${diagnosticSource}`;
+  }
+
+  // Icon based on source type
+  const getIcon = () => {
+    if (source === 'brain') {
+      return (
         <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
         </svg>
+      );
+    }
+    if (source === 'diagnostics') {
+      return (
+        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${colors.text} ${colors.bg} border ${colors.border}`}
+      title={confidence !== undefined ? `Confidence: ${Math.round(confidence * 100)}%` : undefined}
+    >
+      {getIcon()}
+      {displayLabel}
+      {confidence !== undefined && confidence < 0.7 && (
+        <span className="opacity-60">~</span>
       )}
-      {labels[source]}
     </span>
   );
 }
@@ -168,16 +230,40 @@ function SourceBadge({ source }: { source: FieldMetadata['source'] }) {
 // Form Field Components
 // ============================================================================
 
+interface SourceTag {
+  source: FieldMetadata['source'];
+  confidence?: number;
+  diagnosticSource?: string;
+}
+
 interface FieldWrapperProps {
   label: string;
   fieldKey: string;
+  /** Category.field path for looking up source tags */
+  fieldPath?: string;
   metadata?: Record<string, FieldMetadata>;
+  /** Optional V2 source tags with detailed diagnostic info */
+  sourceTags?: Record<string, SourceTag>;
   required?: boolean;
   children: React.ReactNode;
 }
 
-function FieldWrapper({ label, fieldKey, metadata, required, children }: FieldWrapperProps) {
+function FieldWrapper({
+  label,
+  fieldKey,
+  fieldPath,
+  metadata,
+  sourceTags,
+  required,
+  children,
+}: FieldWrapperProps) {
   const fieldMeta = metadata?.[fieldKey];
+
+  // Try to get detailed source tag (V2) first, fall back to metadata
+  const sourceTag = fieldPath ? sourceTags?.[fieldPath] : undefined;
+  const source = sourceTag?.source || fieldMeta?.source;
+  const diagnosticSource = sourceTag?.diagnosticSource;
+  const confidence = sourceTag?.confidence;
 
   return (
     <div className="space-y-1.5">
@@ -186,7 +272,13 @@ function FieldWrapper({ label, fieldKey, metadata, required, children }: FieldWr
           {label}
           {required && <span className="text-red-400 ml-0.5">*</span>}
         </label>
-        {fieldMeta && <SourceBadge source={fieldMeta.source} />}
+        {source && (
+          <SourceBadge
+            source={source}
+            diagnosticSource={diagnosticSource}
+            confidence={confidence}
+          />
+        )}
       </div>
       {children}
     </div>
@@ -1371,6 +1463,10 @@ export function SmartIntakePlanner({
     diagnostics: false,
     memory: false,
   });
+  // V2: Detailed source tags with diagnostic tool info
+  const [sourceTags, setSourceTags] = useState<Record<string, PrefillSourceTag>>(
+    initialInputs?.sourceTags || {}
+  );
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoading, setIsLoading] = useState(!initialInputs);
   const [planOptions, setPlanOptions] = useState<AIPlanOption[]>([]);
@@ -1387,6 +1483,9 @@ export function SmartIntakePlanner({
       const hasDiagnostics = metadataValues.some(m => m.source === 'diagnostics');
       const hasProfile = metadataValues.some(m => m.source === 'profile');
       setSources({ brain: hasBrain, profile: hasProfile, diagnostics: hasDiagnostics, memory: false });
+      if (initialInputs.sourceTags) {
+        setSourceTags(initialInputs.sourceTags);
+      }
       setIsLoading(false);
     }
   }, [initialInputs, companyId]);
@@ -1394,7 +1493,8 @@ export function SmartIntakePlanner({
   const loadPrefilledData = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/media/planning/prefill?companyId=${companyId}`);
+      // Use V2 prefill endpoint if available
+      const response = await fetch(`/api/media/planning/prefill?companyId=${companyId}&v2=true`);
       if (response.ok) {
         const data = await response.json();
         console.log('[SmartIntakePlanner] Prefill response:', data);
@@ -1404,6 +1504,11 @@ export function SmartIntakePlanner({
           setInputs(data.data.inputs);
           setMetadata(data.data.metadata || {});
           setSources(data.data.sources || { brain: false, profile: false, diagnostics: false, memory: false });
+          // V2: Set source tags if available
+          if (data.data.sourceTags) {
+            console.log('[SmartIntakePlanner] Setting sourceTags:', Object.keys(data.data.sourceTags).length);
+            setSourceTags(data.data.sourceTags);
+          }
         }
       }
     } catch (error) {

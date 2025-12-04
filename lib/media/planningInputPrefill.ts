@@ -1,13 +1,15 @@
 // lib/media/planningInputPrefill.ts
-// Prefill Media Planning Inputs from Brain & Diagnostics
+// Prefill Media Planning Inputs from Brain & Diagnostics (V2)
 //
 // This module aggregates data from various sources to prefill the 13 input
 // categories for media planning. Sources include:
 // - Brain (Company Brain / Client Brain)
 // - Media Profile
-// - Diagnostics (GAP, Website Lab, Brand Lab, Demand Lab, Ops Lab)
+// - Diagnostics (GAP, Website Lab, Brand Lab, Content Lab, SEO Lab, Demand Lab, Ops Lab)
 // - Media Memory / Media Performance
 // - Company record
+//
+// V2: Added AI-powered diagnostics fusion with per-field source tracking
 
 import { getBrainCompanyContext, type BrainCompanyContext } from '@/lib/brain/companyContext';
 import { getMediaProfile, type MediaProfile } from './mediaProfile';
@@ -23,6 +25,12 @@ import {
   type MediaChannelId,
   createEmptyPlanningInputs,
 } from './planningInput';
+import { loadDiagnosticsBundle } from './diagnosticsLoader';
+import {
+  deriveMediaPlanningInputsFromDiagnostics,
+  type DiagnosticsPrefillResult,
+} from './diagnosticsPrefill';
+import type { DiagnosticsBundle } from './diagnosticsInputs';
 
 // ============================================================================
 // Types
@@ -37,6 +45,34 @@ export interface PrefillResult {
     diagnostics: boolean;
     memory: boolean;
   };
+}
+
+/**
+ * Extended source tag with confidence and diagnostic source info
+ */
+export interface PrefillSourceTag {
+  source: FieldSource;
+  confidence?: number;
+  /** For diagnostics source, which specific tool */
+  diagnosticSource?: string;
+}
+
+/**
+ * V2 prefill result with detailed source tracking
+ */
+export interface PrefillResultV2 {
+  inputs: MediaPlanningInputs;
+  metadata: Record<string, FieldMetadata>;
+  /** Detailed source tags by field path */
+  sourceTags: Record<string, PrefillSourceTag>;
+  sources: {
+    brain: boolean;
+    profile: boolean;
+    diagnostics: boolean;
+    memory: boolean;
+  };
+  /** Raw diagnostics bundle for planner context */
+  diagnosticsBundle?: DiagnosticsBundle;
 }
 
 // ============================================================================
@@ -640,4 +676,178 @@ export async function getPlanningInputsForCompany(
     inputs: result.inputs,
     metadata: result.metadata,
   };
+}
+
+// ============================================================================
+// V2 Prefill with Enhanced Diagnostics Integration
+// ============================================================================
+
+/**
+ * Build prefilled media planning inputs with enhanced diagnostics (V2)
+ *
+ * This version adds:
+ * - AI-powered diagnostics fusion from all lab tools
+ * - Per-field source tracking (brain, profile, gap, website_lab, etc.)
+ * - Confidence scores for AI-derived fields
+ * - Raw diagnostics bundle for planner context
+ */
+export async function buildPrefilledMediaPlanningInputsV2(
+  companyId: string
+): Promise<PrefillResultV2> {
+  console.log('[planningInputPrefill V2] Starting enhanced prefill for:', companyId);
+
+  // 1) Load base prefill from Brain + MediaProfile
+  const baseResult = await buildPrefilledMediaPlanningInputs(companyId);
+
+  // 2) Load diagnostics bundle
+  const diagnosticsBundle = await loadDiagnosticsBundle(companyId);
+
+  // 3) Use AI to derive additional inputs from diagnostics
+  let diagnosticsPrefill: DiagnosticsPrefillResult | null = null;
+  if (Object.values(diagnosticsBundle.availableSources).some(Boolean)) {
+    try {
+      diagnosticsPrefill = await deriveMediaPlanningInputsFromDiagnostics(diagnosticsBundle);
+      console.log('[planningInputPrefill V2] Diagnostics prefill complete:', {
+        fieldsExtracted: Object.keys(diagnosticsPrefill.inputs).length,
+      });
+    } catch (error) {
+      console.error('[planningInputPrefill V2] Diagnostics prefill failed:', error);
+    }
+  }
+
+  // 4) Build source tags from base metadata
+  const sourceTags: Record<string, PrefillSourceTag> = {};
+  for (const [field, meta] of Object.entries(baseResult.metadata)) {
+    sourceTags[field] = {
+      source: meta.source,
+      confidence: meta.confidence === 'high' ? 0.9 : meta.confidence === 'medium' ? 0.7 : 0.5,
+    };
+  }
+
+  // 5) Merge diagnostics prefill into base inputs
+  const mergedInputs = structuredClone(baseResult.inputs);
+  const mergedMetadata = { ...baseResult.metadata };
+
+  if (diagnosticsPrefill) {
+    mergeDeep(
+      mergedInputs,
+      diagnosticsPrefill.inputs,
+      mergedMetadata,
+      sourceTags,
+      diagnosticsPrefill.confidenceByField,
+      diagnosticsPrefill.sourceByField
+    );
+  }
+
+  // 6) Update sources to include diagnostics if we got data
+  const sources = {
+    ...baseResult.sources,
+    diagnostics: baseResult.sources.diagnostics ||
+      Object.values(diagnosticsBundle.availableSources).some(Boolean),
+  };
+
+  console.log('[planningInputPrefill V2] Prefill complete:', {
+    companyId,
+    sources,
+    sourceTagCount: Object.keys(sourceTags).length,
+  });
+
+  return {
+    inputs: mergedInputs,
+    metadata: mergedMetadata,
+    sourceTags,
+    sources,
+    diagnosticsBundle,
+  };
+}
+
+/**
+ * Deep merge diagnostics prefill into base inputs
+ * Only fills gaps - doesn't overwrite existing brain/profile values
+ */
+function mergeDeep(
+  target: MediaPlanningInputs,
+  source: Partial<MediaPlanningInputs>,
+  metadata: Record<string, FieldMetadata>,
+  sourceTags: Record<string, PrefillSourceTag>,
+  confidenceByField: Record<string, number>,
+  sourceByField: Record<string, string>
+): void {
+  for (const [categoryKey, categoryValue] of Object.entries(source)) {
+    if (!categoryValue || typeof categoryValue !== 'object') continue;
+
+    const targetCategory = target[categoryKey as keyof MediaPlanningInputs];
+    if (!targetCategory || typeof targetCategory !== 'object') continue;
+
+    for (const [fieldKey, fieldValue] of Object.entries(categoryValue)) {
+      const fieldPath = `${categoryKey}.${fieldKey}`;
+      const targetField = (targetCategory as Record<string, unknown>)[fieldKey];
+
+      // Only fill if target is empty/null/undefined
+      const targetIsEmpty = targetField === undefined ||
+        targetField === null ||
+        targetField === '' ||
+        (Array.isArray(targetField) && targetField.length === 0);
+
+      if (targetIsEmpty && fieldValue !== undefined && fieldValue !== null && fieldValue !== '') {
+        // Check if it's an array or primitive
+        const valueIsNonEmpty = Array.isArray(fieldValue)
+          ? fieldValue.length > 0
+          : true;
+
+        if (valueIsNonEmpty) {
+          // Set the value
+          (targetCategory as Record<string, unknown>)[fieldKey] = fieldValue;
+
+          // Track source
+          const confidence = confidenceByField[fieldPath] || 0.6;
+          const diagnosticSource = sourceByField[fieldPath] || 'diagnostics';
+
+          metadata[fieldKey] = {
+            source: 'diagnostics',
+            confidence: confidence >= 0.8 ? 'high' : confidence >= 0.6 ? 'medium' : 'low',
+            lastUpdated: new Date().toISOString(),
+          };
+
+          sourceTags[fieldPath] = {
+            source: 'diagnostics',
+            confidence,
+            diagnosticSource,
+          };
+
+          console.log('[mergeDeep] Filled field from diagnostics:', {
+            fieldPath,
+            confidence,
+            diagnosticSource,
+          });
+        }
+      }
+    }
+  }
+}
+
+// ============================================================================
+// Helper: Get display label for diagnostic source
+// ============================================================================
+
+/**
+ * Get a human-readable label for a diagnostic source
+ */
+export function getDiagnosticSourceDisplayLabel(source: string): string {
+  const labels: Record<string, string> = {
+    gap: 'From GAP',
+    gap_ia: 'From GAP-IA',
+    gap_full: 'From Full GAP',
+    gap_heavy: 'From Heavy GAP',
+    website_lab: 'From Website Lab',
+    brand_lab: 'From Brand Lab',
+    content_lab: 'From Content Lab',
+    seo_lab: 'From SEO Lab',
+    demand_lab: 'From Demand Lab',
+    ops_lab: 'From Ops Lab',
+    brain: 'From Brain',
+    profile: 'From Profile',
+    diagnostics: 'From Diagnostics',
+  };
+  return labels[source] || `From ${source}`;
 }
