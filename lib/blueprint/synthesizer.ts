@@ -189,9 +189,17 @@ export async function generateStrategySynthesis(
   const systemPrompt = `You are a strategic marketing consultant AI analyzing a company's marketing health.
 Based on the provided diagnostics, analytics, and work data, synthesize a strategic plan.
 
+IMPORTANT NARRATIVE GUIDELINES:
+- The strategicNarrative must be SPECIFIC to the actual data, not generic observations
+- Focus on concrete numbers, scores, and specific issues from the data
+- NEVER use generic phrases like "experiencing significant decline" or "urgent need to address"
+- Instead, cite specific scores (e.g., "SEO score of 45 indicates technical debt") or metrics
+- Lead with the most actionable insight, not the most obvious trend observation
+- If multiple areas need attention, prioritize based on impact, don't just list trends
+
 Output your response as valid JSON matching this exact structure:
 {
-  "strategicNarrative": "A 2-3 sentence strategic summary of the company's current situation and recommended direction",
+  "strategicNarrative": "Lead with the primary strategic opportunity or risk, backed by specific data points. What should change and why.",
   "topFocusAreas": [
     {
       "title": "Focus area name",
@@ -231,12 +239,12 @@ Output your response as valid JSON matching this exact structure:
 }
 
 Guidelines:
-- Focus on actionable, specific recommendations
+- Focus on actionable, specific recommendations with concrete outcomes
 - Prioritize high-impact, low-effort actions first
 - Consider the current work status and avoid overwhelming
-- If analytics show declining trends, prioritize addressing those
-- If diagnostic scores are low in an area, include related tools in suggestions
-- Keep the strategic narrative concise but insightful
+- Reference specific diagnostic scores and issues by name
+- Keep the strategic narrative punchy - 2 sentences max, data-backed
+- Avoid vague language like "significant", "urgent", "critical" without data
 - Include 3-5 focus areas max
 - Include 5-8 prioritized actions max
 - Include 2-4 suggested tools max
