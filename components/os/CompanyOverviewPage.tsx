@@ -14,6 +14,7 @@ import { formatDistanceToNow } from 'date-fns';
 import QuickHealthCheckCard from './QuickHealthCheckCard';
 import { CompanyActivityTimeline } from './CompanyActivityTimeline';
 import { MediaEmptyStateCompact } from './media';
+import ContextHealthCard from './ContextHealthCard';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
 import type { DiagnosticRunStatus, DiagnosticToolId, CompanyScoreTrends } from '@/lib/os/diagnostics/runs';
 import type { CompanyWorkSummary } from '@/lib/os/companies/workSummary';
@@ -893,6 +894,9 @@ export function CompanyOverviewPage({
 
           {/* Performance Pulse Card */}
           <PerformancePulseCard pulse={performancePulse} />
+
+          {/* Context Graph Health Card */}
+          <ContextHealthCard companyId={companyId} />
         </div>
       </div>
 

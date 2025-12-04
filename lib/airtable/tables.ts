@@ -41,6 +41,11 @@ export const AIRTABLE_TABLES = {
 
   // Context Graph
   CONTEXT_GRAPHS: 'ContextGraphs', // Company Context Graph storage (JSON blobs)
+  CONTEXT_GRAPH_VERSIONS: 'ContextGraphVersions', // Version history of context graphs
+
+  // Audience Lab
+  AUDIENCE_MODELS: 'AudienceModels', // Audience Model storage (JSON blobs)
+  AUDIENCE_PERSONAS: 'AudiencePersonas', // Persona sets storage (JSON blobs)
 
   // Legacy/deprecated (for migration reference)
   // GAP_RUNS_OLD: 'GAP Runs',

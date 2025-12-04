@@ -101,39 +101,454 @@ function getInsightIcon(type: 'strength' | 'warning' | 'opportunity') {
 }
 
 // ============================================================================
-// Mini Sparkline Component
+// Trend Chart Component (Full Width Area Chart with Hover Detail)
 // ============================================================================
 
-function Sparkline({ data, color = '#f59e0b' }: { data: number[]; color?: string }) {
+function TrendChart({ data, color = '#f59e0b' }: { data: number[]; color?: string }) {
+  const [showDetail, setShowDetail] = useState(false);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
   if (!data || data.length < 2) return null;
 
   const max = Math.max(...data);
   const min = Math.min(...data);
   const range = max - min || 1;
 
-  const width = 120;
-  const height = 32;
-  const padding = 2;
+  // Calculate stats
+  const total = data.reduce((sum, v) => sum + v, 0);
+  const avg = total / data.length;
+  const firstValue = data[0];
+  const lastValue = data[data.length - 1];
+  const trendPercent = firstValue > 0 ? ((lastValue - firstValue) / firstValue) * 100 : 0;
+  const isPositive = trendPercent >= 0;
 
-  const points = data.map((value, index) => {
-    const x = padding + (index / (data.length - 1)) * (width - 2 * padding);
-    const y = height - padding - ((value - min) / range) * (height - 2 * padding);
-    return `${x},${y}`;
-  });
+  // Find best and worst days
+  const maxIndex = data.indexOf(max);
+  const minIndex = data.indexOf(min);
 
-  const pathD = `M ${points.join(' L ')}`;
+  // Week-over-week comparison (last 7 days vs previous 7 days)
+  const last7 = data.slice(-7).reduce((sum, v) => sum + v, 0);
+  const prev7 = data.slice(-14, -7).reduce((sum, v) => sum + v, 0);
+  const wow = prev7 > 0 ? ((last7 - prev7) / prev7) * 100 : 0;
+
+  // Generate date labels
+  const getDateLabel = (daysAgo: number) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (data.length - 1 - daysAgo));
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
 
   return (
-    <svg width={width} height={height} className="overflow-visible">
-      <path
-        d={pathD}
-        fill="none"
-        stroke={color}
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
+    <div className="w-full relative">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500 uppercase tracking-wide">30-Day Sessions Trend</span>
+          <button
+            onClick={() => setShowDetail(!showDetail)}
+            className="text-[10px] text-amber-400 hover:text-amber-300 transition-colors"
+          >
+            {showDetail ? 'Less' : 'More'}
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-400">
+            {formatNumber(lastValue)} today
+          </span>
+          <span className={`text-xs font-medium ${isPositive ? 'text-emerald-400' : 'text-red-400'}`}>
+            {isPositive ? '+' : ''}{trendPercent.toFixed(1)}%
+          </span>
+        </div>
+      </div>
+
+      {/* Mini Chart (always visible) */}
+      <MiniTrendChart
+        data={data}
+        color={color}
+        height={80}
+        hoveredIndex={hoveredIndex}
+        onHover={setHoveredIndex}
+        getDateLabel={getDateLabel}
       />
-    </svg>
+
+      {/* Expanded Detail Panel */}
+      {showDetail && (
+        <div className="mt-4 pt-4 border-t border-slate-700/50">
+          {/* Stats Grid */}
+          <div className="grid grid-cols-4 gap-3 mb-4">
+            <div className="text-center">
+              <p className="text-[10px] text-slate-500 uppercase">Total</p>
+              <p className="text-sm font-semibold text-slate-200">{formatNumber(total)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-slate-500 uppercase">Daily Avg</p>
+              <p className="text-sm font-semibold text-slate-200">{formatNumber(Math.round(avg))}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-slate-500 uppercase">Best Day</p>
+              <p className="text-sm font-semibold text-emerald-400">{formatNumber(max)}</p>
+              <p className="text-[10px] text-slate-500">{getDateLabel(maxIndex)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-slate-500 uppercase">Worst Day</p>
+              <p className="text-sm font-semibold text-red-400">{formatNumber(min)}</p>
+              <p className="text-[10px] text-slate-500">{getDateLabel(minIndex)}</p>
+            </div>
+          </div>
+
+          {/* Week over Week */}
+          <div className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50">
+            <div>
+              <p className="text-xs text-slate-400">Week over Week</p>
+              <p className="text-[10px] text-slate-500">Last 7 days vs previous 7 days</p>
+            </div>
+            <div className="text-right">
+              <p className={`text-sm font-semibold ${wow >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {wow >= 0 ? '+' : ''}{wow.toFixed(1)}%
+              </p>
+              <p className="text-[10px] text-slate-500">
+                {formatNumber(last7)} vs {formatNumber(prev7)}
+              </p>
+            </div>
+          </div>
+
+          {/* Larger Interactive Chart */}
+          <div className="mt-4">
+            <DetailTrendChart
+              data={data}
+              color={color}
+              getDateLabel={getDateLabel}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Mini chart component (the default view)
+function MiniTrendChart({
+  data,
+  color,
+  height,
+  hoveredIndex,
+  onHover,
+  getDateLabel,
+}: {
+  data: number[];
+  color: string;
+  height: number;
+  hoveredIndex: number | null;
+  onHover: (index: number | null) => void;
+  getDateLabel: (index: number) => string;
+}) {
+  const max = Math.max(...data);
+  const min = Math.min(...data);
+  const range = max - min || 1;
+  const paddingY = 8;
+
+  const points = data.map((value, index) => {
+    const x = (index / (data.length - 1)) * 100;
+    const y = height - paddingY - ((value - min) / range) * (height - 2 * paddingY);
+    return { x, y, value };
+  });
+
+  const linePath = `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}`;
+  const areaPath = `${linePath} L 100,${height} L 0,${height} Z`;
+
+  return (
+    <div className="relative w-full" style={{ height }}>
+      <svg
+        viewBox={`0 0 100 ${height}`}
+        preserveAspectRatio="none"
+        className="w-full h-full overflow-visible"
+        onMouseLeave={() => onHover(null)}
+      >
+        <defs>
+          <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+            <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+
+        {/* Grid lines */}
+        <line x1="0" y1={paddingY} x2="100" y2={paddingY} stroke="#334155" strokeWidth="0.5" strokeDasharray="2,2" vectorEffect="non-scaling-stroke" />
+        <line x1="0" y1={height / 2} x2="100" y2={height / 2} stroke="#334155" strokeWidth="0.5" strokeDasharray="2,2" vectorEffect="non-scaling-stroke" />
+        <line x1="0" y1={height - paddingY} x2="100" y2={height - paddingY} stroke="#334155" strokeWidth="0.5" strokeDasharray="2,2" vectorEffect="non-scaling-stroke" />
+
+        {/* Area fill */}
+        <path d={areaPath} fill="url(#trendGradient)" />
+
+        {/* Line */}
+        <path
+          d={linePath}
+          fill="none"
+          stroke={color}
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+        />
+
+        {/* Hover detection zones */}
+        {points.map((point, index) => (
+          <rect
+            key={index}
+            x={point.x - 100 / data.length / 2}
+            y={0}
+            width={100 / data.length}
+            height={height}
+            fill="transparent"
+            onMouseEnter={() => onHover(index)}
+            style={{ cursor: 'crosshair' }}
+          />
+        ))}
+
+        {/* Hovered point */}
+        {hoveredIndex !== null && points[hoveredIndex] && (
+          <>
+            <line
+              x1={points[hoveredIndex].x}
+              y1={0}
+              x2={points[hoveredIndex].x}
+              y2={height}
+              stroke="#64748b"
+              strokeWidth={1}
+              strokeDasharray="2,2"
+              vectorEffect="non-scaling-stroke"
+            />
+            <circle
+              cx={points[hoveredIndex].x}
+              cy={points[hoveredIndex].y}
+              r={5}
+              fill={color}
+              stroke="#1e293b"
+              strokeWidth={2}
+              vectorEffect="non-scaling-stroke"
+            />
+          </>
+        )}
+
+        {/* End point dot (when not hovering) */}
+        {hoveredIndex === null && (
+          <circle
+            cx={points[points.length - 1].x}
+            cy={points[points.length - 1].y}
+            r={4}
+            fill={color}
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
+      </svg>
+
+      {/* Hover tooltip */}
+      {hoveredIndex !== null && points[hoveredIndex] && (
+        <div
+          className="absolute z-10 px-2 py-1 rounded bg-slate-800 border border-slate-700 shadow-lg pointer-events-none"
+          style={{
+            left: `${points[hoveredIndex].x}%`,
+            top: points[hoveredIndex].y - 40,
+            transform: 'translateX(-50%)',
+          }}
+        >
+          <p className="text-xs font-medium text-slate-200">{formatNumber(data[hoveredIndex])} sessions</p>
+          <p className="text-[10px] text-slate-400">{getDateLabel(hoveredIndex)}</p>
+        </div>
+      )}
+
+      {/* X-axis labels */}
+      <div className="absolute bottom-0 left-0 right-0 flex justify-between text-[10px] text-slate-500 translate-y-full pt-1">
+        <span>30d ago</span>
+        <span>Today</span>
+      </div>
+    </div>
+  );
+}
+
+// Detailed chart component (shown when expanded)
+function DetailTrendChart({
+  data,
+  color,
+  getDateLabel,
+}: {
+  data: number[];
+  color: string;
+  getDateLabel: (index: number) => string;
+}) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
+  const max = Math.max(...data);
+  const min = Math.min(...data);
+  const range = max - min || 1;
+  const height = 160;
+  const paddingY = 12;
+
+  const points = data.map((value, index) => {
+    const x = (index / (data.length - 1)) * 100;
+    const y = height - paddingY - ((value - min) / range) * (height - 2 * paddingY);
+    return { x, y, value };
+  });
+
+  const linePath = `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}`;
+  const areaPath = `${linePath} L 100,${height} L 0,${height} Z`;
+
+  // Calculate 7-day moving average
+  const movingAvg = data.map((_, index) => {
+    const start = Math.max(0, index - 6);
+    const slice = data.slice(start, index + 1);
+    return slice.reduce((sum, v) => sum + v, 0) / slice.length;
+  });
+
+  const avgPoints = movingAvg.map((value, index) => {
+    const x = (index / (data.length - 1)) * 100;
+    const y = height - paddingY - ((value - min) / range) * (height - 2 * paddingY);
+    return { x, y, value };
+  });
+
+  const avgLinePath = `M ${avgPoints.map(p => `${p.x},${p.y}`).join(' L ')}`;
+
+  return (
+    <div className="relative w-full" style={{ height: height + 24 }}>
+      <svg
+        viewBox={`0 0 100 ${height}`}
+        preserveAspectRatio="none"
+        className="w-full h-full overflow-visible"
+        style={{ height }}
+        onMouseLeave={() => setHoveredIndex(null)}
+      >
+        <defs>
+          <linearGradient id="detailTrendGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.25} />
+            <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+
+        {/* Grid lines */}
+        {[0, 0.25, 0.5, 0.75, 1].map((pct) => (
+          <line
+            key={pct}
+            x1="0"
+            y1={paddingY + (height - 2 * paddingY) * pct}
+            x2="100"
+            y2={paddingY + (height - 2 * paddingY) * pct}
+            stroke="#334155"
+            strokeWidth="0.5"
+            strokeDasharray="2,2"
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+
+        {/* Vertical grid lines (weekly) */}
+        {[7, 14, 21].map((day) => {
+          const x = ((data.length - 1 - (30 - day)) / (data.length - 1)) * 100;
+          return (
+            <line
+              key={day}
+              x1={x}
+              y1={0}
+              x2={x}
+              y2={height}
+              stroke="#334155"
+              strokeWidth="0.5"
+              strokeDasharray="2,2"
+              vectorEffect="non-scaling-stroke"
+            />
+          );
+        })}
+
+        {/* Area fill */}
+        <path d={areaPath} fill="url(#detailTrendGradient)" />
+
+        {/* Main line */}
+        <path
+          d={linePath}
+          fill="none"
+          stroke={color}
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+        />
+
+        {/* 7-day moving average line */}
+        <path
+          d={avgLinePath}
+          fill="none"
+          stroke="#64748b"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeDasharray="4,2"
+          vectorEffect="non-scaling-stroke"
+        />
+
+        {/* Data points */}
+        {points.map((point, index) => (
+          <circle
+            key={index}
+            cx={point.x}
+            cy={point.y}
+            r={hoveredIndex === index ? 5 : 2}
+            fill={hoveredIndex === index ? color : 'transparent'}
+            stroke={color}
+            strokeWidth={hoveredIndex === index ? 2 : 1}
+            vectorEffect="non-scaling-stroke"
+            style={{ cursor: 'pointer', transition: 'r 0.1s' }}
+            onMouseEnter={() => setHoveredIndex(index)}
+          />
+        ))}
+
+        {/* Hover line */}
+        {hoveredIndex !== null && points[hoveredIndex] && (
+          <line
+            x1={points[hoveredIndex].x}
+            y1={0}
+            x2={points[hoveredIndex].x}
+            y2={height}
+            stroke="#64748b"
+            strokeWidth={1}
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
+      </svg>
+
+      {/* Hover tooltip */}
+      {hoveredIndex !== null && points[hoveredIndex] && (
+        <div
+          className="absolute z-10 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 shadow-xl pointer-events-none"
+          style={{
+            left: `${Math.min(Math.max(points[hoveredIndex].x, 10), 90)}%`,
+            top: Math.max(points[hoveredIndex].y - 60, 0),
+            transform: 'translateX(-50%)',
+          }}
+        >
+          <p className="text-sm font-semibold text-slate-100">{formatNumber(data[hoveredIndex])} sessions</p>
+          <p className="text-xs text-slate-400">{getDateLabel(hoveredIndex)}</p>
+          <p className="text-[10px] text-slate-500 mt-1">
+            7-day avg: {formatNumber(Math.round(movingAvg[hoveredIndex]))}
+          </p>
+        </div>
+      )}
+
+      {/* X-axis labels */}
+      <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+        <span>{getDateLabel(0)}</span>
+        <span>{getDateLabel(Math.floor(data.length / 2))}</span>
+        <span>{getDateLabel(data.length - 1)}</span>
+      </div>
+
+      {/* Legend */}
+      <div className="flex items-center justify-end gap-4 mt-2 text-[10px] text-slate-500">
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-0.5 rounded" style={{ backgroundColor: color }} />
+          <span>Daily</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-0.5 rounded bg-slate-500" style={{ borderTop: '1px dashed' }} />
+          <span>7-day avg</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -253,8 +668,8 @@ export function BlueprintAnalyticsPanel({
         </Link>
       </div>
 
-      {/* Metrics Row + Sparkline */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+      {/* Metrics Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
         {/* Sessions */}
         <div className="bg-slate-800/50 rounded-lg p-4">
           <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Sessions</p>
@@ -311,15 +726,14 @@ export function BlueprintAnalyticsPanel({
             </span>
           </div>
         </div>
-
-        {/* Sparkline */}
-        <div className="bg-slate-800/50 rounded-lg p-4 flex flex-col justify-between">
-          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">30d Trend</p>
-          <div className="flex items-center justify-center">
-            <Sparkline data={summary.trendline} color="#f59e0b" />
-          </div>
-        </div>
       </div>
+
+      {/* 30-Day Trend Chart */}
+      {summary.trendline && summary.trendline.length > 1 && (
+        <div className="bg-slate-800/30 rounded-lg p-4 mb-6">
+          <TrendChart data={summary.trendline} color="#f59e0b" />
+        </div>
+      )}
 
       {/* 7-Day Pulse Card - Anomaly Detection */}
       {performancePulse?.hasAnomalies && performancePulse.anomalySummary && (

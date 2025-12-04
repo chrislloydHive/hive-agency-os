@@ -83,7 +83,7 @@ export function extractPrefillValues(
     fieldMeta[key] = {
       source: formatSource(provenance?.source),
       confidence: provenance?.confidence ?? 0,
-      timestamp: provenance?.timestamp,
+      timestamp: provenance?.updatedAt,
     };
   }
 

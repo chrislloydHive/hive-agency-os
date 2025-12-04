@@ -6,7 +6,7 @@
 
 import { getCompanyById } from '@/lib/airtable/companies';
 import type { WorkspaceDateRange } from './types';
-import { createDateRange, getWorkspaceGa4Summary } from './ga4';
+import { createDateRange, getWorkspaceGa4Summary, getWorkspaceDailySessions } from './ga4';
 import { getWorkspaceGscSummary } from './gsc';
 import { isGa4Configured } from '@/lib/os/integrations/ga4Client';
 import { isGscConfigured } from '@/lib/os/integrations/gscClient';
@@ -124,8 +124,11 @@ export async function fetchBlueprintAnalytics(
     const currentRange = createDateRange(preset);
     const previousRange = createPreviousPeriodRange(currentRange);
 
-    // Fetch current period data
-    const [currentGa4, currentGsc, previousGa4, previousGsc] = await Promise.all([
+    // Create a 30-day range for trendline (always 30 days regardless of preset)
+    const trendlineRange = createDateRange('30d');
+
+    // Fetch current period data + daily sessions for trendline
+    const [currentGa4, currentGsc, previousGa4, previousGsc, dailySessions] = await Promise.all([
       hasGa4
         ? getWorkspaceGa4Summary(currentRange, workspaceId)
         : Promise.resolve({ traffic: null, channels: [], landingPages: [] }),
@@ -138,6 +141,9 @@ export async function fetchBlueprintAnalytics(
       hasGsc
         ? getWorkspaceGscSummary(previousRange, workspaceId).catch(() => ({ queries: [], pages: [], totals: { clicks: 0, impressions: 0, avgCtr: null, avgPosition: null } }))
         : Promise.resolve({ queries: [], pages: [], totals: { clicks: 0, impressions: 0, avgCtr: null, avgPosition: null } }),
+      hasGa4
+        ? getWorkspaceDailySessions(trendlineRange, workspaceId).catch(() => [])
+        : Promise.resolve([]),
     ]);
 
     // Calculate metrics
@@ -199,16 +205,10 @@ export async function fetchBlueprintAnalytics(
         };
       });
 
-    // Generate trendline (placeholder - would need daily data)
-    // For now, generate a synthetic trendline based on total sessions
-    const days = preset === '7d' ? 7 : preset === '90d' ? 90 : 30;
-    const avgDaily = sessions / days;
-    const trendline = Array.from({ length: Math.min(days, 30) }, (_, i) => {
-      // Add some variance to make it look realistic
-      const variance = 0.2;
-      const factor = 1 + (Math.random() - 0.5) * variance;
-      return Math.round(avgDaily * factor);
-    });
+    // Build trendline from real daily sessions data
+    const trendline = dailySessions.length > 0
+      ? dailySessions.map(d => d.sessions)
+      : [];
 
     const summary: BlueprintAnalyticsSummary = {
       sessions,

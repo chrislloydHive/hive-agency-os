@@ -14,6 +14,9 @@ import {
 } from '@/lib/media/analytics';
 import { getMediaStoresByCompany } from '@/lib/airtable/mediaStores';
 import { getMediaPlansWithDetailsForCompany } from '@/lib/airtable/mediaLab';
+import { getCompanyById } from '@/lib/airtable/companies';
+import { isGa4Configured } from '@/lib/os/integrations/ga4Client';
+import { getWorkspaceGa4Summary, createDateRange, createPreviousPeriodRange } from '@/lib/os/analytics/ga4';
 import type {
   MediaStoreScorecardV2,
   MediaMarketScorecard,
@@ -412,17 +415,40 @@ export interface PerformanceSnapshot {
   storeCount: number;
   lowPerformingStores: number;
   hasData: boolean;
+  // GA4 data (optional, when available)
+  ga4?: {
+    sessions: number;
+    users: number;
+    conversions: number;
+    bounceRate: number | null;
+    topChannels: Array<{ channel: string; sessions: number; conversions: number }>;
+    sessionsChange: number | null;
+  };
 }
 
 /**
  * Get a compact performance snapshot for the Media Lab page
+ * Includes both Media performance data and GA4 website analytics
  */
 export async function getPerformanceSnapshot(
-  companyId: string
+  companyId: string,
+  options?: { workspaceId?: string }
 ): Promise<PerformanceSnapshot> {
-  const [kpiSummary, storeScorecardsV2] = await Promise.all([
+  // Check if company has GA4 configured
+  const company = await getCompanyById(companyId).catch(() => null);
+  const companyHasGa4 = Boolean(company?.ga4PropertyId);
+  const hasGa4 = companyHasGa4 && await isGa4Configured(options?.workspaceId).catch(() => false);
+
+  // Fetch data in parallel
+  const [kpiSummary, storeScorecardsV2, ga4Current, ga4Previous] = await Promise.all([
     getMediaKpiSummary(companyId).catch(() => null),
     getStoreScorecards(companyId).catch(() => []),
+    hasGa4
+      ? getWorkspaceGa4Summary(createDateRange('30d'), options?.workspaceId).catch(() => null)
+      : Promise.resolve(null),
+    hasGa4
+      ? getWorkspaceGa4Summary(createPreviousPeriodRange(createDateRange('30d')), options?.workspaceId).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const totalLeads = (kpiSummary?.totalCalls || 0) + (kpiSummary?.totalLsaLeads || 0);
@@ -436,6 +462,29 @@ export async function getPerformanceSnapshot(
 
   const lowPerformingStores = storeScorecardsV2.filter((s: any) => s.overallScore < 50).length;
 
+  // Build GA4 data if available
+  let ga4Data: PerformanceSnapshot['ga4'] = undefined;
+  if (ga4Current?.traffic) {
+    const currentSessions = ga4Current.traffic.sessions ?? 0;
+    const previousSessions = ga4Previous?.traffic?.sessions ?? 0;
+    const sessionsChange = previousSessions > 0
+      ? ((currentSessions - previousSessions) / previousSessions) * 100
+      : null;
+
+    ga4Data = {
+      sessions: currentSessions,
+      users: ga4Current.traffic.users ?? 0,
+      conversions: ga4Current.channels.reduce((sum, ch) => sum + (ch.conversions ?? 0), 0),
+      bounceRate: ga4Current.traffic.bounceRate ?? null,
+      topChannels: ga4Current.channels.slice(0, 5).map(ch => ({
+        channel: ch.channel,
+        sessions: ch.sessions,
+        conversions: ch.conversions ?? 0,
+      })),
+      sessionsChange,
+    };
+  }
+
   return {
     totalLeads,
     totalSpend,
@@ -443,6 +492,7 @@ export async function getPerformanceSnapshot(
     topChannel,
     storeCount: storeScorecardsV2.length,
     lowPerformingStores,
-    hasData: totalLeads > 0 || storeScorecardsV2.length > 0,
+    hasData: totalLeads > 0 || storeScorecardsV2.length > 0 || Boolean(ga4Data),
+    ga4: ga4Data,
   };
 }

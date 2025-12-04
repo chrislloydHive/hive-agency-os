@@ -6,6 +6,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { ContextHealthBadge } from '@/components/os/ContextHealthBadge';
 import type { PerformanceSnapshot } from '@/lib/mediaLab/analytics';
 import {
   type MediaPlanWithDetails,
@@ -693,6 +694,8 @@ function PageHeader({ companyId, companyName }: { companyId: string; companyName
           <h1 className="text-sm font-medium text-slate-300">
             Media Lab
           </h1>
+          <span className="text-slate-600">|</span>
+          <ContextHealthBadge companyId={companyId} />
         </div>
         <div className="flex items-center gap-3">
           <Link

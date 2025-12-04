@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto';
 import { CompanyContextGraph, createEmptyContextGraph } from './companyContextGraph';
 import { loadContextGraph, saveContextGraph } from './storage';
 import { setDomainFields, createProvenance, markFusionComplete, type ProvenanceSource } from './mutate';
+import { captureSnapshot, type SnapshotReason } from './history';
 import { loadDiagnosticsBundle } from '@/lib/media/diagnosticsLoader';
 import type { DiagnosticsBundle } from '@/lib/media/diagnosticsInputs';
 import { getCompanyInsights } from '@/lib/airtable/clientBrain';
@@ -27,6 +28,8 @@ export interface FusionResult {
   fieldsUpdated: number;
   errors: string[];
   durationMs: number;
+  /** Version ID if one was created */
+  versionId?: string;
 }
 
 export interface FusionOptions {
@@ -36,6 +39,12 @@ export interface FusionOptions {
   domains?: string[];
   /** Skip AI-powered fusion (just copy raw data) */
   skipAi?: boolean;
+  /** Create a snapshot after fusion (defaults to true) */
+  createSnapshot?: boolean;
+  /** Reason for the snapshot */
+  snapshotReason?: SnapshotReason;
+  /** Description for the snapshot */
+  snapshotDescription?: string;
 }
 
 // ============================================================================
@@ -117,6 +126,21 @@ export async function runFusion(
     // 7. Save the graph
     await saveContextGraph(graph);
 
+    // 8. Create snapshot if requested (default: true)
+    let versionId: string | undefined;
+    const shouldSnapshot = options.createSnapshot !== false;
+    if (shouldSnapshot) {
+      const changeReason = options.snapshotReason || 'diagnostic_run';
+      const version = await captureSnapshot(graph, changeReason, {
+        description: options.snapshotDescription || `Fusion run with ${fieldsUpdated} fields updated`,
+        triggerRunId: runId,
+      });
+      if (version) {
+        versionId = version.versionId;
+        console.log(`[Fusion] Created version ${versionId} for ${company.name}`);
+      }
+    }
+
     const durationMs = Date.now() - startTime;
     console.log(`[Fusion] Complete for ${company.name}: ${fieldsUpdated} fields, ${durationMs}ms`);
 
@@ -128,6 +152,7 @@ export async function runFusion(
       fieldsUpdated,
       errors,
       durationMs,
+      versionId,
     };
   } catch (error) {
     const durationMs = Date.now() - startTime;

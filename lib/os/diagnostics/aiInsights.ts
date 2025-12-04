@@ -306,6 +306,7 @@ function toolCategoryToInsightCategory(category: ToolCategory): InsightCategory 
     'Marketing Ops': 'ops',
     'Analytics': 'analytics',
     'Media & Advertising': 'demand', // Media maps to demand generation insights
+    'Audience & Targeting': 'demand', // Audience maps to demand generation insights
   };
   return mapping[category] || 'other';
 }

@@ -31,7 +31,8 @@ export type CompanyToolId =
   | 'demandLab'      // Demand Generation Lab
   | 'opsLab'         // Marketing Operations Lab
   | 'analyticsScan'  // Analytics Scan (GA4 + GSC)
-  | 'mediaLab';      // Media Lab (AI media planner)
+  | 'mediaLab'       // Media Lab (AI media planner)
+  | 'audienceLab';   // Audience Lab (segments + personas)
 
 /**
  * Tool category for grouping in the UI
@@ -45,7 +46,8 @@ export type ToolCategory =
   | 'Demand Generation'
   | 'Marketing Ops'
   | 'Analytics'
-  | 'Media & Advertising';
+  | 'Media & Advertising'
+  | 'Audience & Targeting';
 
 /**
  * Tool section for high-level grouping in the Tools hub
@@ -80,7 +82,8 @@ export type ToolIcon =
   | 'trendingUp' // Growth/demand tools
   | 'settings'   // Operations tools
   | 'barChart'   // Analytics tools
-  | 'tv';        // Media/advertising tools
+  | 'tv'         // Media/advertising tools
+  | 'users';     // Audience/targeting tools
 
 /**
  * Blueprint-specific metadata for tool recommendations
@@ -491,6 +494,32 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
       typicalUseWhen: 'Planning a media campaign, evaluating channel mix, or when building a new demand generation program.',
     },
   },
+
+  // ==========================================================================
+  // Strategic Tools - Audience & Targeting
+  // ==========================================================================
+  {
+    id: 'audienceLab',
+    label: 'Audience Lab',
+    shortLabel: 'Audience',
+    description: 'Define and manage audience segments and personas. AI-powered generation from diagnostic signals, with packs for Media Lab and Creative briefs.',
+    category: 'Audience & Targeting',
+    section: 'strategic',
+    behavior: 'openRoute',
+    status: 'enabled',
+    openPath: (companyId) => `/c/${companyId}/diagnostics/audience`,
+    urlSlug: 'audience-lab',
+    requiresWebsite: false,
+    icon: 'users',
+    primaryActionLabel: 'Open Audience Lab',
+    blueprintMeta: {
+      whyRun: 'Define target audience segments and personas to guide media targeting and creative messaging.',
+      answersQuestion: 'Who are our target audiences and how should we speak to them?',
+      influences: ['Strategy', 'Blueprint Focus', 'Brain'],
+      inputs: ['GAP IA', 'Analytics'],
+      typicalUseWhen: 'Building campaigns, refining targeting, or when personas need updating.',
+    },
+  },
 ];
 
 // ============================================================================
@@ -574,6 +603,7 @@ export function getAllCategories(): ToolCategory[] {
     'Marketing Ops',
     'Analytics',
     'Media & Advertising',
+    'Audience & Targeting',
   ];
 }
 
@@ -607,6 +637,7 @@ export function getCategoryColor(category: ToolCategory): string {
     'Marketing Ops': 'text-orange-400 border-orange-400/30 bg-orange-400/10',
     'Analytics': 'text-indigo-400 border-indigo-400/30 bg-indigo-400/10',
     'Media & Advertising': 'text-rose-400 border-rose-400/30 bg-rose-400/10',
+    'Audience & Targeting': 'text-violet-400 border-violet-400/30 bg-violet-400/10',
   };
   return colors[category] || 'text-slate-400 border-slate-400/30 bg-slate-400/10';
 }

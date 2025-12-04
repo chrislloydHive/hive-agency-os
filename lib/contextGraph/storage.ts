@@ -92,14 +92,19 @@ export async function loadContextGraph(
       .firstPage();
 
     if (records.length === 0) {
-      console.log(`[ContextGraph] No graph found for company ${companyId}`);
+      // Normal - company may not have a context graph yet
       return null;
     }
 
     const mapped = mapAirtableRecord(records[0]);
     return mapped?.graph || null;
-  } catch (error) {
-    console.error(`[ContextGraph] Failed to load graph for ${companyId}:`, error);
+  } catch (error: any) {
+    // Handle case where table doesn't exist yet
+    if (error?.statusCode === 404 || error?.error === 'NOT_FOUND') {
+      console.warn(`[ContextGraph] Table "${CONTEXT_GRAPHS_TABLE}" not found in Airtable.`);
+      return null;
+    }
+    console.warn(`[ContextGraph] Could not load graph for ${companyId}:`, error?.message || 'Unknown error');
     return null;
   }
 }

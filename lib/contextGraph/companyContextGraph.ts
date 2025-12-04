@@ -15,19 +15,27 @@ import { OpsDomain, createEmptyOpsDomain } from './domains/ops';
 import { PerformanceMediaDomain, createEmptyPerformanceMediaDomain } from './domains/performanceMedia';
 import { BudgetOpsDomain, createEmptyBudgetOpsDomain } from './domains/budgetOps';
 import { StoreRiskDomain, createEmptyStoreRiskDomain } from './domains/storeRisk';
+import { HistoricalDomain, createEmptyHistoricalDomain } from './domains/historical';
+import { CreativeDomain, createEmptyCreativeDomain } from './domains/creative';
+import { CompetitiveDomain, createEmptyCompetitiveDomain } from './domains/competitive';
+import { OperationalConstraintsDomain, createEmptyOperationalConstraintsDomain } from './domains/operationalConstraints';
+import { HistoryRefsDomain, createEmptyHistoryRefsDomain } from './domains/historyRefs';
 
 /**
  * Context Graph Metadata
  * Tracks overall graph state and versioning
  */
 export const ContextGraphMeta = z.object({
-  version: z.string().default('1.0.0'),
+  /** Schema version (2.0.0 for Phase 2) */
+  version: z.string().default('2.0.0'),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   lastFusionAt: z.string().datetime().nullable(),
   lastFusionRunId: z.string().nullable(),
   completenessScore: z.number().min(0).max(100).nullable(),
   domainCoverage: z.record(z.string(), z.number()).nullable(),
+  /** Last snapshot ID for linking */
+  lastSnapshotId: z.string().nullable().optional(),
 });
 
 export type ContextGraphMeta = z.infer<typeof ContextGraphMeta>;
@@ -51,20 +59,33 @@ export const CompanyContextGraph = z.object({
   // Metadata
   meta: ContextGraphMeta,
 
-  // Domain Schemas
+  // Domain Schemas - Core
   identity: IdentityDomain,
   brand: BrandDomain,
   objectives: ObjectivesDomain,
   audience: AudienceDomain,
   productOffer: ProductOfferDomain,
+
+  // Domain Schemas - Digital & Content
   digitalInfra: DigitalInfraDomain,
   website: WebsiteDomain,
   content: ContentDomain,
   seo: SeoDomain,
   ops: OpsDomain,
+
+  // Domain Schemas - Media & Performance
   performanceMedia: PerformanceMediaDomain,
+  historical: HistoricalDomain,
+  creative: CreativeDomain,
+  competitive: CompetitiveDomain,
+
+  // Domain Schemas - Operations & Risk
   budgetOps: BudgetOpsDomain,
+  operationalConstraints: OperationalConstraintsDomain,
   storeRisk: StoreRiskDomain,
+
+  // Domain Schemas - References
+  historyRefs: HistoryRefsDomain,
 });
 
 export type CompanyContextGraph = z.infer<typeof CompanyContextGraph>;
@@ -84,8 +105,13 @@ export const DOMAIN_NAMES = [
   'seo',
   'ops',
   'performanceMedia',
+  'historical',
+  'creative',
+  'competitive',
   'budgetOps',
+  'operationalConstraints',
   'storeRisk',
+  'historyRefs',
 ] as const;
 
 export type DomainName = typeof DOMAIN_NAMES[number];
@@ -100,13 +126,14 @@ export function createEmptyContextGraph(companyId: string, companyName: string):
     companyId,
     companyName,
     meta: {
-      version: '1.0.0',
+      version: '2.0.0',
       createdAt: now,
       updatedAt: now,
       lastFusionAt: null,
       lastFusionRunId: null,
       completenessScore: null,
       domainCoverage: null,
+      lastSnapshotId: null,
     },
     identity: createEmptyIdentityDomain(),
     brand: createEmptyBrandDomain(),
@@ -119,8 +146,13 @@ export function createEmptyContextGraph(companyId: string, companyName: string):
     seo: createEmptySeoDomain(),
     ops: createEmptyOpsDomain(),
     performanceMedia: createEmptyPerformanceMediaDomain(),
+    historical: createEmptyHistoricalDomain(),
+    creative: createEmptyCreativeDomain(),
+    competitive: createEmptyCompetitiveDomain(),
     budgetOps: createEmptyBudgetOpsDomain(),
+    operationalConstraints: createEmptyOperationalConstraintsDomain(),
     storeRisk: createEmptyStoreRiskDomain(),
+    historyRefs: createEmptyHistoryRefsDomain(),
   };
 }
 

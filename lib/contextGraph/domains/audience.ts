@@ -20,6 +20,18 @@ export const AudienceSegment = z.object({
 export type AudienceSegment = z.infer<typeof AudienceSegment>;
 
 /**
+ * Persona Brief - compact summary of a persona
+ */
+export const PersonaBrief = z.object({
+  name: z.string(),
+  tagline: z.string().nullable(),
+  oneSentenceSummary: z.string().nullable(),
+  priority: z.string().nullable(),
+});
+
+export type PersonaBrief = z.infer<typeof PersonaBrief>;
+
+/**
  * Audience domain captures target audience insights and targeting data.
  * This informs media targeting and creative personalization.
  */
@@ -66,6 +78,18 @@ export const AudienceDomain = z.object({
   audienceNeeds: WithMetaArray(z.string()),
   painPoints: WithMetaArray(z.string()),
   motivations: WithMetaArray(z.string()),
+
+  // Persona Data (from Audience Lab Personas)
+  personaNames: WithMetaArray(z.string()),
+  personaBriefs: WithMetaArray(PersonaBrief),
+  audienceTriggers: WithMetaArray(z.string()),
+  audienceObjections: WithMetaArray(z.string()),
+  decisionFactors: WithMetaArray(z.string()),
+  keyMessages: WithMetaArray(z.string()),
+  proofPointsNeeded: WithMetaArray(z.string()),
+  exampleHooks: WithMetaArray(z.string()),
+  contentFormatsPreferred: WithMetaArray(z.string()),
+  toneGuidance: WithMeta(z.string()),
 });
 
 export type AudienceDomain = z.infer<typeof AudienceDomain>;
@@ -102,5 +126,17 @@ export function createEmptyAudienceDomain(): AudienceDomain {
     audienceNeeds: { value: [], provenance: [] },
     painPoints: { value: [], provenance: [] },
     motivations: { value: [], provenance: [] },
+
+    // Persona Data
+    personaNames: { value: [], provenance: [] },
+    personaBriefs: { value: [], provenance: [] },
+    audienceTriggers: { value: [], provenance: [] },
+    audienceObjections: { value: [], provenance: [] },
+    decisionFactors: { value: [], provenance: [] },
+    keyMessages: { value: [], provenance: [] },
+    proofPointsNeeded: { value: [], provenance: [] },
+    exampleHooks: { value: [], provenance: [] },
+    contentFormatsPreferred: { value: [], provenance: [] },
+    toneGuidance: { value: null, provenance: [] },
   };
 }

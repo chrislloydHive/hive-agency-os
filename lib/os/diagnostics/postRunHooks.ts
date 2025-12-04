@@ -4,9 +4,11 @@
 // Call these after a diagnostic run completes successfully to:
 // 1. Generate Brain entries (diagnostic summaries)
 // 2. Refresh the company's Strategic Snapshot
+// 3. Update the Company Context Graph
 
 import { summarizeDiagnosticRunForBrain } from './aiInsights';
 import { refreshCompanyStrategicSnapshot } from '@/lib/os/companies/strategySnapshot';
+import { runFusion } from '@/lib/contextGraph/fusion';
 import type { DiagnosticRun } from './runs';
 
 /**
@@ -54,6 +56,23 @@ export async function processDiagnosticRunCompletion(
   } catch (error) {
     console.error('[postRunHooks] Failed to refresh Strategic Snapshot:', error);
     // Don't throw
+  }
+
+  // 3. Update Company Context Graph
+  try {
+    console.log('[postRunHooks] Updating Context Graph...');
+    const fusionResult = await runFusion(companyId, {
+      snapshotReason: 'diagnostic_run',
+      snapshotDescription: `Updated after ${run.toolId} diagnostic run`,
+    });
+    console.log('[postRunHooks] Context Graph updated:', {
+      fieldsUpdated: fusionResult.fieldsUpdated,
+      sourcesUsed: fusionResult.sourcesUsed,
+      versionId: fusionResult.versionId,
+    });
+  } catch (error) {
+    console.error('[postRunHooks] Failed to update Context Graph:', error);
+    // Don't throw - context graph updates are supplementary
   }
 
   console.log('[postRunHooks] Completed processing for run:', run.id);

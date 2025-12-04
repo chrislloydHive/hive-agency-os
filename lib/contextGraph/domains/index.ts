@@ -14,3 +14,8 @@ export * from './ops';
 export * from './performanceMedia';
 export * from './budgetOps';
 export * from './storeRisk';
+export * from './historical';
+export * from './creative';
+export * from './competitive';
+export * from './operationalConstraints';
+export * from './historyRefs';

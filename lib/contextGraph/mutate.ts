@@ -19,13 +19,22 @@ export type ProvenanceSource =
   | 'seo_lab'
   | 'demand_lab'
   | 'ops_lab'
+  | 'audience_lab'
+  | 'audience_personas'
   | 'media_profile'
   | 'media_lab'
   | 'media_cockpit'
   | 'media_memory'
+  | 'creative_lab'
   | 'manual'
   | 'inferred'
-  | 'airtable';
+  | 'airtable'
+  | 'analytics_ga4'
+  | 'analytics_gsc'
+  | 'analytics_gads'
+  | 'analytics_lsa'
+  | 'analytics_gbp'
+  | 'external_enrichment';
 
 /**
  * Create a provenance tag
@@ -35,16 +44,52 @@ export function createProvenance(
   options?: {
     confidence?: number;
     runId?: string;
+    sourceRunId?: string;
     notes?: string;
+    validForDays?: number;
   }
 ): ProvenanceTag {
   return {
-    source,
+    source: source as ProvenanceTag['source'],
     confidence: options?.confidence ?? 0.8,
-    timestamp: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     runId: options?.runId,
+    sourceRunId: options?.sourceRunId,
     notes: options?.notes,
+    validForDays: options?.validForDays,
   };
+}
+
+/**
+ * Set a field value with less strict typing
+ * Used by diagnostic mappers where field names come from external data
+ */
+export function setFieldUntyped(
+  graph: CompanyContextGraph,
+  domain: string,
+  field: string,
+  value: unknown,
+  provenance: ProvenanceTag
+): CompanyContextGraph {
+  const domainObj = graph[domain as DomainName] as Record<string, WithMetaType<unknown>>;
+  if (!domainObj || typeof domainObj !== 'object') {
+    console.warn(`[setFieldUntyped] Domain ${domain} not found`);
+    return graph;
+  }
+
+  const fieldData = domainObj[field];
+  if (!fieldData || typeof fieldData !== 'object') {
+    console.warn(`[setFieldUntyped] Field ${domain}.${field} not found`);
+    return graph;
+  }
+
+  domainObj[field] = {
+    value,
+    provenance: [provenance, ...(fieldData.provenance || []).slice(0, 4)],
+  };
+
+  graph.meta.updatedAt = new Date().toISOString();
+  return graph;
 }
 
 /**

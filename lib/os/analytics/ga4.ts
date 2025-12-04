@@ -218,6 +218,76 @@ async function fetchLandingPages(
 }
 
 // ============================================================================
+// Daily Sessions (for trendlines)
+// ============================================================================
+
+export interface DailySessionsItem {
+  date: string; // YYYY-MM-DD
+  sessions: number;
+}
+
+/**
+ * Fetches daily sessions data for trendlines
+ */
+export async function getWorkspaceDailySessions(
+  range: WorkspaceDateRange,
+  workspaceId?: string
+): Promise<DailySessionsItem[]> {
+  console.log('[GA4 Workspace] Fetching daily sessions...', {
+    startDate: range.startDate,
+    endDate: range.endDate,
+  });
+
+  const clientConfig = await getGa4ClientFromWorkspace(workspaceId);
+
+  if (!clientConfig) {
+    console.warn('[GA4 Workspace] GA4 not configured for daily sessions');
+    return [];
+  }
+
+  const { client, propertyId } = clientConfig;
+
+  try {
+    const [response] = await client.runReport({
+      property: propertyId,
+      dateRanges: [{ startDate: range.startDate, endDate: range.endDate }],
+      dimensions: [{ name: 'date' }],
+      metrics: [{ name: 'sessions' }],
+      orderBys: [{ dimension: { dimensionName: 'date' }, desc: false }],
+    });
+
+    if (!response.rows || response.rows.length === 0) {
+      console.log('[GA4 Workspace] No daily sessions data found');
+      return [];
+    }
+
+    const dailyData = response.rows.map((row: any) => {
+      const dateStr = row.dimensionValues?.[0]?.value || '';
+      // GA4 returns date as YYYYMMDD, convert to YYYY-MM-DD
+      const formattedDate = dateStr.length === 8
+        ? `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`
+        : dateStr;
+      const sessions = row.metricValues?.[0]?.value
+        ? parseInt(row.metricValues[0].value)
+        : 0;
+
+      return { date: formattedDate, sessions };
+    });
+
+    console.log('[GA4 Workspace] Daily sessions fetched:', {
+      days: dailyData.length,
+      firstDay: dailyData[0]?.date,
+      lastDay: dailyData[dailyData.length - 1]?.date,
+    });
+
+    return dailyData;
+  } catch (error) {
+    console.error('[GA4 Workspace] Error fetching daily sessions:', error);
+    return [];
+  }
+}
+
+// ============================================================================
 // Utility Functions
 // ============================================================================
 
