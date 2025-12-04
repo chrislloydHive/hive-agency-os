@@ -190,19 +190,11 @@ function fuseCompanyIdentity(
   const provenance = createProvenance('airtable', { runId, confidence: 1.0 });
   let fieldsUpdated = 0;
 
-  // Update identity domain
+  // Update identity domain - map Airtable fields to context graph schema
   const identityFields: Record<string, unknown> = {};
 
   if (company.name) {
-    identityFields.companyName = company.name;
-    fieldsUpdated++;
-  }
-  if (company.domain) {
-    identityFields.domain = company.domain;
-    fieldsUpdated++;
-  }
-  if (company.website) {
-    identityFields.website = company.website;
+    identityFields.businessName = company.name;
     fieldsUpdated++;
   }
   if (company.industry) {
@@ -210,15 +202,20 @@ function fuseCompanyIdentity(
     fieldsUpdated++;
   }
   if (company.companyType) {
-    identityFields.businessModel = company.companyType;
-    fieldsUpdated++;
-  }
-  if (company.sizeBand) {
-    identityFields.companySize = company.sizeBand;
+    // Map company type to business model enum
+    const businessModelMap: Record<string, string> = {
+      'SaaS': 'saas',
+      'Services': 'services',
+      'Marketplace': 'marketplace',
+      'eCom': 'ecommerce',
+      'Local': 'retail',
+      'Other': 'other',
+    };
+    identityFields.businessModel = businessModelMap[company.companyType] || 'other';
     fieldsUpdated++;
   }
   if (company.region) {
-    identityFields.geographicScope = company.region;
+    identityFields.geographicFootprint = company.region;
     fieldsUpdated++;
   }
 
@@ -299,11 +296,11 @@ function fuseGapData(
   const provenance = createProvenance(source, { runId, confidence: 0.9 });
   let fieldsUpdated = 0;
 
-  // Identity from GAP
+  // Identity from GAP - use correct schema field names
   if (gap.businessContext) {
     const identityFields: Record<string, unknown> = {};
     if (gap.businessContext.businessName) {
-      identityFields.companyName = gap.businessContext.businessName;
+      identityFields.businessName = gap.businessContext.businessName;
       fieldsUpdated++;
     }
     if (gap.businessContext.industry) {
@@ -315,11 +312,7 @@ function fuseGapData(
       fieldsUpdated++;
     }
     if (gap.businessContext.geographicScope) {
-      identityFields.geographicScope = gap.businessContext.geographicScope;
-      fieldsUpdated++;
-    }
-    if (gap.businessContext.targetAudience) {
-      identityFields.targetAudienceDescription = gap.businessContext.targetAudience;
+      identityFields.geographicFootprint = gap.businessContext.geographicScope;
       fieldsUpdated++;
     }
     if (Object.keys(identityFields).length > 0) {
