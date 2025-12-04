@@ -79,6 +79,7 @@ export function MediaLabClient({
   const [isCreatingPlan, setIsCreatingPlan] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isGeneratingWork, setIsGeneratingWork] = useState(false);
+  const [isPromoting, setIsPromoting] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [performanceSnapshot, setPerformanceSnapshot] = useState<PerformanceSnapshot | null>(null);
   const [isLoadingSnapshot, setIsLoadingSnapshot] = useState(false);
@@ -419,6 +420,35 @@ export function MediaLabClient({
   };
 
   // ============================================================================
+  // Plan Promotion
+  // ============================================================================
+
+  const handlePromoteToProgram = async () => {
+    if (!selectedPlan) return;
+
+    setIsPromoting(true);
+    try {
+      const { promotePlanToProgramAction } = await import('./actions');
+      const result = await promotePlanToProgramAction({
+        companyId,
+        mediaPlanId: selectedPlan.id,
+      });
+
+      if (!result.success) {
+        throw new Error(result.error);
+      }
+
+      showToast('Plan promoted to program!', 'success');
+      // Redirect to the review & activate page
+      router.push(`/c/${companyId}/media/program?programId=${result.programId}`);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to promote plan', 'error');
+    } finally {
+      setIsPromoting(false);
+    }
+  };
+
+  // ============================================================================
   // Render
   // ============================================================================
 
@@ -600,6 +630,8 @@ export function MediaLabClient({
                 plan={selectedPlan}
                 onGenerateWork={handleGenerateWorkItems}
                 isGeneratingWork={isGeneratingWork}
+                onPromoteToProgram={handlePromoteToProgram}
+                isPromoting={isPromoting}
               />
             </div>
           </div>
@@ -662,9 +694,26 @@ function PageHeader({ companyId, companyName }: { companyId: string; companyName
             Media Lab
           </h1>
         </div>
-        <span className="text-xs font-medium text-slate-500">
-          Strategic Media Planning
-        </span>
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/c/${companyId}/diagnostics/media?mode=planner`}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg hover:bg-amber-500/20 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+            </svg>
+            AI Planner
+          </Link>
+          <Link
+            href={`/c/${companyId}/diagnostics/media?mode=creative`}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-400 bg-purple-500/10 border border-purple-500/30 rounded-lg hover:bg-purple-500/20 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+            </svg>
+            Creative Lab
+          </Link>
+        </div>
       </div>
     </div>
   );
@@ -1712,12 +1761,20 @@ function ActionsCard({
   plan,
   onGenerateWork,
   isGeneratingWork,
+  onPromoteToProgram,
+  isPromoting,
 }: {
   companyId: string;
   plan: MediaPlanWithDetails;
   onGenerateWork: () => void;
   isGeneratingWork: boolean;
+  onPromoteToProgram: () => void;
+  isPromoting: boolean;
 }) {
+  // Check if plan can be promoted (active or proposed status)
+  const canPromote = ['active', 'proposed'].includes(plan.status.toLowerCase());
+  const hasChannels = plan.channels.length > 0;
+
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-4">
@@ -1725,6 +1782,29 @@ function ActionsCard({
       </p>
 
       <div className="space-y-3">
+        {/* Promote to Active Program - Primary CTA */}
+        <button
+          onClick={onPromoteToProgram}
+          disabled={isPromoting || !canPromote || !hasChannels}
+          className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 transition-colors text-left group disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <div>
+            <p className="text-sm font-medium text-amber-300 group-hover:text-amber-200">
+              {isPromoting ? 'Promoting...' : 'Promote to Active Program'}
+            </p>
+            <p className="text-xs text-slate-500">
+              {!hasChannels
+                ? 'Add channels to the plan first'
+                : !canPromote
+                ? 'Plan must be Active or Proposed'
+                : 'Create program from this plan & start tracking'}
+            </p>
+          </div>
+          <svg className="h-5 w-5 text-amber-400 group-hover:text-amber-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        </button>
+
         {/* Generate Work Items */}
         <button
           onClick={onGenerateWork}

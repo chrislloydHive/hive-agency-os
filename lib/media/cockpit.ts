@@ -594,3 +594,273 @@ export async function getMediaStoreOptions(companyId: string): Promise<MediaStor
     storeCode: s.storeCode ?? null,
   })).sort((a, b) => a.name.localeCompare(b.name));
 }
+
+// ============================================================================
+// Cockpit Snapshot Types (for unified actuals integration)
+// ============================================================================
+
+import type {
+  RawMediaEvent,
+  MediaEventChannel,
+  AggregatedMediaMetrics,
+} from './performanceTypes';
+import {
+  aggregateMediaEvents,
+  aggregateByChannel,
+  aggregateByStore,
+} from './performanceTypes';
+
+/**
+ * Input for building a cockpit snapshot
+ */
+export interface MediaCockpitInput {
+  companyId: string;
+  plan?: {
+    totalBudget: number;
+    channels: Array<{ channel: string; budget: number; expectedVolume: number }>;
+  };
+  actualEvents: RawMediaEvent[];
+  dateRange: { start: Date; end: Date };
+}
+
+/**
+ * KPI Snapshot - aggregated metrics for a period
+ */
+export interface MediaKpiSnapshot {
+  // Totals
+  spend: number;
+  impressions: number;
+  clicks: number;
+  leads: number;
+  calls: number;
+  installs: number;
+  conversions: number;
+  qualifiedCalls: number;
+
+  // Computed
+  ctr: number | null;
+  cpc: number | null;
+  cpl: number | null;
+  cpa: number | null;
+
+  // Breakdowns
+  byChannel: Map<MediaEventChannel, AggregatedMediaMetrics>;
+  byStore: Map<string, AggregatedMediaMetrics>;
+}
+
+/**
+ * Cockpit Snapshot - complete view for dashboard
+ */
+export interface MediaCockpitSnapshot {
+  kpiSnapshot: MediaKpiSnapshot;
+  planVsActual: PlanVsActualSummary;
+  byChannel: ChannelBreakdown[];
+  byProvider: ProviderBreakdown[];
+  storeCount: number;
+  activePlanCount: number;
+  activeFlightCount: number;
+}
+
+/**
+ * Build a cockpit snapshot from raw events
+ */
+export function buildMediaCockpitSnapshot(
+  input: MediaCockpitInput
+): MediaCockpitSnapshot {
+  const { actualEvents, plan } = input;
+
+  // Aggregate events
+  const aggregated = aggregateMediaEvents(actualEvents);
+  const byChannel = aggregateByChannel(actualEvents);
+  const byStore = aggregateByStore(actualEvents);
+
+  // Build KPI snapshot
+  const kpiSnapshot: MediaKpiSnapshot = {
+    spend: aggregated.spend,
+    impressions: aggregated.impressions,
+    clicks: aggregated.clicks,
+    leads: aggregated.leads,
+    calls: aggregated.calls,
+    installs: aggregated.installs,
+    conversions: aggregated.conversions,
+    qualifiedCalls: aggregated.qualifiedCalls,
+    ctr: aggregated.ctr,
+    cpc: aggregated.cpc,
+    cpl: aggregated.cpl,
+    cpa: aggregated.cpa,
+    byChannel,
+    byStore,
+  };
+
+  // Build plan vs actual
+  const plannedBudget = plan?.totalBudget ?? 0;
+  const plannedLeads = plan?.channels?.reduce((sum, c) => sum + (c.expectedVolume || 0), 0) ?? 0;
+  const actualLeads = aggregated.leads + aggregated.calls;
+
+  const planVsActual: PlanVsActualSummary = {
+    plannedBudget: Math.round(plannedBudget),
+    plannedLeads: Math.round(plannedLeads),
+    plannedInstalls: 0, // TODO: Get from plan
+    plannedCpl: plannedLeads > 0 ? plannedBudget / plannedLeads : null,
+    actualSpend: Math.round(aggregated.spend),
+    actualLeads: Math.round(actualLeads),
+    actualInstalls: Math.round(aggregated.installs),
+    actualCpl: actualLeads > 0 ? aggregated.spend / actualLeads : null,
+    budgetVariance: aggregated.spend - plannedBudget,
+    budgetVariancePct: plannedBudget > 0
+      ? ((aggregated.spend - plannedBudget) / plannedBudget) * 100
+      : null,
+    leadsVariance: actualLeads - plannedLeads,
+    leadsVariancePct: plannedLeads > 0
+      ? ((actualLeads - plannedLeads) / plannedLeads) * 100
+      : null,
+    hasPlanData: plannedBudget > 0,
+    hasActualData: aggregated.spend > 0,
+  };
+
+  // Build channel breakdown from aggregated data
+  const channelBreakdown: ChannelBreakdown[] = [];
+  const totalSpend = aggregated.spend;
+
+  for (const [channel, metrics] of byChannel) {
+    const leads = metrics.leads + metrics.calls;
+    channelBreakdown.push({
+      channel: channel as unknown as MediaChannel,
+      channelLabel: channel,
+      spend: metrics.spend,
+      impressions: metrics.impressions,
+      clicks: metrics.clicks,
+      leads: metrics.leads,
+      installs: metrics.installs,
+      calls: metrics.calls,
+      ctr: metrics.ctr,
+      cpc: metrics.cpc,
+      cpl: metrics.cpl,
+      spendShare: totalSpend > 0 ? metrics.spend / totalSpend : 0,
+    });
+  }
+
+  return {
+    kpiSnapshot,
+    planVsActual,
+    byChannel: channelBreakdown.sort((a, b) => b.spend - a.spend),
+    byProvider: [], // TODO: Aggregate by provider from events
+    storeCount: byStore.size,
+    activePlanCount: plan ? 1 : 0,
+    activeFlightCount: 0, // TODO: Get from plan
+  };
+}
+
+// ============================================================================
+// Historical Comparison Types
+// ============================================================================
+
+/**
+ * Comparative metric with delta
+ */
+export interface ComparativeMetric {
+  value: number;
+  prevValue: number | null;
+  deltaAbs: number | null;
+  deltaPct: number | null;
+}
+
+/**
+ * KPI comparisons for dashboard display
+ */
+export interface MediaKpiComparisons {
+  installs: ComparativeMetric;
+  calls: ComparativeMetric;
+  leads: ComparativeMetric;
+  spend: ComparativeMetric;
+  cpa: ComparativeMetric;
+  cpl: ComparativeMetric;
+}
+
+/**
+ * Comparison type
+ */
+export type ComparisonType = 'prev_period' | 'prev_year';
+
+/**
+ * Build comparative metric
+ */
+function buildComparativeMetric(current: number, previous: number | null): ComparativeMetric {
+  if (previous === null || previous === 0) {
+    return {
+      value: current,
+      prevValue: null,
+      deltaAbs: null,
+      deltaPct: null,
+    };
+  }
+
+  const deltaAbs = current - previous;
+  const deltaPct = (deltaAbs / previous) * 100;
+
+  return {
+    value: current,
+    prevValue: previous,
+    deltaAbs,
+    deltaPct,
+  };
+}
+
+/**
+ * Build cockpit snapshot with historical comparison
+ */
+export function buildMediaCockpitSnapshotWithComparison(
+  input: MediaCockpitInput,
+  comparisonEvents?: RawMediaEvent[],
+  comparisonType?: ComparisonType
+): {
+  current: MediaCockpitSnapshot;
+  comparison?: MediaKpiComparisons;
+} {
+  const current = buildMediaCockpitSnapshot(input);
+
+  if (!comparisonEvents || comparisonEvents.length === 0) {
+    return { current };
+  }
+
+  // Aggregate comparison events
+  const prevAggregated = aggregateMediaEvents(comparisonEvents);
+  const prevLeads = prevAggregated.leads + prevAggregated.calls;
+  const currentLeads = current.kpiSnapshot.leads + current.kpiSnapshot.calls;
+
+  const comparison: MediaKpiComparisons = {
+    installs: buildComparativeMetric(current.kpiSnapshot.installs, prevAggregated.installs),
+    calls: buildComparativeMetric(current.kpiSnapshot.calls, prevAggregated.calls),
+    leads: buildComparativeMetric(currentLeads, prevLeads),
+    spend: buildComparativeMetric(current.kpiSnapshot.spend, prevAggregated.spend),
+    cpa: buildComparativeMetric(
+      current.kpiSnapshot.cpa ?? 0,
+      prevAggregated.cpa
+    ),
+    cpl: buildComparativeMetric(
+      current.kpiSnapshot.cpl ?? 0,
+      prevAggregated.cpl
+    ),
+  };
+
+  return { current, comparison };
+}
+
+/**
+ * Format delta for display
+ */
+export function formatDelta(metric: ComparativeMetric): string | null {
+  if (metric.deltaPct === null) return null;
+  const sign = metric.deltaPct >= 0 ? '+' : '';
+  return `${sign}${metric.deltaPct.toFixed(1)}%`;
+}
+
+/**
+ * Get delta color class
+ */
+export function getDeltaColor(metric: ComparativeMetric, lowerIsBetter = false): string {
+  if (metric.deltaPct === null) return 'text-slate-400';
+  const isPositive = metric.deltaPct >= 0;
+  const isGood = lowerIsBetter ? !isPositive : isPositive;
+  return isGood ? 'text-emerald-400' : 'text-red-400';
+}

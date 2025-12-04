@@ -34,8 +34,9 @@ export interface MediaProgram {
   status: MediaProgramStatus;
   channels: MediaProgramChannel[];
   totalMonthlyBudget: number;
-  planId?: string;       // Link to Media Plan
-  forecastId?: string;   // Optional link to saved forecast
+  planId?: string;              // Link to Media Plan
+  sourceMediaPlanId?: string;   // The plan this program was promoted from
+  forecastId?: string;          // Optional link to saved forecast
   notes?: string;
   createdAt: string;
   updatedAt: string;
@@ -92,6 +93,7 @@ interface AirtableMediaProgramFields {
   Channels?: string; // JSON string
   'Total Monthly Budget'?: number;
   'Plan ID'?: string[];
+  'Source Media Plan ID'?: string[];
   'Forecast ID'?: string;
   Notes?: string;
   'Created At'?: string;
@@ -129,6 +131,7 @@ function mapAirtableToMediaProgram(record: any): MediaProgram {
     channels: parseChannels(fields.Channels),
     totalMonthlyBudget: fields['Total Monthly Budget'] ?? 0,
     planId: fields['Plan ID']?.[0],
+    sourceMediaPlanId: fields['Source Media Plan ID']?.[0],
     forecastId: fields['Forecast ID'] || undefined,
     notes: fields.Notes || undefined,
     createdAt: fields['Created At'] || new Date().toISOString(),
@@ -323,4 +326,106 @@ export function getActiveChannels(program: MediaProgram): MediaProgramChannel[] 
  */
 export function calculateTotalBudget(channels: MediaProgramChannel[]): number {
   return channels.reduce((sum, c) => sum + (c.monthlyBudget || 0), 0);
+}
+
+// ============================================================================
+// Plan Promotion Functions
+// ============================================================================
+
+import {
+  getMediaPlanById,
+  getChannelsForMediaPlan,
+  getFlightsForMediaPlan,
+  updateMediaPlanStatus,
+} from '@/lib/airtable/mediaLab';
+import { getProviderForChannelKey } from '@/lib/types/mediaLab';
+
+/**
+ * Promote a media plan to an active program
+ *
+ * This creates a new Media Program from an existing Media Plan:
+ * - Copies plan name and budget
+ * - Converts plan channels to program channels
+ * - Links the program back to the source plan
+ * - Updates the plan status to 'promoted'
+ */
+export async function promoteMediaPlanToProgram(args: {
+  companyId: string;
+  mediaPlanId: string;
+}): Promise<{ programId: string; program: MediaProgram }> {
+  const { companyId, mediaPlanId } = args;
+
+  // 1. Load the plan
+  const plan = await getMediaPlanById(mediaPlanId);
+  if (!plan) {
+    throw new Error(`Media plan ${mediaPlanId} not found`);
+  }
+
+  // Verify company ownership
+  if (plan.companyId !== companyId) {
+    throw new Error('Plan does not belong to this company');
+  }
+
+  // 2. Load plan channels and flights
+  const [planChannels, planFlights] = await Promise.all([
+    getChannelsForMediaPlan(mediaPlanId),
+    getFlightsForMediaPlan(mediaPlanId),
+  ]);
+
+  // 3. Convert plan channels to program channels
+  const programChannels: MediaProgramChannel[] = planChannels.map(pc => ({
+    channel: pc.channel as unknown as MediaChannel, // Channel key mapping
+    provider: pc.provider || getProviderForChannelKey(pc.channel),
+    isActive: pc.priority !== null, // Consider channels with priority as active
+    monthlyBudget: pc.budgetAmount ?? 0,
+  }));
+
+  // If no channels from plan, use defaults
+  if (programChannels.length === 0) {
+    programChannels.push(...getDefaultProgramChannels());
+  }
+
+  // 4. Calculate total budget from plan or channels
+  const totalBudget = plan.totalBudget ?? calculateTotalBudget(programChannels);
+
+  // 5. Create the program
+  const base = getBase();
+  const now = new Date().toISOString();
+
+  const programFields: Partial<AirtableMediaProgramFields> = {
+    Company: [companyId],
+    Name: plan.name || `${new Date().getFullYear()} Media Program`,
+    Status: 'active',
+    Channels: JSON.stringify(programChannels),
+    'Total Monthly Budget': totalBudget,
+    'Source Media Plan ID': [mediaPlanId],
+    Notes: `Promoted from plan: ${plan.name}`,
+    'Created At': now,
+    'Updated At': now,
+  };
+
+  const record = await base(AIRTABLE_TABLES.MEDIA_PROGRAMS).create(programFields);
+  const program = mapAirtableToMediaProgram(record);
+
+  // 6. Update the plan status to 'promoted' (using archived as closest existing status)
+  // Note: The plan status type may need to be extended to support 'promoted'
+  try {
+    await updateMediaPlanStatus(mediaPlanId, 'archived'); // Using archived as proxy for promoted
+  } catch (err) {
+    console.warn(`[MediaPrograms] Failed to update plan status after promotion:`, err);
+    // Don't fail the promotion if status update fails
+  }
+
+  return {
+    programId: program.id,
+    program,
+  };
+}
+
+/**
+ * Check if a plan can be promoted
+ * Plans must be in 'active' or 'proposed' status
+ */
+export function canPromotePlan(planStatus: string): boolean {
+  return ['active', 'proposed'].includes(planStatus.toLowerCase());
 }

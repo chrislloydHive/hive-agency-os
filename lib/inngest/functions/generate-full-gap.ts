@@ -583,8 +583,8 @@ export const generateFullGap = inngest.createFunction(
     console.log('[inngest:generate-full-gap] Step 8 - diagnosticRunId from event:', diagnosticRunId, 'event.data keys:', Object.keys(event.data));
 
     if (diagnosticRunId) {
-      await step.run('update-diagnostic-run', async () => {
-        const { updateDiagnosticRun } = await import('@/lib/os/diagnostics/runs');
+      const updatedRun = await step.run('update-diagnostic-run', async () => {
+        const { updateDiagnosticRun, getDiagnosticRun } = await import('@/lib/os/diagnostics/runs');
 
         console.log('[inngest:generate-full-gap] Updating diagnostic run:', diagnosticRunId);
 
@@ -603,7 +603,20 @@ export const generateFullGap = inngest.createFunction(
         });
 
         console.log('[inngest:generate-full-gap] Diagnostic run updated');
+
+        // Return the updated run for post-processing
+        return await getDiagnosticRun(diagnosticRunId);
       });
+
+      // Step 9: Run post-completion hooks (Brain insights, Strategic Snapshot)
+      if (updatedRun) {
+        await step.run('post-run-hooks', async () => {
+          const { processDiagnosticRunCompletion } = await import('@/lib/os/diagnostics/postRunHooks');
+          console.log('[inngest:generate-full-gap] Running post-completion hooks');
+          await processDiagnosticRunCompletion(companyUUID, updatedRun);
+          console.log('[inngest:generate-full-gap] Post-completion hooks finished');
+        });
+      }
     } else {
       console.log('[inngest:generate-full-gap] No diagnosticRunId provided, skipping diagnostic run update');
     }

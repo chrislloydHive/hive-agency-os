@@ -259,7 +259,7 @@ export type CompanyRecord = {
   stage?: 'Prospect' | 'Client' | 'Internal' | 'Dormant' | 'Lost';
   lifecycleStatus?: string;
   tier?: 'A' | 'B' | 'C';
-  sizeBand?: '1–10' | '11–50' | '51–200' | '200+';
+  sizeBand?: '1-10' | '11-50' | '51-200' | '200+';
   region?: string;
   owner?: string;
   tags?: string[];

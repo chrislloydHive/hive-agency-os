@@ -160,6 +160,12 @@ export function ToolDiagnosticsPageClient({
       // Reset insights to trigger re-fetch
       setInsights(null);
 
+      // Auto-extract insights to Client Brain after successful run
+      const runId = result.runId || result.result?.runId;
+      if (runId) {
+        extractInsightsToClientBrain(runId);
+      }
+
       // Refresh page after showing completion state
       setTimeout(() => {
         console.log('[Diagnostic] Triggering page refresh');
@@ -209,12 +215,14 @@ export function ToolDiagnosticsPageClient({
     }
   };
 
-  // Extract strategic insights to Client Brain
-  const extractInsightsToClientBrain = async () => {
-    if (extractingInsights || !latestRun) return;
+  // Extract strategic insights to Client Brain (auto-called on diagnostic completion)
+  const extractInsightsToClientBrain = async (overrideRunId?: string) => {
+    const runIdToUse = overrideRunId || latestRun?.id;
+    if (extractingInsights || !runIdToUse) return;
 
     setExtractingInsights(true);
-    showToast('Extracting insights to Brain...', 'success');
+    // Silently extract - no toast needed since this is automatic
+    console.log('[Diagnostic] Auto-extracting insights to Brain...');
 
     try {
       const response = await fetch(`/api/os/client-brain/${companyId}/extract-insights`, {
@@ -222,7 +230,7 @@ export function ToolDiagnosticsPageClient({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           toolId: tool.id,
-          runId: latestRun.id,
+          runId: runIdToUse,
         }),
       });
 
@@ -232,10 +240,10 @@ export function ToolDiagnosticsPageClient({
         throw new Error(result.error || 'Failed to extract insights');
       }
 
-      showToast(`${result.count} insights added to Brain`, 'success');
+      console.log(`[Diagnostic] ${result.count} insights added to Brain`);
     } catch (error) {
       console.error('Error extracting insights:', error);
-      showToast(error instanceof Error ? error.message : 'Failed to extract insights', 'error');
+      // Don't show error toast for auto-extraction - it's a background process
     } finally {
       setExtractingInsights(false);
     }
@@ -362,27 +370,6 @@ export function ToolDiagnosticsPageClient({
                 tool.primaryActionLabel
               )}
             </button>
-            {/* Extract Insights to Brain */}
-            {hasRun && isComplete && (
-              <button
-                onClick={extractInsightsToClientBrain}
-                disabled={extractingInsights}
-                className={`rounded-xl px-5 py-3 font-semibold text-sm transition-all ${
-                  extractingInsights
-                    ? 'bg-amber-700 text-white cursor-wait'
-                    : 'bg-amber-600 text-white hover:bg-amber-500'
-                }`}
-              >
-                {extractingInsights ? (
-                  <span className="flex items-center gap-2">
-                    <Spinner />
-                    Extracting...
-                  </span>
-                ) : (
-                  'Extract Insights to Brain'
-                )}
-              </button>
-            )}
             {tool.estimatedTime && !isRunning && (
               <span className="self-center text-xs text-slate-500">
                 Est. {tool.estimatedTime}
