@@ -3,9 +3,11 @@
 // app/c/[companyId]/qbr/QBRClient.tsx
 // Quarterly Business Review Mode - Main Client Component
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
+import { DataUnavailableBanner } from '@/components/ui/DataUnavailableBanner';
+import { isContextGraphHealthy } from '@/lib/contextGraph/health';
 
 // QBR Sections
 const QBR_SECTIONS = [
@@ -87,10 +89,29 @@ export function QBRClient({
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<Record<string, string>>({});
   const [acceptedRecommendations, setAcceptedRecommendations] = useState<string[]>([]);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+
+  // Check graph health
+  const graphHealthy = isContextGraphHealthy(initialGraph);
+
+  // Log QBR started event on mount
+  useEffect(() => {
+    // Fire and forget - don't block on telemetry
+    fetch('/api/telemetry/event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'qbr_started',
+        companyId,
+        metadata: { quarter: getCurrentQuarter() },
+      }),
+    }).catch(() => {}); // Silently ignore telemetry errors
+  }, [companyId]);
 
   // Generate AI content for a section
   const generateSection = useCallback(async (sectionId: QBRSectionId) => {
     setIsGenerating(true);
+    setGenerateError(null);
     try {
       const response = await fetch(`/api/qbr/${companyId}/generate`, {
         method: 'POST',
@@ -104,9 +125,35 @@ export function QBRClient({
           ...prev,
           [sectionId]: data.content,
         }));
+
+        // Log section generated event
+        fetch('/api/telemetry/event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'qbr_section_generated',
+            companyId,
+            metadata: { section: sectionId },
+          }),
+        }).catch(() => {});
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        setGenerateError(errorData.error || 'Failed to generate content. Please try again.');
+
+        // Log AI error
+        fetch('/api/telemetry/event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'ai_error',
+            companyId,
+            metadata: { section: sectionId, error: errorData.error },
+          }),
+        }).catch(() => {});
       }
     } catch (error) {
       console.error('Failed to generate section:', error);
+      setGenerateError("We couldn't generate this automatically. You can add or edit it manually.");
     } finally {
       setIsGenerating(false);
     }
@@ -222,6 +269,26 @@ export function QBRClient({
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto bg-slate-950 p-8">
         <div className="max-w-4xl mx-auto">
+          {/* Context Health Banner */}
+          {!graphHealthy && (
+            <DataUnavailableBanner
+              title="Context data is unavailable or incomplete"
+              description="You can still proceed with the QBR, but some insights may be limited. Run Strategic Setup or diagnostics to populate the context graph."
+              variant="warning"
+              className="mb-6"
+            />
+          )}
+
+          {/* Generation Error Banner */}
+          {generateError && (
+            <DataUnavailableBanner
+              title="Generation failed"
+              description={generateError}
+              variant="error"
+              className="mb-6"
+            />
+          )}
+
           {/* Section Header */}
           <div className="mb-8">
             <h2 className="text-2xl font-semibold text-slate-100">
@@ -662,4 +729,10 @@ function formatDate(dateString?: string | null): string {
   } catch {
     return 'Invalid';
   }
+}
+
+function getCurrentQuarter(): string {
+  const now = new Date();
+  const quarter = Math.ceil((now.getMonth() + 1) / 3);
+  return `Q${quarter}-${now.getFullYear()}`;
 }
