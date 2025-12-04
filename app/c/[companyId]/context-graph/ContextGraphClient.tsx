@@ -40,6 +40,34 @@ export function ContextGraphClient({
   const [editingField, setEditingField] = useState<{ path: string; value: unknown; provenance: unknown[] } | null>(null);
   const [viewingHistory, setViewingHistory] = useState<{ path: string; provenance: unknown[] } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSeeding, setIsSeeding] = useState(false);
+
+  // Handle running fusion to populate graph from real data
+  const handleRunFusion = useCallback(async () => {
+    if (!confirm('Build context graph from company data, diagnostics, and insights? This may take a few seconds.')) {
+      return;
+    }
+
+    setIsSeeding(true);
+    try {
+      const response = await fetch(`/api/context-graph/${companyId}/fusion`, {
+        method: 'POST',
+      });
+
+      if (response.ok) {
+        // Reload the page to get fresh data
+        window.location.reload();
+      } else {
+        const error = await response.json();
+        alert(error.error || 'Failed to build context graph');
+      }
+    } catch (error) {
+      console.error('Failed to build context graph:', error);
+      alert('Failed to build context graph');
+    } finally {
+      setIsSeeding(false);
+    }
+  }, [companyId]);
 
   // Build domain stats from refresh report
   const domainStats = DOMAIN_CONFIG.map(domain => {
@@ -201,12 +229,35 @@ export function ContextGraphClient({
         <div className="max-w-5xl mx-auto">
           {/* New Graph Banner */}
           {isNewGraph && (
-            <DataUnavailableBanner
-              title="No context graph exists yet"
-              description="It will be created as you run Labs or edit fields here. You can also manually add values below."
-              variant="info"
-              className="mb-6"
-            />
+            <div className="mb-6">
+              <DataUnavailableBanner
+                title="No context graph exists yet"
+                description="It will be created as you run Labs or edit fields here. You can also manually add values below."
+                variant="info"
+              />
+              <button
+                  onClick={handleRunFusion}
+                  disabled={isSeeding}
+                  className="mt-3 px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:bg-amber-800 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                >
+                  {isSeeding ? (
+                    <>
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Building...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Build from Company Data
+                    </>
+                  )}
+                </button>
+            </div>
           )}
 
           {/* Domain Header */}
