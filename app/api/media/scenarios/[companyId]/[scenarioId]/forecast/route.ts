@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMediaScenarioById, updateMediaScenario } from '@/lib/media/scenarios';
 import { forecastMediaPlan } from '@/lib/media/forecastEngine';
-import { getMediaAssumptionsForCompany } from '@/lib/airtable/mediaAssumptions';
+import { getMediaAssumptionsWithDefaults } from '@/lib/airtable/mediaAssumptions';
 import { getMediaStoresByCompany } from '@/lib/airtable/mediaStores';
 import type { MediaBudgetInput, MediaChannel, SeasonKey } from '@/lib/media/types';
 import type { MediaScenarioForecastSummary } from '@/lib/media/types';
@@ -29,7 +29,7 @@ export async function POST(
     }
 
     // Get assumptions (use company-specific or defaults)
-    const assumptions = await getMediaAssumptionsForCompany(companyId);
+    const assumptions = await getMediaAssumptionsWithDefaults(companyId);
 
     // Get stores for the company
     const storesRaw = await getMediaStoresByCompany(companyId);

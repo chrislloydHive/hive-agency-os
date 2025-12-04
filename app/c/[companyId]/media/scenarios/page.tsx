@@ -49,7 +49,7 @@ export default async function MediaScenariosPage({ params }: PageProps) {
           <span className="text-sm text-slate-200">Scenario Planning</span>
         </div>
 
-        <MediaProgramEmptyState companyId={companyId} companyName={company.name} />
+        <MediaProgramEmptyState company={company} />
       </div>
     );
   }
