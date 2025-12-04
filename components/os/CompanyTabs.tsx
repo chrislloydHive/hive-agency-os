@@ -6,14 +6,18 @@ import { usePathname } from 'next/navigation';
 export default function CompanyTabs({ companyId }: { companyId: string }) {
   const pathname = usePathname();
 
-  // NEW: Simplified 5-tab navigation model
+  // Company navigation tabs:
   // - Overview: Lightweight pulse-check with health summary
+  // - Setup: Strategic Setup Mode (SSM) - guided onboarding wizard
+  // - QBR: Quarterly Business Review mode
   // - Blueprint: Strategic hub (strategy, tools, analytics, insights)
   // - Brain: Strategic AI memory and documents
   // - Work: Active tasks, experiments, backlog
   // - Media: Performance media programs, campaigns, stores
   const tabs = [
     { name: 'Overview', href: `/c/${companyId}` },
+    { name: 'Setup', href: `/c/${companyId}/setup` },
+    { name: 'QBR', href: `/c/${companyId}/qbr` },
     { name: 'Blueprint', href: `/c/${companyId}/blueprint` },
     { name: 'Brain', href: `/c/${companyId}/brain` },
     { name: 'Work', href: `/c/${companyId}/work` },

@@ -3,6 +3,52 @@
 // This file should NOT import any server-only code (Airtable, etc.)
 
 // ============================================================================
+// Setup & QBR Status Types
+// ============================================================================
+
+/**
+ * Setup Status - tracks the state of Strategic Setup Mode for a company
+ * - "not_started": Company has never completed setup (default)
+ * - "in_progress": Company has started but not finalized setup
+ * - "completed": Company has completed the full setup wizard
+ */
+export type SetupStatus = 'not_started' | 'in_progress' | 'completed';
+
+/**
+ * Get display configuration for SetupStatus
+ */
+export const SETUP_STATUS_CONFIG: Record<SetupStatus, { label: string; color: string }> = {
+  not_started: { label: 'Not started', color: 'gray' },
+  in_progress: { label: 'In progress', color: 'yellow' },
+  completed: { label: 'Completed', color: 'green' },
+};
+
+/**
+ * Safely parse a setup status value, defaulting to 'not_started'
+ */
+export function parseSetupStatus(value: string | undefined | null): SetupStatus {
+  if (value === 'in_progress' || value === 'completed') {
+    return value;
+  }
+  return 'not_started';
+}
+
+/**
+ * Get quarter string from a date (e.g., "Q1 2024")
+ */
+export function getQuarterFromDate(dateStr: string | null | undefined): string | null {
+  if (!dateStr) return null;
+  try {
+    const date = new Date(dateStr);
+    const quarter = Math.ceil((date.getMonth() + 1) / 3);
+    const year = date.getFullYear();
+    return `Q${quarter} ${year}`;
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================================
 // Media Program Status Types
 // ============================================================================
 

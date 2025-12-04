@@ -24,6 +24,12 @@ import type { MediaLabSummary } from '@/lib/types/mediaLab';
 import { COMPANY_MEDIA_STATUS_CONFIG, formatMediaBudget, getObjectiveLabel } from '@/lib/types/mediaLab';
 import { deriveNextBestAction, getPriorityColorClasses, type NextBestAction } from '@/lib/os/companies/nextBestAction';
 import type { CompanySummary } from '@/lib/os/companySummary';
+import {
+  type SetupStatus,
+  SETUP_STATUS_CONFIG,
+  parseSetupStatus,
+  getQuarterFromDate,
+} from '@/lib/types/company';
 
 // ============================================================================
 // Types
@@ -39,6 +45,10 @@ interface CompanyData {
   sizeBand?: string | null;
   owner?: string | null;
   hasMediaProgram?: boolean;
+  // Setup & QBR status fields
+  setupStatus?: SetupStatus | string | null;
+  lastSetupAt?: string | null;
+  lastQbrAt?: string | null;
 }
 
 interface RecentDiagnostic {
@@ -494,6 +504,144 @@ function AlertItem({ alert }: { alert: CompanyAlert }) {
 }
 
 // ============================================================================
+// Setup & QBR Cards
+// ============================================================================
+
+// Strategic Setup Card
+function StrategicSetupCard({
+  companyId,
+  setupStatus,
+  lastSetupAt,
+}: {
+  companyId: string;
+  setupStatus: SetupStatus;
+  lastSetupAt?: string | null;
+}) {
+  const config = SETUP_STATUS_CONFIG[setupStatus];
+
+  const getStatusPillClasses = () => {
+    switch (setupStatus) {
+      case 'completed':
+        return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+      case 'in_progress':
+        return 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+      case 'not_started':
+      default:
+        return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
+    }
+  };
+
+  const getButtonText = () => {
+    switch (setupStatus) {
+      case 'completed':
+        return 'View Setup Summary';
+      case 'in_progress':
+        return 'Continue Setup';
+      case 'not_started':
+      default:
+        return 'Start Setup';
+    }
+  };
+
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-100">Strategic Setup</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Initial strategy & plan for this company</p>
+        </div>
+        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getStatusPillClasses()}`}>
+          {config.label}
+        </span>
+      </div>
+
+      {lastSetupAt && (
+        <p className="text-xs text-slate-500 mb-3">
+          Last updated: {formatDistanceToNow(new Date(lastSetupAt), { addSuffix: true })}
+        </p>
+      )}
+
+      <Link
+        href={`/c/${companyId}/setup`}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/20 transition-colors"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+        </svg>
+        {getButtonText()}
+      </Link>
+    </div>
+  );
+}
+
+// QBR Card
+function QbrCard({
+  companyId,
+  lastQbrAt,
+}: {
+  companyId: string;
+  lastQbrAt?: string | null;
+}) {
+  const quarterLabel = getQuarterFromDate(lastQbrAt);
+
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-100">Quarterly Review</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Review performance and update the plan</p>
+        </div>
+      </div>
+
+      <p className="text-xs text-slate-500 mb-3">
+        {quarterLabel ? (
+          <>Last QBR: <span className="text-slate-300">{quarterLabel}</span></>
+        ) : (
+          'No QBRs yet'
+        )}
+      </p>
+
+      <Link
+        href={`/c/${companyId}/qbr`}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-violet-500/10 text-violet-400 border border-violet-500/30 hover:bg-violet-500/20 transition-colors"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
+        {quarterLabel ? 'View Latest QBR' : 'Start QBR'}
+      </Link>
+    </div>
+  );
+}
+
+// Incomplete Setup Banner
+function IncompleteSetupBanner({ companyId }: { companyId: string }) {
+  return (
+    <div className="rounded-xl p-4 border border-cyan-500/30 bg-cyan-500/5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+            <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-sm font-medium text-cyan-300">Strategic Setup not completed</p>
+            <p className="text-xs text-slate-400">Complete Setup Mode to initialize this company's strategy and context.</p>
+          </div>
+        </div>
+        <Link
+          href={`/c/${companyId}/setup`}
+          className="flex-shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-colors"
+        >
+          Complete Setup
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -563,8 +711,21 @@ export function CompanyOverviewPage({
       ? `Top Priority: ${strategySnapshot.focusAreas[0]}`
       : null);
 
+  // Setup & QBR status (with safe defaults)
+  const setupStatus = parseSetupStatus(company.setupStatus as string | undefined);
+  const lastSetupAt = company.lastSetupAt ?? null;
+  const lastQbrAt = company.lastQbrAt ?? null;
+  const isSetupComplete = setupStatus === 'completed';
+
   return (
     <div className="space-y-6">
+      {/* ================================================================== */}
+      {/* Incomplete Setup Banner (shown when setup is not completed) */}
+      {/* ================================================================== */}
+      {!isSetupComplete && (
+        <IncompleteSetupBanner companyId={companyId} />
+      )}
+
       {/* ================================================================== */}
       {/* Header Band: Company Info + Quick Health Check */}
       {/* ================================================================== */}
@@ -1369,9 +1530,58 @@ export function CompanyOverviewPage({
       <CompanyActivityTimeline companyId={companyId} limit={8} />
 
       {/* ================================================================== */}
+      {/* Band 6: Setup & QBR Mode Cards */}
+      {/* ================================================================== */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <StrategicSetupCard
+          companyId={companyId}
+          setupStatus={setupStatus}
+          lastSetupAt={lastSetupAt}
+        />
+        <QbrCard
+          companyId={companyId}
+          lastQbrAt={lastQbrAt}
+        />
+      </div>
+
+      {/* ================================================================== */}
       {/* Quick Actions */}
       {/* ================================================================== */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <Link
+          href={`/c/${companyId}/setup`}
+          className="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-cyan-500/50 hover:bg-cyan-500/5 transition-all group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center group-hover:bg-cyan-500/20 transition-colors">
+              <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-slate-100">Setup</p>
+              <p className="text-xs text-slate-500">Strategy wizard</p>
+            </div>
+          </div>
+        </Link>
+
+        <Link
+          href={`/c/${companyId}/qbr`}
+          className="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-violet-500/50 hover:bg-violet-500/5 transition-all group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-violet-500/10 border border-violet-500/30 flex items-center justify-center group-hover:bg-violet-500/20 transition-colors">
+              <svg className="w-5 h-5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-slate-100">QBR</p>
+              <p className="text-xs text-slate-500">Quarterly review</p>
+            </div>
+          </div>
+        </Link>
+
         <Link
           href={`/c/${companyId}/blueprint`}
           className="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-700 hover:bg-slate-800/50 transition-all group"
