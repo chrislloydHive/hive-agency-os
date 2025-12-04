@@ -41,6 +41,8 @@ export const ContextSource = z.enum([
   'analytics_lsa',   // Local Services Ads data
   'analytics_gbp',   // Google Business Profile data
   'external_enrichment', // External data enrichment
+  'setup_wizard',    // Strategic Setup Mode wizard
+  'qbr',             // Quarterly Business Review
 ]);
 
 export type ContextSource = z.infer<typeof ContextSource>;
@@ -207,6 +209,8 @@ export const DEFAULT_VALIDITY_DAYS: Record<ContextSource, number> = {
   airtable: 365,          // CRM data valid for a year
   inferred: 30,           // AI inferences valid for 1 month
   external_enrichment: 60, // External data valid for 2 months
+  setup_wizard: 180,      // Setup wizard data valid for 6 months
+  qbr: 90,                // QBR data valid for 3 months
 };
 
 /**

@@ -90,7 +90,8 @@ export type WorkSourceType =
   | 'client_brain_insight'
   | 'dma_funnel'
   | 'funnel_insight'
-  | 'media_scorecard';
+  | 'media_scorecard'
+  | 'setup_wizard';
 
 /**
  * Analytics metric source - when work is created from an analytics insight
@@ -201,6 +202,13 @@ export interface WorkSourceMediaScorecard {
 }
 
 /**
+ * Setup wizard source - from Strategic Setup Mode
+ */
+export interface WorkSourceSetupWizard {
+  sourceType: 'setup_wizard';
+}
+
+/**
  * Union of all work source types
  */
 export type WorkSource =
@@ -214,7 +222,8 @@ export type WorkSource =
   | WorkSourceClientBrainInsight
   | WorkSourceDmaFunnel
   | WorkSourceFunnelInsight
-  | WorkSourceMediaScorecard;
+  | WorkSourceMediaScorecard
+  | WorkSourceSetupWizard;
 
 // ============================================================================
 // Work Item Types
@@ -383,6 +392,8 @@ export function getSourceLabel(source?: WorkSource): string {
       return `${source.funnelContext.charAt(0).toUpperCase() + source.funnelContext.slice(1)} Funnel → ${source.itemType.replace('_', ' ')}`;
     case 'media_scorecard':
       return `Media Scorecard → ${source.scoreType}`;
+    case 'setup_wizard':
+      return 'Strategic Setup';
     default:
       return 'Unknown';
   }

@@ -34,7 +34,9 @@ export type ProvenanceSource =
   | 'analytics_gads'
   | 'analytics_lsa'
   | 'analytics_gbp'
-  | 'external_enrichment';
+  | 'external_enrichment'
+  | 'setup_wizard'
+  | 'qbr';
 
 /**
  * Create a provenance tag

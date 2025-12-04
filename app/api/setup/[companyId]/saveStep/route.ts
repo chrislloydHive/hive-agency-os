@@ -55,6 +55,8 @@ export async function POST(
 }
 
 // Map form data to context graph domains based on step
+// Note: setDomainFields expects raw values, not wrapped { value, provenance } objects
+// We use type assertions for enum fields since form data uses generic strings
 function mapStepToGraph(
   graph: ReturnType<typeof getOrCreateContextGraph> extends Promise<infer T> ? T : never,
   stepId: SetupStepId,
@@ -65,16 +67,16 @@ function mapStepToGraph(
     case 'business-identity':
       if (data.businessIdentity) {
         graph = setDomainFields(graph, 'identity', {
-          businessName: { value: data.businessIdentity.businessName, provenance: [provenance] },
-          industry: { value: data.businessIdentity.industry, provenance: [provenance] },
-          businessModel: { value: data.businessIdentity.businessModel, provenance: [provenance] },
-          revenueModel: { value: data.businessIdentity.revenueModel, provenance: [provenance] },
-          geographicFootprint: { value: data.businessIdentity.geographicFootprint, provenance: [provenance] },
-          serviceArea: { value: data.businessIdentity.serviceArea, provenance: [provenance] },
-          seasonalityNotes: { value: data.businessIdentity.seasonalityNotes, provenance: [provenance] },
-          peakSeasons: { value: data.businessIdentity.peakSeasons, provenance: [provenance] },
-          revenueStreams: { value: data.businessIdentity.revenueStreams, provenance: [provenance] },
-          primaryCompetitors: { value: data.businessIdentity.primaryCompetitors, provenance: [provenance] },
+          businessName: data.businessIdentity.businessName || undefined,
+          industry: data.businessIdentity.industry || undefined,
+          businessModel: (data.businessIdentity.businessModel || undefined) as any,
+          revenueModel: data.businessIdentity.revenueModel || undefined,
+          geographicFootprint: data.businessIdentity.geographicFootprint || undefined,
+          serviceArea: data.businessIdentity.serviceArea || undefined,
+          seasonalityNotes: data.businessIdentity.seasonalityNotes || undefined,
+          peakSeasons: data.businessIdentity.peakSeasons || [],
+          revenueStreams: data.businessIdentity.revenueStreams || [],
+          primaryCompetitors: data.businessIdentity.primaryCompetitors || [],
         }, provenance);
       }
       break;
@@ -82,15 +84,15 @@ function mapStepToGraph(
     case 'objectives':
       if (data.objectives) {
         graph = setDomainFields(graph, 'objectives', {
-          primaryObjective: { value: data.objectives.primaryObjective, provenance: [provenance] },
-          secondaryObjectives: { value: data.objectives.secondaryObjectives, provenance: [provenance] },
-          primaryBusinessGoal: { value: data.objectives.primaryBusinessGoal, provenance: [provenance] },
-          timeHorizon: { value: data.objectives.timeHorizon, provenance: [provenance] },
-          targetCpa: { value: data.objectives.targetCpa, provenance: [provenance] },
-          targetRoas: { value: data.objectives.targetRoas, provenance: [provenance] },
-          revenueGoal: { value: data.objectives.revenueGoal, provenance: [provenance] },
-          leadGoal: { value: data.objectives.leadGoal, provenance: [provenance] },
-          kpiLabels: { value: data.objectives.kpiLabels, provenance: [provenance] },
+          primaryObjective: (data.objectives.primaryObjective || undefined) as any,
+          secondaryObjectives: (data.objectives.secondaryObjectives || []) as any,
+          primaryBusinessGoal: data.objectives.primaryBusinessGoal || undefined,
+          timeHorizon: (data.objectives.timeHorizon || undefined) as any,
+          targetCpa: data.objectives.targetCpa ?? undefined,
+          targetRoas: data.objectives.targetRoas ?? undefined,
+          revenueGoal: data.objectives.revenueGoal ?? undefined,
+          leadGoal: data.objectives.leadGoal ?? undefined,
+          kpiLabels: data.objectives.kpiLabels || [],
         }, provenance);
       }
       break;
@@ -98,26 +100,31 @@ function mapStepToGraph(
     case 'audience':
       if (data.audience) {
         graph = setDomainFields(graph, 'audience', {
-          coreSegments: { value: data.audience.coreSegments, provenance: [provenance] },
-          demographics: { value: data.audience.demographics, provenance: [provenance] },
-          geos: { value: data.audience.geos, provenance: [provenance] },
-          primaryMarkets: { value: data.audience.primaryMarkets, provenance: [provenance] },
-          behavioralDrivers: { value: data.audience.behavioralDrivers, provenance: [provenance] },
-          demandStates: { value: data.audience.demandStates, provenance: [provenance] },
-          painPoints: { value: data.audience.painPoints, provenance: [provenance] },
-          motivations: { value: data.audience.motivations, provenance: [provenance] },
+          coreSegments: data.audience.coreSegments || [],
+          demographics: data.audience.demographics || undefined,
+          geos: data.audience.geos || undefined,
+          primaryMarkets: data.audience.primaryMarkets || [],
+          behavioralDrivers: data.audience.behavioralDrivers || [],
+          demandStates: data.audience.demandStates || [],
+          painPoints: data.audience.painPoints || [],
+          motivations: data.audience.motivations || [],
         }, provenance);
       }
+      break;
+
+    case 'personas':
+      // Personas are stored via Audience Lab - persona count is just informational
+      // Actual personas are linked via personaNames in the audience domain
       break;
 
     case 'website':
       if (data.website) {
         graph = setDomainFields(graph, 'website', {
-          websiteSummary: { value: data.website.websiteSummary, provenance: [provenance] },
-          conversionBlocks: { value: data.website.conversionBlocks, provenance: [provenance] },
-          conversionOpportunities: { value: data.website.conversionOpportunities, provenance: [provenance] },
-          criticalIssues: { value: data.website.criticalIssues, provenance: [provenance] },
-          quickWins: { value: data.website.quickWins, provenance: [provenance] },
+          websiteSummary: data.website.websiteSummary || undefined,
+          conversionBlocks: data.website.conversionBlocks || [],
+          conversionOpportunities: data.website.conversionOpportunities || [],
+          criticalIssues: data.website.criticalIssues || [],
+          quickWins: data.website.quickWins || [],
         }, provenance);
       }
       break;
@@ -125,11 +132,11 @@ function mapStepToGraph(
     case 'media-foundations':
       if (data.mediaFoundations) {
         graph = setDomainFields(graph, 'performanceMedia', {
-          mediaSummary: { value: data.mediaFoundations.mediaSummary, provenance: [provenance] },
-          activeChannels: { value: data.mediaFoundations.activeChannels, provenance: [provenance] },
-          attributionModel: { value: data.mediaFoundations.attributionModel, provenance: [provenance] },
-          mediaIssues: { value: data.mediaFoundations.mediaIssues, provenance: [provenance] },
-          mediaOpportunities: { value: data.mediaFoundations.mediaOpportunities, provenance: [provenance] },
+          mediaSummary: data.mediaFoundations.mediaSummary || undefined,
+          activeChannels: (data.mediaFoundations.activeChannels || []) as any,
+          attributionModel: data.mediaFoundations.attributionModel || undefined,
+          mediaIssues: data.mediaFoundations.mediaIssues || [],
+          mediaOpportunities: data.mediaFoundations.mediaOpportunities || [],
         }, provenance);
       }
       break;
@@ -137,11 +144,11 @@ function mapStepToGraph(
     case 'budget-scenarios':
       if (data.budgetScenarios) {
         graph = setDomainFields(graph, 'budgetOps', {
-          totalMarketingBudget: { value: data.budgetScenarios.totalMarketingBudget, provenance: [provenance] },
-          mediaSpendBudget: { value: data.budgetScenarios.mediaSpendBudget, provenance: [provenance] },
-          budgetPeriod: { value: data.budgetScenarios.budgetPeriod, provenance: [provenance] },
-          avgCustomerValue: { value: data.budgetScenarios.avgCustomerValue, provenance: [provenance] },
-          customerLTV: { value: data.budgetScenarios.customerLTV, provenance: [provenance] },
+          totalMarketingBudget: data.budgetScenarios.totalMarketingBudget ?? undefined,
+          mediaSpendBudget: data.budgetScenarios.mediaSpendBudget ?? undefined,
+          budgetPeriod: (data.budgetScenarios.budgetPeriod || undefined) as any,
+          avgCustomerValue: data.budgetScenarios.avgCustomerValue ?? undefined,
+          customerLTV: data.budgetScenarios.customerLTV ?? undefined,
         }, provenance);
       }
       break;
@@ -149,11 +156,11 @@ function mapStepToGraph(
     case 'creative-strategy':
       if (data.creativeStrategy) {
         graph = setDomainFields(graph, 'creative', {
-          coreMessages: { value: data.creativeStrategy.coreMessages, provenance: [provenance] },
-          proofPoints: { value: data.creativeStrategy.proofPoints, provenance: [provenance] },
-          callToActions: { value: data.creativeStrategy.callToActions, provenance: [provenance] },
-          availableFormats: { value: data.creativeStrategy.availableFormats, provenance: [provenance] },
-          brandGuidelines: { value: data.creativeStrategy.brandGuidelines, provenance: [provenance] },
+          coreMessages: data.creativeStrategy.coreMessages || [],
+          proofPoints: data.creativeStrategy.proofPoints || [],
+          callToActions: data.creativeStrategy.callToActions || [],
+          availableFormats: (data.creativeStrategy.availableFormats || []) as any,
+          brandGuidelines: data.creativeStrategy.brandGuidelines || undefined,
         }, provenance);
       }
       break;
@@ -161,20 +168,19 @@ function mapStepToGraph(
     case 'measurement':
       if (data.measurement) {
         graph = setDomainFields(graph, 'digitalInfra', {
-          ga4PropertyId: { value: data.measurement.ga4PropertyId, provenance: [provenance] },
-          ga4ConversionEvents: { value: data.measurement.ga4ConversionEvents, provenance: [provenance] },
-          callTracking: { value: data.measurement.callTracking, provenance: [provenance] },
-          trackingTools: { value: data.measurement.trackingTools, provenance: [provenance] },
-          attributionModel: { value: data.measurement.attributionModel, provenance: [provenance] },
-          attributionWindow: { value: data.measurement.attributionWindow, provenance: [provenance] },
+          ga4PropertyId: data.measurement.ga4PropertyId || undefined,
+          ga4ConversionEvents: data.measurement.ga4ConversionEvents || [],
+          callTracking: data.measurement.callTracking || undefined,
+          trackingTools: data.measurement.trackingTools || [],
+          attributionModel: data.measurement.attributionModel || undefined,
+          attributionWindow: data.measurement.attributionWindow || undefined,
         }, provenance);
       }
       break;
 
-    // Personas and Summary are handled separately
-    case 'personas':
     case 'summary':
-      // These steps don't directly map to context graph fields
+      // Summary step generates narrative but doesn't write new fields
+      // The summary is captured during finalize
       break;
   }
 
