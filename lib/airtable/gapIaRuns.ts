@@ -704,7 +704,7 @@ export async function getGapIaRunsForCompanyOrDomain(
                (normalizedDomain && runDomain && normalizedDomain.includes(runDomain));
 
         if (matches) {
-          console.log('[gapIaRuns] Matched by domain:', { runId: run.id, runDomain, runUrlDomain, normalizedDomain });
+          console.log('[gapIaRuns] Matched by domain:', { runId: run.id, runDomain, runUrlDomain, normalizedDomain, status: run.status });
         }
 
         return matches;

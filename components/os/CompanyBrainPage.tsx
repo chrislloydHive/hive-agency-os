@@ -408,7 +408,7 @@ export function CompanyBrainPage({
             <div className="space-y-2">
               {/* GAP Plan Runs from GAP-Plan Run table */}
               {data.gapPlanRuns && data.gapPlanRuns
-                .filter(run => run.status === 'completed')
+                .filter(run => run.status === 'completed' || run.status === 'complete')
                 .slice(0, 3)
                 .map((run, index) => (
                   <Link
@@ -419,7 +419,7 @@ export function CompanyBrainPage({
                     <div className="flex items-center gap-2">
                       <FileBarChart className="w-4 h-4 text-amber-400" />
                       <span className="text-xs text-slate-300">
-                        GAP Plan{data.gapPlanRuns.filter(r => r.status === 'completed').length > 1 ? ` #${index + 1}` : ''}
+                        GAP Plan{data.gapPlanRuns.filter(r => r.status === 'completed' || r.status === 'complete').length > 1 ? ` #${index + 1}` : ''}
                       </span>
                       {run.overallScore !== undefined && (
                         <span className="text-[10px] text-slate-500">{run.overallScore}/100</span>
@@ -431,7 +431,7 @@ export function CompanyBrainPage({
 
               {/* GAP IA Runs from GAP-IA Run table */}
               {data.gapIaRuns && data.gapIaRuns
-                .filter(run => run.status === 'completed')
+                .filter(run => run.status === 'completed' || run.status === 'complete')
                 .slice(0, 3)
                 .map((run, index) => (
                   <Link
@@ -442,7 +442,7 @@ export function CompanyBrainPage({
                     <div className="flex items-center gap-2">
                       <FileBarChart className="w-4 h-4 text-blue-400" />
                       <span className="text-xs text-slate-300">
-                        GAP Snapshot{data.gapIaRuns.filter(r => r.status === 'completed').length > 1 ? ` #${index + 1}` : ''}
+                        GAP Snapshot{data.gapIaRuns.filter(r => r.status === 'completed' || r.status === 'complete').length > 1 ? ` #${index + 1}` : ''}
                       </span>
                       {(run as any).overallScore !== undefined && (
                         <span className="text-[10px] text-slate-500">{(run as any).overallScore}/100</span>
@@ -534,8 +534,8 @@ export function CompanyBrainPage({
               {/* Empty state */}
               {!data.gapPlan?.id &&
                !data.gapSnapshot?.id &&
-               (!data.gapPlanRuns || data.gapPlanRuns.filter(r => r.status === 'completed').length === 0) &&
-               (!data.gapIaRuns || data.gapIaRuns.filter(r => r.status === 'completed').length === 0) &&
+               (!data.gapPlanRuns || data.gapPlanRuns.filter(r => r.status === 'completed' || r.status === 'complete').length === 0) &&
+               (!data.gapIaRuns || data.gapIaRuns.filter(r => r.status === 'completed' || r.status === 'complete').length === 0) &&
                data.allDiagnosticRuns.filter(r => r.status === 'complete').length === 0 &&
                data.documents.length === 0 && (
                 <p className="text-xs text-slate-500 text-center py-4">
