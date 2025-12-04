@@ -527,6 +527,7 @@ export function BlueprintClient({
           'Demand Generation': 'Funnel',
           'Marketing Ops': 'Other',
           'Analytics': 'Funnel',
+          'Media & Advertising': 'Funnel',
         };
 
         const priorityMapping: Record<string, string> = {

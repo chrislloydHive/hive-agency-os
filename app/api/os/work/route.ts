@@ -158,10 +158,17 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('[Work] Error creating work item:', error);
+    // Extract Airtable error details if available
+    const errorMessage = error instanceof Error ? error.message : 'Failed to create work item';
+    const airtableError = (error as any)?.error || (error as any)?.statusCode;
+    if (airtableError) {
+      console.error('[Work] Airtable error details:', airtableError);
+    }
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to create work item',
+        error: errorMessage,
+        details: airtableError || undefined,
       },
       { status: 500 }
     );
