@@ -25,6 +25,9 @@ import {
   CheckCircle,
   XCircle,
   Clock,
+  FolderOpen,
+  ExternalLink,
+  FileBarChart,
 } from 'lucide-react';
 import type { CompanyBrainData } from '@/lib/brain/getCompanyBrainData';
 import type { CompanyBrainNarrative } from '@/lib/brain/generateCompanyBrainNarrative';
@@ -40,36 +43,36 @@ interface CompanyBrainPageProps {
 }
 
 // ============================================================================
-// Confidence Badge Component
+// Confidence Badge Component (matches ToolReportLayout style)
 // ============================================================================
 
 function ConfidenceBadge({
-  score,
   level,
+  score,
 }: {
-  score: number;
   level: 'low' | 'medium' | 'high';
+  score?: number;
 }) {
   const colors = {
-    low: 'bg-red-500/20 text-red-400 border-red-500/30',
-    medium: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-    high: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+    low: 'bg-red-500/10 text-red-300 border-red-500/30',
+    medium: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
+    high: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
   };
 
+  // Use provided score or default based on level
+  const displayScore = score ?? (level === 'high' ? 85 : level === 'medium' ? 60 : 35);
+
   const labels = {
-    low: 'Low Confidence',
-    medium: 'Medium Confidence',
-    high: 'High Confidence',
+    low: 'Low',
+    medium: 'Medium',
+    high: 'High',
   };
 
   return (
-    <div
-      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${colors[level]}`}
-    >
-      <span className="text-sm font-mono font-bold">{score}</span>
-      <span className="text-xs">/100</span>
-      <span className="text-xs">• {labels[level]}</span>
-    </div>
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${colors[level]}`}>
+      <span className="text-[10px] uppercase tracking-wider text-slate-500">Data:</span>
+      {labels[level]} ({displayScore}%)
+    </span>
   );
 }
 
@@ -237,8 +240,8 @@ export function CompanyBrainPage({
           </div>
 
           <ConfidenceBadge
-            score={currentNarrative.dataConfidence.score}
             level={currentNarrative.dataConfidence.level}
+            score={currentNarrative.dataConfidence.score}
           />
         </div>
       </div>
@@ -391,6 +394,154 @@ export function CompanyBrainPage({
                   />
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Library - Links to Reports & Documents */}
+          <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-4">
+              <FolderOpen className="w-4 h-4 text-slate-400" />
+              <h3 className="text-sm font-semibold text-slate-200">
+                Library
+              </h3>
+            </div>
+            <div className="space-y-2">
+              {/* GAP Plan Runs from GAP-Plan Run table */}
+              {data.gapPlanRuns && data.gapPlanRuns
+                .filter(run => run.status === 'completed')
+                .slice(0, 3)
+                .map((run, index) => (
+                  <Link
+                    key={run.id}
+                    href={`/c/${companyId}/gap/${run.id}`}
+                    className="flex items-center justify-between py-2 px-3 rounded-lg bg-slate-900/50 hover:bg-slate-800/50 transition-colors group"
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileBarChart className="w-4 h-4 text-amber-400" />
+                      <span className="text-xs text-slate-300">
+                        GAP Plan{data.gapPlanRuns.filter(r => r.status === 'completed').length > 1 ? ` #${index + 1}` : ''}
+                      </span>
+                      {run.overallScore !== undefined && (
+                        <span className="text-[10px] text-slate-500">{run.overallScore}/100</span>
+                      )}
+                    </div>
+                    <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-slate-300 transition-colors" />
+                  </Link>
+                ))}
+
+              {/* GAP IA Runs from GAP-IA Run table */}
+              {data.gapIaRuns && data.gapIaRuns
+                .filter(run => run.status === 'completed')
+                .slice(0, 3)
+                .map((run, index) => (
+                  <Link
+                    key={run.id}
+                    href={`/c/${companyId}/gap/${run.id}`}
+                    className="flex items-center justify-between py-2 px-3 rounded-lg bg-slate-900/50 hover:bg-slate-800/50 transition-colors group"
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileBarChart className="w-4 h-4 text-blue-400" />
+                      <span className="text-xs text-slate-300">
+                        GAP Snapshot{data.gapIaRuns.filter(r => r.status === 'completed').length > 1 ? ` #${index + 1}` : ''}
+                      </span>
+                      {(run as any).overallScore !== undefined && (
+                        <span className="text-[10px] text-slate-500">{(run as any).overallScore}/100</span>
+                      )}
+                    </div>
+                    <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-slate-300 transition-colors" />
+                  </Link>
+                ))}
+
+              {/* Legacy: GAP Reports from Diagnostic Runs table (for backward compat) */}
+              {data.gapPlan?.id && data.gapPlan?.status === 'complete' && (
+                <Link
+                  href={`/c/${companyId}/reports/${data.gapPlan.id}`}
+                  className="flex items-center justify-between py-2 px-3 rounded-lg bg-slate-900/50 hover:bg-slate-800/50 transition-colors group"
+                >
+                  <div className="flex items-center gap-2">
+                    <FileBarChart className="w-4 h-4 text-amber-400" />
+                    <span className="text-xs text-slate-300">GAP Plan Report</span>
+                  </div>
+                  <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-slate-300 transition-colors" />
+                </Link>
+              )}
+              {data.gapSnapshot?.id && data.gapSnapshot?.status === 'complete' && (
+                <Link
+                  href={`/c/${companyId}/reports/${data.gapSnapshot.id}`}
+                  className="flex items-center justify-between py-2 px-3 rounded-lg bg-slate-900/50 hover:bg-slate-800/50 transition-colors group"
+                >
+                  <div className="flex items-center gap-2">
+                    <FileBarChart className="w-4 h-4 text-blue-400" />
+                    <span className="text-xs text-slate-300">GAP Snapshot</span>
+                  </div>
+                  <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-slate-300 transition-colors" />
+                </Link>
+              )}
+
+              {/* Diagnostic Lab Reports */}
+              {data.allDiagnosticRuns
+                .filter(run => run.status === 'complete')
+                .slice(0, 5)
+                .map(run => {
+                  const labNames: Record<string, string> = {
+                    brandLab: 'Brand Lab',
+                    websiteLab: 'Website Lab',
+                    seoLab: 'SEO Lab',
+                    contentLab: 'Content Lab',
+                    opsLab: 'Ops Lab',
+                    demandLab: 'Demand Lab',
+                  };
+                  const labName = labNames[run.toolId] || run.toolId;
+                  return (
+                    <Link
+                      key={run.id}
+                      href={`/c/${companyId}/reports/${run.id}`}
+                      className="flex items-center justify-between py-2 px-3 rounded-lg bg-slate-900/50 hover:bg-slate-800/50 transition-colors group"
+                    >
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-slate-400" />
+                        <span className="text-xs text-slate-300">{labName}</span>
+                        {run.score !== null && (
+                          <span className="text-[10px] text-slate-500">{run.score}/100</span>
+                        )}
+                      </div>
+                      <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-slate-300 transition-colors" />
+                    </Link>
+                  );
+                })}
+
+              {/* Documents */}
+              {data.documents.length > 0 && (
+                <div className="pt-2 mt-2 border-t border-slate-800">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-2">Documents</p>
+                  {data.documents.slice(0, 3).map(doc => (
+                    <div
+                      key={doc.id}
+                      className="flex items-center gap-2 py-1.5 text-xs text-slate-400"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span className="truncate">{doc.name || 'Untitled'}</span>
+                    </div>
+                  ))}
+                  {data.documents.length > 3 && (
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      +{data.documents.length - 3} more documents
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Empty state */}
+              {!data.gapPlan?.id &&
+               !data.gapSnapshot?.id &&
+               (!data.gapPlanRuns || data.gapPlanRuns.filter(r => r.status === 'completed').length === 0) &&
+               (!data.gapIaRuns || data.gapIaRuns.filter(r => r.status === 'completed').length === 0) &&
+               data.allDiagnosticRuns.filter(r => r.status === 'complete').length === 0 &&
+               data.documents.length === 0 && (
+                <p className="text-xs text-slate-500 text-center py-4">
+                  No reports or documents yet. Run diagnostics to generate reports.
+                </p>
+              )}
             </div>
           </div>
 

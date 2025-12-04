@@ -16,6 +16,7 @@ import {
   type MediaChannelKey,
   type MediaChannelPriority,
   type MediaFlightSeason,
+  type MediaFlightStatus,
   formatMediaBudget,
   formatDateRange,
   getChannelLabel,
@@ -27,7 +28,19 @@ import {
   MEDIA_OBJECTIVE_CONFIG,
   MEDIA_PRIORITY_CONFIG,
   MEDIA_SEASON_CONFIG,
+  MEDIA_FLIGHT_STATUS_CONFIG,
 } from '@/lib/types/mediaLab';
+import {
+  type MediaProvider,
+  type MediaDataSourceType,
+  type AttributionModel,
+  MEDIA_PROVIDER_OPTIONS,
+  MEDIA_PROVIDER_CONFIG,
+  MEDIA_DATASOURCE_OPTIONS,
+  MEDIA_DATASOURCE_CONFIG,
+  ATTRIBUTION_MODEL_OPTIONS,
+  ATTRIBUTION_MODEL_CONFIG,
+} from '@/lib/types/media';
 import { PlanningWorkspace } from '@/components/mediaLab/PlanningWorkspace';
 
 // ============================================================================
@@ -995,6 +1008,8 @@ function ChannelMixCard({
               <thead>
                 <tr className="border-b border-slate-700/50">
                   <th className="text-left py-2 text-[10px] uppercase tracking-wider text-slate-500 font-medium">Channel</th>
+                  <th className="text-left py-2 text-[10px] uppercase tracking-wider text-slate-500 font-medium">Provider</th>
+                  <th className="text-left py-2 text-[10px] uppercase tracking-wider text-slate-500 font-medium">Source</th>
                   <th className="text-right py-2 text-[10px] uppercase tracking-wider text-slate-500 font-medium">Budget %</th>
                   <th className="text-right py-2 text-[10px] uppercase tracking-wider text-slate-500 font-medium">$ Budget</th>
                   <th className="text-right py-2 text-[10px] uppercase tracking-wider text-slate-500 font-medium">Expected Vol</th>
@@ -1031,6 +1046,8 @@ function EditableChannelRow({
 }) {
   const colors = MEDIA_CHANNEL_COLORS[channel.channel];
   const priorityConfig = channel.priority ? MEDIA_PRIORITY_CONFIG[channel.priority] : null;
+  const providerConfig = channel.provider ? MEDIA_PROVIDER_CONFIG[channel.provider] : null;
+  const dataSourceConfig = channel.dataSourceType ? MEDIA_DATASOURCE_CONFIG[channel.dataSourceType] : null;
 
   const [isEditing, setIsEditing] = useState(false);
   const [budgetPct, setBudgetPct] = useState(channel.budgetSharePct?.toString() || '');
@@ -1050,6 +1067,7 @@ function EditableChannelRow({
 
   return (
     <tr className="hover:bg-slate-800/30 transition-colors group">
+      {/* Channel name with priority */}
       <td className="py-2.5">
         <div className="flex items-center gap-2">
           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colors.text} ${colors.bg} border ${colors.border}`}>
@@ -1081,6 +1099,33 @@ function EditableChannelRow({
           )}
         </div>
       </td>
+      {/* Provider selector */}
+      <td className="py-2.5">
+        <select
+          value={channel.provider || ''}
+          onChange={(e) => onUpdate({ provider: (e.target.value || undefined) as MediaProvider | undefined })}
+          className={`text-[10px] bg-transparent border-none cursor-pointer ${providerConfig ? providerConfig.color : 'text-slate-500'}`}
+        >
+          <option value="">—</option>
+          {MEDIA_PROVIDER_OPTIONS.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </td>
+      {/* Data source type selector */}
+      <td className="py-2.5">
+        <select
+          value={channel.dataSourceType || ''}
+          onChange={(e) => onUpdate({ dataSourceType: (e.target.value || undefined) as MediaDataSourceType | undefined })}
+          className={`text-[10px] bg-transparent border-none cursor-pointer ${dataSourceConfig ? dataSourceConfig.color : 'text-slate-500'}`}
+        >
+          <option value="">—</option>
+          {MEDIA_DATASOURCE_OPTIONS.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </td>
+      {/* Budget % */}
       <td className="py-2.5 text-right">
         <input
           type="number"
@@ -1093,6 +1138,7 @@ function EditableChannelRow({
         />
         {budgetPct && <span className="text-slate-500">%</span>}
       </td>
+      {/* Budget $ */}
       <td className="py-2.5 text-right">
         <input
           type="number"
@@ -1104,6 +1150,7 @@ function EditableChannelRow({
           className="w-24 text-right text-slate-200 tabular-nums font-medium bg-transparent border-b border-transparent hover:border-slate-600 focus:border-slate-500 focus:outline-none"
         />
       </td>
+      {/* Expected volume */}
       <td className="py-2.5 text-right">
         <input
           type="number"
@@ -1115,6 +1162,7 @@ function EditableChannelRow({
           className="w-20 text-right text-slate-400 tabular-nums bg-transparent border-b border-transparent hover:border-slate-600 focus:border-slate-500 focus:outline-none"
         />
       </td>
+      {/* Est. CPL */}
       <td className="py-2.5 text-right">
         <input
           type="number"
@@ -1126,6 +1174,7 @@ function EditableChannelRow({
           className="w-16 text-right text-slate-400 tabular-nums bg-transparent border-b border-transparent hover:border-slate-600 focus:border-slate-500 focus:outline-none"
         />
       </td>
+      {/* Delete button */}
       <td className="py-2.5">
         <button
           onClick={onDelete}
@@ -1210,21 +1259,30 @@ function EditableFlightRow({
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(flight.name);
+  const [status, setStatus] = useState<MediaFlightStatus>(flight.status || 'upcoming');
   const [season, setSeason] = useState(flight.season || 'other');
   const [startDate, setStartDate] = useState(flight.startDate || '');
   const [endDate, setEndDate] = useState(flight.endDate || '');
   const [budget, setBudget] = useState(flight.budget?.toString() || '');
+  const [actualSpent, setActualSpent] = useState(flight.actualBudgetSpent?.toString() || '');
+  const [actualLeads, setActualLeads] = useState(flight.actualLeads?.toString() || '');
+  const [leadGoal, setLeadGoal] = useState(flight.leadGoal?.toString() || '');
   const [markets, setMarkets] = useState(flight.marketsStores || '');
 
   const seasonConfig = flight.season ? MEDIA_SEASON_CONFIG[flight.season] : null;
+  const statusConfig = flight.status ? MEDIA_FLIGHT_STATUS_CONFIG[flight.status] : MEDIA_FLIGHT_STATUS_CONFIG.upcoming;
 
   const handleSave = () => {
     onUpdate({
       name,
+      status,
       season: season as MediaFlightSeason,
       startDate: startDate || null,
       endDate: endDate || null,
       budget: budget ? parseFloat(budget) : null,
+      actualBudgetSpent: actualSpent ? parseFloat(actualSpent) : null,
+      actualLeads: actualLeads ? parseInt(actualLeads, 10) : null,
+      leadGoal: leadGoal ? parseInt(leadGoal, 10) : null,
       marketsStores: markets || null,
     });
     setIsEditing(false);
@@ -1242,6 +1300,18 @@ function EditableFlightRow({
               onChange={(e) => setName(e.target.value)}
               className="w-full text-sm px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300"
             />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-slate-500 mb-1 block">Status</label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value as MediaFlightStatus)}
+              className="w-full text-sm px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300"
+            >
+              {Object.entries(MEDIA_FLIGHT_STATUS_CONFIG).map(([key, cfg]) => (
+                <option key={key} value={key}>{cfg.label}</option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="text-[10px] uppercase tracking-wider text-slate-500 mb-1 block">Season</label>
@@ -1274,11 +1344,41 @@ function EditableFlightRow({
             />
           </div>
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-slate-500 mb-1 block">Budget</label>
+            <label className="text-[10px] uppercase tracking-wider text-slate-500 mb-1 block">Budget (Planned)</label>
             <input
               type="number"
               value={budget}
               onChange={(e) => setBudget(e.target.value)}
+              className="w-full text-sm px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-slate-500 mb-1 block">Actual Spent</label>
+            <input
+              type="number"
+              value={actualSpent}
+              onChange={(e) => setActualSpent(e.target.value)}
+              placeholder="0"
+              className="w-full text-sm px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-slate-500 mb-1 block">Lead Goal</label>
+            <input
+              type="number"
+              value={leadGoal}
+              onChange={(e) => setLeadGoal(e.target.value)}
+              placeholder="0"
+              className="w-full text-sm px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-slate-500 mb-1 block">Actual Leads</label>
+            <input
+              type="number"
+              value={actualLeads}
+              onChange={(e) => setActualLeads(e.target.value)}
+              placeholder="0"
               className="w-full text-sm px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300"
             />
           </div>
@@ -1316,6 +1416,14 @@ function EditableFlightRow({
     );
   }
 
+  // Calculate pacing if we have budget and actuals
+  const pacingPct = flight.budget && flight.actualBudgetSpent
+    ? (flight.actualBudgetSpent / flight.budget) * 100
+    : null;
+  const leadPacingPct = flight.leadGoal && flight.actualLeads
+    ? (flight.actualLeads / flight.leadGoal) * 100
+    : null;
+
   return (
     <div
       className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-3 cursor-pointer hover:border-slate-600 transition-colors"
@@ -1323,7 +1431,12 @@ function EditableFlightRow({
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-medium text-slate-200">{flight.name}</h4>
+          <div className="flex items-center gap-2">
+            <h4 className="text-sm font-medium text-slate-200">{flight.name}</h4>
+            <span className={`text-[9px] px-1.5 py-0.5 rounded ${statusConfig.bgColor} ${statusConfig.color}`}>
+              {statusConfig.label}
+            </span>
+          </div>
           {seasonConfig && (
             <span className={`text-[10px] ${seasonConfig.color}`}>
               {seasonConfig.label} ({seasonConfig.months})
@@ -1339,6 +1452,34 @@ function EditableFlightRow({
           </p>
         </div>
       </div>
+
+      {/* Actuals tracking if we have data */}
+      {(flight.actualBudgetSpent != null || flight.actualLeads != null) && (
+        <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-700/30">
+          {flight.actualBudgetSpent != null && (
+            <div>
+              <span className="text-[10px] text-slate-500">Spent: </span>
+              <span className="text-[10px] text-emerald-400 tabular-nums">{formatMediaBudget(flight.actualBudgetSpent)}</span>
+              {pacingPct !== null && (
+                <span className={`text-[9px] ml-1 ${pacingPct > 100 ? 'text-red-400' : 'text-slate-500'}`}>
+                  ({pacingPct.toFixed(0)}%)
+                </span>
+              )}
+            </div>
+          )}
+          {flight.actualLeads != null && (
+            <div>
+              <span className="text-[10px] text-slate-500">Leads: </span>
+              <span className="text-[10px] text-amber-400 tabular-nums">{flight.actualLeads}</span>
+              {leadPacingPct !== null && (
+                <span className={`text-[9px] ml-1 ${leadPacingPct < 80 ? 'text-red-400' : 'text-slate-500'}`}>
+                  ({leadPacingPct.toFixed(0)}%)
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {flight.primaryChannels.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-2">

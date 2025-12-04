@@ -206,7 +206,7 @@ export async function getLast30DayMetrics(
  */
 export async function getPerformanceByChannel(
   companyId: string
-): Promise<Record<MediaChannel, { spend: number; calls: number; clicks: number }>> {
+): Promise<Partial<Record<MediaChannel, { spend: number; calls: number; clicks: number }>>> {
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
@@ -214,29 +214,23 @@ export async function getPerformanceByChannel(
     range: { start: thirtyDaysAgo, end: now },
   });
 
-  const byChannel: Record<MediaChannel, { spend: number; calls: number; clicks: number }> = {
-    Search: { spend: 0, calls: 0, clicks: 0 },
-    Maps: { spend: 0, calls: 0, clicks: 0 },
-    LSAs: { spend: 0, calls: 0, clicks: 0 },
-    Social: { spend: 0, calls: 0, clicks: 0 },
-    Display: { spend: 0, calls: 0, clicks: 0 },
-    Radio: { spend: 0, calls: 0, clicks: 0 },
-    Other: { spend: 0, calls: 0, clicks: 0 },
-  };
+  const byChannel: Partial<Record<MediaChannel, { spend: number; calls: number; clicks: number }>> = {};
 
   for (const point of performance) {
     const channel = point.channel || 'Other';
-    if (!byChannel[channel]) continue;
+    if (!byChannel[channel]) {
+      byChannel[channel] = { spend: 0, calls: 0, clicks: 0 };
+    }
 
     switch (point.metricName) {
       case 'Spend':
-        byChannel[channel].spend += point.metricValue;
+        byChannel[channel]!.spend += point.metricValue;
         break;
       case 'Calls':
-        byChannel[channel].calls += point.metricValue;
+        byChannel[channel]!.calls += point.metricValue;
         break;
       case 'Clicks':
-        byChannel[channel].clicks += point.metricValue;
+        byChannel[channel]!.clicks += point.metricValue;
         break;
     }
   }

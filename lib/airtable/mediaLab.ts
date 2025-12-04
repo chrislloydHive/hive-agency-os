@@ -18,7 +18,13 @@ import type {
   MediaObjective,
   MediaChannelPriority,
   MediaFlightSeason,
+  MediaFlightStatus,
 } from '@/lib/types/mediaLab';
+import type {
+  MediaProvider,
+  MediaDataSourceType,
+  AttributionModel,
+} from '@/lib/types/media';
 
 // ============================================================================
 // Airtable Field Interfaces
@@ -42,10 +48,20 @@ interface AirtableMediaPlanFields {
 interface AirtableMediaPlanChannelFields {
   'Media Plan'?: string[]; // Linked record to MediaPlans
   Channel?: string;
+  // NEW: Provider/Data Source/Attribution fields
+  Provider?: string;
+  'Data Source Type'?: string;
+  'Attribution Model'?: string;
+  // Budget allocation
   '% of Budget'?: number;
   '$ Budget'?: number;
   'Expected Installs / Leads'?: number;
   'Expected CPL / CPI'?: number;
+  // Performance targets (NEW)
+  'Target CTR'?: number;
+  'Target Conversion Rate'?: number;
+  'Target ROAS'?: number;
+  // Priority and notes
   Priority?: string;
   Notes?: string;
 }
@@ -53,10 +69,23 @@ interface AirtableMediaPlanChannelFields {
 interface AirtableMediaPlanFlightFields {
   'Media Plan'?: string[]; // Linked record to MediaPlans
   Name?: string;
+  // NEW: Status tracking
+  Status?: string;
+  // Season and timing
   Season?: string;
   'Start Date'?: string;
   'End Date'?: string;
   Budget?: number;
+  // NEW: Actuals tracking
+  'Actual Budget Spent'?: number;
+  'Actual Leads'?: number;
+  'Actual Installs'?: number;
+  'Actual Conversions'?: number;
+  // NEW: Performance goals
+  'Impression Goal'?: number;
+  'Lead Goal'?: number;
+  'Install Goal'?: number;
+  // Channels and targeting
   'Primary Channels'?: string[]; // Multi-select
   'Markets / Stores'?: string;
   Notes?: string;
@@ -69,15 +98,65 @@ interface AirtableMediaPlanFlightFields {
 function parseChannelKey(raw: string | undefined): MediaChannelKey {
   const normalized = raw?.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z_]/g, '') || 'other';
   const validKeys: MediaChannelKey[] = [
+    // Google ecosystem
     'google_search',
     'google_lsas',
     'google_maps_gbp',
+    'google_youtube',
+    'google_display',
+    // Meta ecosystem
     'paid_social_meta',
+    // Microsoft
+    'microsoft_search',
+    // Other digital
+    'tiktok_social',
     'display_retarg',
+    'email_marketing',
+    'affiliate',
+    // Traditional / offline
     'radio',
+    'tv',
+    'streaming_audio',
+    'out_of_home',
+    'print',
+    'direct_mail',
+    // Catch-all
     'other',
   ];
   return validKeys.includes(normalized as MediaChannelKey) ? (normalized as MediaChannelKey) : 'other';
+}
+
+function parseProvider(raw: string | undefined): MediaProvider | undefined {
+  if (!raw) return undefined;
+  const normalized = raw.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z_]/g, '');
+  const validProviders: MediaProvider[] = [
+    'google_ads', 'meta_ads', 'microsoft_ads', 'tiktok_ads', 'youtube_ads', 'dv360',
+    'ga4', 'lsa', 'gbp',
+    'radio_vendor', 'tv_vendor', 'ooh_vendor', 'streaming_audio_vendor', 'print_vendor', 'direct_mail_vendor',
+    'other',
+  ];
+  return validProviders.includes(normalized as MediaProvider) ? (normalized as MediaProvider) : undefined;
+}
+
+function parseDataSourceType(raw: string | undefined): MediaDataSourceType | undefined {
+  if (!raw) return undefined;
+  const normalized = raw.toLowerCase().replace(/\s+/g, '_');
+  const validTypes: MediaDataSourceType[] = ['platform_api', 'analytics_api', 'manual_import', 'vendor_feed'];
+  return validTypes.includes(normalized as MediaDataSourceType) ? (normalized as MediaDataSourceType) : undefined;
+}
+
+function parseAttributionModel(raw: string | undefined): AttributionModel | undefined {
+  if (!raw) return undefined;
+  const normalized = raw.toLowerCase();
+  const validModels: AttributionModel[] = ['direct', 'blended', 'lift', 'unknown'];
+  return validModels.includes(normalized as AttributionModel) ? (normalized as AttributionModel) : undefined;
+}
+
+function parseFlightStatus(raw: string | undefined): MediaFlightStatus | undefined {
+  if (!raw) return undefined;
+  const normalized = raw.toLowerCase();
+  const validStatuses: MediaFlightStatus[] = ['upcoming', 'active', 'completed', 'paused', 'cancelled'];
+  return validStatuses.includes(normalized as MediaFlightStatus) ? (normalized as MediaFlightStatus) : undefined;
 }
 
 function parsePlanStatus(raw: string | undefined): MediaPlanStatus {
@@ -136,10 +215,21 @@ function mapAirtableToMediaPlanChannel(record: any): MediaPlanChannel {
     id: record.id,
     mediaPlanId: fields['Media Plan']?.[0] || '',
     channel: parseChannelKey(fields.Channel),
+    // NEW: Provider/Data Source/Attribution fields
+    provider: parseProvider(fields.Provider),
+    dataSourceType: parseDataSourceType(fields['Data Source Type']),
+    attributionModel: parseAttributionModel(fields['Attribution Model']),
+    // Budget allocation
     budgetSharePct: fields['% of Budget'] ?? null,
     budgetAmount: fields['$ Budget'] ?? null,
+    // Expected outcomes
     expectedVolume: fields['Expected Installs / Leads'] ?? null,
     expectedCpl: fields['Expected CPL / CPI'] ?? null,
+    // Performance targets (NEW)
+    targetCtr: fields['Target CTR'] ?? null,
+    targetConversionRate: fields['Target Conversion Rate'] ?? null,
+    targetRoas: fields['Target ROAS'] ?? null,
+    // Priority and notes
     priority: parsePriority(fields.Priority),
     notes: fields.Notes || null,
   };
@@ -151,12 +241,27 @@ function mapAirtableToMediaPlanFlight(record: any): MediaPlanFlight {
     id: record.id,
     mediaPlanId: fields['Media Plan']?.[0] || '',
     name: fields.Name || 'Untitled Flight',
+    // NEW: Status tracking
+    status: parseFlightStatus(fields.Status),
+    // Season and timing
     season: parseSeason(fields.Season),
     startDate: fields['Start Date'] || null,
     endDate: fields['End Date'] || null,
+    // Budget
     budget: fields.Budget ?? null,
+    // NEW: Actuals tracking
+    actualBudgetSpent: fields['Actual Budget Spent'] ?? null,
+    actualLeads: fields['Actual Leads'] ?? null,
+    actualInstalls: fields['Actual Installs'] ?? null,
+    actualConversions: fields['Actual Conversions'] ?? null,
+    // NEW: Performance goals
+    impressionGoal: fields['Impression Goal'] ?? null,
+    leadGoal: fields['Lead Goal'] ?? null,
+    installGoal: fields['Install Goal'] ?? null,
+    // Channels and targeting
     primaryChannels: parseChannelArray(fields['Primary Channels']),
     marketsStores: fields['Markets / Stores'] || null,
+    // Notes
     notes: fields.Notes || null,
   };
 }
@@ -536,20 +641,42 @@ export async function deleteMediaPlan(planId: string): Promise<boolean> {
 export interface CreateMediaPlanChannelInput {
   mediaPlanId: string;
   channel?: MediaChannelKey;
+  // NEW: Provider/Data Source/Attribution fields
+  provider?: MediaProvider;
+  dataSourceType?: MediaDataSourceType;
+  attributionModel?: AttributionModel;
+  // Budget allocation
   budgetSharePct?: number | null;
   budgetAmount?: number | null;
+  // Expected outcomes
   expectedVolume?: number | null;
   expectedCpl?: number | null;
+  // Performance targets (NEW)
+  targetCtr?: number | null;
+  targetConversionRate?: number | null;
+  targetRoas?: number | null;
+  // Priority and notes
   priority?: MediaChannelPriority | null;
   notes?: string | null;
 }
 
 export interface UpdateMediaPlanChannelInput {
   channel?: MediaChannelKey;
+  // NEW: Provider/Data Source/Attribution fields
+  provider?: MediaProvider;
+  dataSourceType?: MediaDataSourceType;
+  attributionModel?: AttributionModel;
+  // Budget allocation
   budgetSharePct?: number | null;
   budgetAmount?: number | null;
+  // Expected outcomes
   expectedVolume?: number | null;
   expectedCpl?: number | null;
+  // Performance targets (NEW)
+  targetCtr?: number | null;
+  targetConversionRate?: number | null;
+  targetRoas?: number | null;
+  // Priority and notes
   priority?: MediaChannelPriority | null;
   notes?: string | null;
 }
@@ -566,10 +693,20 @@ export async function createMediaPlanChannel(input: CreateMediaPlanChannelInput)
       'Priority': input.priority || 'core',
     };
 
+    // Provider/Data Source/Attribution fields
+    if (input.provider) fields['Provider'] = input.provider;
+    if (input.dataSourceType) fields['Data Source Type'] = input.dataSourceType;
+    if (input.attributionModel) fields['Attribution Model'] = input.attributionModel;
+    // Budget allocation
     if (input.budgetSharePct != null) fields['% of Budget'] = input.budgetSharePct;
     if (input.budgetAmount != null) fields['$ Budget'] = input.budgetAmount;
     if (input.expectedVolume != null) fields['Expected Installs / Leads'] = input.expectedVolume;
     if (input.expectedCpl != null) fields['Expected CPL / CPI'] = input.expectedCpl;
+    // Performance targets
+    if (input.targetCtr != null) fields['Target CTR'] = input.targetCtr;
+    if (input.targetConversionRate != null) fields['Target Conversion Rate'] = input.targetConversionRate;
+    if (input.targetRoas != null) fields['Target ROAS'] = input.targetRoas;
+    // Notes
     if (input.notes) fields['Notes'] = input.notes;
 
     const records = await base(AIRTABLE_TABLES.MEDIA_PLAN_CHANNELS).create([{ fields }]);
@@ -592,11 +729,22 @@ export async function updateMediaPlanChannel(
     const base = getBase();
     const fields: Record<string, any> = {};
 
+    // Channel key
     if (input.channel !== undefined) fields['Channel'] = input.channel;
+    // Provider/Data Source/Attribution fields
+    if (input.provider !== undefined) fields['Provider'] = input.provider || null;
+    if (input.dataSourceType !== undefined) fields['Data Source Type'] = input.dataSourceType || null;
+    if (input.attributionModel !== undefined) fields['Attribution Model'] = input.attributionModel || null;
+    // Budget allocation
     if (input.budgetSharePct !== undefined) fields['% of Budget'] = input.budgetSharePct;
     if (input.budgetAmount !== undefined) fields['$ Budget'] = input.budgetAmount;
     if (input.expectedVolume !== undefined) fields['Expected Installs / Leads'] = input.expectedVolume;
     if (input.expectedCpl !== undefined) fields['Expected CPL / CPI'] = input.expectedCpl;
+    // Performance targets
+    if (input.targetCtr !== undefined) fields['Target CTR'] = input.targetCtr;
+    if (input.targetConversionRate !== undefined) fields['Target Conversion Rate'] = input.targetConversionRate;
+    if (input.targetRoas !== undefined) fields['Target ROAS'] = input.targetRoas;
+    // Priority and notes
     if (input.priority !== undefined) fields['Priority'] = input.priority;
     if (input.notes !== undefined) fields['Notes'] = input.notes || null;
 
@@ -629,10 +777,24 @@ export async function deleteMediaPlanChannel(channelId: string): Promise<boolean
 export interface CreateMediaPlanFlightInput {
   mediaPlanId: string;
   name?: string;
+  // Status tracking
+  status?: MediaFlightStatus;
+  // Season and timing
   season?: MediaFlightSeason | null;
   startDate?: string | null;
   endDate?: string | null;
+  // Budget
   budget?: number | null;
+  // Actuals tracking
+  actualBudgetSpent?: number | null;
+  actualLeads?: number | null;
+  actualInstalls?: number | null;
+  actualConversions?: number | null;
+  // Performance goals
+  impressionGoal?: number | null;
+  leadGoal?: number | null;
+  installGoal?: number | null;
+  // Channels and targeting
   primaryChannels?: MediaChannelKey[];
   marketsStores?: string | null;
   notes?: string | null;
@@ -640,10 +802,24 @@ export interface CreateMediaPlanFlightInput {
 
 export interface UpdateMediaPlanFlightInput {
   name?: string;
+  // Status tracking
+  status?: MediaFlightStatus;
+  // Season and timing
   season?: MediaFlightSeason | null;
   startDate?: string | null;
   endDate?: string | null;
+  // Budget
   budget?: number | null;
+  // Actuals tracking
+  actualBudgetSpent?: number | null;
+  actualLeads?: number | null;
+  actualInstalls?: number | null;
+  actualConversions?: number | null;
+  // Performance goals
+  impressionGoal?: number | null;
+  leadGoal?: number | null;
+  installGoal?: number | null;
+  // Channels and targeting
   primaryChannels?: MediaChannelKey[];
   marketsStores?: string | null;
   notes?: string | null;
@@ -661,9 +837,23 @@ export async function createMediaPlanFlight(input: CreateMediaPlanFlightInput): 
       'Season': input.season || 'other',
     };
 
+    // Status tracking
+    if (input.status) fields['Status'] = input.status;
+    // Timing
     if (input.startDate) fields['Start Date'] = input.startDate;
     if (input.endDate) fields['End Date'] = input.endDate;
+    // Budget
     if (input.budget != null) fields['Budget'] = input.budget;
+    // Actuals tracking
+    if (input.actualBudgetSpent != null) fields['Actual Budget Spent'] = input.actualBudgetSpent;
+    if (input.actualLeads != null) fields['Actual Leads'] = input.actualLeads;
+    if (input.actualInstalls != null) fields['Actual Installs'] = input.actualInstalls;
+    if (input.actualConversions != null) fields['Actual Conversions'] = input.actualConversions;
+    // Performance goals
+    if (input.impressionGoal != null) fields['Impression Goal'] = input.impressionGoal;
+    if (input.leadGoal != null) fields['Lead Goal'] = input.leadGoal;
+    if (input.installGoal != null) fields['Install Goal'] = input.installGoal;
+    // Channels and targeting
     if (input.primaryChannels && input.primaryChannels.length > 0) {
       fields['Primary Channels'] = input.primaryChannels;
     }
@@ -690,11 +880,26 @@ export async function updateMediaPlanFlight(
     const base = getBase();
     const fields: Record<string, any> = {};
 
+    // Name
     if (input.name !== undefined) fields['Name'] = input.name;
+    // Status tracking
+    if (input.status !== undefined) fields['Status'] = input.status || null;
+    // Season and timing
     if (input.season !== undefined) fields['Season'] = input.season;
     if (input.startDate !== undefined) fields['Start Date'] = input.startDate || null;
     if (input.endDate !== undefined) fields['End Date'] = input.endDate || null;
+    // Budget
     if (input.budget !== undefined) fields['Budget'] = input.budget;
+    // Actuals tracking
+    if (input.actualBudgetSpent !== undefined) fields['Actual Budget Spent'] = input.actualBudgetSpent;
+    if (input.actualLeads !== undefined) fields['Actual Leads'] = input.actualLeads;
+    if (input.actualInstalls !== undefined) fields['Actual Installs'] = input.actualInstalls;
+    if (input.actualConversions !== undefined) fields['Actual Conversions'] = input.actualConversions;
+    // Performance goals
+    if (input.impressionGoal !== undefined) fields['Impression Goal'] = input.impressionGoal;
+    if (input.leadGoal !== undefined) fields['Lead Goal'] = input.leadGoal;
+    if (input.installGoal !== undefined) fields['Install Goal'] = input.installGoal;
+    // Channels and targeting
     if (input.primaryChannels !== undefined) fields['Primary Channels'] = input.primaryChannels;
     if (input.marketsStores !== undefined) fields['Markets / Stores'] = input.marketsStores || null;
     if (input.notes !== undefined) fields['Notes'] = input.notes || null;

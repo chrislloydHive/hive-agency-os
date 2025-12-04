@@ -152,21 +152,30 @@ function ScoreBadge({ score, label }: { score?: number; label: string }) {
   );
 }
 
-function ChannelMixBar({ breakdown }: { breakdown: Record<MediaChannel, number> }) {
-  const total = Object.values(breakdown).reduce((sum, count) => sum + count, 0);
+function ChannelMixBar({ breakdown }: { breakdown: Partial<Record<MediaChannel, number>> }) {
+  const total = Object.values(breakdown).reduce((sum, count) => sum + (count || 0), 0);
   if (total === 0) return null;
 
   const channels = Object.entries(breakdown)
-    .filter(([, count]) => count > 0)
-    .sort(([, a], [, b]) => b - a);
+    .filter(([, count]) => count && count > 0)
+    .sort(([, a], [, b]) => (b || 0) - (a || 0));
 
-  const channelColors: Record<MediaChannel, string> = {
+  const channelColors: Partial<Record<MediaChannel, string>> = {
     Search: 'bg-blue-500',
     Maps: 'bg-emerald-500',
     LSAs: 'bg-purple-500',
     Social: 'bg-pink-500',
     Display: 'bg-cyan-500',
+    Video: 'bg-red-500',
+    Retargeting: 'bg-amber-500',
+    Email: 'bg-teal-500',
+    Affiliate: 'bg-indigo-500',
     Radio: 'bg-orange-500',
+    TV: 'bg-rose-500',
+    'Streaming Audio': 'bg-violet-500',
+    'Out of Home': 'bg-lime-500',
+    Print: 'bg-stone-500',
+    'Direct Mail': 'bg-fuchsia-500',
     Other: 'bg-slate-500',
   };
 

@@ -1,6 +1,6 @@
 // app/c/[companyId]/media/page.tsx
 // Company Media Tab - Shows media programs, campaigns, markets, and stores
-// for a specific company with V2 scorecard features
+// for a specific company with V2 scorecard features + Media Cockpit overview
 //
 // MEDIA PROGRAM VISIBILITY:
 // - Tab is always present in navigation
@@ -21,6 +21,10 @@ import {
   getMediaKpiSummary,
 } from '@/lib/media/analytics';
 import {
+  getMediaCockpitData,
+  getMediaStoreOptions,
+} from '@/lib/media/cockpit';
+import {
   formatBudget,
   formatScore,
   getScoreColor,
@@ -38,6 +42,7 @@ import {
 } from '@/lib/types/media';
 import { GenerateMediaWorkButton } from './GenerateMediaWorkButton';
 import { MediaProgramEmptyState } from '@/components/os/media';
+import { MediaCockpit } from '@/components/media/cockpit';
 
 export const dynamic = 'force-dynamic';
 
@@ -211,13 +216,22 @@ function ChannelMixSection({ breakdown }: { breakdown: MediaChannelPerformance[]
   const totalSpend = breakdown.reduce((sum, c) => sum + c.spend, 0);
   if (totalSpend === 0) return null;
 
-  const channelColors: Record<MediaChannel, string> = {
+  const channelColors: Partial<Record<MediaChannel, string>> = {
     Search: 'bg-blue-500',
     Maps: 'bg-emerald-500',
     LSAs: 'bg-purple-500',
     Social: 'bg-pink-500',
     Display: 'bg-cyan-500',
+    Video: 'bg-red-500',
+    Retargeting: 'bg-amber-500',
+    Email: 'bg-teal-500',
+    Affiliate: 'bg-indigo-500',
     Radio: 'bg-orange-500',
+    TV: 'bg-rose-500',
+    'Streaming Audio': 'bg-violet-500',
+    'Out of Home': 'bg-lime-500',
+    Print: 'bg-stone-500',
+    'Direct Mail': 'bg-fuchsia-500',
     Other: 'bg-slate-500',
   };
 
@@ -735,7 +749,7 @@ export default async function CompanyMediaPage({ params }: PageProps) {
     );
   }
 
-  // Fetch all media data in parallel - V2 analytics + legacy data
+  // Fetch all media data in parallel - V2 analytics + legacy data + cockpit
   const [
     overview,
     programSummaries,
@@ -745,6 +759,8 @@ export default async function CompanyMediaPage({ params }: PageProps) {
     kpiSummary,
     marketScorecardsV2,
     storeScorecardsV2,
+    cockpitData,
+    cockpitStores,
   ] = await Promise.all([
     getMediaOverviewForCompany(companyId),
     getProgramSummariesForCompany(companyId),
@@ -754,6 +770,8 @@ export default async function CompanyMediaPage({ params }: PageProps) {
     getMediaKpiSummary(companyId),
     getMarketScorecards(companyId),
     getStoreScorecards(companyId),
+    getMediaCockpitData(companyId),
+    getMediaStoreOptions(companyId),
   ]);
 
   // Use V2 scorecards if available, otherwise fall back to legacy
@@ -776,7 +794,7 @@ export default async function CompanyMediaPage({ params }: PageProps) {
             Media Performance
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Last 30 days • {overview.storeCount} stores • {overview.marketCount} markets
+            {overview.storeCount} stores • {overview.marketCount} markets
           </p>
         </div>
         {hasV2Scorecards && (
@@ -784,9 +802,28 @@ export default async function CompanyMediaPage({ params }: PageProps) {
         )}
       </div>
 
-      {/* KPI Summary Section */}
+      {/* Media Cockpit - Overview with Plan vs Actual */}
       <section>
-        <KpiSummarySection kpiSummary={kpiSummary} overview={overview} />
+        <MediaCockpit
+          companyId={companyId}
+          initialData={cockpitData}
+          stores={cockpitStores}
+        />
+      </section>
+
+      {/* Detailed KPI Summary Section (legacy - can be removed once cockpit is stable) */}
+      <section className="opacity-60 hover:opacity-100 transition-opacity">
+        <details className="group">
+          <summary className="cursor-pointer flex items-center gap-2 text-xs text-slate-500 hover:text-slate-400">
+            <svg className="w-4 h-4 group-open:rotate-90 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            Show detailed KPIs (legacy view)
+          </summary>
+          <div className="mt-4">
+            <KpiSummarySection kpiSummary={kpiSummary} overview={overview} />
+          </div>
+        </details>
       </section>
 
       {!hasAnyData && (

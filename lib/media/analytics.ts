@@ -334,22 +334,16 @@ export async function getChannelPerformanceBreakdown(
     range: dateRange,
   });
 
-  // Group by channel
-  const byChannel: Record<MediaChannel, AggregatedMetrics> = {
-    Search: createEmptyMetrics(),
-    Maps: createEmptyMetrics(),
-    LSAs: createEmptyMetrics(),
-    Social: createEmptyMetrics(),
-    Display: createEmptyMetrics(),
-    Radio: createEmptyMetrics(),
-    Other: createEmptyMetrics(),
-  };
+  // Group by channel (dynamically populate as data comes in)
+  const byChannel: Partial<Record<MediaChannel, AggregatedMetrics>> = {};
 
   for (const point of performance) {
     const channel = point.channel || 'Other';
-    if (!byChannel[channel]) continue;
+    if (!byChannel[channel]) {
+      byChannel[channel] = createEmptyMetrics();
+    }
 
-    accumulateMetric(byChannel[channel], point.metricName, point.metricValue);
+    accumulateMetric(byChannel[channel]!, point.metricName, point.metricValue);
   }
 
   // Build channel performance array

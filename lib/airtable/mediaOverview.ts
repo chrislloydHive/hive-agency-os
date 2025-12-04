@@ -35,16 +35,8 @@ export async function getMediaOverviewForCompany(companyId: string): Promise<Med
   // Count active campaigns
   const activeCampaigns = campaigns.filter((c) => c.status === 'Active');
 
-  // Build channel breakdown
-  const channelBreakdown: Record<MediaChannel, number> = {
-    Search: 0,
-    Maps: 0,
-    LSAs: 0,
-    Social: 0,
-    Display: 0,
-    Radio: 0,
-    Other: 0,
-  };
+  // Build channel breakdown (only populated channels will have entries)
+  const channelBreakdown: Partial<Record<MediaChannel, number>> = {};
 
   for (const campaign of activeCampaigns) {
     channelBreakdown[campaign.channel] = (channelBreakdown[campaign.channel] || 0) + 1;
@@ -132,16 +124,8 @@ export async function getGlobalMediaSummary(): Promise<GlobalMediaSummary> {
   // Count active campaigns
   const activeCampaigns = campaigns.filter((c) => c.status === 'Active');
 
-  // Build channel breakdown
-  const channelBreakdown: Record<MediaChannel, number> = {
-    Search: 0,
-    Maps: 0,
-    LSAs: 0,
-    Social: 0,
-    Display: 0,
-    Radio: 0,
-    Other: 0,
-  };
+  // Build channel breakdown (only populated channels will have entries)
+  const channelBreakdown: Partial<Record<MediaChannel, number>> = {};
 
   for (const campaign of activeCampaigns) {
     channelBreakdown[campaign.channel] = (channelBreakdown[campaign.channel] || 0) + 1;

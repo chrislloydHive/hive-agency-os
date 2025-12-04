@@ -224,6 +224,92 @@ function prepareDataForLLM(data: CompanyBrainData): Record<string, unknown> {
 }
 
 /**
+ * Calculate data confidence based on actual diagnostic run confidence
+ * Falls back to data availability percentage if no diagnostic confidence available
+ */
+function calculateDataConfidence(
+  data: CompanyBrainData,
+  availability: { availableCount: number; totalPossible: number; percentage: number; missing: string[] }
+): DataConfidence {
+  // Try to extract confidence from the most recent diagnostic run with confidence data
+  // Priority: GAP Plan > GAP Snapshot > Individual Labs
+  const confidenceSources: Array<{ level?: string; score?: number; source: string }> = [];
+
+  // Check GAP Plan rawJson for dataConfidence
+  if (data.gapPlan?.rawJson && data.gapPlan.status === 'complete') {
+    const raw = data.gapPlan.rawJson as any;
+    const dc = raw.dataConfidence || raw.fullGap?.dataConfidence || raw.dataConfidenceScore;
+    if (dc) {
+      const level = typeof dc === 'string' ? dc : dc.level;
+      const score = typeof dc === 'string' ? (dc === 'high' ? 85 : dc === 'medium' ? 60 : 35) : dc.score;
+      confidenceSources.push({ level, score, source: 'GAP Plan' });
+    }
+  }
+
+  // Check GAP Snapshot rawJson for dataConfidence
+  if (data.gapSnapshot?.rawJson && data.gapSnapshot.status === 'complete') {
+    const raw = data.gapSnapshot.rawJson as any;
+    const dc = raw.dataConfidence || raw.initialAssessment?.dataConfidence;
+    if (dc) {
+      const level = typeof dc === 'string' ? dc : dc.level;
+      const score = typeof dc === 'string' ? (dc === 'high' ? 85 : dc === 'medium' ? 60 : 35) : dc.score;
+      confidenceSources.push({ level, score, source: 'GAP Snapshot' });
+    }
+  }
+
+  // Check individual labs for confidence
+  const labs = [
+    { lab: data.brandLab, name: 'Brand Lab' },
+    { lab: data.websiteLab, name: 'Website Lab' },
+    { lab: data.seoLab, name: 'SEO Lab' },
+    { lab: data.contentLab, name: 'Content Lab' },
+    { lab: data.opsLab, name: 'Ops Lab' },
+    { lab: data.demandLab, name: 'Demand Lab' },
+  ];
+
+  for (const { lab, name } of labs) {
+    if (lab?.rawJson && lab.status === 'complete') {
+      const raw = lab.rawJson as any;
+      const dc = raw.dataConfidence || raw.confidence;
+      if (dc) {
+        const level = typeof dc === 'string' ? dc : dc.level;
+        const score = typeof dc === 'string' ? (dc === 'high' ? 85 : dc === 'medium' ? 60 : 35) : dc.score;
+        confidenceSources.push({ level, score, source: name });
+      }
+    }
+  }
+
+  // If we have confidence data from diagnostics, use the average
+  if (confidenceSources.length > 0) {
+    const validScores = confidenceSources.filter(s => s.score != null).map(s => s.score!);
+    const avgScore = validScores.length > 0
+      ? Math.round(validScores.reduce((a, b) => a + b, 0) / validScores.length)
+      : 60;
+
+    const level: 'low' | 'medium' | 'high' = avgScore >= 70 ? 'high' : avgScore >= 40 ? 'medium' : 'low';
+
+    return {
+      score: avgScore,
+      level,
+      reasons: [
+        `Based on ${confidenceSources.length} diagnostic${confidenceSources.length > 1 ? 's' : ''}: ${confidenceSources.map(s => s.source).join(', ')}`,
+        ...availability.missing.slice(0, 1),
+      ],
+    };
+  }
+
+  // Fallback to data availability percentage
+  return {
+    score: availability.percentage,
+    level: availability.percentage >= 75 ? 'high' : availability.percentage >= 40 ? 'medium' : 'low',
+    reasons: [
+      `${availability.availableCount}/${availability.totalPossible} data sources available`,
+      ...availability.missing.slice(0, 2),
+    ],
+  };
+}
+
+/**
  * Parse the LLM response safely
  */
 function parseNarrativeResponse(
@@ -407,14 +493,7 @@ ${availableLabs.length > 0 ? availableLabs.map(l => `• ${l}`).join('\n') : '�
       opportunities: '• **Run labs**: Enable AI-powered insights\n• **Add documents**: Improve context for analysis',
       missingInfo: availability.missing.join(', '),
     },
-    dataConfidence: {
-      score: availability.percentage,
-      level: availability.percentage >= 75 ? 'high' : availability.percentage >= 40 ? 'medium' : 'low',
-      reasons: [
-        `${availability.availableCount}/${availability.totalPossible} data sources`,
-        ...availability.missing.slice(0, 2),
-      ],
-    },
+    dataConfidence: calculateDataConfidence(data, availability),
     generatedAt: new Date().toISOString(),
   };
 }

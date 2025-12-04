@@ -82,6 +82,54 @@ const CHANNEL_BENCHMARKS: Record<MediaChannelKey, ChannelBenchmark> = {
     avgCpc: 0.8,
     installRate: 0.25,
   },
+  google_youtube: {
+    channel: 'google_youtube',
+    cpm: 10,
+    ctr: 0.015, // 1.5% CTR for video
+    conversionRate: 0.02, // 2% conversion
+    avgCpc: 1.2,
+    installRate: 0.25,
+  },
+  google_display: {
+    channel: 'google_display',
+    cpm: 4,
+    ctr: 0.005, // 0.5% CTR for display
+    conversionRate: 0.01, // 1% conversion
+    avgCpc: 0.6,
+    installRate: 0.2,
+  },
+  microsoft_search: {
+    channel: 'microsoft_search',
+    cpm: 20,
+    ctr: 0.04, // 4% CTR
+    conversionRate: 0.05, // 5% conversion
+    avgCpc: 2.8,
+    installRate: 0.38,
+  },
+  tiktok_social: {
+    channel: 'tiktok_social',
+    cpm: 8,
+    ctr: 0.015, // 1.5% CTR
+    conversionRate: 0.02, // 2% conversion
+    avgCpc: 1.5,
+    installRate: 0.25,
+  },
+  email_marketing: {
+    channel: 'email_marketing',
+    cpm: 2,
+    ctr: 0.03, // 3% CTR for email
+    conversionRate: 0.04, // 4% conversion
+    avgCpc: 0.2,
+    installRate: 0.35,
+  },
+  affiliate: {
+    channel: 'affiliate',
+    cpm: 15,
+    ctr: 0.02, // 2% CTR
+    conversionRate: 0.08, // 8% conversion (higher intent)
+    avgCpc: 5,
+    installRate: 0.4,
+  },
   radio: {
     channel: 'radio',
     cpm: 3,
@@ -89,6 +137,46 @@ const CHANNEL_BENCHMARKS: Record<MediaChannelKey, ChannelBenchmark> = {
     conversionRate: 0.005,
     avgCpc: 0,
     installRate: 0.2,
+  },
+  tv: {
+    channel: 'tv',
+    cpm: 15,
+    ctr: 0.001, // Very low direct response
+    conversionRate: 0.003,
+    avgCpc: 0,
+    installRate: 0.15,
+  },
+  streaming_audio: {
+    channel: 'streaming_audio',
+    cpm: 6,
+    ctr: 0.003, // Low direct response
+    conversionRate: 0.008,
+    avgCpc: 0,
+    installRate: 0.2,
+  },
+  out_of_home: {
+    channel: 'out_of_home',
+    cpm: 5,
+    ctr: 0.001, // Very low direct response
+    conversionRate: 0.002,
+    avgCpc: 0,
+    installRate: 0.15,
+  },
+  print: {
+    channel: 'print',
+    cpm: 10,
+    ctr: 0.002, // Very low direct response
+    conversionRate: 0.005,
+    avgCpc: 0,
+    installRate: 0.18,
+  },
+  direct_mail: {
+    channel: 'direct_mail',
+    cpm: 250, // High per-piece cost
+    ctr: 0.04, // 4% response rate
+    conversionRate: 0.1, // 10% conversion of responders
+    avgCpc: 10,
+    installRate: 0.35,
   },
   other: {
     channel: 'other',

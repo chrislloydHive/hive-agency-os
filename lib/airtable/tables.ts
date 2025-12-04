@@ -36,6 +36,7 @@ export const AIRTABLE_TABLES = {
   MEDIA_PLANS: 'MediaPlans',
   MEDIA_PLAN_CHANNELS: 'MediaPlanChannels',
   MEDIA_PLAN_FLIGHTS: 'MediaPlanFlights',
+  MEDIA_SCENARIOS: 'MediaScenarios',
 
   // Legacy/deprecated (for migration reference)
   // GAP_RUNS_OLD: 'GAP Runs',

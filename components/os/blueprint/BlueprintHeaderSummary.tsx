@@ -7,6 +7,7 @@
 
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import {
   getScoreColor,
@@ -41,6 +42,8 @@ export function BlueprintHeaderSummary({
   isRerunning,
   summary,
 }: BlueprintHeaderSummaryProps) {
+  const [isNarrativeExpanded, setIsNarrativeExpanded] = useState(false);
+
   // When summary is provided, prefer its values
   const companyName = summary?.meta.name ?? company.name;
   const companyId = summary?.companyId ?? company.id;
@@ -103,9 +106,19 @@ export function BlueprintHeaderSummary({
             </a>
           )}
           {narrative && (
-            <p className="mt-3 text-sm text-slate-300 leading-relaxed line-clamp-2">
-              {narrative}
-            </p>
+            <div className="mt-3">
+              <p className={`text-sm text-slate-300 leading-relaxed ${isNarrativeExpanded ? '' : 'line-clamp-2'}`}>
+                {narrative}
+              </p>
+              {narrative.length > 150 && (
+                <button
+                  onClick={() => setIsNarrativeExpanded(!isNarrativeExpanded)}
+                  className="text-xs text-amber-400 hover:text-amber-300 mt-1 transition-colors"
+                >
+                  {isNarrativeExpanded ? '← Show less' : 'Read more →'}
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -124,24 +137,16 @@ export function BlueprintHeaderSummary({
             </div>
           )}
 
-          {/* Confidence Score */}
+          {/* Confidence Score - matches ToolReportLayout style */}
           {confidenceScore !== null && confidenceLabel && (
-            <div className={`rounded-xl px-4 py-3 ${
-              confidence === 'high' ? 'bg-emerald-500/10' :
-              confidence === 'medium' ? 'bg-amber-500/10' :
-              'bg-slate-500/10'
+            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+              confidence === 'high' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
+              confidence === 'medium' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' :
+              'bg-red-500/10 text-red-300 border-red-500/30'
             }`}>
-              <div className="flex items-baseline gap-1.5">
-                <span className={`text-lg font-semibold ${
-                  confidence === 'high' ? 'text-emerald-400' :
-                  confidence === 'medium' ? 'text-amber-400' :
-                  'text-slate-400'
-                }`}>
-                  {confidenceLabel}
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wide mt-0.5">Confidence</p>
-            </div>
+              <span className="text-[10px] uppercase tracking-wider text-slate-500">Data:</span>
+              {confidenceLabel} ({confidenceScore}%)
+            </span>
           )}
         </div>
 

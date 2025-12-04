@@ -8,39 +8,152 @@
 //
 // This is SEPARATE from the operational media module (lib/types/media.ts)
 // which tracks active campaigns, stores, and performance data.
+//
+// INTEGRATION NOTE:
+// - MediaChannelKey here maps to combinations of provider+channel from media.ts
+// - Use MediaProvider and MediaChannel from media.ts for granular tracking
+// - MediaChannelKey is for simplified planning UI, maps to provider+channel pairs
+
+import type { MediaProvider, MediaDataSourceType, AttributionModel } from './media';
 
 // ============================================================================
 // Channel Keys (matches Airtable single select)
+// Extended to support more providers and traditional media
 // ============================================================================
 
 export type MediaChannelKey =
+  // Google ecosystem
   | 'google_search'
   | 'google_lsas'
   | 'google_maps_gbp'
+  | 'google_youtube'
+  | 'google_display'
+  // Meta ecosystem
   | 'paid_social_meta'
+  // Microsoft
+  | 'microsoft_search'
+  // Other digital
+  | 'tiktok_social'
   | 'display_retarg'
+  | 'email_marketing'
+  | 'affiliate'
+  // Traditional / offline
   | 'radio'
+  | 'tv'
+  | 'streaming_audio'
+  | 'out_of_home'
+  | 'print'
+  | 'direct_mail'
+  // Catch-all
   | 'other';
 
 export const MEDIA_CHANNEL_LABELS: Record<MediaChannelKey, string> = {
+  // Google ecosystem
   google_search: 'Google Search',
   google_lsas: 'Google LSAs',
   google_maps_gbp: 'Google Maps/GBP',
+  google_youtube: 'YouTube Ads',
+  google_display: 'Google Display',
+  // Meta ecosystem
   paid_social_meta: 'Paid Social (Meta)',
+  // Microsoft
+  microsoft_search: 'Microsoft/Bing Search',
+  // Other digital
+  tiktok_social: 'TikTok Ads',
   display_retarg: 'Display/Retargeting',
+  email_marketing: 'Email Marketing',
+  affiliate: 'Affiliate',
+  // Traditional / offline
   radio: 'Radio',
+  tv: 'Television',
+  streaming_audio: 'Streaming Audio',
+  out_of_home: 'Out-of-Home (OOH)',
+  print: 'Print',
+  direct_mail: 'Direct Mail',
+  // Catch-all
   other: 'Other',
 };
 
 export const MEDIA_CHANNEL_COLORS: Record<MediaChannelKey, { text: string; bg: string; border: string }> = {
+  // Google ecosystem
   google_search: { text: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/30' },
   google_lsas: { text: 'text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/30' },
   google_maps_gbp: { text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
+  google_youtube: { text: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/30' },
+  google_display: { text: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/30' },
+  // Meta ecosystem
   paid_social_meta: { text: 'text-pink-400', bg: 'bg-pink-500/10', border: 'border-pink-500/30' },
-  display_retarg: { text: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/30' },
+  // Microsoft
+  microsoft_search: { text: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/30' },
+  // Other digital
+  tiktok_social: { text: 'text-slate-100', bg: 'bg-slate-500/10', border: 'border-slate-500/30' },
+  display_retarg: { text: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'border-indigo-500/30' },
+  email_marketing: { text: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/30' },
+  affiliate: { text: 'text-lime-400', bg: 'bg-lime-500/10', border: 'border-lime-500/30' },
+  // Traditional / offline
   radio: { text: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/30' },
+  tv: { text: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'border-indigo-500/30' },
+  streaming_audio: { text: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/30' },
+  out_of_home: { text: 'text-teal-400', bg: 'bg-teal-500/10', border: 'border-teal-500/30' },
+  print: { text: 'text-slate-400', bg: 'bg-slate-500/10', border: 'border-slate-500/30' },
+  direct_mail: { text: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/30' },
+  // Catch-all
   other: { text: 'text-slate-400', bg: 'bg-slate-500/10', border: 'border-slate-500/30' },
 };
+
+/**
+ * Channel category (digital vs traditional)
+ */
+export type MediaChannelCategory = 'digital' | 'traditional' | 'other';
+
+/**
+ * Get the category for a channel key
+ */
+export function getChannelCategory(channel: MediaChannelKey): MediaChannelCategory {
+  const traditional: MediaChannelKey[] = ['radio', 'tv', 'streaming_audio', 'out_of_home', 'print', 'direct_mail'];
+  if (traditional.includes(channel)) return 'traditional';
+  if (channel === 'other') return 'other';
+  return 'digital';
+}
+
+/**
+ * Map MediaChannelKey to MediaProvider for granular tracking
+ */
+export function getProviderForChannelKey(channelKey: MediaChannelKey): MediaProvider {
+  switch (channelKey) {
+    case 'google_search':
+    case 'google_display':
+      return 'google_ads';
+    case 'google_lsas':
+      return 'lsa';
+    case 'google_maps_gbp':
+      return 'gbp';
+    case 'google_youtube':
+      return 'youtube_ads';
+    case 'paid_social_meta':
+      return 'meta_ads';
+    case 'microsoft_search':
+      return 'microsoft_ads';
+    case 'tiktok_social':
+      return 'tiktok_ads';
+    case 'display_retarg':
+      return 'dv360';
+    case 'radio':
+      return 'radio_vendor';
+    case 'tv':
+      return 'tv_vendor';
+    case 'streaming_audio':
+      return 'streaming_audio_vendor';
+    case 'out_of_home':
+      return 'ooh_vendor';
+    case 'print':
+      return 'print_vendor';
+    case 'direct_mail':
+      return 'direct_mail_vendor';
+    default:
+      return 'other';
+  }
+}
 
 // ============================================================================
 // Status Types
@@ -154,13 +267,37 @@ export interface MediaPlanChannel {
   id: string;
   mediaPlanId: string;
   channel: MediaChannelKey;
+  // NEW: Provider/Data Source/Attribution fields (derived from channel or specified)
+  provider?: MediaProvider;              // Derived from channel if not set
+  dataSourceType?: MediaDataSourceType;  // How we'll get actuals data
+  attributionModel?: AttributionModel;   // How conversions will be attributed
+  // Budget allocation
   budgetSharePct: number | null; // 0-100
   budgetAmount: number | null;
+  // Expected outcomes
   expectedVolume: number | null; // installs / leads
   expectedCpl: number | null;
+  // Performance targets (NEW)
+  targetCtr?: number | null;          // Target CTR (0-1)
+  targetConversionRate?: number | null; // Target conversion rate (0-1)
+  targetRoas?: number | null;         // Target ROAS
+  // Priority and notes
   priority: MediaChannelPriority | null;
   notes: string | null;
 }
+
+/**
+ * MediaPlanFlight status
+ */
+export type MediaFlightStatus = 'upcoming' | 'active' | 'completed' | 'paused' | 'cancelled';
+
+export const MEDIA_FLIGHT_STATUS_CONFIG: Record<MediaFlightStatus, { label: string; color: string; bgColor: string }> = {
+  upcoming: { label: 'Upcoming', color: 'text-blue-400', bgColor: 'bg-blue-500/10' },
+  active: { label: 'Active', color: 'text-emerald-400', bgColor: 'bg-emerald-500/10' },
+  completed: { label: 'Completed', color: 'text-slate-400', bgColor: 'bg-slate-500/10' },
+  paused: { label: 'Paused', color: 'text-amber-400', bgColor: 'bg-amber-500/10' },
+  cancelled: { label: 'Cancelled', color: 'text-red-400', bgColor: 'bg-red-500/10' },
+};
 
 /**
  * MediaPlanFlight - Seasonal campaign flight within a media plan
@@ -169,12 +306,27 @@ export interface MediaPlanFlight {
   id: string;
   mediaPlanId: string;
   name: string;
+  // NEW: Status tracking
+  status?: MediaFlightStatus;         // upcoming | active | completed | paused | cancelled
+  // Season and timing
   season: MediaFlightSeason | null;
   startDate: string | null;
   endDate: string | null;
+  // Budget
   budget: number | null;
+  // NEW: Actuals tracking
+  actualBudgetSpent?: number | null;  // How much actually spent
+  actualLeads?: number | null;        // Actual leads generated
+  actualInstalls?: number | null;     // Actual installs
+  actualConversions?: number | null;  // Generic conversion count
+  // NEW: Performance goals
+  impressionGoal?: number | null;
+  leadGoal?: number | null;
+  installGoal?: number | null;
+  // Channels and targeting
   primaryChannels: MediaChannelKey[];
   marketsStores: string | null;
+  // Notes
   notes: string | null;
 }
 
@@ -767,6 +919,7 @@ export function getPlaybooksForGoal(goal: MediaPrimaryGoal): MediaPlaybook[] {
 // ============================================================================
 
 export const DEFAULT_CHANNEL_REQUIREMENTS: Record<MediaChannelKey, Omit<ChannelRequirement, 'id' | 'status' | 'notes'>[]> = {
+  // Google ecosystem
   google_search: [
     { channel: 'google_search', label: 'Google Ads Account', description: 'Active Google Ads account linked', priority: 'required' },
     { channel: 'google_search', label: 'Conversion Tracking', description: 'Phone calls, forms, and chat tracked', priority: 'required' },
@@ -788,6 +941,19 @@ export const DEFAULT_CHANNEL_REQUIREMENTS: Record<MediaChannelKey, Omit<ChannelR
     { channel: 'google_maps_gbp', label: 'Reviews Strategy', description: 'Active review collection in place', priority: 'recommended' },
     { channel: 'google_maps_gbp', label: 'Posts & Updates', description: 'Regular GBP posts scheduled', priority: 'optional' },
   ],
+  google_youtube: [
+    { channel: 'google_youtube', label: 'Google Ads Account', description: 'Google Ads account with YouTube access', priority: 'required' },
+    { channel: 'google_youtube', label: 'YouTube Channel', description: 'Active YouTube channel linked', priority: 'required' },
+    { channel: 'google_youtube', label: 'Video Creative', description: 'Video ads in required formats (6s, 15s, etc.)', priority: 'required' },
+    { channel: 'google_youtube', label: 'Audience Targeting', description: 'Custom intent and affinity audiences', priority: 'recommended' },
+  ],
+  google_display: [
+    { channel: 'google_display', label: 'Google Ads Account', description: 'Google Ads account active', priority: 'required' },
+    { channel: 'google_display', label: 'Display Creative', description: 'Responsive display ads or image ads', priority: 'required' },
+    { channel: 'google_display', label: 'Conversion Tracking', description: 'Conversions configured', priority: 'required' },
+    { channel: 'google_display', label: 'Placement Targeting', description: 'Relevant placements identified', priority: 'recommended' },
+  ],
+  // Meta ecosystem
   paid_social_meta: [
     { channel: 'paid_social_meta', label: 'Meta Business Suite', description: 'Business account set up', priority: 'required' },
     { channel: 'paid_social_meta', label: 'Pixel Installed', description: 'Meta Pixel on website', priority: 'required' },
@@ -795,17 +961,73 @@ export const DEFAULT_CHANNEL_REQUIREMENTS: Record<MediaChannelKey, Omit<ChannelR
     { channel: 'paid_social_meta', label: 'Audience Targeting', description: 'Custom audiences defined', priority: 'recommended' },
     { channel: 'paid_social_meta', label: 'Catalog Setup', description: 'Services catalog for dynamic ads', priority: 'optional' },
   ],
+  // Microsoft
+  microsoft_search: [
+    { channel: 'microsoft_search', label: 'Microsoft Ads Account', description: 'Microsoft Advertising account active', priority: 'required' },
+    { channel: 'microsoft_search', label: 'Conversion Tracking', description: 'UET tag installed', priority: 'required' },
+    { channel: 'microsoft_search', label: 'Import from Google', description: 'Campaigns synced from Google Ads', priority: 'recommended' },
+  ],
+  // Other digital
+  tiktok_social: [
+    { channel: 'tiktok_social', label: 'TikTok Ads Manager', description: 'Business account created', priority: 'required' },
+    { channel: 'tiktok_social', label: 'TikTok Pixel', description: 'Pixel installed on website', priority: 'required' },
+    { channel: 'tiktok_social', label: 'Video Creative', description: 'Vertical video ads (9:16)', priority: 'required' },
+    { channel: 'tiktok_social', label: 'Audience Strategy', description: 'Target audience defined', priority: 'recommended' },
+  ],
   display_retarg: [
     { channel: 'display_retarg', label: 'Retargeting Tags', description: 'Google/Meta pixels installed', priority: 'required' },
     { channel: 'display_retarg', label: 'Audience Segments', description: 'Website visitors segmented', priority: 'required' },
     { channel: 'display_retarg', label: 'Display Creative', description: 'Banner ads in multiple sizes', priority: 'required' },
     { channel: 'display_retarg', label: 'Frequency Caps', description: 'Impression limits set', priority: 'recommended' },
   ],
+  email_marketing: [
+    { channel: 'email_marketing', label: 'Email Platform', description: 'ESP configured (Klaviyo, Mailchimp, etc.)', priority: 'required' },
+    { channel: 'email_marketing', label: 'Email List', description: 'Subscriber list with consent', priority: 'required' },
+    { channel: 'email_marketing', label: 'Email Templates', description: 'Branded email templates', priority: 'required' },
+    { channel: 'email_marketing', label: 'Automation Flows', description: 'Welcome, abandoned cart flows', priority: 'recommended' },
+  ],
+  affiliate: [
+    { channel: 'affiliate', label: 'Affiliate Program', description: 'Affiliate network or program set up', priority: 'required' },
+    { channel: 'affiliate', label: 'Commission Structure', description: 'Payout terms defined', priority: 'required' },
+    { channel: 'affiliate', label: 'Tracking Setup', description: 'Affiliate links and tracking active', priority: 'required' },
+  ],
+  // Traditional / offline
   radio: [
     { channel: 'radio', label: 'Radio Script', description: 'Approved ad script', priority: 'required' },
     { channel: 'radio', label: 'Station Selection', description: 'Target stations identified', priority: 'required' },
     { channel: 'radio', label: 'Tracking Number', description: 'Dedicated phone number for attribution', priority: 'recommended' },
+    { channel: 'radio', label: 'Flight Schedule', description: 'Daypart and frequency plan', priority: 'recommended' },
   ],
+  tv: [
+    { channel: 'tv', label: 'TV Creative', description: 'Video spot produced (15s, 30s, 60s)', priority: 'required' },
+    { channel: 'tv', label: 'Station/Network Selection', description: 'Target networks identified', priority: 'required' },
+    { channel: 'tv', label: 'Tracking Method', description: 'Lift study or tracking number', priority: 'recommended' },
+    { channel: 'tv', label: 'Media Buy', description: 'Placement and flight schedule', priority: 'required' },
+  ],
+  streaming_audio: [
+    { channel: 'streaming_audio', label: 'Audio Creative', description: 'Audio ad produced (15s, 30s)', priority: 'required' },
+    { channel: 'streaming_audio', label: 'Platform Selection', description: 'Spotify, Pandora, iHeartRadio, etc.', priority: 'required' },
+    { channel: 'streaming_audio', label: 'Targeting Setup', description: 'Demographics and interests defined', priority: 'recommended' },
+    { channel: 'streaming_audio', label: 'Companion Banner', description: 'Display companion if supported', priority: 'optional' },
+  ],
+  out_of_home: [
+    { channel: 'out_of_home', label: 'OOH Creative', description: 'Billboard or transit ad designed', priority: 'required' },
+    { channel: 'out_of_home', label: 'Location Selection', description: 'Target locations/routes identified', priority: 'required' },
+    { channel: 'out_of_home', label: 'Vendor Contract', description: 'OOH vendor agreement', priority: 'required' },
+    { channel: 'out_of_home', label: 'Tracking Method', description: 'Lift study or geo-tracking', priority: 'recommended' },
+  ],
+  print: [
+    { channel: 'print', label: 'Print Creative', description: 'Ad design in required specs', priority: 'required' },
+    { channel: 'print', label: 'Publication Selection', description: 'Target newspapers/magazines', priority: 'required' },
+    { channel: 'print', label: 'Tracking Method', description: 'Promo code or tracking number', priority: 'recommended' },
+  ],
+  direct_mail: [
+    { channel: 'direct_mail', label: 'Mail Creative', description: 'Postcard or letter designed', priority: 'required' },
+    { channel: 'direct_mail', label: 'Mailing List', description: 'Target addresses compiled', priority: 'required' },
+    { channel: 'direct_mail', label: 'Print Vendor', description: 'Printing and mailing vendor', priority: 'required' },
+    { channel: 'direct_mail', label: 'Tracking Method', description: 'Promo code or unique URL', priority: 'recommended' },
+  ],
+  // Catch-all
   other: [
     { channel: 'other', label: 'Channel Defined', description: 'Specific channel requirements identified', priority: 'required' },
   ],

@@ -18,6 +18,9 @@ import {
   type DiagnosticRun,
   type DiagnosticToolId,
 } from '@/lib/os/diagnostics/runs';
+import { getGapPlanRunsForCompany } from '@/lib/airtable/gapPlanRuns';
+import { getGapIaRunsForCompany } from '@/lib/airtable/gapIaRuns';
+import type { GapPlanRun, GapIaRun } from '@/lib/gap/types';
 import type { ClientInsight, ClientDocument } from '@/lib/types/clientBrain';
 
 // ============================================================================
@@ -90,6 +93,10 @@ export interface CompanyBrainData {
 
   // All diagnostic runs for context
   allDiagnosticRuns: DiagnosticRun[];
+
+  // GAP runs from separate tables (GAP-Plan Run and GAP-IA Run)
+  gapPlanRuns: GapPlanRun[];
+  gapIaRuns: GapIaRun[];
 
   // Client Brain insights
   insights: ClientInsight[];
@@ -181,6 +188,9 @@ export async function getCompanyBrainData(
     gapSnapshotRun,
     gapPlanRun,
     gapHeavyRun,
+    // GAP runs from separate Airtable tables
+    gapPlanRuns,
+    gapIaRuns,
   ] = await Promise.all([
     // Company profile
     getCompanyById(companyId),
@@ -205,6 +215,9 @@ export async function getCompanyBrainData(
     getLatestRunForCompanyAndTool(companyId, 'gapSnapshot'),
     getLatestRunForCompanyAndTool(companyId, 'gapPlan'),
     getLatestRunForCompanyAndTool(companyId, 'gapHeavy'),
+    // GAP runs from separate Airtable tables (GAP-Plan Run, GAP-IA Run)
+    getGapPlanRunsForCompany(companyId, 10).catch(() => []),
+    getGapIaRunsForCompany(companyId, 10).catch(() => []),
   ]);
 
   if (!company) {
@@ -216,6 +229,8 @@ export async function getCompanyBrainData(
     allRunsCount: allRuns.length,
     insightsCount: insights.length,
     documentsCount: documents.length,
+    gapPlanRunsCount: gapPlanRuns.length,
+    gapIaRunsCount: gapIaRuns.length,
     hasLabs: {
       brand: !!brandLabRun,
       website: !!websiteLabRun,
@@ -238,6 +253,8 @@ export async function getCompanyBrainData(
     gapPlan: mapToLabRunSummary(gapPlanRun),
     gapHeavy: mapToLabRunSummary(gapHeavyRun),
     allDiagnosticRuns: allRuns,
+    gapPlanRuns,
+    gapIaRuns,
     insights,
     insightsSummary,
     documents,

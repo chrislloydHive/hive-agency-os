@@ -168,19 +168,11 @@ export async function getAllMediaCampaigns(): Promise<MediaCampaign[]> {
  */
 export async function getActiveCampaignCountsByChannel(
   companyId: string
-): Promise<Record<MediaChannel, number>> {
+): Promise<Partial<Record<MediaChannel, number>>> {
   const campaigns = await getMediaCampaignsByCompany(companyId);
   const activeCampaigns = campaigns.filter((c) => c.status === 'Active');
 
-  const counts: Record<MediaChannel, number> = {
-    Search: 0,
-    Maps: 0,
-    LSAs: 0,
-    Social: 0,
-    Display: 0,
-    Radio: 0,
-    Other: 0,
-  };
+  const counts: Partial<Record<MediaChannel, number>> = {};
 
   for (const campaign of activeCampaigns) {
     counts[campaign.channel] = (counts[campaign.channel] || 0) + 1;

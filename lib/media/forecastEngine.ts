@@ -300,6 +300,84 @@ function forecastMapsChannel(
 }
 
 // ============================================================================
+// Generic Channel Forecasting (for channels without specific assumptions)
+// ============================================================================
+
+/**
+ * Default benchmarks for channels without specific assumptions
+ * Values are industry estimates for car audio / local services verticals
+ */
+const GENERIC_CHANNEL_BENCHMARKS: Record<MediaChannel, {
+  cpm: number;
+  ctr: number;
+  conversionRate: number;
+  callRate: number;
+  installRate: number;
+}> = {
+  // Core digital (have specific forecast functions, but included for completeness)
+  search: { cpm: 25, ctr: 0.05, conversionRate: 0.05, callRate: 0.3, installRate: 0.4 },
+  social: { cpm: 12, ctr: 0.012, conversionRate: 0.025, callRate: 0.2, installRate: 0.3 },
+  lsa: { cpm: 80, ctr: 0.08, conversionRate: 0.15, callRate: 0.8, installRate: 0.5 },
+  display: { cpm: 4, ctr: 0.005, conversionRate: 0.01, callRate: 0.1, installRate: 0.25 },
+  maps: { cpm: 8, ctr: 0.02, conversionRate: 0.03, callRate: 0.4, installRate: 0.35 },
+  // Additional digital
+  youtube: { cpm: 10, ctr: 0.015, conversionRate: 0.02, callRate: 0.15, installRate: 0.25 },
+  microsoft_search: { cpm: 20, ctr: 0.04, conversionRate: 0.05, callRate: 0.3, installRate: 0.38 },
+  tiktok: { cpm: 8, ctr: 0.015, conversionRate: 0.02, callRate: 0.1, installRate: 0.25 },
+  email: { cpm: 2, ctr: 0.03, conversionRate: 0.04, callRate: 0.2, installRate: 0.35 },
+  affiliate: { cpm: 15, ctr: 0.02, conversionRate: 0.08, callRate: 0.25, installRate: 0.4 },
+  // Traditional/offline - lower direct response metrics
+  radio: { cpm: 3, ctr: 0.002, conversionRate: 0.005, callRate: 0.6, installRate: 0.2 },
+  tv: { cpm: 15, ctr: 0.001, conversionRate: 0.003, callRate: 0.5, installRate: 0.15 },
+  streaming_audio: { cpm: 6, ctr: 0.003, conversionRate: 0.008, callRate: 0.4, installRate: 0.2 },
+  out_of_home: { cpm: 5, ctr: 0.001, conversionRate: 0.002, callRate: 0.3, installRate: 0.15 },
+  print: { cpm: 10, ctr: 0.002, conversionRate: 0.005, callRate: 0.5, installRate: 0.18 },
+  direct_mail: { cpm: 250, ctr: 0.04, conversionRate: 0.1, callRate: 0.4, installRate: 0.35 },
+};
+
+/**
+ * Calculate metrics for channels using generic benchmarks
+ * Uses CPM-based model: impressions = (budget / cpm) * 1000
+ */
+function forecastGenericChannel(
+  channel: MediaChannel,
+  budget: number,
+  seasonMultiplier: number
+): ChannelMetrics {
+  const benchmarks = GENERIC_CHANNEL_BENCHMARKS[channel];
+
+  if (!benchmarks || benchmarks.cpm <= 0) {
+    return { impressions: 0, clicks: 0, leads: 0, calls: 0, installs: 0, cpc: 0, cpm: 0 };
+  }
+
+  // Base calculations
+  let impressions = (budget / benchmarks.cpm) * 1000;
+  let clicks = impressions * benchmarks.ctr;
+  let leads = clicks * benchmarks.conversionRate;
+
+  // Apply seasonality
+  impressions *= seasonMultiplier;
+  clicks *= seasonMultiplier;
+  leads *= seasonMultiplier;
+
+  // Derive calls and installs
+  const calls = leads * benchmarks.callRate;
+  const installs = leads * benchmarks.installRate;
+
+  const cpc = clicks > 0 ? budget / clicks : 0;
+
+  return {
+    impressions: Math.floor(impressions),
+    clicks: Math.floor(clicks),
+    leads: Math.floor(leads),
+    calls: Math.floor(calls),
+    installs: Math.floor(installs),
+    cpc,
+    cpm: benchmarks.cpm,
+  };
+}
+
+// ============================================================================
 // Seasonality Multiplier
 // ============================================================================
 
@@ -552,15 +630,26 @@ export function forecastMediaPlan(params: ForecastParams): MediaForecastResult {
 
   // Forecast each channel
   const channelForecasts: ChannelForecast[] = [];
-  const channels: MediaChannel[] = ['search', 'social', 'lsa', 'display', 'maps'];
 
-  for (const channel of channels) {
-    const channelBudget = budget.totalMonthlyBudget * normalizedSplits[channel];
+  // All supported channels (from types.ts)
+  const allChannels: MediaChannel[] = [
+    // Core digital
+    'search', 'social', 'lsa', 'display', 'maps',
+    // Additional digital
+    'youtube', 'microsoft_search', 'tiktok', 'email', 'affiliate',
+    // Traditional/offline
+    'radio', 'tv', 'streaming_audio', 'out_of_home', 'print', 'direct_mail',
+  ];
+
+  for (const channel of allChannels) {
+    const channelBudget = budget.totalMonthlyBudget * (normalizedSplits[channel] || 0);
 
     if (channelBudget <= 0) continue;
 
     let metrics: ChannelMetrics;
 
+    // Use specific forecast functions for channels with detailed assumptions
+    // Fall back to generic benchmark-based forecasts for others
     switch (channel) {
       case 'search':
         metrics = forecastSearchChannel(channelBudget, assumptions, seasonMultiplier);
@@ -583,6 +672,10 @@ export function forecastMediaPlan(params: ForecastParams): MediaForecastResult {
         break;
       case 'maps':
         metrics = forecastMapsChannel(channelBudget, assumptions, seasonMultiplier);
+        break;
+      default:
+        // Use generic forecast for all other channels
+        metrics = forecastGenericChannel(channel, channelBudget, seasonMultiplier);
         break;
     }
 
