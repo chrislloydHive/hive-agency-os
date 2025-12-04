@@ -520,6 +520,10 @@ function BusinessObjectivesStep({
   onNext: () => void;
   onBack: () => void;
 }) {
+  // Debug: Log what inputs we receive in this step
+  console.log('[BusinessObjectivesStep] inputs.objectivesKpis:', inputs.objectivesKpis);
+  console.log('[BusinessObjectivesStep] primaryObjective value:', inputs.objectivesKpis?.primaryObjective);
+
   const objectiveOptions = Object.entries(OBJECTIVE_LABELS).map(([value, label]) => ({
     value: value as PrimaryObjective,
     label,
@@ -1443,6 +1447,10 @@ export function SmartIntakePlanner({
     { key: 'budget-channels', label: 'Budget' },
     { key: 'confirm', label: 'Generate' },
   ];
+
+  // Debug: Log current state on every render
+  console.log('[SmartIntakePlanner RENDER] step:', step, 'isLoading:', isLoading);
+  console.log('[SmartIntakePlanner RENDER] inputs.objectivesKpis:', inputs.objectivesKpis);
 
   return (
     <div className="min-h-screen bg-slate-950 p-6">
