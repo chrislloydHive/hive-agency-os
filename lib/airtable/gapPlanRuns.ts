@@ -506,6 +506,87 @@ export async function getGapPlanRunsForCompany(
   }
 }
 
+/**
+ * Get GAP Plan Runs for a specific company by ID or domain
+ * First tries to match by Company linked record, then falls back to domain/URL matching
+ * Returns runs sorted by creation time (newest first)
+ */
+export async function getGapPlanRunsForCompanyOrDomain(
+  companyId: string,
+  domain: string,
+  limit: number = 20
+): Promise<GapPlanRun[]> {
+  try {
+    const tableName = getTableName('GAP_PLAN_RUN', 'AIRTABLE_GAP_PLAN_RUN_TABLE');
+    console.log('[GAP-Plan Run] Fetching runs for company/domain:', { companyId, domain, table: tableName });
+
+    // Use Airtable SDK for better linked record support
+    const { base } = await import('./client');
+
+    // Fetch recent records
+    const allRecords = await base(tableName)
+      .select({
+        maxRecords: 100,
+        sort: [{ field: 'Created At', direction: 'desc' }],
+      })
+      .firstPage();
+
+    // Normalize domain for matching
+    const normalizedDomain = domain.toLowerCase().replace(/^www\./, '');
+
+    // Filter client-side for matching company OR domain
+    const records = allRecords
+      .filter((record) => {
+        const fields = record.fields;
+
+        // Match by Company linked record
+        const companyField = fields['Company'];
+        if (Array.isArray(companyField) && companyField.includes(companyId)) {
+          return true;
+        }
+
+        // Match by domain in URL field
+        const url = (fields['Website URL'] || fields['URL'] || '') as string;
+        const recordDomain = (fields['Domain'] || '') as string;
+
+        const urlDomain = url.toLowerCase().replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
+        const normalizedRecordDomain = recordDomain.toLowerCase().replace(/^www\./, '');
+
+        return urlDomain === normalizedDomain ||
+               normalizedRecordDomain === normalizedDomain ||
+               urlDomain.includes(normalizedDomain) ||
+               normalizedDomain.includes(urlDomain);
+      })
+      .slice(0, limit);
+
+    console.log(`[GAP-Plan Run] Retrieved ${records.length} plan runs for company/domain ${companyId}/${domain}`);
+
+    return records.map((record: any) => {
+      const fields = record.fields || {};
+      return {
+        id: record.id,
+        companyId: Array.isArray(fields['Company']) ? fields['Company'][0] : undefined,
+        url: fields['Website URL'] || fields['URL'] || '',
+        domain: fields['Domain'] || '',
+        status: (fields['Status'] || 'pending') as 'pending' | 'processing' | 'completed' | 'error',
+        overallScore: fields['Overall Score'] as number | undefined,
+        brandScore: fields['Brand Score'] as number | undefined,
+        contentScore: fields['Content Score'] as number | undefined,
+        websiteScore: fields['Website Score'] as number | undefined,
+        seoScore: fields['SEO Score'] as number | undefined,
+        authorityScore: fields['Authority Score'] as number | undefined,
+        maturityStage: fields['Maturity Stage'] as string | undefined,
+        createdAt: fields['Created At'] || new Date().toISOString(),
+        completedAt: fields['Completed At'] as string | undefined,
+        errorMessage: fields['Error Message'] as string | undefined,
+      } as GapPlanRun;
+    });
+  } catch (error) {
+    console.error('[GAP-Plan Run] Failed to fetch runs for company/domain:', error);
+    return [];
+  }
+}
+
 // Export alias for backward compatibility during migration
 export const logGapRunToAirtable = logGapPlanRunToAirtable;
 export type GapRunPayload = GapPlanRunPayload;

@@ -18,8 +18,8 @@ import {
   type DiagnosticRun,
   type DiagnosticToolId,
 } from '@/lib/os/diagnostics/runs';
-import { getGapPlanRunsForCompany } from '@/lib/airtable/gapPlanRuns';
-import { getGapIaRunsForCompany } from '@/lib/airtable/gapIaRuns';
+import { getGapPlanRunsForCompanyOrDomain } from '@/lib/airtable/gapPlanRuns';
+import { getGapIaRunsForCompanyOrDomain } from '@/lib/airtable/gapIaRuns';
 import type { GapPlanRun, GapIaRun } from '@/lib/gap/types';
 import type { ClientInsight, ClientDocument } from '@/lib/types/clientBrain';
 
@@ -172,9 +172,17 @@ export async function getCompanyBrainData(
 ): Promise<CompanyBrainData> {
   console.log('[CompanyBrain] Fetching brain data for company:', companyId);
 
+  // First fetch the company to get the domain for GAP lookups
+  const company = await getCompanyById(companyId);
+  if (!company) {
+    throw new Error(`Company not found: ${companyId}`);
+  }
+
+  const companyDomain = company.domain || company.website?.replace(/^https?:\/\/(www\.)?/, '').split('/')[0] || '';
+  console.log('[CompanyBrain] Company domain for GAP lookup:', companyDomain);
+
   // Fetch all data in parallel
   const [
-    company,
     allRuns,
     insights,
     insightsSummary,
@@ -192,9 +200,6 @@ export async function getCompanyBrainData(
     gapPlanRuns,
     gapIaRuns,
   ] = await Promise.all([
-    // Company profile
-    getCompanyById(companyId),
-
     // All diagnostic runs
     listDiagnosticRunsForCompany(companyId, { limit: 100 }),
 
@@ -216,16 +221,14 @@ export async function getCompanyBrainData(
     getLatestRunForCompanyAndTool(companyId, 'gapPlan'),
     getLatestRunForCompanyAndTool(companyId, 'gapHeavy'),
     // GAP runs from separate Airtable tables (GAP-Plan Run, GAP-IA Run)
-    getGapPlanRunsForCompany(companyId, 10).catch(() => []),
-    getGapIaRunsForCompany(companyId, 10).catch(() => []),
+    // Pass both companyId and domain for matching
+    getGapPlanRunsForCompanyOrDomain(companyId, companyDomain, 10).catch(() => []),
+    getGapIaRunsForCompanyOrDomain(companyId, companyDomain, 10).catch(() => []),
   ]);
-
-  if (!company) {
-    throw new Error(`Company not found: ${companyId}`);
-  }
 
   console.log('[CompanyBrain] Fetched data:', {
     companyName: company.name,
+    companyDomain,
     allRunsCount: allRuns.length,
     insightsCount: insights.length,
     documentsCount: documents.length,

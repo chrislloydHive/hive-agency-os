@@ -643,3 +643,70 @@ export async function getGapIaRunsForCompany(
     return [];
   }
 }
+
+/**
+ * Get GAP-IA Runs for a specific company by ID or domain
+ * First tries to match by companyId in Data JSON, then falls back to domain/URL matching
+ * Returns runs sorted by creation time (newest first)
+ */
+export async function getGapIaRunsForCompanyOrDomain(
+  companyId: string,
+  domain: string,
+  limit: number = 20
+): Promise<GapIaRun[]> {
+  try {
+    console.log('[gapIaRuns] Fetching runs for company/domain:', { companyId, domain });
+
+    const config = getAirtableConfig();
+
+    // Fetch recent runs
+    const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(
+      GAP_IA_RUN_TABLE
+    )}?maxRecords=100&sort[0][field]=Created%20At&sort[0][direction]=desc&filterByFormula=${encodeURIComponent('NOT({Archived})')}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Airtable API error (${response.status}): ${errorText}`);
+    }
+
+    const result = await response.json();
+    const records = result.records || [];
+
+    // Normalize domain for matching
+    const normalizedDomain = domain.toLowerCase().replace(/^www\./, '');
+
+    // Convert to GapIaRun objects and filter by companyId OR domain
+    const runs = records
+      .map((record: any) => airtableRecordToGapIaRun(record))
+      .filter((run: GapIaRun) => {
+        // Match by companyId
+        if (run.companyId === companyId) {
+          return true;
+        }
+
+        // Match by domain
+        const runDomain = (run.domain || '').toLowerCase().replace(/^www\./, '');
+        const runUrlDomain = (run.url || '').toLowerCase().replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
+
+        return runDomain === normalizedDomain ||
+               runUrlDomain === normalizedDomain ||
+               runDomain.includes(normalizedDomain) ||
+               normalizedDomain.includes(runDomain);
+      })
+      .slice(0, limit);
+
+    console.log(`[gapIaRuns] Retrieved ${runs.length} GAP-IA runs for company/domain ${companyId}/${domain}`);
+
+    return runs;
+  } catch (error) {
+    console.error('[gapIaRuns] Failed to fetch runs for company/domain:', error);
+    return [];
+  }
+}
