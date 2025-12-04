@@ -14,6 +14,7 @@ export default function CompanyTabs({ companyId }: { companyId: string }) {
   // - Brain: Strategic AI memory and documents
   // - Work: Active tasks, experiments, backlog
   // - Media: Performance media programs, campaigns, stores
+  // - Context: Context Graph viewer and editor
   const tabs = [
     { name: 'Overview', href: `/c/${companyId}` },
     { name: 'Setup', href: `/c/${companyId}/setup` },
@@ -22,6 +23,7 @@ export default function CompanyTabs({ companyId }: { companyId: string }) {
     { name: 'Brain', href: `/c/${companyId}/brain` },
     { name: 'Work', href: `/c/${companyId}/work` },
     { name: 'Media', href: `/c/${companyId}/media` },
+    { name: 'Context', href: `/c/${companyId}/context-graph` },
   ];
 
   // Check if current path matches a tab or is a child route of that tab
