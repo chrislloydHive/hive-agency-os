@@ -69,12 +69,18 @@ CRITICAL DATA PRIORITY RULES:
 4. NEVER claim GA4/GSC is missing if ga4Connected/gscConnected is true
 
 WRITING STYLE:
-- Write in full, detailed prose - not bullet points
+- Write in full, detailed prose - not bullet points (except for strengths/risks/opportunities)
 - Be thorough and insightful, providing real strategic value
 - Include specific numbers, scores, and data points inline
 - Use professional but accessible language
 - Each section should be 2-4 sentences of substantive analysis
-- Add a blank line after each section's content before the next header for visual breathing room
+
+CRITICAL FORMATTING RULES:
+- Add TWO blank lines before each ## heading
+- Add ONE blank line before each ### heading
+- Add ONE blank line between paragraphs within a section
+- Never write multiple paragraphs run together - always separate with blank lines
+- The markdown must have clear visual breathing room throughout
 
 NARRATIVE STRUCTURE (use exactly these markdown headers):
 
