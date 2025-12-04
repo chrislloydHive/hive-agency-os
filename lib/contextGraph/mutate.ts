@@ -210,7 +210,13 @@ export function setDomainFields<D extends DomainName>(
     if (value === undefined) continue;
 
     const fieldKey = key as keyof CompanyContextGraph[D];
-    const fieldData = graph[domain][fieldKey] as WithMetaType<unknown> | WithMetaArrayType<unknown>;
+    const fieldData = graph[domain][fieldKey] as WithMetaType<unknown> | WithMetaArrayType<unknown> | undefined;
+
+    // Skip if field doesn't exist in the domain schema
+    if (!fieldData || typeof fieldData !== 'object' || !('provenance' in fieldData)) {
+      console.warn(`[setDomainFields] Skipping unknown field ${domain}.${key}`);
+      continue;
+    }
 
     // Check if this is an array field
     const isArrayField = Array.isArray(fieldData.value) || (fieldData.value === null && Array.isArray(value));
