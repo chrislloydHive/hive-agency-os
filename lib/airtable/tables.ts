@@ -39,6 +39,9 @@ export const AIRTABLE_TABLES = {
   MEDIA_SCENARIOS: 'MediaScenarios',
   MEDIA_PROFILES: 'MediaProfiles', // Company-specific media configuration
 
+  // Context Graph
+  CONTEXT_GRAPHS: 'ContextGraphs', // Company Context Graph storage (JSON blobs)
+
   // Legacy/deprecated (for migration reference)
   // GAP_RUNS_OLD: 'GAP Runs',
   // FULL_REPORTS_OLD: 'Full Reports',
