@@ -6,6 +6,7 @@ import { getCompanyById } from '@/lib/airtable/companies';
 import { loadContextGraph, saveContextGraph } from '@/lib/contextGraph/storage';
 import { createEmptyContextGraph } from '@/lib/contextGraph/companyContextGraph';
 import { createProvenance, ProvenanceSource } from '@/lib/contextGraph/mutate';
+import { getFieldEditability } from '@/lib/contextGraph/editability';
 import type { ProvenanceTag } from '@/lib/contextGraph/types';
 
 interface EditRequestBody {
@@ -35,6 +36,15 @@ export async function POST(
     if (!action || !['edit', 'clear'].includes(action)) {
       return NextResponse.json(
         { error: 'Action must be "edit" or "clear"' },
+        { status: 400 }
+      );
+    }
+
+    // Check field editability before proceeding
+    const { editable, reason } = getFieldEditability(path);
+    if (!editable) {
+      return NextResponse.json(
+        { error: reason || 'Field is read-only and cannot be edited.' },
         { status: 400 }
       );
     }

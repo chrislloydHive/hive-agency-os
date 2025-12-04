@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import type { ProvenanceTag } from '@/lib/contextGraph/types';
+import { getFieldEditability } from '@/lib/contextGraph/editability';
 
 interface FieldEditorDrawerProps {
   path: string;
@@ -72,6 +73,7 @@ export function FieldEditorDrawer({
   isLoading,
 }: FieldEditorDrawerProps) {
   const editorType = getEditorType(value);
+  const { editable: isFieldEditable, reason: editabilityReason } = getFieldEditability(path);
 
   // State for edited value
   const [editedValue, setEditedValue] = useState<string>(() => {
@@ -146,6 +148,23 @@ export function FieldEditorDrawer({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
+          {/* Read-only Banner */}
+          {!isFieldEditable && (
+            <div className="mb-6 bg-slate-800 border border-slate-700 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-slate-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-medium text-slate-300">Read-only Field</p>
+                  <p className="text-sm text-slate-400 mt-1">
+                    {editabilityReason || 'This field cannot be edited.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Path */}
           <div className="mb-6">
             <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
@@ -157,7 +176,20 @@ export function FieldEditorDrawer({
           </div>
 
           {/* Editor */}
-          {editorType === 'unsupported' ? (
+          {!isFieldEditable ? (
+            <div className="mb-6">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
+                Current Value (Read-only)
+              </label>
+              <pre className="text-sm text-slate-300 bg-slate-800 px-3 py-2 rounded-lg overflow-auto max-h-60">
+                {value === null || value === undefined
+                  ? '—'
+                  : typeof value === 'object'
+                  ? JSON.stringify(value, null, 2)
+                  : String(value)}
+              </pre>
+            </div>
+          ) : editorType === 'unsupported' ? (
             <div className="mb-6">
               <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
                 <p className="text-sm text-amber-400">
@@ -262,9 +294,9 @@ export function FieldEditorDrawer({
             disabled={isLoading}
             className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50"
           >
-            Cancel
+            {isFieldEditable ? 'Cancel' : 'Close'}
           </button>
-          {editorType !== 'unsupported' && (
+          {isFieldEditable && editorType !== 'unsupported' && (
             <button
               onClick={handleSave}
               disabled={isLoading}

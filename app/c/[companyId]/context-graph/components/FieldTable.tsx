@@ -6,6 +6,7 @@
 import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
 import type { NeedsRefreshReport } from '@/lib/contextGraph/needsRefresh';
 import type { ProvenanceTag } from '@/lib/contextGraph/types';
+import { getFieldEditability } from '@/lib/contextGraph/editability';
 
 interface FlattenedField {
   path: string;
@@ -212,16 +213,31 @@ export function FieldTable({
           {fields.map((field) => {
             const { status, label } = getFieldStatus(field, refreshReport);
             const latestProvenance = field.provenance[0];
-            const isEditable = field.valueType !== 'object';
+            const typeEditable = field.valueType !== 'object';
+            const { editable: fieldEditable, reason: editabilityReason } = getFieldEditability(field.path);
+            const isEditable = typeEditable && fieldEditable;
 
             return (
               <tr key={field.path} className="hover:bg-slate-800/50 transition-colors">
                 {/* Field Name */}
                 <td className="px-4 py-3">
                   <div className="flex flex-col">
-                    <span className="text-sm font-medium text-slate-200">
-                      {field.fieldName}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-slate-200">
+                        {field.fieldName}
+                      </span>
+                      {!fieldEditable && (
+                        <span
+                          title={editabilityReason}
+                          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-700 text-slate-400"
+                        >
+                          <svg className="w-3 h-3 mr-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                          Auto
+                        </span>
+                      )}
+                    </div>
                     <span className="text-xs text-slate-500 font-mono">
                       {field.path}
                     </span>
@@ -267,7 +283,7 @@ export function FieldTable({
                 {/* Actions */}
                 <td className="px-4 py-3 text-right">
                   <div className="flex items-center justify-end gap-1">
-                    {isEditable && (
+                    {isEditable ? (
                       <button
                         onClick={() => onEdit(field.path, field.value, field.provenance)}
                         disabled={isLoading}
@@ -275,8 +291,17 @@ export function FieldTable({
                       >
                         Edit
                       </button>
-                    )}
-                    {field.value !== null && field.value !== undefined && (
+                    ) : !fieldEditable ? (
+                      <span
+                        title={editabilityReason}
+                        className="px-2 py-1 text-xs text-slate-500 cursor-not-allowed"
+                      >
+                        <svg className="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                      </span>
+                    ) : null}
+                    {isEditable && field.value !== null && field.value !== undefined && (
                       <button
                         onClick={() => onClear(field.path)}
                         disabled={isLoading}
