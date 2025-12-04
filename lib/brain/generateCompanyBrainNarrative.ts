@@ -84,9 +84,15 @@ NARRATIVE STRUCTURE (use exactly these markdown headers):
 A comprehensive 3-4 sentence overview of the company: who they are, what they do, their current stage, and the overall health of their digital presence. Include key metrics like overall scores if available.
 
 ## Company Profile
-**Industry & Positioning:** Describe their market position, target audience, and competitive landscape.
-**Business Stage:** Current growth phase, team size, and operational maturity.
-**Analytics Status:** GA4 is [connected/not connected]. Google Search Console is [connected/not connected].
+
+### Industry & Positioning
+Describe their market position, target audience, and competitive landscape in 2-3 sentences.
+
+### Business Stage
+Current growth phase, team size, and operational maturity in 2-3 sentences.
+
+### Analytics Status
+State clearly: GA4 is [connected/not connected]. Google Search Console is [connected/not connected]. Add context about what data is available.
 
 ## Brand & Messaging
 Analyze their brand strength, messaging clarity, and market positioning. Reference Brand Lab scores and findings. Discuss voice, differentiation, and how well their messaging resonates with their ICP.
@@ -111,13 +117,16 @@ Assess their marketing operations maturity, tool stack, automation capabilities,
 ## Strategic Assessment
 
 ### Key Strengths
-Identify 3-5 major strengths with specific evidence. Use **bold** for the strength name followed by explanation.
+Identify 3-5 major strengths. Format each as a bullet point with the strength name in bold, then explanation:
+- **Strength Name** — Explanation with evidence.
 
 ### Critical Risks
-Identify 3-5 significant risks or gaps with specific impact. Use **bold** for the risk name followed by explanation. Be accurate - verify claims against actual data.
+Identify 3-5 significant risks or gaps. Format each as a bullet point with the risk name in bold, then explanation:
+- **Risk Name** — Explanation with specific impact. Be accurate - verify claims against actual data.
 
 ### Growth Opportunities
-Identify 3-5 actionable opportunities with expected impact. Use **bold** for the opportunity name followed by explanation.
+Identify 3-5 actionable opportunities. Format each as a bullet point with the opportunity name in bold, then explanation:
+- **Opportunity Name** — Explanation with expected impact.
 
 ## Recommended Actions
 Provide 3-5 prioritized recommendations as a numbered list. Each should include the action, rationale, and expected impact.
