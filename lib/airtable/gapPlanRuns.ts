@@ -533,6 +533,8 @@ export async function getGapPlanRunsForCompanyOrDomain(
 
     // Normalize domain for matching
     const normalizedDomain = domain.toLowerCase().replace(/^www\./, '');
+    console.log('[GAP-Plan Run] Normalized search domain:', normalizedDomain);
+    console.log('[GAP-Plan Run] Total records fetched:', allRecords.length);
 
     // Filter client-side for matching company OR domain
     const records = allRecords
@@ -542,6 +544,7 @@ export async function getGapPlanRunsForCompanyOrDomain(
         // Match by Company linked record
         const companyField = fields['Company'];
         if (Array.isArray(companyField) && companyField.includes(companyId)) {
+          console.log('[GAP-Plan Run] Matched by Company field:', record.id);
           return true;
         }
 
@@ -552,10 +555,16 @@ export async function getGapPlanRunsForCompanyOrDomain(
         const urlDomain = url.toLowerCase().replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
         const normalizedRecordDomain = recordDomain.toLowerCase().replace(/^www\./, '');
 
-        return urlDomain === normalizedDomain ||
+        const matches = urlDomain === normalizedDomain ||
                normalizedRecordDomain === normalizedDomain ||
-               urlDomain.includes(normalizedDomain) ||
-               normalizedDomain.includes(urlDomain);
+               (urlDomain && normalizedDomain && urlDomain.includes(normalizedDomain)) ||
+               (urlDomain && normalizedDomain && normalizedDomain.includes(urlDomain));
+
+        if (matches) {
+          console.log('[GAP-Plan Run] Matched by domain:', { recordId: record.id, url, recordDomain, urlDomain, normalizedRecordDomain, normalizedDomain });
+        }
+
+        return matches;
       })
       .slice(0, limit);
 

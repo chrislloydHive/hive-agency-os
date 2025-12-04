@@ -681,6 +681,8 @@ export async function getGapIaRunsForCompanyOrDomain(
 
     // Normalize domain for matching
     const normalizedDomain = domain.toLowerCase().replace(/^www\./, '');
+    console.log('[gapIaRuns] Normalized search domain:', normalizedDomain);
+    console.log('[gapIaRuns] Total records fetched:', records.length);
 
     // Convert to GapIaRun objects and filter by companyId OR domain
     const runs = records
@@ -688,6 +690,7 @@ export async function getGapIaRunsForCompanyOrDomain(
       .filter((run: GapIaRun) => {
         // Match by companyId
         if (run.companyId === companyId) {
+          console.log('[gapIaRuns] Matched by companyId:', run.id);
           return true;
         }
 
@@ -695,10 +698,16 @@ export async function getGapIaRunsForCompanyOrDomain(
         const runDomain = (run.domain || '').toLowerCase().replace(/^www\./, '');
         const runUrlDomain = (run.url || '').toLowerCase().replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
 
-        return runDomain === normalizedDomain ||
+        const matches = runDomain === normalizedDomain ||
                runUrlDomain === normalizedDomain ||
-               runDomain.includes(normalizedDomain) ||
-               normalizedDomain.includes(runDomain);
+               (runDomain && normalizedDomain && runDomain.includes(normalizedDomain)) ||
+               (normalizedDomain && runDomain && normalizedDomain.includes(runDomain));
+
+        if (matches) {
+          console.log('[gapIaRuns] Matched by domain:', { runId: run.id, runDomain, runUrlDomain, normalizedDomain });
+        }
+
+        return matches;
       })
       .slice(0, limit);
 
