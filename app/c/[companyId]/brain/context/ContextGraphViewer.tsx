@@ -58,6 +58,9 @@ import {
   BenchmarksPanel,
 } from '@/components/os/context';
 
+// Import Auto-Complete Banner
+import { AutoCompleteBanner } from './components/AutoCompleteBanner';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -71,6 +74,8 @@ interface Props {
   contextHealthScore: number;
   snapshots: ContextGraphSnapshot[];
   diff: GraphDiffItem[];
+  /** Coverage percentage for auto-complete banner (0-100) */
+  coveragePercent?: number;
 }
 
 // ============================================================================
@@ -94,6 +99,7 @@ export function ContextGraphViewer({
   contextHealthScore,
   snapshots,
   diff,
+  coveragePercent,
 }: Props) {
   const [selectedDomain, setSelectedDomain] = useState<ContextDomainId>('identity');
   const [showOnlyWithValue, setShowOnlyWithValue] = useState(false);
@@ -661,6 +667,15 @@ export function ContextGraphViewer({
         <div className="flex flex-1 overflow-hidden">
           {/* Fields List */}
           <section className="flex-1 overflow-y-auto p-6 space-y-3">
+            {/* Auto-Complete Banner (only when coverage is low) */}
+            {coveragePercent !== undefined && coveragePercent < 50 && (
+              <AutoCompleteBanner
+                companyId={companyId}
+                coveragePercent={coveragePercent}
+                threshold={50}
+              />
+            )}
+
             {/* Domain Summary (only when viewing a domain, not global search) */}
             {!isGlobalSearch && (
               <DomainSummaryPanel

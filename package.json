@@ -27,6 +27,7 @@
     "puppeteer": "^24.31.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
+    "react-force-graph-2d": "^1.29.0",
     "react-markdown": "^10.1.0",
     "recharts": "^3.5.0",
     "remark-gfm": "^4.0.1",

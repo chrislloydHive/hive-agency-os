@@ -22,6 +22,8 @@ export const HistoryRefsDomain = z.object({
   latestDemandLabRunId: WithMeta(z.string()),
   latestOpsLabRunId: WithMeta(z.string()),
   latestCreativeLabRunId: WithMeta(z.string()),
+  latestMediaLabRunId: WithMeta(z.string()),
+  latestAudienceLabRunId: WithMeta(z.string()),
 
   // Media References
   latestMediaPlanIds: WithMetaArray(z.string()),
@@ -60,6 +62,8 @@ export function createEmptyHistoryRefsDomain(): HistoryRefsDomain {
     latestDemandLabRunId: { value: null, provenance: [] },
     latestOpsLabRunId: { value: null, provenance: [] },
     latestCreativeLabRunId: { value: null, provenance: [] },
+    latestMediaLabRunId: { value: null, provenance: [] },
+    latestAudienceLabRunId: { value: null, provenance: [] },
     latestMediaPlanIds: { value: [], provenance: [] },
     latestMediaProgramIds: { value: [], provenance: [] },
     activeMediaCampaignIds: { value: [], provenance: [] },

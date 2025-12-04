@@ -122,30 +122,43 @@ export function WorkClient({
 
   return (
     <div className="space-y-6">
-      {/* Sub-tabs */}
+      {/* Sub-tabs with Media link */}
       <div className="border-b border-slate-800">
-        <nav className="flex gap-4">
-          <TabButton
-            active={activeTab === 'tasks'}
-            onClick={() => setActiveTab('tasks')}
-            count={activeItems.length}
+        <div className="flex items-center justify-between">
+          <nav className="flex gap-4">
+            <TabButton
+              active={activeTab === 'tasks'}
+              onClick={() => setActiveTab('tasks')}
+              count={activeItems.length}
+            >
+              Tasks
+            </TabButton>
+            <TabButton
+              active={activeTab === 'experiments'}
+              onClick={() => setActiveTab('experiments')}
+            >
+              Experiments
+            </TabButton>
+            <TabButton
+              active={activeTab === 'backlog'}
+              onClick={() => setActiveTab('backlog')}
+              count={priorities.length}
+            >
+              Opportunities
+            </TabButton>
+          </nav>
+
+          {/* Media Quick Access */}
+          <Link
+            href={`/c/${company.id}/media`}
+            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-800/50 border border-slate-700 rounded-lg hover:bg-slate-700/50 transition-colors"
           >
-            Tasks
-          </TabButton>
-          <TabButton
-            active={activeTab === 'experiments'}
-            onClick={() => setActiveTab('experiments')}
-          >
-            Experiments
-          </TabButton>
-          <TabButton
-            active={activeTab === 'backlog'}
-            onClick={() => setActiveTab('backlog')}
-            count={priorities.length}
-          >
-            Opportunities
-          </TabButton>
-        </nav>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            Media & Ads
+          </Link>
+        </div>
       </div>
 
       {/* Tab Content */}

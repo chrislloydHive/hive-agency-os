@@ -23,6 +23,7 @@ interface ContextGraphClientProps {
   health: ContextGraphHealth;
   domainCoverage: Record<DomainName, number>;
   refreshReport: NeedsRefreshReport | null;
+  snapshotInfo?: { label: string; createdAt: string } | null;
 }
 
 export function ContextGraphClient({
@@ -33,7 +34,9 @@ export function ContextGraphClient({
   health,
   domainCoverage,
   refreshReport,
+  snapshotInfo,
 }: ContextGraphClientProps) {
+  const isViewingSnapshot = !!snapshotInfo;
   const [graph, setGraph] = useState<CompanyContextGraph>(initialGraph);
   const [selectedDomain, setSelectedDomain] = useState<string>('identity');
   const [showRawJson, setShowRawJson] = useState(false);
@@ -227,8 +230,43 @@ export function ContextGraphClient({
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto bg-slate-950 p-6">
         <div className="max-w-5xl mx-auto">
+          {/* Snapshot Viewing Banner */}
+          {isViewingSnapshot && snapshotInfo && (
+            <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-amber-300">
+                      Viewing snapshot: &ldquo;{snapshotInfo.label}&rdquo;
+                    </p>
+                    <p className="text-xs text-amber-400/70 mt-0.5">
+                      Created {new Date(snapshotInfo.createdAt).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </p>
+                  </div>
+                </div>
+                <Link
+                  href={`/c/${companyId}/context-graph`}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors"
+                >
+                  Return to live view
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* New Graph Banner */}
-          {isNewGraph && (
+          {isNewGraph && !isViewingSnapshot && (
             <div className="mb-6">
               <DataUnavailableBanner
                 title="No context graph exists yet"

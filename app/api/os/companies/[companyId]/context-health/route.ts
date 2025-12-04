@@ -10,7 +10,7 @@ import { calculateCompleteness, calculateDomainCoverage } from '@/lib/contextGra
 import { getStaleFields } from '@/lib/contextGraph/freshness';
 import { getNeedsRefreshReport } from '@/lib/contextGraph/needsRefresh';
 import {
-  computeContextHealthScore,
+  computeContextHealthScoreFromCompleteness,
   convertNeedsRefreshReport,
   getHealthStatus,
 } from '@/lib/contextGraph/contextHealth';
@@ -48,10 +48,12 @@ export async function GET(
     // Get stale fields
     const staleFields = getStaleFields(graph);
 
-    // Get needs-refresh report and compute health score
+    // Get needs-refresh report for freshness info
     const refreshReport = getNeedsRefreshReport(graph);
     const needsRefreshFlags = convertNeedsRefreshReport(refreshReport);
-    const healthScore = computeContextHealthScore(needsRefreshFlags);
+
+    // Health score is now based on completeness (more intuitive for users)
+    const healthScore = computeContextHealthScoreFromCompleteness(completenessScore);
     const healthStatus = getHealthStatus(healthScore);
 
     // Build response

@@ -3,6 +3,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
+import { getQbrContext } from '@/lib/contextGraph/contextGateway';
+import { createQbrSnapshot } from '@/lib/contextGraph/snapshots';
 import Anthropic from '@anthropic-ai/sdk';
 
 const anthropic = new Anthropic();
@@ -17,6 +19,8 @@ type QBRSection =
 
 interface GenerateBody {
   section: QBRSection;
+  qbrId?: string;          // Optional QBR run ID
+  createSnapshot?: boolean; // Create a snapshot of context at time of QBR
 }
 
 export async function POST(
@@ -27,7 +31,7 @@ export async function POST(
 
   try {
     const body: GenerateBody = await request.json();
-    const { section } = body;
+    const { section, qbrId, createSnapshot } = body;
 
     // Load context graph
     const graph = await loadContextGraph(companyId);
@@ -36,6 +40,19 @@ export async function POST(
         { error: 'Context graph not found' },
         { status: 404 }
       );
+    }
+
+    // Create snapshot if requested (typically on first section generation)
+    let snapshotId: string | undefined;
+    if (createSnapshot && section === 'executive-summary') {
+      try {
+        const snapshot = await createQbrSnapshot(companyId, qbrId || `qbr-${Date.now()}`);
+        snapshotId = snapshot.snapshotId;
+        console.log(`[QBR] Created snapshot ${snapshotId} for ${companyId}`);
+      } catch (snapErr) {
+        console.warn('[QBR] Failed to create snapshot:', snapErr);
+        // Continue without snapshot - not critical
+      }
     }
 
     // Build context for the AI
@@ -60,6 +77,7 @@ export async function POST(
       success: true,
       section,
       content,
+      snapshotId, // Include if created
     });
   } catch (error) {
     console.error('[QBR] Error generating section:', error);

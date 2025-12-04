@@ -117,8 +117,14 @@ export async function saveContextGraphVersion(
 
     return version;
   } catch (error: any) {
-    if (error?.statusCode === 404 || error?.error === 'NOT_FOUND') {
-      console.warn(`[ContextGraph History] Table "${VERSIONS_TABLE}" not found in Airtable.`);
+    // Silently handle table not found or permission errors
+    if (
+      error?.statusCode === 404 ||
+      error?.statusCode === 403 ||
+      error?.error === 'NOT_FOUND' ||
+      error?.error === 'NOT_AUTHORIZED' ||
+      error?.message?.includes('not authorized')
+    ) {
       return null;
     }
     console.error(`[ContextGraph History] Failed to save version:`, error?.message || error);
@@ -149,7 +155,14 @@ export async function listContextGraphVersions(
 
     return records.map(mapAirtableRecordToVersion).filter((v): v is ContextGraphVersion => v !== null);
   } catch (error: any) {
-    if (error?.statusCode === 404 || error?.error === 'NOT_FOUND') {
+    // Silently handle common errors: table doesn't exist, no permission, or not found
+    if (
+      error?.statusCode === 404 ||
+      error?.statusCode === 403 ||
+      error?.error === 'NOT_FOUND' ||
+      error?.error === 'NOT_AUTHORIZED' ||
+      error?.message?.includes('not authorized')
+    ) {
       return [];
     }
     console.error(`[ContextGraph History] Failed to list versions for ${companyId}:`, error?.message || error);
@@ -199,7 +212,14 @@ export async function listVersionSummaries(
       triggerRunId: (record.fields['Trigger Run ID'] as string) || undefined,
     }));
   } catch (error: any) {
-    if (error?.statusCode === 404 || error?.error === 'NOT_FOUND') {
+    // Silently handle table not found or permission errors
+    if (
+      error?.statusCode === 404 ||
+      error?.statusCode === 403 ||
+      error?.error === 'NOT_FOUND' ||
+      error?.error === 'NOT_AUTHORIZED' ||
+      error?.message?.includes('not authorized')
+    ) {
       return [];
     }
     console.error(`[ContextGraph History] Failed to list summaries for ${companyId}:`, error?.message || error);
@@ -232,7 +252,14 @@ export async function getVersionById(
 
     return mapAirtableRecordToVersion(records[0]);
   } catch (error: any) {
-    if (error?.statusCode === 404 || error?.error === 'NOT_FOUND') {
+    // Silently handle table not found or permission errors
+    if (
+      error?.statusCode === 404 ||
+      error?.statusCode === 403 ||
+      error?.error === 'NOT_FOUND' ||
+      error?.error === 'NOT_AUTHORIZED' ||
+      error?.message?.includes('not authorized')
+    ) {
       return null;
     }
     console.error(`[ContextGraph History] Failed to get version ${versionId}:`, error?.message || error);
@@ -277,7 +304,14 @@ export async function getVersionsByReason(
 
     return records.map(mapAirtableRecordToVersion).filter((v): v is ContextGraphVersion => v !== null);
   } catch (error: any) {
-    if (error?.statusCode === 404 || error?.error === 'NOT_FOUND') {
+    // Silently handle table not found or permission errors
+    if (
+      error?.statusCode === 404 ||
+      error?.statusCode === 403 ||
+      error?.error === 'NOT_FOUND' ||
+      error?.error === 'NOT_AUTHORIZED' ||
+      error?.message?.includes('not authorized')
+    ) {
       return [];
     }
     console.error(`[ContextGraph History] Failed to get versions by reason:`, error?.message || error);
@@ -321,7 +355,14 @@ export async function pruneOldVersions(
     console.log(`[ContextGraph History] Pruned ${deleteIds.length} old versions for ${companyId}`);
     return deleteIds.length;
   } catch (error: any) {
-    if (error?.statusCode === 404 || error?.error === 'NOT_FOUND') {
+    // Silently handle table not found or permission errors
+    if (
+      error?.statusCode === 404 ||
+      error?.statusCode === 403 ||
+      error?.error === 'NOT_FOUND' ||
+      error?.error === 'NOT_AUTHORIZED' ||
+      error?.message?.includes('not authorized')
+    ) {
       return 0;
     }
     console.error(`[ContextGraph History] Failed to prune versions:`, error?.message || error);

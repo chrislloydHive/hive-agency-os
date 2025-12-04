@@ -2,16 +2,17 @@
 
 // app/c/[companyId]/setup/SetupClient.tsx
 // Main client component for Strategic Setup Mode
+//
+// This component now reads from and writes to the Context Graph,
+// making it a view/editor on Brain data rather than a separate store.
 
-import { useState, useCallback, useEffect } from 'react';
-import { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
+import { useState, useCallback, useEffect, useTransition } from 'react';
 import {
   SetupStepId,
   SETUP_STEPS,
   SETUP_STEP_CONFIG,
   SetupFormData,
   SetupProgress,
-  createEmptyFormData,
   getNextStep,
   getPreviousStep,
   getStepIndex,
@@ -19,6 +20,9 @@ import {
 import { NavSidebar } from './components/NavSidebar';
 import { ActionFooter } from './components/ActionFooter';
 import { StepContainer } from './components/StepContainer';
+import { AIAssistPanel } from './components/AIAssistPanel';
+import { saveSetupStep, saveSetupFormData } from './actions';
+import type { ContextNodeInfo } from '@/lib/contextGraph/setupSchema';
 
 // Step components
 import { StepBusinessIdentity } from './StepBusinessIdentity';
@@ -32,21 +36,40 @@ import { StepCreativeStrategy } from './StepCreativeStrategy';
 import { StepMeasurement } from './StepMeasurement';
 import { StepSummary } from './StepSummary';
 
+// ============================================================================
+// Types
+// ============================================================================
+
 interface SetupClientProps {
   companyId: string;
   companyName: string;
-  initialGraph: CompanyContextGraph | null;
+  /** Initial form data populated from Context Graph */
+  initialFormData: Partial<SetupFormData>;
+  /** Provenance info for each field (contextPath → info) */
+  initialProvenanceMap: Map<string, ContextNodeInfo>;
+  /** Fields that are missing in Context Graph */
+  missingFields: string[];
+  /** Whether the Context Graph exists */
+  hasGraph: boolean;
 }
+
+// ============================================================================
+// Component
+// ============================================================================
 
 export function SetupClient({
   companyId,
   companyName,
-  initialGraph,
+  initialFormData,
+  initialProvenanceMap,
+  missingFields,
+  hasGraph,
 }: SetupClientProps) {
-  // Initialize form data from graph or empty
-  const [formData, setFormData] = useState<Partial<SetupFormData>>(() =>
-    initializeFormDataFromGraph(initialGraph, companyName)
-  );
+  // Form data state - initialized from Context Graph
+  const [formData, setFormData] = useState<Partial<SetupFormData>>(initialFormData);
+
+  // Provenance tracking for display
+  const [provenanceMap] = useState<Map<string, ContextNodeInfo>>(initialProvenanceMap);
 
   const [progress, setProgress] = useState<SetupProgress>({
     currentStep: 'business-identity',
@@ -55,10 +78,11 @@ export function SetupClient({
     startedAt: new Date().toISOString(),
   });
 
-  const [isSaving, setIsSaving] = useState(false);
+  const [isPending, startTransition] = useTransition();
   const [isDirty, setIsDirty] = useState(false);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [isAIAssistOpen, setIsAIAssistOpen] = useState(false);
 
   // Update form data for a specific step
   const updateStepData = useCallback(
@@ -78,47 +102,84 @@ export function SetupClient({
     []
   );
 
-  // Save current step to Context Graph
+  // Map step form key to step ID
+  const stepKeyToId: Record<keyof SetupFormData, SetupStepId> = {
+    businessIdentity: 'business-identity',
+    objectives: 'objectives',
+    audience: 'audience',
+    personas: 'personas',
+    website: 'website',
+    mediaFoundations: 'media-foundations',
+    budgetScenarios: 'budget-scenarios',
+    creativeStrategy: 'creative-strategy',
+    measurement: 'measurement',
+    summary: 'summary',
+  };
+
+  const stepIdToKey: Record<SetupStepId, keyof SetupFormData> = {
+    'business-identity': 'businessIdentity',
+    'objectives': 'objectives',
+    'audience': 'audience',
+    'personas': 'personas',
+    'website': 'website',
+    'media-foundations': 'mediaFoundations',
+    'budget-scenarios': 'budgetScenarios',
+    'creative-strategy': 'creativeStrategy',
+    'measurement': 'measurement',
+    'summary': 'summary',
+  };
+
+  // Save current step to Context Graph via server action
   const saveStep = useCallback(
     async (stepId: SetupStepId) => {
-      setIsSaving(true);
       setSaveMessage(null);
 
-      try {
-        const response = await fetch(`/api/setup/${companyId}/saveStep`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            stepId,
-            data: formData,
-            companyName,
-          }),
-        });
+      const stepKey = stepIdToKey[stepId];
+      const stepData = formData[stepKey];
 
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.message || 'Failed to save');
-        }
-
-        setProgress((prev) => ({
-          ...prev,
-          lastSavedAt: new Date().toISOString(),
-          completedSteps: prev.completedSteps.includes(stepId)
-            ? prev.completedSteps
-            : [...prev.completedSteps, stepId],
-        }));
-
-        setIsDirty(false);
-        setSaveMessage('Saved successfully');
-        setTimeout(() => setSaveMessage(null), 3000);
-      } catch (error) {
-        console.error('Save error:', error);
-        setSaveMessage('Failed to save');
-      } finally {
-        setIsSaving(false);
+      if (!stepData) {
+        console.warn(`[Setup] No data for step ${stepId}`);
+        return;
       }
+
+      startTransition(async () => {
+        try {
+          const result = await saveSetupStep(
+            companyId,
+            stepId,
+            stepData as Record<string, unknown>
+          );
+
+          if (result.success) {
+            setProgress((prev) => ({
+              ...prev,
+              lastSavedAt: new Date().toISOString(),
+              completedSteps: prev.completedSteps.includes(stepId)
+                ? prev.completedSteps
+                : [...prev.completedSteps, stepId],
+            }));
+
+            setIsDirty(false);
+            setSaveMessage(`Saved to Brain (${result.fieldsWritten} fields)`);
+            setTimeout(() => setSaveMessage(null), 3000);
+
+            if (result.fieldsBlocked > 0) {
+              console.log(
+                `[Setup] ${result.fieldsBlocked} fields blocked by priority rules:`,
+                result.blockedPaths
+              );
+            }
+          } else {
+            setSaveMessage('Failed to save');
+            console.error('[Setup] Save failed:', result.errors);
+          }
+        } catch (error) {
+          console.error('[Setup] Save error:', error);
+          setSaveMessage('Failed to save');
+        }
+      });
     },
-    [companyId, companyName, formData]
+    [companyId, formData, stepIdToKey]
   );
 
   // Navigate to step
@@ -151,7 +212,7 @@ export function SetupClient({
     }
   }, [progress.currentStep, navigateToStep]);
 
-  // Auto-save on step change
+  // Auto-save on idle
   useEffect(() => {
     if (isDirty) {
       const timer = setTimeout(() => {
@@ -162,28 +223,51 @@ export function SetupClient({
     }
   }, [isDirty, progress.currentStep, saveStep]);
 
-  // Finalize setup
-  const finalize = useCallback(async () => {
-    setIsSaving(true);
-    try {
-      const response = await fetch(`/api/setup/${companyId}/finalize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ formData }),
-      });
+  // AI Assist handlers
+  const openAIAssist = useCallback(() => {
+    setIsAIAssistOpen(true);
+  }, []);
 
-      if (!response.ok) {
-        throw new Error('Failed to finalize');
-      }
+  const closeAIAssist = useCallback(() => {
+    setIsAIAssistOpen(false);
+  }, []);
 
-      // Redirect to company overview
-      window.location.href = `/c/${companyId}`;
-    } catch (error) {
-      console.error('Finalize error:', error);
-      setSaveMessage('Failed to finalize setup');
-    } finally {
-      setIsSaving(false);
+  const applyAISuggestion = useCallback((field: string, value: unknown) => {
+    const stepKey = stepIdToKey[progress.currentStep];
+    if (stepKey) {
+      updateStepData(stepKey, { [field]: value } as Partial<SetupFormData[typeof stepKey]>);
     }
+  }, [progress.currentStep, updateStepData, stepIdToKey]);
+
+  const applyAllAISuggestions = useCallback((suggestions: Array<{ field: string; value: unknown }>) => {
+    const stepKey = stepIdToKey[progress.currentStep];
+    if (stepKey) {
+      const updates: Record<string, unknown> = {};
+      for (const suggestion of suggestions) {
+        updates[suggestion.field] = suggestion.value;
+      }
+      updateStepData(stepKey, updates as Partial<SetupFormData[typeof stepKey]>);
+    }
+  }, [progress.currentStep, updateStepData, stepIdToKey]);
+
+  // Finalize setup - save all and redirect
+  const finalize = useCallback(async () => {
+    startTransition(async () => {
+      try {
+        const result = await saveSetupFormData(companyId, formData);
+
+        if (result.success) {
+          // Redirect to company overview
+          window.location.href = `/c/${companyId}`;
+        } else {
+          console.error('[Setup] Finalize failed:', result.errors);
+          setSaveMessage('Failed to finalize setup');
+        }
+      } catch (error) {
+        console.error('[Setup] Finalize error:', error);
+        setSaveMessage('Failed to finalize setup');
+      }
+    });
   }, [companyId, formData]);
 
   // Render current step
@@ -193,6 +277,8 @@ export function SetupClient({
       formData,
       updateStepData,
       errors,
+      provenanceMap,
+      missingFields,
     };
 
     switch (progress.currentStep) {
@@ -232,10 +318,20 @@ export function SetupClient({
         currentStep={progress.currentStep}
         completedSteps={progress.completedSteps}
         onNavigate={navigateToStep}
+        onOpenAIAssist={openAIAssist}
       />
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Context Graph status banner */}
+        {!hasGraph && (
+          <div className="px-6 py-2 bg-amber-500/10 border-b border-amber-500/20">
+            <p className="text-xs text-amber-400">
+              No existing Brain data found. Fields you fill here will be added to the Brain.
+            </p>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto">
           <StepContainer
             title={currentStepConfig.label}
@@ -252,111 +348,23 @@ export function SetupClient({
           onPrevious={isFirstStep ? undefined : goPrevious}
           onNext={isLastStep ? undefined : goNext}
           onSave={() => saveStep(progress.currentStep)}
-          isSaving={isSaving}
+          isSaving={isPending}
           isDirty={isDirty}
           saveMessage={saveMessage}
           isLastStep={isLastStep}
         />
       </div>
+
+      {/* AI Assist Panel */}
+      <AIAssistPanel
+        companyId={companyId}
+        currentStep={progress.currentStep}
+        formData={formData}
+        isOpen={isAIAssistOpen}
+        onClose={closeAIAssist}
+        onApplySuggestion={applyAISuggestion}
+        onApplyAll={applyAllAISuggestions}
+      />
     </div>
   );
-}
-
-// Helper: Initialize form data from existing context graph
-function initializeFormDataFromGraph(
-  graph: CompanyContextGraph | null,
-  companyName: string
-): Partial<SetupFormData> {
-  const empty = createEmptyFormData();
-
-  if (!graph) {
-    // Pre-fill company name
-    if (empty.businessIdentity) {
-      empty.businessIdentity.businessName = companyName;
-    }
-    return empty;
-  }
-
-  // Map graph data to form data
-  return {
-    businessIdentity: {
-      businessName: graph.identity.businessName.value || companyName,
-      industry: graph.identity.industry.value || '',
-      businessModel: graph.identity.businessModel.value || '',
-      revenueModel: graph.identity.revenueModel.value || '',
-      geographicFootprint: graph.identity.geographicFootprint.value || '',
-      serviceArea: graph.identity.serviceArea.value || '',
-      seasonalityNotes: graph.identity.seasonalityNotes.value || '',
-      peakSeasons: graph.identity.peakSeasons.value || [],
-      revenueStreams: graph.identity.revenueStreams.value || [],
-      primaryCompetitors: graph.identity.primaryCompetitors.value || [],
-    },
-    objectives: {
-      primaryObjective: graph.objectives.primaryObjective.value || '',
-      secondaryObjectives: graph.objectives.secondaryObjectives.value || [],
-      primaryBusinessGoal: graph.objectives.primaryBusinessGoal.value || '',
-      timeHorizon: graph.objectives.timeHorizon.value || '',
-      targetCpa: graph.objectives.targetCpa.value,
-      targetRoas: graph.objectives.targetRoas.value,
-      revenueGoal: graph.objectives.revenueGoal.value,
-      leadGoal: graph.objectives.leadGoal.value,
-      kpiLabels: graph.objectives.kpiLabels.value || [],
-    },
-    audience: {
-      coreSegments: graph.audience.coreSegments.value || [],
-      demographics: graph.audience.demographics.value || '',
-      geos: graph.audience.geos.value || '',
-      primaryMarkets: graph.audience.primaryMarkets.value || [],
-      behavioralDrivers: graph.audience.behavioralDrivers.value || [],
-      demandStates: graph.audience.demandStates.value || [],
-      painPoints: graph.audience.painPoints.value || [],
-      motivations: graph.audience.motivations.value || [],
-    },
-    personas: {
-      personaSetId: null,
-      personaCount: graph.audience.personaNames.value?.length || 0,
-    },
-    website: {
-      websiteSummary: graph.website.websiteSummary.value || '',
-      conversionBlocks: graph.website.conversionBlocks.value || [],
-      conversionOpportunities: graph.website.conversionOpportunities.value || [],
-      criticalIssues: graph.website.criticalIssues.value || [],
-      quickWins: graph.website.quickWins.value || [],
-    },
-    mediaFoundations: {
-      mediaSummary: graph.performanceMedia.mediaSummary.value || '',
-      activeChannels: (graph.performanceMedia.activeChannels.value || []) as string[],
-      attributionModel: graph.performanceMedia.attributionModel.value || '',
-      mediaIssues: graph.performanceMedia.mediaIssues.value || [],
-      mediaOpportunities: graph.performanceMedia.mediaOpportunities.value || [],
-    },
-    budgetScenarios: {
-      totalMarketingBudget: graph.budgetOps.totalMarketingBudget.value,
-      mediaSpendBudget: graph.budgetOps.mediaSpendBudget.value,
-      budgetPeriod: graph.budgetOps.budgetPeriod.value || '',
-      avgCustomerValue: graph.budgetOps.avgCustomerValue.value,
-      customerLTV: graph.budgetOps.customerLTV.value,
-      selectedScenarioId: null,
-    },
-    creativeStrategy: {
-      coreMessages: graph.creative.coreMessages.value || [],
-      proofPoints: graph.creative.proofPoints.value || [],
-      callToActions: graph.creative.callToActions.value || [],
-      availableFormats: (graph.creative.availableFormats.value || []) as string[],
-      brandGuidelines: graph.creative.brandGuidelines.value || '',
-    },
-    measurement: {
-      ga4PropertyId: graph.digitalInfra.ga4PropertyId.value || '',
-      ga4ConversionEvents: graph.digitalInfra.ga4ConversionEvents.value || [],
-      callTracking: graph.digitalInfra.callTracking.value || '',
-      trackingTools: graph.digitalInfra.trackingTools.value || [],
-      attributionModel: graph.digitalInfra.attributionModel.value || '',
-      attributionWindow: graph.digitalInfra.attributionWindow.value || '',
-    },
-    summary: {
-      strategySummary: '',
-      keyRecommendations: [],
-      nextSteps: [],
-    },
-  };
 }

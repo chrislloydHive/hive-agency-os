@@ -1,11 +1,13 @@
 // lib/contextGraph/contextHealth.ts
 // Context Health Score Computation
 //
-// Computes a numeric health score based on needs-refresh flags.
-// Missing fields hurt more than stale fields.
+// Context Health is based on COMPLETENESS (fields populated / total fields).
+// This gives users an intuitive understanding of how "filled in" their context is.
+//
+// We also track freshness issues separately for detailed diagnostics.
 
 /**
- * Needs refresh flag structure
+ * Needs refresh flag structure (for freshness tracking)
  */
 export interface NeedsRefreshFlag {
   domain: string;
@@ -27,7 +29,23 @@ export interface ContextHealthResult {
 }
 
 /**
- * Compute context health score from needs-refresh flags
+ * Compute context health score from completeness data
+ *
+ * This is the PRIMARY health score - based on how complete the context graph is.
+ * The score equals the completeness percentage (0-100).
+ *
+ * @param completenessScore Completeness percentage from calculateCompleteness()
+ * @returns Health score (0-100)
+ */
+export function computeContextHealthScoreFromCompleteness(
+  completenessScore: number | null
+): number {
+  if (completenessScore === null || completenessScore === undefined) return 0;
+  return Math.round(Math.max(0, Math.min(100, completenessScore)));
+}
+
+/**
+ * Compute context health score from needs-refresh flags (LEGACY - for freshness tracking)
  *
  * Scoring logic:
  * - Start at 95 (baseline for healthy graph)
@@ -37,9 +55,9 @@ export interface ContextHealthResult {
  * - Expired: -10 points each
  *
  * @param needsRefresh Array of fields that need refresh
- * @returns Health score (5-95)
+ * @returns Freshness score (5-95)
  */
-export function computeContextHealthScore(
+export function computeFreshnessScore(
   needsRefresh: NeedsRefreshFlag[]
 ): number {
   if (!needsRefresh || needsRefresh.length === 0) return 95;
@@ -80,6 +98,16 @@ export function computeContextHealthScore(
   score -= missingPenalty + stalePenalty + otherPenalty;
 
   return Math.max(5, score);
+}
+
+/**
+ * Legacy alias - now returns freshness score, not completeness
+ * @deprecated Use computeContextHealthScoreFromCompleteness for health scores
+ */
+export function computeContextHealthScore(
+  needsRefresh: NeedsRefreshFlag[]
+): number {
+  return computeFreshnessScore(needsRefresh);
 }
 
 /**

@@ -9,12 +9,16 @@ interface NavSidebarProps {
   currentStep: SetupStepId;
   completedSteps: SetupStepId[];
   onNavigate: (step: SetupStepId) => void;
+  onOpenAIAssist?: () => void;
+  onExportDraft?: () => void;
 }
 
 export function NavSidebar({
   currentStep,
   completedSteps,
   onNavigate,
+  onOpenAIAssist,
+  onExportDraft,
 }: NavSidebarProps) {
   return (
     <nav className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col">
@@ -96,38 +100,39 @@ export function NavSidebar({
 
       {/* Quick links */}
       <div className="p-4 border-t border-slate-800 space-y-2">
-        <QuickLink
-          href="#"
+        <QuickButton
           icon="sparkles"
           label="AI Assist"
           description="Get AI suggestions"
+          onClick={onOpenAIAssist}
         />
-        <QuickLink
-          href="#"
+        <QuickButton
           icon="download"
           label="Export Draft"
           description="Save progress"
+          onClick={onExportDraft}
         />
       </div>
     </nav>
   );
 }
 
-function QuickLink({
-  href,
+function QuickButton({
   icon,
   label,
   description,
+  onClick,
 }: {
-  href: string;
   icon: 'sparkles' | 'download';
   label: string;
   description: string;
+  onClick?: () => void;
 }) {
   return (
-    <a
-      href={href}
-      className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800/50 hover:bg-slate-800 transition-colors group"
+    <button
+      onClick={onClick}
+      disabled={!onClick}
+      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800/50 hover:bg-slate-800 transition-colors group disabled:opacity-50 disabled:cursor-not-allowed"
     >
       {icon === 'sparkles' ? (
         <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -138,10 +143,10 @@ function QuickLink({
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
         </svg>
       )}
-      <div className="min-w-0">
+      <div className="min-w-0 text-left">
         <div className="text-xs font-medium text-slate-300 group-hover:text-slate-100">{label}</div>
         <div className="text-xs text-slate-500">{description}</div>
       </div>
-    </a>
+    </button>
   );
 }
