@@ -46,10 +46,16 @@ export * from './storage';
 // ============================================================================
 export {
   type ProvenanceSource,
+  type SetFieldOptions,
+  type SetFieldResult,
+  type SetDomainFieldsResult,
   createProvenance,
   setField,
+  setFieldUntyped,
+  setFieldUntypedWithResult,
   mergeField,
   setDomainFields,
+  setDomainFieldsWithResult,
   batchUpdate,
   getMostConfidentValue,
   hasValueFromSource,
@@ -58,6 +64,28 @@ export {
   markFusionComplete,
   updateFieldAndSave,
 } from './mutate';
+
+// ============================================================================
+// Source Priority Configuration
+// ============================================================================
+export {
+  type SourceId,
+  type DomainPriorityConfig,
+  type PriorityCheckResult,
+  type FieldSourceSummary,
+  HUMAN_SOURCES,
+  DOMAIN_PRIORITY_CONFIG,
+  SOURCE_DISPLAY_NAMES,
+  isHumanSource,
+  hasHumanOverride,
+  getHumanOverride,
+  getSourcePriorityForDomain,
+  isSourceBlockedForDomain,
+  canSourceOverwrite,
+  getSourceDisplayName,
+  getAuthoritativeSourcesForDomain,
+  getFieldSourceSummary,
+} from './sourcePriority';
 
 // ============================================================================
 // Section Summary & Service
@@ -102,7 +130,7 @@ export {
   saveContextGraphSnapshot,
   listContextGraphSnapshots,
   listSnapshotSummaries,
-  getSnapshotById,
+  getSnapshotById as getVersionSnapshotById, // Renamed to avoid conflict with snapshots.ts
   getLatestSnapshot,
   getSnapshotsByReason,
   pruneOldSnapshots,
@@ -212,3 +240,79 @@ export {
   buildStrategyContext,
   buildContextSummary,
 } from './forAi';
+
+// ============================================================================
+// Domain Writers
+// ============================================================================
+export {
+  WEBSITE_LAB_MAPPINGS,
+  writeWebsiteLabToGraph,
+  writeWebsiteLabAndSave,
+  previewWebsiteLabMappings,
+  type WebsiteLabWriterResult,
+} from './websiteLabWriter';
+
+export {
+  writeMediaLabToGraph,
+  writeMediaLabAndSave,
+  type MediaLabWriterResult,
+} from './mediaLabWriter';
+
+export {
+  writeAudienceLabToGraph,
+  writeAudienceLabAndSave,
+  type AudienceLabWriterResult,
+} from './audienceLabWriter';
+
+export {
+  writeBrandLabToGraph,
+  writeBrandLabAndSave,
+  type BrandLabWriterResult,
+} from './brandLabWriter';
+
+// ============================================================================
+// Context Gateway (Read API)
+// ============================================================================
+export {
+  type ContextScopeId,
+  SCOPE_LABELS,
+  type ContextGatewayOptions,
+  type ContextFieldStatus,
+  type ContextGatewayField,
+  type ContextGatewaySection,
+  type ContextGatewayResult,
+  type ContextUseCase,
+  type ContextForPromptOptions,
+  type ContextForPromptResult,
+  getContextForScopes,
+  getContextForPrompt,
+  getAllContext,
+  getMediaPlanningContext,
+  getCreativeContext,
+  getQbrContext,
+  getSsmContext,
+  hasContext,
+  getContextHealthSummary,
+} from './contextGateway';
+
+// ============================================================================
+// Named Snapshots
+// ============================================================================
+export {
+  type SnapshotType,
+  type SnapshotMeta,
+  type FullSnapshot,
+  type CreateSnapshotParams,
+  type CreateSnapshotResult,
+  createContextSnapshot,
+  getSnapshotMetaForCompany,
+  getSnapshotById,
+  getSnapshotContext,
+  createQbrSnapshot,
+  createSsmSnapshot,
+  createManualSnapshot,
+  createLabSnapshot,
+  getSnapshotsByType,
+  getLatestSnapshotByType,
+  snapshotExists,
+} from './snapshots';

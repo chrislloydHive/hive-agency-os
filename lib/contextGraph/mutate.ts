@@ -4,11 +4,17 @@
 import { CompanyContextGraph, DomainName } from './companyContextGraph';
 import { ProvenanceTag, WithMetaType, WithMetaArrayType } from './types';
 import { saveContextGraph } from './storage';
+import {
+  canSourceOverwrite,
+  isHumanSource,
+  type PriorityCheckResult,
+} from './sourcePriority';
 
 /**
  * Source types for provenance tracking
  */
 export type ProvenanceSource =
+  | 'user'           // Direct user edit via UI - HIGHEST PRIORITY
   | 'brain'
   | 'gap_ia'
   | 'gap_full'
@@ -26,6 +32,7 @@ export type ProvenanceSource =
   | 'media_cockpit'
   | 'media_memory'
   | 'creative_lab'
+  | 'ux_lab'
   | 'manual'
   | 'inferred'
   | 'airtable'
@@ -36,7 +43,9 @@ export type ProvenanceSource =
   | 'analytics_gbp'
   | 'external_enrichment'
   | 'setup_wizard'
-  | 'qbr';
+  | 'qbr'
+  | 'strategy'
+  | 'import';
 
 /**
  * Create a provenance tag
@@ -63,15 +72,43 @@ export function createProvenance(
 }
 
 /**
+ * Options for field setting with priority checks
+ */
+export interface SetFieldOptions {
+  /** If true, bypass source priority checks (use with caution) */
+  force?: boolean;
+  /** If true, log priority decisions for debugging */
+  debug?: boolean;
+}
+
+/**
+ * Result of a field set operation
+ */
+export interface SetFieldResult {
+  /** Whether the field was updated */
+  updated: boolean;
+  /** Reason for the decision */
+  reason?: PriorityCheckResult['reason'];
+  /** The field path that was targeted */
+  path: string;
+}
+
+/**
  * Set a field value with less strict typing
  * Used by diagnostic mappers where field names come from external data
+ *
+ * IMPORTANT: Respects source priority rules:
+ * - Human overrides (user, manual, qbr, strategy) can NEVER be stomped by automation
+ * - Higher priority sources can overwrite lower priority
+ * - Use options.force to bypass priority checks (for migrations, etc.)
  */
 export function setFieldUntyped(
   graph: CompanyContextGraph,
   domain: string,
   field: string,
   value: unknown,
-  provenance: ProvenanceTag
+  provenance: ProvenanceTag,
+  options?: SetFieldOptions
 ): CompanyContextGraph {
   const domainObj = graph[domain as DomainName] as Record<string, WithMetaType<unknown>>;
   if (!domainObj || typeof domainObj !== 'object') {
@@ -85,6 +122,33 @@ export function setFieldUntyped(
     return graph;
   }
 
+  // Check source priority unless forced
+  if (!options?.force) {
+    const priorityCheck = canSourceOverwrite(
+      domain as DomainName,
+      fieldData.provenance || [],
+      provenance.source,
+      provenance.confidence
+    );
+
+    if (!priorityCheck.canOverwrite) {
+      if (options?.debug) {
+        console.log(
+          `[setFieldUntyped] Blocked: ${domain}.${field} - ${priorityCheck.reason}`,
+          `(existing: ${fieldData.provenance?.[0]?.source}, new: ${provenance.source})`
+        );
+      }
+      return graph;
+    }
+
+    if (options?.debug) {
+      console.log(
+        `[setFieldUntyped] Allowed: ${domain}.${field} - ${priorityCheck.reason}`,
+        `(new: ${provenance.source})`
+      );
+    }
+  }
+
   domainObj[field] = {
     value,
     provenance: [provenance, ...(fieldData.provenance || []).slice(0, 4)],
@@ -95,7 +159,71 @@ export function setFieldUntyped(
 }
 
 /**
+ * Set a field value with priority check result returned
+ * Use this when you need to know if the write was blocked
+ */
+export function setFieldUntypedWithResult(
+  graph: CompanyContextGraph,
+  domain: string,
+  field: string,
+  value: unknown,
+  provenance: ProvenanceTag,
+  options?: SetFieldOptions
+): { graph: CompanyContextGraph; result: SetFieldResult } {
+  const domainObj = graph[domain as DomainName] as Record<string, WithMetaType<unknown>>;
+  const path = `${domain}.${field}`;
+
+  if (!domainObj || typeof domainObj !== 'object') {
+    return {
+      graph,
+      result: { updated: false, path, reason: 'blocked_source' },
+    };
+  }
+
+  const fieldData = domainObj[field];
+  if (!fieldData || typeof fieldData !== 'object') {
+    return {
+      graph,
+      result: { updated: false, path, reason: 'blocked_source' },
+    };
+  }
+
+  // Check source priority unless forced
+  if (!options?.force) {
+    const priorityCheck = canSourceOverwrite(
+      domain as DomainName,
+      fieldData.provenance || [],
+      provenance.source,
+      provenance.confidence
+    );
+
+    if (!priorityCheck.canOverwrite) {
+      return {
+        graph,
+        result: { updated: false, path, reason: priorityCheck.reason },
+      };
+    }
+  }
+
+  domainObj[field] = {
+    value,
+    provenance: [provenance, ...(fieldData.provenance || []).slice(0, 4)],
+  };
+
+  graph.meta.updatedAt = new Date().toISOString();
+
+  return {
+    graph,
+    result: { updated: true, path },
+  };
+}
+
+/**
  * Set a single field value with provenance
+ *
+ * IMPORTANT: Respects source priority rules:
+ * - Human overrides can NEVER be stomped by automation
+ * - Use options.force to bypass priority checks
  *
  * Usage:
  * ```typescript
@@ -110,9 +238,29 @@ export function setField<
   domain: D,
   field: K,
   value: CompanyContextGraph[D][K] extends WithMetaType<infer T> ? T : never,
-  provenance: ProvenanceTag
+  provenance: ProvenanceTag,
+  options?: SetFieldOptions
 ): CompanyContextGraph {
   const fieldData = graph[domain][field] as WithMetaType<unknown>;
+
+  // Check source priority unless forced
+  if (!options?.force) {
+    const priorityCheck = canSourceOverwrite(
+      domain,
+      fieldData.provenance || [],
+      provenance.source,
+      provenance.confidence
+    );
+
+    if (!priorityCheck.canOverwrite) {
+      if (options?.debug) {
+        console.log(
+          `[setField] Blocked: ${domain}.${String(field)} - ${priorityCheck.reason}`
+        );
+      }
+      return graph;
+    }
+  }
 
   // Replace value and add provenance to front of array
   (graph[domain][field] as WithMetaType<unknown>) = {
@@ -184,7 +332,22 @@ export function mergeField<
 }
 
 /**
+ * Result of setDomainFields operation
+ */
+export interface SetDomainFieldsResult {
+  /** Number of fields that were updated */
+  updated: number;
+  /** Number of fields that were blocked by priority rules */
+  blocked: number;
+  /** Paths of fields that were blocked */
+  blockedPaths: string[];
+}
+
+/**
  * Set multiple fields at once from a partial domain update
+ *
+ * IMPORTANT: Respects source priority rules per field.
+ * Fields with human overrides will be skipped unless force=true.
  *
  * Usage:
  * ```typescript
@@ -204,7 +367,8 @@ export function setDomainFields<D extends DomainName>(
       ? T[]
       : never;
   }>,
-  provenance: ProvenanceTag
+  provenance: ProvenanceTag,
+  options?: SetFieldOptions
 ): CompanyContextGraph {
   for (const [key, value] of Object.entries(fields)) {
     if (value === undefined) continue;
@@ -216,6 +380,25 @@ export function setDomainFields<D extends DomainName>(
     if (!fieldData || typeof fieldData !== 'object' || !('provenance' in fieldData)) {
       console.warn(`[setDomainFields] Skipping unknown field ${domain}.${key}`);
       continue;
+    }
+
+    // Check source priority unless forced
+    if (!options?.force) {
+      const priorityCheck = canSourceOverwrite(
+        domain,
+        fieldData.provenance || [],
+        provenance.source,
+        provenance.confidence
+      );
+
+      if (!priorityCheck.canOverwrite) {
+        if (options?.debug) {
+          console.log(
+            `[setDomainFields] Blocked: ${domain}.${key} - ${priorityCheck.reason}`
+          );
+        }
+        continue;
+      }
     }
 
     // Check if this is an array field
@@ -237,6 +420,80 @@ export function setDomainFields<D extends DomainName>(
   graph.meta.updatedAt = new Date().toISOString();
 
   return graph;
+}
+
+/**
+ * Set multiple fields with result tracking
+ * Returns information about which fields were updated vs blocked
+ */
+export function setDomainFieldsWithResult<D extends DomainName>(
+  graph: CompanyContextGraph,
+  domain: D,
+  fields: Partial<{
+    [K in keyof CompanyContextGraph[D]]: CompanyContextGraph[D][K] extends WithMetaType<infer T>
+      ? T
+      : CompanyContextGraph[D][K] extends WithMetaArrayType<infer T>
+      ? T[]
+      : never;
+  }>,
+  provenance: ProvenanceTag,
+  options?: SetFieldOptions
+): { graph: CompanyContextGraph; result: SetDomainFieldsResult } {
+  let updated = 0;
+  let blocked = 0;
+  const blockedPaths: string[] = [];
+
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined) continue;
+
+    const fieldKey = key as keyof CompanyContextGraph[D];
+    const fieldData = graph[domain][fieldKey] as WithMetaType<unknown> | WithMetaArrayType<unknown> | undefined;
+
+    // Skip if field doesn't exist in the domain schema
+    if (!fieldData || typeof fieldData !== 'object' || !('provenance' in fieldData)) {
+      continue;
+    }
+
+    // Check source priority unless forced
+    if (!options?.force) {
+      const priorityCheck = canSourceOverwrite(
+        domain,
+        fieldData.provenance || [],
+        provenance.source,
+        provenance.confidence
+      );
+
+      if (!priorityCheck.canOverwrite) {
+        blocked++;
+        blockedPaths.push(`${domain}.${key}`);
+        continue;
+      }
+    }
+
+    // Check if this is an array field
+    const isArrayField = Array.isArray(fieldData.value) || (fieldData.value === null && Array.isArray(value));
+
+    if (isArrayField) {
+      (graph[domain][fieldKey] as WithMetaArrayType<unknown>) = {
+        value: value as unknown[],
+        provenance: [provenance, ...fieldData.provenance.slice(0, 4)],
+      };
+    } else {
+      (graph[domain][fieldKey] as WithMetaType<unknown>) = {
+        value,
+        provenance: [provenance, ...fieldData.provenance.slice(0, 4)],
+      };
+    }
+
+    updated++;
+  }
+
+  graph.meta.updatedAt = new Date().toISOString();
+
+  return {
+    graph,
+    result: { updated, blocked, blockedPaths },
+  };
 }
 
 /**
