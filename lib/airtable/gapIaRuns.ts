@@ -233,8 +233,11 @@ function airtableRecordToGapIaRun(record: any): any {
     domain: (fields['Domain'] as string) || '',
 
     source: (dataJson.source as GapIaSource) || 'internal',
-    // Status: Check Airtable Status field first, then Data JSON, then default to 'pending'
-    status: (fields['Status'] as GapIaStatus) || (dataJson.status as GapIaStatus) || 'pending',
+    // Status: Check Airtable Status field first, then Data JSON
+    // If neither exists but we have data (domain + Data JSON), assume completed
+    status: (fields['Status'] as GapIaStatus) ||
+            (dataJson.status as GapIaStatus) ||
+            (fields['Domain'] && fields['Data JSON'] ? 'completed' : 'pending'),
 
     createdAt: (fields['Created At'] as string) || new Date().toISOString(),
     updatedAt: dataJson.updatedAt || (fields['Created At'] as string) || new Date().toISOString(),
