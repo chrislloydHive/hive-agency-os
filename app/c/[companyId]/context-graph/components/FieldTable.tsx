@@ -7,13 +7,37 @@ import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph
 import type { NeedsRefreshReport } from '@/lib/contextGraph/needsRefresh';
 import type { ProvenanceTag } from '@/lib/contextGraph/types';
 import { getFieldEditability } from '@/lib/contextGraph/editability';
+import { IDENTITY_FIELDS } from '@/lib/contextGraph/schema/identity';
 
 interface FlattenedField {
   path: string;
   fieldName: string;
+  label: string;
+  description?: string;
   value: unknown;
   provenance: ProvenanceTag[];
   valueType: 'string' | 'number' | 'boolean' | 'array' | 'object' | 'null';
+}
+
+/**
+ * Get field metadata (label, description) from schema
+ */
+function getFieldMetadata(path: string): { label: string; description?: string } {
+  // Check Identity fields first
+  const identityField = IDENTITY_FIELDS.find(f => f.path === path);
+  if (identityField) {
+    return { label: identityField.label, description: identityField.description };
+  }
+
+  // Fallback: convert fieldName to title case
+  const parts = path.split('.');
+  const fieldName = parts[parts.length - 1] || '';
+  const label = fieldName
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, str => str.toUpperCase())
+    .trim();
+
+  return { label };
 }
 
 interface FieldTableProps {
@@ -42,6 +66,8 @@ function flattenDomain(domainId: string, domain: unknown): FlattenedField[] {
       if ('value' in record && 'provenance' in record) {
         const value = record.value;
         const provenance = (record.provenance as ProvenanceTag[]) || [];
+        const fullPath = path.join('.');
+        const { label, description } = getFieldMetadata(fullPath);
 
         let valueType: FlattenedField['valueType'] = 'null';
         if (value === null || value === undefined) {
@@ -59,8 +85,10 @@ function flattenDomain(domainId: string, domain: unknown): FlattenedField[] {
         }
 
         fields.push({
-          path: path.join('.'),
+          path: fullPath,
           fieldName: path[path.length - 1] || '',
+          label,
+          description,
           value,
           provenance,
           valueType,
@@ -223,8 +251,8 @@ export function FieldTable({
                 <td className="px-4 py-3">
                   <div className="flex flex-col">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-slate-200">
-                        {field.fieldName}
+                      <span className="text-sm font-medium text-slate-200" title={field.description}>
+                        {field.label}
                       </span>
                       {!fieldEditable && (
                         <span
@@ -235,6 +263,11 @@ export function FieldTable({
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                           </svg>
                           Auto
+                        </span>
+                      )}
+                      {latestProvenance?.source === 'manual' && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/20 text-emerald-400">
+                          Human
                         </span>
                       )}
                     </div>
