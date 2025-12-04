@@ -176,11 +176,12 @@ function gapIaRunToAirtableFields(
 function airtableRecordToGapIaRun(record: any): any {
   const fields = record.fields || {};
 
-  // Log record ID to debug UUID issue
+  // Log record ID and Status to debug
   console.log('[gapIaRuns] Converting Airtable record:', {
     recordId: record.id,
     hasIdField: !!fields['ID'],
     idFieldValue: fields['ID'],
+    statusField: fields['Status'],
   });
 
   // Helper to safely parse JSON with fallback
@@ -232,7 +233,8 @@ function airtableRecordToGapIaRun(record: any): any {
     domain: (fields['Domain'] as string) || '',
 
     source: (dataJson.source as GapIaSource) || 'internal',
-    status: (dataJson.status as GapIaStatus) || 'pending',
+    // Status: Check Airtable Status field first, then Data JSON, then default to 'pending'
+    status: (fields['Status'] as GapIaStatus) || (dataJson.status as GapIaStatus) || 'pending',
 
     createdAt: (fields['Created At'] as string) || new Date().toISOString(),
     updatedAt: dataJson.updatedAt || (fields['Created At'] as string) || new Date().toISOString(),
