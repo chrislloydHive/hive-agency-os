@@ -30,7 +30,8 @@ export type CompanyToolId =
   | 'seoLab'         // SEO Lab (deep SEO + GSC + analytics)
   | 'demandLab'      // Demand Generation Lab
   | 'opsLab'         // Marketing Operations Lab
-  | 'analyticsScan'; // Analytics Scan (GA4 + GSC)
+  | 'analyticsScan'  // Analytics Scan (GA4 + GSC)
+  | 'mediaLab';      // Media Lab (AI media planner)
 
 /**
  * Tool category for grouping in the UI
@@ -43,7 +44,15 @@ export type ToolCategory =
   | 'SEO & Search'
   | 'Demand Generation'
   | 'Marketing Ops'
-  | 'Analytics';
+  | 'Analytics'
+  | 'Media & Advertising';
+
+/**
+ * Tool section for high-level grouping in the Tools hub
+ * - diagnostic: Assessment and analysis tools (run on company data)
+ * - strategic: Planning and strategy tools (design forward-looking plans)
+ */
+export type ToolSection = 'diagnostic' | 'strategic';
 
 /**
  * Tool behavior type
@@ -70,7 +79,8 @@ export type ToolIcon =
   | 'search'     // SEO/search tools
   | 'trendingUp' // Growth/demand tools
   | 'settings'   // Operations tools
-  | 'barChart';  // Analytics tools
+  | 'barChart'   // Analytics tools
+  | 'tv';        // Media/advertising tools
 
 /**
  * Blueprint-specific metadata for tool recommendations
@@ -107,6 +117,9 @@ export interface CompanyToolDefinition {
 
   /** Category for grouping in the UI */
   category: ToolCategory;
+
+  /** Section for high-level grouping (diagnostic vs strategic) */
+  section: ToolSection;
 
   /** How the tool behaves when activated */
   behavior: ToolBehavior;
@@ -174,6 +187,7 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     shortLabel: 'IA',
     description: 'Quick AI-powered marketing assessment across brand, website, content, and SEO. Great for prospects and initial evaluations.',
     category: 'Strategic Assessment',
+    section: 'diagnostic',
     behavior: 'diagnosticRun',
     status: 'enabled',
     diagnosticToolId: 'gapSnapshot',
@@ -199,6 +213,7 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     shortLabel: 'Full',
     description: 'Comprehensive Growth Acceleration Plan with strategic initiatives, quick wins, and 90-day roadmap.',
     category: 'Strategic Assessment',
+    section: 'diagnostic',
     behavior: 'diagnosticRun',
     status: 'enabled',
     diagnosticToolId: 'gapPlan',
@@ -224,6 +239,7 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     shortLabel: 'Heavy',
     description: 'Deep multi-source marketing diagnostic. Analyzes competitors, sitemap, social presence, and analytics for comprehensive insights.',
     category: 'Strategic Assessment',
+    section: 'diagnostic',
     behavior: 'diagnosticRun',
     status: 'enabled',
     diagnosticToolId: 'gapHeavy',
@@ -253,6 +269,7 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     shortLabel: 'Website',
     description: 'Multi-page UX & conversion diagnostic. Evaluates page structure, CTAs, messaging clarity, and conversion optimization.',
     category: 'Website & UX',
+    section: 'diagnostic',
     behavior: 'diagnosticRun',
     status: 'enabled',
     diagnosticToolId: 'websiteLab',
@@ -282,6 +299,7 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     shortLabel: 'Brand',
     description: 'Brand health, clarity, differentiation, and positioning analysis. Evaluates brand coherence, differentiation, and market positioning.',
     category: 'Brand & Positioning',
+    section: 'diagnostic',
     behavior: 'diagnosticRun',
     status: 'enabled',
     diagnosticToolId: 'brandLab',
@@ -311,6 +329,7 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     shortLabel: 'Content',
     description: 'Content inventory, quality, depth, freshness, and SEO signals diagnostic. Analyzes blog, resources, case studies, and content strategy with 5 scored dimensions.',
     category: 'Content & Messaging',
+    section: 'diagnostic',
     behavior: 'diagnosticRun',
     status: 'enabled',
     diagnosticToolId: 'contentLab',
@@ -340,6 +359,7 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     shortLabel: 'SEO',
     description: 'Comprehensive SEO diagnostic combining website crawl, technical analysis, GSC data, and issue tracking with work item creation.',
     category: 'SEO & Search',
+    section: 'diagnostic',
     behavior: 'diagnosticRun',
     status: 'enabled',
     diagnosticToolId: 'seoLab',
@@ -369,6 +389,7 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     shortLabel: 'Demand',
     description: 'Company-type aware demand generation diagnostic across 5 dimensions: channel mix, targeting, creative, funnel, and measurement. Includes quick wins, projects, and maturity scoring.',
     category: 'Demand Generation',
+    section: 'diagnostic',
     behavior: 'diagnosticRun',
     status: 'enabled',
     diagnosticToolId: 'demandLab',
@@ -398,6 +419,7 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     shortLabel: 'Ops',
     description: 'Marketing operations & analytics readiness diagnostic across 5 dimensions: tracking, data governance, CRM, automation, and experimentation. Includes quick wins, projects, and maturity scoring.',
     category: 'Marketing Ops',
+    section: 'diagnostic',
     behavior: 'diagnosticRun',
     status: 'enabled',
     diagnosticToolId: 'opsLab',
@@ -427,6 +449,7 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     shortLabel: 'Analytics',
     description: 'Live GA4 + Search Console data with AI insights. View traffic, engagement, and search performance.',
     category: 'Analytics',
+    section: 'diagnostic',
     behavior: 'openRoute',
     status: 'enabled',
     openPath: (companyId) => `/c/${companyId}/analytics`,
@@ -439,6 +462,33 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
       influences: ['Strategy', 'Blueprint Focus', 'Analytics'],
       inputs: ['Analytics'],
       typicalUseWhen: 'Checking performance trends, before strategy sessions, or investigating anomalies.',
+    },
+  },
+
+  // ==========================================================================
+  // Strategic Tools - Media & Advertising
+  // ==========================================================================
+  {
+    id: 'mediaLab',
+    label: 'Media Lab',
+    shortLabel: 'Media',
+    description: 'AI-powered media strategy planner. Designs channel mix, budgets, and forecasted outcomes, compares scenarios, and promotes plans into active media programs.',
+    category: 'Media & Advertising',
+    section: 'strategic',
+    behavior: 'openRoute',
+    status: 'enabled',
+    openPath: (companyId) => `/c/${companyId}/diagnostics/media`,
+    urlSlug: 'media-lab',
+    requiresWebsite: false,
+    estimatedMinutes: 7,
+    icon: 'tv',
+    primaryActionLabel: 'Open Media Lab',
+    blueprintMeta: {
+      whyRun: 'Design an AI-powered media strategy with channel recommendations, budget allocation, and performance forecasts.',
+      answersQuestion: 'What is the optimal media mix and budget allocation to achieve our marketing objectives?',
+      influences: ['Strategy', 'Blueprint Focus', 'Work'],
+      inputs: ['Analytics', 'GAP IA'],
+      typicalUseWhen: 'Planning a media campaign, evaluating channel mix, or when building a new demand generation program.',
     },
   },
 ];
@@ -490,6 +540,27 @@ export function getToolsByCategory(category: ToolCategory): CompanyToolDefinitio
 }
 
 /**
+ * Get tools by section (diagnostic vs strategic)
+ */
+export function getToolsBySection(section: ToolSection): CompanyToolDefinition[] {
+  return COMPANY_TOOL_DEFS.filter((tool) => tool.section === section);
+}
+
+/**
+ * Get all diagnostic tools
+ */
+export function getDiagnosticTools(): CompanyToolDefinition[] {
+  return getToolsBySection('diagnostic');
+}
+
+/**
+ * Get all strategic tools
+ */
+export function getStrategicTools(): CompanyToolDefinition[] {
+  return getToolsBySection('strategic');
+}
+
+/**
  * Get all unique categories in display order
  */
 export function getAllCategories(): ToolCategory[] {
@@ -502,6 +573,7 @@ export function getAllCategories(): ToolCategory[] {
     'Demand Generation',
     'Marketing Ops',
     'Analytics',
+    'Media & Advertising',
   ];
 }
 
@@ -534,6 +606,7 @@ export function getCategoryColor(category: ToolCategory): string {
     'Demand Generation': 'text-pink-400 border-pink-400/30 bg-pink-400/10',
     'Marketing Ops': 'text-orange-400 border-orange-400/30 bg-orange-400/10',
     'Analytics': 'text-indigo-400 border-indigo-400/30 bg-indigo-400/10',
+    'Media & Advertising': 'text-rose-400 border-rose-400/30 bg-rose-400/10',
   };
   return colors[category] || 'text-slate-400 border-slate-400/30 bg-slate-400/10';
 }
