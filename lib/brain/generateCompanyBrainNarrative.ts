@@ -327,43 +327,53 @@ function parseNarrativeResponse(
   try {
     const parsed = JSON.parse(jsonStr);
 
-    // Validate required fields
-    if (!parsed.narrativeMarkdown || typeof parsed.narrativeMarkdown !== 'string') {
-      throw new Error('Missing or invalid narrativeMarkdown');
+    // Log what we got for debugging
+    console.log('[BrainNarrative] Parsed response keys:', Object.keys(parsed));
+
+    // Get narrative - required field
+    const narrativeMarkdown = parsed.narrativeMarkdown || parsed.narrative || '';
+    if (!narrativeMarkdown) {
+      console.warn('[BrainNarrative] Missing narrativeMarkdown, using empty string');
     }
-    if (!parsed.sections || typeof parsed.sections !== 'object') {
-      throw new Error('Missing or invalid sections');
+
+    // Get sections - use fallbacks if missing
+    const sections = parsed.sections || {};
+    if (!parsed.sections) {
+      console.warn('[BrainNarrative] Missing sections object, using empty defaults');
     }
-    if (!parsed.dataConfidence || typeof parsed.dataConfidence !== 'object') {
-      throw new Error('Missing or invalid dataConfidence');
+
+    // Get dataConfidence - use fallbacks if missing
+    const dataConfidence = parsed.dataConfidence || {};
+    if (!parsed.dataConfidence) {
+      console.warn('[BrainNarrative] Missing dataConfidence object, using defaults');
     }
 
     return {
-      narrativeMarkdown: parsed.narrativeMarkdown,
+      narrativeMarkdown,
       sections: {
-        companySnapshot: parsed.sections.companySnapshot || '',
-        brandSummary: parsed.sections.brandSummary || '',
-        messagingSummary: parsed.sections.messagingSummary || '',
-        productServiceSummary: parsed.sections.productServiceSummary || '',
-        websiteSummary: parsed.sections.websiteSummary || '',
-        seoSummary: parsed.sections.seoSummary || '',
-        contentSummary: parsed.sections.contentSummary || '',
-        opsSummary: parsed.sections.opsSummary || '',
-        demandSummary: parsed.sections.demandSummary || '',
-        mediaSummary: parsed.sections.mediaSummary || null,
-        risks: parsed.sections.risks || '',
-        opportunities: parsed.sections.opportunities || '',
-        missingInfo: parsed.sections.missingInfo || '',
+        companySnapshot: sections.companySnapshot || '',
+        brandSummary: sections.brandSummary || '',
+        messagingSummary: sections.messagingSummary || '',
+        productServiceSummary: sections.productServiceSummary || '',
+        websiteSummary: sections.websiteSummary || '',
+        seoSummary: sections.seoSummary || '',
+        contentSummary: sections.contentSummary || '',
+        opsSummary: sections.opsSummary || '',
+        demandSummary: sections.demandSummary || '',
+        mediaSummary: sections.mediaSummary || null,
+        risks: sections.risks || '',
+        opportunities: sections.opportunities || '',
+        missingInfo: sections.missingInfo || '',
       },
       dataConfidence: {
-        score: typeof parsed.dataConfidence.score === 'number'
-          ? parsed.dataConfidence.score
+        score: typeof dataConfidence.score === 'number'
+          ? dataConfidence.score
           : 0,
-        level: ['low', 'medium', 'high'].includes(parsed.dataConfidence.level)
-          ? parsed.dataConfidence.level
+        level: ['low', 'medium', 'high'].includes(dataConfidence.level)
+          ? dataConfidence.level
           : 'low',
-        reasons: Array.isArray(parsed.dataConfidence.reasons)
-          ? parsed.dataConfidence.reasons
+        reasons: Array.isArray(dataConfidence.reasons)
+          ? dataConfidence.reasons
           : [],
       },
     };
