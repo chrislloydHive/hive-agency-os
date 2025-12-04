@@ -234,6 +234,8 @@ export async function getCompanyBrainData(
     documentsCount: documents.length,
     gapPlanRunsCount: gapPlanRuns.length,
     gapIaRunsCount: gapIaRuns.length,
+    gapIaRunStatuses: gapIaRuns.map(r => ({ id: r.id, status: r.status })),
+    gapPlanRunStatuses: gapPlanRuns.map(r => ({ id: r.id, status: r.status })),
     hasLabs: {
       brand: !!brandLabRun,
       website: !!websiteLabRun,
