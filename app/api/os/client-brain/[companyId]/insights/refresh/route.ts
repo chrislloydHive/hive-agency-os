@@ -34,6 +34,19 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     console.log('[InsightsRefresh] Found', recentRuns.length, 'recent runs');
 
+    // Log details about each run for debugging
+    for (const run of recentRuns) {
+      console.log('[InsightsRefresh] Run:', {
+        id: run.id,
+        toolId: run.toolId,
+        status: run.status,
+        score: run.score,
+        hasRawJson: !!run.rawJson,
+        rawJsonSize: run.rawJson ? JSON.stringify(run.rawJson).length : 0,
+        summaryPreview: run.summary?.substring(0, 100),
+      });
+    }
+
     // Process each run to extract insights
     let totalCreated = 0;
     let totalSkipped = 0;

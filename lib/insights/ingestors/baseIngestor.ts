@@ -63,9 +63,22 @@ export async function runIngestor(
 
   try {
     // 1. Extract report data
+    console.log(`[Ingestor:${toolId}] Run data:`, {
+      hasRawJson: !!run.rawJson,
+      rawJsonType: typeof run.rawJson,
+      rawJsonKeys: run.rawJson && typeof run.rawJson === 'object' ? Object.keys(run.rawJson as object).slice(0, 10) : [],
+      summary: run.summary?.substring(0, 100),
+      score: run.score,
+    });
+
     const reportData = extractReportData(run);
+    console.log(`[Ingestor:${toolId}] Extracted report data length: ${reportData?.length || 0}`);
+    if (reportData) {
+      console.log(`[Ingestor:${toolId}] Report data preview:`, reportData.substring(0, 500));
+    }
+
     if (!reportData || reportData.trim().length < 50) {
-      console.log(`[Ingestor:${toolId}] Report data too short, skipping`);
+      console.log(`[Ingestor:${toolId}] Report data too short (${reportData?.trim().length || 0} chars), skipping`);
       return { success: true, insightsCreated: 0, insightsSkipped: 0 };
     }
 
