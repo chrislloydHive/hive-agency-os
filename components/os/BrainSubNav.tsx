@@ -50,6 +50,14 @@ export function BrainSubNav({ companyId }: BrainSubNavProps) {
       },
     },
     {
+      name: 'Setup',
+      href: `/c/${companyId}/brain/setup`,
+      tooltip: {
+        title: 'Strategic Setup Wizard',
+        description: 'Guided wizard to build out company context. Pre-fills from existing Brain data and writes back to the Context Graph.',
+      },
+    },
+    {
       name: 'History',
       href: `/c/${companyId}/brain/history`,
       tooltip: {

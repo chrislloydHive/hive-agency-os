@@ -125,7 +125,13 @@ export function AIAssistPanel({
   // Handle apply single suggestion
   const handleApply = (suggestion: FieldSuggestion) => {
     onApplySuggestion(suggestion.field, suggestion.value);
-    setAppliedFields(prev => new Set([...prev, suggestion.field]));
+    const newApplied = new Set([...appliedFields, suggestion.field]);
+    setAppliedFields(newApplied);
+
+    // Close panel if all suggestions are now applied
+    if (newApplied.size === suggestions.length) {
+      onClose();
+    }
   };
 
   // Handle apply all
@@ -134,6 +140,8 @@ export function AIAssistPanel({
     if (unapplied.length > 0) {
       onApplyAll(unapplied);
       setAppliedFields(new Set(suggestions.map(s => s.field)));
+      // Close panel after applying all
+      onClose();
     }
   };
 

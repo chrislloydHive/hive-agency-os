@@ -1,10 +1,11 @@
 'use client';
 
-// app/c/[companyId]/setup/SetupClient.tsx
-// Main client component for Strategic Setup Mode
+// app/c/[companyId]/brain/setup/SetupClient.tsx
+// Main client component for Strategic Setup Mode (within Brain workspace)
 //
 // This component now reads from and writes to the Context Graph,
 // making it a view/editor on Brain data rather than a separate store.
+// It renders within the Brain layout with the shared sub-navigation.
 
 import { useState, useCallback, useEffect, useTransition } from 'react';
 import {
@@ -312,27 +313,29 @@ export function SetupClient({
   const isLastStep = getStepIndex(progress.currentStep) === SETUP_STEPS.length - 1;
 
   return (
-    <div className="flex h-[calc(100vh-60px)]">
+    <div className="flex gap-6">
       {/* Left sidebar navigation */}
-      <NavSidebar
-        currentStep={progress.currentStep}
-        completedSteps={progress.completedSteps}
-        onNavigate={navigateToStep}
-        onOpenAIAssist={openAIAssist}
-      />
+      <div className="flex-shrink-0">
+        <NavSidebar
+          currentStep={progress.currentStep}
+          completedSteps={progress.completedSteps}
+          onNavigate={navigateToStep}
+          onOpenAIAssist={openAIAssist}
+        />
+      </div>
 
       {/* Main content area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 min-w-0">
         {/* Context Graph status banner */}
         {!hasGraph && (
-          <div className="px-6 py-2 bg-amber-500/10 border-b border-amber-500/20">
+          <div className="px-4 py-2 mb-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
             <p className="text-xs text-amber-400">
               No existing Brain data found. Fields you fill here will be added to the Brain.
             </p>
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
           <StepContainer
             title={currentStepConfig.label}
             description={currentStepConfig.description}
@@ -341,18 +344,18 @@ export function SetupClient({
           >
             {renderStep()}
           </StepContainer>
-        </div>
 
-        {/* Footer with navigation */}
-        <ActionFooter
-          onPrevious={isFirstStep ? undefined : goPrevious}
-          onNext={isLastStep ? undefined : goNext}
-          onSave={() => saveStep(progress.currentStep)}
-          isSaving={isPending}
-          isDirty={isDirty}
-          saveMessage={saveMessage}
-          isLastStep={isLastStep}
-        />
+          {/* Footer with navigation */}
+          <ActionFooter
+            onPrevious={isFirstStep ? undefined : goPrevious}
+            onNext={isLastStep ? undefined : goNext}
+            onSave={() => saveStep(progress.currentStep)}
+            isSaving={isPending}
+            isDirty={isDirty}
+            saveMessage={saveMessage}
+            isLastStep={isLastStep}
+          />
+        </div>
       </div>
 
       {/* AI Assist Panel */}

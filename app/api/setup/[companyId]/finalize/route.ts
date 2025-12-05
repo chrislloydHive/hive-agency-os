@@ -3,7 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getOrCreateContextGraph, saveContextGraph } from '@/lib/contextGraph/storage';
-import { SetupFormData } from '@/app/c/[companyId]/setup/types';
+import { SetupFormData } from '@/app/c/[companyId]/brain/setup/types';
 import { createWorkItem } from '@/lib/airtable/workItems';
 import type { WorkSourceSetupWizard } from '@/lib/types/work';
 

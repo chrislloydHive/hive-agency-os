@@ -6,7 +6,7 @@
 
 import { loadContextGraph } from './storage';
 import type { CompanyContextGraph, DomainName } from './companyContextGraph';
-import type { SetupFormData, SetupStepId } from '@/app/c/[companyId]/setup/types';
+import type { SetupFormData, SetupStepId } from '@/app/c/[companyId]/brain/setup/types';
 import {
   ALL_SETUP_BINDINGS,
   BINDINGS_BY_STEP,
@@ -60,9 +60,12 @@ export interface FieldWithProvenance {
 export async function loadSetupFromContextGraph(
   companyId: string
 ): Promise<SetupLoaderResult> {
+  console.log(`[SetupLoader] Loading setup data for company: ${companyId}`);
+
   const graph = await loadContextGraph(companyId);
 
   if (!graph) {
+    console.log(`[SetupLoader] No context graph found for ${companyId}`);
     return {
       formData: {},
       provenanceMap: new Map(),
@@ -72,7 +75,22 @@ export async function loadSetupFromContextGraph(
     };
   }
 
-  return extractSetupData(graph);
+  console.log(`[SetupLoader] Found context graph for ${graph.companyName}`);
+  console.log(`[SetupLoader] Graph completeness: ${graph.meta.completenessScore}%`);
+
+  const result = extractSetupData(graph);
+
+  // Log what was extracted
+  const filledFieldCount = ALL_SETUP_BINDINGS.length - result.missingFields.length;
+  console.log(`[SetupLoader] Extracted ${filledFieldCount}/${ALL_SETUP_BINDINGS.length} fields`);
+
+  // Log a few sample values for debugging
+  if (result.formData.businessIdentity) {
+    console.log(`[SetupLoader] Sample - businessName: "${result.formData.businessIdentity.businessName}"`);
+    console.log(`[SetupLoader] Sample - industry: "${result.formData.businessIdentity.industry}"`);
+  }
+
+  return result;
 }
 
 /**
@@ -174,8 +192,13 @@ export function extractSetupData(graph: CompanyContextGraph): SetupLoaderResult 
   };
 
   // Extract values for each binding
+  // Enable debug for first few bindings (identity fields)
+  let debugCount = 0;
   for (const binding of ALL_SETUP_BINDINGS) {
-    const { value, provenance } = getFieldValue(graph, binding);
+    const debug = debugCount < 5; // Debug first 5 fields (all identity)
+    debugCount++;
+
+    const { value, provenance } = getFieldValue(graph, binding, debug);
 
     // Track provenance
     if (provenance) {
@@ -215,21 +238,28 @@ export function extractSetupData(graph: CompanyContextGraph): SetupLoaderResult 
  */
 function getFieldValue(
   graph: CompanyContextGraph,
-  binding: SetupFieldBinding
+  binding: SetupFieldBinding,
+  debug = false
 ): { value: unknown; provenance: ContextNodeInfo | null } {
   const domainData = graph[binding.domain as DomainName];
   if (!domainData) {
+    if (debug) console.log(`[SetupLoader] Domain "${binding.domain}" not found`);
     return { value: null, provenance: null };
   }
 
   const fieldData = (domainData as Record<string, unknown>)[binding.field];
   if (!fieldData || typeof fieldData !== 'object') {
+    if (debug) console.log(`[SetupLoader] Field "${binding.domain}.${binding.field}" not found or not an object`);
     return { value: null, provenance: null };
   }
 
   const typed = fieldData as WithMetaType<unknown> | WithMetaArrayType<unknown>;
   const value = typed.value;
   const latestProvenance = typed.provenance?.[0] as ProvenanceTag | undefined;
+
+  if (debug && value !== null && value !== undefined) {
+    console.log(`[SetupLoader] Found value for ${binding.contextPath}:`, typeof value === 'string' ? value.substring(0, 50) : value);
+  }
 
   const provenance: ContextNodeInfo | null = latestProvenance
     ? {

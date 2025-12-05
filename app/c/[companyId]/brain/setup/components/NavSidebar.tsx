@@ -1,7 +1,7 @@
 'use client';
 
-// app/c/[companyId]/setup/components/NavSidebar.tsx
-// Left navigation sidebar for Strategic Setup Mode
+// app/c/[companyId]/brain/setup/components/NavSidebar.tsx
+// Left navigation sidebar for Strategic Setup Mode (within Brain workspace)
 
 import { SetupStepId, SETUP_STEPS, SETUP_STEP_CONFIG, getStepIndex } from '../types';
 
@@ -21,7 +21,7 @@ export function NavSidebar({
   onExportDraft,
 }: NavSidebarProps) {
   return (
-    <nav className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col">
+    <nav className="w-56 bg-slate-900 border border-slate-800 rounded-xl flex flex-col overflow-hidden">
       <div className="p-4 border-b border-slate-800">
         <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider">
           Setup Progress

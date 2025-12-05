@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
 import { getCompanyById } from '@/lib/airtable/companies';
-import type { SetupStepId, SetupFormData } from '@/app/c/[companyId]/setup/types';
+import type { SetupStepId, SetupFormData } from '@/app/c/[companyId]/brain/setup/types';
 
 export const maxDuration = 60;
 

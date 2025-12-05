@@ -19,6 +19,9 @@ import { getCompanyById } from '@/lib/airtable/companies';
 import { gapImporter } from './gapImporter';
 import { websiteLabImporter } from './websiteLabImporter';
 import { brandLabImporter } from './brandLabImporter';
+import { mediaLabImporter } from './mediaLabImporter';
+import { audienceLabImporter } from './audienceLabImporter';
+import { diagnosticModulesImporter } from './diagnosticModulesImporter';
 
 // ============================================================================
 // Importer Registry
@@ -44,9 +47,24 @@ const IMPORTER_REGISTRY: ImporterRegistryEntry[] = [
     priority: 30, // Brand Lab runs third (brand & competitive data)
     enabled: true,
   },
+  {
+    importer: mediaLabImporter,
+    priority: 40, // Media Lab runs fourth (media plans & budget data)
+    enabled: true,
+  },
+  {
+    importer: audienceLabImporter,
+    priority: 50, // Audience Lab runs fifth (segments, personas, demand states)
+    enabled: true,
+  },
+  {
+    importer: diagnosticModulesImporter,
+    priority: 15, // Diagnostic Modules runs early (foundational SEO/Content/Website/Brand data from GAP Heavy)
+    enabled: true,
+  },
   // Add more importers here as they are implemented:
-  // { importer: contentLabImporter, priority: 40, enabled: true },
-  // { importer: seoLabImporter, priority: 50, enabled: true },
+  // { importer: contentLabImporter, priority: 60, enabled: true },
+  // { importer: seoLabImporter, priority: 70, enabled: true },
 ];
 
 /**

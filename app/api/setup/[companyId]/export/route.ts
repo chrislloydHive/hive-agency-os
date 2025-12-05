@@ -2,7 +2,7 @@
 // Export strategic setup data as PDF or JSON
 
 import { NextRequest, NextResponse } from 'next/server';
-import { SetupFormData, SETUP_STEP_CONFIG } from '@/app/c/[companyId]/setup/types';
+import { SetupFormData, SETUP_STEP_CONFIG } from '@/app/c/[companyId]/brain/setup/types';
 
 export async function POST(
   request: NextRequest,

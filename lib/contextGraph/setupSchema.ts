@@ -5,7 +5,7 @@
 // and Context Graph paths. Both Setup and Strategic Plan should use
 // this mapping to ensure consistency.
 
-import type { SetupStepId } from '@/app/c/[companyId]/setup/types';
+import type { SetupStepId } from '@/app/c/[companyId]/brain/setup/types';
 import type { DomainName } from './companyContextGraph';
 
 // ============================================================================

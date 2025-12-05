@@ -9,17 +9,16 @@ export default function CompanyTabs({ companyId }: { companyId: string }) {
   // Company navigation tabs (new IA):
   // - Overview: Lightweight pulse-check with health summary
   // - Blueprint: Strategic hub (GAP, plan tools, analytics)
-  // - Brain: Company memory & intelligence hub (Context, Insights, History)
+  // - Brain: Company memory & intelligence hub (Context, Setup, Insights, Library, History)
   // - Work: Active tasks, experiments, backlog (includes Media access)
   // - QBR: Quarterly Business Review mode
-  // - Setup: De-emphasized connections/integrations flow
+  // Note: Setup is now a sub-tab under Brain (see BrainSubNav)
   const tabs = [
     { name: 'Overview', href: `/c/${companyId}` },
     { name: 'Blueprint', href: `/c/${companyId}/blueprint` },
     { name: 'Brain', href: `/c/${companyId}/brain` },
     { name: 'Work', href: `/c/${companyId}/work` },
     { name: 'QBR', href: `/c/${companyId}/qbr` },
-    { name: 'Setup', href: `/c/${companyId}/setup`, deemphasized: true },
   ];
 
   // Check if current path matches a tab or is a child route of that tab
