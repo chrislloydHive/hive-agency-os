@@ -89,7 +89,7 @@ export function StepBusinessIdentity({
       {/* Basic Info */}
       <FormSection
         title="Business Overview"
-        description="Core information about your business"
+        description="Core information about the business"
       >
         <div className="grid grid-cols-2 gap-4">
           <FormField label="Business Name" required>
@@ -119,7 +119,7 @@ export function StepBusinessIdentity({
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <FormField label="Business Model" required hint="How do you acquire and serve customers?">
+          <FormField label="Business Model" required hint="How does the business acquire and serve customers?">
             <select
               value={data.businessModel}
               onChange={(e) => update({ businessModel: e.target.value })}
@@ -134,7 +134,7 @@ export function StepBusinessIdentity({
             </select>
           </FormField>
 
-          <FormField label="Revenue Model" hint="How do you make money?">
+          <FormField label="Revenue Model" hint="How does the business make money?">
             <select
               value={data.revenueModel}
               onChange={(e) => update({ revenueModel: e.target.value })}
@@ -150,7 +150,7 @@ export function StepBusinessIdentity({
           </FormField>
         </div>
 
-        <FormField label="Revenue Streams" hint="Your main sources of revenue">
+        <FormField label="Revenue Streams" hint="Main sources of revenue">
           <TagInput
             value={data.revenueStreams}
             onChange={(tags) => update({ revenueStreams: tags })}
@@ -163,7 +163,7 @@ export function StepBusinessIdentity({
       {/* Geographic */}
       <FormSection
         title="Geographic Footprint"
-        description="Where your business operates"
+        description="Where the business operates"
       >
         <div className="grid grid-cols-2 gap-4">
           <FormField
@@ -186,7 +186,7 @@ export function StepBusinessIdentity({
 
           <FormField
             label="Primary Service Area"
-            hint="Main markets or regions you serve"
+            hint="Main markets or regions the business serves"
           >
             <input
               type="text"
@@ -204,7 +204,7 @@ export function StepBusinessIdentity({
         title="Seasonality"
         description="When is demand highest and lowest?"
       >
-        <FormField label="Peak Seasons" hint="When do you see highest demand?">
+        <FormField label="Peak Seasons" hint="When does the business see highest demand?">
           <TagInput
             value={data.peakSeasons}
             onChange={(tags) => update({ peakSeasons: tags })}
@@ -230,11 +230,11 @@ export function StepBusinessIdentity({
       {/* Competitors */}
       <FormSection
         title="Competitive Landscape"
-        description="Who are your main competitors?"
+        description="Who are the main competitors?"
       >
         <FormField
           label="Primary Competitors"
-          hint="List your top 3-5 competitors"
+          hint="List the top 3-5 competitors"
         >
           <TagInput
             value={data.primaryCompetitors}

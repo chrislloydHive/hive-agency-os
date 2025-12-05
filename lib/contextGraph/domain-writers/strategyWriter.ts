@@ -55,6 +55,7 @@ export const STRATEGY_FIELDS = {
   // Core Identity & Vision
   identity: [
     'businessName',
+    'icpDescription', // Canonical ICP description
     'industry',
     'businessModel',
     'geographicFootprint',
@@ -95,6 +96,11 @@ export const STRATEGY_FIELDS = {
 
   // Audience Strategy
   audience: [
+    // Canonical ICP fields
+    'primaryAudience',    // Who we serve (ICP)
+    'primaryBuyerRoles',  // Decision makers (ICP)
+    'companyProfile',     // B2B company targeting (ICP)
+    // Segment & persona fields
     'coreSegments',
     'demographics',
     'geos',
@@ -437,11 +443,14 @@ const SOURCE_NAMES: Record<string, string> = {
   media_lab: 'Media Lab',
   demand_lab: 'Demand Lab',
   ops_lab: 'Ops Lab',
+  icp_extractor: 'ICP Extractor',
+  setup_wizard: 'Setup Wizard',
   qbr: 'Strategic Plan',
   ssm: 'SSM',
   user: 'Manual Entry',
   brain: 'Brain',
   strategy: 'Strategy',
+  inferred: 'AI Inferred',
   import: 'Import',
 };
 

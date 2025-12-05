@@ -14,6 +14,7 @@ import {
 } from './model';
 import {
   AudienceSignals,
+  CanonicalICP,
   formatSignalsForAiPrompt,
   hasMinimalSignalsForSeeding,
 } from './signals';
@@ -32,6 +33,15 @@ export interface AISeedResult {
   error?: string;
   confidence: 'high' | 'medium' | 'low';
   signalsUsed: string[];
+
+  /** Whether a canonical ICP was used to constrain generation */
+  hasCanonicalICP: boolean;
+
+  /** The canonical ICP description used (if any) */
+  canonicalAudienceDescription?: string;
+
+  /** Whether the ICP was inferred (no canonical ICP found) */
+  isProvisionalICP: boolean;
 }
 
 /**
@@ -65,14 +75,55 @@ interface RawAISegment {
 
 /**
  * Build the system prompt for audience model generation
+ *
+ * IMPORTANT: The prompt changes based on whether a canonical ICP exists:
+ * - With ICP: AI must DECOMPOSE the ICP into segments (not change it)
+ * - Without ICP: AI can infer from website signals (provisional)
  */
-function buildSystemPrompt(): string {
+function buildSystemPrompt(canonicalICP: CanonicalICP): string {
   const demandStates = ['unaware', 'problem_aware', 'solution_aware', 'in_market', 'post_purchase'];
   const channelIds = Object.keys(MEDIA_CHANNEL_LABELS).slice(0, 15).join(', ');
 
-  return `You are an expert marketing strategist AI. Your task is to analyze business and marketing signals to propose audience segments.
+  // Core constraint based on whether ICP exists
+  let icpConstraint: string;
 
-Based on the provided data (GAP analysis, Brand analysis, Content analysis, SEO analysis, Demand analysis, existing audience data, and Brain context), propose 3-7 distinct audience segments that the business should target.
+  if (canonicalICP.hasCanonicalICP) {
+    icpConstraint = `
+⚠️ CRITICAL CONSTRAINT - CANONICAL ICP DEFINED ⚠️
+
+This company has a DEFINED Ideal Customer Profile (ICP) that you MUST respect:
+
+${canonicalICP.primaryAudience || 'See audience details in the data below.'}
+
+YOUR JOB IS TO DECOMPOSE THIS ICP INTO 2-5 SEGMENTS/PERSONAS.
+- You MUST NOT change, broaden, or ignore this ICP
+- You MUST NOT invent new audiences outside this ICP
+- Each segment you create MUST fit within this canonical ICP
+- Think of your segments as sub-groups or variations within this defined audience
+
+For example, if the ICP is "Small business owners aged 35-55 in the US", valid segments would be:
+- "Growth-focused SMB owners" (subset of ICP)
+- "Risk-averse established business owners" (subset of ICP)
+
+INVALID would be:
+- "Enterprise executives" (outside ICP)
+- "Young consumers" (outside ICP)
+`;
+  } else {
+    icpConstraint = `
+NOTE: No canonical ICP is defined for this company.
+
+You will INFER a provisional target audience from the available signals (website content, diagnostics, etc.).
+Your segments should represent a reasonable interpretation of who this company serves.
+
+Since this is inferred, your confidence should be lower and your segments should be more exploratory.
+`;
+  }
+
+  return `You are an expert marketing strategist AI. Your task is to analyze business and marketing signals to propose audience segments.
+${icpConstraint}
+
+Based on the provided data (GAP analysis, Brand analysis, Content analysis, SEO analysis, Demand analysis, existing audience data, and Brain context), propose 2-5 distinct audience segments.
 
 Each segment should be actionable for both Media planning and Creative development.
 
@@ -86,6 +137,8 @@ ${channelIds}
 Output your response as valid JSON matching this exact structure:
 {
   "overallDescription": "Brief summary of the audience landscape",
+  "canonicalAudienceDescription": "Echo the canonical ICP if provided, or state your inferred ICP if not",
+  "isProvisionalICP": ${!canonicalICP.hasCanonicalICP},
   "segments": [
     {
       "name": "Segment name (clear, actionable)",
@@ -112,10 +165,10 @@ Output your response as valid JSON matching this exact structure:
 }
 
 Guidelines:
-- Create 3-7 segments based on data richness
+- Create 2-5 segments based on data richness
 - Each segment should be distinct and actionable
 - Use specific data from the signals to inform each segment
-- Prioritize segments that appear in multiple data sources
+${canonicalICP.hasCanonicalICP ? '- ALL segments MUST fit within the canonical ICP - do not expand beyond it' : '- Infer a reasonable target audience from available signals'}
 - Jobs to be done should be functional, emotional, or social
 - Demand states should reflect where in the buying journey they are
 - Channel recommendations should align with media habits
@@ -147,8 +200,12 @@ Based on this data, propose 3-7 distinct audience segments.`;
 /**
  * Generate an audience model from signals using AI
  *
+ * IMPORTANT: This function now respects canonical ICP from Context Graph.
+ * - If canonicalICP.hasCanonicalICP is true, AI will DECOMPOSE the ICP into segments
+ * - If no ICP is defined, AI will INFER a provisional ICP from signals
+ *
  * @param companyId - The company ID
- * @param signals - Audience signals from diagnostics
+ * @param signals - Audience signals from diagnostics (includes canonicalICP)
  * @param options - Optional configuration
  * @returns AI seed result with model or error
  */
@@ -160,7 +217,10 @@ export async function seedAudienceModelFromSignals(
     createdBy?: string;
   }
 ): Promise<AISeedResult> {
-  console.log('[AudienceSeed] Starting AI seeding for:', companyId);
+  console.log('[AudienceSeed] Starting AI seeding for:', companyId, {
+    hasCanonicalICP: signals.canonicalICP.hasCanonicalICP,
+    icpSource: signals.canonicalICP.source,
+  });
 
   // Check if we have enough data
   if (!hasMinimalSignalsForSeeding(signals)) {
@@ -169,11 +229,14 @@ export async function seedAudienceModelFromSignals(
       error: 'Insufficient signals for AI seeding. Run more diagnostics first.',
       confidence: 'low',
       signalsUsed: [],
+      hasCanonicalICP: signals.canonicalICP.hasCanonicalICP,
+      isProvisionalICP: !signals.canonicalICP.hasCanonicalICP,
     };
   }
 
   // Track which signals we're using
   const signalsUsed: string[] = [];
+  if (signals.canonicalICP.hasCanonicalICP) signalsUsed.push('Canonical ICP');
   if (signals.sourcesAvailable.gap) signalsUsed.push('GAP Analysis');
   if (signals.sourcesAvailable.brand) signalsUsed.push('Brand Lab');
   if (signals.sourcesAvailable.content) signalsUsed.push('Content Lab');
@@ -183,11 +246,18 @@ export async function seedAudienceModelFromSignals(
   if (signals.sourcesAvailable.brain) signalsUsed.push('Brain');
 
   // Determine confidence based on data richness
+  // Higher confidence when we have a canonical ICP
   let confidence: 'high' | 'medium' | 'low' = 'low';
-  if (signalsUsed.length >= 4) {
-    confidence = 'high';
-  } else if (signalsUsed.length >= 2) {
-    confidence = 'medium';
+  if (signals.canonicalICP.hasCanonicalICP) {
+    // With ICP, confidence is based on ICP quality + additional signals
+    confidence = signalsUsed.length >= 3 ? 'high' : 'medium';
+  } else {
+    // Without ICP, confidence is lower (provisional)
+    if (signalsUsed.length >= 4) {
+      confidence = 'medium';
+    } else if (signalsUsed.length >= 2) {
+      confidence = 'low';
+    }
   }
 
   try {
@@ -195,7 +265,8 @@ export async function seedAudienceModelFromSignals(
       apiKey: process.env.OPENAI_API_KEY,
     });
 
-    const systemPrompt = buildSystemPrompt();
+    // Build prompts with ICP constraint
+    const systemPrompt = buildSystemPrompt(signals.canonicalICP);
     const userPrompt = buildUserPrompt(signals, options?.companyName);
 
     console.log('[AudienceSeed] Calling OpenAI...');
@@ -206,7 +277,7 @@ export async function seedAudienceModelFromSignals(
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      temperature: 0.7,
+      temperature: signals.canonicalICP.hasCanonicalICP ? 0.5 : 0.7, // Lower temp for ICP decomposition
       response_format: { type: 'json_object' },
     });
 
@@ -219,6 +290,8 @@ export async function seedAudienceModelFromSignals(
 
     const parsed = JSON.parse(content) as {
       overallDescription?: string;
+      canonicalAudienceDescription?: string;
+      isProvisionalICP?: boolean;
       segments: RawAISegment[];
     };
 
@@ -231,6 +304,11 @@ export async function seedAudienceModelFromSignals(
 
     // Create the model
     const now = new Date().toISOString();
+    const isProvisional = !signals.canonicalICP.hasCanonicalICP;
+    const icpDescription = signals.canonicalICP.hasCanonicalICP
+      ? signals.canonicalICP.primaryAudience
+      : parsed.canonicalAudienceDescription;
+
     const model: AudienceModel = {
       id: `am_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       companyId,
@@ -240,18 +318,26 @@ export async function seedAudienceModelFromSignals(
       createdBy: options?.createdBy,
       description: parsed.overallDescription || 'AI-generated audience model',
       segments: validatedSegments,
-      notes: `Generated from ${signalsUsed.length} sources: ${signalsUsed.join(', ')}`,
+      notes: isProvisional
+        ? `⚠️ PROVISIONAL: No canonical ICP defined. Generated from ${signalsUsed.length} sources: ${signalsUsed.join(', ')}`
+        : `Anchored to canonical ICP. Generated from ${signalsUsed.length} sources: ${signalsUsed.join(', ')}`,
       source: 'ai_seeded',
       isCurrentCanonical: false,
     };
 
-    console.log('[AudienceSeed] Successfully generated model with', validatedSegments.length, 'segments');
+    console.log('[AudienceSeed] Successfully generated model with', validatedSegments.length, 'segments', {
+      hasCanonicalICP: signals.canonicalICP.hasCanonicalICP,
+      isProvisional,
+    });
 
     return {
       success: true,
       model,
       confidence,
       signalsUsed,
+      hasCanonicalICP: signals.canonicalICP.hasCanonicalICP,
+      canonicalAudienceDescription: icpDescription,
+      isProvisionalICP: isProvisional,
     };
   } catch (error) {
     console.error('[AudienceSeed] AI seeding failed:', error);
@@ -260,6 +346,8 @@ export async function seedAudienceModelFromSignals(
       error: error instanceof Error ? error.message : 'AI seeding failed',
       confidence: 'low',
       signalsUsed,
+      hasCanonicalICP: signals.canonicalICP.hasCanonicalICP,
+      isProvisionalICP: !signals.canonicalICP.hasCanonicalICP,
     };
   }
 }

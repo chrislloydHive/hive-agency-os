@@ -124,7 +124,7 @@ export function StepMediaFoundations({
       {/* Active Channels */}
       <FormSection
         title="Active & Planned Channels"
-        description="Which channels are you using or planning to use?"
+        description="Which channels is the business using or planning to use?"
       >
         <div className="grid grid-cols-3 gap-3">
           {CHANNEL_OPTIONS.map((channel) => {
@@ -155,9 +155,9 @@ export function StepMediaFoundations({
       {/* Attribution */}
       <FormSection
         title="Attribution"
-        description="How do you measure marketing effectiveness?"
+        description="How does the business measure marketing effectiveness?"
       >
-        <FormField label="Attribution Model" hint="How do you attribute conversions to channels?">
+        <FormField label="Attribution Model" hint="How are conversions attributed to channels?">
           <div className="grid grid-cols-3 gap-3">
             {ATTRIBUTION_MODELS.map((model) => (
               <button
@@ -186,7 +186,7 @@ export function StepMediaFoundations({
         <div className="grid grid-cols-2 gap-6">
           <FormField
             label="Current Issues"
-            hint="Challenges you're facing with media"
+            hint="Challenges the business is facing with media"
           >
             <TagInput
               value={data.mediaIssues}
@@ -198,7 +198,7 @@ export function StepMediaFoundations({
 
           <FormField
             label="Opportunities"
-            hint="Areas where you could improve"
+            hint="Areas where the business could improve"
           >
             <TagInput
               value={data.mediaOpportunities}

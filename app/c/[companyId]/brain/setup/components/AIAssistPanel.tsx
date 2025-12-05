@@ -189,7 +189,7 @@ export function AIAssistPanel({
           {isLoading && (
             <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-8 text-center">
               <div className="w-10 h-10 mx-auto rounded-full border-2 border-purple-500/30 border-t-purple-500 animate-spin mb-4" />
-              <p className="text-sm text-slate-300">Analyzing your setup...</p>
+              <p className="text-sm text-slate-300">Analyzing the setup...</p>
               <p className="text-xs text-slate-500 mt-1">Generating intelligent suggestions</p>
             </div>
           )}

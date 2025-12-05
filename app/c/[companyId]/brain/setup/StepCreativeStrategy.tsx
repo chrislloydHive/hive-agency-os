@@ -107,7 +107,7 @@ export function StepCreativeStrategy({
       {/* Core Messages */}
       <FormSection
         title="Core Messaging"
-        description="Key messages that resonate with your audience"
+        description="Key messages that resonate with the target audience"
       >
         <FormField
           label="Core Messages"
@@ -131,7 +131,7 @@ export function StepCreativeStrategy({
         <div className="grid grid-cols-2 gap-6">
           <FormField
             label="Proof Points"
-            hint="Evidence that supports your claims"
+            hint="Evidence that supports the claims"
           >
             <TagInput
               value={data.proofPoints}
@@ -158,7 +158,7 @@ export function StepCreativeStrategy({
       {/* Available Formats */}
       <FormSection
         title="Creative Formats"
-        description="What formats can you produce or source?"
+        description="What formats can the business produce or source?"
       >
         <div className="grid grid-cols-5 gap-3">
           {FORMAT_OPTIONS.map((format) => {
@@ -207,7 +207,7 @@ export function StepCreativeStrategy({
       {(data.coreMessages.length > 0 || data.proofPoints.length > 0) && (
         <FormSection
           title="Messaging Preview"
-          description="How your messaging elements come together"
+          description="How the messaging elements come together"
         >
           <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
             <div className="space-y-4">

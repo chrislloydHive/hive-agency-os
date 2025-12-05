@@ -71,6 +71,15 @@ export const IDENTITY_BINDINGS: SetupFieldBinding[] = [
   },
   {
     setupStepId: 'business-identity',
+    setupFieldId: 'icpDescription',
+    contextPath: 'identity.icpDescription',
+    domain: 'identity',
+    field: 'icpDescription',
+    type: 'string',
+    label: 'ICP Description',
+  },
+  {
+    setupStepId: 'business-identity',
     setupFieldId: 'industry',
     contextPath: 'identity.industry',
     domain: 'identity',
@@ -243,8 +252,39 @@ export const OBJECTIVES_BINDINGS: SetupFieldBinding[] = [
 
 /**
  * Audience step field bindings
+ *
+ * NOTE: The ICP fields (primaryAudience, primaryBuyerRoles, companyProfile)
+ * are the canonical source of truth and should be filled first. Other fields
+ * like coreSegments are derived/supporting data.
  */
 export const AUDIENCE_BINDINGS: SetupFieldBinding[] = [
+  // ============================================================================
+  // Canonical ICP Fields - These are the PRIMARY constraint for Labs
+  // ============================================================================
+  {
+    setupStepId: 'audience',
+    setupFieldId: 'primaryAudience',
+    contextPath: 'audience.primaryAudience',
+    domain: 'audience',
+    field: 'primaryAudience',
+    type: 'string',
+    label: 'Primary Audience',
+    required: true,
+  },
+  {
+    setupStepId: 'audience',
+    setupFieldId: 'primaryBuyerRoles',
+    contextPath: 'audience.primaryBuyerRoles',
+    domain: 'audience',
+    field: 'primaryBuyerRoles',
+    type: 'string[]',
+    label: 'Primary Buyer Roles',
+  },
+  // Note: companyProfile is handled as an object, not individual fields
+  // It will be written via a custom handler in the form
+  // ============================================================================
+  // Supporting Audience Fields
+  // ============================================================================
   {
     setupStepId: 'audience',
     setupFieldId: 'coreSegments',

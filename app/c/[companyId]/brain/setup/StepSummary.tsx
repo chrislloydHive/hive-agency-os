@@ -76,7 +76,7 @@ export function StepSummary({
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-xl font-semibold text-slate-100">Strategic Setup Complete</h3>
-            <p className="text-slate-400 mt-1">Review your strategic plan and finalize</p>
+            <p className="text-slate-400 mt-1">Review the strategic plan and finalize</p>
           </div>
           <div className="text-right">
             <div className="text-3xl font-bold text-purple-400">

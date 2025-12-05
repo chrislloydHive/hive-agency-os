@@ -121,7 +121,14 @@ GUIDELINES:
 - Triggers should be specific events or realizations
 - Objections should be real concerns, not strawmen
 - Example hooks should be ready-to-use copy that would grab attention
-- Be specific and actionable - avoid generic marketing-speak`;
+- Be specific and actionable - avoid generic marketing-speak
+
+CRITICAL CONSTRAINTS (Brain-First):
+- If company context is provided, personas must be grounded in the company's actual business model and industry.
+- Personas must reflect the company's real target market, not hypothetical ideal customers.
+- If ICP is already defined in context, refine rather than replace.
+- Behavioral insights should connect to the company's actual value proposition.
+- Do not invent a fundamentally different target audience.`;
 }
 
 /**
@@ -169,6 +176,9 @@ Create personas that bring these segments to life as real people. Each persona s
 /**
  * Generate personas from an audience model using AI
  *
+ * BRAIN-FIRST: Now loads context from Brain before generating, respects
+ * existing positioning/ICP, and includes constraints in prompts.
+ *
  * @param model - The audience model with segments
  * @param options - Optional configuration
  * @returns AI persona generation result
@@ -178,6 +188,7 @@ export async function generatePersonasFromAudienceModel(
   options?: {
     companyContext?: string;
     createdBy?: string;
+    companyId?: string;
   }
 ): Promise<AIPersonaResult> {
   console.log('[AIPersonas] Starting persona generation for model:', model.id);
@@ -194,15 +205,42 @@ export async function generatePersonasFromAudienceModel(
 
   const segmentsUsed = model.segments.map(s => s.name);
 
-  // Determine confidence based on segment richness
+  // BRAIN-FIRST: Load context from Brain if companyId provided
+  let brainContext = '';
+  let contextIntegrity: 'high' | 'medium' | 'low' | 'none' = 'none';
+
+  if (options?.companyId) {
+    try {
+      const { getLabContext, buildLabPromptContext, checkLabReadiness } = await import('@/lib/contextGraph/labContext');
+      const labContext = await getLabContext(options.companyId, 'audience');
+      contextIntegrity = labContext.contextIntegrity;
+
+      const readiness = checkLabReadiness(labContext);
+      if (readiness.warning) {
+        console.log('[AIPersonas] Brain context warning:', readiness.warning);
+      }
+
+      console.log('[AIPersonas] Brain context loaded:', {
+        integrity: labContext.contextIntegrity,
+        hasICP: labContext.hasCanonicalICP,
+        hasBrand: labContext.hasBrandPositioning,
+      });
+
+      brainContext = buildLabPromptContext(labContext);
+    } catch (error) {
+      console.warn('[AIPersonas] Could not load Brain context:', error);
+    }
+  }
+
+  // Determine confidence based on segment richness and Brain context
   const richSegments = model.segments.filter(s =>
     s.jobsToBeDone?.length || s.behavioralDrivers?.length || s.keyPains?.length
   );
 
   let confidence: 'high' | 'medium' | 'low' = 'low';
-  if (richSegments.length >= model.segments.length * 0.7) {
+  if (richSegments.length >= model.segments.length * 0.7 && contextIntegrity !== 'none') {
     confidence = 'high';
-  } else if (richSegments.length >= model.segments.length * 0.3) {
+  } else if (richSegments.length >= model.segments.length * 0.3 || contextIntegrity === 'medium') {
     confidence = 'medium';
   }
 
@@ -212,7 +250,8 @@ export async function generatePersonasFromAudienceModel(
     });
 
     const systemPrompt = buildSystemPrompt();
-    const userPrompt = buildUserPrompt(model, options?.companyContext);
+    // Include Brain context in user prompt
+    const userPrompt = buildUserPrompt(model, brainContext || options?.companyContext);
 
     console.log('[AIPersonas] Calling OpenAI...');
 

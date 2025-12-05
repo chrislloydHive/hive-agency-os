@@ -32,11 +32,37 @@ export const PersonaBrief = z.object({
 export type PersonaBrief = z.infer<typeof PersonaBrief>;
 
 /**
+ * Company Profile for B2B ICP
+ */
+export const CompanyProfile = z.object({
+  sizeRange: z.string().nullable(), // e.g., "SMB", "Mid-Market", "Enterprise", "1-50", "50-200"
+  stage: z.string().nullable(), // e.g., "Startup", "Growth", "Mature", "Enterprise"
+  industries: z.array(z.string()).nullable(), // e.g., ["SaaS", "Healthcare", "Finance"]
+});
+
+export type CompanyProfile = z.infer<typeof CompanyProfile>;
+
+/**
  * Audience domain captures target audience insights and targeting data.
  * This informs media targeting and creative personalization.
  */
 export const AudienceDomain = z.object({
-  // Core Segments
+  // ============================================================================
+  // CANONICAL ICP FIELDS - These are the PRIMARY constraint for Labs
+  // ============================================================================
+
+  // Primary audience description (who we serve)
+  primaryAudience: WithMeta(z.string()),
+
+  // Primary buyer roles (decision makers, influencers)
+  primaryBuyerRoles: WithMetaArray(z.string()),
+
+  // Company profile for B2B (target company characteristics)
+  companyProfile: WithMeta(CompanyProfile),
+
+  // ============================================================================
+  // Core Segments (derived from ICP by Audience Lab)
+  // ============================================================================
   coreSegments: WithMetaArray(z.string()),
   segmentDetails: WithMetaArray(AudienceSegment),
 
@@ -99,6 +125,12 @@ export type AudienceDomain = z.infer<typeof AudienceDomain>;
  */
 export function createEmptyAudienceDomain(): AudienceDomain {
   return {
+    // Canonical ICP fields
+    primaryAudience: { value: null, provenance: [] },
+    primaryBuyerRoles: { value: [], provenance: [] },
+    companyProfile: { value: null, provenance: [] },
+
+    // Core Segments
     coreSegments: { value: [], provenance: [] },
     segmentDetails: { value: [], provenance: [] },
     demographics: { value: null, provenance: [] },

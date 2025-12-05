@@ -1317,7 +1317,8 @@ async function generateConsultantReportContent(
   heuristics: HeuristicUxSummary,
   funnelHealthScore: number,
   multiPageConsistencyScore: number,
-  overallScore: number
+  overallScore: number,
+  brainContext?: BrainContextForLab
 ): Promise<{
   executiveSummary: string;
   strengths: string[];
@@ -1333,13 +1334,27 @@ async function generateConsultantReportContent(
   sectionAnalyses: WebsiteUxSectionAnalysis[];
 }> {
   console.log('[WebsiteLab V5] Generating consultant report content via LLM...');
+  if (brainContext) {
+    console.log('[WebsiteLab V5] Brain context loaded, integrity:', brainContext.contextIntegrity || 'unknown');
+  }
 
   const { pages } = siteGraph;
   const homePage = pages.find(p => p.type === 'home');
 
+  // Build Brain context section if available
+  const brainContextSection = brainContext ? `
+**Company Context from Brain:**
+${brainContext.identitySummary ? `Identity: ${brainContext.identitySummary}` : ''}
+${brainContext.objectivesSummary ? `Objectives: ${brainContext.objectivesSummary}` : ''}
+${brainContext.audienceSummary ? `Target Audience: ${brainContext.audienceSummary}` : ''}
+${brainContext.brandSummary ? `Brand: ${brainContext.brandSummary}` : ''}
+Context Integrity: ${brainContext.contextIntegrity || 'unknown'}
+${brainContext.contextIntegrity === 'low' || brainContext.contextIntegrity === 'none' ? '⚠️ LIMITED CONTEXT: Recommendations may need validation' : ''}
+`.trim() : '';
+
   // Build evidence summary for LLM prompt
   const evidenceSummary = `
-**Website Analysis Context:**
+${brainContextSection ? brainContextSection + '\n\n' : ''}**Website Analysis Context:**
 - Pages Analyzed: ${pages.length}
 - Overall Score: ${overallScore}/100
 - Funnel Health: ${funnelHealthScore}/100
@@ -1446,6 +1461,13 @@ You MUST respond with ONLY a valid JSON object matching this exact structure (no
 - Be specific (cite scores, findings, evidence)
 - Balance criticism with constructive recommendations
 
+${brainContext ? `**CRITICAL CONSTRAINTS (Brain-First):**
+- Use the company's existing positioning, ICP, and primary objectives from the provided context.
+- Do not change who they serve. Propose website improvements within this strategy.
+- All recommendations must align with the stated business model and target audience.
+- Do not suggest pivoting the business or changing the core value proposition.
+- If context integrity is low/none, flag recommendations as preliminary.` : ''}
+
 Respond with ONLY the JSON object. No explanatory text before or after.`;
 
   const userPrompt = evidenceSummary;
@@ -1531,7 +1553,8 @@ Respond with ONLY the JSON object. No explanatory text before or after.`;
 export async function generateSiteAssessment(
   siteGraph: WebsiteSiteGraphV4,
   personas: WebsiteUXLabPersonaResult[],
-  heuristics: HeuristicUxSummary
+  heuristics: HeuristicUxSummary,
+  brainContext?: BrainContextForLab
 ): Promise<WebsiteUXAssessmentV4> {
   console.log(`[WebsiteLab V4] Generating final site assessment`);
 
@@ -1782,7 +1805,8 @@ for 5 different user personas. This is the most comprehensive UX diagnostic avai
       heuristics,
       funnelHealthScore,
       multiPageConsistencyScore,
-      overallScore
+      overallScore,
+      brainContext
     );
   } catch (error) {
     console.warn('[WebsiteLab V5] Failed to generate consultant report, using fallback');
@@ -1854,11 +1878,25 @@ for 5 different user personas. This is the most comprehensive UX diagnostic avai
  * @param options - Optional analytics integration credentials
  * @returns Complete Website UX Lab Result
  */
+/**
+ * Brain context passed from the outer runner
+ */
+export interface BrainContextForLab {
+  identitySummary?: string;
+  objectivesSummary?: string;
+  audienceSummary?: string;
+  brandSummary?: string;
+  constraints?: string;
+  contextIntegrity?: 'high' | 'medium' | 'low' | 'none';
+  confidenceCap?: number;
+}
+
 export async function runWebsiteLab(
   websiteUrl: string,
   options?: {
     ga4PropertyId?: string;
     searchConsoleSiteUrl?: string;
+    brainContext?: BrainContextForLab;
   }
 ): Promise<WebsiteUXLabResultV4> {
   console.log('[WebsiteLab V4] ============================================');
@@ -2017,7 +2055,7 @@ export async function runWebsiteLab(
     // STEP 7: Generate Site Assessment
     // ========================================================================
     console.log('[WebsiteLab V4] Step 7/8: Generating final site assessment...');
-    const siteAssessment = await generateSiteAssessment(siteGraph, personas, heuristics);
+    const siteAssessment = await generateSiteAssessment(siteGraph, personas, heuristics, options?.brainContext);
     console.log(`[WebsiteLab V4] ✓ Site assessment complete: ${siteAssessment.score}/100 (${siteAssessment.benchmarkLabel})`);
 
     // ========================================================================

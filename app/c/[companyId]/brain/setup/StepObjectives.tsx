@@ -73,7 +73,7 @@ export function StepObjectives({
       {/* Primary Objective */}
       <FormSection
         title="Marketing Objective"
-        description="What are you trying to achieve with your marketing?"
+        description="What is the business trying to achieve with marketing?"
       >
         <FormField label="Primary Objective" required>
           <div className="grid grid-cols-2 gap-3">
@@ -97,7 +97,7 @@ export function StepObjectives({
 
         <FormField
           label="Secondary Objectives"
-          hint="Additional goals that support your primary objective"
+          hint="Additional goals that support the primary objective"
         >
           <TagInput
             value={data.secondaryObjectives}
@@ -152,13 +152,13 @@ export function StepObjectives({
       {/* KPI Targets */}
       <FormSection
         title="KPI Targets"
-        description="What metrics will you track and what are your targets?"
+        description="What metrics will be tracked and what are the targets?"
       >
-        <FormField label="Key Performance Indicators" hint="Select the KPIs most relevant to your business">
+        <FormField label="Key Performance Indicators" hint="Select the KPIs most relevant to the business">
           <TagInput
             value={data.kpiLabels}
             onChange={(tags) => update({ kpiLabels: tags })}
-            placeholder="Add KPIs you want to track..."
+            placeholder="Add KPIs to track..."
             suggestions={KPI_SUGGESTIONS}
           />
         </FormField>

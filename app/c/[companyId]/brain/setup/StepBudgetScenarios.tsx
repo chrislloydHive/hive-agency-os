@@ -101,7 +101,7 @@ export function StepBudgetScenarios({
       {/* Budget Basics */}
       <FormSection
         title="Budget Overview"
-        description="Your marketing and media budget parameters"
+        description="Marketing and media budget parameters"
       >
         <div className="grid grid-cols-3 gap-4">
           <FormField label="Budget Period">

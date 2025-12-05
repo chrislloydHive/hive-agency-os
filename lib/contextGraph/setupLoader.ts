@@ -104,6 +104,7 @@ export function extractSetupData(graph: CompanyContextGraph): SetupLoaderResult 
   // Initialize all step objects
   formData.businessIdentity = {
     businessName: '',
+    icpDescription: '',
     industry: '',
     businessModel: '',
     revenueModel: '',
@@ -128,6 +129,13 @@ export function extractSetupData(graph: CompanyContextGraph): SetupLoaderResult 
   };
 
   formData.audience = {
+    // Canonical ICP fields
+    primaryAudience: '',
+    primaryBuyerRoles: [],
+    targetCompanySize: '',
+    targetCompanyStage: '',
+    targetIndustries: [],
+    // Supporting fields
     coreSegments: [],
     demographics: '',
     geos: '',
@@ -218,6 +226,35 @@ export function extractSetupData(graph: CompanyContextGraph): SetupLoaderResult 
   const personaNames = graph.audience.personaNames.value || [];
   if (formData.personas) {
     formData.personas.personaCount = personaNames.length;
+  }
+
+  // Handle companyProfile → separate form fields
+  // The graph stores companyProfile as an object, but the form uses separate fields
+  const companyProfile = graph.audience.companyProfile?.value;
+  if (companyProfile && formData.audience) {
+    if (companyProfile.sizeRange) {
+      formData.audience.targetCompanySize = companyProfile.sizeRange;
+    }
+    if (companyProfile.stage) {
+      formData.audience.targetCompanyStage = companyProfile.stage;
+    }
+    if (companyProfile.industries?.length) {
+      formData.audience.targetIndustries = companyProfile.industries;
+    }
+
+    // Add provenance for companyProfile fields
+    const companyProfileProvenance = graph.audience.companyProfile?.provenance?.[0];
+    if (companyProfileProvenance) {
+      const provenanceInfo: ContextNodeInfo = {
+        value: companyProfile,
+        source: companyProfileProvenance.source,
+        sourceName: getSourceDisplayName(companyProfileProvenance.source),
+        confidence: companyProfileProvenance.confidence,
+        updatedAt: companyProfileProvenance.updatedAt,
+        isHumanOverride: isHumanSource(companyProfileProvenance.source),
+      };
+      provenanceMap.set('audience.companyProfile', provenanceInfo);
+    }
   }
 
   return {

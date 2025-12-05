@@ -82,7 +82,7 @@ export function StepWebsite({
       {/* Website Overview */}
       <FormSection
         title="Website Overview"
-        description="Summarize the current state of your website"
+        description="Summarize the current state of the website"
       >
         <FormField
           label="Website Summary"
@@ -131,11 +131,11 @@ export function StepWebsite({
       {/* Opportunities */}
       <FormSection
         title="Opportunities"
-        description="Where can you improve?"
+        description="Where can the business improve?"
       >
         <FormField
           label="Conversion Opportunities"
-          hint="Areas where you can boost conversion rates"
+          hint="Areas where conversion rates can be boosted"
         >
           <TagInput
             value={data.conversionOpportunities}
@@ -147,7 +147,7 @@ export function StepWebsite({
 
         <FormField
           label="Quick Wins"
-          hint="Low-effort, high-impact improvements you can make quickly"
+          hint="Low-effort, high-impact improvements that can be made quickly"
         >
           <TagInput
             value={data.quickWins}
@@ -169,7 +169,7 @@ export function StepWebsite({
           <div className="flex-1">
             <h4 className="font-medium text-slate-200">Import from Website Lab</h4>
             <p className="text-sm text-slate-400 mt-1">
-              If you've run a Website Lab diagnostic, you can import the findings directly.
+              If a Website Lab diagnostic has been run, the findings can be imported directly.
             </p>
             <button
               type="button"

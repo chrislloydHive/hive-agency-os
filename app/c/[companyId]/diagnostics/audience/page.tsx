@@ -35,6 +35,24 @@ export default async function AudienceLabPage({ params }: PageProps) {
 
   const signalsSummary = getSignalsSummary(signals);
 
+  // DEBUG: Log the loaded signals to help diagnose data flow issues
+  console.log('[AudienceLab Page] Loaded signals for company:', companyId, {
+    hasCanonicalICP: signals.canonicalICP.hasCanonicalICP,
+    primaryAudience: signals.canonicalICP.primaryAudience?.substring(0, 100),
+    coreSegments: signals.canonicalICP.coreSegments,
+    source: signals.canonicalICP.source,
+    sourcesAvailable: signals.sourcesAvailable,
+    existingAudienceFields: signals.existingAudienceFields ? 'present' : 'missing',
+  });
+
+  // Extract ICP status from signals for UI banner
+  const icpStatus = {
+    hasCanonicalICP: signals.canonicalICP.hasCanonicalICP,
+    primaryAudience: signals.canonicalICP.primaryAudience,
+    source: signals.canonicalICP.source,
+    isHumanOverride: signals.canonicalICP.isHumanOverride,
+  };
+
   return (
     <div className="min-h-screen bg-[#050509]">
       {/* Header Navigation */}
@@ -60,6 +78,7 @@ export default async function AudienceLabPage({ params }: PageProps) {
         initialPersonaSet={personaSet}
         signals={signals}
         signalsSummary={signalsSummary}
+        icpStatus={icpStatus}
       />
     </div>
   );

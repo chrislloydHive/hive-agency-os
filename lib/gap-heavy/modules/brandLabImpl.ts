@@ -48,6 +48,9 @@ export interface BrandLabInput {
 /**
  * Run Brand Lab V1 diagnostic
  *
+ * BRAIN-FIRST: Now loads context from Brain before running, respects
+ * existing brand positioning, and includes constraints in prompts.
+ *
  * Analyzes brand health, clarity, and coherence using LLM-powered analysis
  * of website content and company context.
  *
@@ -60,6 +63,31 @@ export async function runBrandLab(input: BrandLabInput): Promise<BrandLabResult>
   console.log('[Brand Lab V1] Starting brand diagnostic for:', input.websiteUrl);
 
   const { company, websiteUrl, existingGapData, competitorUrls, skipCompetitive } = input;
+
+  // BRAIN-FIRST: Load context before running
+  let brainContext: string | undefined;
+  let contextIntegrity: 'high' | 'medium' | 'low' | 'none' = 'none';
+
+  try {
+    const { getLabContext, buildLabPromptContext, checkLabReadiness } = await import('@/lib/contextGraph/labContext');
+    const labContext = await getLabContext(company.companyId || company.id, 'brand');
+    contextIntegrity = labContext.contextIntegrity;
+
+    const readiness = checkLabReadiness(labContext);
+    if (readiness.warning) {
+      console.log('[Brand Lab V1] Context warning:', readiness.warning);
+    }
+
+    console.log('[Brand Lab V1] Brain context loaded:', {
+      integrity: labContext.contextIntegrity,
+      hasICP: labContext.hasCanonicalICP,
+      hasBrand: labContext.hasBrandPositioning,
+    });
+
+    brainContext = buildLabPromptContext(labContext);
+  } catch (error) {
+    console.warn('[Brand Lab V1] Could not load Brain context:', error);
+  }
 
   // Step 1: Fetch and parse website content
   const siteContent = await fetchSiteContentForBrand(websiteUrl);
@@ -79,6 +107,7 @@ export async function runBrandLab(input: BrandLabInput): Promise<BrandLabResult>
       company,
       gapData: existingGapData,
       competitorExtracts,
+      brainContext,
     });
 
     // Dev logging
@@ -87,6 +116,7 @@ export async function runBrandLab(input: BrandLabInput): Promise<BrandLabResult>
         competitorCount: competitorExtracts.length,
         differentiationScore: (diagnostic as BrandDiagnosticResultWithCompetitive).competitiveLandscape?.differentiationScore,
         clicheDensityScore: (diagnostic as BrandDiagnosticResultWithCompetitive).competitiveLandscape?.clicheDensityScore,
+        contextIntegrity,
       });
     }
   } else {
@@ -94,6 +124,7 @@ export async function runBrandLab(input: BrandLabInput): Promise<BrandLabResult>
       siteContent,
       company,
       gapData: existingGapData,
+      brainContext,
     });
   }
 
@@ -232,6 +263,7 @@ interface BrandDiagnosticLLMInput {
   siteContent: SiteContentForBrand;
   company: CompanyRecord;
   gapData?: BrandLabInput['existingGapData'];
+  brainContext?: string;
 }
 
 /**
@@ -239,12 +271,15 @@ interface BrandDiagnosticLLMInput {
  * Uses structured output to ensure consistent JSON format
  */
 async function runBrandDiagnosticLLM(input: BrandDiagnosticLLMInput): Promise<BrandDiagnosticResult> {
-  const { siteContent, company, gapData } = input;
+  const { siteContent, company, gapData, brainContext } = input;
 
   console.log('[Brand Lab] Running LLM diagnostic...');
+  if (brainContext) {
+    console.log('[Brand Lab] Brain context provided, using Brain-first approach');
+  }
 
-  // Build context for LLM
-  const companyContext = `
+  // Build context for LLM (prioritize Brain context)
+  const companyContext = brainContext || `
 Company: ${company.name}
 Industry: ${company.industry || 'Unknown'}
 Website: ${siteContent.url}
@@ -345,6 +380,13 @@ Focus on:
 - Consistency: Is tone/messaging/promise consistent?
 - Trust & humanity: Do they show proof, people, story?
 - Visual coherence: Is the visual brand memorable and consistent?
+
+CRITICAL CONSTRAINTS (Brain-First):
+- If company context/Brain data is provided, respect the existing business model and target audience.
+- Analyze the brand within the context of who they actually serve, not who you think they should serve.
+- If ICP is already defined, validate against that ICP rather than inventing a new one.
+- Recommendations should refine existing positioning, not suggest a complete pivot.
+- Flag opportunities within the company's strategic direction.
 `;
 
   const userPrompt = `Analyze this brand and website:
@@ -598,6 +640,7 @@ interface BrandDiagnosticWithCompetitiveLLMInput {
   company: CompanyRecord;
   gapData?: BrandLabInput['existingGapData'];
   competitorExtracts: CompetitorExtract[];
+  brainContext?: string;
 }
 
 /**
@@ -613,12 +656,15 @@ interface BrandDiagnosticWithCompetitiveLLMInput {
 async function runBrandDiagnosticWithCompetitiveLLM(
   input: BrandDiagnosticWithCompetitiveLLMInput
 ): Promise<BrandDiagnosticResultWithCompetitive> {
-  const { siteContent, company, gapData, competitorExtracts } = input;
+  const { siteContent, company, gapData, competitorExtracts, brainContext } = input;
 
   console.log('[Brand Lab] Running LLM diagnostic with competitive layer...');
+  if (brainContext) {
+    console.log('[Brand Lab] Brain context provided, using Brain-first approach');
+  }
 
-  // Build context for LLM
-  const companyContext = `
+  // Build context for LLM (prioritize Brain context)
+  const companyContext = brainContext || `
 Company: ${company.name}
 Industry: ${company.industry || 'Unknown'}
 Website: ${siteContent.url}

@@ -48,7 +48,7 @@ const ATTRIBUTION_MODELS = [
   { value: 'linear', label: 'Linear', description: 'Equal credit across all touchpoints' },
   { value: 'time_decay', label: 'Time Decay', description: 'More credit to touchpoints closer to conversion' },
   { value: 'position_based', label: 'Position Based', description: '40% first, 40% last, 20% middle touches' },
-  { value: 'data_driven', label: 'Data-Driven', description: 'ML-based attribution using your data' },
+  { value: 'data_driven', label: 'Data-Driven', description: 'ML-based attribution using available data' },
 ];
 
 const ATTRIBUTION_WINDOWS = [
@@ -110,7 +110,7 @@ export function StepMeasurement({
 
         <FormField
           label="Conversion Events"
-          hint="Key events you're tracking as conversions"
+          hint="Key events tracked as conversions"
         >
           <TagInput
             value={data.ga4ConversionEvents}
@@ -124,7 +124,7 @@ export function StepMeasurement({
       {/* Call Tracking */}
       <FormSection
         title="Call Tracking"
-        description="How are you tracking phone calls?"
+        description="How is the business tracking phone calls?"
       >
         <FormField label="Call Tracking Setup">
           <div className="grid grid-cols-2 gap-3">
@@ -168,7 +168,7 @@ export function StepMeasurement({
       {/* Attribution */}
       <FormSection
         title="Attribution"
-        description="How do you measure marketing effectiveness?"
+        description="How does the business measure marketing effectiveness?"
       >
         <FormField label="Attribution Model" hint="How conversions are credited to touchpoints">
           <div className="grid grid-cols-3 gap-3">

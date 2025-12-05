@@ -101,6 +101,7 @@ export interface SetupFormData {
   // Step 1: Business Identity
   businessIdentity: {
     businessName: string;
+    icpDescription: string; // Canonical ICP description
     industry: string;
     businessModel: string;
     revenueModel: string;
@@ -127,6 +128,13 @@ export interface SetupFormData {
 
   // Step 3: Audience
   audience: {
+    // Canonical ICP fields
+    primaryAudience: string; // Who we serve
+    primaryBuyerRoles: string[]; // Decision makers, influencers
+    targetCompanySize: string; // SMB | Mid-Market | Enterprise
+    targetCompanyStage: string; // Startup | Growth | Mature
+    targetIndustries: string[]; // Target industries for B2B
+    // Supporting audience fields
     coreSegments: string[];
     demographics: string;
     geos: string;
@@ -220,6 +228,7 @@ export function createEmptyFormData(): Partial<SetupFormData> {
   return {
     businessIdentity: {
       businessName: '',
+      icpDescription: '',
       industry: '',
       businessModel: '',
       revenueModel: '',
@@ -242,6 +251,13 @@ export function createEmptyFormData(): Partial<SetupFormData> {
       kpiLabels: [],
     },
     audience: {
+      // Canonical ICP fields
+      primaryAudience: '',
+      primaryBuyerRoles: [],
+      targetCompanySize: '',
+      targetCompanyStage: '',
+      targetIndustries: [],
+      // Supporting fields
       coreSegments: [],
       demographics: '',
       geos: '',

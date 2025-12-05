@@ -401,4 +401,20 @@ export interface EvidencePack {
 
   /** Results from each diagnostic module */
   modules: DiagnosticModuleResult[];
+
+  // ========================================================================
+  // Brain-First Context (Lab Integration)
+  // ========================================================================
+
+  /**
+   * Context integrity level from Brain at time of Lab run
+   * Used by domain writers to adjust confidence
+   */
+  labContextIntegrity?: 'high' | 'medium' | 'low' | 'none';
+
+  /**
+   * Confidence cap based on context integrity
+   * Lab outputs should not exceed this confidence level
+   */
+  labConfidenceCap?: number;
 }

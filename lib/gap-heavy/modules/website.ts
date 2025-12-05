@@ -762,6 +762,9 @@ export interface WebsiteEvidence {
  *
  * NEW FLAGSHIP: Multi-page spider, funnel mapping, persona simulation, heuristic evaluation
  *
+ * BRAIN-FIRST: Now loads context from Brain before running, respects existing
+ * positioning/ICP, and adjusts confidence based on context integrity.
+ *
  * @param input - Company, URL, and evidence pack
  * @returns Diagnostic module result with V4/V5 lab data
  */
@@ -774,6 +777,35 @@ export async function runWebsiteLabV4(input: {
 
   console.log('[Website Lab V4] Starting FLAGSHIP multi-page UX & Conversion Lab for:', input.websiteUrl);
 
+  // ========================================================================
+  // BRAIN-FIRST: Load context before running
+  // ========================================================================
+  let labContext;
+  try {
+    const { getLabContext, checkLabReadiness, getConfidenceCap } = await import('@/lib/contextGraph/labContext');
+    labContext = await getLabContext(input.company.companyId || input.company.id, 'website');
+
+    const readiness = checkLabReadiness(labContext);
+    if (readiness.warning) {
+      console.log('[Website Lab V4] Context warning:', readiness.warning);
+    }
+
+    // Store context integrity for writer
+    input.evidence.labContextIntegrity = labContext.contextIntegrity;
+    input.evidence.labConfidenceCap = getConfidenceCap(labContext);
+
+    console.log('[Website Lab V4] Brain context loaded:', {
+      integrity: labContext.contextIntegrity,
+      hasICP: labContext.hasCanonicalICP,
+      hasObjectives: labContext.hasObjectives,
+      confidenceCap: input.evidence.labConfidenceCap,
+    });
+  } catch (error) {
+    console.warn('[Website Lab V4] Could not load Brain context:', error);
+    input.evidence.labContextIntegrity = 'none';
+    input.evidence.labConfidenceCap = 0.6;
+  }
+
   try {
     // Import V4 orchestrator (dynamic to avoid circular deps)
     const { runWebsiteLab } = await import('./websiteLabImpl');
@@ -785,6 +817,12 @@ export async function runWebsiteLabV4(input: {
     const labResult = await runWebsiteLab(input.websiteUrl, {
       ga4PropertyId: input.company.ga4PropertyId,
       searchConsoleSiteUrl: input.company.searchConsoleSiteUrl,
+      // Pass Brain context for prompt enrichment
+      brainContext: labContext ? {
+        identitySummary: labContext.identitySummary,
+        objectivesSummary: labContext.objectivesSummary,
+        audienceSummary: labContext.audienceSummary,
+      } : undefined,
     });
 
     // ========================================================================

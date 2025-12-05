@@ -330,7 +330,7 @@ export function SetupClient({
         {!hasGraph && (
           <div className="px-4 py-2 mb-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
             <p className="text-xs text-amber-400">
-              No existing Brain data found. Fields you fill here will be added to the Brain.
+              No existing Brain data found. Fields filled here will be added to the Brain.
             </p>
           </div>
         )}

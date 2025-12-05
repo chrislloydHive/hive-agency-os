@@ -82,12 +82,12 @@ export function StepPersonas({
       {/* Quick Generate */}
       <FormSection
         title="Quick Persona Generation"
-        description="Generate personas based on your audience foundations"
+        description="Generate personas based on the audience foundations"
       >
         {audienceData?.coreSegments && audienceData.coreSegments.length > 0 ? (
           <div className="space-y-4">
             <div className="p-4 bg-slate-800/50 rounded-lg">
-              <div className="text-sm text-slate-400 mb-2">Based on your audience data:</div>
+              <div className="text-sm text-slate-400 mb-2">Based on the audience data:</div>
               <div className="flex flex-wrap gap-2">
                 {audienceData.coreSegments.map((segment) => (
                   <span
@@ -168,7 +168,7 @@ export function StepPersonas({
               Complete the Audience Foundations step first to generate personas
             </p>
             <p className="text-sm text-slate-500 mt-1">
-              We need your core segments and audience data to create relevant personas
+              Core segments and audience data are needed to create relevant personas
             </p>
           </div>
         )}
@@ -178,7 +178,7 @@ export function StepPersonas({
       {generatedPersonas.length > 0 && (
         <FormSection
           title="Generated Personas"
-          description="Review and refine your buyer personas"
+          description="Review and refine the buyer personas"
         >
           <div className="grid gap-4">
             {generatedPersonas.map((persona, index) => (
@@ -208,7 +208,7 @@ export function StepPersonas({
       {formData.personas?.personaCount && formData.personas.personaCount > 0 && generatedPersonas.length === 0 && (
         <FormSection
           title="Existing Personas"
-          description="Personas already in your Context Graph"
+          description="Personas already in the Context Graph"
         >
           <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
             <div className="flex items-center gap-3">
@@ -222,7 +222,7 @@ export function StepPersonas({
                   {formData.personas.personaCount} persona{formData.personas.personaCount !== 1 ? 's' : ''} configured
                 </div>
                 <div className="text-sm text-slate-400">
-                  You can regenerate or edit personas in Audience Lab
+                  Personas can be regenerated or edited in Audience Lab
                 </div>
               </div>
             </div>

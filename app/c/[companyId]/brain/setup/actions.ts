@@ -5,6 +5,12 @@
 //
 // These actions are used by Setup form components to persist
 // changes directly to the Context Graph.
+//
+// ICP fields are mapped to Context Graph with proper provenance:
+// - primaryAudience → audience.primaryAudience
+// - primaryBuyerRoles → audience.primaryBuyerRoles
+// - targetCompanySize/Stage/Industries → audience.companyProfile (object)
+// - icpDescription → identity.icpDescription
 
 import { revalidatePath } from 'next/cache';
 import { loadContextGraph, saveContextGraph } from '@/lib/contextGraph/storage';
@@ -21,6 +27,7 @@ import {
 } from '@/lib/contextGraph/setupSchema';
 import type { SetupStepId, SetupFormData } from './types';
 import type { DomainName } from '@/lib/contextGraph/companyContextGraph';
+import type { CompanyProfile } from '@/lib/contextGraph/domains/audience';
 
 // ============================================================================
 // Types
@@ -30,6 +37,32 @@ export interface SaveFieldResult {
   success: boolean;
   contextPath: string;
   error?: string;
+}
+
+// ============================================================================
+// ICP Helper Functions
+// ============================================================================
+
+/**
+ * Build a CompanyProfile object from form fields
+ */
+function buildCompanyProfileFromForm(
+  stepData: Record<string, unknown>
+): CompanyProfile | null {
+  const size = stepData.targetCompanySize as string | undefined;
+  const stage = stepData.targetCompanyStage as string | undefined;
+  const industries = stepData.targetIndustries as string[] | undefined;
+
+  // Only create profile if at least one field is set
+  if (!size && !stage && (!industries || industries.length === 0)) {
+    return null;
+  }
+
+  return {
+    sizeRange: size || null,
+    stage: stage || null,
+    industries: industries?.length ? industries : null,
+  };
 }
 
 export interface SaveStepResult {
@@ -130,6 +163,13 @@ export async function saveSetupStep(
   stepId: SetupStepId,
   stepData: Record<string, unknown>
 ): Promise<SaveStepResult> {
+  console.log(`[Setup saveSetupStep] Saving step ${stepId} for ${companyId}`, {
+    stepDataKeys: Object.keys(stepData),
+    stepDataSample: Object.fromEntries(
+      Object.entries(stepData).slice(0, 5).map(([k, v]) => [k, typeof v === 'string' ? v.substring(0, 50) : v])
+    ),
+  });
+
   const errors: string[] = [];
   let totalWritten = 0;
   let totalBlocked = 0;
@@ -139,6 +179,7 @@ export async function saveSetupStep(
     // Load current graph
     const graph = await loadContextGraph(companyId);
     if (!graph) {
+      console.log('[Setup saveSetupStep] No graph found!');
       return {
         success: false,
         fieldsWritten: 0,
@@ -150,7 +191,10 @@ export async function saveSetupStep(
 
     // Get bindings for this step
     const bindings = getBindingsForStep(stepId);
+    console.log(`[Setup saveSetupStep] Found ${bindings.length} bindings for step ${stepId}`);
+
     if (bindings.length === 0) {
+      console.log('[Setup saveSetupStep] No bindings found!');
       return {
         success: true,
         fieldsWritten: 0,
@@ -174,17 +218,48 @@ export async function saveSetupStep(
       notes: `Setup Step: ${stepId}`,
     });
 
+    // Special handling for audience step: build companyProfile object
+    if (stepId === 'audience') {
+      const companyProfile = buildCompanyProfileFromForm(stepData);
+      if (companyProfile) {
+        setFieldUntyped(
+          graph,
+          'audience',
+          'companyProfile',
+          companyProfile,
+          provenance
+        );
+        totalWritten++;
+      }
+    }
+
     // Process each domain
     for (const [domain, domainBindings] of bindingsByDomain) {
       // Build fields object for this domain
       const fields: Record<string, unknown> = {};
 
       for (const binding of domainBindings) {
+        // Skip the company profile sub-fields - they're handled above
+        if (
+          binding.setupFieldId === 'targetCompanySize' ||
+          binding.setupFieldId === 'targetCompanyStage' ||
+          binding.setupFieldId === 'targetIndustries'
+        ) {
+          continue;
+        }
+
         const value = stepData[binding.setupFieldId];
         if (value !== undefined) {
           fields[binding.field] = value;
         }
       }
+
+      console.log(`[Setup saveSetupStep] Domain ${domain}: ${Object.keys(fields).length} fields to write`, {
+        fieldNames: Object.keys(fields),
+        sampleValues: Object.fromEntries(
+          Object.entries(fields).slice(0, 3).map(([k, v]) => [k, typeof v === 'string' ? v.substring(0, 30) : v])
+        ),
+      });
 
       if (Object.keys(fields).length === 0) continue;
 
@@ -293,6 +368,21 @@ export async function saveSetupFormData(
 
       const bindings = getBindingsForStep(stepId);
 
+      // Special handling for audience step: build companyProfile object
+      if (stepId === 'audience') {
+        const companyProfile = buildCompanyProfileFromForm(stepData as Record<string, unknown>);
+        if (companyProfile) {
+          setFieldUntyped(
+            graph,
+            'audience',
+            'companyProfile',
+            companyProfile,
+            provenance
+          );
+          totalWritten++;
+        }
+      }
+
       // Group by domain
       const bindingsByDomain = new Map<DomainName, SetupFieldBinding[]>();
       for (const binding of bindings) {
@@ -306,6 +396,15 @@ export async function saveSetupFormData(
         const fields: Record<string, unknown> = {};
 
         for (const binding of domainBindings) {
+          // Skip the company profile sub-fields - they're handled above
+          if (
+            binding.setupFieldId === 'targetCompanySize' ||
+            binding.setupFieldId === 'targetCompanyStage' ||
+            binding.setupFieldId === 'targetIndustries'
+          ) {
+            continue;
+          }
+
           const value = (stepData as Record<string, unknown>)[binding.setupFieldId];
           if (value !== undefined) {
             fields[binding.field] = value;

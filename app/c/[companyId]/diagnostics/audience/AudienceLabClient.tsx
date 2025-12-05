@@ -34,6 +34,13 @@ interface AudienceLabClientProps {
     missingCritical: string[];
     dataRichness: 'low' | 'medium' | 'high';
   };
+  /** ICP status from Context Graph */
+  icpStatus?: {
+    hasCanonicalICP: boolean;
+    primaryAudience?: string;
+    source?: string;
+    isHumanOverride?: boolean;
+  };
 }
 
 // ============================================================================
@@ -47,6 +54,7 @@ export function AudienceLabClient({
   initialPersonaSet,
   signals,
   signalsSummary,
+  icpStatus,
 }: AudienceLabClientProps) {
   const router = useRouter();
   const [model, setModel] = useState<AudienceModel | null>(initialModel);
@@ -369,6 +377,9 @@ export function AudienceLabClient({
           Define and manage audience segments for {companyName}
         </p>
       </div>
+
+      {/* ICP Status Banner */}
+      <ICPStatusBanner icpStatus={icpStatus} />
 
       {/* Message */}
       {message && (
@@ -1060,6 +1071,80 @@ function SegmentEditor({
         onChange={(values) => onUpdate({ recommendedFormats: values })}
         placeholder="UGC, explainer, carousel, testimonial..."
       />
+    </div>
+  );
+}
+
+/**
+ * ICP Status Banner
+ *
+ * Shows whether segments are anchored to a canonical ICP from Brain,
+ * or if they are inferred/provisional.
+ */
+function ICPStatusBanner({
+  icpStatus,
+}: {
+  icpStatus?: {
+    hasCanonicalICP: boolean;
+    primaryAudience?: string;
+    source?: string;
+    isHumanOverride?: boolean;
+  };
+}) {
+  // Get ICP status from signals if not provided directly
+  const hasICP = icpStatus?.hasCanonicalICP ?? false;
+
+  if (hasICP) {
+    return (
+      <div className="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
+        <div className="flex items-start gap-3">
+          <div className="flex-shrink-0 mt-0.5">
+            <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-emerald-400">
+              Anchored to ICP from Brain
+              {icpStatus?.source && (
+                <span className="ml-2 text-emerald-400/70 font-normal">
+                  (Source: {icpStatus.source === 'user' || icpStatus.source === 'manual' ? 'Setup / Strategic Plan' : icpStatus.source})
+                </span>
+              )}
+            </p>
+            {icpStatus?.primaryAudience && (
+              <p className="text-xs text-slate-400 mt-1 line-clamp-2">
+                {icpStatus.primaryAudience}
+              </p>
+            )}
+            <p className="text-xs text-emerald-400/70 mt-1.5">
+              Segments will be decomposed from this ICP. They cannot expand beyond it.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0 mt-0.5">
+          <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-medium text-amber-400">
+            No ICP Defined
+          </p>
+          <p className="text-xs text-slate-400 mt-1">
+            Segments will be inferred from website content and diagnostics. Consider defining your target audience in{' '}
+            <span className="text-amber-400">Setup</span> or{' '}
+            <span className="text-amber-400">Strategic Plan</span> for more accurate segments.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

@@ -16,6 +16,10 @@ export const IdentityDomain = z.object({
   businessModel: WithMeta(BusinessModel),
   revenueModel: WithMeta(z.string()),
 
+  // ICP (Ideal Customer Profile) - Canonical definition
+  // This is the PRIMARY constraint for Audience Lab and other Labs
+  icpDescription: WithMeta(z.string()), // Full description of the ideal customer
+
   // Market Position
   marketMaturity: WithMeta(MarketMaturity),
   geographicFootprint: WithMeta(z.string()),
@@ -47,6 +51,7 @@ export function createEmptyIdentityDomain(): IdentityDomain {
     industry: { value: null, provenance: [] },
     businessModel: { value: null, provenance: [] },
     revenueModel: { value: null, provenance: [] },
+    icpDescription: { value: null, provenance: [] },
     marketMaturity: { value: null, provenance: [] },
     geographicFootprint: { value: null, provenance: [] },
     serviceArea: { value: null, provenance: [] },
