@@ -48,9 +48,9 @@ export const SETUP_STEP_CONFIG: Record<SetupStepId, SetupStep> = {
   },
   'personas': {
     id: 'personas',
-    label: 'Personas',
-    shortLabel: 'Personas',
-    description: 'Detailed buyer personas',
+    label: 'Audience Preview',
+    shortLabel: 'Preview',
+    description: 'Review your target audience before continuing',
     icon: 'user-circle',
   },
   'website': {

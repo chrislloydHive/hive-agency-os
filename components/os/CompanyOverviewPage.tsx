@@ -9,6 +9,8 @@
 //
 // MEDIA PROGRAM: Includes conditional media card based on company.hasMediaProgram
 
+import { useState, useEffect } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 import QuickHealthCheckCard from './QuickHealthCheckCard';
@@ -656,6 +658,30 @@ export function CompanyOverviewPage({
   mediaLabSummary,
   summary,
 }: CompanyOverviewPageProps) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  // Setup completion toast
+  const [showSetupToast, setShowSetupToast] = useState(false);
+  const [setupWorkItems, setSetupWorkItems] = useState(0);
+
+  useEffect(() => {
+    if (searchParams.get('setup') === 'complete') {
+      setShowSetupToast(true);
+      setSetupWorkItems(parseInt(searchParams.get('workItems') || '0', 10));
+
+      // Clear the URL params after showing toast
+      const url = new URL(window.location.href);
+      url.searchParams.delete('setup');
+      url.searchParams.delete('workItems');
+      router.replace(url.pathname, { scroll: false });
+
+      // Auto-hide toast after 5 seconds
+      const timer = setTimeout(() => setShowSetupToast(false), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams, router]);
+
   // When summary is provided, prefer its values for common fields
   const companyId = summary?.companyId ?? company.id;
   const companyName = summary?.meta.name ?? company.name;
@@ -719,6 +745,35 @@ export function CompanyOverviewPage({
 
   return (
     <div className="space-y-6">
+      {/* Setup Complete Toast */}
+      {showSetupToast && (
+        <div className="fixed top-4 right-4 z-50 animate-in slide-in-from-top-2 fade-in duration-300">
+          <div className="bg-emerald-500/90 backdrop-blur-sm text-white px-5 py-3 rounded-lg shadow-lg flex items-center gap-3">
+            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div>
+              <div className="font-medium">Strategic Setup Complete!</div>
+              {setupWorkItems > 0 && (
+                <div className="text-sm text-emerald-100">
+                  {setupWorkItems} work item{setupWorkItems !== 1 ? 's' : ''} created
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setShowSetupToast(false)}
+              className="ml-2 text-white/70 hover:text-white"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ================================================================== */}
       {/* Incomplete Setup Banner (shown when setup is not completed) */}
       {/* ================================================================== */}

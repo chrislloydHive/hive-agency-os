@@ -41,6 +41,8 @@ interface AudienceLabClientProps {
     source?: string;
     isHumanOverride?: boolean;
   };
+  /** Whether the ICP has been updated since the model was generated */
+  icpUpdatedSinceModel?: boolean;
 }
 
 // ============================================================================
@@ -55,6 +57,7 @@ export function AudienceLabClient({
   signals,
   signalsSummary,
   icpStatus,
+  icpUpdatedSinceModel,
 }: AudienceLabClientProps) {
   const router = useRouter();
   const [model, setModel] = useState<AudienceModel | null>(initialModel);
@@ -381,6 +384,38 @@ export function AudienceLabClient({
       {/* ICP Status Banner */}
       <ICPStatusBanner icpStatus={icpStatus} />
 
+      {/* ICP Updated Warning */}
+      {icpUpdatedSinceModel && model && (
+        <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 mt-0.5">
+              <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-amber-400">
+                ICP Updated Since Last Generation
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                Your target audience has been updated in Setup or Brain since these segments were generated.
+                Consider regenerating to align segments with your updated ICP.
+              </p>
+              <button
+                onClick={handleRegenerate}
+                disabled={isLoading}
+                className="mt-2 text-xs font-medium text-amber-400 hover:text-amber-300 flex items-center gap-1"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Regenerate from Signals
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Message */}
       {message && (
         <div
@@ -595,24 +630,24 @@ export function AudienceLabClient({
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
-                      Canonical Model
+                      Official Audience
                     </>
                   ) : (
-                    'Set as Canonical & Update Graph'
+                    'Set as Official Audience'
                   )}
                 </button>
                 <InfoTip
                   variant="tip"
-                  title="Context Graph Integration"
+                  title="Set as Official Audience"
                   maxWidth={340}
                   content={
                     <div className="space-y-2">
-                      <p>Setting a model as <strong>canonical</strong> copies your audience segments into the Company Context Graph.</p>
-                      <p>This makes your audience data available to:</p>
+                      <p>This makes these segments the <strong>official audience definition</strong> for {companyName}.</p>
+                      <p>All other tools will use these segments until you change them:</p>
                       <ul className="list-disc list-inside text-slate-400">
-                        <li>Media Lab planning</li>
-                        <li>Creative generation</li>
-                        <li>AI-powered recommendations</li>
+                        <li>Media Lab channel planning</li>
+                        <li>Creative briefs and generation</li>
+                        <li>AI recommendations across the platform</li>
                       </ul>
                     </div>
                   }

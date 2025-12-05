@@ -42,9 +42,22 @@ export async function GET(request: NextRequest) {
         latestRun.status === 'running' ? 'running' :
         'pending';
 
+      // Get current step description from metadata or summary
+      const stage = (latestRun.metadata as any)?.stage;
+      let currentStep = '';
+      if (latestRun.status === 'running') {
+        if (stage === 'full-gap-processing') {
+          currentStep = 'Generating Full GAP analysis... This may take 1-2 minutes.';
+        } else {
+          currentStep = 'Processing...';
+        }
+      } else if (latestRun.status === 'complete') {
+        currentStep = 'Complete!';
+      }
+
       return NextResponse.json({
         status: mappedStatus,
-        currentStep: latestRun.status === 'running' ? 'Generating Full GAP...' : '',
+        currentStep,
         percent: latestRun.status === 'complete' ? 100 : latestRun.status === 'running' ? 50 : 0,
         error: latestRun.metadata?.error as string | undefined,
         runId: latestRun.id,

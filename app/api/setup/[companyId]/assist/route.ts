@@ -45,6 +45,84 @@ interface AssistResponse {
 }
 
 // ============================================================================
+// Field type definitions - helps AI return correct data types
+// ============================================================================
+
+const FIELD_TYPES: Record<string, { type: string; hint?: string }> = {
+  // Business Identity
+  industry: { type: 'string', hint: 'industry category' },
+  businessModel: { type: 'string', hint: 'e.g., B2B, B2C, SaaS, Agency' },
+  revenueModel: { type: 'string', hint: 'e.g., subscription, project-based' },
+  geographicFootprint: { type: 'string', hint: 'e.g., Regional, National, Global' },
+  serviceArea: { type: 'string' },
+  seasonalityNotes: { type: 'string' },
+  peakSeasons: { type: 'string[]' },
+  revenueStreams: { type: 'string[]' },
+  primaryCompetitors: { type: 'string[]' },
+
+  // Objectives
+  primaryObjective: { type: 'string' },
+  secondaryObjectives: { type: 'string[]' },
+  primaryBusinessGoal: { type: 'string' },
+  timeHorizon: { type: 'string', hint: 'e.g., 6 months, 12 months' },
+  targetCpa: { type: 'number', hint: 'target cost per acquisition in dollars' },
+  targetRoas: { type: 'number', hint: 'target return on ad spend multiplier' },
+  revenueGoal: { type: 'number' },
+  leadGoal: { type: 'number' },
+  kpiLabels: { type: 'string[]' },
+
+  // Audience - IMPORTANT: geos is a STRING, not an array
+  coreSegments: { type: 'string[]', hint: 'target customer segments' },
+  demographics: { type: 'string', hint: 'demographic description' },
+  geos: { type: 'string', hint: 'comma-separated list like "United States, Canada"' },
+  primaryMarkets: { type: 'string[]', hint: 'specific cities or regions' },
+  behavioralDrivers: { type: 'string[]' },
+  demandStates: { type: 'string[]' },
+  painPoints: { type: 'string[]' },
+  motivations: { type: 'string[]' },
+
+  // Website
+  websiteSummary: { type: 'string' },
+  conversionBlocks: { type: 'string[]' },
+  conversionOpportunities: { type: 'string[]' },
+  criticalIssues: { type: 'string[]' },
+  quickWins: { type: 'string[]' },
+
+  // Media
+  mediaSummary: { type: 'string' },
+  activeChannels: { type: 'string[]' },
+  attributionModel: { type: 'string' },
+  mediaIssues: { type: 'string[]' },
+  mediaOpportunities: { type: 'string[]' },
+
+  // Budget
+  totalMarketingBudget: { type: 'number' },
+  mediaSpendBudget: { type: 'number' },
+  budgetPeriod: { type: 'string', hint: 'e.g., monthly, quarterly, annual' },
+  avgCustomerValue: { type: 'number' },
+  customerLTV: { type: 'number' },
+
+  // Creative
+  coreMessages: { type: 'string[]' },
+  proofPoints: { type: 'string[]' },
+  callToActions: { type: 'string[]' },
+  availableFormats: { type: 'string[]' },
+  brandGuidelines: { type: 'string' },
+
+  // Measurement
+  ga4PropertyId: { type: 'string' },
+  ga4ConversionEvents: { type: 'string[]' },
+  callTracking: { type: 'string' },
+  trackingTools: { type: 'string[]' },
+  attributionWindow: { type: 'string' },
+
+  // Summary
+  strategySummary: { type: 'string' },
+  keyRecommendations: { type: 'string[]' },
+  nextSteps: { type: 'string[]' },
+};
+
+// ============================================================================
 // Step-specific prompts
 // ============================================================================
 
@@ -320,6 +398,15 @@ async function generateSetupSuggestions(
   const client = new Anthropic();
   const stepPrompt = STEP_PROMPTS[step];
 
+  // Define field types to guide AI suggestions
+  const fieldTypesWithAnnotations = fields.map(f => {
+    const fieldInfo = FIELD_TYPES[f];
+    if (fieldInfo) {
+      return `- ${f} (${fieldInfo.type})${fieldInfo.hint ? `: ${fieldInfo.hint}` : ''}`;
+    }
+    return `- ${f}`;
+  }).join('\n');
+
   const prompt = `You are an expert marketing strategist helping set up a company's marketing strategy.
 
 ## Company Context:
@@ -329,13 +416,15 @@ ${context || 'No additional context available.'}
 ${stepPrompt}
 
 ## Fields to Suggest Values For:
-${fields.map(f => `- ${f}`).join('\n')}
+${fieldTypesWithAnnotations}
 
 Based on the context provided, generate suggestions for each field.
 Be practical and realistic - only suggest values you can reasonably infer.
-For array fields, provide 2-5 relevant items.
-For string fields, be concise but informative.
-For number fields, use industry benchmarks if available.
+
+IMPORTANT TYPE RULES:
+- For fields marked (string): Return a single string value, NOT an array
+- For fields marked (string[]): Return an array of 2-5 string items
+- For fields marked (number): Return a number, use industry benchmarks if available
 
 Respond with a JSON array:
 [

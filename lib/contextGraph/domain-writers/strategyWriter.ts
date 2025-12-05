@@ -183,6 +183,18 @@ export const STRATEGY_FIELDS = {
     'seasonalFactors',
     'competitiveThreats',
   ],
+
+  // Creative Strategy
+  creative: [
+    'messaging',           // Core messaging architecture
+    'segmentMessages',     // Segment-specific messaging
+    'creativeTerritories', // Creative territories
+    'campaignConcepts',    // Campaign concepts
+    'guidelines',          // Voice, tone, visual guidelines
+    'channelPatterns',     // Channel-specific patterns
+    'testingRoadmapItems', // Testing roadmap
+    'assetSpecs',          // Asset specifications
+  ],
 } as const;
 
 /**

@@ -178,11 +178,11 @@ export async function saveContextGraph(
       'Updated At': now,
     };
 
-    // Set Last Updated By
+    // Set Last Updated By - map to valid Airtable select options
+    // Valid options in Airtable: 'user' (add more as needed: 'fusion', 'diagnostic', 'import', 'api')
     if (source) {
-      fields['Last Updated By'] = source;
-    } else if (graph.meta.lastFusionRunId) {
-      fields['Last Updated By'] = 'fusion';
+      // Map various source names to 'user' for now
+      fields['Last Updated By'] = 'user';
     }
 
     let savedRecord: any;

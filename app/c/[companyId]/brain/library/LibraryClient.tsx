@@ -39,6 +39,7 @@ export interface ReportItem {
     | 'seo-lab'
     | 'demand-lab'
     | 'ops-lab'
+    | 'creative-lab'
     | 'document';
   title: string;
   description: string;
@@ -173,6 +174,7 @@ function ReportCard({ report }: { report: ReportItem }) {
     'seo-lab': 'SEO Lab',
     'demand-lab': 'Demand Lab',
     'ops-lab': 'Ops Lab',
+    'creative-lab': 'Creative Lab',
     'document': 'Document',
   };
 

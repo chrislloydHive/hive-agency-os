@@ -72,9 +72,28 @@ export function SetupClient({
   // Provenance tracking for display
   const [provenanceMap] = useState<Map<string, ContextNodeInfo>>(initialProvenanceMap);
 
+  // Calculate which steps have data (are "complete")
+  const calculateCompletedSteps = (data: Partial<SetupFormData>): SetupStepId[] => {
+    const completed: SetupStepId[] = [];
+
+    // Check each step for meaningful data
+    if (data.businessIdentity?.businessName) completed.push('business-identity');
+    if (data.objectives?.primaryObjective || data.objectives?.primaryBusinessGoal) completed.push('objectives');
+    if (data.audience?.primaryAudience || (data.audience?.coreSegments && data.audience.coreSegments.length > 0)) completed.push('audience');
+    if (data.personas?.personaCount && data.personas.personaCount > 0) completed.push('personas');
+    if (data.website?.websiteSummary || (data.website?.conversionBlocks && data.website.conversionBlocks.length > 0)) completed.push('website');
+    if (data.mediaFoundations?.mediaSummary || (data.mediaFoundations?.activeChannels && data.mediaFoundations.activeChannels.length > 0)) completed.push('media-foundations');
+    if (data.budgetScenarios?.totalMarketingBudget || data.budgetScenarios?.mediaSpendBudget) completed.push('budget-scenarios');
+    if (data.creativeStrategy?.coreMessages && data.creativeStrategy.coreMessages.length > 0) completed.push('creative-strategy');
+    if (data.measurement?.ga4PropertyId || (data.measurement?.trackingTools && data.measurement.trackingTools.length > 0)) completed.push('measurement');
+    if (data.summary?.strategySummary) completed.push('summary');
+
+    return completed;
+  };
+
   const [progress, setProgress] = useState<SetupProgress>({
     currentStep: 'business-identity',
-    completedSteps: [],
+    completedSteps: calculateCompletedSteps(initialFormData),
     lastSavedAt: null,
     startedAt: new Date().toISOString(),
   });
@@ -138,10 +157,14 @@ export function SetupClient({
       const stepKey = stepIdToKey[stepId];
       const stepData = formData[stepKey];
 
+      console.log('[Setup Client] saveStep called:', { stepId, stepKey, hasData: !!stepData, dataKeys: stepData ? Object.keys(stepData) : [] });
+
       if (!stepData) {
         console.warn(`[Setup] No data for step ${stepId}`);
         return;
       }
+
+      console.log('[Setup Client] Calling server action with data:', stepData);
 
       startTransition(async () => {
         try {
@@ -194,9 +217,11 @@ export function SetupClient({
   // Go to next step
   const goNext = useCallback(async () => {
     const currentStep = progress.currentStep;
+    console.log('[Setup Client] goNext called, saving step:', currentStep);
 
     // Save current step first
     await saveStep(currentStep);
+    console.log('[Setup Client] saveStep completed');
 
     // Navigate to next
     const next = getNextStep(currentStep);

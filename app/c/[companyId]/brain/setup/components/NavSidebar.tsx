@@ -46,7 +46,9 @@ export function NavSidebar({
           const config = SETUP_STEP_CONFIG[stepId];
           const isCurrent = currentStep === stepId;
           const isCompleted = completedSteps.includes(stepId);
-          const isAccessible = isCompleted || index === 0 || completedSteps.includes(SETUP_STEPS[index - 1]);
+          // Allow navigation to completed steps, current step, or adjacent steps
+          // This is more permissive - you can go back or to any completed step
+          const isAccessible = isCompleted || isCurrent || index === 0 || completedSteps.includes(SETUP_STEPS[index - 1]);
 
           return (
             <button

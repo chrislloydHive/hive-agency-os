@@ -91,7 +91,8 @@ export type WorkSourceType =
   | 'dma_funnel'
   | 'funnel_insight'
   | 'media_scorecard'
-  | 'setup_wizard';
+  | 'setup_wizard'
+  | 'creative_lab';
 
 /**
  * Analytics metric source - when work is created from an analytics insight
@@ -209,6 +210,16 @@ export interface WorkSourceSetupWizard {
 }
 
 /**
+ * Creative Lab source - from Creative Lab experiments, asset briefs, or concepts
+ */
+export interface WorkSourceCreativeLab {
+  sourceType: 'creative_lab';
+  runId?: string;
+  itemType: 'experiment' | 'asset_brief' | 'campaign_concept';
+  itemId?: string;
+}
+
+/**
  * Union of all work source types
  */
 export type WorkSource =
@@ -223,7 +234,8 @@ export type WorkSource =
   | WorkSourceDmaFunnel
   | WorkSourceFunnelInsight
   | WorkSourceMediaScorecard
-  | WorkSourceSetupWizard;
+  | WorkSourceSetupWizard
+  | WorkSourceCreativeLab;
 
 // ============================================================================
 // Work Item Types
@@ -394,6 +406,8 @@ export function getSourceLabel(source?: WorkSource): string {
       return `Media Scorecard → ${source.scoreType}`;
     case 'setup_wizard':
       return 'Strategic Setup';
+    case 'creative_lab':
+      return `Creative Lab → ${source.itemType.replace('_', ' ')}`;
     default:
       return 'Unknown';
   }

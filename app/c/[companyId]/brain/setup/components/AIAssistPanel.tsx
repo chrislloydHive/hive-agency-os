@@ -3,7 +3,7 @@
 // app/c/[companyId]/setup/components/AIAssistPanel.tsx
 // AI Assist Panel - Slide-over panel showing AI suggestions for current step
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { SetupStepId, SETUP_STEP_CONFIG, SetupFormData } from '../types';
 
 // ============================================================================
@@ -39,13 +39,12 @@ function formatValue(value: unknown): string {
   if (value === null || value === undefined) return '(empty)';
   if (Array.isArray(value)) {
     if (value.length === 0) return '(empty array)';
-    return value.slice(0, 3).join(', ') + (value.length > 3 ? ` +${value.length - 3} more` : '');
+    return value.join(', ');
   }
-  if (typeof value === 'string') return value.length > 80 ? value.slice(0, 80) + '...' : value;
+  if (typeof value === 'string') return value;
   if (typeof value === 'number') return value.toLocaleString();
   if (typeof value === 'object') {
-    const str = JSON.stringify(value);
-    return str.length > 80 ? str.slice(0, 80) + '...' : str;
+    return JSON.stringify(value, null, 2);
   }
   return String(value);
 }
@@ -82,10 +81,14 @@ export function AIAssistPanel({
   const [error, setError] = useState<string | null>(null);
   const [appliedFields, setAppliedFields] = useState<Set<string>>(new Set());
 
+  // Track the step we last fetched for to avoid re-fetching on formData changes
+  const lastFetchedStepRef = useRef<string | null>(null);
+  const isPanelOpenRef = useRef(false);
+
   const stepConfig = SETUP_STEP_CONFIG[currentStep];
 
-  // Fetch suggestions when panel opens or step changes
-  const fetchSuggestions = useCallback(async () => {
+  // Fetch suggestions - captures formData at call time
+  const fetchSuggestions = useCallback(async (dataSnapshot: Partial<SetupFormData>) => {
     setIsLoading(true);
     setError(null);
     setSuggestions([]);
@@ -97,7 +100,7 @@ export function AIAssistPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           currentStep,
-          formData,
+          formData: dataSnapshot,
         }),
       });
 
@@ -108,19 +111,28 @@ export function AIAssistPanel({
 
       const data = await response.json();
       setSuggestions(data.suggestions || []);
+      lastFetchedStepRef.current = currentStep;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setIsLoading(false);
     }
-  }, [companyId, currentStep, formData]);
+  }, [companyId, currentStep]);
 
-  // Fetch when opened
+  // Fetch only when panel opens or step changes (not on every formData change)
   useEffect(() => {
     if (isOpen) {
-      fetchSuggestions();
+      // Only fetch if panel just opened or step changed
+      if (!isPanelOpenRef.current || lastFetchedStepRef.current !== currentStep) {
+        isPanelOpenRef.current = true;
+        fetchSuggestions(formData);
+      }
+    } else {
+      // Panel closed - reset refs so next open will fetch fresh
+      isPanelOpenRef.current = false;
+      lastFetchedStepRef.current = null;
     }
-  }, [isOpen, currentStep, fetchSuggestions]);
+  }, [isOpen, currentStep, fetchSuggestions, formData]);
 
   // Handle apply single suggestion
   const handleApply = (suggestion: FieldSuggestion) => {
@@ -204,7 +216,7 @@ export function AIAssistPanel({
                 <div>
                   <p className="text-sm text-red-300">{error}</p>
                   <button
-                    onClick={fetchSuggestions}
+                    onClick={() => fetchSuggestions(formData)}
                     className="mt-2 text-xs text-red-400 hover:text-red-300 underline"
                   >
                     Try again
@@ -310,7 +322,7 @@ export function AIAssistPanel({
               </p>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={fetchSuggestions}
+                  onClick={() => fetchSuggestions(formData)}
                   className="px-3 py-1.5 rounded-md text-xs font-medium border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors"
                 >
                   Refresh

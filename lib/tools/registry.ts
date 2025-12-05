@@ -30,6 +30,7 @@ export type CompanyToolId =
   | 'seoLab'         // SEO Lab (deep SEO + GSC + analytics)
   | 'demandLab'      // Demand Generation Lab
   | 'opsLab'         // Marketing Operations Lab
+  | 'creativeLab'    // Creative Lab (messaging, territories, campaigns)
   | 'analyticsScan'  // Analytics Scan (GA4 + GSC)
   | 'mediaLab'       // Media Lab (AI media planner)
   | 'audienceLab';   // Audience Lab (segments + personas)
@@ -520,6 +521,34 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
       typicalUseWhen: 'Building campaigns, refining targeting, or when personas need updating.',
     },
   },
+
+  // ==========================================================================
+  // Strategic Tools - Creative & Messaging
+  // ==========================================================================
+  {
+    id: 'creativeLab',
+    label: 'Creative Lab',
+    shortLabel: 'Creative',
+    description: 'AI-powered creative strategy engine. Generates messaging architecture, creative territories, campaign concepts, channel patterns, testing roadmaps, and asset specs.',
+    category: 'Content & Messaging',
+    section: 'strategic',
+    behavior: 'openRoute',
+    status: 'enabled',
+    diagnosticToolId: 'creativeLab',
+    openPath: (companyId) => `/c/${companyId}/labs/creative`,
+    urlSlug: 'creative-lab',
+    requiresWebsite: false,
+    estimatedMinutes: 5,
+    icon: 'sparkles',
+    primaryActionLabel: 'Open Creative Lab',
+    blueprintMeta: {
+      whyRun: 'Generate a complete creative strategy with messaging architecture, creative territories, campaign concepts, and production-ready asset briefs.',
+      answersQuestion: 'What should our messaging say, how should it look, and what campaigns should we run?',
+      influences: ['Strategy', 'Blueprint Focus', 'Work', 'Brain'],
+      inputs: ['GAP IA', 'Content'],
+      typicalUseWhen: 'Developing campaign creative, refreshing brand messaging, planning ad creative, or when building a new creative playbook.',
+    },
+  },
 ];
 
 // ============================================================================
@@ -657,6 +686,7 @@ export function diagnosticToolIdToCompanyToolId(diagnosticToolId: DiagnosticTool
     seoLab: 'seoLab',
     demandLab: 'demandLab',
     opsLab: 'opsLab',
+    creativeLab: 'creativeLab',
   };
   return mapping[diagnosticToolId];
 }

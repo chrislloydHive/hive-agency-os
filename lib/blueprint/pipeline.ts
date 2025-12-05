@@ -422,6 +422,7 @@ export async function fetchDiagnosticsData(companyId: string): Promise<Diagnosti
     seoLab: null,
     demandLab: null,
     opsLab: null,
+    creativeLab: null,
   };
 
   for (const toolId of Object.keys(runs) as DiagnosticToolId[]) {

@@ -48,6 +48,7 @@ const toolNames: Record<DiagnosticToolId, string> = {
   seoLab: 'SEO Lab',
   demandLab: 'Demand Lab',
   opsLab: 'Ops Lab',
+  creativeLab: 'Creative Lab',
 };
 
 interface RouteContext {

@@ -19,9 +19,42 @@ interface StepSummaryProps {
 export function StepSummary({
   companyId,
   formData,
+  updateStepData,
 }: StepSummaryProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [generatedSummary, setGeneratedSummary] = useState<{
+    strategySummary: string;
+    keyRecommendations: string[];
+    nextSteps: string[];
+  } | null>(null);
+
+  const handleFinalize = async () => {
+    setIsFinalizing(true);
+    try {
+      const response = await fetch(`/api/setup/${companyId}/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ formData }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        const workItemsCreated = result.workItemsCreated || 0;
+        // Redirect to company page with success message
+        window.location.href = `/c/${companyId}?setup=complete&workItems=${workItemsCreated}`;
+      } else {
+        console.error('Finalize failed:', await response.text());
+        alert('Failed to finalize setup. Please try again.');
+      }
+    } catch (error) {
+      console.error('Finalize error:', error);
+      alert('Failed to finalize setup. Please try again.');
+    } finally {
+      setIsFinalizing(false);
+    }
+  };
 
   const generateStrategySummary = async () => {
     setIsGenerating(true);
@@ -32,8 +65,16 @@ export function StepSummary({
         body: JSON.stringify({ formData }),
       });
       if (response.ok) {
-        // Summary will be returned and can be displayed
-        await response.json();
+        const data = await response.json();
+        if (data.success && data.summary) {
+          setGeneratedSummary(data.summary);
+          // Also update the form data so it gets saved
+          updateStepData('summary', {
+            strategySummary: data.summary.strategySummary,
+            keyRecommendations: data.summary.keyRecommendations,
+            nextSteps: data.summary.nextSteps,
+          });
+        }
       }
     } catch (error) {
       console.error('Failed to generate summary:', error);
@@ -138,7 +179,7 @@ export function StepSummary({
           data={formData.audience}
           items={[
             { label: 'Segments', value: formData.audience?.coreSegments?.join(', ') },
-            { label: 'Geography', value: formData.audience?.geos },
+            { label: 'Geography', value: cleanGeographyValue(formData.audience?.geos) },
             { label: 'Pain Points', value: `${formData.audience?.painPoints?.length || 0} identified` },
           ]}
         />
@@ -249,6 +290,56 @@ export function StepSummary({
         </button>
       </div>
 
+      {/* Generated Summary Display */}
+      {(generatedSummary || formData.summary?.strategySummary) && (
+        <div className="p-6 bg-purple-500/10 border border-purple-500/30 rounded-xl space-y-4">
+          <div className="flex items-center gap-2">
+            <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+            </svg>
+            <h4 className="font-semibold text-purple-300">AI-Generated Strategic Summary</h4>
+          </div>
+
+          {/* Strategy Summary */}
+          <div>
+            <h5 className="text-sm font-medium text-slate-400 mb-2">Strategy Summary</h5>
+            <p className="text-slate-200">
+              {generatedSummary?.strategySummary || formData.summary?.strategySummary}
+            </p>
+          </div>
+
+          {/* Key Recommendations */}
+          {((generatedSummary?.keyRecommendations || formData.summary?.keyRecommendations)?.length ?? 0) > 0 && (
+            <div>
+              <h5 className="text-sm font-medium text-slate-400 mb-2">Key Recommendations</h5>
+              <ul className="space-y-2">
+                {(generatedSummary?.keyRecommendations || formData.summary?.keyRecommendations)?.map((rec, i) => (
+                  <li key={i} className="flex items-start gap-2 text-slate-200">
+                    <span className="text-purple-400 mt-1">•</span>
+                    {rec}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Next Steps */}
+          {((generatedSummary?.nextSteps || formData.summary?.nextSteps)?.length ?? 0) > 0 && (
+            <div>
+              <h5 className="text-sm font-medium text-slate-400 mb-2">Next Steps</h5>
+              <ul className="space-y-2">
+                {(generatedSummary?.nextSteps || formData.summary?.nextSteps)?.map((step, i) => (
+                  <li key={i} className="flex items-start gap-2 text-slate-200">
+                    <span className="text-emerald-400 mt-1">{i + 1}.</span>
+                    {step}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Finalize */}
       <div className="p-6 bg-green-500/10 border border-green-500/30 rounded-xl">
         <div className="flex items-start gap-4">
@@ -264,13 +355,21 @@ export function StepSummary({
               and mark this setup as complete.
             </p>
             <button
-              onClick={() => {
-                // This will be handled by the parent component
-                window.location.href = `/api/setup/${companyId}/finalize?redirect=/c/${companyId}`;
-              }}
-              className="mt-4 px-6 py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium transition-colors"
+              onClick={handleFinalize}
+              disabled={isFinalizing}
+              className="mt-4 px-6 py-3 bg-green-600 hover:bg-green-500 disabled:bg-green-600/50 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
             >
-              Finalize Strategic Setup
+              {isFinalizing ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Finalizing...
+                </>
+              ) : (
+                'Finalize Strategic Setup'
+              )}
             </button>
           </div>
         </div>
@@ -294,9 +393,9 @@ function SummaryCard({
       <h4 className="font-medium text-slate-200 mb-3">{title}</h4>
       <div className="space-y-2">
         {items.map((item, i) => (
-          <div key={i} className="flex justify-between text-sm">
-            <span className="text-slate-500">{item.label}</span>
-            <span className={item.value ? 'text-slate-300' : 'text-slate-600'}>
+          <div key={i} className="flex text-sm gap-4">
+            <span className="text-slate-500 flex-shrink-0 w-24">{item.label}</span>
+            <span className={`text-right flex-1 ${item.value ? 'text-slate-300' : 'text-slate-600'}`}>
               {item.value || '—'}
             </span>
           </div>
@@ -304,6 +403,28 @@ function SummaryCard({
       </div>
     </div>
   );
+}
+
+/**
+ * Clean up geography values that may have been duplicated
+ * e.g., "US, UK | US, UK | US, UK" → "US, UK"
+ */
+function cleanGeographyValue(geos: string | undefined): string | undefined {
+  if (!geos) return undefined;
+
+  // Check if it contains the | separator pattern (indicates duplication)
+  if (geos.includes(' | ')) {
+    const parts = geos.split(' | ');
+    // If all parts are the same, just return one
+    const unique = [...new Set(parts)];
+    if (unique.length === 1) {
+      return unique[0];
+    }
+    // Otherwise return unique parts joined
+    return unique.join(', ');
+  }
+
+  return geos;
 }
 
 function getCompletionStats(formData: Partial<SetupFormData>) {

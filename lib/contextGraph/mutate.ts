@@ -9,6 +9,16 @@ import {
   isHumanSource,
   type PriorityCheckResult,
 } from './sourcePriority';
+import { isValidFieldPath } from './schema';
+
+// ============================================================================
+// Runtime Validation Configuration
+// ============================================================================
+
+/**
+ * Whether to log warnings for unknown paths (enable in dev)
+ */
+const WARN_UNKNOWN_PATHS = process.env.NODE_ENV === 'development';
 
 /**
  * Source types for provenance tracking
@@ -110,6 +120,16 @@ export function setFieldUntyped(
   provenance: ProvenanceTag,
   options?: SetFieldOptions
 ): CompanyContextGraph {
+  const path = `${domain}.${field}`;
+
+  // Runtime validation: warn if path is not in schema
+  if (WARN_UNKNOWN_PATHS && !isValidFieldPath(path)) {
+    console.warn(
+      `[Context Graph] Unknown path written: '${path}' by '${provenance.source}'. ` +
+      `Add this field to CONTEXT_FIELDS in schema.ts if it's intentional.`
+    );
+  }
+
   const domainObj = graph[domain as DomainName] as Record<string, WithMetaType<unknown>>;
   if (!domainObj || typeof domainObj !== 'object') {
     console.warn(`[setFieldUntyped] Domain ${domain} not found`);
@@ -172,6 +192,14 @@ export function setFieldUntypedWithResult(
 ): { graph: CompanyContextGraph; result: SetFieldResult } {
   const domainObj = graph[domain as DomainName] as Record<string, WithMetaType<unknown>>;
   const path = `${domain}.${field}`;
+
+  // Runtime validation: warn if path is not in schema
+  if (WARN_UNKNOWN_PATHS && !isValidFieldPath(path)) {
+    console.warn(
+      `[Context Graph] Unknown path written: '${path}' by '${provenance.source}'. ` +
+      `Add this field to CONTEXT_FIELDS in schema.ts if it's intentional.`
+    );
+  }
 
   if (!domainObj || typeof domainObj !== 'object') {
     return {

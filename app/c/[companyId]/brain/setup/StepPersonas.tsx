@@ -1,11 +1,13 @@
 'use client';
 
 // app/c/[companyId]/setup/StepPersonas.tsx
-// Step 4: Personas
+// Step 4: Audience Preview
+//
+// Shows a summary of the audience/ICP data entered in the previous step.
+// Links to Audience Lab for segment development (done later, not during setup).
 
-import { useState } from 'react';
 import { SetupFormData } from './types';
-import { FormSection, LabLink, inputStyles } from './components/StepContainer';
+import { FormSection, LabLink } from './components/StepContainer';
 
 interface StepPersonasProps {
   companyId: string;
@@ -17,217 +19,220 @@ interface StepPersonasProps {
   errors: Record<string, string[]>;
 }
 
-interface PersonaPreview {
-  name: string;
-  tagline: string;
-  summary: string;
-}
-
 export function StepPersonas({
   companyId,
   formData,
-  updateStepData,
 }: StepPersonasProps) {
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedPersonas, setGeneratedPersonas] = useState<PersonaPreview[]>([]);
-  const [personaCount, setPersonaCount] = useState(3);
-
   const audienceData = formData.audience;
-
-  const generatePersonas = async () => {
-    setIsGenerating(true);
-    try {
-      const response = await fetch(`/api/audience/${companyId}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          segments: audienceData?.coreSegments || [],
-          demographics: audienceData?.demographics || '',
-          painPoints: audienceData?.painPoints || [],
-          motivations: audienceData?.motivations || [],
-          personaCount,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.personas) {
-          setGeneratedPersonas(data.personas);
-          updateStepData('personas', {
-            personaSetId: data.personaSetId,
-            personaCount: data.personas.length,
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Failed to generate personas:', error);
-    } finally {
-      setIsGenerating(false);
-    }
-  };
+  const hasAudienceData = audienceData && (
+    audienceData.primaryAudience ||
+    (audienceData.coreSegments && audienceData.coreSegments.length > 0) ||
+    audienceData.demographics ||
+    (audienceData.primaryBuyerRoles && audienceData.primaryBuyerRoles.length > 0)
+  );
 
   return (
     <div className="space-y-6">
-      {/* Lab Integration Banner */}
-      <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4 flex items-center justify-between">
-        <div>
-          <div className="font-medium text-purple-300">Full Persona Workshop</div>
-          <div className="text-sm text-purple-400/80 mt-0.5">
-            For detailed persona development with AI-powered research
-          </div>
-        </div>
-        <LabLink companyId={companyId} lab="audience" label="Open Audience Lab" />
-      </div>
-
-      {/* Quick Generate */}
-      <FormSection
-        title="Quick Persona Generation"
-        description="Generate personas based on the audience foundations"
-      >
-        {audienceData?.coreSegments && audienceData.coreSegments.length > 0 ? (
-          <div className="space-y-4">
-            <div className="p-4 bg-slate-800/50 rounded-lg">
-              <div className="text-sm text-slate-400 mb-2">Based on the audience data:</div>
-              <div className="flex flex-wrap gap-2">
-                {audienceData.coreSegments.map((segment) => (
-                  <span
-                    key={segment}
-                    className="px-2.5 py-1 bg-slate-700 text-slate-300 rounded-full text-sm"
-                  >
-                    {segment}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <label className="text-sm text-slate-300">Generate</label>
-              <select
-                value={personaCount}
-                onChange={(e) => setPersonaCount(parseInt(e.target.value))}
-                className={`${inputStyles.select} w-20`}
-              >
-                <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4">4</option>
-                <option value="5">5</option>
-              </select>
-              <span className="text-sm text-slate-300">personas</span>
-
-              <button
-                onClick={generatePersonas}
-                disabled={isGenerating}
-                className="ml-auto px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-purple-600/50 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
-              >
-                {isGenerating ? (
-                  <>
-                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      />
-                    </svg>
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                    </svg>
-                    Generate Personas
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <svg
-              className="w-12 h-12 mx-auto text-slate-600 mb-3"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-              />
-            </svg>
-            <p className="text-slate-400">
-              Complete the Audience Foundations step first to generate personas
-            </p>
-            <p className="text-sm text-slate-500 mt-1">
-              Core segments and audience data are needed to create relevant personas
-            </p>
-          </div>
-        )}
-      </FormSection>
-
-      {/* Generated Personas */}
-      {generatedPersonas.length > 0 && (
-        <FormSection
-          title="Generated Personas"
-          description="Review and refine the buyer personas"
-        >
-          <div className="grid gap-4">
-            {generatedPersonas.map((persona, index) => (
-              <div
-                key={index}
-                className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg"
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h4 className="font-semibold text-slate-100">{persona.name}</h4>
-                    <p className="text-sm text-purple-400 mt-0.5">{persona.tagline}</p>
-                  </div>
-                  <button className="text-slate-400 hover:text-slate-200">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                    </svg>
-                  </button>
-                </div>
-                <p className="text-sm text-slate-400 mt-2">{persona.summary}</p>
-              </div>
-            ))}
-          </div>
-        </FormSection>
-      )}
-
-      {/* Existing Personas */}
-      {formData.personas?.personaCount && formData.personas.personaCount > 0 && generatedPersonas.length === 0 && (
-        <FormSection
-          title="Existing Personas"
-          description="Personas already in the Context Graph"
-        >
-          <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-purple-500/20 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      {/* Summary of what was entered */}
+      {hasAudienceData ? (
+        <>
+          {/* ICP Summary Card */}
+          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-5">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 bg-emerald-500/20 rounded-full flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
               <div>
-                <div className="font-medium text-slate-100">
-                  {formData.personas.personaCount} persona{formData.personas.personaCount !== 1 ? 's' : ''} configured
-                </div>
-                <div className="text-sm text-slate-400">
-                  Personas can be regenerated or edited in Audience Lab
+                <div className="font-medium text-emerald-300">Target Audience Defined</div>
+                <div className="text-sm text-emerald-400/80 mt-1">
+                  Your ICP has been saved to the Brain and will be used to guide segment generation in Audience Lab.
                 </div>
               </div>
             </div>
           </div>
-        </FormSection>
+
+          {/* Audience Data Preview */}
+          <FormSection
+            title="Your Target Audience"
+            description="Summary of the ICP data you've entered"
+          >
+            <div className="space-y-4">
+              {/* Primary Audience */}
+              {audienceData.primaryAudience && (
+                <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
+                  <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">
+                    Primary Audience
+                  </div>
+                  <div className="text-slate-200">
+                    {audienceData.primaryAudience}
+                  </div>
+                </div>
+              )}
+
+              {/* Core Segments */}
+              {audienceData.coreSegments && audienceData.coreSegments.length > 0 && (
+                <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
+                  <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+                    Target Segments
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {audienceData.coreSegments.map((segment) => (
+                      <span
+                        key={segment}
+                        className="px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-full text-sm"
+                      >
+                        {segment}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Buyer Roles */}
+              {audienceData.primaryBuyerRoles && audienceData.primaryBuyerRoles.length > 0 && (
+                <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
+                  <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+                    Decision Makers / Buyer Roles
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {audienceData.primaryBuyerRoles.map((role) => (
+                      <span
+                        key={role}
+                        className="px-3 py-1.5 bg-blue-500/10 border border-blue-500/30 text-blue-300 rounded-full text-sm"
+                      >
+                        {role}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Demographics & Geos */}
+              <div className="grid grid-cols-2 gap-4">
+                {audienceData.demographics && (
+                  <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
+                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">
+                      Demographics
+                    </div>
+                    <div className="text-sm text-slate-300">
+                      {audienceData.demographics}
+                    </div>
+                  </div>
+                )}
+                {audienceData.geos && (
+                  <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
+                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">
+                      Geographic Focus
+                    </div>
+                    <div className="text-sm text-slate-300">
+                      {audienceData.geos}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Pain Points & Motivations */}
+              {((audienceData.painPoints && audienceData.painPoints.length > 0) ||
+                (audienceData.motivations && audienceData.motivations.length > 0)) && (
+                <div className="grid grid-cols-2 gap-4">
+                  {audienceData.painPoints && audienceData.painPoints.length > 0 && (
+                    <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
+                      <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+                        Pain Points
+                      </div>
+                      <ul className="text-sm text-slate-300 space-y-1">
+                        {audienceData.painPoints.slice(0, 4).map((pain, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <span className="text-red-400 mt-0.5">•</span>
+                            {pain}
+                          </li>
+                        ))}
+                        {audienceData.painPoints.length > 4 && (
+                          <li className="text-slate-500 text-xs">
+                            +{audienceData.painPoints.length - 4} more
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                  {audienceData.motivations && audienceData.motivations.length > 0 && (
+                    <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
+                      <div className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">
+                        Motivations
+                      </div>
+                      <ul className="text-sm text-slate-300 space-y-1">
+                        {audienceData.motivations.slice(0, 4).map((motivation, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <span className="text-emerald-400 mt-0.5">•</span>
+                            {motivation}
+                          </li>
+                        ))}
+                        {audienceData.motivations.length > 4 && (
+                          <li className="text-slate-500 text-xs">
+                            +{audienceData.motivations.length - 4} more
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </FormSection>
+
+          {/* Next Steps */}
+          <FormSection
+            title="What's Next"
+            description="After completing setup, you can develop detailed segments"
+          >
+            <div className="p-4 bg-slate-800/30 border border-slate-700/50 rounded-lg">
+              <div className="flex items-start gap-4">
+                <div className="w-8 h-8 bg-amber-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-slate-200">Audience Lab</div>
+                  <p className="text-sm text-slate-400 mt-1">
+                    Use Audience Lab to decompose your ICP into actionable segments with demand states,
+                    media preferences, and creative angles. Generate detailed personas when you're ready
+                    to create communications.
+                  </p>
+                  <div className="mt-3">
+                    <LabLink companyId={companyId} lab="audience" label="Open Audience Lab" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </FormSection>
+        </>
+      ) : (
+        /* No audience data yet */
+        <div className="text-center py-12">
+          <svg
+            className="w-16 h-16 mx-auto text-slate-600 mb-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+            />
+          </svg>
+          <h3 className="text-lg font-medium text-slate-300 mb-2">
+            No Audience Data Yet
+          </h3>
+          <p className="text-slate-400 max-w-md mx-auto">
+            Go back to the <strong>Audience Foundations</strong> step to define your target audience
+            and ICP. This data will be used to generate segments in Audience Lab.
+          </p>
+        </div>
       )}
     </div>
   );

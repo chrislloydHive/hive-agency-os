@@ -385,6 +385,30 @@ export const OS_TOOL_DEFINITIONS: OsToolDefinition[] = [
     influences: ['Strategy', 'Blueprint Focus', 'Brain'],
     status: 'available',
   },
+  {
+    id: 'creative-lab',
+    name: 'Creative Lab',
+    kind: 'lab',
+    recommendedOrder: 'asNeeded',
+    impact: 'high',
+    estimatedRunTime: '~5–10 min',
+    frequencyHint: 'Run when developing campaigns, refreshing brand messaging, or planning ad creative.',
+    shortSummary: 'AI-powered creative strategy with messaging, territories, and campaign concepts.',
+    detailedSummary:
+      'Creative Lab generates a complete creative strategy including messaging architecture, creative territories, campaign concepts, channel-specific patterns, testing roadmaps, and production-ready asset specs. Integrates with Brand Lab guardrails and Strategic Plan alignment.',
+    helpsAnswer:
+      'What should our messaging say, how should it look, and what campaigns should we run?',
+    primaryOutputs: [
+      'Messaging architecture',
+      'Creative territories',
+      'Campaign concepts',
+      'Channel-specific patterns',
+      'Testing roadmap',
+      'Asset specs for production',
+    ],
+    influences: ['Strategy', 'Blueprint Focus', 'Work', 'Brain'],
+    status: 'available',
+  },
 ];
 
 // ============================================================================
@@ -458,6 +482,7 @@ export function osToolIdToCompanyToolId(osToolId: string): string | undefined {
     'analytics-scan': 'analyticsScan',
     'media-lab': 'mediaLab',
     'audience-lab': 'audienceLab',
+    'creative-lab': 'creativeLab',
   };
   return mapping[osToolId];
 }
@@ -479,6 +504,7 @@ export function companyToolIdToOsToolId(companyToolId: string): string | undefin
     analyticsScan: 'analytics-scan',
     mediaLab: 'media-lab',
     audienceLab: 'audience-lab',
+    creativeLab: 'creative-lab',
   };
   return mapping[companyToolId];
 }
@@ -530,6 +556,7 @@ export function getToolIconName(toolId: string): string {
     'analytics-scan': 'barChart',
     'media-lab': 'tv',
     'audience-lab': 'users',
+    'creative-lab': 'sparkles',
   };
   return iconMapping[toolId] || 'zap';
 }

@@ -40,6 +40,7 @@ interface DiagnosticScores {
   seoLab: number | null;
   demandLab: number | null;
   opsLab: number | null;
+  creativeLab: number | null;
 }
 
 interface BrainAggregation {
@@ -79,6 +80,7 @@ async function getLatestDiagnosticScores(
     seoLab: null,
     demandLab: null,
     opsLab: null,
+    creativeLab: null,
   };
 
   const toolIdMap: Record<DiagnosticToolId, keyof DiagnosticScores> = {
@@ -91,6 +93,7 @@ async function getLatestDiagnosticScores(
     seoLab: 'seoLab',
     demandLab: 'demandLab',
     opsLab: 'opsLab',
+    creativeLab: 'creativeLab',
   };
 
   let latestRunId: string | null = null;

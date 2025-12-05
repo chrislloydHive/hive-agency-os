@@ -22,6 +22,7 @@ import { brandLabImporter } from './brandLabImporter';
 import { mediaLabImporter } from './mediaLabImporter';
 import { audienceLabImporter } from './audienceLabImporter';
 import { diagnosticModulesImporter } from './diagnosticModulesImporter';
+import { creativeLabImporter } from './creativeLabImporter';
 
 // ============================================================================
 // Importer Registry
@@ -62,9 +63,14 @@ const IMPORTER_REGISTRY: ImporterRegistryEntry[] = [
     priority: 15, // Diagnostic Modules runs early (foundational SEO/Content/Website/Brand data from GAP Heavy)
     enabled: true,
   },
+  {
+    importer: creativeLabImporter,
+    priority: 60, // Creative Lab runs late (depends on brand, audience, objectives)
+    enabled: true,
+  },
   // Add more importers here as they are implemented:
-  // { importer: contentLabImporter, priority: 60, enabled: true },
-  // { importer: seoLabImporter, priority: 70, enabled: true },
+  // { importer: contentLabImporter, priority: 70, enabled: true },
+  // { importer: seoLabImporter, priority: 80, enabled: true },
 ];
 
 /**

@@ -35,6 +35,7 @@ import {
   AlertTriangle,
   Lock,
   RotateCcw,
+  Palette,
 } from 'lucide-react';
 
 // ============================================================================
@@ -132,6 +133,14 @@ const STRATEGY_MODULES: StrategyModule[] = [
     icon: <Building className="w-4 h-4" />,
     domains: ['operationalConstraints', 'storeRisk'],
     color: 'slate',
+  },
+  {
+    id: 'creative',
+    label: 'Creative Strategy',
+    description: 'Messaging, territories, and campaign concepts',
+    icon: <Palette className="w-4 h-4" />,
+    domains: ['creative'],
+    color: 'rose',
   },
 ];
 

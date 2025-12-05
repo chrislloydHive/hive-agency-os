@@ -49,6 +49,7 @@ function diagnosticRunToReportItem(run: DiagnosticRun, companyId: string): Repor
     seoLab: 'seo-lab',
     demandLab: 'demand-lab',
     opsLab: 'ops-lab',
+    creativeLab: 'creative-lab',
   };
 
   // Map status
@@ -83,6 +84,9 @@ function diagnosticRunToReportItem(run: DiagnosticRun, companyId: string): Repor
         break;
       case 'gapSnapshot':
         url = `/c/${companyId}/diagnostics/gap-ia?runId=${run.id}`;
+        break;
+      case 'creativeLab':
+        url = `/c/${companyId}/labs/creative`;
         break;
       default:
         url = `/c/${companyId}/diagnostics?runId=${run.id}`;

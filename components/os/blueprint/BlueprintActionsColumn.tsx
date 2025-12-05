@@ -137,7 +137,7 @@ function RecommendedToolCard({
   const impactStyle = getRecommendationImpactStyle(rec.scoreImpact);
 
   return (
-    <div className={`rounded-lg border p-4 ${urgencyStyle.border} ${urgencyStyle.bg}`}>
+    <div className={`rounded-lg border p-4 ${urgencyStyle.border} ${urgencyStyle.bg} ${isRunning ? 'ring-1 ring-amber-500/50' : ''}`}>
       <div className="flex items-start justify-between mb-2">
         <h4 className="text-sm font-medium text-slate-100">{rec.toolLabel}</h4>
         <div className="flex items-center gap-1.5">
@@ -156,10 +156,23 @@ function RecommendedToolCard({
         <span className="text-slate-400">Answers:</span> {rec.blueprintMeta.answersQuestion}
       </p>
 
-      {/* Last run status */}
-      <div className="text-[10px] text-slate-500 mb-3">
-        {rec.hasRecentRun && rec.lastRunAt ? (
-          <span>
+      {/* Status indicator */}
+      <div className="text-[10px] mb-3">
+        {isRunning ? (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-amber-400">
+              <div className="w-3 h-3 rounded-full border-2 border-amber-400/30 border-t-amber-400 animate-spin" />
+              <span>Running analysis... This may take 1-2 minutes</span>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="text-slate-500 hover:text-slate-300 underline"
+            >
+              Refresh
+            </button>
+          </div>
+        ) : rec.hasRecentRun && rec.lastRunAt ? (
+          <span className="text-slate-500">
             Last run: {formatRelativeTime(rec.lastRunAt)}
             {rec.lastScore !== null && rec.lastScore !== undefined && (
               <span className={`ml-2 ${getScoreColor(rec.lastScore)}`}>Score: {rec.lastScore}</span>
@@ -177,17 +190,26 @@ function RecommendedToolCard({
         <button
           onClick={onRun}
           disabled={!canRun || isRunning}
-          className={`flex-1 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-            canRun && !isRunning
+          className={`flex-1 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
+            isRunning
+              ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+              : canRun
               ? 'bg-amber-500 hover:bg-amber-400 text-slate-900'
               : 'bg-slate-700 text-slate-500 cursor-not-allowed'
           }`}
         >
-          {isRunning ? 'Running...' : 'Run'}
+          {isRunning ? (
+            <>
+              <div className="w-3 h-3 rounded-full border-2 border-amber-400/30 border-t-amber-400 animate-spin" />
+              Running...
+            </>
+          ) : (
+            'Run'
+          )}
         </button>
         <button
           onClick={onPlanWork}
-          disabled={isPlanning}
+          disabled={isPlanning || isRunning}
           className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors disabled:opacity-50"
         >
           {isPlanning ? '...' : 'Plan'}

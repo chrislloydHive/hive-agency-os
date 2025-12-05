@@ -29,7 +29,8 @@ export type DiagnosticToolId =
   | 'contentLab'     // Content diagnostic
   | 'seoLab'         // SEO Lab diagnostic (deep SEO + GSC + analytics)
   | 'demandLab'      // Demand generation diagnostic
-  | 'opsLab';        // Marketing operations diagnostic
+  | 'opsLab'         // Marketing operations diagnostic
+  | 'creativeLab';   // Creative Lab - messaging, territories, campaigns
 
 /**
  * Status of a diagnostic run
@@ -608,6 +609,7 @@ export async function getRunsGroupedByTool(
     seoLab: [],
     demandLab: [],
     opsLab: [],
+    creativeLab: [],
   };
 
   for (const run of runs) {
@@ -760,6 +762,7 @@ export function getToolLabel(toolId: DiagnosticToolId): string {
     seoLab: 'SEO Lab',
     demandLab: 'Demand Lab',
     opsLab: 'Ops Lab',
+    creativeLab: 'Creative Lab',
   };
   return labels[toolId] || toolId;
 }
@@ -791,6 +794,7 @@ export function isValidToolId(toolId: string): toolId is DiagnosticToolId {
     'seoLab',
     'demandLab',
     'opsLab',
+    'creativeLab',
   ];
   return validToolIds.includes(toolId as DiagnosticToolId);
 }

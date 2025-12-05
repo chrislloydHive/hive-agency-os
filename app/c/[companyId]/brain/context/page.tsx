@@ -27,6 +27,8 @@ import {
 } from '@/lib/contextGraph/uiHelpers';
 import { ContextGraphViewer } from './ContextGraphViewer';
 import { ContextExplorerClient } from './ContextExplorerClient';
+import { getCompanyContextHealth } from '@/lib/contextGraph/diagnostics';
+import { ContextHealthPanel } from '@/components/os/ContextHealthPanel';
 
 // ============================================================================
 // Types
@@ -116,19 +118,29 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
     );
   }
 
+  // Get context health from diagnostics
+  const contextHealth = await getCompanyContextHealth(companyId);
+
   // Default view: existing ContextGraphViewer
   if (isNewGraph) {
     return (
-      <ContextGraphViewer
-        companyId={companyId}
-        companyName={company.name}
-        graph={null}
-        fields={[]}
-        needsRefresh={[]}
-        contextHealthScore={0}
-        snapshots={[]}
-        diff={[]}
-      />
+      <div className="space-y-6 p-6">
+        {/* Context Health Panel at top */}
+        <ContextHealthPanel
+          health={contextHealth}
+          companyId={companyId}
+        />
+        <ContextGraphViewer
+          companyId={companyId}
+          companyName={company.name}
+          graph={null}
+          fields={[]}
+          needsRefresh={[]}
+          contextHealthScore={0}
+          snapshots={[]}
+          diff={[]}
+        />
+      </div>
     );
   }
 
@@ -157,17 +169,26 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
   }
 
   return (
-    <ContextGraphViewer
-      companyId={companyId}
-      companyName={company.name}
-      graph={graph}
-      fields={fields}
-      needsRefresh={needsRefresh}
-      contextHealthScore={contextHealthScore}
-      snapshots={snapshots}
-      diff={diff}
-      coveragePercent={completenessScore}
-    />
+    <div className="space-y-6">
+      {/* Context Health Panel at top */}
+      <div className="px-6 pt-6">
+        <ContextHealthPanel
+          health={contextHealth}
+          companyId={companyId}
+        />
+      </div>
+      <ContextGraphViewer
+        companyId={companyId}
+        companyName={company.name}
+        graph={graph}
+        fields={fields}
+        needsRefresh={needsRefresh}
+        contextHealthScore={contextHealthScore}
+        snapshots={snapshots}
+        diff={diff}
+        coveragePercent={completenessScore}
+      />
+    </div>
   );
 }
 

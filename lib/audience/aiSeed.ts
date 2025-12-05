@@ -80,7 +80,7 @@ interface RawAISegment {
  * - With ICP: AI must DECOMPOSE the ICP into segments (not change it)
  * - Without ICP: AI can infer from website signals (provisional)
  */
-function buildSystemPrompt(canonicalICP: CanonicalICP): string {
+function buildSystemPrompt(canonicalICP: CanonicalICP, companyName?: string): string {
   const demandStates = ['unaware', 'problem_aware', 'solution_aware', 'in_market', 'post_purchase'];
   const channelIds = Object.keys(MEDIA_CHANNEL_LABELS).slice(0, 15).join(', ');
 
@@ -88,13 +88,39 @@ function buildSystemPrompt(canonicalICP: CanonicalICP): string {
   let icpConstraint: string;
 
   if (canonicalICP.hasCanonicalICP) {
+    // Detect if this is B2B (segments mention businesses, companies, etc.)
+    const icpText = (canonicalICP.primaryAudience || '').toLowerCase();
+    const segmentsText = (canonicalICP.coreSegments || []).join(' ').toLowerCase();
+    const combinedText = icpText + ' ' + segmentsText;
+
+    const b2bIndicators = ['business', 'b2b', 'smb', 'enterprise', 'companies', 'saas', 'startup', 'agency', 'professional services', 'e-commerce companies', 'local service business'];
+    const isB2B = b2bIndicators.some(indicator => combinedText.includes(indicator));
+
+    console.log('[AudienceSeed] B2B detection:', { isB2B, combinedText: combinedText.substring(0, 200), companyName });
+
+    const b2bGuidance = isB2B ? `
+
+⚠️ B2B CONTEXT DETECTED ⚠️
+The ICP describes TYPES OF BUSINESSES (e.g., "SMBs", "E-commerce companies", "SaaS startups").
+Your segments should describe the DECISION MAKERS and BUYER PERSONAS at these businesses, NOT generic consumers.
+
+For example, if the ICP includes "E-commerce companies":
+✅ CORRECT: "E-commerce Marketing Directors" - decision makers at e-commerce companies who control marketing budget
+✅ CORRECT: "E-commerce Founders" - startup founders running e-commerce businesses who need growth help
+❌ WRONG: "Online shoppers" - these are the e-commerce company's customers, not ${companyName || 'this company'}'s customers
+
+Demographics should describe the BUSINESS DECISION MAKERS:
+✅ CORRECT: "Marketing directors and CMOs at mid-size e-commerce companies, typically 32-50 years old, responsible for $100K-$2M annual marketing budgets"
+❌ WRONG: "Age 25-45, middle to upper income, mix of single and family-oriented" (this describes consumers, not B2B buyers)
+` : '';
+
     icpConstraint = `
 ⚠️ CRITICAL CONSTRAINT - CANONICAL ICP DEFINED ⚠️
 
 This company has a DEFINED Ideal Customer Profile (ICP) that you MUST respect:
 
 ${canonicalICP.primaryAudience || 'See audience details in the data below.'}
-
+${b2bGuidance}
 YOUR JOB IS TO DECOMPOSE THIS ICP INTO 2-5 SEGMENTS/PERSONAS.
 - You MUST NOT change, broaden, or ignore this ICP
 - You MUST NOT invent new audiences outside this ICP
@@ -266,7 +292,7 @@ export async function seedAudienceModelFromSignals(
     });
 
     // Build prompts with ICP constraint
-    const systemPrompt = buildSystemPrompt(signals.canonicalICP);
+    const systemPrompt = buildSystemPrompt(signals.canonicalICP, options?.companyName);
     const userPrompt = buildUserPrompt(signals, options?.companyName);
 
     console.log('[AudienceSeed] Calling OpenAI...');

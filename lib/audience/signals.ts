@@ -265,9 +265,18 @@ async function extractCanonicalICPLegacy(companyId: string): Promise<CanonicalIC
   const audience = contextGraph.audience;
 
   // Check for primary audience / ICP description
-  const primaryAudienceValue = audience.demographics?.value;
+  // NOTE: demographics can be either string or string[] depending on how it was saved
+  const rawDemographics = audience.demographics?.value;
+  const demographicsValue = Array.isArray(rawDemographics)
+    ? rawDemographics.join(', ')
+    : rawDemographics;
+
   const coreSegmentsValue = audience.coreSegments?.value;
-  const geosValue = audience.geos?.value;
+
+  // geos can also be string or string[]
+  const rawGeos = audience.geos?.value;
+  const geosValue = Array.isArray(rawGeos) ? rawGeos.join(', ') : rawGeos;
+
   const primaryMarketsValue = audience.primaryMarkets?.value;
   const painPointsValue = audience.painPoints?.value;
   const motivationsValue = audience.motivations?.value;
@@ -281,11 +290,11 @@ async function extractCanonicalICPLegacy(companyId: string): Promise<CanonicalIC
 
   // Check if we have meaningful ICP data
   const hasSegments = coreSegmentsValue && coreSegmentsValue.length > 0;
-  const hasDemographics = primaryAudienceValue && primaryAudienceValue.trim().length > 0;
+  const hasDemographics = demographicsValue && demographicsValue.trim().length > 0;
   const hasPrimaryMarkets = primaryMarketsValue && primaryMarketsValue.length > 0;
 
   console.log('[AudienceSignals Legacy] Audience field values:', {
-    demographics: primaryAudienceValue?.substring(0, 50),
+    demographics: demographicsValue?.substring(0, 50),
     coreSegments: coreSegmentsValue,
     geos: geosValue,
     primaryMarkets: primaryMarketsValue,
@@ -299,7 +308,7 @@ async function extractCanonicalICPLegacy(companyId: string): Promise<CanonicalIC
   if (hasSegments || hasDemographics || hasPrimaryMarkets) {
     result.hasCanonicalICP = true;
     result.coreSegments = coreSegmentsValue || undefined;
-    result.demographics = primaryAudienceValue || undefined;
+    result.demographics = demographicsValue || undefined;
     result.geos = geosValue || undefined;
     result.primaryMarkets = primaryMarketsValue || undefined;
     result.painPoints = painPointsValue || undefined;
@@ -317,8 +326,8 @@ async function extractCanonicalICPLegacy(companyId: string): Promise<CanonicalIC
     if (coreSegmentsValue?.length) {
       audienceParts.push(`Target segments: ${coreSegmentsValue.join(', ')}`);
     }
-    if (primaryAudienceValue) {
-      audienceParts.push(`Demographics: ${primaryAudienceValue}`);
+    if (demographicsValue) {
+      audienceParts.push(`Demographics: ${demographicsValue}`);
     }
     if (geosValue) {
       audienceParts.push(`Geography: ${geosValue}`);

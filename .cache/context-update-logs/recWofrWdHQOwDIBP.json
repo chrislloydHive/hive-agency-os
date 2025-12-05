@@ -10,7 +10,28 @@
       "metadata": {},
       "updateId": "5Yta_WjO2tfAWeRNRNBKC",
       "updatedAt": "2025-12-04T22:41:18.372Z"
+    },
+    {
+      "companyId": "recWofrWdHQOwDIBP",
+      "path": "brand.valueProps",
+      "oldValue": [],
+      "newValue": "[\"Comprehensive digital marketing solutions that drive measurable results and ROI\",\"Full-service agency expertise spanning strategy, creative, and performance marketing\",\"Data-driven approach with proven case studies and transparent reporting\",\"Scalable marketing strategies that grow with your business needs\"]",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "NczA2RUhBWWLIItY1sHlA",
+      "updatedAt": "2025-12-05T06:37:24.233Z"
+    },
+    {
+      "companyId": "recWofrWdHQOwDIBP",
+      "path": "creative.recommendedFormats",
+      "newValue": "[\"case_studies\",\"video_testimonials\",\"explainer_videos\",\"social_proof_posts\",\"roi_calculators\",\"before_after_comparisons\",\"webinar_content\",\"podcast_episodes\"]",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "5Wi3Y7WHH8ZjAH96lILGK",
+      "updatedAt": "2025-12-05T06:37:28.124Z"
     }
   ],
-  "updatedAt": "2025-12-04T22:41:18.372Z"
+  "updatedAt": "2025-12-05T06:37:28.124Z"
 }

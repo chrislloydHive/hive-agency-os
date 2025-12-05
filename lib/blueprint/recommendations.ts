@@ -93,6 +93,7 @@ function mapDiagnosticToCompanyToolId(diagnosticToolId: DiagnosticToolId): Compa
     seoLab: 'seoLab',
     demandLab: 'demandLab',
     opsLab: 'opsLab',
+    creativeLab: 'creativeLab',
   };
   return mapping[diagnosticToolId] || null;
 }
@@ -118,14 +119,22 @@ export async function getRecommendedToolsForBlueprint(
   const recommendations: RecommendedTool[] = [];
 
   // Get enabled tools only (status === 'enabled')
-  const enabledTools = COMPANY_TOOL_DEFS.filter(t => t.status === 'enabled' && t.behavior === 'diagnosticRun');
+  // Include both diagnosticRun tools AND strategic openRoute tools (like Media Lab, Audience Lab, Creative Lab)
+  const enabledTools = COMPANY_TOOL_DEFS.filter(t =>
+    t.status === 'enabled' &&
+    (t.behavior === 'diagnosticRun' || (t.behavior === 'openRoute' && t.section === 'strategic'))
+  );
 
   for (const tool of enabledTools) {
     // Skip if requires website and none available
     if (tool.requiresWebsite && !hasWebsite) continue;
-    if (!tool.blueprintMeta || !tool.diagnosticToolId) continue;
+    if (!tool.blueprintMeta) continue;
 
-    const latestRun = getLatestRunForTool(runs, tool.diagnosticToolId);
+    // For strategic tools without diagnosticToolId, they always appear as "never run"
+    // since they don't track runs the same way
+    const latestRun = tool.diagnosticToolId
+      ? getLatestRunForTool(runs, tool.diagnosticToolId)
+      : null;
     const daysSinceRun = latestRun ? calculateDaysSince(latestRun.createdAt) : null;
     const hasRecentRun = daysSinceRun !== null && daysSinceRun <= RECENT_THRESHOLD_DAYS;
     const isStale = daysSinceRun !== null && daysSinceRun > STALE_THRESHOLD_DAYS;
@@ -245,6 +254,67 @@ export async function getRecommendedToolsForBlueprint(
         }
         break;
 
+      case 'creativeLab':
+        // Creative Lab - for messaging, creative territories, and campaigns
+        if (neverRun) {
+          // Check if Brand Lab has been run (creative should come after brand)
+          const hasBrandLab = runs.some(r => r.toolId === 'brandLab' && r.status === 'complete');
+          if (hasBrandLab) {
+            scoreImpact = 'high';
+            urgency = 'now';
+            reason = 'Brand Lab complete. Generate creative strategy with messaging, territories, and campaign concepts.';
+          } else {
+            scoreImpact = 'medium';
+            urgency = 'next';
+            reason = 'Run Brand Lab first, then Creative Lab for complete messaging architecture.';
+          }
+        } else if (isStale) {
+          scoreImpact = 'medium';
+          urgency = 'next';
+          reason = `Creative strategy is ${daysSinceRun} days old. Refresh for new campaigns or messaging updates.`;
+        } else {
+          continue;
+        }
+        break;
+
+      case 'mediaLab':
+        // Media Lab - for media strategy and budget planning
+        // Strategic tool without run tracking - check if audience work exists
+        if (neverRun) {
+          const hasGapIa = runs.some(r => r.toolId === 'gapSnapshot' && r.status === 'complete');
+          if (hasGapIa) {
+            scoreImpact = 'high';
+            urgency = 'now';
+            reason = 'Design media strategy with channel mix and budget allocation.';
+          } else {
+            scoreImpact = 'medium';
+            urgency = 'next';
+            reason = 'Run GAP IA first, then plan media strategy with channel recommendations.';
+          }
+        } else {
+          continue;
+        }
+        break;
+
+      case 'audienceLab':
+        // Audience Lab - for audience segments and personas
+        // Strategic tool without run tracking
+        if (neverRun) {
+          const hasGapIa = runs.some(r => r.toolId === 'gapSnapshot' && r.status === 'complete');
+          if (hasGapIa) {
+            scoreImpact = 'high';
+            urgency = 'now';
+            reason = 'GAP IA complete. Define target audiences and personas for better targeting.';
+          } else {
+            scoreImpact = 'medium';
+            urgency = 'next';
+            reason = 'Define audience segments and personas for targeting and messaging.';
+          }
+        } else {
+          continue;
+        }
+        break;
+
       default:
         // For other tools, basic staleness logic
         if (neverRun) {
@@ -264,13 +334,20 @@ export async function getRecommendedToolsForBlueprint(
     if (strategySynthesis?.topFocusAreas?.length) {
       const focusAreaTitles = strategySynthesis.topFocusAreas.map(a => a.title.toLowerCase());
       const toolCategory = tool.category.toLowerCase();
+      const toolId = tool.id.toLowerCase();
 
       if (focusAreaTitles.some(f =>
         f.includes('website') && toolCategory.includes('website') ||
         f.includes('brand') && toolCategory.includes('brand') ||
         f.includes('seo') && toolCategory.includes('seo') ||
         f.includes('content') && toolCategory.includes('content') ||
-        f.includes('conversion') && toolCategory.includes('website')
+        f.includes('conversion') && toolCategory.includes('website') ||
+        f.includes('creative') && (toolId.includes('creative') || toolCategory.includes('messaging')) ||
+        f.includes('messaging') && (toolId.includes('creative') || toolCategory.includes('messaging')) ||
+        f.includes('campaign') && toolId.includes('creative') ||
+        f.includes('media') && toolId.includes('media') ||
+        f.includes('audience') && toolId.includes('audience') ||
+        f.includes('targeting') && toolId.includes('audience')
       )) {
         // Boost urgency if tool aligns with focus areas
         if (urgency === 'later') urgency = 'next';

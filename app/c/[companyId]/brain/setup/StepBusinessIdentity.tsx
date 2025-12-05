@@ -103,50 +103,35 @@ export function StepBusinessIdentity({
           </FormField>
 
           <FormField label="Industry" required>
-            <select
+            <input
+              type="text"
               value={data.industry}
               onChange={(e) => update({ industry: e.target.value })}
-              className={inputStyles.select}
-            >
-              <option value="">Select industry...</option>
-              {INDUSTRY_OPTIONS.map((industry) => (
-                <option key={industry} value={industry}>
-                  {industry}
-                </option>
-              ))}
-            </select>
+              className={inputStyles.base}
+              placeholder="e.g., B2B SaaS, E-commerce, Healthcare"
+            />
           </FormField>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <FormField label="Business Model" required hint="How does the business acquire and serve customers?">
-            <select
+            <input
+              type="text"
               value={data.businessModel}
               onChange={(e) => update({ businessModel: e.target.value })}
-              className={inputStyles.select}
-            >
-              <option value="">Select model...</option>
-              {BUSINESS_MODEL_OPTIONS.map((model) => (
-                <option key={model} value={model}>
-                  {model.charAt(0).toUpperCase() + model.slice(1).replace('_', ' ')}
-                </option>
-              ))}
-            </select>
+              className={inputStyles.base}
+              placeholder="e.g., Subscription, Lead generation, E-commerce"
+            />
           </FormField>
 
           <FormField label="Revenue Model" hint="How does the business make money?">
-            <select
+            <input
+              type="text"
               value={data.revenueModel}
               onChange={(e) => update({ revenueModel: e.target.value })}
-              className={inputStyles.select}
-            >
-              <option value="">Select model...</option>
-              {REVENUE_MODEL_OPTIONS.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
+              className={inputStyles.base}
+              placeholder="e.g., Recurring subscriptions, One-time purchases"
+            />
           </FormField>
         </div>
 
@@ -170,18 +155,13 @@ export function StepBusinessIdentity({
             label="Geographic Footprint"
             hint="National, regional, local, or global?"
           >
-            <select
+            <input
+              type="text"
               value={data.geographicFootprint}
               onChange={(e) => update({ geographicFootprint: e.target.value })}
-              className={inputStyles.select}
-            >
-              <option value="">Select scope...</option>
-              <option value="Local">Local (single city/metro)</option>
-              <option value="Regional">Regional (multi-state)</option>
-              <option value="National">National</option>
-              <option value="North America">North America</option>
-              <option value="Global">Global</option>
-            </select>
+              className={inputStyles.base}
+              placeholder="e.g., National, Global, Pacific Northwest"
+            />
           </FormField>
 
           <FormField

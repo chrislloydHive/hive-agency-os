@@ -87,7 +87,7 @@ OUTPUT FORMAT (JSON):
 {
   "personas": [
     {
-      "name": "A memorable first name + descriptor (e.g., 'Budget-Conscious Brad', 'Enterprise Emma')",
+      "name": "A professional descriptor (e.g., 'The Growth-Focused CMO', 'The Budget-Conscious Founder', 'The Technical Decision Maker'). Do NOT use alliterative names like 'Marketing Mary' or 'Startup Steve' - those are cheesy.",
       "tagline": "A catchy 5-8 word summary of who this person is",
       "linkedSegmentNames": ["Segment 1", "Segment 2"],
       "oneSentenceSummary": "One sentence capturing their core situation and need",

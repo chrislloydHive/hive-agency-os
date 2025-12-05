@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
 
       if (!brandDiagnostic || !brandActionPlan) {
         return NextResponse.json(
-          { error: 'Brand Lab run data incomplete' },
+          { error: 'Please run the Brand Lab diagnostic first. The narrative report requires completed Brand Lab results.' },
           { status: 400 }
         );
       }

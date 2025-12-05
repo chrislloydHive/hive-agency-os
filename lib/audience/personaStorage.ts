@@ -140,7 +140,17 @@ export async function savePersonaSet(
     // Update timestamp
     personaSet.updatedAt = now;
 
-    const fields = {
+    // Map source to valid Airtable select options: ai_generated, manual, mixed
+    const sourceMap: Record<string, string> = {
+      'ai_seeded': 'ai_generated',
+      'ai': 'ai_generated',
+      'ai_generated': 'ai_generated',
+      'manual': 'manual',
+      'mixed': 'mixed',
+    };
+    const mappedSource = sourceMap[personaSet.source] || 'manual';
+
+    const fields: Record<string, unknown> = {
       'Set ID': personaSet.id,
       'Company ID': personaSet.companyId,
       'Company Name': companyName,
@@ -148,7 +158,7 @@ export async function savePersonaSet(
       'Set JSON': JSON.stringify(personaSet),
       'Version': personaSet.version,
       'Persona Count': personaSet.personas.length,
-      'Source': personaSet.source,
+      'Source': mappedSource,
       'Updated At': now,
     };
 
