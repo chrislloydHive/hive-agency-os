@@ -10,7 +10,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import type { CompanyContextGraph, DomainName } from '@/lib/contextGraph/companyContextGraph';
 import { DOMAIN_NAMES } from '@/lib/contextGraph/companyContextGraph';
-import type { ContextGraphHealth } from '@/lib/contextGraph/health';
+import type { ContextHealthScore } from '@/lib/contextGraph/health';
 import type { NeedsRefreshReport } from '@/lib/contextGraph/needsRefresh';
 import type { GraphFieldUi } from '@/lib/contextGraph/uiHelpers';
 import { CONTEXT_DOMAIN_META } from '@/lib/contextGraph/uiHelpers';
@@ -32,7 +32,7 @@ interface ContextExplorerClientProps {
   companyName: string;
   initialGraph: CompanyContextGraph;
   isNewGraph: boolean;
-  health: ContextGraphHealth;
+  healthScore: ContextHealthScore;
   domainCoverage: Record<DomainName, number>;
   refreshReport: NeedsRefreshReport | null;
   fields: GraphFieldUi[];
@@ -56,7 +56,7 @@ export function ContextExplorerClient({
   companyName,
   initialGraph,
   isNewGraph,
-  health,
+  healthScore,
   domainCoverage,
   refreshReport,
   fields,
@@ -155,12 +155,12 @@ export function ContextExplorerClient({
             <span
               className={cn(
                 'text-sm font-semibold',
-                health.completenessScore >= 75 && 'text-emerald-400',
-                health.completenessScore >= 50 && health.completenessScore < 75 && 'text-amber-400',
-                health.completenessScore < 50 && 'text-red-400'
+                healthScore.overallScore >= 75 && 'text-emerald-400',
+                healthScore.overallScore >= 50 && healthScore.overallScore < 75 && 'text-amber-400',
+                healthScore.overallScore < 50 && 'text-red-400'
               )}
             >
-              {health.completenessScore}%
+              {Math.round(healthScore.overallScore)}%
             </span>
           </div>
           {refreshReport && refreshReport.totalStaleFields > 0 && (

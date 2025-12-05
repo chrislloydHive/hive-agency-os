@@ -6,6 +6,8 @@
 // - Context health score and needs-refresh flags
 // - Snapshot timeline and diffs between versions
 // - Force-directed graph visualization (via ?view=explorer)
+// - "What AI Sees" toggle for AI-scoped view
+// - Interactive provenance and diagnostics drawers
 
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
@@ -13,22 +15,30 @@ import { getCompanyById } from '@/lib/airtable/companies';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
 import { createEmptyContextGraph, calculateDomainCoverage, calculateCompleteness } from '@/lib/contextGraph/companyContextGraph';
 import { getNeedsRefreshReport } from '@/lib/contextGraph/needsRefresh';
-import { checkContextGraphHealth } from '@/lib/contextGraph/health';
+import {
+  checkContextGraphHealth,
+  computeContextHealthScore,
+  getSeverityLabel,
+  type ContextHealthScore,
+} from '@/lib/contextGraph/health';
 import {
   computeContextHealthScoreFromCompleteness,
   convertNeedsRefreshReport,
 } from '@/lib/contextGraph/contextHealth';
-import { listContextGraphSnapshots, listSnapshotSummaries, type ContextGraphSnapshot } from '@/lib/contextGraph/history';
+import { listContextGraphSnapshots, listSnapshotSummaries } from '@/lib/contextGraph/history';
 import {
   flattenGraphToFields,
   diffGraphs,
-  type GraphFieldUi,
   type GraphDiffItem,
 } from '@/lib/contextGraph/uiHelpers';
+import { collectGraphSanityReport } from '@/lib/contextGraph/diagnostics';
+import { getAllContext } from '@/lib/contextGraph/contextGateway';
 import { ContextGraphViewer } from './ContextGraphViewer';
 import { ContextExplorerClient } from './ContextExplorerClient';
 import { getCompanyContextHealth } from '@/lib/contextGraph/diagnostics';
 import { ContextHealthPanel } from '@/components/os/ContextHealthPanel';
+import { ContextHealthHeader } from './ContextHealthHeader';
+import { ContextEditorClient } from './ContextEditorClient';
 
 // ============================================================================
 // Types
@@ -36,7 +46,7 @@ import { ContextHealthPanel } from '@/components/os/ContextHealthPanel';
 
 interface PageProps {
   params: Promise<{ companyId: string }>;
-  searchParams: Promise<{ view?: string }>;
+  searchParams: Promise<{ view?: string; mode?: string }>;
 }
 
 // ============================================================================
@@ -53,7 +63,7 @@ export const metadata: Metadata = {
 
 export default async function CompanyContextGraphPage({ params, searchParams }: PageProps) {
   const { companyId } = await params;
-  const { view } = await searchParams;
+  const { view, mode } = await searchParams;
 
   // Load company info
   const company = await getCompanyById(companyId);
@@ -72,8 +82,8 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
 
   // If using explorer view (force-directed graph), show that
   if (view === 'explorer') {
-    // Calculate health and domain coverage
-    const health = checkContextGraphHealth(graph);
+    // Calculate comprehensive health score (same as main view)
+    const healthScore = await computeContextHealthScore(companyId);
     const domainCoverage = calculateDomainCoverage(graph);
 
     // Get refresh report
@@ -109,7 +119,7 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
         companyName={company.name}
         initialGraph={graph}
         isNewGraph={isNewGraph}
-        health={health}
+        healthScore={healthScore}
         domainCoverage={domainCoverage}
         refreshReport={refreshReport}
         fields={fields}
@@ -118,16 +128,61 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
     );
   }
 
-  // Get context health from diagnostics
+  // Compute comprehensive context health score
+  const healthScore = await computeContextHealthScore(companyId);
+
+  // Get context health from diagnostics (for legacy panel)
   const contextHealth = await getCompanyContextHealth(companyId);
+
+  // Flatten graph to UI fields (needed for both editor and default views)
+  const fields = flattenGraphToFields(graph);
+
+  // Get needs-refresh report for detailed freshness info
+  const refreshReport = getNeedsRefreshReport(graph);
+  const needsRefresh = convertNeedsRefreshReport(refreshReport);
+
+  // If using editor mode, show the new Context Editor
+  if (mode === 'editor' && !isNewGraph) {
+    // Collect diagnostics for the editor
+    let diagnostics = null;
+    try {
+      diagnostics = collectGraphSanityReport();
+    } catch (e) {
+      console.warn('[ContextPage] Could not collect diagnostics:', e);
+    }
+
+    // Get AI-scoped context view
+    let aiContextData = null;
+    try {
+      aiContextData = await getAllContext(companyId, {
+        minConfidence: 0.4,
+        minFreshness: 0.3,
+      });
+    } catch (e) {
+      console.warn('[ContextPage] Could not load AI context:', e);
+    }
+
+    return (
+      <ContextEditorClient
+        companyId={companyId}
+        companyName={company.name}
+        graph={graph}
+        fields={fields}
+        needsRefresh={needsRefresh}
+        healthScore={healthScore}
+        diagnostics={diagnostics}
+        aiContextData={aiContextData}
+      />
+    );
+  }
 
   // Default view: existing ContextGraphViewer
   if (isNewGraph) {
     return (
       <div className="space-y-6 p-6">
-        {/* Context Health Panel at top */}
-        <ContextHealthPanel
-          health={contextHealth}
+        {/* Compact Context Health Header */}
+        <ContextHealthHeader
+          healthScore={healthScore}
           companyId={companyId}
         />
         <ContextGraphViewer
@@ -144,16 +199,8 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
     );
   }
 
-  // Flatten graph to UI fields
-  const fields = flattenGraphToFields(graph);
-
-  // Calculate completeness-based health score
+  // Calculate completeness for auto-complete banner
   const completenessScore = calculateCompleteness(graph);
-  const contextHealthScore = computeContextHealthScoreFromCompleteness(completenessScore);
-
-  // Get needs-refresh report for detailed freshness info
-  const refreshReport = getNeedsRefreshReport(graph);
-  const needsRefresh = convertNeedsRefreshReport(refreshReport);
 
   // Load snapshots
   const snapshots = await listContextGraphSnapshots(companyId, 5);
@@ -170,10 +217,10 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
 
   return (
     <div className="space-y-6">
-      {/* Context Health Panel at top */}
+      {/* Compact Context Health Header at top */}
       <div className="px-6 pt-6">
-        <ContextHealthPanel
-          health={contextHealth}
+        <ContextHealthHeader
+          healthScore={healthScore}
           companyId={companyId}
         />
       </div>
@@ -183,7 +230,7 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
         graph={graph}
         fields={fields}
         needsRefresh={needsRefresh}
-        contextHealthScore={contextHealthScore}
+        contextHealthScore={healthScore.overallScore}
         snapshots={snapshots}
         diff={diff}
         coveragePercent={completenessScore}
