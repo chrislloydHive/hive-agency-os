@@ -91,7 +91,7 @@ export function deriveNextBestAction(
         };
       }
       return {
-        action: 'Run GAP Snapshot diagnostic',
+        action: 'Run GAP IA diagnostic',
         reason: `Overall score is ${snapshot.overallScore}. A fresh diagnostic will identify priorities.`,
         priority: 'high',
         linkPath: `/c/${companyId}/diagnostics/gap-ia`,
@@ -125,7 +125,7 @@ export function deriveNextBestAction(
   if (!snapshot || snapshot.overallScore === null) {
     return {
       action: 'Run your first diagnostic',
-      reason: 'No baseline established yet. Start with GAP Snapshot or Website Lab.',
+      reason: 'No baseline established yet. Start with GAP IA or Website Lab.',
       priority: 'medium',
       linkPath: `/c/${companyId}/tools`,
     };

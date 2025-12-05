@@ -69,8 +69,8 @@ function getSourceIcon(source: WorkSource | undefined): string {
  */
 function getToolLabel(toolSlug: string): string {
   const labels: Record<string, string> = {
-    'gap-snapshot': 'GAP Snapshot',
-    'gapSnapshot': 'GAP Snapshot',
+    'gap-snapshot': 'GAP IA',
+    'gapSnapshot': 'GAP IA',
     'gap-plan': 'GAP Plan',
     'gapPlan': 'GAP Plan',
     'gap-heavy': 'GAP Heavy',

@@ -40,6 +40,8 @@ export interface RecommendedTool {
   lastRunId?: string;
   /** Days since last run, null if never run */
   daysSinceRun: number | null;
+  /** Status of the last run (complete, failed, running) */
+  lastRunStatus?: 'complete' | 'failed' | 'running';
 }
 
 export interface ToolRecommendationContext {
@@ -76,8 +78,20 @@ function getLatestRunForTool(
   runs: DiagnosticRun[],
   diagnosticToolId: DiagnosticToolId
 ): DiagnosticRun | null {
+  // Get latest complete run for score/view purposes
   const toolRuns = runs
     .filter(r => r.toolId === diagnosticToolId && r.status === 'complete')
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return toolRuns[0] || null;
+}
+
+function getLatestRunAnyStatus(
+  runs: DiagnosticRun[],
+  diagnosticToolId: DiagnosticToolId
+): DiagnosticRun | null {
+  // Get latest run regardless of status (for showing failed/running states)
+  const toolRuns = runs
+    .filter(r => r.toolId === diagnosticToolId)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   return toolRuns[0] || null;
 }
@@ -132,13 +146,22 @@ export async function getRecommendedToolsForBlueprint(
 
     // For strategic tools without diagnosticToolId, they always appear as "never run"
     // since they don't track runs the same way
-    const latestRun = tool.diagnosticToolId
+    const latestCompleteRun = tool.diagnosticToolId
       ? getLatestRunForTool(runs, tool.diagnosticToolId)
       : null;
-    const daysSinceRun = latestRun ? calculateDaysSince(latestRun.createdAt) : null;
+    const latestRunAny = tool.diagnosticToolId
+      ? getLatestRunAnyStatus(runs, tool.diagnosticToolId)
+      : null;
+
+    // Use complete run for daysSinceRun calculations
+    const daysSinceRun = latestCompleteRun ? calculateDaysSince(latestCompleteRun.createdAt) : null;
     const hasRecentRun = daysSinceRun !== null && daysSinceRun <= RECENT_THRESHOLD_DAYS;
     const isStale = daysSinceRun !== null && daysSinceRun > STALE_THRESHOLD_DAYS;
     const neverRun = daysSinceRun === null;
+
+    // Check for failed or running status from latest run (any status)
+    const lastRunStatus = latestRunAny?.status as 'complete' | 'failed' | 'running' | undefined;
+    const hasFailed = lastRunStatus === 'failed';
 
     let scoreImpact: 'high' | 'medium' | 'low' = 'medium';
     let urgency: 'now' | 'next' | 'later' = 'later';
@@ -245,10 +268,10 @@ export async function getRecommendedToolsForBlueprint(
           scoreImpact = 'medium';
           urgency = 'next';
           reason = `SEO Lab analysis is ${daysSinceRun} days old. Re-run to catch SEO drift and track issues.`;
-        } else if (latestRun?.score !== undefined && latestRun.score !== null && latestRun.score < 60) {
+        } else if (latestCompleteRun?.score !== undefined && latestCompleteRun.score !== null && latestCompleteRun.score < 60) {
           scoreImpact = 'high';
           urgency = 'now';
-          reason = `Previous SEO score was ${latestRun.score}/100. Re-run to track improvement and prioritize fixes.`;
+          reason = `Previous SEO score was ${latestCompleteRun.score}/100. Re-run to track improvement and prioritize fixes.`;
         } else {
           continue;
         }
@@ -364,25 +387,34 @@ export async function getRecommendedToolsForBlueprint(
       reason: reason.trim(),
       blueprintMeta: tool.blueprintMeta,
       hasRecentRun,
-      lastRunAt: latestRun?.createdAt,
-      lastScore: latestRun?.score ?? null,
-      lastRunId: latestRun?.id,
+      lastRunAt: latestCompleteRun?.createdAt,
+      lastScore: latestCompleteRun?.score ?? null,
+      lastRunId: latestCompleteRun?.id,
       daysSinceRun,
+      lastRunStatus,
     });
   }
+
+  // Deduplicate by toolId (keep first occurrence in case of duplicates)
+  const seenToolIds = new Set<CompanyToolId>();
+  const dedupedRecommendations = recommendations.filter(rec => {
+    if (seenToolIds.has(rec.toolId)) return false;
+    seenToolIds.add(rec.toolId);
+    return true;
+  });
 
   // Sort by urgency and impact
   const urgencyOrder = { now: 0, next: 1, later: 2 };
   const impactOrder = { high: 0, medium: 1, low: 2 };
 
-  recommendations.sort((a, b) => {
+  dedupedRecommendations.sort((a, b) => {
     const urgencyDiff = urgencyOrder[a.urgency] - urgencyOrder[b.urgency];
     if (urgencyDiff !== 0) return urgencyDiff;
     return impactOrder[a.scoreImpact] - impactOrder[b.scoreImpact];
   });
 
   // Return top 5 recommendations
-  const topRecommendations = recommendations.slice(0, 5);
+  const topRecommendations = dedupedRecommendations.slice(0, 5);
 
   console.log('[BlueprintRecommendations] Generated:', topRecommendations.length, 'recommendations');
 

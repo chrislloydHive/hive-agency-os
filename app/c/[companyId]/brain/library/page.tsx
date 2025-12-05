@@ -196,7 +196,7 @@ export default async function BrainLibraryPage({ params }: PageProps) {
       reports.push({
         id: run.id,
         type: 'gap-snapshot',
-        title: 'GAP Snapshot',
+        title: 'GAP IA',
         description: run.core?.quickSummary || 'Quick marketing health check',
         status: run.status === 'completed' || run.status === 'complete' ? 'completed'
           : run.status === 'running' ? 'running'

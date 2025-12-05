@@ -165,7 +165,7 @@ function ReportCard({ report }: { report: ReportItem }) {
   const StatusIcon = status.icon;
 
   const typeLabels: Record<ReportItem['type'], string> = {
-    'gap-snapshot': 'GAP Snapshot',
+    'gap-snapshot': 'GAP IA',
     'gap-plan': 'GAP Plan',
     'gap-heavy': 'GAP Heavy',
     'website-lab': 'Website Lab',

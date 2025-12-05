@@ -739,7 +739,7 @@ export const SOURCE_DISPLAY_NAMES: Record<string, string> = {
   qbr: 'Strategic Plan',
   strategy: 'Strategy',
   brain: 'Brain',
-  gap_ia: 'GAP Snapshot',
+  gap_ia: 'GAP IA',
   gap_full: 'GAP Full',
   gap_heavy: 'GAP Heavy',
   website_lab: 'Website Lab',

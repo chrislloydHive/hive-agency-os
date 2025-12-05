@@ -3,10 +3,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { writeCreativeLabAndSave } from '@/lib/contextGraph/creativeLabWriter';
-import {
-  createDiagnosticRun,
-  updateDiagnosticRun,
-} from '@/lib/os/diagnostics/runs';
+import { createDiagnosticRun } from '@/lib/os/diagnostics/runs';
+import { processDiagnosticRunCompletionAsync } from '@/lib/os/diagnostics/postRunHooks';
 import type { CreativeLabOutput } from '@/lib/contextGraph/creativeLabWriter';
 
 export async function POST(
@@ -49,6 +47,9 @@ export async function POST(
       });
 
       console.log('[CreativeLab API] Diagnostic run created:', diagnosticRun.id);
+
+      // Process post-run hooks (Brain entry + Strategic Snapshot) in background
+      processDiagnosticRunCompletionAsync(companyId, diagnosticRun);
     } catch (diagError) {
       // Don't fail the save if diagnostic run creation fails
       console.error('[CreativeLab API] Failed to create diagnostic run:', diagError);

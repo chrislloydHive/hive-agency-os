@@ -11,6 +11,7 @@ export type InsightCategory =
   | 'brand'
   | 'content'
   | 'seo'
+  | 'seo_content'  // Combined SEO/content category
   | 'website'
   | 'analytics'
   | 'demand'
@@ -18,7 +19,15 @@ export type InsightCategory =
   | 'competitive'
   | 'structural'
   | 'product'
+  | 'growth_opportunity'
+  | 'conversion'
+  | 'audience'
+  | 'creative'
+  | 'media'
+  | 'kpi_risk'
   | 'other';
+
+export type InsightStatus = 'open' | 'in_progress' | 'resolved' | 'dismissed';
 
 export type InsightSeverity = 'low' | 'medium' | 'high' | 'critical';
 
@@ -59,10 +68,17 @@ export interface ClientInsight {
   body: string;
   category: InsightCategory;
   severity?: InsightSeverity;
+  status?: InsightStatus;
   createdAt: string;
   updatedAt?: string;
   source: InsightSource;
-  // Optional linking
+  // Strategic insight fields
+  recommendation?: string;       // concrete "do this" guidance
+  rationale?: string;            // why this matters
+  contextPaths?: string[];       // related Context Graph field paths
+  metrics?: Record<string, unknown>; // optional numeric context
+  // Work linking
+  linkedWorkItemId?: string;
   relatedWorkCount?: number;
   lastUsedInWorkAt?: string | null;
   // Extended fields
@@ -75,9 +91,14 @@ export interface CreateClientInsightInput {
   body: string;
   category: InsightCategory;
   severity?: InsightSeverity;
+  status?: InsightStatus;
   source: InsightSource;
   companyId?: string;
   tags?: string[];
+  recommendation?: string;
+  rationale?: string;
+  contextPaths?: string[];
+  metrics?: Record<string, unknown>;
 }
 
 // Alias for backwards compatibility
@@ -88,7 +109,9 @@ export interface UpdateClientInsightPayload {
   body?: string;
   category?: InsightCategory;
   severity?: InsightSeverity;
+  status?: InsightStatus;
   tags?: string[];
+  linkedWorkItemId?: string;
 }
 
 export interface ListClientInsightsOptions {
@@ -148,6 +171,7 @@ export const INSIGHT_CATEGORY_CONFIG: Record<InsightCategory, { label: string; i
   brand: { label: 'Brand', icon: 'Sparkles', color: 'purple' },
   content: { label: 'Content', icon: 'FileText', color: 'emerald' },
   seo: { label: 'SEO', icon: 'Search', color: 'cyan' },
+  seo_content: { label: 'SEO & Content', icon: 'Search', color: 'cyan' },
   website: { label: 'Website', icon: 'Globe', color: 'blue' },
   analytics: { label: 'Analytics', icon: 'BarChart2', color: 'indigo' },
   demand: { label: 'Demand', icon: 'TrendingUp', color: 'pink' },
@@ -155,7 +179,62 @@ export const INSIGHT_CATEGORY_CONFIG: Record<InsightCategory, { label: string; i
   competitive: { label: 'Competitive', icon: 'Users', color: 'red' },
   structural: { label: 'Structural', icon: 'Layers', color: 'slate' },
   product: { label: 'Product', icon: 'Package', color: 'amber' },
+  growth_opportunity: { label: 'Growth', icon: 'TrendingUp', color: 'emerald' },
+  conversion: { label: 'Conversion', icon: 'Target', color: 'blue' },
+  audience: { label: 'Audience', icon: 'Users', color: 'violet' },
+  creative: { label: 'Creative', icon: 'Palette', color: 'pink' },
+  media: { label: 'Media', icon: 'Tv', color: 'sky' },
+  kpi_risk: { label: 'KPI Risk', icon: 'AlertTriangle', color: 'red' },
   other: { label: 'Other', icon: 'Circle', color: 'slate' },
+};
+
+export const INSIGHT_STATUS_CONFIG: Record<InsightStatus, { label: string; color: string }> = {
+  open: { label: 'Open', color: 'blue' },
+  in_progress: { label: 'In Progress', color: 'amber' },
+  resolved: { label: 'Resolved', color: 'emerald' },
+  dismissed: { label: 'Dismissed', color: 'slate' },
+};
+
+// ============================================================================
+// UI Groupings for Brain Insights
+// ============================================================================
+
+export type InsightUIGroup =
+  | 'growth_opportunities'
+  | 'competitive_signals'
+  | 'strategic_recommendations';
+
+export function getInsightUIGroup(category: InsightCategory): InsightUIGroup {
+  switch (category) {
+    case 'growth_opportunity':
+    case 'conversion':
+    case 'kpi_risk':
+    case 'demand':
+    case 'media':
+      return 'growth_opportunities';
+    case 'competitive':
+    case 'audience':
+    case 'seo_content':  // SEO/content when competitive in nature
+      return 'competitive_signals';
+    case 'brand':
+    case 'creative':
+    case 'seo':
+    case 'content':
+    case 'website':
+    case 'analytics':
+    case 'ops':
+    case 'structural':
+    case 'product':
+    case 'other':
+    default:
+      return 'strategic_recommendations';
+  }
+}
+
+export const UI_GROUP_CONFIG: Record<InsightUIGroup, { label: string; icon: string; color: string }> = {
+  growth_opportunities: { label: 'Growth Opportunities', icon: 'TrendingUp', color: 'emerald' },
+  competitive_signals: { label: 'Competitive Signals', icon: 'Radar', color: 'blue' },
+  strategic_recommendations: { label: 'Strategic Recommendations', icon: 'Target', color: 'amber' },
 };
 
 export const INSIGHT_SEVERITY_CONFIG: Record<InsightSeverity, { label: string; color: string }> = {

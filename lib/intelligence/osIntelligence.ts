@@ -471,7 +471,7 @@ function deriveClusters(companies: any[], fullReports: any[]): OSCluster[] {
       companies: newCompanies.slice(0, 10).map(c => c.id),
       companyNames: newCompanies.slice(0, 10).map(c => c.name),
       symptom: 'No diagnostics run yet',
-      suggestedAction: 'Run GAP Snapshot to establish baseline',
+      suggestedAction: 'Run GAP IA to establish baseline',
     });
   }
 
@@ -945,7 +945,7 @@ function computeDiagnosticReviewQueue(fullReports: any[], companies: any[]): Dia
         id: r.id,
         companyId: r.companyId || '',
         companyName: company?.name || r.companyName || 'Unknown',
-        toolName: 'GAP Snapshot',
+        toolName: 'GAP IA',
         score: r.scores?.overall,
         createdAt: r.createdAt,
         status: 'Pending Review',

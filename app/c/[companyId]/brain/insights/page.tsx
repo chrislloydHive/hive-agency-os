@@ -1,10 +1,21 @@
 // app/c/[companyId]/brain/insights/page.tsx
-// Brain Insights - AI-generated strategic insights (placeholder)
+// Brain Insights - AI-generated strategic insights from diagnostic runs
 
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { Suspense } from 'react';
 import { getCompanyById } from '@/lib/airtable/companies';
-import { Sparkles } from 'lucide-react';
+import { getInsightsDashboard, queryInsights } from '@/lib/insights/engine';
+import {
+  Sparkles,
+  TrendingUp,
+  Target,
+  Radar,
+} from 'lucide-react';
+import type { ClientInsight, InsightStatus, InsightSeverity, InsightCategory } from '@/lib/types/clientBrain';
+import { getInsightUIGroup } from '@/lib/types/clientBrain';
+import { InsightCardClient } from './InsightCardClient';
+import { InsightsFilters } from './InsightsFilters';
 
 // ============================================================================
 // Types
@@ -12,6 +23,11 @@ import { Sparkles } from 'lucide-react';
 
 interface PageProps {
   params: Promise<{ companyId: string }>;
+  searchParams: Promise<{
+    status?: string;
+    severity?: string;
+    category?: string;
+  }>;
 }
 
 // ============================================================================
@@ -26,8 +42,9 @@ export const metadata: Metadata = {
 // Page Component
 // ============================================================================
 
-export default async function BrainInsightsPage({ params }: PageProps) {
+export default async function BrainInsightsPage({ params, searchParams }: PageProps) {
   const { companyId } = await params;
+  const filters = await searchParams;
 
   // Load company info
   const company = await getCompanyById(companyId);
@@ -35,50 +52,236 @@ export default async function BrainInsightsPage({ params }: PageProps) {
     notFound();
   }
 
+  // Check if filters are active
+  const hasFilters = filters.status || filters.severity || filters.category;
+
+  // Load insights dashboard (for stats) and filtered insights
+  const dashboard = await getInsightsDashboard(companyId);
+
+  // If no insights at all, show empty state with refresh button
+  if (dashboard.stats.total === 0) {
+    return (
+      <div className="space-y-6">
+        <Suspense fallback={null}>
+          <InsightsFilters companyId={companyId} showOnlyRefresh />
+        </Suspense>
+        <EmptyInsightsState companyId={companyId} />
+      </div>
+    );
+  }
+
+  // Get filtered insights if filters are active
+  let filteredInsights: ClientInsight[] | null = null;
+  if (hasFilters) {
+    filteredInsights = await queryInsights(companyId, {
+      status: filters.status as InsightStatus | undefined,
+      severity: filters.severity as InsightSeverity | undefined,
+      category: filters.category as InsightCategory | undefined,
+    });
+  }
+
+  // Use filtered insights or grouped insights
+  const insightsToDisplay = filteredInsights ?? null;
+
   return (
     <div className="space-y-6">
-      {/* Coming Soon Card */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-8">
-        <div className="flex flex-col items-center text-center max-w-md mx-auto">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30 flex items-center justify-center mb-6">
-            <Sparkles className="w-8 h-8 text-purple-400" />
-          </div>
+      {/* Stats Bar */}
+      <StatsBar stats={dashboard.stats} />
 
-          <h2 className="text-xl font-semibold text-slate-100 mb-3">
-            AI Insights Coming Soon
-          </h2>
+      {/* Filters */}
+      <Suspense fallback={null}>
+        <InsightsFilters companyId={companyId} />
+      </Suspense>
 
-          <p className="text-sm text-slate-400 mb-6 leading-relaxed">
-            Brain Insights will analyze your company's context graph to surface strategic opportunities,
-            identify patterns across performance data, and generate actionable recommendations.
-          </p>
-
-          <div className="w-full space-y-3">
-            <InsightPreview
+      {/* Filtered View */}
+      {insightsToDisplay !== null ? (
+        <FilteredInsightsList insights={insightsToDisplay} companyId={companyId} />
+      ) : (
+        /* Grouped View */
+        <div className="space-y-8">
+          {/* Growth Opportunities */}
+          {dashboard.groupedInsights.growthOpportunities.length > 0 && (
+            <InsightGroup
               title="Growth Opportunities"
-              description="AI-identified gaps between current performance and potential"
-              icon="trending-up"
+              subtitle="Revenue and conversion opportunities identified"
+              icon={<TrendingUp className="w-5 h-5" />}
+              iconBgColor="bg-emerald-500/20"
+              iconColor="text-emerald-400"
+              insights={dashboard.groupedInsights.growthOpportunities}
+              companyId={companyId}
             />
-            <InsightPreview
+          )}
+
+          {/* Competitive Signals */}
+          {dashboard.groupedInsights.competitiveSignals.length > 0 && (
+            <InsightGroup
               title="Competitive Signals"
-              description="Market movements and competitor activity analysis"
-              icon="radar"
+              subtitle="Market and competitor intelligence"
+              icon={<Radar className="w-5 h-5" />}
+              iconBgColor="bg-blue-500/20"
+              iconColor="text-blue-400"
+              insights={dashboard.groupedInsights.competitiveSignals}
+              companyId={companyId}
             />
-            <InsightPreview
+          )}
+
+          {/* Strategic Recommendations */}
+          {dashboard.groupedInsights.strategicRecommendations.length > 0 && (
+            <InsightGroup
               title="Strategic Recommendations"
-              description="Prioritized actions based on context and goals"
-              icon="target"
+              subtitle="Actionable improvements across channels"
+              icon={<Target className="w-5 h-5" />}
+              iconBgColor="bg-amber-500/20"
+              iconColor="text-amber-400"
+              insights={dashboard.groupedInsights.strategicRecommendations}
+              companyId={companyId}
             />
-          </div>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
 // ============================================================================
-// Helper Components
+// Components
 // ============================================================================
+
+function StatsBar({ stats }: { stats: { open: number; inProgress: number; resolved: number; dismissed: number; total: number } }) {
+  return (
+    <div className="flex items-center justify-between p-4 rounded-xl border border-slate-800 bg-slate-900/50">
+      <div className="flex items-center gap-6">
+        <StatItem label="Open" value={stats.open} color="text-blue-400" />
+        <StatItem label="In Progress" value={stats.inProgress} color="text-amber-400" />
+        <StatItem label="Resolved" value={stats.resolved} color="text-emerald-400" />
+        <StatItem label="Dismissed" value={stats.dismissed} color="text-slate-400" />
+      </div>
+      <div className="text-sm text-slate-400">
+        {stats.total} total insight{stats.total !== 1 ? 's' : ''}
+      </div>
+    </div>
+  );
+}
+
+function StatItem({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`text-lg font-semibold ${color}`}>{value}</span>
+      <span className="text-sm text-slate-500">{label}</span>
+    </div>
+  );
+}
+
+function InsightGroup({
+  title,
+  subtitle,
+  icon,
+  iconBgColor,
+  iconColor,
+  insights,
+  companyId,
+}: {
+  title: string;
+  subtitle: string;
+  icon: React.ReactNode;
+  iconBgColor: string;
+  iconColor: string;
+  insights: ClientInsight[];
+  companyId: string;
+}) {
+  return (
+    <div className="space-y-4">
+      {/* Group Header */}
+      <div className="flex items-center gap-3">
+        <div className={`w-10 h-10 rounded-xl ${iconBgColor} flex items-center justify-center ${iconColor}`}>
+          {icon}
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold text-slate-100">{title}</h2>
+          <p className="text-sm text-slate-400">{subtitle}</p>
+        </div>
+        <div className="ml-auto">
+          <span className="px-2 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-400">
+            {insights.length}
+          </span>
+        </div>
+      </div>
+
+      {/* Insights */}
+      <div className="space-y-3">
+        {insights.map((insight) => (
+          <InsightCardClient key={insight.id} insight={insight} companyId={companyId} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FilteredInsightsList({
+  insights,
+  companyId,
+}: {
+  insights: ClientInsight[];
+  companyId: string;
+}) {
+  if (insights.length === 0) {
+    return (
+      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-8 text-center">
+        <p className="text-slate-400">No insights match your filters.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="text-sm text-slate-400 mb-4">
+        {insights.length} insight{insights.length !== 1 ? 's' : ''} matching filters
+      </div>
+      {insights.map((insight) => (
+        <InsightCardClient key={insight.id} insight={insight} companyId={companyId} />
+      ))}
+    </div>
+  );
+}
+
+function EmptyInsightsState({ companyId }: { companyId: string }) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-8">
+      <div className="flex flex-col items-center text-center max-w-md mx-auto">
+        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30 flex items-center justify-center mb-6">
+          <Sparkles className="w-8 h-8 text-purple-400" />
+        </div>
+
+        <h2 className="text-xl font-semibold text-slate-100 mb-3">
+          No Insights Yet
+        </h2>
+
+        <p className="text-sm text-slate-400 mb-6 leading-relaxed">
+          Insights are automatically extracted when you run diagnostic tools.
+          Run a GAP or Labs diagnostic to generate your first insights.
+        </p>
+
+        <div className="w-full space-y-3">
+          <InsightPreview
+            title="Growth Opportunities"
+            description="Revenue and conversion opportunities"
+            icon={<TrendingUp className="w-4 h-4 text-emerald-400" />}
+          />
+          <InsightPreview
+            title="Competitive Signals"
+            description="Market and competitor intelligence"
+            icon={<Radar className="w-4 h-4 text-blue-400" />}
+          />
+          <InsightPreview
+            title="Strategic Recommendations"
+            description="Actionable improvements across channels"
+            icon={<Target className="w-4 h-4 text-amber-400" />}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function InsightPreview({
   title,
@@ -87,26 +290,12 @@ function InsightPreview({
 }: {
   title: string;
   description: string;
-  icon: 'trending-up' | 'radar' | 'target';
+  icon: React.ReactNode;
 }) {
   return (
     <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/50 text-left">
       <div className="w-8 h-8 rounded-lg bg-slate-700/50 flex items-center justify-center flex-shrink-0">
-        {icon === 'trending-up' && (
-          <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-          </svg>
-        )}
-        {icon === 'radar' && (
-          <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-          </svg>
-        )}
-        {icon === 'target' && (
-          <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-          </svg>
-        )}
+        {icon}
       </div>
       <div>
         <div className="text-sm font-medium text-slate-200">{title}</div>
@@ -115,3 +304,4 @@ function InsightPreview({
     </div>
   );
 }
+

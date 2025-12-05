@@ -301,7 +301,7 @@ export function BlueprintClient({
               next.delete(toolId);
               return next;
             });
-            setNewDataBanner(`${toolLabel} completed! Refreshing...`);
+            setNewDataBanner(`${toolLabel} completed${data.score ? ` (Score: ${data.score})` : ''}! Refreshing...`);
             setTimeout(() => {
               setNewDataBanner(null);
               router.refresh();
@@ -586,9 +586,13 @@ export function BlueprintClient({
         } else {
           const data = await response.json();
           console.error('[Blueprint] Failed to create work item:', data.error);
+          setNewDataBanner(`Failed to add to Work: ${data.error || 'Unknown error'}`);
+          setTimeout(() => setNewDataBanner(null), 4000);
         }
       } catch (error) {
         console.error('[Blueprint] Error creating work item:', error);
+        setNewDataBanner('Failed to add to Work. Please try again.');
+        setTimeout(() => setNewDataBanner(null), 4000);
       } finally {
         setPlanningWork((prev) => {
           const next = new Set(prev);
@@ -661,14 +665,28 @@ export function BlueprintClient({
     <div className="max-w-[1400px] mx-auto space-y-6">
       {/* New Data Banner */}
       {newDataBanner && (
-        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4">
+        <div className={`rounded-xl p-4 ${
+          newDataBanner.startsWith('Failed')
+            ? 'bg-red-500/10 border border-red-500/30'
+            : 'bg-emerald-500/10 border border-emerald-500/30'
+        }`}>
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
-              <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+              newDataBanner.startsWith('Failed') ? 'bg-red-500/20' : 'bg-emerald-500/20'
+            }`}>
+              {newDataBanner.startsWith('Failed') ? (
+                <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
             </div>
-            <p className="text-sm text-emerald-300">{newDataBanner}</p>
+            <p className={`text-sm ${newDataBanner.startsWith('Failed') ? 'text-red-300' : 'text-emerald-300'}`}>
+              {newDataBanner}
+            </p>
           </div>
         </div>
       )}

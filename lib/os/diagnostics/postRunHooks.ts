@@ -6,12 +6,14 @@
 // 2. Refresh the company's Strategic Snapshot
 // 3. Update the Company Context Graph
 // 4. Run domain-specific writers for full data extraction
+// 5. Extract strategic insights for Brain Insights
 
 import { summarizeDiagnosticRunForBrain } from './aiInsights';
 import { refreshCompanyStrategicSnapshot } from '@/lib/os/companies/strategySnapshot';
 import { runFusion } from '@/lib/contextGraph/fusion';
 import { writeWebsiteLabAndSave } from '@/lib/contextGraph/websiteLabWriter';
 import { writeBrandLabAndSave } from '@/lib/contextGraph/brandLabWriter';
+import { processCompletedDiagnostic } from '@/lib/insights/engine';
 import type { DiagnosticRun } from './runs';
 import type { WebsiteUXLabResultV4 } from '@/lib/gap-heavy/modules/websiteLab';
 import type { BrandLabSummary } from '@/lib/media/diagnosticsInputs';
@@ -83,6 +85,20 @@ export async function processDiagnosticRunCompletion(
   // 4. Run domain-specific writers for full data extraction
   // These writers extract more detailed data than the fusion pipeline
   await runDomainWriters(companyId, run);
+
+  // 5. Extract strategic insights for Brain Insights
+  try {
+    console.log('[postRunHooks] Extracting strategic insights...');
+    const insightResult = await processCompletedDiagnostic(companyId, run);
+    console.log('[postRunHooks] Strategic insights extracted:', {
+      created: insightResult.insightsCreated,
+      skipped: insightResult.insightsSkipped,
+      durationMs: insightResult.duration,
+    });
+  } catch (error) {
+    console.error('[postRunHooks] Failed to extract strategic insights:', error);
+    // Don't throw - insight extraction is supplementary
+  }
 
   console.log('[postRunHooks] Completed processing for run:', run.id);
 }

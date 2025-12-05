@@ -37,6 +37,7 @@ const CATEGORY_ICONS: Record<InsightCategory, React.ComponentType<{ className?: 
   brand: Sparkles,
   content: FileText,
   seo: Search,
+  seo_content: Search,
   website: Globe,
   analytics: BarChart2,
   demand: TrendingUp,
@@ -45,6 +46,13 @@ const CATEGORY_ICONS: Record<InsightCategory, React.ComponentType<{ className?: 
   structural: Layers,
   product: Package,
   other: Circle,
+  // New categories
+  growth_opportunity: TrendingUp,
+  conversion: BarChart2,
+  audience: Users,
+  creative: Sparkles,
+  media: TrendingUp,
+  kpi_risk: AlertCircle,
 };
 
 // Source icons

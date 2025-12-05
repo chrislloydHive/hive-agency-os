@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Step 4: Trigger GAP Snapshot if we have a company with website
+    // Step 4: Trigger GAP IA if we have a company with website
     if (!body.skipGapSnapshot && result.company && lead.website) {
       try {
         const response = await fetch(
@@ -169,12 +169,12 @@ export async function POST(request: NextRequest) {
             triggered: true,
             runId: data.run?.id,
           };
-          console.log(`[Ingest] Triggered GAP Snapshot for company ${result.company.id}`);
+          console.log(`[Ingest] Triggered GAP IA for company ${result.company.id}`);
         } else {
-          console.error('[Ingest] GAP Snapshot request failed:', await response.text());
+          console.error('[Ingest] GAP IA request failed:', await response.text());
         }
       } catch (error) {
-        console.error('[Ingest] Failed to trigger GAP Snapshot:', error);
+        console.error('[Ingest] Failed to trigger GAP IA:', error);
       }
     }
 

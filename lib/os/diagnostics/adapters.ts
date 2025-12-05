@@ -106,7 +106,7 @@ export function extractReportData(run: DiagnosticRun): ToolReportData {
 }
 
 // ============================================================================
-// GAP Snapshot Adapter
+// GAP IA Adapter
 // ============================================================================
 
 function extractGapSnapshotData(rawJson: any): ToolReportData {

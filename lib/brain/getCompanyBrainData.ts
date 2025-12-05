@@ -285,7 +285,7 @@ export function getDataAvailabilitySummary(data: CompanyBrainData): {
     { key: 'contentLab', label: 'Content Lab' },
     { key: 'opsLab', label: 'Ops Lab' },
     { key: 'demandLab', label: 'Demand Lab' },
-    { key: 'gapSnapshot', label: 'GAP Snapshot' },
+    { key: 'gapSnapshot', label: 'GAP IA' },
     { key: 'gapPlan', label: 'GAP Plan' },
     { key: 'gapHeavy', label: 'GAP Heavy' },
     { key: 'insights', label: 'Client Insights' },

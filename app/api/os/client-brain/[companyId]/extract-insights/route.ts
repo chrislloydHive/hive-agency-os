@@ -37,7 +37,7 @@ const INSIGHT_EXTRACTION_SYSTEM_PROMPT = `
 You are a senior marketing strategist for Hive Agency.
 
 You will be given the result of a diagnostic tool run for a company
-(e.g., GAP Snapshot, GAP Plan, Website Lab, Brand Lab, SEO Lab, etc.).
+(e.g., GAP IA, GAP Plan, Website Lab, Brand Lab, SEO Lab, etc.).
 
 Your job is to extract only DURABLE, STRATEGIC INSIGHTS about the client.
 

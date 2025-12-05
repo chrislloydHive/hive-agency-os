@@ -216,7 +216,7 @@ export interface FindOrCreateCompanyForGapResult {
 }
 
 /**
- * Find or create a company for GAP tools (Full GAP, GAP Snapshot)
+ * Find or create a company for GAP tools (Full GAP, GAP IA)
  *
  * This is the unified entry point for GAP tools that can now accept a URL
  * and auto-create a company if one doesn't exist for that domain.

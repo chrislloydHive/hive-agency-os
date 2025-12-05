@@ -513,7 +513,7 @@ export const SOURCE_DISPLAY_NAMES: Record<string, string> = {
   ops_lab: 'Ops Lab',
   gap_heavy: 'GAP Heavy',
   gap_full: 'GAP Full',
-  gap_ia: 'GAP Snapshot',
+  gap_ia: 'GAP IA',
   brain: 'AI Brain',
   inferred: 'Inferred',
   airtable: 'Airtable Import',

@@ -3,24 +3,65 @@
 // components/os/ContextHealthCard.tsx
 // Context Graph Health Card
 //
-// Displays the health/completeness of a company's Context Graph.
-// Shows domain coverage, freshness, and a rebuild button.
+// Displays comprehensive health/completeness of a company's Context Graph.
+// Shows overall score, sub-metrics (completeness, critical coverage, freshness),
+// section breakdown, and missing critical fields with deep links.
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-interface NeedsRefreshFlag {
-  domain: string;
-  field: string;
-  reason: 'missing' | 'stale' | 'low_confidence' | 'expired';
-  freshness?: number;
+interface SectionScore {
+  section: string;
+  label: string;
+  completeness: number;
+  criticalCoverage: number;
+  freshness: number;
+  totalFields: number;
+  populatedFields: number;
+  criticalFields: number;
+  criticalPopulated: number;
+  staleFields: number;
+}
+
+interface MissingField {
+  path: string;
+  label: string;
+  section: string;
+  primarySources: string[];
+}
+
+interface Recommendation {
+  action: string;
+  section: string;
+  path: string;
+  priority: 'high' | 'medium' | 'low';
 }
 
 interface ContextHealthData {
+  // New comprehensive scores
+  overallScore?: number;
   completenessScore: number | null;
+  criticalCoverageScore?: number;
+  freshnessScore?: number;
+  confidenceScore?: number;
+  severity?: 'healthy' | 'degraded' | 'unhealthy';
+  severityLabel?: string;
+  sectionScores?: SectionScore[];
+  missingCriticalFields?: MissingField[];
+  recommendations?: Recommendation[];
+  stats?: {
+    totalFields: number;
+    populatedFields: number;
+    criticalFields: number;
+    criticalPopulated: number;
+    staleFields: number;
+    averageConfidence: number;
+  };
+  // Legacy fields
   domainCoverage: Record<string, number> | null;
   lastUpdated: string | null;
   lastFusionAt: string | null;
@@ -29,10 +70,8 @@ interface ContextHealthData {
     populated: number;
   };
   staleFields: number;
-  // New fields from contextHealth module
   healthScore?: number;
   healthStatus?: 'healthy' | 'fair' | 'needs_attention' | 'critical';
-  needsRefresh?: NeedsRefreshFlag[];
 }
 
 interface ContextHealthCardProps {
@@ -44,25 +83,57 @@ interface ContextHealthCardProps {
 // Helper Functions
 // ============================================================================
 
-function getHealthColor(score: number | null): string {
+function getScoreColor(score: number | null): string {
   if (score === null) return 'text-slate-400';
-  if (score >= 70) return 'text-emerald-400';
-  if (score >= 40) return 'text-amber-400';
+  if (score >= 80) return 'text-emerald-400';
+  if (score >= 50) return 'text-amber-400';
   return 'text-red-400';
 }
 
-function getHealthBgColor(score: number | null): string {
+function getScoreBgColor(score: number | null): string {
   if (score === null) return 'bg-slate-500/20';
-  if (score >= 70) return 'bg-emerald-500/20';
-  if (score >= 40) return 'bg-amber-500/20';
+  if (score >= 80) return 'bg-emerald-500/20';
+  if (score >= 50) return 'bg-amber-500/20';
   return 'bg-red-500/20';
 }
 
-function getHealthLabel(score: number | null): string {
-  if (score === null) return 'Not initialized';
-  if (score >= 70) return 'Good coverage';
-  if (score >= 40) return 'Partial coverage';
-  return 'Needs data';
+function getScoreBorderColor(score: number | null): string {
+  if (score === null) return 'border-slate-500/30';
+  if (score >= 80) return 'border-emerald-500/30';
+  if (score >= 50) return 'border-amber-500/30';
+  return 'border-red-500/30';
+}
+
+function getSeverityConfig(severity: string | undefined): {
+  color: string;
+  bg: string;
+  border: string;
+  label: string;
+} {
+  switch (severity) {
+    case 'healthy':
+      return {
+        color: 'text-emerald-400',
+        bg: 'bg-emerald-500/20',
+        border: 'border-emerald-500/30',
+        label: 'Healthy',
+      };
+    case 'degraded':
+      return {
+        color: 'text-amber-400',
+        bg: 'bg-amber-500/20',
+        border: 'border-amber-500/30',
+        label: 'Needs Improvement',
+      };
+    case 'unhealthy':
+    default:
+      return {
+        color: 'text-red-400',
+        bg: 'bg-red-500/20',
+        border: 'border-red-500/30',
+        label: 'Weak / Incomplete',
+      };
+  }
 }
 
 function formatRelativeTime(dateStr: string | null): string {
@@ -81,6 +152,34 @@ function formatRelativeTime(dateStr: string | null): string {
   } catch {
     return 'Unknown';
   }
+}
+
+function getSourcePath(source: string, companyId: string): string {
+  const paths: Record<string, string> = {
+    Setup: `/c/${companyId}/brain/setup`,
+    GAP: `/c/${companyId}/gap`,
+    GAPHeavy: `/c/${companyId}/gap`,
+    AudienceLab: `/c/${companyId}/diagnostics/audience`,
+    BrandLab: `/c/${companyId}/diagnostics/brand`,
+    CreativeLab: `/c/${companyId}/labs/creative`,
+    MediaLab: `/c/${companyId}/diagnostics/media`,
+    WebsiteLab: `/c/${companyId}/diagnostics/website-lab`,
+  };
+  return paths[source] || `/c/${companyId}/brain/setup`;
+}
+
+function getSourceLabel(source: string): string {
+  const labels: Record<string, string> = {
+    Setup: 'Setup',
+    GAP: 'GAP',
+    GAPHeavy: 'GAP Heavy',
+    AudienceLab: 'Audience Lab',
+    BrandLab: 'Brand Lab',
+    CreativeLab: 'Creative Lab',
+    MediaLab: 'Media Lab',
+    WebsiteLab: 'Website Lab',
+  };
+  return labels[source] || source;
 }
 
 // ============================================================================
@@ -136,20 +235,12 @@ export function ContextHealthCard({ companyId, className = '' }: ContextHealthCa
         throw new Error('Failed to rebuild context');
       }
 
-      const result = await response.json();
-
-      // Refresh health data after rebuild
-      setHealthData({
-        completenessScore: result.graph?.meta?.completenessScore ?? null,
-        domainCoverage: result.graph?.meta?.domainCoverage ?? null,
-        lastUpdated: result.graph?.meta?.updatedAt ?? null,
-        lastFusionAt: result.graph?.meta?.lastFusionAt ?? null,
-        fieldCount: {
-          total: result.fieldsUpdated ?? 0,
-          populated: result.fieldsUpdated ?? 0,
-        },
-        staleFields: 0,
-      });
+      // Re-fetch health data after rebuild
+      const healthResponse = await fetch(`/api/os/companies/${companyId}/context-health`);
+      if (healthResponse.ok) {
+        const data = await healthResponse.json();
+        setHealthData(data);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Rebuild failed');
     } finally {
@@ -169,12 +260,12 @@ export function ContextHealthCard({ companyId, className = '' }: ContextHealthCa
     );
   }
 
-  // No context graph yet
-  if (!healthData) {
+  // No context graph yet or score not available
+  if (!healthData || healthData.overallScore === undefined) {
     return (
       <div className={`bg-slate-900 border border-slate-800 rounded-xl p-5 ${className}`}>
         <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-4">
-          Context Graph
+          Context Health
         </h2>
 
         <div className="text-center py-4">
@@ -185,28 +276,18 @@ export function ContextHealthCard({ companyId, className = '' }: ContextHealthCa
           </div>
           <p className="text-sm text-slate-300 mb-1">No Context Graph Yet</p>
           <p className="text-xs text-slate-500 mb-4">
-            Run diagnostics to build the company's knowledge graph.
+            Complete Setup to build the company's knowledge graph.
           </p>
 
-          <button
-            onClick={handleRebuild}
-            disabled={rebuilding}
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          <Link
+            href={`/c/${companyId}/brain/setup`}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30 transition-colors"
           >
-            {rebuilding ? (
-              <>
-                <div className="w-3 h-3 rounded-full border-2 border-blue-400/30 border-t-blue-400 animate-spin" />
-                Building...
-              </>
-            ) : (
-              <>
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                Initialize Context Graph
-              </>
-            )}
-          </button>
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+            Start Setup
+          </Link>
         </div>
 
         {error && (
@@ -216,112 +297,160 @@ export function ContextHealthCard({ companyId, className = '' }: ContextHealthCa
     );
   }
 
-  // Main view with health data
-  // Prefer new healthScore if available, fall back to completenessScore
-  const score = healthData.healthScore ?? healthData.completenessScore;
-  const healthColor = getHealthColor(score);
-  const healthBg = getHealthBgColor(score);
-  const healthLabel = healthData.healthStatus
-    ? healthData.healthStatus.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())
-    : getHealthLabel(score);
+  // Main view with comprehensive health data
+  const { severity } = healthData;
+  const severityConfig = getSeverityConfig(severity);
+  const overallScore = healthData.overallScore ?? 0;
 
-  // Get top domains by coverage
-  const sortedDomains = healthData.domainCoverage
-    ? Object.entries(healthData.domainCoverage)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 5)
-    : [];
+  // Get sections with critical fields, sorted by critical coverage (lowest first)
+  const sectionsWithCritical = (healthData.sectionScores || [])
+    .filter(s => s.criticalFields > 0)
+    .sort((a, b) => a.criticalCoverage - b.criticalCoverage);
+
+  const weakSections = sectionsWithCritical.filter(s => s.criticalCoverage < 60);
 
   return (
-    <div className={`bg-slate-900 border border-slate-800 rounded-xl p-5 ${className}`}>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
-          Context Graph
-        </h2>
-        <button
-          onClick={handleRebuild}
-          disabled={rebuilding}
-          className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-50"
-          title="Rebuild context from all diagnostics"
-        >
-          {rebuilding ? (
-            <div className="w-3 h-3 rounded-full border-2 border-slate-500 border-t-slate-300 animate-spin" />
-          ) : (
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-          )}
-          Rebuild
-        </button>
-      </div>
-
-      {/* Health Score */}
-      <div className="flex items-center gap-4 mb-4">
-        <div className={`flex-shrink-0 w-16 h-16 rounded-lg ${healthBg} flex items-center justify-center`}>
-          <span className={`text-2xl font-bold tabular-nums ${healthColor}`}>
-            {score !== null ? `${score}%` : '—'}
-          </span>
+    <div className={`bg-slate-900 border border-slate-800 rounded-xl overflow-hidden ${className}`}>
+      {/* Header */}
+      <div className="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+            Context Health
+          </h2>
+          <button
+            onClick={handleRebuild}
+            disabled={rebuilding}
+            className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-50"
+            title="Rebuild context from all diagnostics"
+          >
+            {rebuilding ? (
+              <div className="w-3 h-3 rounded-full border-2 border-slate-500 border-t-slate-300 animate-spin" />
+            ) : (
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            )}
+            Rebuild
+          </button>
         </div>
-        <div className="flex-1 min-w-0">
-          <p className={`text-sm font-medium ${healthColor}`}>{healthLabel}</p>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Last updated: {formatRelativeTime(healthData.lastUpdated)}
-          </p>
-          {(healthData.needsRefresh && healthData.needsRefresh.length > 0) ? (
-            <p className="text-xs text-amber-400 mt-0.5">
-              {healthData.needsRefresh.length} areas need attention
-            </p>
-          ) : healthData.staleFields > 0 && (
-            <p className="text-xs text-amber-400 mt-0.5">
-              {healthData.staleFields} stale fields need refresh
-            </p>
-          )}
-        </div>
-      </div>
 
-      {/* Domain Coverage */}
-      {sortedDomains.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs text-slate-500 uppercase tracking-wide">Domain Coverage</p>
-          {sortedDomains.map(([domain, coverage]) => (
-            <div key={domain} className="flex items-center gap-3">
-              <span className="text-xs text-slate-400 w-24 truncate capitalize">
-                {domain.replace(/([A-Z])/g, ' $1').trim()}
-              </span>
-              <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all ${
-                    coverage >= 70 ? 'bg-emerald-500' : coverage >= 40 ? 'bg-amber-500' : 'bg-red-500'
-                  }`}
-                  style={{ width: `${coverage}%` }}
-                />
-              </div>
-              <span className="text-xs text-slate-500 tabular-nums w-8 text-right">
-                {coverage}%
+        {/* Overall Score with Severity Badge */}
+        <div className="flex items-center gap-4">
+          <div className={`flex-shrink-0 w-16 h-16 rounded-lg ${severityConfig.bg} border ${severityConfig.border} flex items-center justify-center`}>
+            <span className={`text-2xl font-bold tabular-nums ${severityConfig.color}`}>
+              {overallScore}
+            </span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`text-sm font-medium ${severityConfig.color}`}>
+                {severityConfig.label}
               </span>
             </div>
-          ))}
+            <p className="text-xs text-slate-500">
+              Last updated: {formatRelativeTime(healthData.lastUpdated)}
+            </p>
+          </div>
+        </div>
+
+        {/* Sub-metrics */}
+        <div className="grid grid-cols-3 gap-2 mt-4">
+          <div className="text-center p-2 rounded-lg bg-slate-800/50">
+            <div className={`text-lg font-semibold tabular-nums ${getScoreColor(healthData.completenessScore)}`}>
+              {healthData.completenessScore ?? 0}%
+            </div>
+            <div className="text-[10px] text-slate-500 uppercase tracking-wide">Complete</div>
+          </div>
+          <div className="text-center p-2 rounded-lg bg-slate-800/50">
+            <div className={`text-lg font-semibold tabular-nums ${getScoreColor(healthData.criticalCoverageScore ?? null)}`}>
+              {healthData.criticalCoverageScore ?? 0}%
+            </div>
+            <div className="text-[10px] text-slate-500 uppercase tracking-wide">Critical</div>
+          </div>
+          <div className="text-center p-2 rounded-lg bg-slate-800/50">
+            <div className={`text-lg font-semibold tabular-nums ${getScoreColor(healthData.freshnessScore ?? null)}`}>
+              {healthData.freshnessScore ?? 100}%
+            </div>
+            <div className="text-[10px] text-slate-500 uppercase tracking-wide">Fresh</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Weak Sections Warning */}
+      {weakSections.length > 0 && (
+        <div className="px-4 pb-3">
+          <div className="flex flex-wrap gap-1">
+            {weakSections.slice(0, 3).map((section) => (
+              <span
+                key={section.section}
+                className="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30"
+              >
+                {section.label}: {section.criticalCoverage}%
+              </span>
+            ))}
+            {weakSections.length > 3 && (
+              <span className="text-xs text-slate-500 px-1">
+                +{weakSections.length - 3} more
+              </span>
+            )}
+          </div>
         </div>
       )}
 
-      {/* View Context Graph Link */}
-      <div className="mt-4 pt-4 border-t border-slate-800">
-        <a
-          href={`/c/${companyId}/context`}
-          className="inline-flex items-center gap-2 text-xs text-slate-400 hover:text-amber-300 transition-colors"
+      {/* Missing Critical Fields (top 3) */}
+      {healthData.missingCriticalFields && healthData.missingCriticalFields.length > 0 && (
+        <div className="px-4 pb-3">
+          <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Top Missing</p>
+          <div className="space-y-2">
+            {healthData.missingCriticalFields.slice(0, 3).map((field) => (
+              <div key={field.path} className="text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300">{field.label}</span>
+                  <span className="text-slate-500">{field.section}</span>
+                </div>
+                {field.primarySources.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {field.primarySources.slice(0, 2).map((source) => (
+                      <Link
+                        key={source}
+                        href={getSourcePath(source, companyId)}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors"
+                      >
+                        {getSourceLabel(source)}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Footer Links */}
+      <div className="px-4 py-3 border-t border-slate-800 flex items-center justify-between">
+        <Link
+          href={`/c/${companyId}/brain/context`}
+          className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-amber-300 transition-colors"
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
-          Open Context Graph
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          Improve Context
+        </Link>
+        <Link
+          href={`/c/${companyId}/brain/setup`}
+          className="inline-flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
           </svg>
-        </a>
+          Setup
+        </Link>
       </div>
 
       {error && (
-        <p className="text-xs text-red-400 mt-3">{error}</p>
+        <p className="text-xs text-red-400 px-4 pb-3">{error}</p>
       )}
     </div>
   );

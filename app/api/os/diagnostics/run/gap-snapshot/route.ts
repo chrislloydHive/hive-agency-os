@@ -1,5 +1,5 @@
 // app/api/os/diagnostics/run/gap-snapshot/route.ts
-// API endpoint for running GAP Snapshot diagnostic
+// API endpoint for running GAP IA diagnostic
 //
 // This API integrates with Company AI Memory (Client Brain) via aiForCompany():
 // - All GAP model calls go through aiForCompany() which:
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
       return errorResponse('NO_WEBSITE_URL', 400);
     }
 
-    console.log('[API] Running GAP Snapshot for:', company.name, isNewCompany ? '(newly created)' : '(existing)');
+    console.log('[API] Running GAP IA for:', company.name, isNewCompany ? '(newly created)' : '(existing)');
 
     // Create run record with "running" status
     const run = await createDiagnosticRun({
@@ -130,7 +130,7 @@ You must always output valid JSON matching the GAP IA schema.
       metadata: result.error ? { error: result.error } : undefined,
     });
 
-    console.log('[API] GAP Snapshot complete:', {
+    console.log('[API] GAP IA complete:', {
       runId: updatedRun.id,
       success: result.success,
       score: result.score,
@@ -144,7 +144,7 @@ You must always output valid JSON matching the GAP IA schema.
     // to avoid duplicate "GAP IA" entries.
     if (result.success && result.data) {
       try {
-        console.log('[API] Saving GAP Snapshot summary to company AI memory...');
+        console.log('[API] Saving GAP IA summary to company AI memory...');
 
         // Extract key insights from the GAP IA result
         const memorySummary = extractGapIaMemorySummary(result.data, company.name, result.score);
@@ -161,10 +161,10 @@ You must always output valid JSON matching the GAP IA schema.
           relatedEntityId: updatedRun.id,
         });
 
-        console.log('[API] ✅ Saved GAP Snapshot summary to company AI memory');
+        console.log('[API] ✅ Saved GAP IA summary to company AI memory');
       } catch (memoryError) {
         // Don't fail the request if memory save fails
-        console.error('[API] Failed to save GAP Snapshot summary to company memory:', memoryError);
+        console.error('[API] Failed to save GAP IA summary to company memory:', memoryError);
       }
 
       // Process post-run hooks (Brain entry + Strategic Snapshot) in background
@@ -189,7 +189,7 @@ You must always output valid JSON matching the GAP IA schema.
       },
     });
   } catch (error) {
-    console.error('[API] GAP Snapshot error:', error);
+    console.error('[API] GAP IA error:', error);
 
     const errorMessage = error instanceof Error ? error.message : 'Internal server error';
     const errorCode = detectErrorCode(errorMessage);

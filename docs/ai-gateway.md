@@ -99,7 +99,7 @@ const { content } = await aiForCompany(companyId, {
   systemPrompt: GAP_SYSTEM_PROMPT,
   taskPrompt: `Assess this website: ${websiteUrl}`,
   summarizer: (content) => extractGapSummary(content),
-  createdBy: 'Hive OS - GAP Snapshot',
+  createdBy: 'Hive OS - GAP IA',
 });
 ```
 

@@ -39,7 +39,7 @@ const slugToToolId: Record<string, DiagnosticToolId> = {
 
 // Tool name display mapping
 const toolNames: Record<DiagnosticToolId, string> = {
-  gapSnapshot: 'GAP Snapshot',
+  gapSnapshot: 'GAP IA',
   gapPlan: 'GAP Plan',
   gapHeavy: 'GAP Heavy',
   websiteLab: 'Website Lab',
@@ -218,7 +218,7 @@ async function extractWorkItemsWithAI(params: ExtractWorkItemsParams): Promise<G
   } = params;
 
   const systemPrompt = `You are a senior marketing strategist at a growth consulting firm.
-Given a tool diagnostic (GAP Snapshot, GAP Plan, Website Lab, Brand Lab, SEO Lab, etc.), extract concrete work items that a marketing team should execute.
+Given a tool diagnostic (GAP IA, GAP Plan, Website Lab, Brand Lab, SEO Lab, etc.), extract concrete work items that a marketing team should execute.
 
 Each work item should be:
 - Specific and implementable (not vague recommendations)

@@ -247,7 +247,7 @@ function calculateDataConfidence(
   availability: { availableCount: number; totalPossible: number; percentage: number; missing: string[] }
 ): DataConfidence {
   // Try to extract confidence from the most recent diagnostic run with confidence data
-  // Priority: GAP Plan > GAP Snapshot > Individual Labs
+  // Priority: GAP Plan > GAP IA > Individual Labs
   const confidenceSources: Array<{ level?: string; score?: number; source: string }> = [];
 
   // Check GAP Plan rawJson for dataConfidence
@@ -261,14 +261,14 @@ function calculateDataConfidence(
     }
   }
 
-  // Check GAP Snapshot rawJson for dataConfidence
+  // Check GAP IA rawJson for dataConfidence
   if (data.gapSnapshot?.rawJson && data.gapSnapshot.status === 'complete') {
     const raw = data.gapSnapshot.rawJson as any;
     const dc = raw.dataConfidence || raw.initialAssessment?.dataConfidence;
     if (dc) {
       const level = typeof dc === 'string' ? dc : dc.level;
       const score = typeof dc === 'string' ? (dc === 'high' ? 85 : dc === 'medium' ? 60 : 35) : dc.score;
-      confidenceSources.push({ level, score, source: 'GAP Snapshot' });
+      confidenceSources.push({ level, score, source: 'GAP IA' });
     }
   }
 

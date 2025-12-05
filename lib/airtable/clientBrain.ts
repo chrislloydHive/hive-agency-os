@@ -16,6 +16,7 @@ import type {
   InsightSource,
   InsightCategory,
   InsightSeverity,
+  InsightStatus,
   DocumentType,
 } from '@/lib/types/clientBrain';
 
@@ -40,6 +41,21 @@ export async function createClientInsight(
 
   if (input.severity) {
     fields['Severity'] = input.severity;
+  }
+  if (input.status) {
+    fields['Status'] = input.status;
+  }
+  if (input.recommendation) {
+    fields['Recommendation'] = input.recommendation;
+  }
+  if (input.rationale) {
+    fields['Rationale'] = input.rationale;
+  }
+  if (input.contextPaths && input.contextPaths.length > 0) {
+    fields['Context Paths'] = JSON.stringify(input.contextPaths);
+  }
+  if (input.metrics && Object.keys(input.metrics).length > 0) {
+    fields['Metrics'] = JSON.stringify(input.metrics);
   }
 
   // Add source-specific fields
@@ -153,7 +169,7 @@ export async function getInsightById(
  */
 export async function updateInsight(
   insightId: string,
-  updates: Partial<Pick<ClientInsight, 'title' | 'body' | 'category' | 'severity'>>
+  updates: Partial<Pick<ClientInsight, 'title' | 'body' | 'category' | 'severity' | 'status' | 'recommendation' | 'rationale' | 'linkedWorkItemId'>>
 ): Promise<ClientInsight> {
   const fields: Record<string, unknown> = {};
 
@@ -161,10 +177,17 @@ export async function updateInsight(
   if (updates.body !== undefined) fields['Body'] = updates.body;
   if (updates.category !== undefined) fields['Category'] = updates.category;
   if (updates.severity !== undefined) fields['Severity'] = updates.severity;
+  if (updates.status !== undefined) fields['Status'] = updates.status;
+  if (updates.recommendation !== undefined) fields['Recommendation'] = updates.recommendation;
+  if (updates.rationale !== undefined) fields['Rationale'] = updates.rationale;
+  if (updates.linkedWorkItemId !== undefined) fields['Linked Work Item ID'] = updates.linkedWorkItemId;
 
   const result = await updateRecord(AIRTABLE_TABLES.CLIENT_INSIGHTS, insightId, fields);
   return mapRecordToInsight(result);
 }
+
+// Alias for updateInsight
+export const updateClientInsight = updateInsight;
 
 /**
  * Delete an insight
@@ -415,6 +438,26 @@ function mapRecordToInsight(record: AirtableRecord): ClientInsight {
     };
   }
 
+  // Parse JSON fields
+  let contextPaths: string[] | undefined;
+  let metrics: Record<string, unknown> | undefined;
+
+  try {
+    if (fields['Context Paths']) {
+      contextPaths = JSON.parse(fields['Context Paths'] as string);
+    }
+  } catch {
+    // Ignore parse errors
+  }
+
+  try {
+    if (fields['Metrics']) {
+      metrics = JSON.parse(fields['Metrics'] as string);
+    }
+  } catch {
+    // Ignore parse errors
+  }
+
   return {
     id: record.id,
     companyId: fields['Company ID'] as string,
@@ -422,9 +465,15 @@ function mapRecordToInsight(record: AirtableRecord): ClientInsight {
     body: fields['Body'] as string,
     category: (fields['Category'] as InsightCategory) || 'other',
     severity: fields['Severity'] as InsightSeverity | undefined,
+    status: (fields['Status'] as InsightStatus) || 'open',
     createdAt: (fields['Created At'] as string) || new Date().toISOString(),
     updatedAt: fields['Updated At'] as string | undefined,
     source,
+    recommendation: fields['Recommendation'] as string | undefined,
+    rationale: fields['Rationale'] as string | undefined,
+    contextPaths,
+    metrics,
+    linkedWorkItemId: fields['Linked Work Item ID'] as string | undefined,
     relatedWorkCount: fields['Related Work Count'] as number | undefined,
     lastUsedInWorkAt: fields['Last Used In Work At'] as string | null | undefined,
   };
@@ -468,6 +517,7 @@ export async function getInsightsSummary(companyId: string): Promise<{
     brand: 0,
     content: 0,
     seo: 0,
+    seo_content: 0,
     website: 0,
     analytics: 0,
     demand: 0,
@@ -476,6 +526,13 @@ export async function getInsightsSummary(companyId: string): Promise<{
     structural: 0,
     product: 0,
     other: 0,
+    // New categories
+    growth_opportunity: 0,
+    conversion: 0,
+    audience: 0,
+    creative: 0,
+    media: 0,
+    kpi_risk: 0,
   };
 
   const bySeverity: Record<InsightSeverity, number> = {

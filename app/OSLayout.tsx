@@ -143,7 +143,7 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
         </svg>
       ),
       submenu: [
-        { name: 'GAP Snapshot', href: '/tools/gap-snapshot' },
+        { name: 'GAP IA', href: '/tools/gap-snapshot' },
         { name: 'GAP Plan', href: '/tools/gap-plan' },
         { name: 'Website Lab', href: '/tools/website-lab' },
         { name: 'Brand Lab', href: '/tools/brand-lab' },

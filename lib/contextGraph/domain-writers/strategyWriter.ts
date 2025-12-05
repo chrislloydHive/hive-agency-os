@@ -444,7 +444,7 @@ export interface StrategyFieldWithMeta {
  * Map source codes to human-readable names
  */
 const SOURCE_NAMES: Record<string, string> = {
-  gap_ia: 'GAP Snapshot',
+  gap_ia: 'GAP IA',
   gap_full: 'GAP Full',
   gap_heavy: 'GAP Heavy',
   website_lab: 'Website Lab',
@@ -472,11 +472,11 @@ const SOURCE_NAMES: Record<string, string> = {
 const DOMAIN_DIAGNOSTICS: Record<string, RecommendedDiagnostic[]> = {
   identity: [
     { id: 'gap-heavy', label: 'GAP Heavy', toolId: 'gapHeavy' },
-    { id: 'gap-snapshot', label: 'GAP Snapshot', toolId: 'gapSnapshot' },
+    { id: 'gap-snapshot', label: 'GAP IA', toolId: 'gapSnapshot' },
   ],
   objectives: [
     { id: 'gap-heavy', label: 'GAP Heavy', toolId: 'gapHeavy' },
-    { id: 'gap-snapshot', label: 'GAP Snapshot', toolId: 'gapSnapshot' },
+    { id: 'gap-snapshot', label: 'GAP IA', toolId: 'gapSnapshot' },
   ],
   brand: [
     { id: 'brand-lab', label: 'Brand Lab', toolId: 'brandLab' },

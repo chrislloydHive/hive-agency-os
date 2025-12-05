@@ -753,7 +753,7 @@ export async function getRunsGroupedByTool(
  */
 export function getToolLabel(toolId: DiagnosticToolId): string {
   const labels: Record<DiagnosticToolId, string> = {
-    gapSnapshot: 'GAP Snapshot',
+    gapSnapshot: 'GAP IA',
     gapPlan: 'GAP Plan',
     gapHeavy: 'GAP Heavy',
     websiteLab: 'Website Lab',

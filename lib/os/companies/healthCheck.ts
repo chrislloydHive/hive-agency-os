@@ -2,7 +2,7 @@
 // Quick Health Check for Company Overview
 //
 // A lightweight, fast check that:
-// - Runs/reuses a light GAP Snapshot
+// - Runs/reuses a light GAP IA
 // - Pulls website/analytics vital signs
 // - Refreshes Strategy Snapshot, Trends, and Alerts
 // - Returns a concise status
@@ -54,7 +54,7 @@ export interface QuickHealthCheckOptions {
 // ============================================================================
 
 /**
- * Check if a GAP Snapshot run is fresh enough to reuse
+ * Check if a GAP IA run is fresh enough to reuse
  */
 function isRunFreshEnough(run: DiagnosticRun | null, maxAgeHours: number): boolean {
   if (!run) return false;
@@ -120,7 +120,7 @@ function derivePrimaryIssueAndNextStep(
   if (overallScore !== null && overallScore < 40) {
     return {
       primaryIssue: 'Overall marketing health is critically low.',
-      recommendedNextStep: 'Run GAP Snapshot to identify priority improvements.',
+      recommendedNextStep: 'Run GAP IA to identify priority improvements.',
     };
   }
 
@@ -257,7 +257,7 @@ Write a brief summary with the most important insight and recommended next actio
  * Run a Quick Health Check for a company
  *
  * This lightweight check:
- * 1. Runs or reuses a recent GAP Snapshot
+ * 1. Runs or reuses a recent GAP IA
  * 2. Refreshes the Strategy Snapshot (which aggregates scores and Brain)
  * 3. Pulls current alerts
  * 4. Generates an AI summary
@@ -285,19 +285,19 @@ export async function runQuickHealthCheckForCompany(
 
   console.log('[HealthCheck] Company:', company.name, '| Website:', company.website);
 
-  // 2. Check for existing GAP Snapshot
+  // 2. Check for existing GAP IA
   let gapRun = await getLatestRunForCompanyAndTool(companyId, 'gapSnapshot');
   const canReuseSnapshot = reuseRecentGapSnapshot && isRunFreshEnough(gapRun, gapSnapshotMaxAgeHours);
 
-  console.log('[HealthCheck] Existing GAP Snapshot:', {
+  console.log('[HealthCheck] Existing GAP IA:', {
     exists: !!gapRun,
     status: gapRun?.status,
     canReuse: canReuseSnapshot,
   });
 
-  // 3. Run GAP Snapshot if needed
+  // 3. Run GAP IA if needed
   if (!canReuseSnapshot) {
-    console.log('[HealthCheck] Running new GAP Snapshot...');
+    console.log('[HealthCheck] Running new GAP IA...');
 
     // Create a new run record
     const newRun = await createDiagnosticRun({
@@ -313,7 +313,7 @@ export async function runQuickHealthCheckForCompany(
         tags: ['Health Check', 'Quick Snapshot'],
       });
 
-      // Run the GAP Snapshot engine
+      // Run the GAP IA engine
       const result = await runGapSnapshotEngine({
         companyId,
         company,
@@ -329,14 +329,14 @@ export async function runQuickHealthCheckForCompany(
           summary: result.summary,
           rawJson: result.data,
         });
-        console.log('[HealthCheck] GAP Snapshot complete. Score:', result.score);
+        console.log('[HealthCheck] GAP IA complete. Score:', result.score);
       } else {
         // Update run with failure
         await updateDiagnosticRun(newRun.id, {
           status: 'failed',
           summary: result.error,
         });
-        console.error('[HealthCheck] GAP Snapshot failed:', result.error);
+        console.error('[HealthCheck] GAP IA failed:', result.error);
         // Continue with null gap run - we can still do partial health check
         gapRun = null;
       }
@@ -345,11 +345,11 @@ export async function runQuickHealthCheckForCompany(
         status: 'failed',
         summary: error instanceof Error ? error.message : String(error),
       });
-      console.error('[HealthCheck] GAP Snapshot error:', error);
+      console.error('[HealthCheck] GAP IA error:', error);
       gapRun = null;
     }
   } else {
-    console.log('[HealthCheck] Reusing existing GAP Snapshot (score:', gapRun?.score, ')');
+    console.log('[HealthCheck] Reusing existing GAP IA (score:', gapRun?.score, ')');
   }
 
   // 4. Refresh Strategy Snapshot (this aggregates all scores and Brain insights)

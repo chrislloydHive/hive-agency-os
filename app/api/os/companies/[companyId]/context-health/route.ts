@@ -2,18 +2,17 @@
 // Context Graph Health API endpoint
 //
 // GET /api/os/companies/[companyId]/context-health
-// Returns the health/completeness status of a company's context graph
+// Returns comprehensive health/completeness status of a company's context graph
+// including overall score, critical coverage, freshness, section breakdown
 
 import { NextRequest, NextResponse } from 'next/server';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
 import { calculateCompleteness, calculateDomainCoverage } from '@/lib/contextGraph/companyContextGraph';
-import { getStaleFields } from '@/lib/contextGraph/freshness';
-import { getNeedsRefreshReport } from '@/lib/contextGraph/needsRefresh';
 import {
-  computeContextHealthScoreFromCompleteness,
-  convertNeedsRefreshReport,
-  getHealthStatus,
-} from '@/lib/contextGraph/contextHealth';
+  computeContextHealthScore,
+  getHealthRecommendations,
+  getSeverityLabel,
+} from '@/lib/contextGraph/health';
 
 export async function GET(
   request: NextRequest,
@@ -31,55 +30,95 @@ export async function GET(
 
     console.log('[API] Context health request for company:', companyId);
 
-    // Load the context graph
+    // Compute comprehensive health score
+    const healthScore = await computeContextHealthScore(companyId);
+
+    // Also get domain coverage for backward compatibility
     const graph = await loadContextGraph(companyId);
 
     if (!graph) {
-      return NextResponse.json(
-        { error: 'Context graph not found' },
-        { status: 404 }
-      );
+      // Return a minimal response for new companies
+      return NextResponse.json({
+        overallScore: 0,
+        completenessScore: 0,
+        criticalCoverageScore: 0,
+        freshnessScore: 100,
+        confidenceScore: 100,
+        severity: 'unhealthy',
+        severityLabel: 'Weak / Incomplete',
+        sectionScores: [],
+        missingCriticalFields: [],
+        recommendations: [],
+        // Legacy fields for backward compatibility
+        completenessScore_legacy: 0,
+        domainCoverage: {},
+        lastUpdated: null,
+        lastFusionAt: null,
+        fieldCount: { total: 0, populated: 0 },
+        staleFields: 0,
+        healthScore: 0,
+        healthStatus: 'critical',
+        needsRefresh: [],
+      });
     }
 
-    // Calculate completeness and coverage
-    const completenessScore = calculateCompleteness(graph);
+    // Get domain coverage for backward compatibility
     const domainCoverage = calculateDomainCoverage(graph);
 
-    // Get stale fields
-    const staleFields = getStaleFields(graph);
+    // Get recommendations
+    const recommendations = getHealthRecommendations(healthScore);
 
-    // Get needs-refresh report for freshness info
-    const refreshReport = getNeedsRefreshReport(graph);
-    const needsRefreshFlags = convertNeedsRefreshReport(refreshReport);
-
-    // Health score is now based on completeness (more intuitive for users)
-    const healthScore = computeContextHealthScoreFromCompleteness(completenessScore);
-    const healthStatus = getHealthStatus(healthScore);
-
-    // Build response
+    // Build response with both new and legacy fields
     const healthData = {
-      completenessScore,
+      // New comprehensive scoring
+      overallScore: healthScore.overallScore,
+      completenessScore: healthScore.completenessScore,
+      criticalCoverageScore: healthScore.criticalCoverageScore,
+      freshnessScore: healthScore.freshnessScore,
+      confidenceScore: healthScore.confidenceScore,
+      severity: healthScore.severity,
+      severityLabel: getSeverityLabel(healthScore.severity),
+      sectionScores: healthScore.sectionScores,
+      missingCriticalFields: healthScore.missingCriticalFields.map(f => ({
+        path: f.path,
+        label: f.label,
+        section: f.section,
+        primarySources: f.primarySources,
+      })),
+      recommendations,
+      stats: healthScore.stats,
+      computedAt: healthScore.computedAt,
+
+      // Legacy fields for backward compatibility
+      completenessScore_legacy: calculateCompleteness(graph),
       domainCoverage,
       lastUpdated: graph.meta.updatedAt,
       lastFusionAt: graph.meta.lastFusionAt,
       fieldCount: {
-        total: Object.keys(domainCoverage).length * 10, // Approximate
-        populated: Math.round((completenessScore / 100) * Object.keys(domainCoverage).length * 10),
+        total: healthScore.stats.totalFields,
+        populated: healthScore.stats.populatedFields,
       },
-      staleFields: staleFields.length,
-      staleFieldPaths: staleFields.slice(0, 10).map(f => f.path),
-      // New fields from contextHealth module
-      healthScore,
-      healthStatus,
-      needsRefresh: needsRefreshFlags.slice(0, 10),
+      staleFields: healthScore.stats.staleFields,
+      // Map new severity to old healthStatus format
+      healthScore: healthScore.overallScore,
+      healthStatus: healthScore.severity === 'healthy' ? 'healthy'
+        : healthScore.severity === 'degraded' ? 'fair'
+        : 'critical',
+      needsRefresh: healthScore.missingCriticalFields.slice(0, 10).map(f => ({
+        domain: f.domain,
+        field: f.field,
+        reason: 'missing' as const,
+      })),
     };
 
     console.log('[API] Context health:', {
       companyId,
-      completeness: completenessScore,
-      healthScore,
-      healthStatus,
-      stale: staleFields.length,
+      overall: healthScore.overallScore,
+      critical: healthScore.criticalCoverageScore,
+      completeness: healthScore.completenessScore,
+      freshness: healthScore.freshnessScore,
+      severity: healthScore.severity,
+      stale: healthScore.stats.staleFields,
     });
 
     return NextResponse.json(healthData);

@@ -12,6 +12,7 @@ import type {
   ListClientInsightsOptions,
   InsightCategory,
   InsightSeverity,
+  InsightStatus,
   InsightSource,
   normalizeInsightCategory,
   normalizeInsightSeverity,
@@ -75,11 +76,16 @@ function mapRecordToInsight(record: any): ClientInsight {
     body: (fields['Body'] as string) || '',
     category: (fields['Category'] as InsightCategory) || 'other',
     severity: (fields['Severity'] as InsightSeverity) || 'medium',
+    status: (fields['Status'] as InsightStatus) || 'open',
     createdAt: (fields['Created At'] as string) || new Date().toISOString(),
     updatedAt: (fields['Last Modified Time'] as string) || undefined,
     source,
     tags: (fields['Tags'] as string[]) || [],
     workItemCount: (fields['Work Item Count'] as number) || 0,
+    linkedWorkItemId: (fields['Linked Work Item ID'] as string) || undefined,
+    recommendation: (fields['Recommendation'] as string) || undefined,
+    rationale: (fields['Rationale'] as string) || undefined,
+    contextPaths: (fields['Context Paths'] as string[]) || undefined,
   };
 }
 
@@ -112,6 +118,26 @@ function insightToAirtableFields(
 
   if ('severity' in payload && payload.severity !== undefined) {
     fields['Severity'] = payload.severity;
+  }
+
+  if ('status' in payload && payload.status !== undefined) {
+    fields['Status'] = payload.status;
+  }
+
+  if ('linkedWorkItemId' in payload && payload.linkedWorkItemId !== undefined) {
+    fields['Linked Work Item ID'] = payload.linkedWorkItemId;
+  }
+
+  if ('recommendation' in payload && payload.recommendation !== undefined) {
+    fields['Recommendation'] = payload.recommendation;
+  }
+
+  if ('rationale' in payload && payload.rationale !== undefined) {
+    fields['Rationale'] = payload.rationale;
+  }
+
+  if ('contextPaths' in payload && payload.contextPaths !== undefined) {
+    fields['Context Paths'] = payload.contextPaths;
   }
 
   if ('source' in payload && payload.source !== undefined) {

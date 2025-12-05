@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Run GAP Snapshot if requested
+    // Run GAP IA if requested
     if (body.runGapSnapshot && body.website) {
       operations.push(
         (async () => {
@@ -142,12 +142,12 @@ export async function POST(request: NextRequest) {
               }
             );
             if (response.ok) {
-              console.log(`[Prospects] Triggered GAP Snapshot for ${company.name}`);
+              console.log(`[Prospects] Triggered GAP IA for ${company.name}`);
             } else {
-              console.error(`[Prospects] GAP Snapshot failed:`, await response.text());
+              console.error(`[Prospects] GAP IA failed:`, await response.text());
             }
           } catch (error) {
-            console.error(`[Prospects] Failed to trigger GAP Snapshot:`, error);
+            console.error(`[Prospects] Failed to trigger GAP IA:`, error);
           }
         })()
       );

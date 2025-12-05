@@ -442,7 +442,7 @@ export function CompanyBrainPage({
                     <div className="flex items-center gap-2">
                       <FileBarChart className="w-4 h-4 text-blue-400" />
                       <span className="text-xs text-slate-300">
-                        GAP Snapshot{data.gapIaRuns.filter(r => r.status === 'completed').length > 1 ? ` #${index + 1}` : ''}
+                        GAP IA{data.gapIaRuns.filter(r => r.status === 'completed').length > 1 ? ` #${index + 1}` : ''}
                       </span>
                       {(run as any).overallScore !== undefined && (
                         <span className="text-[10px] text-slate-500">{(run as any).overallScore}/100</span>
@@ -472,7 +472,7 @@ export function CompanyBrainPage({
                 >
                   <div className="flex items-center gap-2">
                     <FileBarChart className="w-4 h-4 text-blue-400" />
-                    <span className="text-xs text-slate-300">GAP Snapshot</span>
+                    <span className="text-xs text-slate-300">GAP IA</span>
                   </div>
                   <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-slate-300 transition-colors" />
                 </Link>

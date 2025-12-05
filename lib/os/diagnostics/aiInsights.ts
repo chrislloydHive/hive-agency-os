@@ -71,7 +71,7 @@ export interface DiagnosticInsightsError {
  */
 export function getToolSystemPrompt(toolId: DiagnosticToolId): string {
   const prompts: Record<DiagnosticToolId, string> = {
-    gapSnapshot: `You are Hive OS GAP Snapshot Analyzer. You analyze initial marketing assessments that score companies on their overall marketing maturity.
+    gapSnapshot: `You are Hive OS GAP IA Analyzer. You analyze initial marketing assessments that score companies on their overall marketing maturity.
 
 The data includes:
 - Overall marketing scores (0-100)

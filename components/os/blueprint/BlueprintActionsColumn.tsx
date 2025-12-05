@@ -171,6 +171,8 @@ function RecommendedToolCard({
               Refresh
             </button>
           </div>
+        ) : rec.lastRunStatus === 'failed' ? (
+          <span className="text-red-400">Last run failed — try again</span>
         ) : rec.hasRecentRun && rec.lastRunAt ? (
           <span className="text-slate-500">
             Last run: {formatRelativeTime(rec.lastRunAt)}
@@ -210,9 +212,20 @@ function RecommendedToolCard({
         <button
           onClick={onPlanWork}
           disabled={isPlanning || isRunning}
-          className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors disabled:opacity-50"
+          className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5 ${
+            isPlanning
+              ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+              : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+          }`}
         >
-          {isPlanning ? '...' : 'Plan'}
+          {isPlanning ? (
+            <>
+              <div className="w-3 h-3 rounded-full border-2 border-blue-400/30 border-t-blue-400 animate-spin" />
+              Adding...
+            </>
+          ) : (
+            'Plan'
+          )}
         </button>
         {rec.lastRunId && rec.urlSlug && (
           <Link

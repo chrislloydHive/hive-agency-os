@@ -73,18 +73,18 @@ export interface GapEngineInput extends EngineInput {
 }
 
 // ============================================================================
-// GAP Snapshot Engine (GAP-IA)
+// GAP IA Engine (Initial Assessment)
 // ============================================================================
 
 /**
- * Run GAP Snapshot (Initial Assessment)
+ * Run GAP IA (Initial Assessment)
  * Quick assessment of marketing presence and maturity
  *
  * @param input.modelCaller - Optional model caller for memory-aware AI calls via aiForCompany()
  */
 export async function runGapSnapshotEngine(input: GapEngineInput): Promise<EngineResult> {
-  console.log('[GAP Snapshot Engine] Starting for:', input.websiteUrl);
-  console.log('[GAP Snapshot Engine] Using modelCaller:', input.modelCaller ? 'custom (aiForCompany)' : 'default (direct OpenAI)');
+  console.log('[GAP IA Engine] Starting for:', input.websiteUrl);
+  console.log('[GAP IA Engine] Using modelCaller:', input.modelCaller ? 'custom (aiForCompany)' : 'default (direct OpenAI)');
 
   try {
     const result = await runInitialAssessment({
@@ -102,7 +102,7 @@ export async function runGapSnapshotEngine(input: GapEngineInput): Promise<Engin
       ? `${maturityStage} maturity stage - Score: ${overallScore}/100`
       : `Overall Score: ${overallScore}/100`;
 
-    console.log('[GAP Snapshot Engine] ✓ Complete:', { score: overallScore });
+    console.log('[GAP IA Engine] ✓ Complete:', { score: overallScore });
 
     return {
       success: true,
@@ -111,7 +111,7 @@ export async function runGapSnapshotEngine(input: GapEngineInput): Promise<Engin
       data: result,
     };
   } catch (error) {
-    console.error('[GAP Snapshot Engine] Error:', error);
+    console.error('[GAP IA Engine] Error:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),

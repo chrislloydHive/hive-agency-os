@@ -85,7 +85,6 @@ export function ToolReportLayout({
 }: ToolReportLayoutProps) {
   const router = useRouter();
   const [isGeneratingWork, setIsGeneratingWork] = useState(false);
-  const [isExtractingInsights, setIsExtractingInsights] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [showRawJson, setShowRawJson] = useState(false);
   const [showFullReport, setShowFullReport] = useState(false);
@@ -129,42 +128,6 @@ export function ToolReportLayout({
       showToast(error instanceof Error ? error.message : 'Failed to generate work items', 'error');
     } finally {
       setIsGeneratingWork(false);
-    }
-  };
-
-  const handleExtractInsights = async () => {
-    if (isExtractingInsights) return;
-    setIsExtractingInsights(true);
-
-    try {
-      const toolSlug = tool.id.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '');
-      const response = await fetch('/api/client-brain/insights/extract', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          runId: run.id,
-          companyId: company.id,
-          toolSlug,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to extract insights');
-      }
-
-      if (result.alreadyExtracted) {
-        showToast(`Already extracted ${result.insights?.length || 0} insights from this run`, 'info');
-      } else {
-        const count = result.insights?.length || 0;
-        showToast(`Extracted ${count} insight${count !== 1 ? 's' : ''} to Brain`, 'success');
-      }
-    } catch (error) {
-      console.error('Failed to extract insights:', error);
-      showToast(error instanceof Error ? error.message : 'Failed to extract insights', 'error');
-    } finally {
-      setIsExtractingInsights(false);
     }
   };
 
@@ -347,23 +310,6 @@ export function ToolReportLayout({
                     <>
                       <LucideIcons.Sparkles className="w-4 h-4" />
                       Generate Work Plan
-                    </>
-                  )}
-                </button>
-                <button
-                  onClick={handleExtractInsights}
-                  disabled={isExtractingInsights || run.status !== 'complete'}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-medium"
-                >
-                  {isExtractingInsights ? (
-                    <>
-                      <LucideIcons.Loader2 className="w-4 h-4 animate-spin" />
-                      Extracting...
-                    </>
-                  ) : (
-                    <>
-                      <LucideIcons.Lightbulb className="w-4 h-4" />
-                      Extract Insights
                     </>
                   )}
                 </button>

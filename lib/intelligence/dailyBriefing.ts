@@ -527,7 +527,7 @@ function generateFallbackBriefing(ctx: BriefingContext): DailyBriefingV2 {
         id: r.id,
         companyId: r.companyId || '',
         companyName: company?.name || 'Unknown',
-        toolName: 'GAP Snapshot',
+        toolName: 'GAP IA',
         score: r.scores?.overall,
         createdAt: r.createdAt || '',
       };

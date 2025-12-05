@@ -80,6 +80,7 @@ export interface SerializedRecommendedTool {
   lastScore?: number | null;
   lastRunId?: string;
   daysSinceRun: number | null;
+  lastRunStatus?: 'complete' | 'failed' | 'running';
   toolLabel: string;
   toolDescription: string;
   toolCategory: ToolCategory;

@@ -10,7 +10,7 @@ import {
   type QuickHealthCheckOptions,
 } from '@/lib/os/companies/healthCheck';
 
-export const maxDuration = 120; // Allow up to 2 minutes for GAP Snapshot
+export const maxDuration = 120; // Allow up to 2 minutes for GAP IA
 
 export async function POST(
   request: NextRequest,

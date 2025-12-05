@@ -566,7 +566,7 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
                 className="mt-0.5 w-4 h-4 rounded border-slate-600 text-amber-500 focus:ring-amber-500/50 disabled:opacity-50"
               />
               <div className={!websiteUrl ? 'opacity-50' : ''}>
-                <span className="text-slate-200 font-medium">Run GAP Snapshot</span>
+                <span className="text-slate-200 font-medium">Run GAP IA</span>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Quick marketing assessment (requires website)
                 </p>
