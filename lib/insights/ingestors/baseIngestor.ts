@@ -190,6 +190,126 @@ export function safeExtractRawJson(run: DiagnosticRun): Record<string, unknown> 
 }
 
 /**
+ * Extract Lab result data from various possible structures
+ * Labs can store data in different places:
+ * - rawEvidence.labResultV4.siteAssessment (Website Lab V4)
+ * - siteAssessment directly
+ * - module/score/issues/recommendations at root (standard lab result)
+ */
+export function extractLabData(run: DiagnosticRun): {
+  score: number | null;
+  summary: string | null;
+  issues: string[];
+  recommendations: string[];
+  dimensions: Record<string, { score?: number; issues?: string[]; summary?: string }>;
+  quickWins: string[];
+  siteAssessment: Record<string, unknown> | null;
+  raw: Record<string, unknown> | null;
+} {
+  const result = {
+    score: run.score,
+    summary: run.summary || null,
+    issues: [] as string[],
+    recommendations: [] as string[],
+    dimensions: {} as Record<string, { score?: number; issues?: string[]; summary?: string }>,
+    quickWins: [] as string[],
+    siteAssessment: null as Record<string, unknown> | null,
+    raw: null as Record<string, unknown> | null,
+  };
+
+  const raw = safeExtractRawJson(run);
+  if (!raw) return result;
+  result.raw = raw;
+
+  // Try to find siteAssessment in various locations
+  let siteAssessment: Record<string, unknown> | null = null;
+
+  // Check rawEvidence.labResultV4.siteAssessment (Website Lab V4)
+  const rawEvidence = raw.rawEvidence as Record<string, unknown> | undefined;
+  if (rawEvidence?.labResultV4) {
+    const labResult = rawEvidence.labResultV4 as Record<string, unknown>;
+    if (labResult.siteAssessment) {
+      siteAssessment = labResult.siteAssessment as Record<string, unknown>;
+    }
+  }
+
+  // Check direct siteAssessment
+  if (!siteAssessment && raw.siteAssessment) {
+    siteAssessment = raw.siteAssessment as Record<string, unknown>;
+  }
+
+  if (siteAssessment) {
+    result.siteAssessment = siteAssessment;
+
+    // Extract score
+    if (typeof siteAssessment.overallScore === 'number') {
+      result.score = siteAssessment.overallScore;
+    } else if (typeof siteAssessment.score === 'number') {
+      result.score = siteAssessment.score;
+    }
+
+    // Extract summary
+    if (siteAssessment.executiveSummary) {
+      result.summary = String(siteAssessment.executiveSummary);
+    } else if (siteAssessment.summary) {
+      result.summary = String(siteAssessment.summary);
+    }
+
+    // Extract dimensions
+    if (siteAssessment.dimensions && typeof siteAssessment.dimensions === 'object') {
+      const dims = siteAssessment.dimensions as Record<string, Record<string, unknown>>;
+      for (const [key, dim] of Object.entries(dims)) {
+        result.dimensions[key] = {
+          score: typeof dim.score === 'number' ? dim.score : undefined,
+          issues: Array.isArray(dim.issues) ? dim.issues.map(i => String(typeof i === 'object' && i && 'title' in i ? (i as any).title : i)) : undefined,
+          summary: typeof dim.summary === 'string' ? dim.summary : undefined,
+        };
+      }
+    }
+
+    // Extract issues
+    if (Array.isArray(siteAssessment.criticalIssues)) {
+      result.issues = siteAssessment.criticalIssues.map(i =>
+        String(typeof i === 'object' && i && 'title' in i ? (i as any).title : i)
+      );
+    } else if (Array.isArray(siteAssessment.issues)) {
+      result.issues = siteAssessment.issues.map(i =>
+        String(typeof i === 'object' && i && 'title' in i ? (i as any).title : i)
+      );
+    }
+
+    // Extract recommendations / quick wins
+    if (Array.isArray(siteAssessment.quickWins)) {
+      result.quickWins = siteAssessment.quickWins.map(q =>
+        String(typeof q === 'object' && q && 'title' in q ? (q as any).title : q)
+      );
+    }
+    if (Array.isArray(siteAssessment.recommendations)) {
+      result.recommendations = siteAssessment.recommendations.map(r =>
+        String(typeof r === 'object' && r && 'title' in r ? (r as any).title : r)
+      );
+    }
+  }
+
+  // Fallback to root-level data (standard lab result structure)
+  if (result.issues.length === 0 && Array.isArray(raw.issues)) {
+    result.issues = raw.issues.map(i =>
+      String(typeof i === 'object' && i && 'title' in i ? (i as any).title : i)
+    );
+  }
+  if (result.recommendations.length === 0 && Array.isArray(raw.recommendations)) {
+    result.recommendations = raw.recommendations.map(r =>
+      String(typeof r === 'object' && r && 'title' in r ? (r as any).title : r)
+    );
+  }
+  if (!result.summary && raw.summary) {
+    result.summary = String(raw.summary);
+  }
+
+  return result;
+}
+
+/**
  * Format scores for prompt
  */
 export function formatScores(scores: Record<string, number | null | undefined>): string {

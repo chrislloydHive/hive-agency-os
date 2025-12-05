@@ -4,7 +4,7 @@
 import type { DiagnosticRun } from '@/lib/os/diagnostics/runs';
 import {
   runIngestor,
-  safeExtractRawJson,
+  extractLabData,
   formatScores,
   formatArrayItems,
   type IngestorParams,
@@ -32,17 +32,32 @@ Focus on:
 }
 
 function extractOpsLabData(run: DiagnosticRun): string {
-  const raw = safeExtractRawJson(run);
-  if (!raw) return run.summary || '';
-
+  const labData = extractLabData(run);
+  const raw = labData.raw;
   const parts: string[] = [];
 
   // Overall score
-  if (run.score !== null) {
-    parts.push(`**Overall Score:** ${run.score}/100`);
+  if (labData.score !== null) {
+    parts.push(`**Overall Score:** ${labData.score}/100`);
   }
 
-  // Subscores
+  // Common lab data
+  if (labData.issues.length > 0) {
+    parts.push(formatArrayItems(labData.issues, 'Issues'));
+  }
+  if (labData.quickWins.length > 0) {
+    parts.push(formatArrayItems(labData.quickWins, 'Quick Wins'));
+  }
+  if (labData.recommendations.length > 0) {
+    parts.push(formatArrayItems(labData.recommendations, 'Recommendations'));
+  }
+
+  if (!raw) {
+    if (labData.summary) parts.push(`**Summary:** ${labData.summary}`);
+    return parts.join('\n\n');
+  }
+
+  // Ops-specific subscores
   const scores: Record<string, number | null> = {};
   if (raw.processScore !== undefined) scores['Process'] = raw.processScore as number;
   if (raw.toolStackScore !== undefined) scores['Tool Stack'] = raw.toolStackScore as number;
@@ -112,19 +127,9 @@ function extractOpsLabData(run: DiagnosticRun): string {
     parts.push(formatArrayItems(raw.workflowImprovements, 'Workflow Improvements'));
   }
 
-  // Quick wins
-  if (raw.quickWins && Array.isArray(raw.quickWins)) {
-    parts.push(formatArrayItems(raw.quickWins, 'Quick Wins'));
-  }
-
-  // Recommendations
-  if (raw.recommendations && Array.isArray(raw.recommendations)) {
-    parts.push(formatArrayItems(raw.recommendations, 'Recommendations'));
-  }
-
   // Summary
-  if (run.summary) {
-    parts.push(`**Summary:** ${run.summary}`);
+  if (labData.summary) {
+    parts.push(`**Summary:** ${labData.summary}`);
   }
 
   return parts.join('\n\n');

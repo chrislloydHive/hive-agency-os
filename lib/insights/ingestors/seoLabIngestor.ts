@@ -4,7 +4,7 @@
 import type { DiagnosticRun } from '@/lib/os/diagnostics/runs';
 import {
   runIngestor,
-  safeExtractRawJson,
+  extractLabData,
   formatScores,
   formatArrayItems,
   type IngestorParams,
@@ -32,15 +32,30 @@ Focus on:
 }
 
 function extractSeoLabData(run: DiagnosticRun): string {
-  const raw = safeExtractRawJson(run);
-  if (!raw) return run.summary || '';
-
+  const labData = extractLabData(run);
+  const raw = labData.raw;
   const parts: string[] = [];
 
   // Overall score
-  const overallScore = run.score ?? (raw.overallScore as number | undefined);
+  const overallScore = labData.score ?? (raw?.overallScore as number | undefined);
   if (overallScore !== null && overallScore !== undefined) {
     parts.push(`**Overall Score:** ${overallScore}/100`);
+  }
+
+  // Common lab data
+  if (labData.issues.length > 0) {
+    parts.push(formatArrayItems(labData.issues, 'Issues'));
+  }
+  if (labData.quickWins.length > 0) {
+    parts.push(formatArrayItems(labData.quickWins, 'Quick Wins'));
+  }
+  if (labData.recommendations.length > 0) {
+    parts.push(formatArrayItems(labData.recommendations, 'Recommendations'));
+  }
+
+  if (!raw) {
+    if (labData.summary) parts.push(`**Summary:** ${labData.summary}`);
+    return parts.join('\n\n');
   }
 
   // Maturity stage
@@ -48,7 +63,7 @@ function extractSeoLabData(run: DiagnosticRun): string {
     parts.push(`**SEO Maturity:** ${raw.maturityStage}`);
   }
 
-  // Subscores
+  // SEO-specific subscores
   if (raw.subscores && Array.isArray(raw.subscores)) {
     const scores: Record<string, number | null> = {};
     for (const sub of raw.subscores) {
@@ -148,8 +163,8 @@ function extractSeoLabData(run: DiagnosticRun): string {
   }
 
   // Summary
-  if (run.summary) {
-    parts.push(`**Summary:** ${run.summary}`);
+  if (labData.summary) {
+    parts.push(`**Summary:** ${labData.summary}`);
   }
 
   return parts.join('\n\n');

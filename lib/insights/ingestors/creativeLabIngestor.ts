@@ -4,7 +4,7 @@
 import type { DiagnosticRun } from '@/lib/os/diagnostics/runs';
 import {
   runIngestor,
-  safeExtractRawJson,
+  extractLabData,
   formatArrayItems,
   type IngestorParams,
   type IngestorResult,
@@ -31,14 +31,29 @@ Focus on:
 }
 
 function extractCreativeLabData(run: DiagnosticRun): string {
-  const raw = safeExtractRawJson(run);
-  if (!raw) return run.summary || '';
-
+  const labData = extractLabData(run);
+  const raw = labData.raw;
   const parts: string[] = [];
 
   // Overall score
-  if (run.score !== null) {
-    parts.push(`**Overall Score:** ${run.score}/100`);
+  if (labData.score !== null) {
+    parts.push(`**Overall Score:** ${labData.score}/100`);
+  }
+
+  // Common lab data
+  if (labData.issues.length > 0) {
+    parts.push(formatArrayItems(labData.issues, 'Issues'));
+  }
+  if (labData.quickWins.length > 0) {
+    parts.push(formatArrayItems(labData.quickWins, 'Quick Wins'));
+  }
+  if (labData.recommendations.length > 0) {
+    parts.push(formatArrayItems(labData.recommendations, 'Recommendations'));
+  }
+
+  if (!raw) {
+    if (labData.summary) parts.push(`**Summary:** ${labData.summary}`);
+    return parts.join('\n\n');
   }
 
   // Core messaging
@@ -124,14 +139,9 @@ function extractCreativeLabData(run: DiagnosticRun): string {
     parts.push(formatArrayItems(raw.creativeOpportunities, 'Creative Opportunities'));
   }
 
-  // Recommendations
-  if (raw.recommendations && Array.isArray(raw.recommendations)) {
-    parts.push(formatArrayItems(raw.recommendations, 'Recommendations'));
-  }
-
   // Summary
-  if (run.summary) {
-    parts.push(`**Summary:** ${run.summary}`);
+  if (labData.summary) {
+    parts.push(`**Summary:** ${labData.summary}`);
   }
 
   return parts.join('\n\n');

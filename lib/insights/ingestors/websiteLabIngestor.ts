@@ -4,7 +4,7 @@
 import type { DiagnosticRun } from '@/lib/os/diagnostics/runs';
 import {
   runIngestor,
-  safeExtractRawJson,
+  extractLabData,
   formatScores,
   formatArrayItems,
   type IngestorParams,
@@ -32,44 +32,46 @@ Focus on:
 }
 
 function extractWebsiteLabData(run: DiagnosticRun): string {
-  const raw = safeExtractRawJson(run);
-  if (!raw) return run.summary || '';
-
+  const labData = extractLabData(run);
   const parts: string[] = [];
 
   // Overall score
-  if (run.score !== null) {
-    parts.push(`**Overall Score:** ${run.score}/100`);
+  if (labData.score !== null) {
+    parts.push(`**Overall Score:** ${labData.score}/100`);
   }
 
-  // Site assessment
-  const site = raw.siteAssessment as Record<string, unknown> | undefined;
+  // Dimension scores
+  if (Object.keys(labData.dimensions).length > 0) {
+    const scores: Record<string, number | null> = {};
+    for (const [key, dim] of Object.entries(labData.dimensions)) {
+      if (dim.score !== undefined) {
+        scores[key] = dim.score;
+      }
+    }
+    if (Object.keys(scores).length > 0) {
+      parts.push('**Dimension Scores:**');
+      parts.push(formatScores(scores));
+    }
+  }
+
+  // Critical issues
+  if (labData.issues.length > 0) {
+    parts.push(formatArrayItems(labData.issues, 'Critical Issues'));
+  }
+
+  // Quick wins
+  if (labData.quickWins.length > 0) {
+    parts.push(formatArrayItems(labData.quickWins, 'Quick Wins'));
+  }
+
+  // Recommendations
+  if (labData.recommendations.length > 0) {
+    parts.push(formatArrayItems(labData.recommendations, 'Recommendations'));
+  }
+
+  // Site assessment specific fields
+  const site = labData.siteAssessment;
   if (site) {
-    // Dimension scores
-    if (site.dimensions && typeof site.dimensions === 'object') {
-      const dims = site.dimensions as Record<string, Record<string, unknown>>;
-      const scores: Record<string, number | null> = {};
-      for (const [key, dim] of Object.entries(dims)) {
-        if (dim?.score !== undefined) {
-          scores[key] = dim.score as number;
-        }
-      }
-      if (Object.keys(scores).length > 0) {
-        parts.push('**Dimension Scores:**');
-        parts.push(formatScores(scores));
-      }
-    }
-
-    // Critical issues
-    if (site.criticalIssues && Array.isArray(site.criticalIssues)) {
-      parts.push(formatArrayItems(site.criticalIssues, 'Critical Issues'));
-    }
-
-    // Quick wins
-    if (site.quickWins && Array.isArray(site.quickWins)) {
-      parts.push(formatArrayItems(site.quickWins, 'Quick Wins'));
-    }
-
     // CTA analysis
     if (site.ctaAnalysis && typeof site.ctaAnalysis === 'object') {
       const cta = site.ctaAnalysis as Record<string, unknown>;
@@ -85,43 +87,32 @@ function extractWebsiteLabData(run: DiagnosticRun): string {
     if (site.messagingClarity) {
       parts.push(`**Messaging Clarity:** ${site.messagingClarity}`);
     }
-  }
 
-  // Page-by-page analysis
-  const pages = raw.pageAnalysis as unknown[] | undefined;
-  if (pages && Array.isArray(pages) && pages.length > 0) {
-    const pageIssues: string[] = [];
-    for (const page of pages.slice(0, 5)) {
-      const p = page as Record<string, unknown>;
-      if (p.url && p.issues && Array.isArray(p.issues)) {
-        const url = String(p.url);
-        const topIssues = (p.issues as string[]).slice(0, 2).join(', ');
-        pageIssues.push(`- ${url}: ${topIssues}`);
+    // Page assessments
+    if (site.pageAssessments && Array.isArray(site.pageAssessments)) {
+      const pageIssues: string[] = [];
+      for (const page of (site.pageAssessments as any[]).slice(0, 5)) {
+        if (page.url && page.issues && Array.isArray(page.issues)) {
+          const topIssues = page.issues.slice(0, 2).map((i: any) => typeof i === 'string' ? i : i.title || i).join(', ');
+          pageIssues.push(`- ${page.url}: ${topIssues}`);
+        }
+      }
+      if (pageIssues.length > 0) {
+        parts.push('**Page-Specific Issues:**');
+        parts.push(pageIssues.join('\n'));
       }
     }
-    if (pageIssues.length > 0) {
-      parts.push('**Page-Specific Issues:**');
-      parts.push(pageIssues.join('\n'));
+
+    // Consultant report (rich narrative)
+    if (site.consultantReport && typeof site.consultantReport === 'string') {
+      const truncated = site.consultantReport.substring(0, 2000);
+      parts.push(`**Consultant Analysis (excerpt):**\n${truncated}...`);
     }
-  }
-
-  // Site graph (navigation structure)
-  const siteGraph = raw.siteGraph as Record<string, unknown> | undefined;
-  if (siteGraph?.navigationScore !== undefined) {
-    parts.push(`**Navigation Score:** ${siteGraph.navigationScore}/100`);
-  }
-  if (siteGraph?.recommendations && Array.isArray(siteGraph.recommendations)) {
-    parts.push(formatArrayItems(siteGraph.recommendations, 'Navigation Recommendations'));
-  }
-
-  // Conversion opportunities
-  if (raw.conversionOpportunities && Array.isArray(raw.conversionOpportunities)) {
-    parts.push(formatArrayItems(raw.conversionOpportunities, 'Conversion Opportunities'));
   }
 
   // Summary
-  if (run.summary) {
-    parts.push(`**Summary:** ${run.summary}`);
+  if (labData.summary) {
+    parts.push(`**Summary:** ${labData.summary}`);
   }
 
   return parts.join('\n\n');
