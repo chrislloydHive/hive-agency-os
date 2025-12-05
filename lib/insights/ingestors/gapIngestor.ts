@@ -132,51 +132,101 @@ function extractFullGapData(run: DiagnosticRun): string {
     parts.push(`**Overall Score:** ${run.score}/100`);
   }
 
-  // Strategic themes
-  if (raw.strategicThemes && Array.isArray(raw.strategicThemes)) {
-    parts.push(formatArrayItems(raw.strategicThemes, 'Strategic Themes'));
-  }
+  // The Full GAP stores data under growthPlan
+  const growthPlan = raw.growthPlan as Record<string, unknown> | undefined;
 
-  // Module scores
-  if (raw.modules && typeof raw.modules === 'object') {
-    const modules = raw.modules as Record<string, Record<string, unknown>>;
-    const scores: Record<string, number | null> = {};
-    for (const [key, mod] of Object.entries(modules)) {
-      if (mod?.score !== undefined) {
-        scores[key] = mod.score as number;
+  if (growthPlan) {
+    // Scorecard with dimension scores
+    const scorecard = growthPlan.scorecard as Record<string, number> | undefined;
+    if (scorecard) {
+      const scores: Record<string, number | null> = {};
+      for (const [key, value] of Object.entries(scorecard)) {
+        if (typeof value === 'number' && key !== 'overall') {
+          scores[key] = value;
+        }
+      }
+      if (Object.keys(scores).length > 0) {
+        parts.push('**Dimension Scores:**');
+        parts.push(formatScores(scores));
       }
     }
-    if (Object.keys(scores).length > 0) {
-      parts.push('**Module Scores:**');
-      parts.push(formatScores(scores));
+
+    // Executive summary narrative
+    const execSummary = growthPlan.executiveSummary as Record<string, unknown> | undefined;
+    if (execSummary?.narrative) {
+      parts.push(`**Executive Summary:** ${execSummary.narrative}`);
+    }
+    if (execSummary?.keyIssues && Array.isArray(execSummary.keyIssues)) {
+      parts.push(formatArrayItems(execSummary.keyIssues, 'Key Issues'));
+    }
+    if (execSummary?.strategicPriorities && Array.isArray(execSummary.strategicPriorities)) {
+      parts.push(formatArrayItems(execSummary.strategicPriorities, 'Strategic Priorities'));
+    }
+
+    // Quick wins
+    const quickWins = growthPlan.quickWins as Array<Record<string, unknown>> | undefined;
+    if (quickWins && Array.isArray(quickWins)) {
+      const quickWinTitles = quickWins.map(w => w.title || w.description).filter(Boolean);
+      if (quickWinTitles.length > 0) {
+        parts.push(formatArrayItems(quickWinTitles, 'Quick Wins'));
+      }
+    }
+
+    // Strategic initiatives
+    const initiatives = growthPlan.strategicInitiatives as Array<Record<string, unknown>> | undefined;
+    if (initiatives && Array.isArray(initiatives)) {
+      const initTitles = initiatives.map(i => `${i.title}: ${i.description}`).filter(Boolean);
+      if (initTitles.length > 0) {
+        parts.push(formatArrayItems(initTitles, 'Strategic Initiatives'));
+      }
+    }
+
+    // 90-day roadmap
+    const roadmap = growthPlan.roadmap as Array<Record<string, unknown>> | undefined;
+    if (roadmap && Array.isArray(roadmap)) {
+      const roadmapItems = roadmap.map(r => `${r.phase}: ${r.focus}`).filter(Boolean);
+      if (roadmapItems.length > 0) {
+        parts.push(formatArrayItems(roadmapItems, '90-Day Roadmap'));
+      }
+    }
+
+    // KPIs to watch
+    const kpis = growthPlan.kpis as string[] | undefined;
+    if (kpis && Array.isArray(kpis)) {
+      parts.push(formatArrayItems(kpis, 'KPIs to Watch'));
+    }
+
+    // Dimension narratives
+    const dimNarratives = growthPlan.dimensionNarratives as Record<string, string> | undefined;
+    if (dimNarratives) {
+      for (const [dim, narrative] of Object.entries(dimNarratives)) {
+        if (narrative) {
+          parts.push(`**${dim.charAt(0).toUpperCase() + dim.slice(1)} Assessment:** ${narrative}`);
+        }
+      }
+    }
+
+    // Section analyses (findings per dimension)
+    const sectionAnalyses = growthPlan.sectionAnalyses as Record<string, Record<string, unknown>> | undefined;
+    if (sectionAnalyses) {
+      for (const [dim, analysis] of Object.entries(sectionAnalyses)) {
+        if (analysis?.keyFindings && Array.isArray(analysis.keyFindings) && analysis.keyFindings.length > 0) {
+          parts.push(formatArrayItems(analysis.keyFindings, `${dim.charAt(0).toUpperCase() + dim.slice(1)} Findings`));
+        }
+      }
     }
   }
 
-  // Top issues across modules
-  if (raw.topIssues && Array.isArray(raw.topIssues)) {
-    parts.push(formatArrayItems(raw.topIssues, 'Top Issues'));
+  // Also check for refinedMarkdown (the full report text)
+  const refinedMarkdown = raw.refinedMarkdown as string | undefined;
+  if (refinedMarkdown && typeof refinedMarkdown === 'string' && refinedMarkdown.length > 100) {
+    // Include a truncated version of the markdown for context
+    const truncated = refinedMarkdown.substring(0, 3000);
+    parts.push(`**Full Report (excerpt):**\n${truncated}...`);
   }
 
-  // Top opportunities
-  if (raw.topOpportunities && Array.isArray(raw.topOpportunities)) {
-    parts.push(formatArrayItems(raw.topOpportunities, 'Top Opportunities'));
-  }
-
-  // Roadmap priorities
-  if (raw.roadmap && Array.isArray(raw.roadmap)) {
-    parts.push(formatArrayItems(raw.roadmap, 'Roadmap Priorities'));
-  }
-
-  // Competitor analysis summary
-  if (raw.competitorAnalysis && typeof raw.competitorAnalysis === 'object') {
-    const comp = raw.competitorAnalysis as Record<string, unknown>;
-    if (comp.summary) {
-      parts.push(`**Competitive Summary:** ${comp.summary}`);
-    }
-  }
-
-  // Summary
-  if (run.summary) {
+  // Summary fallback
+  if (parts.length === 1 && run.summary) {
     parts.push(`**Summary:** ${run.summary}`);
   }
 
