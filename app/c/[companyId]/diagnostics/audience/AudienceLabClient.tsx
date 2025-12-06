@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import type { AudienceModel, AudienceSegment, DemandState } from '@/lib/audience/model';
 import type { AudienceSignals } from '@/lib/audience/signals';
 import type { PersonaSet } from '@/lib/audience/personas';
+import type { LabRefinementRunResult } from '@/lib/labs/refinementTypes';
 import {
   DEMAND_STATE_LABELS,
   DEMAND_STATE_DESCRIPTIONS,
@@ -17,6 +18,7 @@ import {
 import { MEDIA_CHANNEL_LABELS, type MediaChannelId } from '@/lib/contextGraph/enums';
 import { PersonasPanel } from './PersonasPanel';
 import { InfoTip, InlineHelp } from '@/components/ui/InfoTip';
+import { RefinementSummary } from '@/components/labs/RefinementSummary';
 
 // ============================================================================
 // Types
@@ -67,12 +69,56 @@ export function AudienceLabClient({
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [activeTab, setActiveTab] = useState<'segments' | 'personas' | 'signals'>('segments');
+  const [activeTab, setActiveTab] = useState<'segments' | 'personas' | 'signals' | 'refinement'>('segments');
 
   // AI Segment expansion state
   const [showExpandModal, setShowExpandModal] = useState(false);
   const [expandSeed, setExpandSeed] = useState('');
   const [isExpanding, setIsExpanding] = useState(false);
+
+  // Refinement state
+  const [isRunningRefinement, setIsRunningRefinement] = useState(false);
+  const [refinementResult, setRefinementResult] = useState<LabRefinementRunResult | null>(null);
+
+  // Run Audience Lab refinement
+  const runRefinement = useCallback(async () => {
+    setIsRunningRefinement(true);
+    setRefinementResult(null);
+    setMessage(null);
+
+    try {
+      const response = await fetch(`/api/os/companies/${companyId}/labs/refine`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ labId: 'audience' }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessage({
+          type: 'error',
+          text: data.error || 'Failed to run refinement',
+        });
+        return;
+      }
+
+      setRefinementResult(data.result);
+      const updated = data.result?.applyResult?.updated || 0;
+      setMessage({
+        type: 'success',
+        text: `Audience Lab refinement complete — ${updated} field(s) refined`,
+      });
+      router.refresh();
+    } catch (error) {
+      setMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setIsRunningRefinement(false);
+    }
+  }, [companyId, router]);
 
   // Get the currently selected segment
   const selectedSegment = model?.segments.find(s => s.id === selectedSegmentId) || null;
@@ -525,6 +571,21 @@ export function AudienceLabClient({
             >
               Signals
             </button>
+            <button
+              onClick={() => setActiveTab('refinement')}
+              className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'refinement'
+                  ? 'bg-amber-600 text-white'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              Refinement
+              {refinementResult && (
+                <span className="ml-1 text-xs">
+                  ({refinementResult.applyResult?.updated || 0})
+                </span>
+              )}
+            </button>
           </div>
 
           {/* Personas Tab */}
@@ -541,6 +602,84 @@ export function AudienceLabClient({
           {activeTab === 'signals' && (
             <div className="max-w-2xl">
               <SignalsPanel signals={signals} summary={signalsSummary} />
+            </div>
+          )}
+
+          {/* Refinement Tab */}
+          {activeTab === 'refinement' && (
+            <div className="max-w-2xl space-y-6">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-semibold text-slate-100">Audience Lab Refinement</h2>
+                  <p className="text-sm text-slate-400 mt-1">
+                    Refine audience context in Brain. Labs respect human overrides and source priorities.
+                  </p>
+                </div>
+                <button
+                  onClick={runRefinement}
+                  disabled={isRunningRefinement}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isRunningRefinement ? (
+                    <>
+                      <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Refining...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                      </svg>
+                      Run Refinement
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Refinement Result */}
+              {refinementResult ? (
+                <RefinementSummary result={refinementResult} showDetails />
+              ) : (
+                <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-8 text-center">
+                  <div className="mx-auto w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center mb-4">
+                    <svg className="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-medium text-slate-200 mb-2">
+                    Run Audience Lab Refinement
+                  </h3>
+                  <p className="text-sm text-slate-400 max-w-md mx-auto">
+                    Analyze current audience context and propose refinements to segments, pain points, motivations, and buying triggers. Changes are written to Brain with full provenance tracking.
+                  </p>
+                </div>
+              )}
+
+              {/* Info Box */}
+              <div className="rounded-lg border border-slate-700 bg-slate-800/30 p-4">
+                <h4 className="text-sm font-medium text-slate-200 mb-2">How Refinement Mode Works</h4>
+                <ul className="text-xs text-slate-400 space-y-1">
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400">1.</span>
+                    Loads current audience context from Brain
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400">2.</span>
+                    AI analyzes and proposes delta updates (not full replacements)
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400">3.</span>
+                    Respects human overrides — never overwrites user-entered values
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400">4.</span>
+                    Records provenance with confidence scores for traceability
+                  </li>
+                </ul>
+              </div>
             </div>
           )}
 

@@ -31,9 +31,28 @@ export async function createClientInsight(
   companyId: string,
   input: CreateClientInsightInput
 ): Promise<ClientInsight> {
+  // Build an extended body that includes recommendation, rationale, etc.
+  // since those fields don't exist in the Airtable schema
+  let body = input.body;
+
+  // Append extra info to body if not already included
+  // (The repo already does this, but just in case)
+  if (input.recommendation && !body.includes(input.recommendation)) {
+    body += `\n\n**Recommendation:** ${input.recommendation}`;
+  }
+  if (input.rationale && !body.includes(input.rationale)) {
+    body += `\n\n**Why this matters:** ${input.rationale}`;
+  }
+  if (input.contextPaths && input.contextPaths.length > 0) {
+    body += `\n\n**Related Context:** ${input.contextPaths.join(', ')}`;
+  }
+  if (input.metrics && Object.keys(input.metrics).length > 0) {
+    body += `\n\n**Metrics:** ${JSON.stringify(input.metrics)}`;
+  }
+
   const fields: Record<string, unknown> = {
     Title: input.title,
-    Body: input.body,
+    Body: body,
     Category: input.category,
     'Company ID': companyId,
     'Source Type': input.source.type,
@@ -41,21 +60,6 @@ export async function createClientInsight(
 
   if (input.severity) {
     fields['Severity'] = input.severity;
-  }
-  if (input.status) {
-    fields['Status'] = input.status;
-  }
-  if (input.recommendation) {
-    fields['Recommendation'] = input.recommendation;
-  }
-  if (input.rationale) {
-    fields['Rationale'] = input.rationale;
-  }
-  if (input.contextPaths && input.contextPaths.length > 0) {
-    fields['Context Paths'] = JSON.stringify(input.contextPaths);
-  }
-  if (input.metrics && Object.keys(input.metrics).length > 0) {
-    fields['Metrics'] = JSON.stringify(input.metrics);
   }
 
   // Add source-specific fields

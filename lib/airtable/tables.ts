@@ -43,9 +43,15 @@ export const AIRTABLE_TABLES = {
   CONTEXT_GRAPHS: 'ContextGraphs', // Company Context Graph storage (JSON blobs)
   CONTEXT_GRAPH_VERSIONS: 'ContextGraphVersions', // Version history of context graphs
 
+  // QBR Stories
+  QBR_STORIES: 'QBR Stories', // QBR Story narratives (JSON blobs)
+
   // Audience Lab
   AUDIENCE_MODELS: 'AudienceModels', // Audience Model storage (JSON blobs)
   AUDIENCE_PERSONAS: 'AudiencePersonas', // Persona sets storage (JSON blobs)
+
+  // Competition Lab
+  COMPETITION_RUNS: 'Competition Runs', // Competition Lab run results (JSON blobs)
 
   // Legacy/deprecated (for migration reference)
   // GAP_RUNS_OLD: 'GAP Runs',

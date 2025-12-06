@@ -1,24 +1,79 @@
 // app/c/[companyId]/brain/context/ContextHealthHeader.tsx
-// Compact Context Health Header for Brain → Context page
+// Context Health Header for Brain → Context page
 //
-// Displays a compact health summary with:
-// - Overall score and severity label
-// - Sub-metrics (completeness, critical coverage, freshness)
-// - Weak sections badges
-// - Missing critical fields checklist
+// Three-band hierarchical layout:
+// 1. Primary Actions: Smart Auto-Fill, Deep Context Build, Re-crawl Website
+// 2. Health Summary: Score, metrics, collapsible issues drawer
+// 3. Secondary Actions: Lab shortcuts, Edit, Explorer
 
 'use client';
 
+import { useState, useCallback, useRef, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { ContextHealthScore, ContextSeverity } from '@/lib/contextGraph/health';
+import type { RefinementLabId, LabRefinementRunResult } from '@/lib/labs/refinementTypes';
+import type { ReadinessCheckResult } from '@/lib/contextGraph/readiness';
+import { RefinementSummary } from '@/components/labs/RefinementSummary';
+import { AutoFillReadinessModal } from '@/components/os/AutoFillReadinessModal';
 
 // ============================================================================
 // Types
 // ============================================================================
 
+interface OnboardingStep {
+  step: 'initialize' | 'fcb' | 'audience_lab' | 'brand_lab' | 'creative_lab' | 'competitor_lab' | 'website_lab' | 'competitor_auto_seed' | 'snapshot';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  durationMs?: number;
+  message?: string;
+  error?: string;
+}
+
+interface OnboardingResult {
+  success: boolean;
+  companyName: string;
+  runId: string;
+  durationMs: number;
+  steps: OnboardingStep[];
+  summary: {
+    fieldsPopulated: number;
+    fieldsRefined: number;
+    insightsGenerated: number;
+    healthImprovement: number;
+  };
+  contextHealthBefore: { score: number; severity: string };
+  contextHealthAfter: { score: number; severity: string };
+  error?: string;
+}
+
 interface ContextHealthHeaderProps {
   healthScore: ContextHealthScore;
   companyId: string;
+  /** When baseline context was initialized (from graph.meta.contextInitializedAt) */
+  baselineInitializedAt?: string | null;
+  /** Auto-fill readiness check result */
+  autoFillReadiness?: ReadinessCheckResult;
+}
+
+// ============================================================================
+// Baseline Build Result Type (from API)
+// ============================================================================
+
+interface BaselineBuildApiResult {
+  success: boolean;
+  companyId: string;
+  companyName: string;
+  runId: string;
+  wasNoOp: boolean;
+  contextBefore: { overallScore: number; severity: string };
+  contextAfter: { overallScore: number; severity: string };
+  summary: {
+    fieldsPopulated: number;
+    fieldsRefined: number;
+    healthImprovement: number;
+  };
+  snapshotId: string | null;
+  error?: string;
 }
 
 // ============================================================================
@@ -71,6 +126,7 @@ function getSourcePath(source: string, companyId: string): string {
     AudienceLab: `/c/${companyId}/diagnostics/audience`,
     BrandLab: `/c/${companyId}/diagnostics/brand`,
     CreativeLab: `/c/${companyId}/labs/creative`,
+    CompetitorLab: `/c/${companyId}/labs/competitor`,
     MediaLab: `/c/${companyId}/diagnostics/media`,
     WebsiteLab: `/c/${companyId}/diagnostics/website-lab`,
   };
@@ -81,21 +137,275 @@ function getSourceLabel(source: string): string {
   const labels: Record<string, string> = {
     Setup: 'Setup',
     GAP: 'GAP',
-    GAPHeavy: 'GAP Heavy',
-    AudienceLab: 'Audience Lab',
-    BrandLab: 'Brand Lab',
-    CreativeLab: 'Creative Lab',
-    MediaLab: 'Media Lab',
-    WebsiteLab: 'Website Lab',
+    GAPHeavy: 'GAP',
+    AudienceLab: 'Audience',
+    BrandLab: 'Brand',
+    CreativeLab: 'Creative',
+    CompetitorLab: 'Competitor',
+    MediaLab: 'Media',
+    WebsiteLab: 'Website',
   };
   return labels[source] || source;
 }
 
+/**
+ * Check if a field path is manual-only (cannot be auto-filled)
+ */
+function isManualOnlyField(path: string): boolean {
+  // Objectives and Budget fields require human input
+  const manualOnlyDomains = ['objectives', 'budgetOps'];
+  return manualOnlyDomains.some(domain => path.startsWith(`${domain}.`));
+}
+
+/**
+ * Get the appropriate destination for manual-only fields
+ */
+function getManualFieldPath(path: string, companyId: string): string {
+  if (path.startsWith('objectives.')) {
+    return `/c/${companyId}/brain/setup`; // Or QBR objectives step
+  }
+  if (path.startsWith('budgetOps.')) {
+    return `/c/${companyId}/brain/setup`;
+  }
+  return `/c/${companyId}/brain/setup`;
+}
+
+/**
+ * Format baseline initialization date for display
+ */
+function formatBaselineDate(dateStr: string): string {
+  try {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
 // ============================================================================
-// Main Component
+// Primary Actions Component (Row 1)
 // ============================================================================
 
-export function ContextHealthHeader({ healthScore, companyId }: ContextHealthHeaderProps) {
+interface PrimaryActionsProps {
+  companyId: string;
+  isAutoFilling: boolean;
+  isOnboarding: boolean;
+  isRunningFCB: boolean;
+  isRunningLab: RefinementLabId | 'all' | null;
+  isRunningBaseline: boolean;
+  isInitialized: boolean;
+  healthScore: number;
+  onAutoFill: () => void;
+  onDeepBuild: () => void;
+  onRecrawl: () => void;
+  onFillAutomatically: () => void;
+}
+
+function ContextPrimaryActions({
+  isAutoFilling,
+  isOnboarding,
+  isRunningFCB,
+  isRunningLab,
+  isRunningBaseline,
+  isInitialized,
+  healthScore,
+  onAutoFill,
+  onDeepBuild,
+  onRecrawl,
+  onFillAutomatically,
+}: PrimaryActionsProps) {
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const isAnyRunning = isAutoFilling || isOnboarding || isRunningFCB || isRunningLab !== null || isRunningBaseline;
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!showAdvanced) return;
+
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowAdvanced(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showAdvanced]);
+
+  // Show Autocomplete as primary action when:
+  // 1. Not initialized yet, OR
+  // 2. Health score is below 80% (still room for improvement)
+  const showAutocompleteAsPrimary = !isInitialized || healthScore < 80;
+
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      {/* PRIMARY: Autocomplete - shown when not initialized OR health < 80% */}
+      {showAutocompleteAsPrimary && (
+        <div className="group relative">
+          <button
+            onClick={onFillAutomatically}
+            disabled={isAnyRunning}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-white shadow-lg shadow-emerald-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+          >
+            {isRunningBaseline ? (
+              <>
+                <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Building Context...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                Autocomplete
+              </>
+            )}
+          </button>
+          {/* Tooltip */}
+          <div className="absolute left-0 top-full mt-2 w-80 p-3 rounded-lg bg-slate-800 border border-slate-700 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 text-xs pointer-events-none">
+            <div className="font-medium text-slate-200 mb-1.5">One-click context initialization</div>
+            <div className="text-slate-400 space-y-1.5">
+              <p>Runs the full baseline build pipeline:</p>
+              <ul className="list-disc list-inside pl-1 space-y-0.5">
+                <li>Website crawler (FCB)</li>
+                <li>All 5 refinement Labs</li>
+                <li>Competitor auto-seeding</li>
+                <li>GAP insights</li>
+                <li>Baseline snapshot</li>
+              </ul>
+              <p className="text-amber-400/80 flex items-center gap-1 mt-2">
+                <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Objectives, KPIs & Budget require human input.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Show dropdown with advanced actions when initialized */}
+      {isInitialized && (
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            disabled={isAnyRunning}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isAnyRunning ? (
+              <>
+                <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Running...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Context Actions
+                <svg className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </>
+            )}
+          </button>
+
+          {/* Dropdown menu */}
+          {showAdvanced && !isAnyRunning && (
+            <div className="absolute left-0 top-full mt-1 w-64 rounded-lg bg-slate-800 border border-slate-700 shadow-xl z-50 overflow-hidden">
+              {/* Rebuild Baseline */}
+              <button
+                onClick={() => { setShowAdvanced(false); onFillAutomatically(); }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left hover:bg-slate-700/50 transition-colors"
+              >
+                <div className="p-1.5 rounded-md bg-emerald-500/20">
+                  <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="font-medium text-slate-200">Rebuild Baseline</div>
+                  <div className="text-xs text-slate-500">Force re-run full pipeline</div>
+                </div>
+              </button>
+
+              <div className="h-px bg-slate-700/50" />
+
+              {/* Smart Auto-Fill */}
+              <button
+                onClick={() => { setShowAdvanced(false); onAutoFill(); }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left hover:bg-slate-700/50 transition-colors"
+              >
+                <div className="p-1.5 rounded-md bg-violet-500/20">
+                  <svg className="w-4 h-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="font-medium text-slate-200">Smart Auto-Fill</div>
+                  <div className="text-xs text-slate-500">Quick fill from existing data</div>
+                </div>
+              </button>
+
+              {/* Deep Context Build */}
+              <button
+                onClick={() => { setShowAdvanced(false); onDeepBuild(); }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left hover:bg-slate-700/50 transition-colors"
+              >
+                <div className="p-1.5 rounded-md bg-cyan-500/20">
+                  <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="font-medium text-slate-200">Deep Context Build</div>
+                  <div className="text-xs text-slate-500">FCB + Labs with streaming</div>
+                </div>
+              </button>
+
+              {/* Re-crawl Website */}
+              <button
+                onClick={() => { setShowAdvanced(false); onRecrawl(); }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left hover:bg-slate-700/50 transition-colors"
+              >
+                <div className="p-1.5 rounded-md bg-amber-500/20">
+                  <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="font-medium text-slate-200">Re-crawl Website</div>
+                  <div className="text-xs text-slate-500">Refresh website data only</div>
+                </div>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Health Summary Component (Row 2)
+// ============================================================================
+
+interface HealthSummaryProps {
+  healthScore: ContextHealthScore;
+  companyId: string;
+}
+
+function ContextHealthSummary({ healthScore, companyId }: HealthSummaryProps) {
+  const [isIssuesOpen, setIsIssuesOpen] = useState(false);
   const severityConfig = getSeverityConfig(healthScore.severity);
 
   // Get weak sections (< 60% critical coverage)
@@ -103,140 +413,977 @@ export function ContextHealthHeader({ healthScore, companyId }: ContextHealthHea
     .filter(s => s.criticalFields > 0 && s.criticalCoverage < 60)
     .sort((a, b) => a.criticalCoverage - b.criticalCoverage);
 
+  const totalIssues = weakSections.length + healthScore.missingCriticalFields.length;
+  const hasIssues = totalIssues > 0;
+
   return (
     <div className={`rounded-lg border ${severityConfig.border} ${severityConfig.bg} p-4`}>
-      {/* Main Stats Row */}
-      <div className="flex flex-wrap items-center gap-4">
-        {/* Overall Score */}
+      {/* Score + Metrics Row */}
+      <div className="flex flex-wrap items-center gap-6">
+        {/* Overall Score + Status */}
         <div className="flex items-center gap-3">
           <div className={`text-3xl font-bold tabular-nums ${severityConfig.color}`}>
             {healthScore.overallScore}
           </div>
-          <div>
-            <div className={`text-sm font-medium ${severityConfig.color}`}>
-              Context Health
-            </div>
-            <div className="text-xs text-slate-400">
-              {severityConfig.label}
-            </div>
-          </div>
-        </div>
-
-        {/* Quick Actions */}
-        <div className="flex items-center gap-2 ml-auto">
-          <Link
-            href={`/c/${companyId}/brain/context?mode=editor`}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            </svg>
-            Edit Context
-          </Link>
-          <Link
-            href={`/c/${companyId}/brain/context?view=explorer`}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-            </svg>
-            Explorer
-          </Link>
-        </div>
-
-        {/* Divider */}
-        <div className="h-10 w-px bg-slate-700/50 hidden sm:block" />
-
-        {/* Sub-metrics */}
-        <div className="flex items-center gap-4 text-xs">
-          <div className="text-center">
-            <div className={`text-lg font-semibold tabular-nums ${getScoreColor(healthScore.completenessScore)}`}>
-              {healthScore.completenessScore}%
-            </div>
-            <div className="text-slate-500 uppercase tracking-wide">Complete</div>
-          </div>
-          <div className="text-center">
-            <div className={`text-lg font-semibold tabular-nums ${getScoreColor(healthScore.criticalCoverageScore)}`}>
-              {healthScore.criticalCoverageScore}%
-            </div>
-            <div className="text-slate-500 uppercase tracking-wide">Critical</div>
-          </div>
-          <div className="text-center">
-            <div className={`text-lg font-semibold tabular-nums ${getScoreColor(healthScore.freshnessScore)}`}>
-              {healthScore.freshnessScore}%
-            </div>
-            <div className="text-slate-500 uppercase tracking-wide">Fresh</div>
+          <div className={`text-sm font-medium ${severityConfig.color}`}>
+            {severityConfig.label}
           </div>
         </div>
 
         {/* Divider */}
-        {weakSections.length > 0 && (
-          <div className="h-10 w-px bg-slate-700/50 hidden md:block" />
-        )}
+        <div className="h-8 w-px bg-slate-700/50 hidden sm:block" />
 
-        {/* Weak Sections Badges */}
-        {weakSections.length > 0 && (
-          <div className="flex-1 min-w-0">
-            <div className="text-xs text-slate-500 mb-1">Weak sections:</div>
-            <div className="flex flex-wrap gap-1">
-              {weakSections.slice(0, 4).map((section) => (
-                <span
-                  key={section.section}
-                  className={`text-xs px-2 py-0.5 rounded ${
-                    section.criticalCoverage < 30
-                      ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                      : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                  }`}
-                >
-                  {section.label}: {section.criticalCoverage}%
-                </span>
-              ))}
-              {weakSections.length > 4 && (
-                <span className="text-xs text-slate-500">
-                  +{weakSections.length - 4} more
-                </span>
-              )}
-            </div>
-          </div>
-        )}
+        {/* Metrics */}
+        <div className="flex items-center gap-4 text-sm">
+          <span className={getScoreColor(healthScore.completenessScore)}>
+            <span className="font-semibold tabular-nums">{healthScore.completenessScore}%</span>
+            <span className="text-slate-500 ml-1">Complete</span>
+          </span>
+          <span className="text-slate-600">·</span>
+          <span className={getScoreColor(healthScore.criticalCoverageScore)}>
+            <span className="font-semibold tabular-nums">{healthScore.criticalCoverageScore}%</span>
+            <span className="text-slate-500 ml-1">Critical</span>
+          </span>
+          <span className="text-slate-600">·</span>
+          <span className={getScoreColor(healthScore.freshnessScore)}>
+            <span className="font-semibold tabular-nums">{healthScore.freshnessScore}%</span>
+            <span className="text-slate-500 ml-1">Fresh</span>
+          </span>
+        </div>
       </div>
 
-      {/* Missing Critical Fields Checklist */}
-      {healthScore.missingCriticalFields.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-slate-700/50">
-          <div className="text-xs text-slate-400 mb-2">
-            Missing critical fields ({healthScore.missingCriticalFields.length}):
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {healthScore.missingCriticalFields.slice(0, 6).map((field) => (
-              <div
-                key={field.path}
-                className="flex items-center gap-2 text-xs bg-slate-800/50 rounded px-2 py-1"
+      {/* Issues Drawer Toggle */}
+      <div className="mt-3 pt-3 border-t border-slate-700/30">
+        {hasIssues ? (
+          <>
+            <button
+              onClick={() => setIsIssuesOpen(!isIssuesOpen)}
+              className="flex items-center gap-2 text-xs text-slate-400 hover:text-slate-300 transition-colors"
+            >
+              <svg
+                className={`w-3 h-3 transition-transform ${isIssuesOpen ? 'rotate-180' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
               >
-                <span className="text-slate-300">{field.label}</span>
-                {field.primarySources.length > 0 && (
-                  <div className="flex gap-1">
-                    {field.primarySources.slice(0, 1).map((source) => (
-                      <Link
-                        key={source}
-                        href={getSourcePath(source, companyId)}
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors"
-                      >
-                        {getSourceLabel(source)}
-                      </Link>
-                    ))}
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+              {isIssuesOpen ? 'Hide' : 'Show'} issues ({totalIssues})
+            </button>
+
+            {/* Expanded Issues */}
+            {isIssuesOpen && (
+              <div className="mt-3 space-y-3">
+                {/* Weak Sections */}
+                {weakSections.length > 0 && (
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">
+                      Weak Sections
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {weakSections.map((section) => (
+                        <span
+                          key={section.section}
+                          className={`text-xs px-2 py-0.5 rounded ${
+                            section.criticalCoverage < 30
+                              ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                              : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                          }`}
+                        >
+                          {section.label}: {section.criticalCoverage}%
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Missing Critical Fields */}
+                {healthScore.missingCriticalFields.length > 0 && (
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">
+                      Missing Critical Fields
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {healthScore.missingCriticalFields.map((field) => {
+                        const isManual = isManualOnlyField(field.path);
+                        return (
+                          <div
+                            key={field.path}
+                            className="flex items-center gap-1.5 text-xs bg-slate-800/50 rounded px-2 py-1"
+                          >
+                            <span className="text-slate-300">{field.label}</span>
+                            {isManual ? (
+                              // Manual-only fields get a distinct badge and link to Setup
+                              <Link
+                                href={getManualFieldPath(field.path, companyId)}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors flex items-center gap-0.5"
+                                title="This field requires human input - Smart Auto-Fill cannot set business goals"
+                              >
+                                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                                Manual
+                              </Link>
+                            ) : field.primarySources.length > 0 ? (
+                              // Auto-fillable fields show their source
+                              <Link
+                                href={getSourcePath(field.primarySources[0], companyId)}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors"
+                              >
+                                {getSourceLabel(field.primarySources[0])}
+                              </Link>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* Microcopy for manual fields with AI Helper hint */}
+                    {healthScore.missingCriticalFields.some(f => isManualOnlyField(f.path)) && (
+                      <p className="mt-2 text-[10px] text-slate-500 flex items-center gap-1">
+                        <svg className="w-3 h-3 text-amber-500/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>
+                          Objectives require human input.{' '}
+                          <span className="text-violet-400">Use AI Helper</span> to define them step-by-step.
+                        </span>
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
-            ))}
-            {healthScore.missingCriticalFields.length > 6 && (
-              <span className="text-xs text-slate-500 self-center">
-                +{healthScore.missingCriticalFields.length - 6} more
-              </span>
             )}
+          </>
+        ) : (
+          <div className="flex items-center gap-2 text-xs text-emerald-400/70">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            All critical fields populated
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Secondary Actions Component (Row 3)
+// ============================================================================
+
+interface SecondaryActionsProps {
+  companyId: string;
+  isRunningLab: RefinementLabId | 'all' | null;
+  isAnyRunning: boolean;
+  onRunLab: (labId: RefinementLabId) => void;
+}
+
+function ContextSecondaryActions({
+  companyId,
+  isRunningLab,
+  isAnyRunning,
+  onRunLab,
+}: SecondaryActionsProps) {
+  const labs: { id: RefinementLabId; label: string }[] = [
+    { id: 'audience', label: 'Audience' },
+    { id: 'brand', label: 'Brand' },
+    { id: 'creative', label: 'Creative' },
+    { id: 'competitor', label: 'Competitor' },
+    { id: 'website', label: 'Website' },
+  ];
+
+  return (
+    <div className="flex flex-wrap items-center gap-1 text-xs">
+      {/* Lab Shortcuts */}
+      {labs.map((lab, idx) => (
+        <button
+          key={lab.id}
+          onClick={() => onRunLab(lab.id)}
+          disabled={isAnyRunning}
+          className={`px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            isRunningLab === lab.id ? 'bg-slate-800 text-slate-200' : ''
+          }`}
+        >
+          {isRunningLab === lab.id ? (
+            <span className="flex items-center gap-1">
+              <svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {lab.label}
+            </span>
+          ) : (
+            lab.label
+          )}
+        </button>
+      ))}
+
+      {/* Separator */}
+      <span className="text-slate-700 mx-1">|</span>
+
+      {/* Edit Link */}
+      <Link
+        href={`/c/${companyId}/brain/context?mode=editor`}
+        className="px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+      >
+        Edit
+      </Link>
+
+      {/* Explorer Link */}
+      <Link
+        href={`/c/${companyId}/brain/context?view=explorer`}
+        className="px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+      >
+        Explorer
+      </Link>
+    </div>
+  );
+}
+
+// ============================================================================
+// Main Component
+// ============================================================================
+
+export function ContextHealthHeader({ healthScore, companyId, baselineInitializedAt, autoFillReadiness }: ContextHealthHeaderProps) {
+  const router = useRouter();
+
+  // Lab refinement state
+  const [isRunningLab, setIsRunningLab] = useState<RefinementLabId | 'all' | null>(null);
+  const [labResult, setLabResult] = useState<LabRefinementRunResult | null>(null);
+  const [labError, setLabError] = useState<string | null>(null);
+  const [showLabPanel, setShowLabPanel] = useState(false);
+
+  // Onboarding state
+  const [isOnboarding, setIsOnboarding] = useState(false);
+  const [onboardingSteps, setOnboardingSteps] = useState<OnboardingStep[]>([]);
+  const [onboardingResult, setOnboardingResult] = useState<OnboardingResult | null>(null);
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+
+  // Smart Auto-Fill state
+  const [isAutoFilling, setIsAutoFilling] = useState(false);
+  const [autoFillResult, setAutoFillResult] = useState<{
+    success: boolean;
+    message: string;
+    fieldsUpdated?: number;
+    healthBefore?: number;
+    healthAfter?: number;
+  } | null>(null);
+
+  // FCB-only (Re-crawl Website) state
+  const [isRunningFCB, setIsRunningFCB] = useState(false);
+  const [fcbResult, setFcbResult] = useState<{
+    success: boolean;
+    message: string;
+    fieldsUpdated?: number;
+    fieldsSkipped?: number;
+  } | null>(null);
+
+  // Baseline Build state (Fill My Company Automatically)
+  const [isRunningBaseline, setIsRunningBaseline] = useState(false);
+  const [baselineResult, setBaselineResult] = useState<BaselineBuildApiResult | null>(null);
+
+  // Readiness modal state
+  const [showReadinessModal, setShowReadinessModal] = useState(false);
+  const [readinessError, setReadinessError] = useState<string | null>(null);
+
+  // Run a Lab in refinement mode
+  const runLabRefinement = useCallback(async (labId: RefinementLabId) => {
+    setIsRunningLab(labId);
+    setLabResult(null);
+    setLabError(null);
+    setShowLabPanel(false);
+
+    try {
+      const response = await fetch(`/api/os/companies/${companyId}/labs/refine`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ labId }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setLabError(data.error || `Failed to run ${labId} Lab`);
+        return;
+      }
+
+      setLabResult(data.result);
+      setShowLabPanel(true);
+      router.refresh();
+    } catch (error) {
+      setLabError(error instanceof Error ? error.message : 'Unknown error');
+    } finally {
+      setIsRunningLab(null);
+    }
+  }, [companyId, router]);
+
+  // Run full onboarding ("Deep Context Build") with SSE streaming
+  async function runOnboarding() {
+    setIsOnboarding(true);
+    setOnboardingResult(null);
+    setShowOnboardingModal(true);
+    setOnboardingSteps([
+      { step: 'initialize', status: 'pending' },
+      { step: 'fcb', status: 'pending' },
+      { step: 'audience_lab', status: 'pending' },
+      { step: 'brand_lab', status: 'pending' },
+      { step: 'creative_lab', status: 'pending' },
+      { step: 'competitor_lab', status: 'pending' },
+      { step: 'website_lab', status: 'pending' },
+      { step: 'competitor_auto_seed', status: 'pending' },
+      { step: 'snapshot', status: 'pending' },
+    ]);
+
+    try {
+      const response = await fetch(`/api/os/companies/${companyId}/onboarding/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: false }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        setOnboardingResult({
+          success: false,
+          companyName: '',
+          runId: '',
+          durationMs: 0,
+          steps: [],
+          summary: { fieldsPopulated: 0, fieldsRefined: 0, insightsGenerated: 0, healthImprovement: 0 },
+          contextHealthBefore: { score: 0, severity: 'unhealthy' },
+          contextHealthAfter: { score: 0, severity: 'unhealthy' },
+          error: errorData.error || 'Failed to start onboarding',
+        });
+        setIsOnboarding(false);
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No response stream available');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              if (data.type === 'step_started' || data.type === 'step_completed' ||
+                  data.type === 'step_failed' || data.type === 'step_skipped') {
+                setOnboardingSteps(data.steps);
+              } else if (data.type === 'complete' || data.type === 'done') {
+                const result = data.result || data;
+                setOnboardingSteps(result.steps || data.steps || []);
+                setOnboardingResult({
+                  success: result.success,
+                  companyName: result.companyName || '',
+                  runId: result.runId || '',
+                  durationMs: result.durationMs || 0,
+                  steps: result.steps || [],
+                  summary: result.summary || { fieldsPopulated: 0, fieldsRefined: 0, insightsGenerated: 0, healthImprovement: 0 },
+                  contextHealthBefore: result.contextHealthBefore || { score: 0, severity: 'unhealthy' },
+                  contextHealthAfter: result.contextHealthAfter || { score: 0, severity: 'unhealthy' },
+                  error: result.error,
+                });
+                router.refresh();
+              } else if (data.type === 'error') {
+                setOnboardingResult({
+                  success: false,
+                  companyName: '',
+                  runId: '',
+                  durationMs: 0,
+                  steps: data.steps || [],
+                  summary: { fieldsPopulated: 0, fieldsRefined: 0, insightsGenerated: 0, healthImprovement: 0 },
+                  contextHealthBefore: { score: 0, severity: 'unhealthy' },
+                  contextHealthAfter: { score: 0, severity: 'unhealthy' },
+                  error: data.error || 'Onboarding failed',
+                });
+              }
+            } catch (parseError) {
+              console.error('[Onboarding] Failed to parse SSE data:', parseError);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[Onboarding] Stream error:', error);
+      setOnboardingResult({
+        success: false,
+        companyName: '',
+        runId: '',
+        durationMs: 0,
+        steps: [],
+        summary: { fieldsPopulated: 0, fieldsRefined: 0, insightsGenerated: 0, healthImprovement: 0 },
+        contextHealthBefore: { score: 0, severity: 'unhealthy' },
+        contextHealthAfter: { score: 0, severity: 'unhealthy' },
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setIsOnboarding(false);
+    }
+  }
+
+  // Run Smart Auto-Fill
+  async function runSmartAutoFill() {
+    setIsAutoFilling(true);
+    setAutoFillResult(null);
+
+    try {
+      const response = await fetch(`/api/os/companies/${companyId}/context/auto-fill`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data.status === 'error') {
+        setAutoFillResult({
+          success: false,
+          message: data.error || 'Smart Auto-Fill failed',
+        });
+        return;
+      }
+
+      const result = data.result;
+      const healthBefore = result.contextHealthBefore?.overallScore ?? 0;
+      const healthAfter = result.contextHealthAfter?.overallScore ?? 0;
+      const improvement = healthAfter - healthBefore;
+
+      setAutoFillResult({
+        success: true,
+        message: `${result.fieldsUpdated} field${result.fieldsUpdated !== 1 ? 's' : ''} updated${result.fieldsSkippedHumanOverride > 0 ? `, ${result.fieldsSkippedHumanOverride} skipped (human)` : ''}. Health: ${healthBefore}% → ${healthAfter}%${improvement > 0 ? ` (+${improvement})` : ''}`,
+        fieldsUpdated: result.fieldsUpdated,
+        healthBefore,
+        healthAfter,
+      });
+
+      router.refresh();
+    } catch (error) {
+      setAutoFillResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setIsAutoFilling(false);
+    }
+  }
+
+  // Run FCB only (Re-crawl Website)
+  async function runFCBOnly() {
+    setIsRunningFCB(true);
+    setFcbResult(null);
+
+    try {
+      const response = await fetch(`/api/os/companies/${companyId}/fcb/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data.status === 'error') {
+        setFcbResult({
+          success: false,
+          message: data.error || 'Could not re-crawl website.',
+        });
+        return;
+      }
+
+      setFcbResult({
+        success: true,
+        message: `${data.updatedFields || 0} field${(data.updatedFields || 0) !== 1 ? 's' : ''} updated${data.skippedHumanOverrides > 0 ? `, ${data.skippedHumanOverrides} skipped (human)` : ''}.`,
+        fieldsUpdated: data.updatedFields,
+        fieldsSkipped: data.skippedHumanOverrides,
+      });
+
+      router.refresh();
+    } catch (error) {
+      setFcbResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Could not re-crawl website.',
+      });
+    } finally {
+      setIsRunningFCB(false);
+    }
+  }
+
+  // Handle Autocomplete button click - check readiness first
+  function handleAutocompleteClick() {
+    // Clear any previous error
+    setReadinessError(null);
+
+    // If no readiness data, just run directly
+    if (!autoFillReadiness) {
+      runBaselineBuildDirectly();
+      return;
+    }
+
+    // Check if domain is missing (blocking error)
+    if (!autoFillReadiness.canProceed) {
+      setReadinessError('Add a website domain before running Autocomplete.');
+      return;
+    }
+
+    // If fully ready, run directly
+    if (autoFillReadiness.isFullyReady) {
+      runBaselineBuildDirectly();
+      return;
+    }
+
+    // Show readiness modal for missing recommended fields
+    setShowReadinessModal(true);
+  }
+
+  // Run Baseline Build directly (without readiness check)
+  async function runBaselineBuildDirectly() {
+    setIsRunningBaseline(true);
+    setBaselineResult(null);
+
+    try {
+      const response = await fetch(`/api/os/companies/${companyId}/context/baseline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: !!baselineInitializedAt }), // Force if already initialized
+      });
+
+      const data: BaselineBuildApiResult = await response.json();
+
+      if (!response.ok || !data.success) {
+        setBaselineResult({
+          ...data,
+          success: false,
+        });
+        return;
+      }
+
+      setBaselineResult(data);
+      router.refresh();
+    } catch (error) {
+      setBaselineResult({
+        success: false,
+        companyId,
+        companyName: '',
+        runId: '',
+        wasNoOp: false,
+        contextBefore: { overallScore: 0, severity: 'unhealthy' },
+        contextAfter: { overallScore: 0, severity: 'unhealthy' },
+        summary: { fieldsPopulated: 0, fieldsRefined: 0, healthImprovement: 0 },
+        snapshotId: null,
+        error: error instanceof Error ? error.message : 'Baseline build failed',
+      });
+    } finally {
+      setIsRunningBaseline(false);
+    }
+  }
+
+  const isAnyRunning = isAutoFilling || isOnboarding || isRunningFCB || isRunningLab !== null || isRunningBaseline;
+
+  return (
+    <div className="space-y-4">
+      {/* Row 1: Primary Actions */}
+      <ContextPrimaryActions
+        companyId={companyId}
+        isAutoFilling={isAutoFilling}
+        isOnboarding={isOnboarding}
+        isRunningFCB={isRunningFCB}
+        isRunningLab={isRunningLab}
+        isRunningBaseline={isRunningBaseline}
+        isInitialized={!!baselineInitializedAt}
+        healthScore={healthScore.overallScore}
+        onAutoFill={runSmartAutoFill}
+        onDeepBuild={runOnboarding}
+        onRecrawl={runFCBOnly}
+        onFillAutomatically={handleAutocompleteClick}
+      />
+
+      {/* Row 2: Health Summary */}
+      <ContextHealthSummary healthScore={healthScore} companyId={companyId} />
+
+      {/* Baseline Status Line */}
+      {baselineInitializedAt && (
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <svg className="w-3.5 h-3.5 text-emerald-500/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>
+            Baseline context created on{' '}
+            <span className="text-slate-400">
+              {formatBaselineDate(baselineInitializedAt)}
+            </span>
+            {' · '}
+            <span className={`font-medium ${
+              healthScore.overallScore >= 70 ? 'text-emerald-400' :
+              healthScore.overallScore >= 40 ? 'text-amber-400' :
+              'text-red-400'
+            }`}>
+              {healthScore.overallScore}% complete
+            </span>
+            {' · '}
+            <span className={`${
+              healthScore.freshnessScore >= 80 ? 'text-emerald-400/70' :
+              healthScore.freshnessScore >= 50 ? 'text-amber-400/70' :
+              'text-red-400/70'
+            }`}>
+              {healthScore.freshnessScore}% fresh
+            </span>
+          </span>
         </div>
       )}
+
+      {/* Row 3: Secondary Actions */}
+      <ContextSecondaryActions
+        companyId={companyId}
+        isRunningLab={isRunningLab}
+        isAnyRunning={isAnyRunning}
+        onRunLab={runLabRefinement}
+      />
+
+      {/* Result Toasts */}
+      {autoFillResult && (
+        <Toast
+          type={autoFillResult.success ? 'violet' : 'red'}
+          message={autoFillResult.message}
+          onClose={() => setAutoFillResult(null)}
+        />
+      )}
+
+      {fcbResult && (
+        <Toast
+          type={fcbResult.success ? 'amber' : 'red'}
+          message={fcbResult.message}
+          onClose={() => setFcbResult(null)}
+        />
+      )}
+
+      {labError && (
+        <Toast type="red" message={labError} onClose={() => setLabError(null)} />
+      )}
+
+      {/* Baseline Build Result Toast */}
+      {baselineResult && (
+        <Toast
+          type={baselineResult.success ? (baselineResult.summary.healthImprovement > 0 ? 'emerald' : 'amber') : 'red'}
+          message={
+            baselineResult.success
+              ? baselineResult.wasNoOp
+                ? `Context already initialized. No changes needed.`
+                : baselineResult.summary.healthImprovement > 0
+                  ? `Context improved! ${baselineResult.contextBefore.overallScore}% → ${baselineResult.contextAfter.overallScore}% (+${baselineResult.summary.healthImprovement}).`
+                  : `Autocomplete finished at ${baselineResult.contextAfter.overallScore}%. Run diagnostics or add data manually to improve.`
+              : baselineResult.error || 'Baseline build failed'
+          }
+          onClose={() => setBaselineResult(null)}
+        />
+      )}
+
+      {/* Lab Refinement Result Panel */}
+      {showLabPanel && labResult && (
+        <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-medium text-slate-200">Refinement Results</h4>
+            <button
+              onClick={() => setShowLabPanel(false)}
+              className="text-slate-400 hover:text-slate-200 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <RefinementSummary result={labResult} showDetails />
+        </div>
+      )}
+
+      {/* Onboarding Modal */}
+      {showOnboardingModal && (
+        <OnboardingModal
+          isRunning={isOnboarding}
+          steps={onboardingSteps}
+          result={onboardingResult}
+          onClose={() => setShowOnboardingModal(false)}
+        />
+      )}
+
+      {/* Readiness Error Toast (blocking - no domain) */}
+      {readinessError && (
+        <Toast
+          type="red"
+          message={readinessError}
+          onClose={() => setReadinessError(null)}
+        />
+      )}
+
+      {/* Readiness Modal (advisory - missing recommended fields) */}
+      {showReadinessModal && autoFillReadiness && (
+        <AutoFillReadinessModal
+          result={autoFillReadiness}
+          companyId={companyId}
+          onRunAnyway={runBaselineBuildDirectly}
+          onClose={() => setShowReadinessModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Toast Component
+// ============================================================================
+
+function Toast({
+  type,
+  message,
+  onClose,
+}: {
+  type: 'violet' | 'amber' | 'red' | 'emerald';
+  message: string;
+  onClose: () => void;
+}) {
+  const colors = {
+    violet: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
+    amber: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+    red: 'bg-red-500/20 text-red-300 border-red-500/30',
+    emerald: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+  };
+
+  return (
+    <div className={`p-3 rounded-lg text-xs border ${colors[type]}`}>
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex-1">{message}</span>
+        <button
+          onClick={onClose}
+          className="text-current opacity-60 hover:opacity-100 transition-opacity flex-shrink-0"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Onboarding Modal Component
+// ============================================================================
+
+const STEP_LABELS: Record<OnboardingStep['step'], string> = {
+  initialize: 'Initialize Context',
+  fcb: 'Auto-fill from Website',
+  audience_lab: 'Audience Lab',
+  brand_lab: 'Brand Lab',
+  creative_lab: 'Creative Lab',
+  competitor_lab: 'Competitor Lab',
+  website_lab: 'Website Lab',
+  competitor_auto_seed: 'Competitor Auto-Seed',
+  snapshot: 'Create Baseline Snapshot',
+};
+
+function OnboardingModal({
+  isRunning,
+  steps,
+  result,
+  onClose,
+}: {
+  isRunning: boolean;
+  steps: OnboardingStep[];
+  result: OnboardingResult | null;
+  onClose: () => void;
+}) {
+  const getStatusIcon = (status: OnboardingStep['status']) => {
+    switch (status) {
+      case 'completed':
+        return (
+          <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+        );
+      case 'running':
+        return (
+          <svg className="w-4 h-4 text-blue-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        );
+      case 'failed':
+        return (
+          <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        );
+      case 'skipped':
+        return (
+          <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+          </svg>
+        );
+      default:
+        return <div className="w-4 h-4 rounded-full border-2 border-slate-600" />;
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-slate-900 rounded-xl border border-slate-700 shadow-2xl w-full max-w-lg mx-4">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-slate-700">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-gradient-to-br from-emerald-500/20 to-cyan-500/20">
+              <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-slate-100">Deep Context Build</h3>
+              <p className="text-xs text-slate-400">FCB + Labs + GAP + Snapshot</p>
+            </div>
+          </div>
+          {!isRunning && (
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {/* Steps */}
+        <div className="p-4 space-y-2">
+          {steps.map((step, idx) => (
+            <div
+              key={step.step}
+              className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
+                step.status === 'running'
+                  ? 'bg-blue-500/10 border border-blue-500/30'
+                  : step.status === 'completed'
+                  ? 'bg-emerald-500/5'
+                  : step.status === 'failed'
+                  ? 'bg-red-500/5'
+                  : 'bg-slate-800/30'
+              }`}
+            >
+              <div className="flex-shrink-0">{getStatusIcon(step.status)}</div>
+              <div className="flex-1 min-w-0">
+                <div className={`text-sm font-medium ${
+                  step.status === 'running' ? 'text-blue-300' :
+                  step.status === 'completed' ? 'text-emerald-300' :
+                  step.status === 'failed' ? 'text-red-300' :
+                  'text-slate-400'
+                }`}>
+                  {STEP_LABELS[step.step]}
+                </div>
+                {step.error && (
+                  <div className="text-xs text-red-400 mt-0.5 truncate">{step.error}</div>
+                )}
+                {step.durationMs && step.status !== 'running' && (
+                  <div className="text-[10px] text-slate-500 mt-0.5">
+                    {(step.durationMs / 1000).toFixed(1)}s
+                  </div>
+                )}
+              </div>
+              <div className="text-xs text-slate-500 tabular-nums">
+                {idx + 1}/{steps.length}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Result Summary */}
+        {result && !isRunning && (
+          <div className={`mx-4 mb-4 p-4 rounded-lg ${
+            result.success
+              ? 'bg-emerald-500/10 border border-emerald-500/30'
+              : 'bg-red-500/10 border border-red-500/30'
+          }`}>
+            {result.success ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-emerald-400">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="font-medium">Build Complete!</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="bg-slate-800/50 rounded p-2">
+                    <div className="text-slate-400">Fields Populated</div>
+                    <div className="text-lg font-semibold text-slate-200">{result.summary.fieldsPopulated}</div>
+                  </div>
+                  <div className="bg-slate-800/50 rounded p-2">
+                    <div className="text-slate-400">Fields Refined</div>
+                    <div className="text-lg font-semibold text-slate-200">{result.summary.fieldsRefined}</div>
+                  </div>
+                  <div className="bg-slate-800/50 rounded p-2">
+                    <div className="text-slate-400">Insights</div>
+                    <div className="text-lg font-semibold text-slate-200">{result.summary.insightsGenerated}</div>
+                  </div>
+                  <div className="bg-slate-800/50 rounded p-2">
+                    <div className="text-slate-400">Health Change</div>
+                    <div className={`text-lg font-semibold ${
+                      result.summary.healthImprovement > 0 ? 'text-emerald-400' :
+                      result.summary.healthImprovement < 0 ? 'text-red-400' : 'text-slate-400'
+                    }`}>
+                      {result.summary.healthImprovement > 0 ? '+' : ''}{result.summary.healthImprovement}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-700/50">
+                  <span>
+                    Health: {result.contextHealthBefore.score} → {result.contextHealthAfter.score}
+                  </span>
+                  <span>
+                    Duration: {(result.durationMs / 1000).toFixed(1)}s
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-red-400">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="font-medium">Build Failed</span>
+                </div>
+                {result.error && (
+                  <p className="text-sm text-red-300">{result.error}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 p-4 border-t border-slate-700">
+          {isRunning ? (
+            <div className="flex items-center gap-2 text-sm text-slate-400">
+              <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Running... please wait
+            </div>
+          ) : (
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium transition-colors"
+            >
+              Close
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

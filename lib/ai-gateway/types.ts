@@ -17,7 +17,8 @@ export type MemoryEntryType =
   | 'Strategy'            // Strategic summaries/decisions
   | 'Diagnostic Summary'  // Diagnostic tool run summaries (for Brain)
   | 'Conversation'        // General AI conversation
-  | 'System';             // System-generated entries
+  | 'System'              // System-generated entries
+  | 'company_assistant';  // Company Context Assistant interactions
 
 /**
  * Memory entry source - where the entry originated

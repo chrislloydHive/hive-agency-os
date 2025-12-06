@@ -52,6 +52,8 @@ interface SetupClientProps {
   missingFields: string[];
   /** Whether the Context Graph exists */
   hasGraph: boolean;
+  /** Initial step to navigate to (from URL query param) */
+  initialStep?: string;
 }
 
 // ============================================================================
@@ -65,6 +67,7 @@ export function SetupClient({
   initialProvenanceMap,
   missingFields,
   hasGraph,
+  initialStep,
 }: SetupClientProps) {
   // Form data state - initialized from Context Graph
   const [formData, setFormData] = useState<Partial<SetupFormData>>(initialFormData);
@@ -91,8 +94,13 @@ export function SetupClient({
     return completed;
   };
 
+  // Validate initialStep is a valid SetupStepId
+  const validInitialStep = initialStep && SETUP_STEPS.includes(initialStep as SetupStepId)
+    ? (initialStep as SetupStepId)
+    : 'business-identity';
+
   const [progress, setProgress] = useState<SetupProgress>({
-    currentStep: 'business-identity',
+    currentStep: validInitialStep,
     completedSteps: calculateCompletedSteps(initialFormData),
     lastSavedAt: null,
     startedAt: new Date().toISOString(),

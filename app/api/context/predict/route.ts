@@ -59,11 +59,14 @@ export async function POST(request: NextRequest) {
     switch (mode) {
       case 'fill_empty':
         // Generate predictions for empty fields
+        console.log('[predict] Generating predictions for companyId:', companyId, 'domain filter:', domain);
         const predictionResult = await generatePredictions(graphRecord.graph, {
           companyId,
+          targetDomains: domain ? [domain] : undefined, // Pass domain filter to engine
           predictAll: true,
           maxPredictions: limit,
         });
+        console.log('[predict] Generated', predictionResult.predictionsGenerated, 'predictions, missing fields analyzed:', predictionResult.missingFieldsAnalyzed);
         result = {
           predictions: predictionResult.predictions,
           totalPredictions: predictionResult.predictionsGenerated,

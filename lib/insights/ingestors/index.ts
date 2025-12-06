@@ -15,6 +15,7 @@ import { ingestSeoLab } from './seoLabIngestor';
 import { ingestContentLab } from './contentLabIngestor';
 import { ingestDemandLab } from './demandLabIngestor';
 import { ingestOpsLab } from './opsLabIngestor';
+import { ingestCompetitorLab } from './competitorLabIngestor';
 
 // ============================================================================
 // Types
@@ -44,6 +45,8 @@ const INGESTOR_REGISTRY: Record<string, IngestorFn> = {
   contentLab: ingestContentLab,
   demandLab: ingestDemandLab,
   opsLab: ingestOpsLab,
+  competitorLab: ingestCompetitorLab,
+  competitionLab: ingestCompetitorLab, // Competition Lab v2 uses same ingestor
 };
 
 // ============================================================================
@@ -132,4 +135,5 @@ export {
   ingestContentLab,
   ingestDemandLab,
   ingestOpsLab,
+  ingestCompetitorLab,
 };

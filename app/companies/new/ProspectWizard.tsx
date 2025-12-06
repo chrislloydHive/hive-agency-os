@@ -16,7 +16,7 @@ interface ProspectWizardProps {
   teamMembers: TeamMember[];
 }
 
-type WizardStep = 1 | 2 | 3;
+type WizardStep = 1 | 2 | 3 | 'success';
 
 const INDUSTRIES = [
   'SaaS',
@@ -77,8 +77,17 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
 
   // Step 3 - Actions
   const [createOpportunity, setCreateOpportunity] = useState(false);
-  const [runGapSnapshot, setRunGapSnapshot] = useState(true);
-  const [runWebsiteLab, setRunWebsiteLab] = useState(false);
+  const [runIntelligencePipeline, setRunIntelligencePipeline] = useState(true);
+
+  // Success screen state
+  const [createdCompany, setCreatedCompany] = useState<{ id: string; name: string } | null>(null);
+  const [pipelineResult, setPipelineResult] = useState<{
+    success: boolean;
+    snapshotId?: string;
+    contextHealthAfter?: { score: number; severity: string };
+    error?: string;
+  } | null>(null);
+  const [isPipelineRunning, setIsPipelineRunning] = useState(false);
 
   // GAP lookup state
   const [isLookingUpGap, setIsLookingUpGap] = useState(false);
@@ -131,8 +140,8 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
           setExistingCompanyId(result.data.existingCompanyId);
         }
 
-        // If GAP data exists, don't run GAP snapshot again by default
-        setRunGapSnapshot(false);
+        // If GAP data exists, still recommend running the full pipeline
+        // as it provides more comprehensive context than just GAP
       } else {
         setGapData(null);
         setExistingCompanyId(null);
@@ -178,13 +187,13 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
   const canSubmit = canProceedStep1;
 
   const handleNext = () => {
-    if (step < 3) {
+    if (typeof step === 'number' && step < 3) {
       setStep((step + 1) as WizardStep);
     }
   };
 
   const handleBack = () => {
-    if (step > 1) {
+    if (typeof step === 'number' && step > 1) {
       setStep((step - 1) as WizardStep);
     }
   };
@@ -210,8 +219,9 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
           owner: owner || undefined,
           notes: notes.trim() || undefined,
           createOpportunity,
-          runGapSnapshot,
-          runWebsiteLab,
+          // Don't run old diagnostics - we'll use the new pipeline
+          runGapSnapshot: false,
+          runWebsiteLab: false,
         }),
       });
 
@@ -231,67 +241,108 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
       }
 
       const data = await response.json();
+      const newCompany = { id: data.company.id, name: data.company.name };
+      setCreatedCompany(newCompany);
 
-      // Redirect to the new company page
-      router.push(`/c/${data.company.id}`);
+      // If Intelligence Pipeline is enabled and we have a website, run it
+      if (runIntelligencePipeline && websiteUrl.trim()) {
+        setIsPipelineRunning(true);
+        setStep('success');
+        setIsSubmitting(false);
+
+        try {
+          const pipelineResponse = await fetch(
+            `/api/os/companies/${newCompany.id}/onboarding/run-all`,
+            { method: 'POST' }
+          );
+
+          const pipelineData = await pipelineResponse.json();
+
+          if (pipelineResponse.ok && pipelineData.success) {
+            setPipelineResult({
+              success: true,
+              snapshotId: pipelineData.snapshotId,
+              contextHealthAfter: pipelineData.contextHealthAfter,
+            });
+          } else {
+            setPipelineResult({
+              success: false,
+              error: pipelineData.error || 'Pipeline completed with issues',
+            });
+          }
+        } catch (pipelineErr) {
+          console.error('Pipeline failed:', pipelineErr);
+          setPipelineResult({
+            success: false,
+            error: pipelineErr instanceof Error ? pipelineErr.message : 'Pipeline failed',
+          });
+        } finally {
+          setIsPipelineRunning(false);
+        }
+      } else {
+        // No pipeline - go straight to success
+        setStep('success');
+        setIsSubmitting(false);
+      }
     } catch (err) {
       console.error('Failed to create prospect:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
     <div className="bg-slate-900/70 border border-slate-800 rounded-2xl overflow-hidden">
-      {/* Progress indicator */}
-      <div className="border-b border-slate-800 p-4">
-        <div className="flex items-center justify-between">
-          {[1, 2, 3].map((s) => (
-            <div key={s} className="flex items-center">
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
-                  s === step
-                    ? 'bg-amber-500 text-slate-900'
-                    : s < step
-                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-slate-800 text-slate-500'
-                }`}
-              >
-                {s < step ? (
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                ) : (
-                  s
+      {/* Progress indicator - hide on success */}
+      {step !== 'success' && (
+        <div className="border-b border-slate-800 p-4">
+          <div className="flex items-center justify-between">
+            {[1, 2, 3].map((s) => (
+              <div key={s} className="flex items-center">
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
+                    s === step
+                      ? 'bg-amber-500 text-slate-900'
+                      : typeof step === 'number' && s < step
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                      : 'bg-slate-800 text-slate-500'
+                  }`}
+                >
+                  {typeof step === 'number' && s < step ? (
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path
+                        fillRule="evenodd"
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  ) : (
+                    s
+                  )}
+                </div>
+                {s < 3 && (
+                  <div
+                    className={`w-24 h-0.5 mx-2 transition-colors ${
+                      typeof step === 'number' && s < step ? 'bg-emerald-500/30' : 'bg-slate-800'
+                    }`}
+                  />
                 )}
               </div>
-              {s < 3 && (
-                <div
-                  className={`w-24 h-0.5 mx-2 transition-colors ${
-                    s < step ? 'bg-emerald-500/30' : 'bg-slate-800'
-                  }`}
-                />
-              )}
-            </div>
-          ))}
+            ))}
+          </div>
+          <div className="flex justify-between mt-2">
+            <span className={`text-xs ${step === 1 ? 'text-amber-400' : 'text-slate-500'}`}>
+              Company Basics
+            </span>
+            <span className={`text-xs ${step === 2 ? 'text-amber-400' : 'text-slate-500'}`}>
+              Classification
+            </span>
+            <span className={`text-xs ${step === 3 ? 'text-amber-400' : 'text-slate-500'}`}>
+              Actions
+            </span>
+          </div>
         </div>
-        <div className="flex justify-between mt-2">
-          <span className={`text-xs ${step === 1 ? 'text-amber-400' : 'text-slate-500'}`}>
-            Company Basics
-          </span>
-          <span className={`text-xs ${step === 2 ? 'text-amber-400' : 'text-slate-500'}`}>
-            Classification
-          </span>
-          <span className={`text-xs ${step === 3 ? 'text-amber-400' : 'text-slate-500'}`}>
-            Actions
-          </span>
-        </div>
-      </div>
+      )}
 
       {/* Form content */}
       <div className="p-6">
@@ -542,58 +593,89 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
               Select which actions to run after creating the prospect:
             </p>
 
-            <label className="flex items-start gap-3 p-3 bg-slate-800/50 border border-slate-700 rounded-lg cursor-pointer hover:bg-slate-800/70 transition-colors">
-              <input
-                type="checkbox"
-                checked={createOpportunity}
-                onChange={(e) => setCreateOpportunity(e.target.checked)}
-                className="mt-0.5 w-4 h-4 rounded border-slate-600 text-amber-500 focus:ring-amber-500/50"
-              />
-              <div>
-                <span className="text-slate-200 font-medium">Create Opportunity</span>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Add to sales pipeline with Discovery stage
-                </p>
-              </div>
-            </label>
+            {/* Intelligence Actions Section */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-medium text-slate-400 uppercase tracking-wide">
+                Intelligence Actions
+              </h4>
 
-            <label className="flex items-start gap-3 p-3 bg-slate-800/50 border border-slate-700 rounded-lg cursor-pointer hover:bg-slate-800/70 transition-colors">
-              <input
-                type="checkbox"
-                checked={runGapSnapshot}
-                onChange={(e) => setRunGapSnapshot(e.target.checked)}
-                disabled={!websiteUrl}
-                className="mt-0.5 w-4 h-4 rounded border-slate-600 text-amber-500 focus:ring-amber-500/50 disabled:opacity-50"
-              />
-              <div className={!websiteUrl ? 'opacity-50' : ''}>
-                <span className="text-slate-200 font-medium">Run GAP IA</span>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Quick marketing assessment (requires website)
-                </p>
-              </div>
-            </label>
+              <label className={`flex items-start gap-3 p-4 rounded-lg cursor-pointer transition-colors ${
+                runIntelligencePipeline && websiteUrl
+                  ? 'bg-emerald-500/10 border-2 border-emerald-500/40'
+                  : 'bg-slate-800/50 border border-slate-700 hover:bg-slate-800/70'
+              } ${!websiteUrl ? 'opacity-60 cursor-not-allowed' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={runIntelligencePipeline}
+                  onChange={(e) => setRunIntelligencePipeline(e.target.checked)}
+                  disabled={!websiteUrl}
+                  className="mt-0.5 w-4 h-4 rounded border-slate-600 text-emerald-500 focus:ring-emerald-500/50 disabled:opacity-50"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-200 font-medium">
+                      Run Intelligence Initialization Pipeline
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded font-medium">
+                      Recommended
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Automatically runs FCB, Labs Refinement, and Full GAP Orchestrator to initialize the company's context and insights.
+                  </p>
+                  {websiteUrl && runIntelligencePipeline && (
+                    <div className="mt-3 p-2 bg-slate-800/50 rounded-lg">
+                      <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1.5">Pipeline Steps:</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        <span className="text-[10px] px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded">FCB</span>
+                        <span className="text-slate-600">→</span>
+                        <span className="text-[10px] px-2 py-0.5 bg-purple-500/10 text-purple-400 rounded">Audience Lab</span>
+                        <span className="text-slate-600">→</span>
+                        <span className="text-[10px] px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded">Brand Lab</span>
+                        <span className="text-slate-600">→</span>
+                        <span className="text-[10px] px-2 py-0.5 bg-pink-500/10 text-pink-400 rounded">Creative Lab</span>
+                        <span className="text-slate-600">→</span>
+                        <span className="text-[10px] px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded">Full GAP</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </label>
 
-            <label className="flex items-start gap-3 p-3 bg-slate-800/50 border border-slate-700 rounded-lg cursor-pointer hover:bg-slate-800/70 transition-colors">
-              <input
-                type="checkbox"
-                checked={runWebsiteLab}
-                onChange={(e) => setRunWebsiteLab(e.target.checked)}
-                disabled={!websiteUrl}
-                className="mt-0.5 w-4 h-4 rounded border-slate-600 text-amber-500 focus:ring-amber-500/50 disabled:opacity-50"
-              />
-              <div className={!websiteUrl ? 'opacity-50' : ''}>
-                <span className="text-slate-200 font-medium">Run Website Lab</span>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Website performance analysis (requires website)
+              {!websiteUrl && (
+                <p className="text-xs text-amber-400/80 flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  Add a website URL in Step 1 to enable the Intelligence Pipeline
                 </p>
-              </div>
-            </label>
+              )}
+            </div>
 
-            {!websiteUrl && (
-              <p className="text-xs text-amber-400/80">
-                Add a website URL in Step 1 to enable diagnostic tools
-              </p>
-            )}
+            {/* Divider */}
+            <div className="border-t border-slate-700/50 my-4" />
+
+            {/* Sales Actions Section */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-medium text-slate-400 uppercase tracking-wide">
+                Sales Actions
+              </h4>
+
+              <label className="flex items-start gap-3 p-3 bg-slate-800/50 border border-slate-700 rounded-lg cursor-pointer hover:bg-slate-800/70 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={createOpportunity}
+                  onChange={(e) => setCreateOpportunity(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded border-slate-600 text-amber-500 focus:ring-amber-500/50"
+                />
+                <div>
+                  <span className="text-slate-200 font-medium">Create Opportunity</span>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Add to sales pipeline with Discovery stage
+                  </p>
+                </div>
+              </label>
+            </div>
 
             {/* Summary */}
             <div className="mt-6 p-4 bg-slate-800/30 border border-slate-700 rounded-lg">
@@ -619,12 +701,182 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
             </div>
           </div>
         )}
+
+        {/* Success Screen */}
+        {step === 'success' && createdCompany && (
+          <div className="space-y-6">
+            {/* Success Header */}
+            <div className="text-center">
+              {isPipelineRunning ? (
+                <>
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-blue-500/10 flex items-center justify-center">
+                    <svg className="w-8 h-8 text-blue-400 animate-spin" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                  </div>
+                  <h2 className="text-xl font-semibold text-slate-100">Initializing {createdCompany.name}...</h2>
+                  <p className="text-sm text-slate-400 mt-2">
+                    Running Intelligence Pipeline: FCB → Labs → GAP Orchestrator
+                  </p>
+                  <div className="mt-4 flex justify-center gap-2">
+                    <span className="text-[10px] px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded animate-pulse">Processing...</span>
+                  </div>
+                </>
+              ) : pipelineResult?.success ? (
+                <>
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-emerald-500/10 flex items-center justify-center">
+                    <svg className="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <h2 className="text-xl font-semibold text-slate-100">Prospect Created & Initialized</h2>
+                  <p className="text-sm text-slate-400 mt-2">
+                    {createdCompany.name} has been added to the OS with full context.
+                  </p>
+                  {pipelineResult.contextHealthAfter && (
+                    <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 bg-slate-800/50 rounded-lg">
+                      <span className="text-xs text-slate-400">Context Health:</span>
+                      <span className={`text-sm font-medium ${
+                        pipelineResult.contextHealthAfter.score >= 70 ? 'text-emerald-400' :
+                        pipelineResult.contextHealthAfter.score >= 50 ? 'text-amber-400' : 'text-red-400'
+                      }`}>
+                        {pipelineResult.contextHealthAfter.score}%
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : pipelineResult?.error ? (
+                <>
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-500/10 flex items-center justify-center">
+                    <svg className="w-8 h-8 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+                  <h2 className="text-xl font-semibold text-slate-100">Prospect Created</h2>
+                  <p className="text-sm text-amber-400 mt-2">
+                    Initialization pipeline partially completed — review context for missing fields.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-emerald-500/10 flex items-center justify-center">
+                    <svg className="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <h2 className="text-xl font-semibold text-slate-100">Prospect Created</h2>
+                  <p className="text-sm text-slate-400 mt-2">
+                    {createdCompany.name} has been added to the OS.
+                  </p>
+                </>
+              )}
+            </div>
+
+            {/* Next Steps */}
+            {!isPipelineRunning && (
+              <div className="space-y-3">
+                <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide">
+                  Next Steps
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <Link
+                    href={`/c/${createdCompany.id}/brain/context`}
+                    className="flex items-center gap-3 p-3 bg-slate-800/50 border border-slate-700 rounded-lg hover:bg-slate-800/70 hover:border-slate-600 transition-colors group"
+                  >
+                    <div className="p-2 rounded-lg bg-blue-500/10 group-hover:bg-blue-500/20 transition-colors">
+                      <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-200">View Context Graph</p>
+                      <p className="text-xs text-slate-500">Review company context</p>
+                    </div>
+                  </Link>
+
+                  <Link
+                    href={`/c/${createdCompany.id}/brain/insights`}
+                    className="flex items-center gap-3 p-3 bg-slate-800/50 border border-slate-700 rounded-lg hover:bg-slate-800/70 hover:border-slate-600 transition-colors group"
+                  >
+                    <div className="p-2 rounded-lg bg-purple-500/10 group-hover:bg-purple-500/20 transition-colors">
+                      <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-200">View Insights</p>
+                      <p className="text-xs text-slate-500">AI-generated insights</p>
+                    </div>
+                  </Link>
+
+                  <Link
+                    href={`/c/${createdCompany.id}/gap`}
+                    className="flex items-center gap-3 p-3 bg-slate-800/50 border border-slate-700 rounded-lg hover:bg-slate-800/70 hover:border-slate-600 transition-colors group"
+                  >
+                    <div className="p-2 rounded-lg bg-emerald-500/10 group-hover:bg-emerald-500/20 transition-colors">
+                      <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-200">View GAP Run</p>
+                      <p className="text-xs text-slate-500">Marketing diagnostics</p>
+                    </div>
+                  </Link>
+
+                  <Link
+                    href={`/c/${createdCompany.id}/labs/qbr`}
+                    className="flex items-center gap-3 p-3 bg-slate-800/50 border border-slate-700 rounded-lg hover:bg-slate-800/70 hover:border-slate-600 transition-colors group"
+                  >
+                    <div className="p-2 rounded-lg bg-amber-500/10 group-hover:bg-amber-500/20 transition-colors">
+                      <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-200">Start QBR</p>
+                      <p className="text-xs text-slate-500">Quarterly review</p>
+                    </div>
+                  </Link>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Footer buttons */}
       <div className="border-t border-slate-800 p-4 flex items-center justify-between">
         <div>
-          {step > 1 ? (
+          {step === 'success' ? (
+            <Link
+              href="/companies/new"
+              onClick={(e) => {
+                e.preventDefault();
+                // Reset form state
+                setStep(1);
+                setCompanyName('');
+                setWebsiteUrl('');
+                setIndustry('');
+                setCompanyType('');
+                setSizeBand('');
+                setIcpFitScore('');
+                setOwner('');
+                setNotes('');
+                setCreateOpportunity(false);
+                setRunIntelligencePipeline(true);
+                setCreatedCompany(null);
+                setPipelineResult(null);
+                setGapData(null);
+                setExistingCompanyId(null);
+                setExistingCompanyName(null);
+              }}
+              className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+            >
+              + Create Another
+            </Link>
+          ) : step === 2 || step === 3 ? (
             <button
               type="button"
               onClick={handleBack}
@@ -643,7 +895,14 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
         </div>
 
         <div>
-          {step < 3 ? (
+          {step === 'success' && createdCompany && !isPipelineRunning ? (
+            <Link
+              href={`/c/${createdCompany.id}`}
+              className="px-6 py-2 bg-emerald-500 text-slate-900 font-medium rounded-lg hover:bg-emerald-400 transition-colors"
+            >
+              Go to Company Overview →
+            </Link>
+          ) : step === 1 || step === 2 ? (
             <button
               type="button"
               onClick={handleNext}
@@ -652,7 +911,7 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
             >
               Next →
             </button>
-          ) : (
+          ) : step === 3 ? (
             <button
               type="button"
               onClick={handleSubmit}
@@ -683,7 +942,7 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
                 'Create Prospect'
               )}
             </button>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

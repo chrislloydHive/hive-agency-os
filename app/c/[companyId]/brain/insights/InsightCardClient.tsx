@@ -5,6 +5,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   TrendingUp,
   Target,
@@ -28,6 +29,7 @@ import {
   Play,
   XCircle,
   Clock,
+  Map,
 } from 'lucide-react';
 import type { ClientInsight, InsightSeverity, InsightCategory, InsightStatus } from '@/lib/types/clientBrain';
 
@@ -225,6 +227,16 @@ export function InsightCardClient({ insight, companyId }: InsightCardClientProps
           {formatDate(insight.createdAt)}
         </span>
         <div className="flex items-center gap-3">
+          {/* View on Map link */}
+          {insight.contextPaths && insight.contextPaths.length > 0 && (
+            <Link
+              href={`/c/${companyId}/brain/map?mode=insights&insightId=${insight.id}`}
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition-colors"
+            >
+              <Map className="w-3 h-3" />
+              <span>View on Map</span>
+            </Link>
+          )}
           {workCreated ? (
             <div className="flex items-center gap-1 text-xs text-emerald-400">
               <CheckCircle className="w-3 h-3" />

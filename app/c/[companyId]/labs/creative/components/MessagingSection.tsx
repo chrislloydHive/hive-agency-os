@@ -63,13 +63,13 @@ export function MessagingSection({ messaging, onUpdate }: MessagingSectionProps)
           </h4>
           {isEditing ? (
             <div className="space-y-2">
-              {editedMessaging.supportingPoints.map((point, idx) => (
+              {(editedMessaging.supportingPoints || []).map((point, idx) => (
                 <input
                   key={idx}
                   type="text"
                   value={point}
                   onChange={(e) => {
-                    const newPoints = [...editedMessaging.supportingPoints];
+                    const newPoints = [...(editedMessaging.supportingPoints || [])];
                     newPoints[idx] = e.target.value;
                     setEditedMessaging({ ...editedMessaging, supportingPoints: newPoints });
                   }}
@@ -79,7 +79,7 @@ export function MessagingSection({ messaging, onUpdate }: MessagingSectionProps)
             </div>
           ) : (
             <ul className="space-y-3">
-              {messaging.supportingPoints.map((point, idx) => (
+              {(messaging.supportingPoints || []).map((point, idx) => (
                 <li key={idx} className="text-sm text-slate-300 flex items-start gap-2">
                   <span className="text-blue-400 mt-1">•</span>
                   {point}
@@ -97,13 +97,13 @@ export function MessagingSection({ messaging, onUpdate }: MessagingSectionProps)
           </h4>
           {isEditing ? (
             <div className="space-y-2">
-              {editedMessaging.proofPoints.map((point, idx) => (
+              {(editedMessaging.proofPoints || []).map((point, idx) => (
                 <input
                   key={idx}
                   type="text"
                   value={point}
                   onChange={(e) => {
-                    const newPoints = [...editedMessaging.proofPoints];
+                    const newPoints = [...(editedMessaging.proofPoints || [])];
                     newPoints[idx] = e.target.value;
                     setEditedMessaging({ ...editedMessaging, proofPoints: newPoints });
                   }}
@@ -113,7 +113,7 @@ export function MessagingSection({ messaging, onUpdate }: MessagingSectionProps)
             </div>
           ) : (
             <ul className="space-y-3">
-              {messaging.proofPoints.map((point, idx) => (
+              {(messaging.proofPoints || []).map((point, idx) => (
                 <li key={idx} className="text-sm text-slate-300 flex items-start gap-2">
                   <span className="text-emerald-400 mt-1">•</span>
                   {point}
@@ -131,13 +131,13 @@ export function MessagingSection({ messaging, onUpdate }: MessagingSectionProps)
           </h4>
           {isEditing ? (
             <div className="space-y-2">
-              {editedMessaging.differentiators.map((point, idx) => (
+              {(editedMessaging.differentiators || []).map((point, idx) => (
                 <input
                   key={idx}
                   type="text"
                   value={point}
                   onChange={(e) => {
-                    const newPoints = [...editedMessaging.differentiators];
+                    const newPoints = [...(editedMessaging.differentiators || [])];
                     newPoints[idx] = e.target.value;
                     setEditedMessaging({ ...editedMessaging, differentiators: newPoints });
                   }}
@@ -147,7 +147,7 @@ export function MessagingSection({ messaging, onUpdate }: MessagingSectionProps)
             </div>
           ) : (
             <ul className="space-y-3">
-              {messaging.differentiators.map((point, idx) => (
+              {(messaging.differentiators || []).map((point, idx) => (
                 <li key={idx} className="text-sm text-slate-300 flex items-start gap-2">
                   <span className="text-purple-400 mt-1">•</span>
                   {point}

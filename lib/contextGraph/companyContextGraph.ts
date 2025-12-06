@@ -36,6 +36,8 @@ export const ContextGraphMeta = z.object({
   domainCoverage: z.record(z.string(), z.number()).nullable(),
   /** Last snapshot ID for linking */
   lastSnapshotId: z.string().nullable().optional(),
+  /** When baseline context build was completed (null = not initialized) */
+  contextInitializedAt: z.string().datetime().nullable().optional(),
 });
 
 export type ContextGraphMeta = z.infer<typeof ContextGraphMeta>;

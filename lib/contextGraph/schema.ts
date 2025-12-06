@@ -60,6 +60,7 @@ export type WriterModuleId =
   | 'Setup'
   | 'GAP'
   | 'GAPHeavy'
+  | 'FCB'
   | 'WebsiteLab'
   | 'BrandLab'
   | 'ContentLab'
@@ -69,6 +70,7 @@ export type WriterModuleId =
   | 'AudienceLab'
   | 'MediaLab'
   | 'CreativeLab'
+  | 'CompetitorLab'
   | 'StrategicPlan'
   | 'QBR'
   | 'ICPExtractor'
@@ -84,12 +86,25 @@ export type ConsumerModuleId =
   | 'AudienceLab'
   | 'MediaLab'
   | 'CreativeLab'
+  | 'BrandLab'
+  | 'SEOLab'
+  | 'CompetitorLab'
   | 'StrategicPlan'
   | 'QBR'
   | 'Blueprint'
   | 'Brain'
   | 'Work'
-  | 'Analytics';
+  | 'Analytics'
+  | 'InsightsEngine';
+
+/**
+ * Auto-fill mode for Context Graph fields
+ *
+ * - 'auto': Can be fully auto-filled by FCB/Labs/GAP - no human input required
+ * - 'assist': AI should help refine, not invent (e.g., vision, mission, strategic narrative)
+ * - 'manual': Requires human input - numeric goals, budgets, contractual constraints
+ */
+export type AutoFillMode = 'auto' | 'assist' | 'manual';
 
 /**
  * Definition of a Context Graph field
@@ -115,6 +130,13 @@ export interface ContextFieldDef {
   critical?: boolean;
   /** Whether this field is deprecated (kept for backward compat) */
   deprecated?: boolean;
+  /**
+   * Auto-fill mode - determines how this field should be populated:
+   * - 'auto' (default): Can be fully auto-filled by FCB/Labs/GAP
+   * - 'assist': AI should help refine, not invent from scratch
+   * - 'manual': Requires human input (e.g., numeric goals, budgets)
+   */
+  autoFillMode?: AutoFillMode;
 }
 
 // ============================================================================
@@ -138,8 +160,18 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     section: 'identity',
     label: 'Business Name',
     type: 'string',
-    primarySources: ['Setup', 'GAP', 'Manual'],
+    primarySources: ['Setup', 'GAP', 'Manual', 'FCB'],
     critical: true,
+  },
+  {
+    path: 'identity.businessDescription',
+    domain: 'identity',
+    field: 'businessDescription',
+    section: 'identity',
+    label: 'Business Description',
+    type: 'string',
+    description: 'A 1-2 sentence description of what the business does',
+    primarySources: ['Setup', 'GAP', 'FCB'],
   },
   {
     path: 'identity.industry',
@@ -148,7 +180,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     section: 'identity',
     label: 'Industry',
     type: 'string',
-    primarySources: ['Setup', 'GAP', 'GAPHeavy'],
+    primarySources: ['Setup', 'GAP', 'GAPHeavy', 'FCB'],
     critical: true,
   },
   {
@@ -158,7 +190,18 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     section: 'identity',
     label: 'Business Model',
     type: 'string',
-    primarySources: ['Setup', 'GAP'],
+    description: 'The business model type (e.g., B2B, B2C, SaaS, Service Provider)',
+    primarySources: ['Setup', 'GAP', 'FCB'],
+  },
+  {
+    path: 'identity.primaryOffering',
+    domain: 'identity',
+    field: 'primaryOffering',
+    section: 'identity',
+    label: 'Primary Offering',
+    type: 'string',
+    description: 'What the business primarily sells or offers',
+    primarySources: ['Setup', 'GAP', 'FCB'],
   },
   {
     path: 'identity.revenueModel',
@@ -168,6 +211,26 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Revenue Model',
     type: 'string',
     primarySources: ['Setup', 'GAP'],
+  },
+  {
+    path: 'identity.foundedYear',
+    domain: 'identity',
+    field: 'foundedYear',
+    section: 'identity',
+    label: 'Founded Year',
+    type: 'number',
+    description: 'Year the company was founded',
+    primarySources: ['Setup', 'FCB'],
+  },
+  {
+    path: 'identity.companySize',
+    domain: 'identity',
+    field: 'companySize',
+    section: 'identity',
+    label: 'Company Size',
+    type: 'string',
+    description: 'Size category (e.g., Small, Medium, Enterprise, 1-10 employees)',
+    primarySources: ['Setup', 'FCB'],
   },
   {
     path: 'identity.icpDescription',
@@ -291,8 +354,18 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Primary Audience',
     type: 'string',
     description: 'Primary target audience description',
-    primarySources: ['Setup', 'GAP', 'AudienceLab'],
+    primarySources: ['Setup', 'GAP', 'AudienceLab', 'FCB'],
     critical: true,
+  },
+  {
+    path: 'audience.audienceDescription',
+    domain: 'audience',
+    field: 'audienceDescription',
+    section: 'audience',
+    label: 'Audience Description',
+    type: 'string',
+    description: 'A detailed 1-2 sentence description of the ideal customer',
+    primarySources: ['Setup', 'AudienceLab', 'FCB'],
   },
   {
     path: 'audience.primaryBuyerRoles',
@@ -301,7 +374,27 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     section: 'audience',
     label: 'Primary Buyer Roles',
     type: 'string[]',
-    primarySources: ['Setup', 'AudienceLab'],
+    primarySources: ['Setup', 'AudienceLab', 'FCB'],
+  },
+  {
+    path: 'audience.targetDemographics',
+    domain: 'audience',
+    field: 'targetDemographics',
+    section: 'audience',
+    label: 'Target Demographics',
+    type: 'string[]',
+    description: 'Demographic characteristics (e.g., Age 35-55, Homeowners)',
+    primarySources: ['Setup', 'AudienceLab', 'FCB'],
+  },
+  {
+    path: 'audience.buyerTypes',
+    domain: 'audience',
+    field: 'buyerTypes',
+    section: 'audience',
+    label: 'Buyer Types',
+    type: 'string[]',
+    description: 'Buyer persona types (e.g., First-time buyers, Cost-conscious)',
+    primarySources: ['Setup', 'AudienceLab', 'FCB'],
   },
   {
     path: 'audience.companyProfile',
@@ -443,6 +536,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Mission Statement',
     type: 'string',
     primarySources: ['BrandLab', 'GAP'],
+    autoFillMode: 'assist', // AI can help refine, but shouldn't invent from scratch
   },
   {
     path: 'brand.valueProps',
@@ -487,8 +581,29 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     field: 'brandPersonality',
     section: 'brand',
     label: 'Brand Personality',
+    type: 'string[]',
+    description: 'Personality traits that define the brand (e.g., Innovative, Reliable)',
+    primarySources: ['BrandLab', 'FCB'],
+  },
+  {
+    path: 'brand.voiceDescriptors',
+    domain: 'brand',
+    field: 'voiceDescriptors',
+    section: 'brand',
+    label: 'Voice Descriptors',
+    type: 'string[]',
+    description: 'Adjectives that describe the brand voice (e.g., Professional, Friendly)',
+    primarySources: ['BrandLab', 'FCB'],
+  },
+  {
+    path: 'brand.brandPromise',
+    domain: 'brand',
+    field: 'brandPromise',
+    section: 'brand',
+    label: 'Brand Promise',
     type: 'string',
-    primarySources: ['BrandLab'],
+    description: 'The core promise the brand makes to customers',
+    primarySources: ['BrandLab', 'FCB'],
   },
   {
     path: 'brand.messagingPillars',
@@ -534,10 +649,66 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Brand Guidelines',
     type: 'string',
     primarySources: ['Setup', 'BrandLab'],
+    autoFillMode: 'assist', // Typically requires human-provided brand guide
   },
 
   // ===========================================================================
-  // Objectives Domain
+  // ProductOffer Domain
+  // ===========================================================================
+  {
+    path: 'productOffer.primaryProducts',
+    domain: 'productOffer',
+    field: 'primaryProducts',
+    section: 'productOffer',
+    label: 'Primary Products',
+    type: 'string[]',
+    description: 'Main products sold by the business',
+    primarySources: ['Setup', 'FCB', 'GAP'],
+  },
+  {
+    path: 'productOffer.services',
+    domain: 'productOffer',
+    field: 'services',
+    section: 'productOffer',
+    label: 'Services',
+    type: 'string[]',
+    description: 'Services offered by the business',
+    primarySources: ['Setup', 'FCB', 'GAP'],
+  },
+  {
+    path: 'productOffer.valueProposition',
+    domain: 'productOffer',
+    field: 'valueProposition',
+    section: 'productOffer',
+    label: 'Value Proposition',
+    type: 'string',
+    description: 'Core value proposition or unique selling point',
+    primarySources: ['Setup', 'FCB', 'BrandLab', 'GAP'],
+    critical: true,
+  },
+  {
+    path: 'productOffer.pricingModel',
+    domain: 'productOffer',
+    field: 'pricingModel',
+    section: 'productOffer',
+    label: 'Pricing Model',
+    type: 'string',
+    description: 'How the business prices its offerings (e.g., subscription, per-project, hourly)',
+    primarySources: ['Setup', 'FCB'],
+  },
+  {
+    path: 'productOffer.keyDifferentiators',
+    domain: 'productOffer',
+    field: 'keyDifferentiators',
+    section: 'productOffer',
+    label: 'Key Differentiators',
+    type: 'string[]',
+    description: 'What makes the business different from competitors',
+    primarySources: ['Setup', 'FCB', 'BrandLab', 'GAP'],
+  },
+
+  // ===========================================================================
+  // Objectives Domain - ALL MANUAL (requires human input for business goals)
   // ===========================================================================
   {
     path: 'objectives.primaryObjective',
@@ -548,6 +719,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     type: 'string',
     primarySources: ['Setup', 'StrategicPlan', 'QBR'],
     critical: true,
+    autoFillMode: 'manual',
   },
   {
     path: 'objectives.secondaryObjectives',
@@ -557,6 +729,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Secondary Objectives',
     type: 'string[]',
     primarySources: ['Setup', 'StrategicPlan'],
+    autoFillMode: 'manual',
   },
   {
     path: 'objectives.primaryBusinessGoal',
@@ -566,6 +739,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Primary Business Goal',
     type: 'string',
     primarySources: ['Setup', 'StrategicPlan'],
+    autoFillMode: 'manual',
   },
   {
     path: 'objectives.timeHorizon',
@@ -575,6 +749,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Time Horizon',
     type: 'string',
     primarySources: ['Setup', 'StrategicPlan'],
+    autoFillMode: 'manual',
   },
   {
     path: 'objectives.kpiLabels',
@@ -584,6 +759,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'KPI Labels',
     type: 'string[]',
     primarySources: ['Setup', 'StrategicPlan'],
+    autoFillMode: 'manual',
   },
   {
     path: 'objectives.targetCpa',
@@ -593,6 +769,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Target CPA',
     type: 'number',
     primarySources: ['Setup', 'MediaLab'],
+    autoFillMode: 'manual',
   },
   {
     path: 'objectives.targetRoas',
@@ -602,6 +779,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Target ROAS',
     type: 'number',
     primarySources: ['Setup', 'MediaLab'],
+    autoFillMode: 'manual',
   },
   {
     path: 'objectives.revenueGoal',
@@ -611,6 +789,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Revenue Goal',
     type: 'number',
     primarySources: ['Setup', 'StrategicPlan'],
+    autoFillMode: 'manual',
   },
   {
     path: 'objectives.leadGoal',
@@ -620,6 +799,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Lead Goal',
     type: 'number',
     primarySources: ['Setup', 'StrategicPlan'],
+    autoFillMode: 'manual',
   },
 
   // ===========================================================================
@@ -739,7 +919,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     section: 'creative',
     label: 'Messaging Architecture',
     type: 'json',
-    description: 'Core value prop, supporting points, proof points, differentiators',
+    description: 'Core value prop, key pillars, supporting points, proof points, differentiators, tagline variants, feature-to-benefit map',
     primarySources: ['CreativeLab'],
     critical: true,
   },
@@ -856,7 +1036,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
   },
 
   // ===========================================================================
-  // Budget & Ops Domain
+  // Budget & Ops Domain - ALL MANUAL (requires human input for financial data)
   // ===========================================================================
   {
     path: 'budgetOps.totalMarketingBudget',
@@ -866,6 +1046,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Total Marketing Budget',
     type: 'number',
     primarySources: ['Setup', 'MediaLab'],
+    autoFillMode: 'manual',
   },
   {
     path: 'budgetOps.mediaSpendBudget',
@@ -875,6 +1056,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Media Spend Budget',
     type: 'number',
     primarySources: ['Setup', 'MediaLab'],
+    autoFillMode: 'manual',
   },
   {
     path: 'budgetOps.budgetPeriod',
@@ -884,6 +1066,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Budget Period',
     type: 'string',
     primarySources: ['Setup'],
+    autoFillMode: 'manual',
   },
   {
     path: 'budgetOps.avgCustomerValue',
@@ -893,6 +1076,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Avg Customer Value',
     type: 'number',
     primarySources: ['Setup'],
+    autoFillMode: 'manual',
   },
   {
     path: 'budgetOps.customerLTV',
@@ -902,6 +1086,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     label: 'Customer LTV',
     type: 'number',
     primarySources: ['Setup'],
+    autoFillMode: 'manual',
   },
 
   // ===========================================================================
@@ -987,6 +1172,241 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     type: 'string[]',
     primarySources: ['Setup', 'OpsLab'],
   },
+
+  // ===========================================================================
+  // DigitalInfra Domain
+  // ===========================================================================
+  {
+    path: 'digitalInfra.trackingStackSummary',
+    domain: 'digitalInfra',
+    field: 'trackingStackSummary',
+    section: 'ops',
+    label: 'Tracking Stack Summary',
+    type: 'string',
+    description: 'Summary of digital tracking infrastructure (GA4, GBP, social presence, etc.)',
+    primarySources: ['GAP', 'Setup', 'OpsLab'],
+  },
+  {
+    path: 'digitalInfra.gbpHealth',
+    domain: 'digitalInfra',
+    field: 'gbpHealth',
+    section: 'ops',
+    label: 'Google Business Profile Health',
+    type: 'string',
+    description: 'Health status of Google Business Profile (healthy, warning, critical, not_configured)',
+    primarySources: ['GAP', 'OpsLab'],
+  },
+  {
+    path: 'digitalInfra.dataQuality',
+    domain: 'digitalInfra',
+    field: 'dataQuality',
+    section: 'ops',
+    label: 'Data Quality',
+    type: 'string',
+    description: 'Assessment of overall data quality and measurement infrastructure',
+    primarySources: ['GAP', 'OpsLab'],
+  },
+  {
+    path: 'digitalInfra.ga4Health',
+    domain: 'digitalInfra',
+    field: 'ga4Health',
+    section: 'ops',
+    label: 'GA4 Health',
+    type: 'string',
+    description: 'Health status of GA4 configuration',
+    primarySources: ['GAP', 'OpsLab', 'Setup'],
+  },
+  {
+    path: 'digitalInfra.searchConsoleHealth',
+    domain: 'digitalInfra',
+    field: 'searchConsoleHealth',
+    section: 'ops',
+    label: 'Search Console Health',
+    type: 'string',
+    description: 'Health status of Google Search Console',
+    primarySources: ['GAP', 'OpsLab'],
+  },
+
+  // ===========================================================================
+  // Competitive Domain
+  // ===========================================================================
+  // Positioning Map Core Fields (new)
+  {
+    path: 'competitive.primaryAxis',
+    domain: 'competitive',
+    field: 'primaryAxis',
+    section: 'competitive',
+    label: 'Primary Axis',
+    type: 'string',
+    description: 'The primary axis for positioning map (e.g., "Enterprise ↔ SMB")',
+    primarySources: ['CompetitorLab', 'BrandLab', 'GAP', 'Setup'],
+    critical: true,
+  },
+  {
+    path: 'competitive.secondaryAxis',
+    domain: 'competitive',
+    field: 'secondaryAxis',
+    section: 'competitive',
+    label: 'Secondary Axis',
+    type: 'string',
+    description: 'The secondary axis for positioning map (e.g., "Premium ↔ Budget")',
+    primarySources: ['CompetitorLab', 'BrandLab', 'GAP', 'Setup'],
+    critical: true,
+  },
+  {
+    path: 'competitive.positionSummary',
+    domain: 'competitive',
+    field: 'positionSummary',
+    section: 'competitive',
+    label: 'Position Summary',
+    type: 'string',
+    description: 'Strategic summary of competitive positioning',
+    primarySources: ['CompetitorLab', 'BrandLab', 'GAP'],
+  },
+  {
+    path: 'competitive.whitespaceOpportunities',
+    domain: 'competitive',
+    field: 'whitespaceOpportunities',
+    section: 'competitive',
+    label: 'Whitespace Opportunities',
+    type: 'string[]',
+    description: 'Strategic whitespace opportunities identified in the market',
+    primarySources: ['CompetitorLab', 'BrandLab', 'GAP'],
+  },
+  // Competitors Array
+  {
+    path: 'competitive.competitors',
+    domain: 'competitive',
+    field: 'competitors',
+    section: 'competitive',
+    label: 'Competitors',
+    type: 'json',
+    description: 'Array of competitor profiles with positioning data',
+    primarySources: ['CompetitorLab', 'BrandLab', 'GAP', 'Setup'],
+    critical: true,
+  },
+  {
+    path: 'competitive.primaryCompetitors',
+    domain: 'competitive',
+    field: 'primaryCompetitors',
+    section: 'competitive',
+    label: 'Primary Competitors (Legacy)',
+    type: 'json',
+    description: 'Enhanced competitor profiles with positioning data',
+    primarySources: ['CompetitorLab', 'BrandLab', 'GAP', 'Setup'],
+  },
+  {
+    path: 'competitive.shareOfVoice',
+    domain: 'competitive',
+    field: 'shareOfVoice',
+    section: 'competitive',
+    label: 'Share of Voice',
+    type: 'string',
+    primarySources: ['CompetitorLab', 'BrandLab', 'GAP'],
+  },
+  {
+    path: 'competitive.marketPosition',
+    domain: 'competitive',
+    field: 'marketPosition',
+    section: 'competitive',
+    label: 'Market Position',
+    type: 'string',
+    primarySources: ['CompetitorLab', 'BrandLab', 'GAP'],
+  },
+  {
+    path: 'competitive.competitiveAdvantages',
+    domain: 'competitive',
+    field: 'competitiveAdvantages',
+    section: 'competitive',
+    label: 'Competitive Advantages',
+    type: 'string[]',
+    primarySources: ['CompetitorLab', 'BrandLab', 'GAP'],
+  },
+  {
+    path: 'competitive.differentiationStrategy',
+    domain: 'competitive',
+    field: 'differentiationStrategy',
+    section: 'competitive',
+    label: 'Differentiation Strategy',
+    type: 'string',
+    primarySources: ['CompetitorLab', 'BrandLab', 'GAP'],
+  },
+  {
+    path: 'competitive.uniqueValueProps',
+    domain: 'competitive',
+    field: 'uniqueValueProps',
+    section: 'competitive',
+    label: 'Unique Value Props',
+    type: 'string[]',
+    primarySources: ['CompetitorLab', 'BrandLab', 'GAP'],
+  },
+  {
+    path: 'competitive.competitiveThreats',
+    domain: 'competitive',
+    field: 'competitiveThreats',
+    section: 'competitive',
+    label: 'Competitive Threats',
+    type: 'string[]',
+    primarySources: ['CompetitorLab', 'BrandLab', 'GAP'],
+  },
+  {
+    path: 'competitive.competitiveOpportunities',
+    domain: 'competitive',
+    field: 'competitiveOpportunities',
+    section: 'competitive',
+    label: 'Competitive Opportunities',
+    type: 'string[]',
+    primarySources: ['CompetitorLab', 'BrandLab', 'GAP'],
+  },
+  {
+    path: 'competitive.marketTrends',
+    domain: 'competitive',
+    field: 'marketTrends',
+    section: 'competitive',
+    label: 'Market Trends',
+    type: 'string[]',
+    primarySources: ['CompetitorLab', 'BrandLab', 'GAP'],
+  },
+  {
+    path: 'competitive.positioningAxes',
+    domain: 'competitive',
+    field: 'positioningAxes',
+    section: 'competitive',
+    label: 'Positioning Axes (Legacy)',
+    type: 'json',
+    description: 'Primary/secondary axis definitions for positioning map',
+    primarySources: ['CompetitorLab', 'BrandLab', 'Setup'],
+  },
+  {
+    path: 'competitive.ownPositionPrimary',
+    domain: 'competitive',
+    field: 'ownPositionPrimary',
+    section: 'competitive',
+    label: 'Position (Primary Axis)',
+    type: 'number',
+    description: 'Company position on primary axis (0-100)',
+    primarySources: ['CompetitorLab', 'BrandLab', 'Setup'],
+  },
+  {
+    path: 'competitive.ownPositionSecondary',
+    domain: 'competitive',
+    field: 'ownPositionSecondary',
+    section: 'competitive',
+    label: 'Position (Secondary Axis)',
+    type: 'number',
+    description: 'Company position on secondary axis (0-100)',
+    primarySources: ['CompetitorLab', 'BrandLab', 'Setup'],
+  },
+  {
+    path: 'competitive.positioningSummary',
+    domain: 'competitive',
+    field: 'positioningSummary',
+    section: 'competitive',
+    label: 'Positioning Summary (Legacy)',
+    type: 'string',
+    description: 'LLM-generated summary of competitive positioning',
+    primarySources: ['CompetitorLab', 'BrandLab', 'GAP'],
+  },
 ];
 
 // ============================================================================
@@ -1058,4 +1478,52 @@ export function buildFieldLookup(): Map<string, ContextFieldDef> {
   const lookup = new Map<string, ContextFieldDef>();
   CONTEXT_FIELDS.forEach(f => lookup.set(f.path, f));
   return lookup;
+}
+
+// ============================================================================
+// AutoFillMode Helpers
+// ============================================================================
+
+/**
+ * Get the autoFillMode for a field, defaulting to 'auto' if not specified
+ */
+export function getAutoFillMode(field: ContextFieldDef): AutoFillMode {
+  return field.autoFillMode ?? 'auto';
+}
+
+/**
+ * Get all fields that can be auto-filled (mode === 'auto')
+ */
+export function getAutoFillableFields(): ContextFieldDef[] {
+  return CONTEXT_FIELDS.filter(f => !f.deprecated && getAutoFillMode(f) === 'auto');
+}
+
+/**
+ * Get all fields that require manual input (mode === 'manual')
+ */
+export function getManualFields(): ContextFieldDef[] {
+  return CONTEXT_FIELDS.filter(f => !f.deprecated && getAutoFillMode(f) === 'manual');
+}
+
+/**
+ * Get all fields where AI can assist (mode === 'assist')
+ */
+export function getAssistFields(): ContextFieldDef[] {
+  return CONTEXT_FIELDS.filter(f => !f.deprecated && getAutoFillMode(f) === 'assist');
+}
+
+/**
+ * Check if a field requires manual input
+ */
+export function isManualField(path: string): boolean {
+  const field = getFieldDef(path);
+  return field ? getAutoFillMode(field) === 'manual' : false;
+}
+
+/**
+ * Check if a field can be auto-filled
+ */
+export function isAutoFillable(path: string): boolean {
+  const field = getFieldDef(path);
+  return field ? getAutoFillMode(field) === 'auto' : true;
 }

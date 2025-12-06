@@ -47,10 +47,60 @@ export const InsightUnitsArraySchema = z.array(InsightUnitSchema);
 // ============================================================================
 
 export function validateInsightUnits(data: unknown): InsightUnit[] {
+  // First, try to parse as a direct array
   const result = InsightUnitsArraySchema.safeParse(data);
   if (result.success) {
     return result.data;
   }
+
+  // If it's an object, try to find an array property
+  // AI sometimes returns { insights: [...] } or { data: [...] } instead of just [...]
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const obj = data as Record<string, unknown>;
+    console.log(`[InsightExtractor] Response is object, checking for nested arrays...`);
+
+    // Try common wrapper keys
+    const possibleKeys = ['insights', 'data', 'results', 'items', 'InsightUnits'];
+    for (const key of possibleKeys) {
+      if (Array.isArray(obj[key])) {
+        console.log(`[InsightExtractor] Found array in "${key}" property with ${(obj[key] as unknown[]).length} items`);
+        const nestedResult = InsightUnitsArraySchema.safeParse(obj[key]);
+        if (nestedResult.success) {
+          console.log(`[InsightExtractor] Unwrapped ${nestedResult.data.length} insights from "${key}" property`);
+          return nestedResult.data;
+        } else {
+          // Log detailed validation errors for the nested array
+          console.error(`[InsightExtractor] Nested array validation failed for "${key}":`, nestedResult.error.errors.slice(0, 3));
+          // Try to validate individual items to see which ones are valid
+          const validItems: InsightUnit[] = [];
+          const nestedArray = obj[key] as unknown[];
+          for (let i = 0; i < nestedArray.length; i++) {
+            const itemResult = InsightUnitSchema.safeParse(nestedArray[i]);
+            if (itemResult.success) {
+              validItems.push(itemResult.data);
+            } else {
+              console.error(`[InsightExtractor] Item ${i} validation failed:`, itemResult.error.errors.slice(0, 2));
+            }
+          }
+          if (validItems.length > 0) {
+            console.log(`[InsightExtractor] Recovered ${validItems.length}/${nestedArray.length} valid insights`);
+            return validItems;
+          }
+        }
+      }
+    }
+
+    // If the object has only one key and it's an array, use that
+    const keys = Object.keys(obj);
+    if (keys.length === 1 && Array.isArray(obj[keys[0]])) {
+      const nestedResult = InsightUnitsArraySchema.safeParse(obj[keys[0]]);
+      if (nestedResult.success) {
+        console.log(`[InsightExtractor] Unwrapped insights from single "${keys[0]}" property`);
+        return nestedResult.data;
+      }
+    }
+  }
+
   console.error('[InsightExtractor] Validation errors:', result.error.errors);
   return [];
 }

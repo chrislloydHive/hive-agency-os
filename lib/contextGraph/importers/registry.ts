@@ -23,6 +23,7 @@ import { mediaLabImporter } from './mediaLabImporter';
 import { audienceLabImporter } from './audienceLabImporter';
 import { diagnosticModulesImporter } from './diagnosticModulesImporter';
 import { creativeLabImporter } from './creativeLabImporter';
+import { competitionLabImporter } from './competitionLabImporter';
 
 // ============================================================================
 // Importer Registry
@@ -66,6 +67,11 @@ const IMPORTER_REGISTRY: ImporterRegistryEntry[] = [
   {
     importer: creativeLabImporter,
     priority: 60, // Creative Lab runs late (depends on brand, audience, objectives)
+    enabled: true,
+  },
+  {
+    importer: competitionLabImporter,
+    priority: 35, // Competition Lab runs after brand (enriches competitive data)
     enabled: true,
   },
   // Add more importers here as they are implemented:

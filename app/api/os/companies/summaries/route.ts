@@ -25,14 +25,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Filter out invalid IDs
+    // Filter out invalid IDs - accept any non-empty string
+    // Note: Airtable IDs typically start with 'rec' but we accept other formats
+    // to support different ID systems or future changes
     const validIds = companyIds.filter(
-      (id): id is string => typeof id === 'string' && id.startsWith('rec')
+      (id): id is string => typeof id === 'string' && id.length > 0
     );
 
     if (validIds.length === 0) {
+      console.warn('[API] No valid company IDs provided:', companyIds);
       return NextResponse.json({ summaries: [] });
     }
+
+    console.log('[API] Fetching summaries for IDs:', validIds);
 
     const summaries = await getCompanySummaries(validIds);
 

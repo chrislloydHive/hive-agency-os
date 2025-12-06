@@ -133,6 +133,19 @@ function buildQBRContext(
       parts.push(`Secondary Objectives: ${(graph.objectives.secondaryObjectives.value || []).join(', ') || 'None'}`);
       parts.push(`Target CPA: $${graph.objectives.targetCpa.value || 'Not set'}`);
       parts.push(`Target ROAS: ${graph.objectives.targetRoas.value || 'Not set'}x`);
+      // Include competitive intelligence
+      if (graph.competitive) {
+        const competitors = graph.competitive.primaryCompetitors?.value || [];
+        if (competitors.length > 0) {
+          parts.push(`Primary Competitors: ${competitors.map(c => c.name).join(', ')}`);
+        }
+        if (graph.competitive.positioningSummary?.value) {
+          parts.push(`Competitive Positioning: ${graph.competitive.positioningSummary.value}`);
+        }
+        if (graph.competitive.whitespaceOpportunities?.value?.length) {
+          parts.push(`Whitespace Opportunities: ${graph.competitive.whitespaceOpportunities.value.join('; ')}`);
+        }
+      }
       break;
 
     case 'recommendations':
@@ -141,6 +154,29 @@ function buildQBRContext(
       parts.push(`Website Issues: ${(graph.website.criticalIssues.value || []).join('; ') || 'None'}`);
       parts.push(`Quick Wins: ${(graph.website.quickWins.value || []).join('; ') || 'None'}`);
       parts.push(`Opportunities: ${(graph.performanceMedia.mediaOpportunities.value || []).join('; ') || 'None'}`);
+      // Include competitive intelligence for recommendations
+      if (graph.competitive) {
+        const competitors = graph.competitive.primaryCompetitors?.value || [];
+        if (competitors.length > 0) {
+          const competitorInsights = competitors
+            .filter(c => c.strengths?.length || c.weaknesses?.length)
+            .map(c => {
+              const insights: string[] = [`${c.name}:`];
+              if (c.strengths?.length) insights.push(`strengths: ${c.strengths.slice(0, 2).join(', ')}`);
+              if (c.weaknesses?.length) insights.push(`weaknesses: ${c.weaknesses.slice(0, 2).join(', ')}`);
+              return insights.join(' ');
+            });
+          if (competitorInsights.length > 0) {
+            parts.push(`Competitor Insights: ${competitorInsights.join('; ')}`);
+          }
+        }
+        if (graph.competitive.whitespaceOpportunities?.value?.length) {
+          parts.push(`Competitive Whitespace: ${graph.competitive.whitespaceOpportunities.value.join('; ')}`);
+        }
+        if (graph.competitive.positioningSummary?.value) {
+          parts.push(`Positioning Summary: ${graph.competitive.positioningSummary.value}`);
+        }
+      }
       break;
   }
 
@@ -182,14 +218,14 @@ Write a website and conversion review (3-4 paragraphs) covering UX issues, conve
 Context:
 ${context}
 
-Write strategy recommendations (3-4 paragraphs) covering objective alignment, tactical adjustments, and prioritization guidance.`,
+Write strategy recommendations (3-4 paragraphs) covering objective alignment, tactical adjustments, competitive positioning, and prioritization guidance. If competitive intelligence is available, factor competitor movements and whitespace opportunities into your recommendations.`,
 
     'recommendations': `You are a marketing strategist preparing a Quarterly Business Review. Based on the following context, provide a prioritized list of actionable recommendations.
 
 Context:
 ${context}
 
-Provide 5-8 specific, actionable recommendations as a bulleted list. Each recommendation should start with "- " and be clear enough to become a work item. Order by priority (highest first).`,
+Provide 5-8 specific, actionable recommendations as a bulleted list. Each recommendation should start with "- " and be clear enough to become a work item. Order by priority (highest first). Include competitive-focused recommendations when competitor insights or whitespace opportunities are available.`,
   };
 
   return prompts[section];

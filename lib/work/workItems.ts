@@ -155,7 +155,7 @@ export async function getWorkItems(companyId: string): Promise<WorkItem[]> {
     const records = await base('Work Items')
       .select({
         filterByFormula: `FIND("${companyId}", ARRAYJOIN({Company}))`,
-        sort: [{ field: 'Created', direction: 'desc' }],
+        sort: [{ field: 'Created At', direction: 'desc' }],
       })
       .all();
 

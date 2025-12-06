@@ -89,11 +89,15 @@ async function getLatestDiagnosticScores(
     gapHeavy: 'gapHeavy',
     websiteLab: 'websiteLab',
     brandLab: 'brandLab',
+    audienceLab: 'brandLab',   // Map to brandLab (audience is related)
+    mediaLab: 'demandLab',     // Map to demandLab (media is demand-related)
     contentLab: 'contentLab',
     seoLab: 'seoLab',
     demandLab: 'demandLab',
     opsLab: 'opsLab',
     creativeLab: 'creativeLab',
+    competitorLab: 'brandLab', // Map to brandLab (competitive analysis is brand-related)
+    competitionLab: 'brandLab', // Competition Lab v2 also maps to brandLab
   };
 
   let latestRunId: string | null = null;

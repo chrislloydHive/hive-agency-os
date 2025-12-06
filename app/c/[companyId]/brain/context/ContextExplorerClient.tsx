@@ -70,6 +70,7 @@ export function ContextExplorerClient({
   const [showOnlyWithValue, setShowOnlyWithValue] = useState(false);
   const [showGraphPanel, setShowGraphPanel] = useState(true);
   const [highlightedRowPath, setHighlightedRowPath] = useState<string | null>(null);
+  const [graphExpanded, setGraphExpanded] = useState(false);
 
   // Group fields by domain
   const fieldsByDomain = useMemo(() => {
@@ -132,7 +133,8 @@ export function ContextExplorerClient({
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-50">
-      {/* Sidebar */}
+      {/* Sidebar - hidden when graph is expanded */}
+      {!graphExpanded && (
       <aside className="w-56 border-r border-slate-900 bg-slate-950/80 flex flex-col flex-shrink-0">
         {/* Sidebar Header */}
         <div className="p-4 border-b border-slate-900">
@@ -220,13 +222,15 @@ export function ContextExplorerClient({
           </button>
         </div>
       </aside>
+      )}
 
       {/* Main Content Area - Split View */}
       <main className="flex-1 flex min-w-0 overflow-hidden">
-        {/* Left: Table View */}
+        {/* Left: Table View - hidden when graph is expanded */}
+        {!graphExpanded && (
         <section className={cn(
           'flex-1 flex flex-col min-w-0 overflow-hidden transition-all duration-300',
-          showGraphPanel ? 'xl:w-[60%] xl:flex-none' : 'w-full'
+          showGraphPanel ? 'lg:w-[55%] lg:flex-none' : 'w-full'
         )}>
           {/* Header */}
           <header className="flex items-center justify-between border-b border-slate-900 bg-slate-950/80 px-6 py-3 flex-shrink-0">
@@ -352,10 +356,16 @@ export function ContextExplorerClient({
             )}
           </div>
         </section>
+        )}
 
-        {/* Right: Graph Panel */}
+        {/* Right: Graph Panel - takes full width when expanded */}
         {showGraphPanel && (
-          <section className="hidden xl:flex w-[40%] flex-shrink-0">
+          <section className={cn(
+            'flex transition-all duration-300',
+            graphExpanded
+              ? 'flex-1 w-full min-w-0'
+              : 'hidden lg:flex lg:w-[45%] flex-shrink-0'
+          )}>
             <ContextGraphPanel
               companyId={companyId}
               sectionId={selectedDomain}
@@ -368,6 +378,8 @@ export function ContextExplorerClient({
               mode={graphMode}
               onNodeClick={handleGraphNodeClick}
               highlightedFieldPath={highlightedFieldPath}
+              expanded={graphExpanded}
+              onExpandedChange={setGraphExpanded}
             />
           </section>
         )}

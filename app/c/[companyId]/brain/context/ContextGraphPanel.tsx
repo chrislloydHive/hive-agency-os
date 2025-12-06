@@ -44,6 +44,10 @@ interface ContextGraphPanelProps {
   mode: GraphMode;
   onNodeClick?: (node: GraphNode) => void;
   highlightedFieldPath?: string | null;
+  /** Whether the graph is in expanded/fullscreen mode */
+  expanded?: boolean;
+  /** Callback to toggle expanded mode */
+  onExpandedChange?: (expanded: boolean) => void;
 }
 
 interface TooltipData {
@@ -251,6 +255,8 @@ export function ContextGraphPanel({
   mode,
   onNodeClick,
   highlightedFieldPath,
+  expanded = false,
+  onExpandedChange,
 }: ContextGraphPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
@@ -259,23 +265,80 @@ export function ContextGraphPanel({
   const [highlightHumanOverrides, setHighlightHumanOverrides] = useState(false);
   const [highlightedNodes, setHighlightedNodes] = useState<Set<string>>(new Set());
   const [engineStopped, setEngineStopped] = useState(false);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  // Minimum node radius to always show label
+  const LABEL_RADIUS_THRESHOLD = 8;
 
   // Update dimensions on resize
   useEffect(() => {
     const updateDimensions = () => {
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
-        setDimensions({
-          width: rect.width,
-          height: rect.height - 80, // Account for toolbar and legend
-        });
+        const newWidth = rect.width;
+        const newHeight = rect.height - 80; // Account for toolbar and legend
+
+        // Only update if dimensions are valid (not during CSS transition)
+        if (newWidth > 100) {
+          setDimensions({
+            width: newWidth,
+            height: newHeight,
+          });
+        }
       }
     };
 
     updateDimensions();
     window.addEventListener('resize', updateDimensions);
-    return () => window.removeEventListener('resize', updateDimensions);
+    return () => {
+      window.removeEventListener('resize', updateDimensions);
+    };
   }, []);
+
+  // Handle expanded state change - wait for CSS transition to complete
+  useEffect(() => {
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const newWidth = rect.width;
+        const newHeight = rect.height - 80;
+
+        if (newWidth > 100) {
+          setDimensions({
+            width: newWidth,
+            height: newHeight,
+          });
+
+          // Recenter graph after dimensions are set
+          setTimeout(() => {
+            graphRef.current?.zoomToFit?.(400, 80);
+          }, 50);
+        }
+      }
+    };
+
+    // Wait for CSS transition (300ms) to complete before measuring
+    const timeoutId = setTimeout(updateDimensions, 350);
+
+    // Also poll a few more times to ensure we catch the final size
+    const pollId1 = setTimeout(updateDimensions, 500);
+    const pollId2 = setTimeout(updateDimensions, 700);
+
+    return () => {
+      clearTimeout(timeoutId);
+      clearTimeout(pollId1);
+      clearTimeout(pollId2);
+    };
+  }, [expanded]);
+
+  // Unique key to force remount of ForceGraph2D when expanded changes
+  const graphKey = useMemo(() => `graph-${expanded ? 'expanded' : 'collapsed'}-${dimensions.width}`, [expanded, dimensions.width]);
+
+  // Reset engineStopped when graph remounts
+  useEffect(() => {
+    setEngineStopped(false);
+  }, [graphKey]);
 
   // Get initial positions for deterministic layout
   const initialPositions = useMemo(() => {
@@ -316,9 +379,16 @@ export function ContextGraphPanel({
     }
   }, [highlightedFieldPath, graphData.links]);
 
-  // Stop physics after initial layout
+  // Stop physics after initial layout - freeze all nodes in place
   const handleEngineStop = useCallback(() => {
     setEngineStopped(true);
+    // Stop the d3 simulation but keep rendering for interactions
+    if (graphRef.current) {
+      // Set alpha to 0 to stop the simulation
+      graphRef.current.d3Force?.('charge')?.strength?.(0);
+      graphRef.current.d3Force?.('link')?.strength?.(0);
+      graphRef.current.d3Force?.('center', null);
+    }
   }, []);
 
   // Node painting callback
@@ -326,6 +396,8 @@ export function ContextGraphPanel({
     const nodeData = node as GraphNode & { x: number; y: number };
     const isHighlighted = highlightedNodes.has(nodeData.id);
     const shouldHighlightHuman = highlightHumanOverrides && nodeData.isHumanOverride;
+    const isHovered = hoveredNodeId === nodeData.id;
+    const isSelected = selectedNodeId === nodeData.id;
 
     // Determine base color
     let fillColor: string;
@@ -349,10 +421,8 @@ export function ContextGraphPanel({
       radius = 4;
     }
 
-    // Adjust for highlight
-    if (isHighlighted) {
-      radius *= 1.3;
-    }
+    // Store computed radius on node for label visibility check
+    (nodeData as any).__radius = radius;
 
     // Draw node
     ctx.beginPath();
@@ -370,7 +440,17 @@ export function ContextGraphPanel({
     ctx.fill();
 
     // Draw borders
-    if (shouldHighlightHuman) {
+    if (isSelected) {
+      // White solid border for selected
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    } else if (isHovered) {
+      // Bright border for hovered
+      ctx.strokeStyle = '#60a5fa';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    } else if (shouldHighlightHuman) {
       // Bright yellow border for human overrides
       ctx.strokeStyle = '#fbbf24';
       ctx.lineWidth = 2.5;
@@ -389,15 +469,28 @@ export function ContextGraphPanel({
       ctx.stroke();
     }
 
-    // Draw label for field nodes at larger scales
-    if (nodeData.type === 'field' && globalScale > 0.8) {
-      ctx.font = `${10 / globalScale}px sans-serif`;
+    // Label visibility rules:
+    // Always show label if: hovered, selected, or node radius >= threshold
+    const baseRadius = (nodeData as any).__radius ?? radius;
+    const shouldShowLabel =
+      nodeData.type === 'field' &&
+      (isHovered || isSelected || baseRadius >= LABEL_RADIUS_THRESHOLD);
+
+    if (shouldShowLabel) {
+      const fontSize = Math.max(10, 12 / globalScale);
+      ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillStyle = '#94a3b8';
-      ctx.fillText(nodeData.label, nodeData.x, nodeData.y + radius + 2);
+
+      // Add text shadow/outline for better readability
+      ctx.strokeStyle = 'rgba(15, 23, 42, 0.8)';
+      ctx.lineWidth = 3;
+      ctx.strokeText(nodeData.label, nodeData.x, nodeData.y + radius + 4);
+
+      ctx.fillStyle = isHovered || isSelected ? '#f1f5f9' : '#94a3b8';
+      ctx.fillText(nodeData.label, nodeData.x, nodeData.y + radius + 4);
     }
-  }, [highlightHumanOverrides, highlightedNodes]);
+  }, [highlightHumanOverrides, highlightedNodes, hoveredNodeId, selectedNodeId, LABEL_RADIUS_THRESHOLD]);
 
   // Link painting callback
   const paintLink = useCallback((link: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
@@ -433,7 +526,9 @@ export function ContextGraphPanel({
   const handleNodeHover = useCallback((node: any, prevNode: any) => {
     if (node) {
       const nodeData = node as GraphNode & { x: number; y: number };
-      // Get screen coordinates
+      setHoveredNodeId(nodeData.id);
+
+      // Get screen coordinates for tooltip
       if (graphRef.current) {
         const coords = graphRef.current.graph2ScreenCoords(nodeData.x, nodeData.y);
         const containerRect = containerRef.current?.getBoundingClientRect();
@@ -444,21 +539,29 @@ export function ContextGraphPanel({
         });
       }
     } else {
+      setHoveredNodeId(null);
       setTooltip(null);
     }
   }, []);
 
   const handleNodeClick = useCallback((node: any) => {
     const nodeData = node as GraphNode;
+    setSelectedNodeId(nodeData.id);
+
     if (nodeData.type === 'field' && onNodeClick) {
       onNodeClick(nodeData);
     }
   }, [onNodeClick]);
 
+  // Handle click on empty space to deselect
+  const handleBackgroundClick = useCallback(() => {
+    setSelectedNodeId(null);
+  }, []);
+
   // Empty state
   if (graphData.nodes.length === 0) {
     return (
-      <div ref={containerRef} className="flex flex-col h-full bg-slate-950 border-l border-slate-800">
+      <div ref={containerRef} className="flex flex-col h-full w-full bg-slate-950 border-l border-slate-800">
         <div className="px-3 py-2 border-b border-slate-800">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-slate-200">Context Graph</h3>
@@ -482,14 +585,39 @@ export function ContextGraphPanel({
   }
 
   return (
-    <div ref={containerRef} className="flex flex-col h-full bg-slate-950 border-l border-slate-800 relative">
+    <div ref={containerRef} className="flex flex-col h-full w-full bg-slate-950 border-l border-slate-800 relative">
       {/* Header */}
       <div className="px-3 py-2 border-b border-slate-800">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium text-slate-200">Context Graph</h3>
-          <span className="px-2 py-0.5 rounded-full bg-slate-800 text-[10px] text-slate-400">
-            {sectionLabel}
-          </span>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-medium text-slate-200">Context Graph</h3>
+            <span className="px-2 py-0.5 rounded-full bg-slate-800 text-[10px] text-slate-400">
+              {sectionLabel}
+            </span>
+          </div>
+          {onExpandedChange && (
+            <button
+              onClick={() => onExpandedChange(!expanded)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-700 text-[10px] text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
+              title={expanded ? 'Collapse graph' : 'Expand graph'}
+            >
+              {expanded ? (
+                <>
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  Collapse
+                </>
+              ) : (
+                <>
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                  </svg>
+                  Expand
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
@@ -510,6 +638,7 @@ export function ContextGraphPanel({
       {/* Graph Canvas */}
       <div className="flex-1 relative">
         <ForceGraph2D
+          key={graphKey}
           ref={graphRef}
           graphData={{
             nodes: nodesWithPositions,
@@ -521,6 +650,7 @@ export function ContextGraphPanel({
           linkCanvasObject={paintLink}
           onNodeHover={handleNodeHover}
           onNodeClick={handleNodeClick}
+          onBackgroundClick={handleBackgroundClick}
           onEngineStop={handleEngineStop}
           cooldownTicks={100}
           warmupTicks={50}
@@ -536,6 +666,13 @@ export function ContextGraphPanel({
 
         {/* Tooltip */}
         {tooltip && <NodeTooltip data={tooltip} containerRef={containerRef} />}
+
+        {/* Interaction hint */}
+        {!engineStopped && (
+          <div className="absolute bottom-3 left-3 text-[10px] text-slate-500 bg-slate-900/80 px-2 py-1 rounded">
+            Settling...
+          </div>
+        )}
       </div>
     </div>
   );

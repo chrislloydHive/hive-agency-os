@@ -98,28 +98,39 @@ export async function createInsightsFromUnits(
 
 /**
  * Map extracted category to ClientInsight category
+ * Note: Airtable Category field has limited options - map to closest match
+ *
+ * Known Airtable categories (based on successful creates):
+ * - brand, website, content, seo, audience, other
+ *
+ * Categories that DON'T exist in Airtable:
+ * - media, conversion, kpi_risk, growth_opportunity, competitive, ops, demand, creative
  */
 function mapExtractedCategory(category: string): InsightCategory {
-  // Direct mappings
-  const directMappings: Record<string, InsightCategory> = {
-    growth_opportunity: 'growth_opportunity',
-    conversion: 'conversion',
-    audience: 'audience',
+  // Map all categories to Airtable-compatible ones
+  const airtableMappings: Record<string, InsightCategory> = {
+    // Direct matches (these exist in Airtable)
     brand: 'brand',
-    creative: 'creative',
-    media: 'media',
-    seo: 'seo',
-    seo_content: 'seo_content',
-    content: 'content',
     website: 'website',
-    competitive: 'competitive',
-    kpi_risk: 'kpi_risk',
-    ops: 'ops',
-    demand: 'demand',
+    content: 'content',
+    seo: 'seo',
+    audience: 'audience',
     other: 'other',
+
+    // Map to closest Airtable category
+    seo_content: 'seo',
+    media: 'other',           // No media category in Airtable
+    conversion: 'website',    // Conversion relates to website
+    kpi_risk: 'other',        // No kpi_risk in Airtable
+    growth_opportunity: 'other',
+    competitive: 'other',
+    ops: 'other',
+    demand: 'other',
+    creative: 'brand',        // Creative relates to brand
+    digitalFootprint: 'other',
   };
 
-  return directMappings[category] || 'other';
+  return airtableMappings[category] || 'other';
 }
 
 // ============================================================================

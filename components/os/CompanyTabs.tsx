@@ -18,6 +18,7 @@ export default function CompanyTabs({ companyId }: { companyId: string }) {
     { name: 'Blueprint', href: `/c/${companyId}/blueprint` },
     { name: 'Brain', href: `/c/${companyId}/brain` },
     { name: 'Work', href: `/c/${companyId}/work` },
+    { name: 'Competition', href: `/c/${companyId}/competition` },
     { name: 'QBR', href: `/c/${companyId}/qbr` },
   ];
 

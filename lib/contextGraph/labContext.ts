@@ -31,7 +31,8 @@ export type LabId =
   | 'ux'
   | 'demand'
   | 'creative'
-  | 'ops';
+  | 'ops'
+  | 'competitor';
 
 /**
  * Array of all Lab IDs for iteration
@@ -47,6 +48,7 @@ export const LAB_IDS: LabId[] = [
   'demand',
   'creative',
   'ops',
+  'competitor',
 ];
 
 /**
@@ -129,6 +131,7 @@ export const LAB_SCOPES: Record<LabId, ContextScopeId[]> = {
   demand: ['identity', 'audience', 'performanceMedia', 'objectives'],
   creative: ['identity', 'brand', 'audience', 'creative', 'content'],
   ops: ['identity', 'ops', 'objectives', 'budgetOps'],
+  competitor: ['identity', 'brand', 'competitive', 'audience', 'productOffer'],
 };
 
 /**
@@ -145,6 +148,7 @@ const LAB_CRITICAL_FIELDS: Record<LabId, string[]> = {
   demand: ['identity.industry', 'audience.coreSegments'],
   creative: ['identity.industry', 'brand.positioning', 'audience.coreSegments'],
   ops: ['identity.industry', 'objectives.primaryObjective'],
+  competitor: ['identity.industry', 'brand.positioning'],
 };
 
 /**
@@ -271,6 +275,18 @@ export const LAB_CONSTRAINTS: Record<LabId, LabConstraints> = {
       tools: 'Must integrate with existing infrastructure',
     },
     confidenceCap: 0.85,
+  },
+  competitor: {
+    systemConstraints: `CRITICAL CONSTRAINTS:
+- Competitive analysis must be grounded in the company's actual market position.
+- Competitor profiles must be based on verified public information.
+- Positioning recommendations must align with brand strategy and capabilities.
+- Differentiation opportunities must be actionable and achievable.`,
+    fieldConstraints: {
+      competitors: 'Must be actual market competitors',
+      positioning: 'Must align with brand strategy',
+    },
+    confidenceCap: 0.80,
   },
 };
 

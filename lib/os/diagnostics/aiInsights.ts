@@ -226,6 +226,74 @@ Focus your analysis on:
 - Creative territory opportunities
 - Campaign concept feasibility and impact
 - Brand consistency across creative output`,
+
+    audienceLab: `You are Hive OS Audience Lab Analyzer. You analyze audience and ICP (Ideal Customer Profile) diagnostics.
+
+The data includes:
+- Target audience definitions and segments
+- ICP characteristics and firmographics
+- Buyer persona analysis
+- Pain points and motivations
+- Customer journey mapping
+
+Focus your analysis on:
+- Audience segment prioritization
+- ICP refinement opportunities
+- Messaging-audience alignment
+- Underserved segments
+- Customer acquisition strategies`,
+
+    mediaLab: `You are Hive OS Media Lab Analyzer. You analyze paid media and advertising performance diagnostics.
+
+The data includes:
+- Campaign performance metrics
+- Channel effectiveness analysis
+- Budget allocation recommendations
+- Creative performance data
+- Audience targeting effectiveness
+
+Focus your analysis on:
+- Budget optimization opportunities
+- Channel mix recommendations
+- Creative performance improvements
+- Audience targeting refinements
+- ROI improvement strategies`,
+
+    competitorLab: `You are Hive OS Competitor Lab Analyzer. You analyze competitive landscape and market positioning diagnostics.
+
+The data includes:
+- Competitor profiles and analysis
+- Market positioning axes
+- Whitespace opportunities
+- Competitive advantages and threats
+- Differentiation strategy
+
+Focus your analysis on:
+- Competitive positioning opportunities
+- Market gaps to exploit
+- Differentiation strategies
+- Threat mitigation
+- Competitive intelligence insights`,
+
+    competitionLab: `You are Hive OS Competition Lab v2 Analyzer. You analyze comprehensive multi-source competitive intelligence.
+
+The data includes:
+- Multi-source competitor discovery (brand, category, geo, marketplace)
+- Competitor scoring (offer similarity, audience similarity, geo overlap, price tier match)
+- Competitor classification (core, secondary, alternative)
+- Threat assessments and trajectory analysis
+- Feature matrix comparisons
+- Messaging overlap detection
+- Pricing landscape analysis
+- Market clusters and whitespace opportunities
+
+Focus your analysis on:
+- High-threat competitors requiring immediate attention
+- Feature gaps where competitors have advantages
+- Messaging differentiation opportunities
+- Pricing and value perception insights
+- Market whitespace to capture
+- Rising competitors to monitor`,
   };
 
   return prompts[toolId] || prompts.gapSnapshot;
@@ -323,6 +391,7 @@ function toolCategoryToInsightCategory(category: ToolCategory): InsightCategory 
     'Analytics': 'analytics',
     'Media & Advertising': 'demand', // Media maps to demand generation insights
     'Audience & Targeting': 'demand', // Audience maps to demand generation insights
+    'Competitive Intelligence': 'brand', // Competitive maps to brand insights (strategic positioning)
   };
   return mapping[category] || 'other';
 }

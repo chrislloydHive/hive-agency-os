@@ -45,11 +45,15 @@ function diagnosticRunToReportItem(run: DiagnosticRun, companyId: string): Repor
     gapHeavy: 'gap-heavy',
     websiteLab: 'website-lab',
     brandLab: 'brand-lab',
+    audienceLab: 'brand-lab', // Use brand-lab type for audience (similar format)
+    mediaLab: 'demand-lab',   // Use demand-lab type for media (similar format)
     contentLab: 'content-lab',
     seoLab: 'seo-lab',
     demandLab: 'demand-lab',
     opsLab: 'ops-lab',
     creativeLab: 'creative-lab',
+    competitorLab: 'brand-lab', // Use brand-lab type for competitor (similar competitive analysis format)
+    competitionLab: 'brand-lab', // Competition Lab v2 uses same format
   };
 
   // Map status

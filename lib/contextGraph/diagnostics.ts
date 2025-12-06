@@ -13,10 +13,12 @@
 import {
   CONTEXT_FIELDS,
   getFieldDef,
+  getAutoFillMode,
   type ContextFieldDef,
   type ContextSectionId,
   type WriterModuleId,
   type ConsumerModuleId,
+  type AutoFillMode,
 } from './schema';
 import {
   FIELD_WRITERS,
@@ -965,4 +967,194 @@ function checkFieldPopulated(
   if (typeof fieldData.value === 'string' && fieldData.value.trim() === '') return false;
 
   return true;
+}
+
+// ============================================================================
+// Auto-Fill Mode Diagnostics
+// ============================================================================
+
+/**
+ * Result from auto-fill coverage analysis
+ */
+export interface AutoFillCoverageReport {
+  generatedAt: string;
+  /** Fields that can be auto-filled and have writers */
+  autoFieldsWithWriters: ContextFieldDef[];
+  /** Fields that can be auto-filled but have NO writers - needs fixing */
+  autoFieldsNeedingWriters: ContextFieldDef[];
+  /** Fields where AI assists (not auto-fills) */
+  assistFields: ContextFieldDef[];
+  /** Fields requiring manual input */
+  manualFields: ContextFieldDef[];
+  /** Summary stats */
+  summary: {
+    totalFields: number;
+    autoFields: number;
+    autoWithWriters: number;
+    autoNeedingWriters: number;
+    assistFields: number;
+    manualFields: number;
+    autoCoveragePercent: number;
+  };
+  /** Grouped by domain for easier fixing */
+  autoNeedingWritersByDomain: Record<string, ContextFieldDef[]>;
+}
+
+/**
+ * Get all auto-fillable fields that currently have no writers.
+ * These are fields that SHOULD be auto-filled but have no registered writer.
+ * Use this to identify gaps in FCB/Lab coverage.
+ */
+export function getAutoFieldsNeedingWriters(): ContextFieldDef[] {
+  const report = collectGraphSanityReport();
+
+  return CONTEXT_FIELDS.filter(field => {
+    // Skip deprecated
+    if (field.deprecated) return false;
+
+    // Only care about auto-fillable fields
+    if (getAutoFillMode(field) !== 'auto') return false;
+
+    // Check if this field has no writers or primary source not in writers
+    const fieldReport = Object.values(report.fieldsBySection)
+      .flat()
+      .find(r => r.path === field.path);
+
+    if (!fieldReport) return false;
+
+    // Field needs writers if it has none, or if primary sources aren't wired
+    return fieldReport.writers.length === 0 ||
+      fieldReport.issues.some(i =>
+        i.type === 'no_writers' ||
+        i.type === 'primary_source_not_in_writers'
+      );
+  });
+}
+
+/**
+ * Collect comprehensive auto-fill coverage report
+ * Shows which auto fields have writers vs need writers
+ */
+export function collectAutoFillCoverageReport(): AutoFillCoverageReport {
+  const sanityReport = collectGraphSanityReport();
+
+  const autoFieldsWithWriters: ContextFieldDef[] = [];
+  const autoFieldsNeedingWriters: ContextFieldDef[] = [];
+  const assistFields: ContextFieldDef[] = [];
+  const manualFields: ContextFieldDef[] = [];
+
+  for (const field of CONTEXT_FIELDS) {
+    if (field.deprecated) continue;
+
+    const mode = getAutoFillMode(field);
+    const writers = getWritersForField(field.path);
+
+    if (mode === 'manual') {
+      manualFields.push(field);
+    } else if (mode === 'assist') {
+      assistFields.push(field);
+    } else {
+      // Auto mode
+      if (writers.length > 0) {
+        autoFieldsWithWriters.push(field);
+      } else {
+        autoFieldsNeedingWriters.push(field);
+      }
+    }
+  }
+
+  // Group needing-writers by domain
+  const autoNeedingWritersByDomain: Record<string, ContextFieldDef[]> = {};
+  for (const field of autoFieldsNeedingWriters) {
+    if (!autoNeedingWritersByDomain[field.domain]) {
+      autoNeedingWritersByDomain[field.domain] = [];
+    }
+    autoNeedingWritersByDomain[field.domain].push(field);
+  }
+
+  const totalAuto = autoFieldsWithWriters.length + autoFieldsNeedingWriters.length;
+  const autoCoveragePercent = totalAuto > 0
+    ? Math.round((autoFieldsWithWriters.length / totalAuto) * 100)
+    : 100;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    autoFieldsWithWriters,
+    autoFieldsNeedingWriters,
+    assistFields,
+    manualFields,
+    summary: {
+      totalFields: CONTEXT_FIELDS.filter(f => !f.deprecated).length,
+      autoFields: totalAuto,
+      autoWithWriters: autoFieldsWithWriters.length,
+      autoNeedingWriters: autoFieldsNeedingWriters.length,
+      assistFields: assistFields.length,
+      manualFields: manualFields.length,
+      autoCoveragePercent,
+    },
+    autoNeedingWritersByDomain,
+  };
+}
+
+/**
+ * Format auto-fill coverage report for console
+ */
+export function formatAutoFillCoverageForConsole(report: AutoFillCoverageReport): string {
+  const lines: string[] = [];
+
+  lines.push('='.repeat(60));
+  lines.push('AUTO-FILL COVERAGE REPORT');
+  lines.push(`Generated: ${report.generatedAt}`);
+  lines.push('='.repeat(60));
+  lines.push('');
+
+  // Summary
+  lines.push('SUMMARY');
+  lines.push('-'.repeat(40));
+  lines.push(`Total fields: ${report.summary.totalFields}`);
+  lines.push(`  - Auto-fillable: ${report.summary.autoFields} (${report.summary.autoCoveragePercent}% have writers)`);
+  lines.push(`    - With writers: ${report.summary.autoWithWriters}`);
+  lines.push(`    - NEEDING writers: ${report.summary.autoNeedingWriters}`);
+  lines.push(`  - Assist mode: ${report.summary.assistFields}`);
+  lines.push(`  - Manual only: ${report.summary.manualFields}`);
+  lines.push('');
+
+  // Auto fields needing writers (grouped by domain)
+  if (report.summary.autoNeedingWriters > 0) {
+    lines.push('AUTO FIELDS NEEDING WRITERS (by domain):');
+    lines.push('-'.repeat(40));
+
+    for (const [domain, fields] of Object.entries(report.autoNeedingWritersByDomain)) {
+      lines.push(`\n${domain.toUpperCase()} (${fields.length} fields):`);
+      for (const field of fields) {
+        const sources = field.primarySources.join(', ') || 'none declared';
+        lines.push(`  - ${field.path}`);
+        lines.push(`    Label: ${field.label}`);
+        lines.push(`    Expected sources: ${sources}`);
+      }
+    }
+    lines.push('');
+  }
+
+  // Manual fields (for reference)
+  if (report.manualFields.length > 0) {
+    lines.push('MANUAL-ONLY FIELDS (require human input):');
+    lines.push('-'.repeat(40));
+    for (const field of report.manualFields) {
+      lines.push(`  - ${field.path}: ${field.label}`);
+    }
+    lines.push('');
+  }
+
+  // Assist fields (for reference)
+  if (report.assistFields.length > 0) {
+    lines.push('ASSIST FIELDS (AI helps, doesn\'t invent):');
+    lines.push('-'.repeat(40));
+    for (const field of report.assistFields) {
+      lines.push(`  - ${field.path}: ${field.label}`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
 }

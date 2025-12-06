@@ -68,6 +68,7 @@ const newCategoryToOld: Record<ToolCategory, DiagnosticToolCategory> = {
   'Analytics': 'ops', // Analytics doesn't map cleanly, but it's rarely used in legacy code
   'Media & Advertising': 'demand', // Media maps to demand in legacy code
   'Audience & Targeting': 'demand', // Audience maps to demand in legacy code
+  'Competitive Intelligence': 'strategy', // Competitive maps to strategy in legacy code
 };
 
 const oldCategoryToNew: Record<DiagnosticToolCategory, ToolCategory> = {

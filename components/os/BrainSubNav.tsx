@@ -34,6 +34,14 @@ export function BrainSubNav({ companyId }: BrainSubNavProps) {
       },
     },
     {
+      name: 'Strategic Map',
+      href: `/c/${companyId}/brain/map`,
+      tooltip: {
+        title: 'Strategic Map',
+        description: 'Visual map of the Context Graph clustered by domain. Understand relationships between Identity, Audience, Brand, Competitive, and more.',
+      },
+    },
+    {
       name: 'Insights',
       href: `/c/${companyId}/brain/insights`,
       tooltip: {

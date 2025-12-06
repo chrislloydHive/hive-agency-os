@@ -34,6 +34,7 @@ export type InsightSourceType =
   | 'lab_content'
   | 'lab_demand'
   | 'lab_ops'
+  | 'lab_competitor'
   | 'qbr'
   | 'performance_snapshot'
   | 'manual';
@@ -166,6 +167,7 @@ export const SOURCE_TYPE_LABELS: Record<InsightSourceType, string> = {
   lab_content: 'Content Lab',
   lab_demand: 'Demand Lab',
   lab_ops: 'Ops Lab',
+  lab_competitor: 'Competitor Lab',
   qbr: 'QBR',
   performance_snapshot: 'Performance',
   manual: 'Manual',
@@ -188,6 +190,7 @@ export function diagnosticToolIdToSourceType(toolId: string): InsightSourceType 
     creativeLab: 'lab_creative',
     mediaLab: 'lab_media',
     audienceLab: 'lab_audience',
+    competitorLab: 'lab_competitor',
   };
   return mapping[toolId] || 'manual';
 }

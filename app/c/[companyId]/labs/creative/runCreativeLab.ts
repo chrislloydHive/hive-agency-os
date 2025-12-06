@@ -75,9 +75,16 @@ export interface CreativeLabRunResult {
 const CreativeLabOutputSchema = z.object({
   messaging: z.object({
     coreValueProp: z.string(),
+    keyPillars: z.array(z.string()).optional().default([]),
     supportingPoints: z.array(z.string()),
     proofPoints: z.array(z.string()),
     differentiators: z.array(z.string()),
+    taglineVariants: z.array(z.string()).optional().default([]),
+    featureToBenefitMap: z.array(z.object({
+      feature: z.string(),
+      benefit: z.string(),
+      forSegment: z.string().nullable(),
+    })).optional().default([]),
   }),
   segmentMessages: z.record(
     z.string(),

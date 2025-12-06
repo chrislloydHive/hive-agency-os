@@ -15,6 +15,7 @@ import { z } from 'zod';
  */
 export const ContextSource = z.enum([
   'brain',           // Company Brain / Client Brain
+  'fcb',             // Foundational Context Builder - auto-populates from website/signals
   'gap_ia',          // GAP Initial Assessment
   'gap_full',        // Full GAP Report
   'gap_heavy',       // Heavy GAP Worker
@@ -184,6 +185,7 @@ export function createProvenance(
 export const DEFAULT_VALIDITY_DAYS: Record<ContextSource, number> = {
   user: 365,              // User input stays valid for a year
   manual: 365,            // Manual entries stay valid for a year
+  fcb: 90,                // FCB auto-population valid for 3 months
   media_lab: 180,         // Media plans valid for 6 months
   media_cockpit: 90,      // Optimization data valid for 3 months
   media_memory: 180,      // Historical media data valid for 6 months

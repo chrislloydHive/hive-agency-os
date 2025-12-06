@@ -3,15 +3,22 @@
 // app/c/[companyId]/qbr/QBRClient.tsx
 // Quarterly Business Review Mode - Main Client Component
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
 import { DataUnavailableBanner } from '@/components/ui/DataUnavailableBanner';
 import { isContextGraphHealthy } from '@/lib/contextGraph/health';
+import {
+  PositioningMapQBRCard,
+  extractPositioningMapData,
+  hasPositioningData,
+  CompetitiveLandscapeQBR,
+} from '@/components/competitive';
 
 // QBR Sections
 const QBR_SECTIONS = [
   'executive-summary',
+  'competitive-landscape',
   'media-performance',
   'audience-updates',
   'website-review',
@@ -35,6 +42,12 @@ const QBR_SECTION_CONFIG: Record<QBRSectionId, QBRSection> = {
     label: 'Executive Summary',
     description: 'High-level performance overview',
     icon: 'chart-bar',
+  },
+  'competitive-landscape': {
+    id: 'competitive-landscape',
+    label: 'Competitive Landscape',
+    description: 'Market positioning, threats, and opportunities',
+    icon: 'target',
   },
   'media-performance': {
     id: 'media-performance',
@@ -308,6 +321,13 @@ export function QBRClient({
               />
             )}
 
+            {currentSection === 'competitive-landscape' && (
+              <CompetitiveLandscapeSection
+                graph={initialGraph}
+                companyName={companyName}
+              />
+            )}
+
             {currentSection === 'media-performance' && (
               <MediaPerformanceSection
                 companyId={companyId}
@@ -342,6 +362,7 @@ export function QBRClient({
                 content={generatedContent['strategy-adjustments']}
                 onGenerate={() => generateSection('strategy-adjustments')}
                 isGenerating={isGenerating}
+                companyName={companyName}
               />
             )}
 
@@ -401,6 +422,98 @@ function ExecutiveSummarySection({ graph, content, onGenerate, isGenerating }: S
         placeholder="Generate an AI-powered executive summary based on the current context graph and performance data."
       />
     </div>
+  );
+}
+
+interface CompetitiveLandscapeSectionProps {
+  graph: CompanyContextGraph | null;
+  companyName: string;
+}
+
+function CompetitiveLandscapeSection({ graph, companyName }: CompetitiveLandscapeSectionProps) {
+  const competitive = graph?.competitive;
+
+  // Extract data for the competitive landscape component
+  const positioningData = useMemo(() => {
+    if (!competitive) return null;
+    return extractPositioningMapData(
+      competitive.positioningAxes?.value,
+      competitive.ownPositionPrimary?.value,
+      competitive.ownPositionSecondary?.value,
+      competitive.primaryCompetitors?.value || competitive.competitors?.value,
+      competitive.positioningSummary?.value || competitive.positionSummary?.value
+    );
+  }, [competitive]);
+
+  // Check if we have any competitive data
+  const hasCompetitiveData = competitive && (
+    (competitive.competitors?.value?.length || 0) > 0 ||
+    (competitive.primaryCompetitors?.value?.length || 0) > 0 ||
+    competitive.primaryAxis?.value ||
+    (competitive.threatScores?.value?.length || 0) > 0
+  );
+
+  if (!hasCompetitiveData) {
+    return (
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center">
+        <div className="max-w-md mx-auto">
+          <svg className="w-12 h-12 mx-auto mb-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
+          <h3 className="text-lg font-medium text-slate-300 mb-2">No Competitive Data</h3>
+          <p className="text-slate-500 mb-4">
+            Run Competitor Lab to analyze your competitive landscape and populate this section.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Map competitors to the format expected by the component
+  const competitors = (competitive?.competitors?.value || competitive?.primaryCompetitors?.value || []).map((c) => ({
+    id: c.name.toLowerCase().replace(/\s+/g, '-'),
+    name: c.name,
+    x: c.xPosition ?? c.positionPrimary ?? 50,
+    y: c.yPosition ?? c.positionSecondary ?? 50,
+    category: c.category as 'direct' | 'indirect' | 'aspirational' | 'emerging' | undefined,
+    positioning: c.positioning,
+    threatLevel: c.threatLevel !== undefined && c.threatLevel !== null
+      ? c.threatLevel >= 60 ? 'high' as const : c.threatLevel >= 30 ? 'medium' as const : 'low' as const
+      : undefined,
+    confidence: c.confidence,
+  }));
+
+  // Brand position
+  const brandPosition = positioningData?.brandPosition ?? null;
+
+  // Axis labels
+  const primaryAxisLabel = competitive?.primaryAxis?.value || positioningData?.primaryAxisLabel || 'Primary Axis';
+  const secondaryAxisLabel = competitive?.secondaryAxis?.value || positioningData?.secondaryAxisLabel || 'Secondary Axis';
+
+  return (
+    <CompetitiveLandscapeQBR
+      companyName={companyName}
+      primaryAxisLabel={primaryAxisLabel}
+      secondaryAxisLabel={secondaryAxisLabel}
+      primaryAxisLow={positioningData?.primaryAxisLow}
+      primaryAxisHigh={positioningData?.primaryAxisHigh}
+      secondaryAxisLow={positioningData?.secondaryAxisLow}
+      secondaryAxisHigh={positioningData?.secondaryAxisHigh}
+      brandPosition={brandPosition}
+      competitors={competitors}
+      positioningSummary={competitive?.positionSummary?.value || competitive?.positioningSummary?.value}
+      marketClusters={competitive?.marketClusters?.value || []}
+      whitespaceOpportunities={competitive?.whitespaceMap?.value || []}
+      threatScores={competitive?.threatScores?.value || []}
+      overallThreatLevel={competitive?.overallThreatLevel?.value}
+      featuresMatrix={competitive?.featuresMatrix?.value || []}
+      messageOverlap={competitive?.messageOverlap?.value || []}
+      messagingDifferentiationScore={competitive?.messagingDifferentiationScore?.value}
+      substitutes={competitive?.substitutes?.value || []}
+      differentiationStrategy={competitive?.differentiationStrategy?.value}
+      competitiveAdvantages={competitive?.competitiveAdvantages?.value || []}
+      competitiveThreats={competitive?.competitiveThreats?.value || []}
+    />
   );
 }
 
@@ -542,9 +655,46 @@ function WebsiteReviewSection({ graph, content, onGenerate, isGenerating }: Sect
   );
 }
 
-function StrategyAdjustmentsSection({ graph, content, onGenerate, isGenerating }: SectionProps) {
+interface StrategyAdjustmentsSectionProps extends SectionProps {
+  companyName: string;
+}
+
+function StrategyAdjustmentsSection({ graph, content, onGenerate, isGenerating, companyName }: StrategyAdjustmentsSectionProps) {
+  // Extract positioning map data from competitive domain
+  const positioningData = useMemo(() => {
+    if (!graph?.competitive) return null;
+
+    const competitive = graph.competitive;
+    const mapData = extractPositioningMapData(
+      competitive.positioningAxes?.value,
+      competitive.ownPositionPrimary?.value,
+      competitive.ownPositionSecondary?.value,
+      competitive.primaryCompetitors?.value,
+      competitive.positioningSummary?.value
+    );
+
+    return hasPositioningData(mapData) ? mapData : null;
+  }, [graph?.competitive]);
+
   return (
     <div className="space-y-6">
+      {/* Positioning Map - only show if data exists */}
+      {positioningData && (
+        <PositioningMapQBRCard
+          primaryAxisLabel={positioningData.primaryAxisLabel}
+          secondaryAxisLabel={positioningData.secondaryAxisLabel}
+          primaryAxisLow={positioningData.primaryAxisLow}
+          primaryAxisHigh={positioningData.primaryAxisHigh}
+          secondaryAxisLow={positioningData.secondaryAxisLow}
+          secondaryAxisHigh={positioningData.secondaryAxisHigh}
+          brandPosition={positioningData.brandPosition}
+          competitors={positioningData.competitors}
+          positioningSummary={positioningData.positioningSummary}
+          companyName={companyName}
+          showAnnotations={true}
+        />
+      )}
+
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
         <h3 className="font-medium text-slate-200 mb-4">Current Strategy</h3>
         <div className="space-y-3">

@@ -619,10 +619,12 @@ export function MyCompaniesClient() {
     const loadPinnedCompanies = async () => {
       setIsLoading(true);
       const stored = getPinnedCompanies();
+      console.log('[MyCompanies] Loaded pinned IDs from localStorage:', stored);
       setPinnedIds(stored);
 
       if (stored.length > 0) {
         const summaries = await fetchCompanySummaries(stored);
+        console.log('[MyCompanies] Fetched summaries:', summaries.length, 'for', stored.length, 'pinned IDs');
         setCompanies(summaries);
       }
       setIsLoading(false);

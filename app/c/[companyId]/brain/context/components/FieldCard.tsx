@@ -22,6 +22,7 @@ import type { ProvenanceTag } from '@/lib/contextGraph/types';
 import type { FieldLock } from '@/lib/contextGraph/governance/locks';
 import { InlineEditor } from './InlineEditor';
 import { LockBadge, LockIcon } from './LockBadge';
+import { RefinementBadge, getLabIdFromSource, isLabSource } from '@/components/labs/RefinementSummary';
 
 // ============================================================================
 // Types
@@ -154,6 +155,14 @@ export function FieldCard({
                 lock={lock}
                 canUnlock={!!onUnlock}
                 onUnlock={() => onUnlock?.(path)}
+              />
+            )}
+
+            {/* Lab Refinement Badge */}
+            {topSource && isLabSource(topSource.source) && (
+              <RefinementBadge
+                labId={getLabIdFromSource(topSource.source)!}
+                updatedAt={topSource.updatedAt}
               />
             )}
 

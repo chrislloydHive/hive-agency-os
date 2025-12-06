@@ -33,6 +33,7 @@ import {
 } from '@/lib/contextGraph/uiHelpers';
 import { collectGraphSanityReport } from '@/lib/contextGraph/diagnostics';
 import { getAllContext } from '@/lib/contextGraph/contextGateway';
+import { checkAutoFillReadiness } from '@/lib/contextGraph/readiness';
 import { ContextGraphViewer } from './ContextGraphViewer';
 import { ContextExplorerClient } from './ContextExplorerClient';
 import { getCompanyContextHealth } from '@/lib/contextGraph/diagnostics';
@@ -46,7 +47,7 @@ import { ContextEditorClient } from './ContextEditorClient';
 
 interface PageProps {
   params: Promise<{ companyId: string }>;
-  searchParams: Promise<{ view?: string; mode?: string }>;
+  searchParams: Promise<{ view?: string; mode?: string; section?: string; panel?: string }>;
 }
 
 // ============================================================================
@@ -63,7 +64,7 @@ export const metadata: Metadata = {
 
 export default async function CompanyContextGraphPage({ params, searchParams }: PageProps) {
   const { companyId } = await params;
-  const { view, mode } = await searchParams;
+  const { view, mode, section, panel } = await searchParams;
 
   // Load company info
   const company = await getCompanyById(companyId);
@@ -176,6 +177,12 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
     );
   }
 
+  // Get baseline initialization date from graph meta
+  const baselineInitializedAt = graph.meta?.contextInitializedAt || null;
+
+  // Compute auto-fill readiness
+  const autoFillReadiness = checkAutoFillReadiness(company, graph, companyId);
+
   // Default view: existing ContextGraphViewer
   if (isNewGraph) {
     return (
@@ -184,6 +191,8 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
         <ContextHealthHeader
           healthScore={healthScore}
           companyId={companyId}
+          baselineInitializedAt={baselineInitializedAt}
+          autoFillReadiness={autoFillReadiness}
         />
         <ContextGraphViewer
           companyId={companyId}
@@ -194,6 +203,8 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
           contextHealthScore={0}
           snapshots={[]}
           diff={[]}
+          initialDomain={section}
+          initialPanel={panel}
         />
       </div>
     );
@@ -222,6 +233,8 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
         <ContextHealthHeader
           healthScore={healthScore}
           companyId={companyId}
+          baselineInitializedAt={baselineInitializedAt}
+          autoFillReadiness={autoFillReadiness}
         />
       </div>
       <ContextGraphViewer
@@ -234,6 +247,8 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
         snapshots={snapshots}
         diff={diff}
         coveragePercent={completenessScore}
+        initialDomain={section}
+        initialPanel={panel}
       />
     </div>
   );

@@ -317,6 +317,10 @@ export function ContextDiagnosticsDrawer({
                     <div className="grid grid-cols-2 gap-y-2 text-xs">
                       <div className="text-slate-400">Total Fields</div>
                       <div className="text-slate-200 text-right">{healthScore.stats.totalFields}</div>
+                      <div className="text-slate-400">Auto-fillable</div>
+                      <div className="text-slate-200 text-right">
+                        {healthScore.stats.autoFillableFields ?? (healthScore.stats.totalFields - (healthScore.stats.manualFields ?? 0))}
+                      </div>
                       <div className="text-slate-400">Populated</div>
                       <div className="text-slate-200 text-right">{healthScore.stats.populatedFields}</div>
                       <div className="text-slate-400">Critical Fields</div>
@@ -330,7 +334,21 @@ export function ContextDiagnosticsDrawer({
                       )}>
                         {healthScore.stats.staleFields}
                       </div>
+                      {(healthScore.stats.manualFields ?? 0) > 0 && (
+                        <>
+                          <div className="text-slate-400">Manual-only</div>
+                          <div className="text-purple-400 text-right">
+                            {healthScore.stats.manualFields}
+                            <span className="text-slate-500 text-[10px] ml-1">(excluded)</span>
+                          </div>
+                        </>
+                      )}
                     </div>
+                    {(healthScore.stats.manualFields ?? 0) > 0 && (
+                      <p className="text-[10px] text-slate-500 mt-3 italic">
+                        Manual-only fields (objectives, budgets) require human input and are excluded from health scoring.
+                      </p>
+                    )}
                   </div>
 
                   {/* Section Scores */}

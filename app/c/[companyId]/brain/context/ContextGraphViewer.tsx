@@ -17,6 +17,7 @@
 
 import { useMemo, useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
 import { DOMAIN_NAMES, type DomainName } from '@/lib/contextGraph/companyContextGraph';
 import type {
@@ -61,6 +62,9 @@ import {
 // Import Auto-Complete Banner
 import { AutoCompleteBanner } from './components/AutoCompleteBanner';
 
+// Import Competitive components
+import { PositioningMapSection } from '@/components/competitive';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -76,6 +80,10 @@ interface Props {
   diff: GraphDiffItem[];
   /** Coverage percentage for auto-complete banner (0-100) */
   coveragePercent?: number;
+  /** Initial domain to select (from URL query param) */
+  initialDomain?: string;
+  /** Initial right panel tab to show (from URL query param) */
+  initialPanel?: string;
 }
 
 // ============================================================================
@@ -90,6 +98,10 @@ function cn(...classes: (string | boolean | undefined | null)[]): string {
 // Main Viewer Component
 // ============================================================================
 
+// Valid panel tab values
+type RightPanelTab = 'snapshots' | 'notes' | 'ai' | 'suggestions' | 'validation' | 'contracts' | 'logs' | 'predict' | 'temporal' | 'collab' | 'bench';
+const VALID_PANEL_TABS: RightPanelTab[] = ['snapshots', 'notes', 'ai', 'suggestions', 'validation', 'contracts', 'logs', 'predict', 'temporal', 'collab', 'bench'];
+
 export function ContextGraphViewer({
   companyId,
   companyName,
@@ -100,13 +112,27 @@ export function ContextGraphViewer({
   snapshots,
   diff,
   coveragePercent,
+  initialDomain,
+  initialPanel,
 }: Props) {
-  const [selectedDomain, setSelectedDomain] = useState<ContextDomainId>('identity');
+  const router = useRouter();
+
+  // Validate initialDomain is a valid ContextDomainId
+  const validInitialDomain = initialDomain && DOMAIN_NAMES.includes(initialDomain as ContextDomainId)
+    ? (initialDomain as ContextDomainId)
+    : 'identity';
+
+  // Validate initialPanel is a valid tab
+  const validInitialPanel = initialPanel && VALID_PANEL_TABS.includes(initialPanel as RightPanelTab)
+    ? (initialPanel as RightPanelTab)
+    : 'snapshots';
+
+  const [selectedDomain, setSelectedDomain] = useState<ContextDomainId>(validInitialDomain);
   const [showOnlyWithValue, setShowOnlyWithValue] = useState(false);
   const [showOnlyRefreshIssues, setShowOnlyRefreshIssues] = useState(false);
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
   const [isGlobalSearch, setIsGlobalSearch] = useState(false);
-  const [rightPanelTab, setRightPanelTab] = useState<'snapshots' | 'notes' | 'ai' | 'suggestions' | 'validation' | 'contracts' | 'logs' | 'predict' | 'temporal' | 'collab' | 'bench'>('snapshots');
+  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>(validInitialPanel);
 
   // Provenance modal state
   const [provenanceModalField, setProvenanceModalField] = useState<GraphFieldUi | null>(null);
@@ -281,8 +307,8 @@ export function ContextGraphViewer({
       const data = await response.json();
 
       if (data.ok) {
-        // Reload the page to show updated data
-        window.location.reload();
+        // Use router.refresh() to preserve client state (keeps current domain selection)
+        router.refresh();
         return { success: true };
       } else {
         return { success: false, error: data.blockedReason || data.error || 'Failed to save' };
@@ -290,7 +316,7 @@ export function ContextGraphViewer({
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to save' };
     }
-  }, [companyId]);
+  }, [companyId, router]);
 
   // Phase 3: Lock handlers
   const handleLockField = useCallback(async (path: string) => {
@@ -336,6 +362,36 @@ export function ContextGraphViewer({
     }
   }, [companyId]);
 
+  // Phase 4: Prediction accepted handler (for PredictivePanel)
+  const handlePredictionAccepted = useCallback(async (path: string, value: unknown): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const response = await fetch('/api/context/updates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          path,
+          value,
+          updatedBy: 'human',
+          sourceTool: 'predict',
+          createSnapshot: true,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.ok) {
+        // Use router.refresh() to preserve client state (keeps Predict tab open)
+        router.refresh();
+        return { success: true };
+      } else {
+        return { success: false, error: data.blockedReason || data.error || 'Failed to save' };
+      }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to save' };
+    }
+  }, [companyId, router]);
+
   // Phase 3: AI Suggestions handlers
   const handleLoadSuggestions = useCallback(async () => {
     setSuggestionsLoading(true);
@@ -378,13 +434,13 @@ export function ContextGraphViewer({
       if (response.ok) {
         // Remove from suggestions list
         setSuggestions(prev => prev.filter(s => s.id !== suggestion.id));
-        // Reload to show updated data
-        window.location.reload();
+        // Use router.refresh() to preserve client state
+        router.refresh();
       }
     } catch (error) {
       console.error('Failed to accept suggestion:', error);
     }
-  }, [companyId]);
+  }, [companyId, router]);
 
   const handleRejectSuggestion = useCallback(async (suggestion: AISuggestion) => {
     // Just remove from UI for now
@@ -686,6 +742,17 @@ export function ContextGraphViewer({
               />
             )}
 
+            {/* Positioning Map (only for competitive domain) */}
+            {!isGlobalSearch && selectedDomain === 'competitive' && graph && (
+              <PositioningMapSection
+                companyId={companyId}
+                companyName={companyName}
+                competitiveDomain={graph.competitive}
+                canEdit={true}
+                onSaveField={handleSaveField}
+              />
+            )}
+
             {/* Fields */}
             {filteredFields.length === 0 ? (
               <div className="rounded-md border border-dashed border-slate-800 bg-slate-950/60 p-6 text-center">
@@ -804,9 +871,8 @@ export function ContextGraphViewer({
               {rightPanelTab === 'predict' && (
                 <PredictivePanel
                   companyId={companyId}
-                  onPredictionAccepted={async (path, value) => {
-                    await handleSaveField(path, typeof value === 'string' ? value : JSON.stringify(value));
-                  }}
+                  domain={selectedDomain}
+                  onPredictionAccepted={handlePredictionAccepted}
                 />
               )}
 

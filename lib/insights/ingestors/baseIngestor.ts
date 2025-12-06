@@ -146,8 +146,13 @@ export async function runIngestor(
     let rawInsights: unknown;
     try {
       rawInsights = JSON.parse(result.content);
+      console.log(`[Ingestor:${toolId}] Parsed AI response type:`, typeof rawInsights, Array.isArray(rawInsights) ? 'array' : 'not-array');
+      if (rawInsights && typeof rawInsights === 'object' && !Array.isArray(rawInsights)) {
+        console.log(`[Ingestor:${toolId}] Response keys:`, Object.keys(rawInsights as object));
+      }
     } catch {
       console.error(`[Ingestor:${toolId}] Failed to parse AI response as JSON`);
+      console.error(`[Ingestor:${toolId}] Raw response:`, result.content.substring(0, 500));
       return { success: false, insightsCreated: 0, insightsSkipped: 0, error: 'Invalid JSON response' };
     }
 

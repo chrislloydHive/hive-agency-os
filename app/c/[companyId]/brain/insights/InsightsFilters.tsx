@@ -57,6 +57,9 @@ export function InsightsFilters({ companyId, showOnlyRefresh = false }: Insights
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState<{ created: number; skipped: number } | null>(null);
 
+  // Debug: log when component mounts
+  console.log('[InsightsFilters] Component rendered:', { companyId, showOnlyRefresh });
+
   const currentStatus = searchParams.get('status') || 'all';
   const currentSeverity = searchParams.get('severity') || 'all';
   const currentCategory = searchParams.get('category') || 'all';
@@ -78,20 +81,39 @@ export function InsightsFilters({ companyId, showOnlyRefresh = false }: Insights
   };
 
   const handleRefresh = async () => {
+    console.log('[InsightsFilters] handleRefresh called for company:', companyId);
     setIsRefreshing(true);
     setRefreshResult(null);
 
     try {
+      console.log('[InsightsFilters] Calling refresh API...');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
       const response = await fetch(
         `/api/os/client-brain/${companyId}/insights/refresh`,
-        { method: 'POST' }
-      );
+        {
+          method: 'POST',
+          signal: controller.signal,
+        }
+      ).finally(() => clearTimeout(timeoutId));
+
+      console.log('[InsightsFilters] API response status:', response.status);
 
       if (!response.ok) {
-        throw new Error('Failed to refresh insights');
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Refresh failed:', response.status, errorData);
+        throw new Error(errorData.error || 'Failed to refresh insights');
       }
 
       const data = await response.json();
+      console.log('[InsightsRefresh] Response:', data);
+
+      // Log any errors from the extraction process
+      if (data.errors && data.errors.length > 0) {
+        console.warn('[InsightsRefresh] Extraction errors:', data.errors);
+      }
+
       setRefreshResult({ created: data.insightsCreated, skipped: data.insightsSkipped });
 
       // Refresh the page to show new insights

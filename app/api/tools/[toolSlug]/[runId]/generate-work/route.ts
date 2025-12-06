@@ -44,11 +44,15 @@ const toolNames: Record<DiagnosticToolId, string> = {
   gapHeavy: 'GAP Heavy',
   websiteLab: 'Website Lab',
   brandLab: 'Brand Lab',
+  audienceLab: 'Audience Lab',
+  mediaLab: 'Media Lab',
   contentLab: 'Content Lab',
   seoLab: 'SEO Lab',
   demandLab: 'Demand Lab',
   opsLab: 'Ops Lab',
   creativeLab: 'Creative Lab',
+  competitorLab: 'Competitor Lab',
+  competitionLab: 'Competition Lab',
 };
 
 interface RouteContext {

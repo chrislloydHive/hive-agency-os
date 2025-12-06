@@ -223,8 +223,12 @@ function generateWebsiteSummary(ctx: CreativeWebsiteContext): string {
 function generateMediaSummary(ctx: CreativeMediaContext): string {
   const parts: string[] = [];
   if (ctx.mediaMaturity) parts.push(`Media Maturity: ${ctx.mediaMaturity}`);
-  if (ctx.topPerformingChannels?.length) parts.push(`Top Channels: ${ctx.topPerformingChannels.join(', ')}`);
-  if (ctx.channelRecommendations?.length) parts.push(`Recommendations: ${ctx.channelRecommendations.join('; ')}`);
+  if (Array.isArray(ctx.topPerformingChannels) && ctx.topPerformingChannels.length) {
+    parts.push(`Top Channels: ${ctx.topPerformingChannels.join(', ')}`);
+  }
+  if (Array.isArray(ctx.channelRecommendations) && ctx.channelRecommendations.length) {
+    parts.push(`Recommendations: ${ctx.channelRecommendations.join('; ')}`);
+  }
   return parts.join('. ') || 'No media insights available.';
 }
 

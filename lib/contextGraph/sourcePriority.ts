@@ -32,6 +32,7 @@ export type SourceId =
   | 'gap_heavy'      // GAP Heavy diagnostic
   | 'gap_full'       // GAP Full diagnostic
   | 'gap_ia'         // GAP IA diagnostic
+  | 'fcb'            // Foundational Context Builder - auto-populates from website
   | 'brain'          // AI Brain inference
   | 'inferred'       // Generic inference
   | 'airtable'       // Legacy Airtable import
@@ -115,44 +116,47 @@ export function getHumanOverride(provenance: ProvenanceTag[]): ProvenanceTag | n
  * determines priority among automated/diagnostic sources.
  */
 export const DOMAIN_PRIORITY_CONFIG: Record<DomainName, DomainPriorityConfig> = {
-  // Identity domain - GAP is most authoritative, then setup wizard
+  // Identity domain - GAP is most authoritative, then setup wizard, then FCB
   identity: {
     priority: [
       'gap_heavy',
       'gap_full',
       'gap_ia',
       'setup_wizard',
+      'fcb',
       'airtable',
       'brain',
       'inferred',
     ],
   },
 
-  // Brand domain - Brand Lab is authoritative
+  // Brand domain - Brand Lab is authoritative, FCB provides initial foundation
   brand: {
     priority: [
       'brand_lab',
       'gap_heavy',
       'gap_full',
       'gap_ia',
+      'fcb',
       'brain',
       'inferred',
     ],
   },
 
-  // Audience domain - Audience Lab is authoritative
+  // Audience domain - Audience Lab is authoritative, FCB provides initial foundation
   audience: {
     priority: [
       'audience_lab',
       'gap_heavy',
       'gap_full',
       'gap_ia',
+      'fcb',
       'brain',
       'inferred',
     ],
   },
 
-  // Website domain - Website Lab / UX Lab are authoritative
+  // Website domain - Website Lab / UX Lab are authoritative, FCB provides initial foundation
   website: {
     priority: [
       'website_lab',
@@ -160,12 +164,13 @@ export const DOMAIN_PRIORITY_CONFIG: Record<DomainName, DomainPriorityConfig> = 
       'gap_heavy',
       'gap_full',
       'gap_ia',
+      'fcb',
       'brain',
       'inferred',
     ],
   },
 
-  // Content domain - GAP and Content Lab
+  // Content domain - GAP and Content Lab, FCB provides initial foundation
   content: {
     priority: [
       'gap_heavy',
@@ -173,6 +178,7 @@ export const DOMAIN_PRIORITY_CONFIG: Record<DomainName, DomainPriorityConfig> = 
       'seo_lab',
       'gap_full',
       'gap_ia',
+      'fcb',
       'brain',
       'inferred',
     ],
@@ -186,6 +192,7 @@ export const DOMAIN_PRIORITY_CONFIG: Record<DomainName, DomainPriorityConfig> = 
       'content_lab',
       'gap_full',
       'gap_ia',
+      'fcb',
       'brain',
       'inferred',
     ],
@@ -219,24 +226,26 @@ export const DOMAIN_PRIORITY_CONFIG: Record<DomainName, DomainPriorityConfig> = 
     ],
   },
 
-  // Objectives domain - GAP is authoritative
+  // Objectives domain - GAP is authoritative, FCB provides initial foundation
   objectives: {
     priority: [
       'gap_heavy',
       'gap_full',
       'gap_ia',
       'setup_wizard',
+      'fcb',
       'brain',
       'inferred',
     ],
   },
 
-  // Product/Offer domain - GAP is authoritative
+  // Product/Offer domain - GAP is authoritative, FCB provides initial foundation
   productOffer: {
     priority: [
       'gap_heavy',
       'gap_full',
       'gap_ia',
+      'fcb',
       'brain',
       'inferred',
     ],
@@ -291,13 +300,14 @@ export const DOMAIN_PRIORITY_CONFIG: Record<DomainName, DomainPriorityConfig> = 
     ],
   },
 
-  // Digital Infrastructure - Website Lab is authoritative
+  // Digital Infrastructure - Website Lab is authoritative, FCB provides initial foundation
   digitalInfra: {
     priority: [
       'website_lab',
       'gap_heavy',
       'gap_full',
       'gap_ia',
+      'fcb',
       'brain',
       'inferred',
     ],
@@ -314,7 +324,7 @@ export const DOMAIN_PRIORITY_CONFIG: Record<DomainName, DomainPriorityConfig> = 
     ],
   },
 
-  // Creative domain - Creative Lab is authoritative
+  // Creative domain - Creative Lab is authoritative, FCB provides initial foundation
   creative: {
     priority: [
       'gap_heavy',
@@ -322,18 +332,20 @@ export const DOMAIN_PRIORITY_CONFIG: Record<DomainName, DomainPriorityConfig> = 
       'content_lab',
       'gap_full',
       'gap_ia',
+      'fcb',
       'brain',
       'inferred',
     ],
   },
 
-  // Competitive domain - GAP is authoritative
+  // Competitive domain - GAP is authoritative, FCB provides initial foundation
   competitive: {
     priority: [
       'gap_heavy',
       'gap_full',
       'gap_ia',
       'brand_lab',
+      'fcb',
       'brain',
       'inferred',
     ],
@@ -514,6 +526,7 @@ export const SOURCE_DISPLAY_NAMES: Record<string, string> = {
   gap_heavy: 'GAP Heavy',
   gap_full: 'GAP Full',
   gap_ia: 'GAP IA',
+  fcb: 'Auto-filled from Website',
   brain: 'AI Brain',
   inferred: 'Inferred',
   airtable: 'Airtable Import',

@@ -103,11 +103,15 @@ function mapDiagnosticToCompanyToolId(diagnosticToolId: DiagnosticToolId): Compa
     gapHeavy: 'gapHeavy',
     websiteLab: 'websiteLab',
     brandLab: 'brandLab',
+    audienceLab: 'audienceLab',
+    mediaLab: 'mediaLab',
     contentLab: 'contentLab',
     seoLab: 'seoLab',
     demandLab: 'demandLab',
     opsLab: 'opsLab',
     creativeLab: 'creativeLab',
+    competitorLab: 'competitorLab',
+    competitionLab: 'competitorLab', // Competition Lab v2 maps to same tool
   };
   return mapping[diagnosticToolId] || null;
 }
@@ -338,6 +342,30 @@ export async function getRecommendedToolsForBlueprint(
         }
         break;
 
+      case 'competitorLab':
+        // Competitor Lab - for competitive intelligence
+        if (neverRun) {
+          // Check if Brand Lab or GAP IA has been run (competitor analysis benefits from brand context)
+          const hasBrandLab = runs.some(r => r.toolId === 'brandLab' && r.status === 'complete');
+          const hasGapIa = runs.some(r => r.toolId === 'gapSnapshot' && r.status === 'complete');
+          if (hasBrandLab || hasGapIa) {
+            scoreImpact = 'high';
+            urgency = 'now';
+            reason = 'Brand context established. Map competitive landscape and identify positioning opportunities.';
+          } else {
+            scoreImpact = 'medium';
+            urgency = 'next';
+            reason = 'Profile competitors and map market positioning for strategic differentiation.';
+          }
+        } else if (isStale) {
+          scoreImpact = 'medium';
+          urgency = 'next';
+          reason = `Competitive intelligence is ${daysSinceRun} days old. Refresh to stay current on competitor movements.`;
+        } else {
+          continue;
+        }
+        break;
+
       default:
         // For other tools, basic staleness logic
         if (neverRun) {
@@ -370,7 +398,11 @@ export async function getRecommendedToolsForBlueprint(
         f.includes('campaign') && toolId.includes('creative') ||
         f.includes('media') && toolId.includes('media') ||
         f.includes('audience') && toolId.includes('audience') ||
-        f.includes('targeting') && toolId.includes('audience')
+        f.includes('targeting') && toolId.includes('audience') ||
+        f.includes('competitor') && toolId.includes('competitor') ||
+        f.includes('competitive') && toolId.includes('competitor') ||
+        f.includes('positioning') && toolId.includes('competitor') ||
+        f.includes('differentiation') && toolId.includes('competitor')
       )) {
         // Boost urgency if tool aligns with focus areas
         if (urgency === 'later') urgency = 'next';
@@ -459,6 +491,9 @@ export async function createWorkFromRecommendedTool(
     'Demand Generation': 'Funnel',
     'Marketing Ops': 'Other',
     'Analytics': 'Funnel',
+    'Media & Advertising': 'Funnel',
+    'Audience & Targeting': 'Strategy',
+    'Competitive Intelligence': 'Strategy',
   };
 
   // Map impact to priority

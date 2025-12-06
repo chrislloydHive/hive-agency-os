@@ -51,6 +51,12 @@ export async function generatePredictions(
     predictAll
   );
 
+  console.log('[predictive] Target domains:', targetDomains);
+  console.log('[predictive] Fields to predict:', fieldsToPredict.length);
+  if (targetDomains && targetDomains.length > 0) {
+    console.log('[predictive] Sample fields:', fieldsToPredict.slice(0, 5).map(f => f.path));
+  }
+
   if (fieldsToPredict.length === 0) {
     return {
       predictions: [],

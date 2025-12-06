@@ -418,11 +418,15 @@ export async function fetchDiagnosticsData(companyId: string): Promise<Diagnosti
     gapHeavy: null,
     websiteLab: null,
     brandLab: null,
+    audienceLab: null,
+    mediaLab: null,
     contentLab: null,
     seoLab: null,
     demandLab: null,
     opsLab: null,
     creativeLab: null,
+    competitorLab: null,
+    competitionLab: null,
   };
 
   for (const toolId of Object.keys(runs) as DiagnosticToolId[]) {

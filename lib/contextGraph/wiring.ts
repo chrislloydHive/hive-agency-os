@@ -29,17 +29,21 @@ export const FIELD_WRITERS: Record<string, WriterModuleId[]> = {
   // ===========================================================================
   // Identity Domain
   // ===========================================================================
-  'identity.businessName': ['Setup', 'GAP', 'Manual'],
-  'identity.industry': ['Setup', 'GAP', 'GAPHeavy'],
-  'identity.businessModel': ['Setup', 'GAP'],
+  'identity.businessName': ['Setup', 'GAP', 'Manual', 'FCB'],
+  'identity.businessDescription': ['Setup', 'GAP', 'FCB'],
+  'identity.industry': ['Setup', 'GAP', 'GAPHeavy', 'FCB'],
+  'identity.businessModel': ['Setup', 'GAP', 'FCB'],
+  'identity.primaryOffering': ['Setup', 'GAP', 'FCB'],
   'identity.revenueModel': ['Setup', 'GAP'],
-  'identity.icpDescription': ['Setup', 'GAP', 'ICPExtractor', 'StrategicPlan'],
+  'identity.icpDescription': ['Setup', 'GAP', 'ICPExtractor', 'StrategicPlan', 'FCB'],
   'identity.marketMaturity': ['Setup', 'GAP', 'GAPHeavy'],
-  'identity.geographicFootprint': ['Setup', 'GAP'],
-  'identity.serviceArea': ['Setup', 'GAP'],
-  'identity.competitiveLandscape': ['GAP', 'GAPHeavy', 'BrandLab'],
+  'identity.geographicFootprint': ['Setup', 'GAP', 'FCB'],
+  'identity.serviceArea': ['Setup', 'GAP', 'FCB'],
+  'identity.foundedYear': ['Setup', 'FCB'],
+  'identity.companySize': ['Setup', 'FCB'],
+  'identity.competitiveLandscape': ['GAP', 'GAPHeavy', 'BrandLab', 'FCB'],
   'identity.marketPosition': ['GAP', 'GAPHeavy', 'BrandLab'],
-  'identity.primaryCompetitors': ['Setup', 'GAP', 'GAPHeavy'],
+  'identity.primaryCompetitors': ['Setup', 'GAP', 'GAPHeavy', 'FCB'],
   'identity.seasonalityNotes': ['Setup', 'GAP'],
   'identity.peakSeasons': ['Setup', 'GAP'],
   'identity.lowSeasons': ['Setup'],
@@ -49,18 +53,21 @@ export const FIELD_WRITERS: Record<string, WriterModuleId[]> = {
   // ===========================================================================
   // Audience Domain
   // ===========================================================================
-  'audience.primaryAudience': ['Setup', 'GAP', 'AudienceLab'],
-  'audience.primaryBuyerRoles': ['Setup', 'AudienceLab'],
+  'audience.primaryAudience': ['Setup', 'GAP', 'AudienceLab', 'FCB'],
+  'audience.audienceDescription': ['Setup', 'AudienceLab', 'FCB'],
+  'audience.primaryBuyerRoles': ['Setup', 'AudienceLab', 'FCB'],
+  'audience.targetDemographics': ['Setup', 'AudienceLab', 'FCB'],
+  'audience.buyerTypes': ['Setup', 'AudienceLab', 'FCB'],
   'audience.companyProfile': ['Setup', 'AudienceLab'],
   'audience.coreSegments': ['Setup', 'GAP', 'AudienceLab'],
   'audience.segmentDetails': ['AudienceLab'],
-  'audience.demographics': ['Setup', 'GAP', 'AudienceLab'],
+  'audience.demographics': ['Setup', 'GAP', 'AudienceLab', 'FCB'],
   'audience.geos': ['Setup', 'GAP'],
   'audience.primaryMarkets': ['Setup', 'GAP'],
   'audience.behavioralDrivers': ['Setup', 'AudienceLab'],
   'audience.demandStates': ['Setup', 'AudienceLab'],
-  'audience.painPoints': ['Setup', 'GAP', 'AudienceLab'],
-  'audience.motivations': ['Setup', 'GAP', 'AudienceLab'],
+  'audience.painPoints': ['Setup', 'GAP', 'AudienceLab', 'FCB'],
+  'audience.motivations': ['Setup', 'GAP', 'AudienceLab', 'FCB'],
   'audience.personaNames': ['AudienceLab', 'Setup'],
   'audience.personaBriefs': ['AudienceLab'],
 
@@ -68,13 +75,15 @@ export const FIELD_WRITERS: Record<string, WriterModuleId[]> = {
   // Brand Domain
   // ===========================================================================
   'brand.positioning': ['BrandLab', 'GAP', 'Setup'],
-  'brand.tagline': ['BrandLab', 'GAP'],
+  'brand.tagline': ['BrandLab', 'GAP', 'FCB'],
   'brand.missionStatement': ['BrandLab', 'GAP'],
   'brand.valueProps': ['BrandLab', 'GAP', 'CreativeLab'],
   'brand.differentiators': ['BrandLab', 'GAP', 'CreativeLab'],
   'brand.uniqueSellingPoints': ['BrandLab', 'GAP'],
-  'brand.toneOfVoice': ['BrandLab', 'CreativeLab'],
-  'brand.brandPersonality': ['BrandLab'],
+  'brand.toneOfVoice': ['BrandLab', 'CreativeLab', 'FCB'],
+  'brand.brandPersonality': ['BrandLab', 'FCB'],
+  'brand.voiceDescriptors': ['BrandLab', 'FCB'],
+  'brand.brandPromise': ['BrandLab', 'FCB'],
   'brand.messagingPillars': ['BrandLab', 'CreativeLab'],
   'brand.brandPerception': ['BrandLab'],
   'brand.brandStrengths': ['BrandLab', 'GAP'],
@@ -131,6 +140,15 @@ export const FIELD_WRITERS: Record<string, WriterModuleId[]> = {
   'creative.brandGuidelines': ['Setup', 'BrandLab'],
 
   // ===========================================================================
+  // ProductOffer Domain
+  // ===========================================================================
+  'productOffer.primaryProducts': ['Setup', 'FCB', 'GAP'],
+  'productOffer.services': ['Setup', 'FCB', 'GAP'],
+  'productOffer.valueProposition': ['Setup', 'FCB', 'BrandLab', 'GAP'],
+  'productOffer.pricingModel': ['Setup', 'FCB'],
+  'productOffer.keyDifferentiators': ['Setup', 'FCB', 'BrandLab', 'GAP'],
+
+  // ===========================================================================
   // Budget & Ops Domain
   // ===========================================================================
   'budgetOps.totalMarketingBudget': ['Setup', 'MediaLab'],
@@ -158,6 +176,74 @@ export const FIELD_WRITERS: Record<string, WriterModuleId[]> = {
   'ops.trackingTools': ['Setup', 'OpsLab'],
   'ops.ga4PropertyId': ['Setup', 'Manual'],
   'ops.ga4ConversionEvents': ['Setup', 'OpsLab'],
+
+  // ===========================================================================
+  // Competitive Domain
+  // ===========================================================================
+  // Core positioning
+  'competitive.primaryAxis': ['CompetitorLab', 'BrandLab', 'GAP', 'Setup', 'FCB'],
+  'competitive.secondaryAxis': ['CompetitorLab', 'BrandLab', 'GAP', 'Setup', 'FCB'],
+  'competitive.positionSummary': ['CompetitorLab', 'BrandLab', 'GAP'],
+  'competitive.whitespaceOpportunities': ['CompetitorLab', 'BrandLab', 'GAP'],
+  'competitive.whitespaceMap': ['CompetitorLab'],
+
+  // Competitor profiles
+  'competitive.competitors': ['CompetitorLab', 'BrandLab', 'GAP', 'Setup', 'FCB'],
+  'competitive.primaryCompetitors': ['CompetitorLab', 'BrandLab', 'GAP', 'Setup', 'FCB'],
+
+  // Market position
+  'competitive.shareOfVoice': ['CompetitorLab', 'BrandLab', 'GAP'],
+  'competitive.marketPosition': ['CompetitorLab', 'BrandLab', 'GAP'],
+  'competitive.competitiveAdvantages': ['CompetitorLab', 'BrandLab', 'GAP'],
+  'competitive.differentiationStrategy': ['CompetitorLab', 'BrandLab', 'GAP'],
+  'competitive.uniqueValueProps': ['CompetitorLab', 'BrandLab', 'GAP'],
+
+  // Threats & Opportunities
+  'competitive.competitiveThreats': ['CompetitorLab', 'BrandLab', 'GAP'],
+  'competitive.competitiveOpportunities': ['CompetitorLab', 'BrandLab', 'GAP'],
+  'competitive.marketTrends': ['CompetitorLab', 'BrandLab', 'GAP'],
+
+  // Legacy positioning
+  'competitive.positioningAxes': ['CompetitorLab', 'BrandLab', 'Setup'],
+  'competitive.ownPositionPrimary': ['CompetitorLab', 'BrandLab', 'Setup'],
+  'competitive.ownPositionSecondary': ['CompetitorLab', 'BrandLab', 'Setup'],
+  'competitive.positioningSummary': ['CompetitorLab', 'BrandLab', 'GAP'],
+
+  // Confidence & Freshness (NEW)
+  'competitive.dataConfidence': ['CompetitorLab', 'FCB', 'GAP'],
+  'competitive.lastValidatedAt': ['CompetitorLab', 'FCB', 'GAP', 'Manual'],
+
+  // Feature Matrix (NEW)
+  'competitive.featuresMatrix': ['CompetitorLab', 'FCB', 'GAP', 'Manual'],
+
+  // Pricing Landscape (NEW)
+  'competitive.pricingModels': ['CompetitorLab', 'FCB', 'GAP', 'Manual'],
+  'competitive.ownPriceTier': ['CompetitorLab', 'Setup', 'Manual'],
+  'competitive.categoryMedianPrice': ['CompetitorLab', 'GAP'],
+
+  // Messaging Overlap (NEW)
+  'competitive.messageOverlap': ['CompetitorLab', 'BrandLab', 'CreativeLab'],
+  'competitive.messagingDifferentiationScore': ['CompetitorLab', 'BrandLab'],
+
+  // Market Clusters (NEW)
+  'competitive.marketClusters': ['CompetitorLab', 'GAP'],
+
+  // Threat Modeling (NEW)
+  'competitive.threatScores': ['CompetitorLab', 'GAP'],
+  'competitive.overallThreatLevel': ['CompetitorLab', 'GAP'],
+
+  // Substitutes (NEW)
+  'competitive.substitutes': ['CompetitorLab', 'FCB', 'GAP', 'Manual'],
+
+  // Media/Benchmarks
+  'competitive.competitorMediaMix': ['CompetitorLab', 'GAP'],
+  'competitive.competitorBudgets': ['CompetitorLab', 'GAP'],
+  'competitive.competitorSearchStrategy': ['CompetitorLab', 'GAP', 'SEOLab'],
+  'competitive.competitorCreativeThemes': ['CompetitorLab', 'CreativeLab', 'GAP'],
+  'competitive.categoryBenchmarks': ['CompetitorLab', 'GAP'],
+  'competitive.categoryCpa': ['CompetitorLab', 'GAP'],
+  'competitive.categoryRoas': ['CompetitorLab', 'GAP'],
+  'competitive.categoryCtr': ['CompetitorLab', 'GAP'],
 };
 
 // ============================================================================
@@ -303,6 +389,74 @@ export const FIELD_CONSUMERS: Record<string, ConsumerModuleId[]> = {
   'ops.trackingTools': ['StrategicPlan'],
   'ops.ga4PropertyId': ['Analytics'],
   'ops.ga4ConversionEvents': ['Analytics', 'StrategicPlan'],
+
+  // ===========================================================================
+  // Competitive Domain
+  // ===========================================================================
+  // Core positioning
+  'competitive.primaryAxis': ['QBR', 'Blueprint', 'CreativeLab', 'Brain', 'InsightsEngine'],
+  'competitive.secondaryAxis': ['QBR', 'Blueprint', 'CreativeLab', 'Brain', 'InsightsEngine'],
+  'competitive.positionSummary': ['QBR', 'Blueprint', 'Brain', 'InsightsEngine'],
+  'competitive.whitespaceOpportunities': ['QBR', 'Blueprint', 'StrategicPlan', 'Brain', 'InsightsEngine'],
+  'competitive.whitespaceMap': ['QBR', 'Blueprint', 'Brain'],
+
+  // Competitor profiles
+  'competitive.competitors': ['QBR', 'Blueprint', 'CreativeLab', 'BrandLab', 'AudienceLab', 'Brain', 'InsightsEngine'],
+  'competitive.primaryCompetitors': ['QBR', 'Blueprint', 'CreativeLab', 'BrandLab', 'AudienceLab', 'Brain', 'InsightsEngine'],
+
+  // Market position
+  'competitive.shareOfVoice': ['QBR', 'Blueprint', 'InsightsEngine'],
+  'competitive.marketPosition': ['QBR', 'Blueprint', 'StrategicPlan', 'InsightsEngine'],
+  'competitive.competitiveAdvantages': ['CreativeLab', 'QBR', 'Blueprint', 'InsightsEngine'],
+  'competitive.differentiationStrategy': ['CreativeLab', 'QBR', 'Blueprint', 'InsightsEngine'],
+  'competitive.uniqueValueProps': ['CreativeLab', 'QBR', 'Blueprint', 'InsightsEngine'],
+
+  // Threats & Opportunities
+  'competitive.competitiveThreats': ['QBR', 'Blueprint', 'StrategicPlan', 'InsightsEngine'],
+  'competitive.competitiveOpportunities': ['QBR', 'Blueprint', 'StrategicPlan', 'InsightsEngine'],
+  'competitive.marketTrends': ['QBR', 'Blueprint', 'StrategicPlan', 'InsightsEngine'],
+
+  // Legacy positioning
+  'competitive.positioningAxes': ['QBR', 'Blueprint', 'Brain'],
+  'competitive.ownPositionPrimary': ['QBR', 'Blueprint', 'Brain'],
+  'competitive.ownPositionSecondary': ['QBR', 'Blueprint', 'Brain'],
+  'competitive.positioningSummary': ['QBR', 'Blueprint', 'Brain', 'InsightsEngine'],
+
+  // Confidence & Freshness (NEW)
+  'competitive.dataConfidence': ['QBR', 'Blueprint', 'Brain'],
+  'competitive.lastValidatedAt': ['QBR', 'Blueprint', 'Brain'],
+
+  // Feature Matrix (NEW)
+  'competitive.featuresMatrix': ['QBR', 'Blueprint', 'CreativeLab', 'Brain', 'InsightsEngine'],
+
+  // Pricing Landscape (NEW)
+  'competitive.pricingModels': ['QBR', 'Blueprint', 'MediaLab', 'Brain', 'InsightsEngine'],
+  'competitive.ownPriceTier': ['QBR', 'Blueprint', 'MediaLab', 'CreativeLab', 'InsightsEngine'],
+  'competitive.categoryMedianPrice': ['QBR', 'Blueprint', 'MediaLab', 'InsightsEngine'],
+
+  // Messaging Overlap (NEW)
+  'competitive.messageOverlap': ['QBR', 'Blueprint', 'CreativeLab', 'BrandLab', 'InsightsEngine'],
+  'competitive.messagingDifferentiationScore': ['QBR', 'Blueprint', 'CreativeLab', 'InsightsEngine'],
+
+  // Market Clusters (NEW)
+  'competitive.marketClusters': ['QBR', 'Blueprint', 'Brain', 'InsightsEngine'],
+
+  // Threat Modeling (NEW)
+  'competitive.threatScores': ['QBR', 'Blueprint', 'StrategicPlan', 'Brain', 'InsightsEngine'],
+  'competitive.overallThreatLevel': ['QBR', 'Blueprint', 'StrategicPlan', 'Brain', 'InsightsEngine'],
+
+  // Substitutes (NEW)
+  'competitive.substitutes': ['QBR', 'Blueprint', 'CreativeLab', 'Brain', 'InsightsEngine'],
+
+  // Media/Benchmarks
+  'competitive.competitorMediaMix': ['QBR', 'Blueprint', 'MediaLab'],
+  'competitive.competitorBudgets': ['QBR', 'Blueprint', 'MediaLab'],
+  'competitive.competitorSearchStrategy': ['QBR', 'Blueprint', 'SEOLab'],
+  'competitive.competitorCreativeThemes': ['QBR', 'Blueprint', 'CreativeLab'],
+  'competitive.categoryBenchmarks': ['QBR', 'Blueprint', 'MediaLab'],
+  'competitive.categoryCpa': ['QBR', 'Blueprint', 'MediaLab'],
+  'competitive.categoryRoas': ['QBR', 'Blueprint', 'MediaLab'],
+  'competitive.categoryCtr': ['QBR', 'Blueprint', 'MediaLab'],
 };
 
 // ============================================================================

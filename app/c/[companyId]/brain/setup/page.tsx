@@ -13,10 +13,13 @@ import { createEmptyFormData } from './types';
 
 export default async function SetupPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ companyId: string }>;
+  searchParams: Promise<{ step?: string }>;
 }) {
   const { companyId } = await params;
+  const { step: initialStep } = await searchParams;
   const company = await getCompanyById(companyId);
 
   if (!company) {
@@ -58,6 +61,7 @@ export default async function SetupPage({
       initialProvenanceMap={new Map(Object.entries(provenanceMapData))}
       missingFields={loaderResult.missingFields}
       hasGraph={loaderResult.hasGraph}
+      initialStep={initialStep}
     />
   );
 }

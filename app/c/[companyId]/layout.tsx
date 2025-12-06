@@ -5,6 +5,7 @@ import {
   parseFullReportToOsResult,
 } from '@/lib/airtable/fullReports';
 import CompanyTabs from '@/components/os/CompanyTabs';
+import { AssistantButton } from '@/components/assistant';
 
 export default async function CompanyLayout({
   children,
@@ -70,6 +71,9 @@ export default async function CompanyLayout({
       <CompanyTabs companyId={companyId} />
 
       {children}
+
+      {/* AI Helper floating button */}
+      <AssistantButton />
     </div>
   );
 }

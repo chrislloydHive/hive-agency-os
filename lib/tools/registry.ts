@@ -33,7 +33,8 @@ export type CompanyToolId =
   | 'creativeLab'    // Creative Lab (messaging, territories, campaigns)
   | 'analyticsScan'  // Analytics Scan (GA4 + GSC)
   | 'mediaLab'       // Media Lab (AI media planner)
-  | 'audienceLab';   // Audience Lab (segments + personas)
+  | 'audienceLab'    // Audience Lab (segments + personas)
+  | 'competitorLab'; // Competitor Lab (competitive intelligence)
 
 /**
  * Tool category for grouping in the UI
@@ -48,7 +49,8 @@ export type ToolCategory =
   | 'Marketing Ops'
   | 'Analytics'
   | 'Media & Advertising'
-  | 'Audience & Targeting';
+  | 'Audience & Targeting'
+  | 'Competitive Intelligence';
 
 /**
  * Tool section for high-level grouping in the Tools hub
@@ -84,7 +86,8 @@ export type ToolIcon =
   | 'settings'   // Operations tools
   | 'barChart'   // Analytics tools
   | 'tv'         // Media/advertising tools
-  | 'users';     // Audience/targeting tools
+  | 'users'      // Audience/targeting tools
+  | 'target';    // Competitive intelligence tools
 
 /**
  * Blueprint-specific metadata for tool recommendations
@@ -549,6 +552,34 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
       typicalUseWhen: 'Developing campaign creative, refreshing brand messaging, planning ad creative, or when building a new creative playbook.',
     },
   },
+
+  // ==========================================================================
+  // Strategic Tools - Competitive Intelligence
+  // ==========================================================================
+  {
+    id: 'competitorLab',
+    label: 'Competitor Lab',
+    shortLabel: 'Competitors',
+    description: 'AI-powered competitive intelligence engine. Profiles competitors, maps market positioning, identifies whitespace opportunities, and refines competitive context.',
+    category: 'Competitive Intelligence',
+    section: 'strategic',
+    behavior: 'openRoute',
+    status: 'enabled',
+    diagnosticToolId: 'competitorLab',
+    openPath: (companyId) => `/c/${companyId}/labs/competitor`,
+    urlSlug: 'competitor-lab',
+    requiresWebsite: false,
+    estimatedMinutes: 5,
+    icon: 'target',
+    primaryActionLabel: 'Open Competitor Lab',
+    blueprintMeta: {
+      whyRun: 'Build a competitive landscape with detailed competitor profiles, positioning map, and whitespace opportunities.',
+      answersQuestion: 'Who are our competitors, how are we positioned against them, and where are the market gaps?',
+      influences: ['Strategy', 'Blueprint Focus', 'Work', 'Brain'],
+      inputs: ['Website', 'GAP IA', 'Competitors'],
+      typicalUseWhen: 'Planning competitive strategy, entering new markets, refreshing positioning, or when competitive landscape has changed.',
+    },
+  },
 ];
 
 // ============================================================================
@@ -633,6 +664,7 @@ export function getAllCategories(): ToolCategory[] {
     'Analytics',
     'Media & Advertising',
     'Audience & Targeting',
+    'Competitive Intelligence',
   ];
 }
 
@@ -667,6 +699,7 @@ export function getCategoryColor(category: ToolCategory): string {
     'Analytics': 'text-indigo-400 border-indigo-400/30 bg-indigo-400/10',
     'Media & Advertising': 'text-rose-400 border-rose-400/30 bg-rose-400/10',
     'Audience & Targeting': 'text-violet-400 border-violet-400/30 bg-violet-400/10',
+    'Competitive Intelligence': 'text-rose-400 border-rose-400/30 bg-rose-400/10',
   };
   return colors[category] || 'text-slate-400 border-slate-400/30 bg-slate-400/10';
 }
@@ -682,11 +715,15 @@ export function diagnosticToolIdToCompanyToolId(diagnosticToolId: DiagnosticTool
     gapHeavy: 'gapHeavy',
     websiteLab: 'websiteLab',
     brandLab: 'brandLab',
+    audienceLab: 'brandLab',   // Map to brandLab
+    mediaLab: 'demandLab',     // Map to demandLab
     contentLab: 'contentLab',
     seoLab: 'seoLab',
     demandLab: 'demandLab',
     opsLab: 'opsLab',
     creativeLab: 'creativeLab',
+    competitorLab: 'brandLab', // Map to brandLab
+    competitionLab: 'competitorLab', // Competition Lab v2 maps to competitorLab
   };
   return mapping[diagnosticToolId];
 }

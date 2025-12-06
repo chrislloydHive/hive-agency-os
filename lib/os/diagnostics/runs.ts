@@ -26,11 +26,15 @@ export type DiagnosticToolId =
   | 'gapHeavy'       // Deep multi-source diagnostic (Heavy Worker V3)
   | 'websiteLab'     // Website UX/Conversion diagnostic
   | 'brandLab'       // Brand health diagnostic
+  | 'audienceLab'    // Audience/ICP diagnostic
+  | 'mediaLab'       // Media/Ads diagnostic
   | 'contentLab'     // Content diagnostic
   | 'seoLab'         // SEO Lab diagnostic (deep SEO + GSC + analytics)
   | 'demandLab'      // Demand generation diagnostic
   | 'opsLab'         // Marketing operations diagnostic
-  | 'creativeLab';   // Creative Lab - messaging, territories, campaigns
+  | 'creativeLab'    // Creative Lab - messaging, territories, campaigns
+  | 'competitorLab'  // Competitor Lab - competitive analysis and positioning
+  | 'competitionLab'; // Competition Lab v2 - multi-source competitor discovery
 
 /**
  * Status of a diagnostic run
@@ -605,11 +609,15 @@ export async function getRunsGroupedByTool(
     gapHeavy: [],
     websiteLab: [],
     brandLab: [],
+    audienceLab: [],
+    mediaLab: [],
     contentLab: [],
     seoLab: [],
     demandLab: [],
     opsLab: [],
     creativeLab: [],
+    competitorLab: [],
+    competitionLab: [],
   };
 
   for (const run of runs) {
@@ -758,11 +766,15 @@ export function getToolLabel(toolId: DiagnosticToolId): string {
     gapHeavy: 'GAP Heavy',
     websiteLab: 'Website Lab',
     brandLab: 'Brand Lab',
+    audienceLab: 'Audience Lab',
+    mediaLab: 'Media Lab',
     contentLab: 'Content Lab',
     seoLab: 'SEO Lab',
     demandLab: 'Demand Lab',
     opsLab: 'Ops Lab',
     creativeLab: 'Creative Lab',
+    competitorLab: 'Competitor Lab',
+    competitionLab: 'Competition Lab',
   };
   return labels[toolId] || toolId;
 }
@@ -790,6 +802,8 @@ export function isValidToolId(toolId: string): toolId is DiagnosticToolId {
     'gapHeavy',
     'websiteLab',
     'brandLab',
+    'audienceLab',
+    'mediaLab',
     'contentLab',
     'seoLab',
     'demandLab',
@@ -876,7 +890,8 @@ export async function getLatestRunPerToolForCompany(
   // Initialize all known tools with null
   const allToolIds: DiagnosticToolId[] = [
     'gapSnapshot', 'gapPlan', 'gapHeavy', 'websiteLab',
-    'brandLab', 'contentLab', 'seoLab', 'demandLab', 'opsLab'
+    'brandLab', 'audienceLab', 'mediaLab', 'contentLab',
+    'seoLab', 'demandLab', 'opsLab', 'creativeLab'
   ];
   for (const toolId of allToolIds) {
     latestByTool.set(toolId, null);

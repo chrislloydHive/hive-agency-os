@@ -127,13 +127,74 @@ function extractFullGapData(run: DiagnosticRun): string {
 
   const parts: string[] = [];
 
+  // Debug: log what we're working with
+  console.log('[gapIngestor:fullGap] Raw keys:', Object.keys(raw));
+
   // Overall score
   if (run.score !== null) {
     parts.push(`**Overall Score:** ${run.score}/100`);
   }
 
-  // The Full GAP stores data under growthPlan
-  const growthPlan = raw.growthPlan as Record<string, unknown> | undefined;
+  // The Full GAP stores data under growthPlan OR fullGap (different versions)
+  const growthPlan = (raw.growthPlan || raw.fullGap) as Record<string, unknown> | undefined;
+  if (growthPlan) {
+    console.log('[gapIngestor:fullGap] growthPlan keys:', Object.keys(growthPlan));
+  }
+
+  // Also check for initialAssessment which contains useful data
+  const initialAssessment = raw.initialAssessment as Record<string, unknown> | undefined;
+  if (initialAssessment) {
+    console.log('[gapIngestor:fullGap] initialAssessment keys:', Object.keys(initialAssessment));
+  }
+
+  // Extract from initialAssessment if available
+  if (initialAssessment) {
+    // Overall score from initial assessment
+    const iaSummary = initialAssessment.summary as Record<string, unknown> | undefined;
+    if (iaSummary?.overallScore && run.score === null) {
+      parts.push(`**Overall Score:** ${iaSummary.overallScore}/100`);
+    }
+    if (iaSummary?.maturityStage) {
+      parts.push(`**Maturity Stage:** ${iaSummary.maturityStage}`);
+    }
+    if (iaSummary?.stageSummary) {
+      parts.push(`**Stage Assessment:** ${iaSummary.stageSummary}`);
+    }
+
+    // Dimension scores from initial assessment
+    const iaDimensions = initialAssessment.dimensions as Record<string, Record<string, unknown>> | undefined;
+    if (iaDimensions) {
+      const scores: Record<string, number | null> = {};
+      for (const [key, dim] of Object.entries(iaDimensions)) {
+        if (dim?.score !== undefined) {
+          scores[key] = dim.score as number;
+        }
+      }
+      if (Object.keys(scores).length > 0) {
+        parts.push('**Dimension Scores:**');
+        parts.push(formatScores(scores));
+      }
+    }
+
+    // Insights from initial assessment
+    const iaInsights = initialAssessment.insights as Record<string, unknown> | undefined;
+    if (iaInsights) {
+      if (Array.isArray(iaInsights.strengths) && iaInsights.strengths.length > 0) {
+        parts.push(formatArrayItems(iaInsights.strengths, 'Strengths'));
+      }
+      if (Array.isArray(iaInsights.weaknesses) && iaInsights.weaknesses.length > 0) {
+        parts.push(formatArrayItems(iaInsights.weaknesses, 'Weaknesses'));
+      }
+      if (Array.isArray(iaInsights.recommendations) && iaInsights.recommendations.length > 0) {
+        parts.push(formatArrayItems(iaInsights.recommendations, 'Recommendations'));
+      }
+    }
+
+    // Quick wins from initial assessment
+    if (Array.isArray(initialAssessment.quickWins)) {
+      parts.push(formatArrayItems(initialAssessment.quickWins, 'Quick Wins'));
+    }
+  }
 
   if (growthPlan) {
     // Scorecard with dimension scores
@@ -225,9 +286,61 @@ function extractFullGapData(run: DiagnosticRun): string {
     parts.push(`**Full Report (excerpt):**\n${truncated}...`);
   }
 
-  // Summary fallback
-  if (parts.length === 1 && run.summary) {
+  // Check for fullGap.report markdown content
+  if (growthPlan) {
+    const report = (growthPlan as Record<string, unknown>).report as string | undefined;
+    if (report && typeof report === 'string' && report.length > 100) {
+      const truncated = report.substring(0, 3000);
+      parts.push(`**Full Report (excerpt):**\n${truncated}...`);
+    }
+  }
+
+  // Summary fallback - always include summary if available
+  if (run.summary && run.summary.length > 20) {
     parts.push(`**Summary:** ${run.summary}`);
+  }
+
+  // If we still have nothing substantial, try to stringify some of the raw data
+  if (parts.length <= 1 && raw) {
+    // Log what we have for debugging
+    console.log('[gapIngestor] Limited data found, attempting raw extraction');
+
+    // Try to extract narrative content from fullGap object
+    if (growthPlan) {
+      // Look for any text content in fullGap
+      const fg = growthPlan as Record<string, unknown>;
+
+      // Check for markdown/report content
+      if (typeof fg.markdown === 'string' && fg.markdown.length > 100) {
+        parts.push(`**Report:**\n${(fg.markdown as string).substring(0, 3000)}`);
+      } else if (typeof fg.narrative === 'string' && fg.narrative.length > 100) {
+        parts.push(`**Narrative:**\n${fg.narrative}`);
+      } else if (typeof fg.executiveSummary === 'string') {
+        parts.push(`**Executive Summary:** ${fg.executiveSummary}`);
+      }
+
+      // Check for sections or dimensions
+      if (fg.sections && typeof fg.sections === 'object') {
+        const sectionsStr = JSON.stringify(fg.sections, null, 2).substring(0, 2000);
+        parts.push(`**Sections:**\n${sectionsStr}`);
+      }
+
+      // If still short, stringify the whole fullGap
+      if (parts.length <= 1) {
+        const fgStr = JSON.stringify(fg, null, 2).substring(0, 3000);
+        if (fgStr.length > 200) {
+          parts.push(`**Full GAP Data:**\n${fgStr}`);
+        }
+      }
+    }
+
+    // Fallback to raw JSON
+    if (parts.length <= 1) {
+      const rawStr = JSON.stringify(raw, null, 2).substring(0, 2000);
+      if (rawStr.length > 100) {
+        parts.push(`**Raw Data:**\n${rawStr}`);
+      }
+    }
   }
 
   return parts.join('\n\n');

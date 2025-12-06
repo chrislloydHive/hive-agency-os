@@ -15,6 +15,7 @@ export function QbrSubNav({ companyId }: QbrSubNavProps) {
 
   const subTabs = [
     { name: 'Overview', href: `/c/${companyId}/qbr` },
+    { name: 'Story', href: `/c/${companyId}/qbr/story` },
     { name: 'Strategic Plan', href: `/c/${companyId}/qbr/strategic-plan` },
     { name: 'KPIs', href: `/c/${companyId}/qbr/kpis` },
     { name: 'Priorities', href: `/c/${companyId}/qbr/priorities` },

@@ -409,6 +409,31 @@ export const OS_TOOL_DEFINITIONS: OsToolDefinition[] = [
     influences: ['Strategy', 'Blueprint Focus', 'Work', 'Brain'],
     status: 'available',
   },
+  {
+    id: 'competitor-lab',
+    name: 'Competitor Lab',
+    kind: 'lab',
+    recommendedOrder: 'asNeeded',
+    impact: 'high',
+    estimatedRunTime: '~5–10 min',
+    frequencyHint: 'Run when analyzing competitive landscape, entering new markets, or refreshing positioning strategy.',
+    shortSummary: 'AI-powered competitive intelligence with positioning, threats, and whitespace analysis.',
+    detailedSummary:
+      'Competitor Lab builds comprehensive competitive intelligence including competitor profiles, market positioning map, feature matrix comparison, pricing landscape, messaging overlap analysis, market clusters, threat modeling, trajectory analysis, and whitespace opportunities.',
+    helpsAnswer:
+      'Who are our competitors, how are we positioned against them, and where are the market gaps?',
+    primaryOutputs: [
+      'Competitor profiles with confidence scores',
+      'Market positioning map with clusters',
+      'Feature matrix comparison',
+      'Pricing landscape analysis',
+      'Messaging overlap detection',
+      'Threat & trajectory modeling',
+      'Whitespace opportunities',
+    ],
+    influences: ['Strategy', 'Blueprint Focus', 'Work', 'Brain'],
+    status: 'available',
+  },
 ];
 
 // ============================================================================
@@ -483,6 +508,7 @@ export function osToolIdToCompanyToolId(osToolId: string): string | undefined {
     'media-lab': 'mediaLab',
     'audience-lab': 'audienceLab',
     'creative-lab': 'creativeLab',
+    'competitor-lab': 'competitorLab',
   };
   return mapping[osToolId];
 }
@@ -505,6 +531,7 @@ export function companyToolIdToOsToolId(companyToolId: string): string | undefin
     mediaLab: 'media-lab',
     audienceLab: 'audience-lab',
     creativeLab: 'creative-lab',
+    competitorLab: 'competitor-lab',
   };
   return mapping[companyToolId];
 }
@@ -557,6 +584,7 @@ export function getToolIconName(toolId: string): string {
     'media-lab': 'tv',
     'audience-lab': 'users',
     'creative-lab': 'sparkles',
+    'competitor-lab': 'target',
   };
   return iconMapping[toolId] || 'zap';
 }

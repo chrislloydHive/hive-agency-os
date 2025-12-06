@@ -26,6 +26,7 @@ const WARN_UNKNOWN_PATHS = process.env.NODE_ENV === 'development';
 export type ProvenanceSource =
   | 'user'           // Direct user edit via UI - HIGHEST PRIORITY
   | 'brain'
+  | 'fcb'            // Foundational Context Builder - auto-populates from website
   | 'gap_ia'
   | 'gap_full'
   | 'gap_heavy'
@@ -42,6 +43,7 @@ export type ProvenanceSource =
   | 'media_cockpit'
   | 'media_memory'
   | 'creative_lab'
+  | 'competitor_lab'
   | 'ux_lab'
   | 'manual'
   | 'inferred'

@@ -3,7 +3,7 @@
 // app/c/[companyId]/brain/context/components/AutoCompleteBanner.tsx
 // Banner that appears when context coverage is low, offering to hydrate from historical runs
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { hydrateContextAction, checkAvailableDataSourcesAction } from '../actions';
 
 interface AutoCompleteBannerProps {
@@ -12,13 +12,16 @@ interface AutoCompleteBannerProps {
   threshold?: number; // Default 50%
 }
 
+// Storage key for dismissed state (persists across page reloads)
+const getDismissedKey = (companyId: string) => `hive-autocomplete-dismissed-${companyId}`;
+
 export function AutoCompleteBanner({
   companyId,
   coveragePercent,
   threshold = 50,
 }: AutoCompleteBannerProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [isDismissed, setIsDismissed] = useState(false);
+  const [isDismissed, setIsDismissed] = useState(true); // Start as true to prevent flash
   const [result, setResult] = useState<{
     success: boolean;
     message: string;
@@ -30,6 +33,21 @@ export function AutoCompleteBanner({
     hasData: boolean;
   }>>([]);
   const [isCheckingSource, setIsCheckingSource] = useState(true);
+
+  // Check localStorage for dismissed state on mount
+  useEffect(() => {
+    const key = getDismissedKey(companyId);
+    const dismissed = localStorage.getItem(key);
+    // If not explicitly dismissed, show the banner
+    setIsDismissed(dismissed === 'true');
+  }, [companyId]);
+
+  // Persist dismissed state to localStorage
+  const handleDismiss = useCallback(() => {
+    const key = getDismissedKey(companyId);
+    localStorage.setItem(key, 'true');
+    setIsDismissed(true);
+  }, [companyId]);
 
   // Check available data sources on mount
   useEffect(() => {
@@ -71,11 +89,16 @@ export function AutoCompleteBanner({
       const result = await hydrateContextAction(companyId);
       setResult(result);
 
-      if (result.success && result.fieldsUpdated > 0) {
-        // Refresh the page after a short delay to show the updated data
-        setTimeout(() => {
-          window.location.reload();
-        }, 2000);
+      if (result.success) {
+        // Mark as dismissed so it doesn't show again after reload
+        handleDismiss();
+
+        if (result.fieldsUpdated > 0) {
+          // Refresh the page after a short delay to show the updated data
+          setTimeout(() => {
+            window.location.reload();
+          }, 2000);
+        }
       }
     } catch (error) {
       setResult({
@@ -136,7 +159,7 @@ export function AutoCompleteBanner({
 
             {/* Dismiss button */}
             <button
-              onClick={() => setIsDismissed(true)}
+              onClick={handleDismiss}
               className="flex-shrink-0 p-1 rounded text-amber-400/50 hover:text-amber-400 transition-colors"
               aria-label="Dismiss"
             >

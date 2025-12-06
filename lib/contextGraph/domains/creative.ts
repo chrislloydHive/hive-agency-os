@@ -40,17 +40,37 @@ export type CreativeFormat = z.infer<typeof CreativeFormat>;
 // ============================================================================
 
 /**
+ * Feature to benefit mapping
+ */
+export const FeatureBenefitMapping = z.object({
+  /** Feature name */
+  feature: z.string(),
+  /** Benefit statement */
+  benefit: z.string(),
+  /** Target persona/segment (optional) */
+  forSegment: z.string().nullable(),
+});
+
+export type FeatureBenefitMapping = z.infer<typeof FeatureBenefitMapping>;
+
+/**
  * Core messaging architecture - the foundational value proposition and proof points
  */
 export const MessagingArchitecture = z.object({
   /** The core value proposition - the single most compelling reason to choose */
   coreValueProp: z.string(),
+  /** Key messaging pillars that support the core value prop */
+  keyPillars: z.array(z.string()).optional().default([]),
   /** Supporting messaging points that reinforce the core value prop */
   supportingPoints: z.array(z.string()),
   /** Proof points - evidence, stats, testimonials that back up claims */
   proofPoints: z.array(z.string()),
   /** Key differentiators from competitors */
   differentiators: z.array(z.string()),
+  /** Tagline variants for different contexts/channels */
+  taglineVariants: z.array(z.string()).optional().default([]),
+  /** Feature to benefit mapping */
+  featureToBenefitMap: z.array(FeatureBenefitMapping).optional().default([]),
 });
 
 export type MessagingArchitecture = z.infer<typeof MessagingArchitecture>;

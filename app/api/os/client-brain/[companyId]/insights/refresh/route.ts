@@ -15,12 +15,16 @@ interface RouteContext {
 // ============================================================================
 
 export async function POST(request: NextRequest, context: RouteContext) {
+  console.log('[InsightsRefresh] POST handler called');
   try {
     const { companyId } = await context.params;
+    console.log('[InsightsRefresh] Company ID:', companyId);
 
     // Validate company
+    console.log('[InsightsRefresh] Fetching company...');
     const company = await getCompanyById(companyId);
     if (!company) {
+      console.log('[InsightsRefresh] Company not found');
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
@@ -51,19 +55,38 @@ export async function POST(request: NextRequest, context: RouteContext) {
     let totalCreated = 0;
     let totalSkipped = 0;
     const processedRuns: string[] = [];
+    const errors: string[] = [];
 
     for (const run of recentRuns) {
       try {
+        console.log('[InsightsRefresh] Processing run:', {
+          id: run.id,
+          toolId: run.toolId,
+          status: run.status,
+          hasRawJson: !!run.rawJson,
+        });
         const result = await processCompletedDiagnostic(companyId, run);
+        console.log('[InsightsRefresh] Run result:', {
+          id: run.id,
+          toolId: run.toolId,
+          success: result.success,
+          created: result.insightsCreated,
+          skipped: result.insightsSkipped,
+          error: result.error,
+        });
         if (result.success) {
           totalCreated += result.insightsCreated;
           totalSkipped += result.insightsSkipped;
           if (result.insightsCreated > 0) {
             processedRuns.push(run.toolId);
           }
+        } else if (result.error) {
+          errors.push(`${run.toolId}: ${result.error}`);
         }
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         console.error('[InsightsRefresh] Failed to process run:', run.id, error);
+        errors.push(`${run.toolId}: ${message}`);
       }
     }
 
@@ -71,6 +94,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       runsProcessed: recentRuns.length,
       insightsCreated: totalCreated,
       insightsSkipped: totalSkipped,
+      errors: errors.length,
     });
 
     return NextResponse.json({
@@ -79,6 +103,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       insightsCreated: totalCreated,
       insightsSkipped: totalSkipped,
       processedTools: [...new Set(processedRuns)],
+      errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {
     console.error('[InsightsRefresh] Error:', error);

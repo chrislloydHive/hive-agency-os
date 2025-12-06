@@ -130,13 +130,13 @@ export const CONTEXT_DOMAIN_META: Record<
   },
   creative: {
     label: 'Creative',
-    description: 'Creative inventory, angles, and formats.',
-    labLink: () => null,
+    description: 'Messaging architecture, creative territories, campaign concepts, and asset specs.',
+    labLink: (companyId) => `/c/${companyId}/labs/creative`,
   },
   competitive: {
     label: 'Competitive',
-    description: 'Competitors, share of voice, category benchmarks.',
-    labLink: () => null,
+    description: 'Competitor profiles, positioning map, differentiation strategy, and market trends.',
+    labLink: (companyId) => `/c/${companyId}/labs/competitor`,
   },
   budgetOps: {
     label: 'Budget',
@@ -235,6 +235,15 @@ const LABEL_OVERRIDES: Record<string, string> = {
   'digitalInfra.ga4Health': 'GA4 Health',
   'digitalInfra.measurementLimits': 'Measurement Limits',
   'digitalInfra.attributionModel': 'Attribution Model',
+  // Competitive
+  'competitive.primaryCompetitors': 'Primary Competitors',
+  'competitive.positioningAxes': 'Positioning Axes',
+  'competitive.ownPositionPrimary': 'Own Position (Primary Axis)',
+  'competitive.ownPositionSecondary': 'Own Position (Secondary Axis)',
+  'competitive.positioningSummary': 'Positioning Summary',
+  'competitive.whitespaceOpportunities': 'Whitespace Opportunities',
+  'competitive.competitiveAdvantages': 'Competitive Advantages',
+  'competitive.marketTrends': 'Market Trends',
 };
 
 // ============================================================================
