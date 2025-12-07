@@ -1,11 +1,10 @@
-// app/c/[companyId]/brain/labs/runs/page.tsx
-// Lab Runs History - Diagnostic reports and documents
+// app/c/[companyId]/reports/diagnostics/page.tsx
+// Diagnostics Reports - GAP analyses, lab runs, and diagnostic reports
 //
-// Part of Labs under the Brain 4-tab IA. Shows all diagnostic runs,
+// Part of Reports sub-navigation. Shows all diagnostic runs,
 // reports, and uploaded documents for the company.
 //
-// Canonical route: /c/[companyId]/brain/labs/runs
-// Redirects from: /c/[companyId]/brain/library
+// Canonical route: /c/[companyId]/reports/diagnostics
 
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
@@ -18,7 +17,7 @@ import {
   type DiagnosticRun,
   type DiagnosticToolId,
 } from '@/lib/os/diagnostics/runs';
-import { LibraryClient, type ReportItem } from '../../library/LibraryClient';
+import { LibraryClient, type ReportItem } from '../../brain/library/LibraryClient';
 
 // ============================================================================
 // Types
@@ -33,7 +32,7 @@ interface PageProps {
 // ============================================================================
 
 export const metadata: Metadata = {
-  title: 'Brain - Lab Runs',
+  title: 'Diagnostics',
 };
 
 // ============================================================================
@@ -124,7 +123,7 @@ function diagnosticRunToReportItem(run: DiagnosticRun, companyId: string): Repor
 // Page Component
 // ============================================================================
 
-export default async function LabRunsPage({ params }: PageProps) {
+export default async function DiagnosticsPage({ params }: PageProps) {
   const { companyId } = await params;
 
   // Load company info
@@ -149,7 +148,7 @@ export default async function LabRunsPage({ params }: PageProps) {
       }
     }
   } catch (error) {
-    console.error('[LabRuns] Error loading diagnostic runs:', error);
+    console.error('[Diagnostics] Error loading diagnostic runs:', error);
   }
 
   // 2. Load GAP Heavy runs (legacy)
@@ -186,12 +185,12 @@ export default async function LabRunsPage({ params }: PageProps) {
           : run.status === 'cancelled' ? 'failed'
           : 'pending',
         createdAt: run.createdAt,
-        url: `/c/${companyId}/diagnostics?runId=${run.id}`,
+        url: `/c/${companyId}/diagnostics/gap-heavy/${run.id}`,
         modules,
       });
     }
   } catch (error) {
-    console.error('[LabRuns] Error loading GAP Heavy runs:', error);
+    console.error('[Diagnostics] Error loading GAP Heavy runs:', error);
   }
 
   // 3. Load GAP-IA runs (legacy)
@@ -215,7 +214,7 @@ export default async function LabRunsPage({ params }: PageProps) {
       });
     }
   } catch (error) {
-    console.error('[LabRuns] Error loading GAP-IA runs:', error);
+    console.error('[Diagnostics] Error loading GAP-IA runs:', error);
   }
 
   // Sort by date, newest first
