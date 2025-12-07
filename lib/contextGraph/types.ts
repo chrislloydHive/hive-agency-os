@@ -25,6 +25,7 @@ export const ContextSource = z.enum([
   'seo_lab',         // SEO Lab diagnostic
   'demand_lab',      // Demand Lab diagnostic
   'ops_lab',         // Ops Lab diagnostic
+  'competition_lab', // Competition Lab V3 - competitive intelligence
   'audience_lab',    // Audience Lab - curated audience model
   'audience_personas', // Audience Personas - human-centered personas from segments
   'media_profile',   // Media Profile configuration
@@ -193,6 +194,7 @@ export const DEFAULT_VALIDITY_DAYS: Record<ContextSource, number> = {
   creative_lab: 90,       // Creative analysis valid for 3 months
   audience_lab: 120,      // Audience model valid for 4 months
   audience_personas: 120, // Audience personas valid for 4 months
+  competition_lab: 90,    // Competition analysis valid for 3 months
   gap_heavy: 120,         // Heavy analysis valid for 4 months
   gap_full: 90,           // Full GAP valid for 3 months
   gap_ia: 60,             // Initial assessment valid for 2 months

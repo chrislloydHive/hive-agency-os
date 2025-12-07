@@ -1,33 +1,37 @@
 'use client';
 
-// app/c/[companyId]/reports/ReportsHubClient.tsx
-// Reports Hub Client - Dashboard for Annual Plan and QBR reports
+// components/reports/StrategicReportsSection.tsx
+// Strategic Reports Section - Annual Plan + QBR cards
 //
-// Features:
-// - Report type cards with generate/view CTAs
-// - Last generated info
-// - Matches Brain/Blueprint visual language
+// Part of the redesigned Reports hub. Shows the two "big artifact" reports
+// that can be generated for strategic/stakeholder purposes.
 
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Calendar, BarChart3, Sparkles, Eye, Clock, Plus, FileText } from 'lucide-react';
+import { Calendar, BarChart3, Sparkles, Eye, Clock } from 'lucide-react';
 import type { ReportListItem, ReportType } from '@/lib/reports/types';
 import { REPORT_TYPE_CONFIG, formatPeriod, getCurrentYear, getCurrentQuarter } from '@/lib/reports/types';
 
-interface Props {
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface StrategicReportsSectionProps {
   companyId: string;
-  companyName: string;
   latestAnnual: ReportListItem | null;
   latestQbr: ReportListItem | null;
 }
 
-export function ReportsHubClient({
+// ============================================================================
+// Main Component
+// ============================================================================
+
+export function StrategicReportsSection({
   companyId,
-  companyName,
   latestAnnual,
   latestQbr,
-}: Props) {
+}: StrategicReportsSectionProps) {
   const router = useRouter();
   const [generatingType, setGeneratingType] = useState<ReportType | null>(null);
 
@@ -55,9 +59,17 @@ export function ReportsHubClient({
   };
 
   return (
-    <div className="space-y-6">
-      {/* Report Type Cards */}
-      <div className="grid gap-6 md:grid-cols-2">
+    <div className="space-y-3">
+      {/* Section Header */}
+      <div>
+        <h2 className="text-sm font-semibold text-slate-100">Strategic Reports</h2>
+        <p className="text-xs text-muted-foreground">
+          High-level plans and narrative summaries you can share with stakeholders.
+        </p>
+      </div>
+
+      {/* Report Cards Grid */}
+      <div className="grid gap-4 md:grid-cols-2">
         {/* Annual Plan Card */}
         <ReportCard
           type="annual"
@@ -75,17 +87,6 @@ export function ReportsHubClient({
           isGenerating={generatingType === 'qbr'}
           onGenerate={() => handleGenerate('qbr')}
         />
-      </div>
-
-      {/* Future Report Types Placeholder */}
-      <div className="mt-8 border border-dashed border-slate-700 rounded-lg p-6 flex flex-col items-center justify-center text-center">
-        <div className="p-3 rounded-full bg-slate-800 mb-3">
-          <Plus className="w-5 h-5 text-slate-500" />
-        </div>
-        <p className="text-sm font-medium text-slate-400">More Report Types Coming Soon</p>
-        <p className="text-xs text-slate-500 mt-1">
-          Campaign reports, competitive analyses, and custom reports
-        </p>
       </div>
     </div>
   );
@@ -137,7 +138,7 @@ function ReportCard({
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className={`p-2.5 rounded-lg bg-slate-800/50`}>
+          <div className="p-2.5 rounded-lg bg-slate-800/50">
             <Icon className={`w-5 h-5 ${colorClasses.icon}`} />
           </div>
           <div>

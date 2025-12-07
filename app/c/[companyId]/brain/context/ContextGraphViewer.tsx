@@ -78,6 +78,15 @@ interface Props {
   fields: GraphFieldUi[];
   needsRefresh: NeedsRefreshFlag[];
   contextHealthScore: number;
+  /** Full health score object with section breakdowns */
+  healthScore?: {
+    sectionScores: Array<{
+      section: string;
+      label: string;
+      completeness: number;
+      criticalCoverage: number;
+    }>;
+  };
   snapshots: ContextGraphSnapshot[];
   diff: GraphDiffItem[];
   /** Coverage percentage for auto-complete banner (0-100) */
@@ -135,6 +144,7 @@ export function ContextGraphViewer({
   fields,
   needsRefresh,
   contextHealthScore,
+  healthScore,
   snapshots,
   diff,
   coveragePercent,
@@ -718,10 +728,12 @@ export function ContextGraphViewer({
           {DOMAIN_NAMES.map((domainId) => {
             const meta = CONTEXT_DOMAIN_META[domainId];
             const domainFields = fieldsByDomain.get(domainId) ?? [];
-            const populatedCount = domainFields.filter((f) => f.value !== null && f.value !== '').length;
-            const totalCount = domainFields.length;
-            const healthPct = totalCount > 0 ? Math.round((populatedCount / totalCount) * 100) : 0;
             const hasIssues = domainFields.some((f) => needsRefreshByPath.has(f.path));
+
+            // Use healthScore.sectionScores if available for consistent display
+            const sectionScore = healthScore?.sectionScores?.find(s => s.section === domainId);
+            // Use completeness (0-100) from the authoritative health calculation
+            const healthPct = sectionScore ? Math.round(sectionScore.completeness) : 0;
             const hasLocks = domainFields.some((f) => locks.has(f.path));
             const isActive = selectedDomain === domainId && !isGlobalSearch;
 

@@ -711,6 +711,7 @@ export function getCategoryColor(category: ToolCategory): string {
 export function diagnosticToolIdToCompanyToolId(diagnosticToolId: DiagnosticToolId): CompanyToolId | undefined {
   const mapping: Record<DiagnosticToolId, CompanyToolId> = {
     gapSnapshot: 'gapIa',
+    gapIa: 'gapIa',
     gapPlan: 'gapPlan',
     gapHeavy: 'gapHeavy',
     websiteLab: 'websiteLab',

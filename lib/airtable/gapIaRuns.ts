@@ -91,10 +91,9 @@ function gapIaRunToAirtableFields(
   if (run.url) fields['Website URL'] = run.url;
   if (run.domain) fields['Domain'] = run.domain;
 
-  // Company link field (array format for Airtable linked records)
-  if (run.companyId) {
-    fields['Company'] = [run.companyId];
-  }
+  // Note: companyId is stored in Data JSON, not as a linked record field
+  // The "Company" field doesn't exist in the GAP-IA Run table
+  // Note: Status is also stored in Data JSON - the "Status" field doesn't exist in the table
 
   // Timestamps
   if (run.createdAt) fields['Created At'] = run.createdAt;

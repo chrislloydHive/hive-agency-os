@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDiagnosticStatus, makeStatusKey } from '@/lib/os/diagnostics/statusStore';
 import { getLatestRunForCompanyAndTool, isValidToolId, type DiagnosticToolId } from '@/lib/os/diagnostics/runs';
+import { getGapIaRunsForCompany } from '@/lib/airtable/gapIaRuns';
 
 type RouteContext = {
   params: Promise<{ toolId: string }>;
@@ -12,13 +13,20 @@ type RouteContext = {
 // Tool-specific progress messages
 const toolProgressMessages: Record<string, string> = {
   gapSnapshot: 'Running initial assessment...',
+  gapIa: 'Running GAP IA assessment...',
   gapPlan: 'Generating Full GAP plan...',
+  gapHeavy: 'Running deep diagnostic...',
   websiteLab: 'Analyzing website...',
   brandLab: 'Analyzing brand...',
+  audienceLab: 'Analyzing audience...',
+  mediaLab: 'Analyzing media...',
   contentLab: 'Analyzing content...',
   seoLab: 'Analyzing SEO...',
   demandLab: 'Analyzing demand generation...',
   opsLab: 'Analyzing marketing operations...',
+  creativeLab: 'Running creative analysis...',
+  competitorLab: 'Analyzing competitors...',
+  competitionLab: 'Discovering competitors...',
 };
 
 export async function GET(request: NextRequest, context: RouteContext) {
@@ -75,6 +83,29 @@ export async function GET(request: NextRequest, context: RouteContext) {
         score: latestRun.score,
         summary: latestRun.summary,
       });
+    }
+
+    // Special fallback for GAP IA - also check GAP IA Runs table
+    if (toolId === 'gapIa' || toolId === 'gapSnapshot') {
+      const gapIaRuns = await getGapIaRunsForCompany(companyId, 1);
+      if (gapIaRuns.length > 0) {
+        const latestGapIa = gapIaRuns[0];
+        const mappedStatus =
+          latestGapIa.status === 'completed' ? 'completed' :
+          latestGapIa.status === 'failed' ? 'failed' :
+          latestGapIa.status === 'running' ? 'running' :
+          'pending';
+
+        return NextResponse.json({
+          status: mappedStatus,
+          currentStep: latestGapIa.status === 'running' ? (toolProgressMessages[toolId] || 'Processing...') : '',
+          percent: latestGapIa.status === 'completed' ? 100 : latestGapIa.status === 'running' ? 50 : 0,
+          error: latestGapIa.errorMessage,
+          runId: latestGapIa.id,
+          score: latestGapIa.overallScore,
+          summary: latestGapIa.core?.quickSummary,
+        });
+      }
     }
 
     // No status found

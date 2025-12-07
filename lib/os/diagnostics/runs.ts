@@ -21,7 +21,8 @@ import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
  * Maps to the tools available in the Diagnostics Suite
  */
 export type DiagnosticToolId =
-  | 'gapSnapshot'    // GAP-IA Initial Assessment
+  | 'gapSnapshot'    // GAP-IA Initial Assessment (legacy name)
+  | 'gapIa'          // GAP-IA Initial Assessment (preferred name)
   | 'gapPlan'        // Full GAP Plan generation
   | 'gapHeavy'       // Deep multi-source diagnostic (Heavy Worker V3)
   | 'websiteLab'     // Website UX/Conversion diagnostic
@@ -245,15 +246,12 @@ function diagnosticRunToAirtableFields(
   const fields: Record<string, unknown> = {};
 
   if ('companyId' in run && run.companyId) {
-    // The Diagnostic Runs table has two Company-related fields:
-    // - "Company" (single line text) - stores the record ID as text
-    // - "Company copy" (link field) - links to Companies table
-    // We write to both for compatibility
-    console.log('[DiagnosticRuns] Setting Company fields:', {
+    // The Diagnostic Runs table only has "Company copy" (link field)
+    // The "Company" text field doesn't exist
+    console.log('[DiagnosticRuns] Setting Company copy field:', {
       companyId: run.companyId,
       isValidRecordId: run.companyId.startsWith('rec'),
     });
-    fields['Company'] = run.companyId; // Text field
     fields['Company copy'] = [run.companyId]; // Link field (array format)
   }
   if ('toolId' in run && run.toolId) {
@@ -371,6 +369,7 @@ function diagnosticRunToAirtableFields(
     }
 
     fields['Raw JSON'] = jsonStr;
+    console.log('[DiagnosticRuns] Raw JSON field set:', { length: jsonStr.length });
   }
 
   // Note: "Updated At" is a computed field in Airtable, don't set it manually
@@ -605,6 +604,7 @@ export async function getRunsGroupedByTool(
 
   const grouped: Record<DiagnosticToolId, DiagnosticRun[]> = {
     gapSnapshot: [],
+    gapIa: [],
     gapPlan: [],
     gapHeavy: [],
     websiteLab: [],
@@ -762,6 +762,7 @@ export async function getRunsGroupedByTool(
 export function getToolLabel(toolId: DiagnosticToolId): string {
   const labels: Record<DiagnosticToolId, string> = {
     gapSnapshot: 'GAP IA',
+    gapIa: 'GAP IA',
     gapPlan: 'GAP Plan',
     gapHeavy: 'GAP Heavy',
     websiteLab: 'Website Lab',
@@ -798,6 +799,7 @@ export function getStatusColor(status: DiagnosticRunStatus): string {
 export function isValidToolId(toolId: string): toolId is DiagnosticToolId {
   const validToolIds: DiagnosticToolId[] = [
     'gapSnapshot',
+    'gapIa',          // GAP-IA (preferred name)
     'gapPlan',
     'gapHeavy',
     'websiteLab',
@@ -809,6 +811,8 @@ export function isValidToolId(toolId: string): toolId is DiagnosticToolId {
     'demandLab',
     'opsLab',
     'creativeLab',
+    'competitorLab',
+    'competitionLab',
   ];
   return validToolIds.includes(toolId as DiagnosticToolId);
 }

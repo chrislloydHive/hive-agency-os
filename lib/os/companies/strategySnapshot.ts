@@ -85,6 +85,7 @@ async function getLatestDiagnosticScores(
 
   const toolIdMap: Record<DiagnosticToolId, keyof DiagnosticScores> = {
     gapSnapshot: 'gapIa',
+    gapIa: 'gapIa',
     gapPlan: 'gapPlan',
     gapHeavy: 'gapHeavy',
     websiteLab: 'websiteLab',

@@ -4,8 +4,9 @@
 // Uses the unified ToolReportLayout component with tool-specific data adapters.
 
 import { notFound } from 'next/navigation';
-import { getDiagnosticRun, isValidToolId, type DiagnosticToolId } from '@/lib/os/diagnostics/runs';
+import { getDiagnosticRun, isValidToolId, type DiagnosticToolId, type DiagnosticRun } from '@/lib/os/diagnostics/runs';
 import { getCompanyById } from '@/lib/airtable/companies';
+import { getGapIaRunById } from '@/lib/airtable/gapIaRuns';
 import { getToolConfig } from '@/lib/os/diagnostics/tools';
 import { extractReportData } from '@/lib/os/diagnostics/adapters';
 import { ToolReportLayout, type ReportSection } from '@/components/tools/ToolReportLayout';
@@ -55,9 +56,13 @@ export const dynamic = 'force-dynamic';
 export default async function RunDetailPage({ params }: Props) {
   const { companyId, toolSlug, runId } = await params;
 
+  console.log('[RunDetail] Loading page:', { companyId, toolSlug, runId });
+
   // Resolve slug to tool ID
   const toolId = slugToToolId[toolSlug];
+  console.log('[RunDetail] Resolved toolId:', toolId);
   if (!toolId || !isValidToolId(toolId)) {
+    console.log('[RunDetail] Invalid toolId, returning 404');
     notFound();
   }
 
@@ -68,7 +73,7 @@ export default async function RunDetailPage({ params }: Props) {
   }
 
   // Fetch company and run in parallel
-  const [company, run, workItemCount] = await Promise.all([
+  const [company, diagnosticRun, workItemCount] = await Promise.all([
     getCompanyById(companyId),
     getDiagnosticRun(runId),
     countWorkItemsForRun(runId),
@@ -78,9 +83,45 @@ export default async function RunDetailPage({ params }: Props) {
     notFound();
   }
 
-  if (!run || run.companyId !== companyId) {
+  // Try to use the diagnostic run from the unified table
+  let run: DiagnosticRun | null = diagnosticRun;
+
+  // If not found in unified table and this is a GAP IA/Snapshot, try legacy GAP IA Runs table
+  if (!run && (toolId === 'gapSnapshot' || toolId === 'gapIa')) {
+    console.log('[RunDetail] Trying legacy GAP IA Runs table for:', runId);
+    const gapIaRun = await getGapIaRunById(runId);
+    console.log('[RunDetail] Legacy GAP IA run result:', gapIaRun ? { id: gapIaRun.id, status: gapIaRun.status } : 'null');
+    if (gapIaRun) {
+      // Convert GapIaRun to DiagnosticRun format
+      run = {
+        id: gapIaRun.id,
+        companyId: companyId, // Use the companyId from the URL since legacy runs may not have it
+        toolId: 'gapSnapshot',
+        status: gapIaRun.status === 'completed' ? 'complete' : gapIaRun.status as any,
+        createdAt: gapIaRun.createdAt,
+        updatedAt: gapIaRun.updatedAt,
+        score: gapIaRun.overallScore ?? null,
+        summary: gapIaRun.core?.quickSummary ?? null,
+        rawJson: gapIaRun as any,
+      };
+    }
+  }
+
+  if (!run) {
+    console.log('[RunDetail] No run found at all, returning 404');
     notFound();
   }
+
+  // For legacy GAP IA runs, we don't check companyId as it may not match
+  if (diagnosticRun && diagnosticRun.companyId !== companyId) {
+    console.log('[RunDetail] Company ID mismatch, returning 404:', {
+      diagnosticRunCompanyId: diagnosticRun.companyId,
+      urlCompanyId: companyId
+    });
+    notFound();
+  }
+
+  console.log('[RunDetail] Run found, rendering report:', { runId: run.id, toolId: run.toolId, status: run.status });
 
   // Extract report data using tool-specific adapter
   const reportData = extractReportData(run);

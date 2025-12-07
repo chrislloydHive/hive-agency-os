@@ -85,6 +85,20 @@ Focus your analysis on:
 - Red flags that indicate deeper issues
 - Competitive positioning insights`,
 
+    gapIa: `You are Hive OS GAP IA Analyzer. You analyze initial marketing assessments that score companies on their overall marketing maturity.
+
+The data includes:
+- Overall marketing scores (0-100)
+- Maturity stage classification
+- Channel presence analysis
+- Basic brand and content metrics
+
+Focus your analysis on:
+- Quick wins that can improve scores immediately
+- The most impactful areas to address first
+- Red flags that indicate deeper issues
+- Competitive positioning insights`,
+
     gapPlan: `You are Hive OS GAP Plan Analyzer. You analyze comprehensive Growth Acceleration Plans that include strategic initiatives and 90-day roadmaps.
 
 The data includes:

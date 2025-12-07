@@ -167,7 +167,7 @@ export function getBrainTabFromPath(pathname: string, companyId: string): BrainT
 // Reports Sub-Navigation
 // ============================================================================
 
-export type ReportsTabId = 'hub' | 'annual' | 'qbr';
+export type ReportsTabId = 'hub' | 'annual' | 'qbr' | 'diagnostics';
 
 export interface ReportsTab {
   id: ReportsTabId;
@@ -195,6 +195,12 @@ export const REPORTS_TABS: ReportsTab[] = [
     href: (companyId) => `/c/${companyId}/reports/qbr`,
     description: 'Quarterly Business Review',
   },
+  {
+    id: 'diagnostics',
+    name: 'Diagnostics',
+    href: (companyId) => `/c/${companyId}/reports/diagnostics`,
+    description: 'GAP analyses, lab runs, and diagnostic reports',
+  },
 ];
 
 /**
@@ -211,6 +217,7 @@ export function getReportsTabFromPath(pathname: string, companyId: string): Repo
   if (subPath === '' || subPath === '/') return 'hub';
   if (subPath.startsWith('/annual')) return 'annual';
   if (subPath.startsWith('/qbr')) return 'qbr';
+  if (subPath.startsWith('/diagnostics')) return 'diagnostics';
 
   return 'hub'; // Default to hub
 }

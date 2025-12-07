@@ -246,14 +246,7 @@ export async function findRecordByField(
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('[Airtable] API error:', {
-      status: response.status,
-      statusText: response.statusText,
-      errorText,
-      tableName,
-      fieldName,
-      value,
-    });
+    console.error(`[Airtable] API error: status=${response.status}, statusText=${response.statusText}, table=${tableName}, field=${fieldName}, value=${value}, error=${errorText}`);
     throw new Error(
       `Airtable API error (${response.status}): ${errorText}`
     );

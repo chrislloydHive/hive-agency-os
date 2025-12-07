@@ -68,14 +68,14 @@ export async function updateCompetitiveDomain(
     const now = new Date().toISOString();
 
     // Create provenance tag for all updates
-    // Using 'brain' as the source since Competition Lab is part of Brain
+    // Using 'competition_lab' as source - highest priority for competitive domain (after human)
     const provenance: ProvenanceTag = {
-      source: 'brain',
+      source: 'competition_lab',
       sourceRunId: runId,
       updatedAt: now,
       confidence: 0.85,
       validForDays: 30,
-      notes: 'Competition Lab V3 summary',
+      notes: 'Competition Lab V3 analysis',
     };
 
     // Helper to safely update a field respecting human overrides
@@ -88,12 +88,13 @@ export async function updateCompetitiveDomain(
       const existingProvenance = currentField?.provenance ?? [];
 
       // Check if we can overwrite based on source priority
-      const check = canSourceOverwrite('competitive', existingProvenance, 'brain', 0.85);
+      const check = canSourceOverwrite('competitive', existingProvenance, 'competition_lab', 0.85);
 
       if (!check.canOverwrite) {
         // Skip this field - human override or higher priority source
         fieldsSkipped.push(fieldName);
-        console.log(`[updateCompetitiveDomain] Skipping ${fieldName}: ${check.reason}`);
+        const existingSource = existingProvenance[0]?.source || 'none';
+        console.log(`[updateCompetitiveDomain] Skipping ${fieldName}: ${check.reason} (existing source: ${existingSource})`);
         return false;
       }
 
@@ -133,7 +134,7 @@ export async function updateCompetitiveDomain(
       trajectoryReason: null,
       provenance: [{
         field: 'all',
-        source: 'competition-v3-summary',
+        source: 'competition_lab',
         updatedAt: now,
         confidence: 0.85,
       }],
@@ -151,11 +152,35 @@ export async function updateCompetitiveDomain(
     ];
     const primaryOnly = summary.primaryCompetitors.map(toCompetitorProfile);
 
+    // Debug: log what we're about to write
+    console.log(`[updateCompetitiveDomain] Summary has ${summary.primaryCompetitors.length} primary, ${summary.alternativeCompetitors.length} alternative competitors`);
+    console.log(`[updateCompetitiveDomain] Primary competitors: ${summary.primaryCompetitors.map(c => c.name).join(', ')}`);
+    console.log(`[updateCompetitiveDomain] Existing graph.competitive.primaryCompetitors provenance:`,
+      graph.competitive.primaryCompetitors?.provenance?.[0]?.source || 'none');
+
     // Update competitors (respecting human overrides)
     safeUpdateField('competitors', graph.competitive.competitors, allCompetitors);
     safeUpdateField('primaryCompetitors', graph.competitive.primaryCompetitors, primaryOnly);
 
-    // Update positioning axes
+    // Update positioning axes with full structure for the positioning map
+    // Competition Lab V3 uses Value Model Alignment (X) and ICP Alignment (Y)
+    const positioningAxesValue = {
+      primaryAxis: {
+        label: 'Value Model Alignment',
+        lowLabel: 'Different Model',
+        highLabel: 'Same Model',
+        description: 'How closely the competitor\'s value proposition and business model aligns with ours',
+      },
+      secondaryAxis: {
+        label: 'ICP Alignment',
+        lowLabel: 'Different ICP',
+        highLabel: 'Same ICP',
+        description: 'How closely the competitor targets the same ideal customer profile',
+      },
+    };
+    safeUpdateField('positioningAxes', graph.competitive.positioningAxes, positioningAxesValue);
+
+    // Also update legacy primaryAxis/secondaryAxis fields for backwards compatibility
     safeUpdateField('primaryAxis', graph.competitive.primaryAxis, 'Value Model Alignment');
     safeUpdateField('secondaryAxis', graph.competitive.secondaryAxis, 'ICP Alignment');
 

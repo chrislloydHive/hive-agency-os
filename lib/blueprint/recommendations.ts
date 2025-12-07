@@ -99,6 +99,7 @@ function getLatestRunAnyStatus(
 function mapDiagnosticToCompanyToolId(diagnosticToolId: DiagnosticToolId): CompanyToolId | null {
   const mapping: Record<DiagnosticToolId, CompanyToolId> = {
     gapSnapshot: 'gapIa',
+    gapIa: 'gapIa',
     gapPlan: 'gapPlan',
     gapHeavy: 'gapHeavy',
     websiteLab: 'websiteLab',

@@ -131,7 +131,7 @@ export interface MultiPageSnapshot {
 
 export type GapIaStatus = 'pending' | 'running' | 'completed' | 'complete' | 'error' | 'failed';
 
-export type GapIaSource = 'lead-magnet' | 'internal' | 'imported';
+export type GapIaSource = 'lead-magnet' | 'internal' | 'imported' | 'os_baseline';
 
 // ============================================================================
 // Enhanced GAP-IA V2 Types (More Substance, Same Engine)

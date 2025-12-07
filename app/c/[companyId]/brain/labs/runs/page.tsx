@@ -41,8 +41,8 @@ export const metadata: Metadata = {
 // ============================================================================
 
 function diagnosticRunToReportItem(run: DiagnosticRun, companyId: string): ReportItem {
-  // Map toolId to type
-  const typeMap: Record<DiagnosticToolId, ReportItem['type']> = {
+  // Map toolId to type (partial - not all tools have dedicated report types)
+  const typeMap: Partial<Record<DiagnosticToolId, ReportItem['type']>> = {
     gapSnapshot: 'gap-snapshot',
     gapIa: 'gap-snapshot',
     gapPlan: 'gap-plan',
@@ -73,7 +73,8 @@ function diagnosticRunToReportItem(run: DiagnosticRun, companyId: string): Repor
   // Generate URL based on tool type
   // Route format: /c/[companyId]/diagnostics/[toolSlug]/[runId]
   let url: string | undefined;
-  if (run.status === 'complete') {
+  const isComplete = run.status === 'complete' || (run.status as string) === 'completed';
+  if (isComplete) {
     switch (run.toolId) {
       case 'gapHeavy':
         url = `/c/${companyId}/diagnostics/gap-heavy/${run.id}`;
@@ -201,16 +202,18 @@ export default async function LabRunsPage({ params }: PageProps) {
       if (seenIds.has(run.id)) continue;
       seenIds.add(run.id);
 
+      const isComplete = run.status === 'completed' || run.status === 'complete';
       reports.push({
         id: run.id,
         type: 'gap-snapshot',
         title: 'GAP IA',
         description: run.core?.quickSummary || 'Quick marketing health check',
-        status: run.status === 'completed' || run.status === 'complete' ? 'completed'
+        status: isComplete ? 'completed'
           : run.status === 'running' ? 'running'
           : run.status === 'failed' || run.status === 'error' ? 'failed'
           : 'pending',
         createdAt: run.createdAt,
+        url: isComplete ? `/c/${companyId}/diagnostics/gap-ia/${run.id}` : undefined,
         score: run.overallScore ?? undefined,
       });
     }
@@ -220,6 +223,9 @@ export default async function LabRunsPage({ params }: PageProps) {
 
   // Sort by date, newest first
   reports.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  // Debug: log reports with their URLs and statuses
+  console.log('[LabRuns] Reports:', reports.map(r => ({ id: r.id, title: r.title, status: r.status, url: r.url })));
 
   return (
     <LibraryClient

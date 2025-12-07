@@ -29,6 +29,7 @@ export type SourceId =
   | 'content_lab'    // Content Lab diagnostic
   | 'demand_lab'     // Demand Lab diagnostic
   | 'ops_lab'        // Ops Lab diagnostic
+  | 'competition_lab' // Competition Lab V3 - competitive intelligence
   | 'gap_heavy'      // GAP Heavy diagnostic
   | 'gap_full'       // GAP Full diagnostic
   | 'gap_ia'         // GAP IA diagnostic
@@ -338,9 +339,10 @@ export const DOMAIN_PRIORITY_CONFIG: Record<DomainName, DomainPriorityConfig> = 
     ],
   },
 
-  // Competitive domain - GAP is authoritative, FCB provides initial foundation
+  // Competitive domain - Competition Lab is authoritative for competitive intelligence
   competitive: {
     priority: [
+      'competition_lab', // Competition Lab V3 - highest priority for competitive data
       'gap_heavy',
       'gap_full',
       'gap_ia',
@@ -523,6 +525,7 @@ export const SOURCE_DISPLAY_NAMES: Record<string, string> = {
   content_lab: 'Content Lab',
   demand_lab: 'Demand Lab',
   ops_lab: 'Ops Lab',
+  competition_lab: 'Competition Lab',
   gap_heavy: 'GAP Heavy',
   gap_full: 'GAP Full',
   gap_ia: 'GAP IA',

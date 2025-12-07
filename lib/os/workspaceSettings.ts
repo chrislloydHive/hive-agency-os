@@ -6,6 +6,11 @@ import { getAirtableConfig, findRecordByField, updateRecord, createRecord } from
 const TABLE_NAME = 'WorkspaceSettings';
 const DEFAULT_WORKSPACE_ID = 'hive-os'; // Single workspace for now
 
+// Simple in-memory cache to prevent rate limiting from parallel calls
+// Cache expires after 60 seconds
+const CACHE_TTL_MS = 60_000;
+const workspaceCache = new Map<string, { data: WorkspaceSettings | null; expiresAt: number; promise?: Promise<WorkspaceSettings | null> }>();
+
 export interface WorkspaceSettings {
   id: string;
   workspaceId: string;
@@ -57,37 +62,73 @@ function mapAirtableToWorkspaceSettings(record: any): WorkspaceSettings {
 }
 
 /**
+ * Internal function to fetch workspace settings from Airtable
+ */
+async function fetchWorkspaceSettingsFromAirtable(
+  workspaceId: string
+): Promise<WorkspaceSettings | null> {
+  // Try to find existing settings
+  console.log('[WorkspaceSettings] Looking for workspace:', workspaceId);
+  const record = await findRecordByField(TABLE_NAME, 'WorkspaceId', workspaceId);
+
+  if (record) {
+    console.log('[WorkspaceSettings] Found existing record:', record.id);
+    return mapAirtableToWorkspaceSettings(record);
+  }
+
+  // No record found - create new settings record
+  console.log('[WorkspaceSettings] No record found, creating new settings for workspace:', workspaceId);
+  const newRecord = await createRecord(TABLE_NAME, {
+    WorkspaceId: workspaceId,
+    CreatedAt: new Date().toISOString(),
+  });
+
+  console.log('[WorkspaceSettings] Created new record:', newRecord?.id);
+  return mapAirtableToWorkspaceSettings(newRecord);
+}
+
+/**
  * Get workspace settings for the default workspace
  * Returns null if table doesn't exist or there's an error
+ * Uses in-memory caching to prevent rate limiting from parallel calls
  */
 export async function getWorkspaceSettings(
   workspaceId: string = DEFAULT_WORKSPACE_ID
 ): Promise<WorkspaceSettings | null> {
-  try {
-    // Try to find existing settings
-    console.log('[WorkspaceSettings] Looking for workspace:', workspaceId);
-    const record = await findRecordByField(TABLE_NAME, 'WorkspaceId', workspaceId);
+  const now = Date.now();
+  const cached = workspaceCache.get(workspaceId);
 
-    if (record) {
-      console.log('[WorkspaceSettings] Found existing record:', record.id);
-      return mapAirtableToWorkspaceSettings(record);
-    }
+  // Return cached data if still valid
+  if (cached && cached.expiresAt > now && cached.data !== undefined) {
+    console.log('[WorkspaceSettings] Cache hit for workspace:', workspaceId);
+    return cached.data;
+  }
 
-    // No record found - create new settings record
-    console.log('[WorkspaceSettings] No record found, creating new settings for workspace:', workspaceId);
-    const newRecord = await createRecord(TABLE_NAME, {
-      WorkspaceId: workspaceId,
-      CreatedAt: new Date().toISOString(),
+  // If there's an in-flight promise, wait for it (deduplication)
+  if (cached?.promise) {
+    console.log('[WorkspaceSettings] Waiting for in-flight request:', workspaceId);
+    return cached.promise;
+  }
+
+  // Create a new promise and store it to deduplicate concurrent calls
+  const promise = fetchWorkspaceSettingsFromAirtable(workspaceId)
+    .then((data) => {
+      workspaceCache.set(workspaceId, {
+        data,
+        expiresAt: Date.now() + CACHE_TTL_MS,
+      });
+      return data;
+    })
+    .catch((error) => {
+      // Clear the promise on error so retries can happen
+      workspaceCache.delete(workspaceId);
+      console.warn('[WorkspaceSettings] Error fetching/creating settings:', error);
+      return null;
     });
 
-    console.log('[WorkspaceSettings] Created new record:', newRecord?.id);
-    return mapAirtableToWorkspaceSettings(newRecord);
-  } catch (error) {
-    // If the table doesn't exist or there's an API error, return null
-    // This allows graceful fallback to environment variables
-    console.warn('[WorkspaceSettings] Error fetching/creating settings:', error);
-    return null;
-  }
+  workspaceCache.set(workspaceId, { data: null as any, expiresAt: 0, promise });
+
+  return promise;
 }
 
 /**

@@ -167,6 +167,7 @@ export default async function ContextPage({ params, searchParams }: PageProps) {
         fields={fields}
         needsRefresh={needsRefresh}
         contextHealthScore={healthScore.overallScore}
+        healthScore={healthScore}
         snapshots={snapshots}
         diff={diff}
         coveragePercent={completenessScore}

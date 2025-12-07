@@ -3,7 +3,7 @@
 // Canonical route: /c/[companyId]/brain/labs
 
 import Link from 'next/link';
-import { Swords, Globe, Palette, FlaskConical, Users, TrendingUp } from 'lucide-react';
+import { Swords, Globe, Palette, FlaskConical, Users, TrendingUp, FileText } from 'lucide-react';
 import { LABS } from '@/lib/nav/companyNav';
 
 interface Props {
@@ -106,6 +106,29 @@ export default async function LabsHubPage({ params }: Props) {
             </Link>
           );
         })}
+      </div>
+
+      {/* Lab Runs Link */}
+      <div className="pt-2">
+        <Link
+          href={`/c/${companyId}/reports/diagnostics`}
+          className="group flex items-center gap-3 p-4 rounded-xl border border-slate-800 bg-slate-900/30 hover:bg-slate-900/50 hover:border-slate-700 transition-all"
+        >
+          <div className="inline-flex p-2.5 rounded-lg bg-slate-800/50 border border-slate-700/50 text-slate-400 group-hover:text-amber-400 transition-colors">
+            <FileText className="w-5 h-5" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-sm font-medium text-slate-200 group-hover:text-white transition-colors">
+              Lab Runs & Diagnostics
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              View all completed lab runs, GAP analyses, and diagnostic reports
+            </p>
+          </div>
+          <svg className="w-4 h-4 text-slate-500 group-hover:text-amber-400 transform group-hover:translate-x-0.5 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </Link>
       </div>
 
       {/* Coming Soon Labs */}

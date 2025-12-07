@@ -11,6 +11,10 @@
 
 import { getCompanyById } from '@/lib/airtable/companies';
 import {
+  createGapIaRun,
+  updateGapIaRun,
+} from '@/lib/airtable/gapIaRuns';
+import {
   generateGapIaAnalysisCore,
   fetchHtmlBounded,
   extractHtmlSignals,
@@ -86,6 +90,8 @@ export async function runGapIaForOsBaseline(
 
   console.log('[OS GAP-IA Baseline] Starting for company:', companyId);
 
+  let gapIaRunId: string | null = null;
+
   try {
     // 1. Load company to get domain
     const company = await getCompanyById(companyId);
@@ -100,6 +106,21 @@ export async function runGapIaForOsBaseline(
 
     const url = `https://${domain}`;
     console.log('[OS GAP-IA Baseline] Analyzing URL:', url);
+
+    // 1.5. Create a GAP IA Run record in Airtable (so it shows in Diagnostics)
+    try {
+      const gapIaRun = await createGapIaRun({
+        url,
+        domain,
+        source: 'os_baseline',
+        companyId,
+      });
+      gapIaRunId = gapIaRun.id;
+      console.log('[OS GAP-IA Baseline] Created GAP IA Run record:', gapIaRunId);
+    } catch (e) {
+      // Non-fatal - continue with analysis even if we can't create the record
+      console.warn('[OS GAP-IA Baseline] Failed to create GAP IA Run record:', e);
+    }
 
     // 2. Fetch website HTML
     let html: string;
@@ -161,11 +182,49 @@ export async function runGapIaForOsBaseline(
       durationMs: result.durationMs,
     });
 
+    // Update the GAP IA Run record with completed status and results
+    if (gapIaRunId) {
+      try {
+        await updateGapIaRun(gapIaRunId, {
+          status: 'completed',
+          core: {
+            url,
+            domain,
+            brand: {},
+            content: {},
+            seo: {},
+            website: {},
+            quickSummary: result.topOpportunities.slice(0, 3).join(' '),
+            topOpportunities: result.topOpportunities,
+            overallScore: result.overallScore,
+            marketingMaturity: result.maturityStage,
+          },
+        } as any);
+        console.log('[OS GAP-IA Baseline] Updated GAP IA Run record as completed:', gapIaRunId);
+      } catch (e) {
+        console.warn('[OS GAP-IA Baseline] Failed to update GAP IA Run record:', e);
+      }
+    }
+
     return result;
 
   } catch (e) {
     const error = e instanceof Error ? e.message : 'Unknown error';
     console.error('[OS GAP-IA Baseline] Error:', error);
+
+    // Update the GAP IA Run record with failed status
+    if (gapIaRunId) {
+      try {
+        await updateGapIaRun(gapIaRunId, {
+          status: 'failed',
+          errorMessage: error,
+        });
+        console.log('[OS GAP-IA Baseline] Updated GAP IA Run record as failed:', gapIaRunId);
+      } catch (updateError) {
+        console.warn('[OS GAP-IA Baseline] Failed to update GAP IA Run record:', updateError);
+      }
+    }
+
     return createErrorResult(error, startTime);
   }
 }

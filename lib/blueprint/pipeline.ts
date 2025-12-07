@@ -414,6 +414,7 @@ export async function fetchDiagnosticsData(companyId: string): Promise<Diagnosti
   // Get latest complete run for each tool
   const latestByTool: Record<DiagnosticToolId, DiagnosticRun | null> = {
     gapSnapshot: null,
+    gapIa: null,
     gapPlan: null,
     gapHeavy: null,
     websiteLab: null,

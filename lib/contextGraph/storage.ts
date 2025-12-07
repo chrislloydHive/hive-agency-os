@@ -13,6 +13,97 @@ import {
 const CONTEXT_GRAPHS_TABLE = AIRTABLE_TABLES.CONTEXT_GRAPHS;
 
 /**
+ * Compress a graph for storage by removing redundant data
+ * - Keeps only the first provenance entry per field
+ * - Removes detailed provenance from competitor profiles
+ */
+function compressGraphForStorage(graph: any): any {
+  const compressed = JSON.parse(JSON.stringify(graph));
+
+  // Helper to trim provenance arrays to just the first entry
+  const trimProvenance = (obj: any) => {
+    if (!obj || typeof obj !== 'object') return;
+
+    for (const key of Object.keys(obj)) {
+      const value = obj[key];
+
+      // If this is a field with provenance, trim it
+      if (value && typeof value === 'object' && 'provenance' in value && Array.isArray(value.provenance)) {
+        value.provenance = value.provenance.slice(0, 1);
+      }
+
+      // If this is an array of competitor profiles, trim their provenance
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (item && typeof item === 'object' && 'provenance' in item && Array.isArray(item.provenance)) {
+            item.provenance = item.provenance.slice(0, 1);
+          }
+        }
+      }
+
+      // Recurse into nested objects (domains)
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        trimProvenance(value);
+      }
+    }
+  };
+
+  // Process each domain
+  for (const domainKey of Object.keys(compressed)) {
+    if (domainKey !== 'meta' && compressed[domainKey] && typeof compressed[domainKey] === 'object') {
+      trimProvenance(compressed[domainKey]);
+    }
+  }
+
+  return compressed;
+}
+
+/**
+ * Save a compressed graph to Airtable
+ */
+async function saveCompressedGraph(
+  originalGraph: CompanyContextGraph,
+  compressedJson: string,
+  base: ReturnType<typeof getBase>,
+  existingRecords: readonly any[],
+  now: string,
+  completenessScore: number,
+  source?: string
+): Promise<ContextGraphRecord | null> {
+  const fields: Record<string, unknown> = {
+    'Company ID': originalGraph.companyId,
+    'Company Name': originalGraph.companyName,
+    'Graph JSON': compressedJson,
+    'Version': originalGraph.meta.version,
+    'Completeness Score': completenessScore,
+    'Updated At': now,
+  };
+
+  if (source) {
+    fields['Last Updated By'] = 'user';
+  }
+
+  let savedRecord: any;
+
+  if (existingRecords.length > 0) {
+    savedRecord = await base(CONTEXT_GRAPHS_TABLE).update(
+      existingRecords[0].id,
+      fields as any
+    );
+    console.log(`[ContextGraph] Updated compressed graph for ${originalGraph.companyName}`);
+  } else {
+    const createFields = { ...fields, 'Created At': now };
+    const created = await base(CONTEXT_GRAPHS_TABLE).create([
+      { fields: createFields as any },
+    ]);
+    savedRecord = created[0];
+    console.log(`[ContextGraph] Created compressed graph for ${originalGraph.companyName}`);
+  }
+
+  return mapAirtableRecord(savedRecord);
+}
+
+/**
  * Airtable record structure for Context Graph storage
  *
  * Actual Airtable columns (from ContextGraphs table):
@@ -222,10 +313,39 @@ export async function saveContextGraph(
       })
       .firstPage();
 
+    // Minify the graph by removing null values and empty arrays to reduce size
+    const minifiedGraph = JSON.parse(JSON.stringify(graph, (key, value) => {
+      // Remove null values
+      if (value === null) return undefined;
+      // Remove empty arrays (but keep arrays with content)
+      if (Array.isArray(value) && value.length === 0) return undefined;
+      // Remove empty strings
+      if (value === '') return undefined;
+      return value;
+    }));
+
+    const graphJson = JSON.stringify(minifiedGraph);
+    const jsonSize = graphJson.length;
+
+    // Airtable Long Text field has a 100,000 character limit
+    if (jsonSize > 100000) {
+      console.warn(`[ContextGraph] Graph JSON is ${jsonSize} chars (limit: 100,000). May fail to save.`);
+      // Try more aggressive compression - remove provenance history beyond first entry
+      const compressedGraph = compressGraphForStorage(minifiedGraph);
+      const compressedJson = JSON.stringify(compressedGraph);
+      console.log(`[ContextGraph] Compressed to ${compressedJson.length} chars`);
+      if (compressedJson.length <= 100000) {
+        console.log(`[ContextGraph] Using compressed graph`);
+        return saveCompressedGraph(graph, compressedJson, base, existingRecords, now, completenessScore, source);
+      }
+    }
+
+    console.log(`[ContextGraph] Saving graph for ${graph.companyName} (${jsonSize} chars, ${completenessScore}% complete)`);
+
     const fields: Record<string, unknown> = {
       'Company ID': graph.companyId,
       'Company Name': graph.companyName,
-      'Graph JSON': JSON.stringify(graph),
+      'Graph JSON': graphJson,
       'Version': graph.meta.version,
       'Completeness Score': completenessScore,
       'Updated At': now,
