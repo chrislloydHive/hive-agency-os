@@ -49,6 +49,7 @@ import type {
 } from '@/lib/os/analytics/blueprintDataFetcher';
 import type { MediaLabSummary } from '@/lib/types/mediaLab';
 import type { AudienceLabSummary } from '@/lib/audience/storage';
+import type { BrainSummary as BrainContextSummary } from '@/lib/brain/summaryTypes';
 import {
   formatMediaBudget,
   getObjectiveLabel,
@@ -61,6 +62,7 @@ import {
   BlueprintDiagnosticsColumn,
   BlueprintActionsColumn,
   BlueprintMiniNav,
+  BrainContextHealthBanner,
 } from '@/components/os/blueprint';
 
 // ============================================================================
@@ -132,6 +134,8 @@ export interface BlueprintClientProps {
   recommendedTools?: SerializedRecommendedTool[];
   mediaLabSummary?: MediaLabSummary | null;
   audienceLabSummary?: AudienceLabSummary | null;
+  /** New Brain Context Summary from Brain 4-Mode IA */
+  brainContextSummary?: BrainContextSummary | null;
 }
 
 // ============================================================================
@@ -270,6 +274,7 @@ export function BlueprintClient({
   recommendedTools,
   mediaLabSummary,
   audienceLabSummary,
+  brainContextSummary,
 }: BlueprintClientProps) {
   const router = useRouter();
   const [runningTools, setRunningTools] = useState<Set<CompanyToolId>>(new Set());
@@ -708,6 +713,16 @@ export function BlueprintClient({
         pipelineData={pipelineData}
         lastUpdated={lastUpdated}
       />
+
+      {/* ================================================================== */}
+      {/* Brain Context Health Banner - Shows domain health & lab status */}
+      {/* ================================================================== */}
+      {brainContextSummary && (
+        <BrainContextHealthBanner
+          brainContextSummary={brainContextSummary}
+          companyId={company.id}
+        />
+      )}
 
       {/* ================================================================== */}
       {/* Sticky Mini Navigation */}

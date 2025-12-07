@@ -1,0 +1,595 @@
+{
+  "entries": [
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "identity.icpDescription",
+      "oldValue": "",
+      "newValue": "Early-stage tech startups and growth-oriented businesses in the Pacific Northwest with $500K-$5M annual revenue, seeking scalable marketing solutions and operational efficiency improvements",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "unjWpj20oeXpSZwYRR_UV",
+      "updatedAt": "2025-12-06T04:45:57.465Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "identity.marketPosition",
+      "oldValue": null,
+      "newValue": "Specialized niche player focused on early-stage tech startups",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "nwPMovXQ_9AwmN-UA0k0Y",
+      "updatedAt": "2025-12-06T04:55:41.883Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "identity.revenueModel",
+      "oldValue": "",
+      "newValue": "Service-based with retainer and project fees, supplemented by performance-based commission structures for growth campaigns",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "Zabf9Nd089-15-zHE3gBs",
+      "updatedAt": "2025-12-06T05:02:57.830Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.positioningAxes",
+      "oldValue": {
+        "primaryAxis": {
+          "label": "Innovation",
+          "lowLabel": "Traditional",
+          "highLabel": "Cutting-edge",
+          "description": "Measures the level of technological and strategic innovation in marketing solutions."
+        },
+        "secondaryAxis": {
+          "label": "Scalability",
+          "lowLabel": "Static",
+          "highLabel": "Highly Scalable",
+          "description": "Assesses the ability of solutions to grow and adapt with the client's business needs."
+        }
+      },
+      "newValue": "{\"primaryAxis\":{\"label\":\"Innovation\",\"lowLabel\":\"Traditional\",\"highLabel\":\"Cutting-edge\",\"description\":null},\"secondaryAxis\":{\"label\":\"Scalability\",\"lowLabel\":\"Static\",\"highLabel\":\"Highly Scalable\",\"description\":\"Assesses the ability of solutions to grow and adapt with the client's business needs.\"}}",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "BaAwnt8aW4nSTDaVXWyeU",
+      "updatedAt": "2025-12-06T05:03:53.944Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "objectives.secondaryObjectives",
+      "oldValue": [],
+      "newValue": [
+        "Improve website conversion rate by implementing contact forms and CTAs",
+        "Establish thought leadership in tech startup marketing space",
+        "Expand client retention through enhanced service delivery"
+      ],
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "Q67FSGSd38G9xXpEfJe0r",
+      "updatedAt": "2025-12-06T05:12:00.406Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "identity.profitCenters",
+      "oldValue": [],
+      "newValue": "Retainer services, project-based marketing campaigns, performance-based growth programs",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "MIQXhlHLz54XJnjzsD1Iz",
+      "updatedAt": "2025-12-06T05:14:24.157Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "identity.marketMaturity",
+      "oldValue": null,
+      "newValue": "Growing",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "qjGtcTtfO3OURYyB3Uild",
+      "updatedAt": "2025-12-06T05:15:52.230Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "objectives.primaryBusinessGoal",
+      "oldValue": null,
+      "newValue": "Scale revenue growth by expanding brand awareness and market share within the early-stage tech startup segment in the Pacific Northwest",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "o_nJLcgEleKT18XbpQ9vW",
+      "updatedAt": "2025-12-06T05:36:54.320Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "identity.competitiveLandscape",
+      "oldValue": null,
+      "newValue": "Moderately competitive with a mix of full-service digital agencies, specialized startup-focused consultancies, and freelance marketing professionals. The Pacific Northwest market shows increasing demand for tech-focused marketing services, with competition ranging from established agencies to emerging boutique firms targeting the same early-stage tech startup segment.",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "dt8PZafFg9mHyxarY5dn0",
+      "updatedAt": "2025-12-06T05:41:45.962Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "identity.primaryCompetitors",
+      "oldValue": [],
+      "newValue": [
+        "Full-service digital agencies (Nike Digital, Wieden+Kennedy digital divisions)",
+        "Specialized startup-focused consultancies",
+        "Regional Pacific Northwest marketing agencies",
+        "National startup marketing agencies (Growth Collective, Ladder.io)"
+      ],
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "CweRFnIgt8DvwgPEEsYWh",
+      "updatedAt": "2025-12-06T06:30:29.292Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "creative.channelPatterns",
+      "oldValue": null,
+      "newValue": "LinkedIn: Professional thought leadership content and case studies. Google Search: ROI-focused landing pages with conversion tools. Podcasts: Long-form interviews showcasing expertise. YouTube: Educational content on marketing strategies. Meta: Targeted ads with social proof. Direct Mail: Personalized outreach to high-value prospects.",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "JLsA4BkrtlZPLg3eHvZas",
+      "updatedAt": "2025-12-06T06:43:41.924Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "creative.campaignConcepts",
+      "oldValue": [],
+      "newValue": [
+        "Growth Engine Transformation: Before/after case studies showing underperforming marketing turned into growth drivers",
+        "Pacific Northwest Tech Rising: Showcase local startup success stories and innovation",
+        "Scale Smart, Not Hard: ROI-focused campaigns demonstrating efficient growth strategies"
+      ],
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "xffZeW2BZCFWHyIelOZlR",
+      "updatedAt": "2025-12-06T06:53:49.734Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "creative.creativeTerritories",
+      "oldValue": [],
+      "newValue": [
+        "Tech Innovation & Growth",
+        "Startup Success Stories",
+        "ROI-Driven Results",
+        "Pacific Northwest Business Culture",
+        "Digital Transformation"
+      ],
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "ybLZHqe5xds7kbw0-6SHN",
+      "updatedAt": "2025-12-06T06:55:50.414Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "creative.guidelines",
+      "oldValue": null,
+      "newValue": "Maintain professional yet approachable tone aligned with brand personality. Focus on tech-driven innovation and startup empowerment. Use clear, data-driven messaging that emphasizes ROI and scalability. Incorporate Pacific Northwest tech culture elements. Ensure all creative assets support lead generation and conversion goals.",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "HxBwgXj0l9hN1P9H8CGIy",
+      "updatedAt": "2025-12-06T06:58:25.009Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "identity.seasonalityNotes",
+      "oldValue": "",
+      "newValue": "Marketing agency services show strongest demand in Q1 (budget planning) and Q3 (growth push for year-end). Early-stage tech startups typically secure funding rounds in Q1 and Q3, driving increased marketing investment. Lower activity during summer months (Q2) and holiday season (Q4) when startups focus on product development and reduced business activity.",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "0KtF4C0avqfcx2bJ3fRIT",
+      "updatedAt": "2025-12-06T06:58:47.760Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.competitorSearchStrategy",
+      "oldValue": null,
+      "newValue": [
+        "Targeting startup marketing keywords",
+        "Local SEO for Pacific Northwest market",
+        "Thought leadership content ranking",
+        "Competitor brand bidding",
+        "Long-tail startup industry terms"
+      ],
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "bvHNnzATFkJAVDSV33AuV",
+      "updatedAt": "2025-12-06T07:28:56.794Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.shareOfVoice",
+      "oldValue": null,
+      "newValue": "15-25%",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "qmFWWtpUF41Y7RKWQUcee",
+      "updatedAt": "2025-12-06T07:29:02.355Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.competitorMediaMix",
+      "oldValue": null,
+      "newValue": [
+        "LinkedIn advertising and content marketing",
+        "Google Search and display advertising",
+        "Industry conference sponsorships",
+        "Content marketing and SEO",
+        "Email marketing campaigns",
+        "Podcast sponsorships"
+      ],
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "C01IYqggLSweQX1160spI",
+      "updatedAt": "2025-12-06T07:29:51.817Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.marketPosition",
+      "oldValue": null,
+      "newValue": "Specialized niche player with deep expertise in early-stage tech startup marketing in the Pacific Northwest",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "15zuSF-Q0tonTk-FngSj0",
+      "updatedAt": "2025-12-06T07:31:16.845Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.uniqueValueProps",
+      "oldValue": [],
+      "newValue": "Only agency specializing exclusively in Pacific Northwest early-stage tech startups, Integrated technology and marketing approach unlike generalist agencies, Performance-based pricing that aligns with startup cash flow constraints, Deep understanding of startup growth phases and scaling challenges",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "Z2nj21MrUPUX3W-6i3Nc9",
+      "updatedAt": "2025-12-06T07:31:18.153Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.competitiveAdvantages",
+      "oldValue": [],
+      "newValue": "Deep understanding of early-stage tech startup challenges, integrated technology and marketing approach, Pacific Northwest market expertise, performance-based pricing model flexibility",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "pXHek-NsRzllGr76P0XpH",
+      "updatedAt": "2025-12-06T07:31:19.366Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.competitiveOpportunities",
+      "oldValue": [],
+      "newValue": "Expansion into adjacent Pacific Northwest markets, Development of proprietary marketing technology tools, Partnership opportunities with startup accelerators and incubators, Thought leadership content creation for industry recognition",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "SuEhNQ1y6qmLUpzbGTO_m",
+      "updatedAt": "2025-12-06T07:31:20.337Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.competitiveThreats",
+      "oldValue": [],
+      "newValue": "Large agencies expanding into startup market with lower pricing, In-house marketing teams at growing startups, AI-powered marketing automation tools reducing need for agencies, Economic downturns affecting startup marketing budgets",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "zgBFj-pUmgx0l5DaHmdEZ",
+      "updatedAt": "2025-12-06T07:31:21.328Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.marketTrends",
+      "oldValue": [],
+      "newValue": "Increased demand for integrated marketing technology solutions, Growth in performance-based agency pricing models, Rising importance of data privacy compliance in marketing, Shift toward account-based marketing for B2B startups",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "iRkUtEgNd5lpUzuigiuoo",
+      "updatedAt": "2025-12-06T07:31:23.165Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.competitorCreativeThemes",
+      "oldValue": [],
+      "newValue": "Full-service agencies focus on brand storytelling and visual identity; Specialized consultants emphasize growth hacking and data analytics; Freelancers highlight personalized service and cost efficiency",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "ECW_DTdh54BvxoBwKNmyn",
+      "updatedAt": "2025-12-06T07:31:24.362Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.competitorBudgets",
+      "oldValue": null,
+      "newValue": "Full-service agencies: $500K-2M annually; Specialized consultants: $100K-500K annually; Freelancers: $50K-150K annually",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "3yhig_eBUBpKJQC_X1l1H",
+      "updatedAt": "2025-12-06T07:31:25.555Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.categoryBenchmarks",
+      "oldValue": null,
+      "newValue": "Average client retention: 12-18 months, Monthly retainer range: $5K-25K, Project completion time: 3-6 months, Client satisfaction score: 4.2/5.0",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "8LZolmVjvhqXeLtTthQTp",
+      "updatedAt": "2025-12-06T07:31:26.552Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.categoryCtr",
+      "oldValue": null,
+      "newValue": "LinkedIn: 0.8-1.2%, Google Search: 2-4%, Display: 0.3-0.6%",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "1ksm0umJ8JcyNk8cgI61w",
+      "updatedAt": "2025-12-06T07:31:27.676Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "productOffer.productLines",
+      "oldValue": [],
+      "newValue": [
+        "Digital Marketing Strategy",
+        "Growth Marketing Services",
+        "Marketing Technology Implementation",
+        "Performance Marketing Programs"
+      ],
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "hehf266r6ZchwWzU_jWle",
+      "updatedAt": "2025-12-06T07:54:47.487Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "productOffer.products",
+      "oldValue": [],
+      "newValue": [
+        "Marketing Strategy Consulting",
+        "Digital Advertising Management",
+        "Marketing Automation Setup",
+        "Growth Analytics & Reporting",
+        "Content Marketing Strategy",
+        "Lead Generation Campaigns"
+      ],
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "BFaaiXmkG7D3tAxKe3s3Z",
+      "updatedAt": "2025-12-06T07:54:48.456Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "productOffer.productCategories",
+      "oldValue": [],
+      "newValue": [
+        "Strategy & Consulting",
+        "Digital Advertising",
+        "Marketing Technology",
+        "Growth Programs"
+      ],
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "4ajapjmzfPlUkER-ERfTB",
+      "updatedAt": "2025-12-06T07:54:49.627Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "productOffer.conversionOffers",
+      "oldValue": [],
+      "newValue": [
+        "Free Marketing Strategy Audit",
+        "Growth Readiness Assessment",
+        "Marketing Technology Stack Review",
+        "30-Day Growth Sprint Trial"
+      ],
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "lcoBLoYkomFE0jefIRt_D",
+      "updatedAt": "2025-12-06T07:54:50.686Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "productOffer.heroProducts",
+      "oldValue": [],
+      "newValue": [
+        "Growth Marketing Retainer",
+        "Marketing Technology Stack Implementation"
+      ],
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "IsWAbPrNBk-w7Koa4F-Do",
+      "updatedAt": "2025-12-06T07:54:51.799Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "productOffer.promoWindows",
+      "oldValue": null,
+      "newValue": [
+        "Q1 Budget Planning Season (Jan-Feb)",
+        "Mid-Year Strategy Review (June-July)",
+        "Q4 Year-End Push (Nov-Dec)"
+      ],
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "pquy1cOmMM7eYBca0hq4j",
+      "updatedAt": "2025-12-06T07:54:52.679Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "productOffer.priceRange",
+      "oldValue": null,
+      "newValue": "$2,000 - $25,000 monthly retainers, $5,000 - $50,000 project fees",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "t8N3BhVFjqcmIzUCWMCeK",
+      "updatedAt": "2025-12-06T07:54:53.733Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "productOffer.avgMargin",
+      "oldValue": null,
+      "newValue": "65%",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "4h_Yt8kojtyhVp_SaivzP",
+      "updatedAt": "2025-12-06T07:54:54.548Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "productOffer.fulfillmentNotes",
+      "oldValue": null,
+      "newValue": "Services delivered remotely with quarterly in-person strategy sessions for Pacific Northwest clients. Project timelines range from 2-12 weeks depending on scope.",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "Q3XxacImF-5T-RCIGBv2g",
+      "updatedAt": "2025-12-06T07:54:55.492Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "productOffer.avgTicketValue",
+      "oldValue": null,
+      "newValue": "$15,000",
+      "updatedBy": "human",
+      "sourceTool": "predict",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "8W04FtpK8aOiK67b-s8NO",
+      "updatedAt": "2025-12-06T07:54:56.707Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.positioningAxes",
+      "oldValue": "{\"primaryAxis\":{\"label\":\"Innovation\",\"lowLabel\":\"Traditional\",\"highLabel\":\"Cutting-edge\",\"description\":null},\"secondaryAxis\":{\"label\":\"Scalability\",\"lowLabel\":\"Static\",\"highLabel\":\"Highly Scalable\",\"description\":\"Assesses the ability of solutions to grow and adapt with the client's business needs.\"}}",
+      "newValue": "{\"primaryAxis\":{\"label\":\"Technology Integration\",\"lowLabel\":\"\",\"highLabel\":\"\",\"description\":null},\"secondaryAxis\":null}",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "vc7FK_1DC9MyKurJGCy99",
+      "updatedAt": "2025-12-06T18:03:31.335Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "competitive.positioningAxes",
+      "oldValue": "{\"primaryAxis\":{\"label\":\"Technology Integration\",\"lowLabel\":\"\",\"highLabel\":\"\",\"description\":null},\"secondaryAxis\":null}",
+      "newValue": "{\"primaryAxis\":{\"label\":\"Technology Integration\",\"lowLabel\":\"\",\"highLabel\":\"\",\"description\":null},\"secondaryAxis\":null}",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "Ti4Z0o7jjNnxyczlBTxjZ",
+      "updatedAt": "2025-12-06T18:04:00.864Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "performanceMedia.topPerformingChannel",
+      "oldValue": null,
+      "newValue": "social_linkedin",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "dd5TxnmURFhkHcfWFdtdB",
+      "updatedAt": "2025-12-07T00:13:07.001Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "creative.recommendedFormats",
+      "newValue": "[\"case_studies\",\"infographics\",\"webinars\",\"thought_leadership_articles\",\"video_testimonials\",\"educational_blog_posts\",\"ROI_calculators\",\"data_sheets\"]",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "A4tiMzRdS7eEQ0r-uzk0h",
+      "updatedAt": "2025-12-07T00:13:12.205Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "performanceMedia.topPerformingChannel",
+      "oldValue": null,
+      "newValue": "social_linkedin",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "xL5_RqbYOek8kOOaWSBkN",
+      "updatedAt": "2025-12-07T00:13:16.339Z"
+    },
+    {
+      "companyId": "rec2VOqRkrfhVBvri",
+      "path": "creative.recommendedFormats",
+      "newValue": "[\"case_studies\",\"infographics\",\"webinars\",\"thought_leadership_articles\",\"video_testimonials\",\"educational_blog_posts\",\"ROI_calculators\",\"data_sheets\"]",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "pKuEoEhcmomWDqqMYxLjX",
+      "updatedAt": "2025-12-07T00:13:17.468Z"
+    }
+  ],
+  "updatedAt": "2025-12-07T00:13:17.468Z"
+}

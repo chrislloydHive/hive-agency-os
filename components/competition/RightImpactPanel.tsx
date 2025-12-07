@@ -221,7 +221,11 @@ function PositioningTab({
         </div>
       ) : (
         <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 text-center">
-          <p className="text-sm text-slate-500">Select a competitor to see positioning insights</p>
+          <p className="text-sm text-slate-400 mb-2">Select a competitor to see strategic insights powered by Competition Lab.</p>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Insights will appear here once a competitor is selected. These insights feed directly
+            into Strategic Map (Positioning / Messaging / Offers), QBR Story, and Work Items.
+          </p>
         </div>
       )}
 

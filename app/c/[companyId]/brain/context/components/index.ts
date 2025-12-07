@@ -18,3 +18,8 @@ export { ValidationPanel } from './ValidationPanel';
 export { ContractPanel } from './ContractPanel';
 export { UpdateLogPanel } from './UpdateLogPanel';
 export { HealingModal } from './HealingModal';
+
+// Context Graph v3 components
+export { ContextGraphV3Panel } from './ContextGraphV3Panel';
+export { ContextGraphV3Canvas } from './ContextGraphV3Canvas';
+export { ContextNodeDetailPanel } from './ContextNodeDetailPanel';

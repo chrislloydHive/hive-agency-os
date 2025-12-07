@@ -75,6 +75,18 @@ interface DiscoveryResult {
   }>;
 }
 
+// Map V3 competitor type to V2 role
+function mapV3TypeToRole(type: string | undefined): string {
+  switch (type) {
+    case 'direct': return 'core';
+    case 'partial': return 'secondary';
+    case 'fractional': return 'secondary';
+    case 'platform': return 'alternative';
+    case 'internal': return 'alternative';
+    default: return 'secondary';
+  }
+}
+
 export function CompetitorLabClient({
   companyId,
   companyName,
@@ -176,11 +188,27 @@ export function CompetitorLabClient({
         return;
       }
 
+      // Map V3 response to V2 format expected by this component
+      const mappedCompetitors = (data.competitors || []).map((c: any) => ({
+        competitorName: c.name || c.competitorName || 'Unknown',
+        competitorDomain: c.domain || c.competitorDomain || '',
+        role: mapV3TypeToRole(c.type) || c.role || 'secondary',
+        overallScore: c.threatScore || c.overallScore || 50,
+        offerSimilarity: c.positioning?.x || c.offerSimilarity || 50,
+        audienceSimilarity: c.positioning?.y || c.audienceSimilarity || 50,
+        threatLevel: c.threatScore || c.threatLevel || null,
+      }));
+
       setDiscoveryResult({
         runId: data.runId,
         status: data.status,
-        summary: data.summary,
-        competitors: data.competitors || [],
+        summary: {
+          totalDiscovered: data.summary?.totalCompetitors || mappedCompetitors.length,
+          coreCount: data.summary?.byType?.direct || 0,
+          secondaryCount: (data.summary?.byType?.partial || 0) + (data.summary?.byType?.fractional || 0),
+          alternativeCount: (data.summary?.byType?.platform || 0) + (data.summary?.byType?.internal || 0),
+        },
+        competitors: mappedCompetitors,
       });
 
       // Refresh to load new data from Context Graph

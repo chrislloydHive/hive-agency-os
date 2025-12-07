@@ -20,6 +20,8 @@ import type {
   AnalyticsStrategicInsight,
 } from '@/lib/os/analytics/blueprintDataFetcher';
 import type { CompanySummary } from '@/lib/os/companySummary';
+// New BrainSummary from Brain 4-Mode IA - aliased to avoid conflict with legacy BrainSummary
+import type { BrainSummary as BrainContextSummary } from '@/lib/brain/summaryTypes';
 
 // Re-export CompanySummary for components that need it
 export type { CompanySummary } from '@/lib/os/companySummary';
@@ -120,3 +122,6 @@ export type {
   CompanyToolId,
   ToolIcon,
 };
+
+// Re-export new Brain context summary type
+export type { BrainContextSummary };

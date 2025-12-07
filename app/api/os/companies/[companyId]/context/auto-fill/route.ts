@@ -21,7 +21,8 @@ interface RouteParams {
  * Request body (optional):
  * {
  *   forceRunFCB?: boolean;     // Force run FCB even if ran recently
- *   includeGAPPass?: boolean;  // Include GAP pass (default false)
+ *   includeGAPIA?: boolean;    // Include GAP IA pass (default true)
+ *   forceRunGAPIA?: boolean;   // Force run GAP IA even if ran recently
  *   forceRunLabs?: boolean;    // Force run Labs even if completeness is high
  * }
  *
@@ -51,7 +52,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const body = await request.json();
       options = {
         forceRunFCB: body.forceRunFCB ?? false,
-        includeGAPPass: body.includeGAPPass ?? false,
+        includeGAPIA: body.includeGAPIA !== false, // Default true
+        forceRunGAPIA: body.forceRunGAPIA ?? false,
         forceRunLabs: body.forceRunLabs ?? false,
       };
     } catch {

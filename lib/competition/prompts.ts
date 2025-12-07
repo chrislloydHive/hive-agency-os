@@ -2,11 +2,98 @@
 // Competition Lab v2 - AI System Prompts
 //
 // Prompts for competitor discovery, enrichment, and scoring.
+// Updated with strict JSON schema requirements for reliable parsing.
 
 import type { TargetCompanyContext, EnrichedCompetitorData } from './types';
 
 // ============================================================================
-// Discovery Prompts
+// Discovery System Prompts
+// ============================================================================
+
+/**
+ * System prompt for competitor discovery
+ */
+export const COMPETITOR_DISCOVERY_SYSTEM_PROMPT = `You are an expert market researcher specializing in competitive landscapes.
+
+Your task is to identify real companies that compete with a target company. You must:
+1. Only suggest real, established companies (not fictional or made-up)
+2. Focus on companies competing for the same customers
+3. Include companies across different tiers: direct competitors, alternatives, and adjacent players
+4. Provide accurate domain URLs when known
+
+Always respond with valid JSON only. No commentary, explanations, or markdown.`;
+
+/**
+ * Main discovery prompt - expects JSON array response
+ */
+export const COMPETITOR_DISCOVERY_PROMPT = `You will be given structured context about a target company.
+Your task is to identify 8-12 real companies that compete with or are alternatives to this company.
+
+For each competitor, provide:
+- name: Company name (required, must be a real company)
+- homepageUrl: Their website URL if known (e.g., "https://example.com")
+- shortSummary: 1-2 sentence description of what they do
+- geo: Primary market/region (e.g., "US", "Global", "UK", "Pacific Northwest")
+- priceTierGuess: Their pricing tier - "low", "mid", or "high" (or null if unknown)
+- source: Always set to "ai_simulation"
+- sourceNote: Brief reason why they were selected as a competitor
+
+IMPORTANT:
+- Only include REAL companies that actually exist
+- Do not make up company names
+- Include a mix of: direct competitors (same offering), alternatives (different approach), and adjacent players
+- Consider the company's geography and industry when selecting competitors
+
+Respond with valid JSON in this exact format - either a plain array OR an object with a "competitors" key:
+
+Option A (preferred):
+[
+  {
+    "name": "Company Name",
+    "homepageUrl": "https://example.com",
+    "shortSummary": "Brief description of what they offer.",
+    "geo": "US",
+    "priceTierGuess": "mid",
+    "source": "ai_simulation",
+    "sourceNote": "Reason they compete with the target."
+  }
+]
+
+Option B (also accepted):
+{
+  "competitors": [
+    { ... same structure as above ... }
+  ]
+}`;
+
+/**
+ * Build the full discovery prompt with company context
+ */
+export function buildDiscoveryPrompt(context: {
+  businessName: string;
+  domain?: string | null;
+  industry?: string | null;
+  primaryOffers?: string[];
+  icpDescription?: string | null;
+  geographicFootprint?: string | null;
+  marketPosition?: string | null;
+}): string {
+  return `${COMPETITOR_DISCOVERY_PROMPT}
+
+TARGET COMPANY CONTEXT:
+- Business Name: ${context.businessName}
+- Domain: ${context.domain || 'Unknown'}
+- Industry: ${context.industry || 'Unknown'}
+- Primary Offers: ${context.primaryOffers?.join(', ') || 'Unknown'}
+- ICP (Ideal Customer): ${context.icpDescription || 'Unknown'}
+- Geographic Focus: ${context.geographicFootprint || 'Unknown'}
+- Market Position: ${context.marketPosition || 'Unknown'}
+
+Identify 8-12 competitors for this company. Respond with JSON array only.`;
+}
+
+// ============================================================================
+// Query Generation Prompts
 // ============================================================================
 
 /**

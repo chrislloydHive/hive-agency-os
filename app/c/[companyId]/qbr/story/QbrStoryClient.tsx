@@ -1,17 +1,39 @@
 // app/c/[companyId]/qbr/story/QbrStoryClient.tsx
 // QBR Story View - Main Client Component
+//
+// Integrates BrainSummary for:
+// - Data Confidence widget in header
+// - Context & Assumptions chapter
+// - Lab status badges in chapter headers
 
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import {
   QuarterSelector,
   RegenerationControls,
   StoryChapterNav,
   StoryBlockRenderer,
 } from '@/components/qbr';
+import {
+  DataConfidenceWidget,
+  ContextAssumptionsChapter,
+  ChapterLabBadge,
+} from '@/components/qbr/BrainSummaryWidget';
 import type { QbrStory, RegenerationMode, QbrDomain } from '@/lib/qbr/qbrTypes';
-import { Sparkles, BookOpen, RefreshCw } from 'lucide-react';
+import type { BrainSummary } from '@/lib/brain/summaryTypes';
+import { Sparkles, BookOpen, RefreshCw, Swords } from 'lucide-react';
+
+// Map QBR domains to Lab IDs for badge display
+const DOMAIN_TO_LAB: Record<string, string> = {
+  competitive: 'competition',
+  brand: 'brand',
+  audience: 'audience',
+  creative: 'creative',
+  website: 'website',
+  seo: 'seo',
+};
 
 interface Props {
   companyId: string;
@@ -20,24 +42,41 @@ interface Props {
 
 export function QbrStoryClient({ companyId, quarter }: Props) {
   const [story, setStory] = useState<QbrStory | null>(null);
+  const [brainSummary, setBrainSummary] = useState<BrainSummary | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [generating, setGenerating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch existing story
+  // Fetch existing story and brain summary
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
 
-    fetch(`/api/os/companies/${companyId}/qbr/story?quarter=${quarter}`)
-      .then((res) => {
-        if (!res.ok) throw new Error('Failed to load story');
-        return res.json();
-      })
-      .then((data) => {
+    // Fetch both in parallel
+    Promise.all([
+      fetch(`/api/os/companies/${companyId}/qbr/story?quarter=${quarter}`)
+        .then((res) => {
+          if (!res.ok) throw new Error('Failed to load story');
+          return res.json();
+        }),
+      fetch(`/api/os/companies/${companyId}/brain/summary`)
+        .then((res) => {
+          if (!res.ok) {
+            console.warn('[QbrStoryClient] BrainSummary fetch failed');
+            return null;
+          }
+          return res.json();
+        })
+        .catch((err) => {
+          console.warn('[QbrStoryClient] BrainSummary error:', err);
+          return null;
+        }),
+    ])
+      .then(([storyData, brainData]) => {
         if (!cancelled) {
-          setStory(data);
+          setStory(storyData);
+          setBrainSummary(brainData);
           setLoading(false);
         }
       })
@@ -200,8 +239,6 @@ export function QbrStoryClient({ companyId, quarter }: Props) {
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-semibold text-slate-100">QBR Story - {quarter}</h1>
           <p className="text-xs text-slate-400">
-            Data Confidence {Math.round(story.meta.dataConfidenceScore)}%
-            {' '}·{' '}
             Generated {new Date(story.meta.generatedAt).toLocaleDateString()}
             {' '}·{' '}
             <span className={story.meta.status === 'finalized' ? 'text-emerald-400' : 'text-amber-400'}>
@@ -217,6 +254,11 @@ export function QbrStoryClient({ companyId, quarter }: Props) {
           />
         </div>
       </div>
+
+      {/* Data Confidence Widget - from BrainSummary */}
+      {brainSummary && (
+        <DataConfidenceWidget brainSummary={brainSummary} companyId={companyId} />
+      )}
 
       {/* Generating overlay */}
       {generating && (
@@ -242,45 +284,80 @@ export function QbrStoryClient({ companyId, quarter }: Props) {
             <StoryBlockRenderer blocks={story.globalBlocks} />
           </div>
 
-          {/* Domain chapters */}
-          {story.chapters.map((chapter) => (
-            <section
-              key={chapter.id}
-              id={`chapter-${chapter.domain}`}
-              className="scroll-mt-24"
-            >
-              <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
-                {/* Chapter header */}
-                <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 bg-slate-800/30">
-                  <div className="flex flex-col gap-0.5">
-                    <h2 className="text-sm font-semibold text-slate-200">
-                      {chapter.title}
-                    </h2>
-                    {chapter.scoreDelta && (
-                      <p className="text-[10px] text-slate-400">
-                        Score: {chapter.scoreDelta.before} → {chapter.scoreDelta.after}
-                        {' '}
-                        <span className={chapter.scoreDelta.change >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                          ({chapter.scoreDelta.change >= 0 ? '+' : ''}{chapter.scoreDelta.change})
-                        </span>
-                      </p>
-                    )}
-                  </div>
-                  <RegenerationControls
-                    domain={chapter.domain}
-                    compact
-                    onRegenerate={handleRegenerate}
-                    disabled={generating}
-                  />
-                </div>
-
-                {/* Chapter content */}
-                <div className="p-4 space-y-4">
-                  <StoryBlockRenderer blocks={chapter.blocks} />
-                </div>
-              </div>
+          {/* Context & Assumptions chapter - from BrainSummary */}
+          {brainSummary && (
+            <section id="chapter-context" className="scroll-mt-24">
+              <ContextAssumptionsChapter
+                brainSummary={brainSummary}
+                companyId={companyId}
+              />
             </section>
-          ))}
+          )}
+
+          {/* Domain chapters */}
+          {story.chapters.map((chapter) => {
+            const labId = DOMAIN_TO_LAB[chapter.domain];
+            return (
+              <section
+                key={chapter.id}
+                id={`chapter-${chapter.domain}`}
+                className="scroll-mt-24"
+              >
+                <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+                  {/* Chapter header */}
+                  <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 bg-slate-800/30">
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-sm font-semibold text-slate-200">
+                          {chapter.title}
+                        </h2>
+                        {/* Lab status badge */}
+                        {brainSummary && labId && (
+                          <ChapterLabBadge
+                            labId={labId}
+                            labs={brainSummary.labs}
+                            companyId={companyId}
+                          />
+                        )}
+                      </div>
+                      {chapter.scoreDelta && (
+                        <p className="text-[10px] text-slate-400">
+                          Score: {chapter.scoreDelta.before} → {chapter.scoreDelta.after}
+                          {' '}
+                          <span className={chapter.scoreDelta.change >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                            ({chapter.scoreDelta.change >= 0 ? '+' : ''}{chapter.scoreDelta.change})
+                          </span>
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {/* Deep link to Competition Lab for competitive chapters */}
+                      {chapter.domain === 'competitive' && (
+                        <Link
+                          href={`/c/${companyId}/brain/labs/competition?from=qbr`}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-medium text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-md transition-colors"
+                        >
+                          <Swords className="w-3 h-3" />
+                          Open Competition Lab
+                        </Link>
+                      )}
+                      <RegenerationControls
+                        domain={chapter.domain}
+                        compact
+                        onRegenerate={handleRegenerate}
+                        disabled={generating}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Chapter content */}
+                  <div className="p-4 space-y-4">
+                    <StoryBlockRenderer blocks={chapter.blocks} />
+                  </div>
+                </div>
+              </section>
+            );
+          })}
         </div>
 
         {/* Right sidebar - Highlights */}

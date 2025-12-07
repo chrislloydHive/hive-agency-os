@@ -58,7 +58,7 @@ export async function runCompetitionLab(companyId: string): Promise<CompetitionR
   console.log(`[competition] Starting competition lab for company: ${companyId}`);
 
   // Create the run record
-  const run = await createCompetitionRun(companyId);
+  const run = await createCompetitionRun({ companyId });
   const runId = run.id;
 
   try {
@@ -490,12 +490,19 @@ async function scoreCandidate(
       id: generateCompetitorId(),
       competitorName: candidate.name,
       competitorDomain: candidate.domain,
+      homepageUrl: candidate.domain ? `https://${candidate.domain}` : null,
+      shortSummary: candidate.enrichedData.summary || null,
+      geo: candidate.enrichedData.geographicFocus || null,
+      priceTier: candidate.enrichedData.pricingTier === 'budget' ? 'low' :
+                 candidate.enrichedData.pricingTier === 'enterprise' || candidate.enrichedData.pricingTier === 'premium' ? 'high' :
+                 candidate.enrichedData.pricingTier === 'mid' ? 'mid' : null,
       role,
       overallScore,
       offerSimilarity,
       audienceSimilarity,
       geoOverlap,
       priceTierOverlap,
+      compositeScore: overallScore,
       brandScale: candidate.enrichedData.brandScale,
       enrichedData: candidate.enrichedData,
       provenance: {
@@ -508,6 +515,10 @@ async function scoreCandidate(
         promoted: false,
         promotedAt: null,
       },
+      source: 'ai_simulation' as const,
+      sourceNote: `Discovered from ${candidate.discoveredFrom.join(', ')}`,
+      removedByUser: false,
+      promotedByUser: isHumanProvided,
       createdAt: new Date().toISOString(),
       updatedAt: null,
       xPosition: null,

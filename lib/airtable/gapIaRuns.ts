@@ -91,6 +91,11 @@ function gapIaRunToAirtableFields(
   if (run.url) fields['Website URL'] = run.url;
   if (run.domain) fields['Domain'] = run.domain;
 
+  // Company link field (array format for Airtable linked records)
+  if (run.companyId) {
+    fields['Company'] = [run.companyId];
+  }
+
   // Timestamps
   if (run.createdAt) fields['Created At'] = run.createdAt;
 
@@ -219,11 +224,17 @@ function airtableRecordToGapIaRun(record: any): any {
     websiteInsights: [],
   };
 
+  // Get companyId from Company linked field first, fall back to Data JSON
+  const companyField = fields['Company'];
+  const companyId = Array.isArray(companyField) && companyField.length > 0
+    ? companyField[0]
+    : dataJson.companyId;
+
   // CRITICAL: Always use record.id (the Airtable record ID), never fields['ID']
   // fields['ID'] might be a custom UUID formula field
   return {
     id: record.id,
-    companyId: dataJson.companyId,
+    companyId,
     inboundLeadId: dataJson.inboundLeadId,
     gapPlanRunId: dataJson.gapPlanRunId,
     gapFullReportId: dataJson.gapFullReportId,

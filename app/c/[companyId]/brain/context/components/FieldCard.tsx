@@ -40,6 +40,10 @@ interface FieldCardProps {
   onUnlock?: (path: string) => void;
   onSuggestFix?: (field: GraphFieldUi) => void;
   canEdit?: boolean;
+  /** Whether this field is currently selected */
+  isSelected?: boolean;
+  /** Callback when this field is clicked to select it */
+  onSelect?: () => void;
 }
 
 // ============================================================================
@@ -85,6 +89,8 @@ export function FieldCard({
   onUnlock,
   onSuggestFix,
   canEdit = true,
+  isSelected = false,
+  onSelect,
 }: FieldCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -141,8 +147,26 @@ export function FieldCard({
     );
   }
 
+  // Handle card click for selection
+  const handleCardClick = useCallback((e: React.MouseEvent) => {
+    // Don't select if clicking on interactive elements
+    const target = e.target as HTMLElement;
+    if (target.closest('button') || target.closest('a') || target.closest('input')) {
+      return;
+    }
+    onSelect?.();
+  }, [onSelect]);
+
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 hover:border-slate-700 transition-colors group">
+    <div
+      className={cn(
+        'rounded-lg border p-4 transition-colors group cursor-pointer',
+        isSelected
+          ? 'border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-500/30'
+          : 'border-slate-800 bg-slate-900/50 hover:border-slate-700'
+      )}
+      onClick={handleCardClick}
+    >
       {/* Header Row */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">

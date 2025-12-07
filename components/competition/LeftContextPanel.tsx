@@ -138,7 +138,7 @@ export function LeftContextPanel({
           {/* Primary Offers */}
           {companyContext.primaryOffers.length > 0 && (
             <div>
-              <p className="text-xs text-slate-500 mb-1">Primary Offers</p>
+              <p className="text-xs text-slate-500 mb-1">Primary offers</p>
               <div className="flex flex-wrap gap-1">
                 {companyContext.primaryOffers.slice(0, 3).map((offer, idx) => (
                   <span
@@ -185,7 +185,7 @@ export function LeftContextPanel({
 
         {/* Role Filter */}
         <div className="mb-4">
-          <p className="text-xs text-slate-500 mb-2">Competitor Role</p>
+          <p className="text-xs text-slate-500 mb-2">Competitor Roles</p>
           <div className="flex flex-wrap gap-1">
             {(['core', 'secondary', 'alternative'] as const).map((role) => {
               const isSelected = filters.roles.includes(role);

@@ -43,6 +43,57 @@ export interface ContextGraphRecord {
 /**
  * Map Airtable record to ContextGraphRecord
  */
+/**
+ * Deep merge loaded graph with empty template to ensure all fields exist.
+ * This handles schema evolution - new fields added to the schema will be
+ * initialized with empty values when loading older graphs.
+ */
+function mergeWithEmptyGraph(loaded: CompanyContextGraph): CompanyContextGraph {
+  const empty = createEmptyContextGraph('', '');
+
+  // Helper to deep merge domain objects
+  const mergeDomain = <T extends object>(emptyDomain: T, loadedDomain: T | undefined): T => {
+    if (!loadedDomain) return emptyDomain;
+
+    const merged = { ...emptyDomain };
+    for (const key of Object.keys(loadedDomain) as (keyof T)[]) {
+      if (key in emptyDomain) {
+        (merged as any)[key] = loadedDomain[key];
+      }
+    }
+    // Also include any extra fields from loaded that aren't in empty
+    for (const key of Object.keys(loadedDomain) as (keyof T)[]) {
+      if (!(key in merged)) {
+        (merged as any)[key] = loadedDomain[key];
+      }
+    }
+    return merged;
+  };
+
+  return {
+    ...loaded,
+    meta: { ...empty.meta, ...loaded.meta },
+    identity: mergeDomain(empty.identity, loaded.identity),
+    brand: mergeDomain(empty.brand, loaded.brand),
+    objectives: mergeDomain(empty.objectives, loaded.objectives),
+    audience: mergeDomain(empty.audience, loaded.audience),
+    productOffer: mergeDomain(empty.productOffer, loaded.productOffer),
+    digitalInfra: mergeDomain(empty.digitalInfra, loaded.digitalInfra),
+    website: mergeDomain(empty.website, loaded.website),
+    content: mergeDomain(empty.content, loaded.content),
+    seo: mergeDomain(empty.seo, loaded.seo),
+    ops: mergeDomain(empty.ops, loaded.ops),
+    performanceMedia: mergeDomain(empty.performanceMedia, loaded.performanceMedia),
+    historical: mergeDomain(empty.historical, loaded.historical),
+    creative: mergeDomain(empty.creative, loaded.creative),
+    competitive: mergeDomain(empty.competitive, loaded.competitive),
+    budgetOps: mergeDomain(empty.budgetOps, loaded.budgetOps),
+    operationalConstraints: mergeDomain(empty.operationalConstraints, loaded.operationalConstraints),
+    storeRisk: mergeDomain(empty.storeRisk, loaded.storeRisk),
+    historyRefs: mergeDomain(empty.historyRefs, loaded.historyRefs),
+  };
+}
+
 function mapAirtableRecord(record: any): ContextGraphRecord | null {
   try {
     const fields = record.fields;
@@ -53,7 +104,9 @@ function mapAirtableRecord(record: any): ContextGraphRecord | null {
       return null;
     }
 
-    const graph = JSON.parse(graphJson) as CompanyContextGraph;
+    const loadedGraph = JSON.parse(graphJson) as CompanyContextGraph;
+    // Merge with empty graph to ensure all fields exist (handles schema evolution)
+    const graph = mergeWithEmptyGraph(loadedGraph);
 
     return {
       id: record.id,

@@ -15,9 +15,9 @@
 // - Phase 3: Validation panel, contract status, update log
 // - Phase 3: Auto-healing modal
 
-import { useMemo, useState, useCallback, useEffect } from 'react';
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
 import { DOMAIN_NAMES, type DomainName } from '@/lib/contextGraph/companyContextGraph';
 import type {
@@ -49,6 +49,8 @@ import { ValidationPanel } from './components/ValidationPanel';
 import { ContractPanel } from './components/ContractPanel';
 import { UpdateLogPanel } from './components/UpdateLogPanel';
 import { HealingModal } from './components/HealingModal';
+import { ContextNodeInspector } from './components/ContextNodeInspector';
+import { ContextNodeGraph } from './components/ContextNodeGraph';
 
 // Import Phase 4 components
 import {
@@ -84,6 +86,8 @@ interface Props {
   initialDomain?: string;
   /** Initial right panel tab to show (from URL query param) */
   initialPanel?: string;
+  /** Initial node (field path) to select (from URL query param ?nodeId=) */
+  initialNodeId?: string;
 }
 
 // ============================================================================
@@ -99,8 +103,30 @@ function cn(...classes: (string | boolean | undefined | null)[]): string {
 // ============================================================================
 
 // Valid panel tab values
-type RightPanelTab = 'snapshots' | 'notes' | 'ai' | 'suggestions' | 'validation' | 'contracts' | 'logs' | 'predict' | 'temporal' | 'collab' | 'bench';
-const VALID_PANEL_TABS: RightPanelTab[] = ['snapshots', 'notes', 'ai', 'suggestions', 'validation', 'contracts', 'logs', 'predict', 'temporal', 'collab', 'bench'];
+type RightPanelTab = 'inspector' | 'snapshots' | 'notes' | 'ai' | 'suggestions' | 'validation' | 'contracts' | 'logs' | 'predict' | 'temporal' | 'collab' | 'bench';
+const VALID_PANEL_TABS: RightPanelTab[] = ['inspector', 'snapshots', 'notes', 'ai', 'suggestions', 'validation', 'contracts', 'logs', 'predict', 'temporal', 'collab', 'bench'];
+
+// Primary tabs (always visible) vs Advanced tabs (hidden in "More" dropdown)
+interface PanelTabDef {
+  id: RightPanelTab;
+  label: string;
+  description?: string;
+}
+
+const PRIMARY_TABS: PanelTabDef[] = [
+  { id: 'inspector', label: 'Details', description: 'Inspect selected field' },
+  { id: 'snapshots', label: 'History', description: 'Past versions and changes' },
+  { id: 'suggestions', label: 'AI', description: 'AI-generated suggestions' },
+];
+
+const ADVANCED_TABS: PanelTabDef[] = [
+  { id: 'predict', label: 'Predict', description: 'AI predictions for missing fields' },
+  { id: 'temporal', label: 'Timeline', description: 'Field changes over time' },
+  { id: 'collab', label: 'Collab', description: 'Team collaboration' },
+  { id: 'bench', label: 'Benchmarks', description: 'Industry benchmarks' },
+  { id: 'validation', label: 'Rules', description: 'Validation rules and issues' },
+  { id: 'logs', label: 'Log', description: 'Update activity log' },
+];
 
 export function ContextGraphViewer({
   companyId,
@@ -114,25 +140,42 @@ export function ContextGraphViewer({
   coveragePercent,
   initialDomain,
   initialPanel,
+  initialNodeId,
 }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   // Validate initialDomain is a valid ContextDomainId
-  const validInitialDomain = initialDomain && DOMAIN_NAMES.includes(initialDomain as ContextDomainId)
-    ? (initialDomain as ContextDomainId)
-    : 'identity';
+  // If nodeId is provided, extract domain from it (e.g., "identity.industry" -> "identity")
+  const nodeIdDomain = initialNodeId?.split('.')[0] as ContextDomainId | undefined;
+  const validInitialDomain = nodeIdDomain && DOMAIN_NAMES.includes(nodeIdDomain)
+    ? nodeIdDomain
+    : initialDomain && DOMAIN_NAMES.includes(initialDomain as ContextDomainId)
+      ? (initialDomain as ContextDomainId)
+      : 'identity';
 
   // Validate initialPanel is a valid tab
-  const validInitialPanel = initialPanel && VALID_PANEL_TABS.includes(initialPanel as RightPanelTab)
-    ? (initialPanel as RightPanelTab)
-    : 'snapshots';
+  // If nodeId is provided, show inspector panel by default
+  const validInitialPanel = initialNodeId
+    ? 'inspector' // Show inspector panel when node is selected via URL
+    : initialPanel && VALID_PANEL_TABS.includes(initialPanel as RightPanelTab)
+      ? (initialPanel as RightPanelTab)
+      : 'snapshots';
 
   const [selectedDomain, setSelectedDomain] = useState<ContextDomainId>(validInitialDomain);
+
+  // Selected node (field) state for the inspector
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(initialNodeId || null);
+  const selectedFieldRef = useRef<HTMLDivElement>(null);
   const [showOnlyWithValue, setShowOnlyWithValue] = useState(false);
   const [showOnlyRefreshIssues, setShowOnlyRefreshIssues] = useState(false);
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
   const [isGlobalSearch, setIsGlobalSearch] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>(validInitialPanel);
+
+  // View mode state (list or graph)
+  const [viewMode, setViewMode] = useState<'list' | 'graph'>('list');
 
   // Provenance modal state
   const [provenanceModalField, setProvenanceModalField] = useState<GraphFieldUi | null>(null);
@@ -288,6 +331,53 @@ export function ContextGraphViewer({
     setGlobalSearchTerm('');
     setIsGlobalSearch(false);
   };
+
+  // Handle node (field) selection with URL sync
+  const handleSelectNode = useCallback((nodeId: string | null) => {
+    setSelectedNodeId(nodeId);
+
+    // Update URL with nodeId param (shallow navigation)
+    const params = new URLSearchParams(searchParams.toString());
+    if (nodeId) {
+      params.set('nodeId', nodeId);
+      // Also ensure we're on the correct domain
+      const domain = nodeId.split('.')[0] as ContextDomainId;
+      if (DOMAIN_NAMES.includes(domain)) {
+        setSelectedDomain(domain);
+        setIsGlobalSearch(false);
+        setGlobalSearchTerm('');
+      }
+      // Switch to inspector tab when selecting a node
+      setRightPanelTab('inspector');
+    } else {
+      params.delete('nodeId');
+      // Switch back to history tab when deselecting
+      if (rightPanelTab === 'inspector') {
+        setRightPanelTab('snapshots');
+      }
+    }
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [pathname, router, searchParams, rightPanelTab]);
+
+  // Scroll to selected field on mount or when selection changes
+  useEffect(() => {
+    if (selectedNodeId && selectedFieldRef.current) {
+      // Small delay to ensure DOM is ready
+      const timer = setTimeout(() => {
+        selectedFieldRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedNodeId]);
+
+  // Get the selected field data
+  const selectedField = useMemo(() => {
+    if (!selectedNodeId) return null;
+    return fields.find(f => f.path === selectedNodeId) || null;
+  }, [fields, selectedNodeId]);
 
   // Phase 3: Field save handler
   const handleSaveField = useCallback(async (path: string, newValue: string) => {
@@ -525,9 +615,14 @@ export function ContextGraphViewer({
           >
             ← {companyName}
           </Link>
-          <h1 className="mt-2 text-sm font-semibold text-slate-100">Context Graph</h1>
+          <div className="mt-2 flex items-center gap-2">
+            <h1 className="text-sm font-semibold text-slate-100">Context</h1>
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              Edit
+            </span>
+          </div>
           <p className="mt-1 text-xs text-slate-500">
-            Unified memory for AI strategy & execution.
+            Inspect and edit what Hive knows about this company.
           </p>
         </div>
 
@@ -587,16 +682,48 @@ export function ContextGraphViewer({
               {needsRefresh.length} field{needsRefresh.length > 1 ? 's' : ''} need attention.
             </p>
           )}
+
+          {/* First-time / low-context guidance */}
+          {contextHealthScore < 30 && (
+            <div className="mt-3 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+              <div className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                <div>
+                  <div className="text-[11px] font-medium text-amber-300">Getting Started</div>
+                  <p className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
+                    Start with Identity and Brand domains. These are foundational for AI-powered strategy.
+                  </p>
+                  <Link
+                    href={`/c/${companyId}/brain/labs`}
+                    className="inline-flex items-center gap-1 mt-1.5 text-[10px] text-amber-400 hover:text-amber-300"
+                  >
+                    Run a diagnostic lab
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </Link>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Domain Navigation */}
-        <nav className="flex-1 overflow-y-auto p-2 space-y-1">
+        <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
+          <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-slate-600 font-medium">
+            Domains
+          </div>
           {DOMAIN_NAMES.map((domainId) => {
             const meta = CONTEXT_DOMAIN_META[domainId];
             const domainFields = fieldsByDomain.get(domainId) ?? [];
             const populatedCount = domainFields.filter((f) => f.value !== null && f.value !== '').length;
+            const totalCount = domainFields.length;
+            const healthPct = totalCount > 0 ? Math.round((populatedCount / totalCount) * 100) : 0;
             const hasIssues = domainFields.some((f) => needsRefreshByPath.has(f.path));
             const hasLocks = domainFields.some((f) => locks.has(f.path));
+            const isActive = selectedDomain === domainId && !isGlobalSearch;
 
             return (
               <button
@@ -608,22 +735,40 @@ export function ContextGraphViewer({
                   setGlobalSearchTerm('');
                 }}
                 className={cn(
-                  'flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors',
-                  selectedDomain === domainId && !isGlobalSearch
-                    ? 'bg-slate-900 text-slate-50'
-                    : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-100'
+                  'flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-xs transition-colors group',
+                  isActive
+                    ? 'bg-amber-500/10 text-slate-50 border border-amber-500/30'
+                    : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-100 border border-transparent'
                 )}
               >
-                <span className="truncate">{meta.label}</span>
-                <span className="flex items-center gap-1.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  {/* Health indicator dot */}
+                  <span
+                    className={cn(
+                      'w-2 h-2 rounded-full flex-shrink-0',
+                      healthPct >= 80 && 'bg-emerald-400',
+                      healthPct >= 50 && healthPct < 80 && 'bg-amber-400',
+                      healthPct < 50 && 'bg-red-400'
+                    )}
+                  />
+                  <span className="truncate">{meta.label}</span>
+                </div>
+                <span className="flex items-center gap-1.5 flex-shrink-0">
                   {hasLocks && (
                     <svg className="w-3 h-3 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
                   )}
-                  {hasIssues && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
-                  <span className="text-[10px] text-slate-500">
-                    {populatedCount}/{domainFields.length}
+                  {hasIssues && !isActive && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  )}
+                  <span
+                    className={cn(
+                      'text-[10px] tabular-nums',
+                      isActive ? 'text-amber-300' : 'text-slate-500 group-hover:text-slate-400'
+                    )}
+                  >
+                    {healthPct}%
                   </span>
                 </span>
               </button>
@@ -662,6 +807,23 @@ export function ContextGraphViewer({
         {/* Header */}
         <header className="flex items-center justify-between border-b border-slate-900 bg-slate-950/80 px-6 py-3">
           <div>
+            {/* Breadcrumb */}
+            <div className="text-[11px] text-slate-500 mb-1">
+              <Link
+                href={`/c/${companyId}/brain/explorer`}
+                className="hover:text-slate-300 transition-colors"
+              >
+                Brain
+              </Link>
+              <span className="mx-1.5">·</span>
+              <span className="text-slate-400">Context</span>
+              {!isGlobalSearch && (
+                <>
+                  <span className="mx-1.5">·</span>
+                  <span className="text-slate-300">{CONTEXT_DOMAIN_META[selectedDomain].label}</span>
+                </>
+              )}
+            </div>
             {isGlobalSearch ? (
               <>
                 <div className="text-xs uppercase tracking-wide text-amber-400">
@@ -673,18 +835,50 @@ export function ContextGraphViewer({
               </>
             ) : (
               <>
-                <div className="text-xs uppercase tracking-wide text-slate-500">
+                <div className="text-sm font-medium text-slate-100">
                   {CONTEXT_DOMAIN_META[selectedDomain].label}
                 </div>
                 {domainMeta.description && (
-                  <div className="text-sm text-slate-300">{domainMeta.description}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">{domainMeta.description}</div>
                 )}
               </>
             )}
           </div>
           <div className="flex items-center gap-4">
-            {/* Filters (only when not in global search) */}
-            {!isGlobalSearch && (
+            {/* View Mode Toggle */}
+            <div className="flex items-center rounded-lg border border-slate-700 bg-slate-900 p-0.5">
+              <button
+                onClick={() => setViewMode('list')}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                  viewMode === 'list'
+                    ? 'bg-slate-700 text-slate-100'
+                    : 'text-slate-400 hover:text-slate-200'
+                )}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                </svg>
+                List
+              </button>
+              <button
+                onClick={() => setViewMode('graph')}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                  viewMode === 'graph'
+                    ? 'bg-slate-700 text-slate-100'
+                    : 'text-slate-400 hover:text-slate-200'
+                )}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
+                Graph
+              </button>
+            </div>
+
+            {/* Filters (only when not in global search and in list mode) */}
+            {!isGlobalSearch && viewMode === 'list' && (
               <div className="flex items-center gap-3">
                 <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
                   <input
@@ -721,101 +915,146 @@ export function ContextGraphViewer({
 
         {/* Body */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Fields List */}
-          <section className="flex-1 overflow-y-auto p-6 space-y-3">
-            {/* Auto-Complete Banner (only when coverage is low) */}
-            {coveragePercent !== undefined && coveragePercent < 50 && (
-              <AutoCompleteBanner
+          {/* Main Content Area - Either List or Graph view */}
+          {viewMode === 'graph' ? (
+            /* Graph View */
+            <section className="flex-1 overflow-hidden">
+              <ContextNodeGraph
+                fields={fields}
+                needsRefresh={needsRefreshByPath}
                 companyId={companyId}
-                coveragePercent={coveragePercent}
-                threshold={50}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={handleSelectNode}
               />
-            )}
+            </section>
+          ) : (
+            /* List View */
+            <section className="flex-1 overflow-y-auto p-6 space-y-3">
+              {/* Auto-Complete Banner (only when coverage is low) */}
+              {coveragePercent !== undefined && coveragePercent < 50 && (
+                <AutoCompleteBanner
+                  companyId={companyId}
+                  coveragePercent={coveragePercent}
+                  threshold={50}
+                />
+              )}
 
-            {/* Domain Summary (only when viewing a domain, not global search) */}
-            {!isGlobalSearch && (
-              <DomainSummaryPanel
-                domainId={selectedDomain}
-                fields={fieldsByDomain.get(selectedDomain) ?? []}
-                issues={domainIssues}
-                companyId={companyId}
-              />
-            )}
+              {/* Domain Summary (only when viewing a domain, not global search) */}
+              {!isGlobalSearch && (
+                <DomainSummaryPanel
+                  domainId={selectedDomain}
+                  fields={fieldsByDomain.get(selectedDomain) ?? []}
+                  issues={domainIssues}
+                  companyId={companyId}
+                />
+              )}
 
-            {/* Positioning Map (only for competitive domain) */}
-            {!isGlobalSearch && selectedDomain === 'competitive' && graph && (
-              <PositioningMapSection
-                companyId={companyId}
-                companyName={companyName}
-                competitiveDomain={graph.competitive}
-                canEdit={true}
-                onSaveField={handleSaveField}
-              />
-            )}
+              {/* Positioning Map (only for competitive domain) */}
+              {!isGlobalSearch && selectedDomain === 'competitive' && graph && (
+                <PositioningMapSection
+                  companyId={companyId}
+                  companyName={companyName}
+                  competitiveDomain={graph.competitive}
+                  canEdit={true}
+                  onSaveField={handleSaveField}
+                />
+              )}
 
-            {/* Fields */}
-            {filteredFields.length === 0 ? (
-              <div className="rounded-md border border-dashed border-slate-800 bg-slate-950/60 p-6 text-center">
-                <p className="text-xs text-slate-500">
-                  {isGlobalSearch
-                    ? 'No fields match your search.'
-                    : showOnlyWithValue || showOnlyRefreshIssues
-                      ? 'No fields match the current filters.'
-                      : 'No fields in this domain.'}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filteredFields.map((field) => (
-                  <FieldCard
-                    key={field.path}
-                    field={field}
-                    issue={needsRefreshByPath.get(field.path)}
-                    companyId={companyId}
-                    lock={locks.get(field.path)}
-                    onOpenProvenance={handleOpenProvenance}
-                    onExplainField={handleExplainField}
-                    onSave={handleSaveField}
-                    onLock={handleLockField}
-                    onUnlock={handleUnlockField}
-                    canEdit={true}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
+              {/* Fields */}
+              {filteredFields.length === 0 ? (
+                <div className="rounded-md border border-dashed border-slate-800 bg-slate-950/60 p-6 text-center">
+                  <p className="text-xs text-slate-500">
+                    {isGlobalSearch
+                      ? 'No fields match your search.'
+                      : showOnlyWithValue || showOnlyRefreshIssues
+                        ? 'No fields match the current filters.'
+                        : 'No fields in this domain.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredFields.map((field) => (
+                    <div
+                      key={field.path}
+                      ref={field.path === selectedNodeId ? selectedFieldRef : undefined}
+                    >
+                      <FieldCard
+                        field={field}
+                        issue={needsRefreshByPath.get(field.path)}
+                        companyId={companyId}
+                        lock={locks.get(field.path)}
+                        onOpenProvenance={handleOpenProvenance}
+                        onExplainField={handleExplainField}
+                        onSave={handleSaveField}
+                        onLock={handleLockField}
+                        onUnlock={handleUnlockField}
+                        canEdit={true}
+                        isSelected={field.path === selectedNodeId}
+                        onSelect={() => handleSelectNode(field.path)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
           {/* Right Panel */}
           <aside className="w-96 border-l border-slate-900 bg-slate-950/80 flex flex-col">
-            {/* Tab Navigation */}
-            <div className="flex border-b border-slate-900 overflow-x-auto">
-              {[
-                { id: 'snapshots', label: 'History' },
-                { id: 'suggestions', label: 'AI' },
-                { id: 'predict', label: 'Predict' },
-                { id: 'temporal', label: 'Timeline' },
-                { id: 'collab', label: 'Collab' },
-                { id: 'bench', label: 'Bench' },
-                { id: 'validation', label: 'Rules' },
-                { id: 'logs', label: 'Log' },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setRightPanelTab(tab.id as typeof rightPanelTab)}
-                  className={cn(
-                    'flex-shrink-0 px-3 py-2.5 text-xs font-medium transition-colors',
-                    rightPanelTab === tab.id
-                      ? 'text-amber-300 border-b-2 border-amber-400'
-                      : 'text-slate-500 hover:text-slate-300'
-                  )}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
+            {/* Tab Navigation - Primary tabs + More dropdown */}
+            <RightPanelTabs
+              selectedNodeId={selectedNodeId}
+              rightPanelTab={rightPanelTab}
+              onTabChange={setRightPanelTab}
+            />
 
             {/* Tab Content */}
             <div className="flex-1 overflow-y-auto p-4">
+              {/* Inspector Panel - shows when a node is selected */}
+              {rightPanelTab === 'inspector' && selectedField && (
+                <ContextNodeInspector
+                  field={selectedField}
+                  companyId={companyId}
+                  issue={needsRefreshByPath.get(selectedField.path)}
+                  lock={locks.get(selectedField.path)}
+                  onClose={() => handleSelectNode(null)}
+                  onEdit={() => {
+                    // Trigger edit mode on the field - scroll to it and focus
+                    selectedFieldRef.current?.querySelector('button[title="Edit field"]')?.dispatchEvent(
+                      new MouseEvent('click', { bubbles: true })
+                    );
+                  }}
+                  onLock={handleLockField}
+                  onUnlock={handleUnlockField}
+                  onExplain={() => handleExplainField(selectedField)}
+                />
+              )}
+
+              {rightPanelTab === 'inspector' && !selectedField && (
+                <div className="text-center py-8 px-4">
+                  <div className="w-12 h-12 rounded-full bg-slate-800/50 flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                  </div>
+                  <div className="text-sm font-medium text-slate-400 mb-2">Select a field to inspect</div>
+                  <p className="text-xs text-slate-500 leading-relaxed mb-4">
+                    Click on any field card in the {viewMode === 'list' ? 'list' : 'graph'} to see its details, provenance history, and available actions.
+                  </p>
+                  <div className="text-[10px] text-slate-600 space-y-1">
+                    <div className="flex items-center justify-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400/50"></span>
+                      <span>Yellow cards need attention</span>
+                    </div>
+                    <div className="flex items-center justify-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-400/50"></span>
+                      <span>Red cards are missing data</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {rightPanelTab === 'snapshots' && (
                 <SnapshotComparePanel
                   versions={snapshots}
@@ -1231,6 +1470,116 @@ function ExplainFieldModal({ companyId, field, onClose }: ExplainFieldModalProps
             Close
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Right Panel Tabs Component
+// ============================================================================
+
+interface RightPanelTabsProps {
+  selectedNodeId: string | null;
+  rightPanelTab: RightPanelTab;
+  onTabChange: (tab: RightPanelTab) => void;
+}
+
+function RightPanelTabs({ selectedNodeId, rightPanelTab, onTabChange }: RightPanelTabsProps) {
+  const [moreDropdownOpen, setMoreDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setMoreDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Check if current tab is an advanced tab (to highlight "More" button)
+  const isAdvancedTabActive = ADVANCED_TABS.some(t => t.id === rightPanelTab);
+  const activeAdvancedTab = ADVANCED_TABS.find(t => t.id === rightPanelTab);
+
+  // Build visible primary tabs (show Details/Inspector only when a node is selected)
+  const visiblePrimaryTabs = selectedNodeId
+    ? PRIMARY_TABS
+    : PRIMARY_TABS.filter(t => t.id !== 'inspector');
+
+  return (
+    <div className="flex items-center border-b border-slate-900">
+      {/* Primary Tabs */}
+      <div className="flex flex-1">
+        {visiblePrimaryTabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => onTabChange(tab.id)}
+            className={cn(
+              'flex-1 px-3 py-2.5 text-xs font-medium transition-colors text-center',
+              rightPanelTab === tab.id
+                ? 'text-amber-300 border-b-2 border-amber-400'
+                : 'text-slate-500 hover:text-slate-300'
+            )}
+            title={tab.description}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* More Dropdown */}
+      <div className="relative" ref={dropdownRef}>
+        <button
+          onClick={() => setMoreDropdownOpen(!moreDropdownOpen)}
+          className={cn(
+            'flex items-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors',
+            isAdvancedTabActive
+              ? 'text-amber-300 border-b-2 border-amber-400'
+              : 'text-slate-500 hover:text-slate-300'
+          )}
+        >
+          {isAdvancedTabActive && activeAdvancedTab ? activeAdvancedTab.label : 'More'}
+          <svg
+            className={cn(
+              'w-3 h-3 transition-transform',
+              moreDropdownOpen && 'rotate-180'
+            )}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {/* Dropdown Menu */}
+        {moreDropdownOpen && (
+          <div className="absolute right-0 top-full mt-1 z-50 w-48 rounded-lg border border-slate-700 bg-slate-900 shadow-xl py-1">
+            {ADVANCED_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  onTabChange(tab.id);
+                  setMoreDropdownOpen(false);
+                }}
+                className={cn(
+                  'w-full px-3 py-2 text-left text-xs transition-colors flex flex-col gap-0.5',
+                  rightPanelTab === tab.id
+                    ? 'bg-amber-500/20 text-amber-300'
+                    : 'text-slate-300 hover:bg-slate-800'
+                )}
+              >
+                <span className="font-medium">{tab.label}</span>
+                {tab.description && (
+                  <span className="text-[10px] text-slate-500">{tab.description}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,20 +1,21 @@
 // app/c/[companyId]/brain/context/ContextHealthHeader.tsx
 // Context Health Header for Brain → Context page
 //
-// Three-band hierarchical layout:
-// 1. Primary Actions: Smart Auto-Fill, Deep Context Build, Re-crawl Website
+// Two-band hierarchical layout:
+// 1. Primary Actions: Autocomplete, Context Actions dropdown
 // 2. Health Summary: Score, metrics, collapsible issues drawer
-// 3. Secondary Actions: Lab shortcuts, Edit, Explorer
+//
+// NOTE: Secondary actions (domain filters, Edit/Explorer/Strategic toggles)
+// have been removed. Inline editing is always enabled. Explorer mode is now
+// accessible via the top-level /brain/explorer tab.
 
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ContextHealthScore, ContextSeverity } from '@/lib/contextGraph/health';
-import type { RefinementLabId, LabRefinementRunResult } from '@/lib/labs/refinementTypes';
 import type { ReadinessCheckResult } from '@/lib/contextGraph/readiness';
-import { RefinementSummary } from '@/components/labs/RefinementSummary';
 import { AutoFillReadinessModal } from '@/components/os/AutoFillReadinessModal';
 
 // ============================================================================
@@ -22,7 +23,7 @@ import { AutoFillReadinessModal } from '@/components/os/AutoFillReadinessModal';
 // ============================================================================
 
 interface OnboardingStep {
-  step: 'initialize' | 'fcb' | 'audience_lab' | 'brand_lab' | 'creative_lab' | 'competitor_lab' | 'website_lab' | 'competitor_auto_seed' | 'snapshot';
+  step: 'initialize' | 'fcb' | 'audience_lab' | 'brand_lab' | 'creative_lab' | 'competitor_lab' | 'website_lab' | 'gap_ia' | 'competition_discovery' | 'competition_import' | 'snapshot';
   status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
   durationMs?: number;
   message?: string;
@@ -118,36 +119,6 @@ function getScoreColor(score: number): string {
   return 'text-red-400';
 }
 
-function getSourcePath(source: string, companyId: string): string {
-  const paths: Record<string, string> = {
-    Setup: `/c/${companyId}/brain/setup`,
-    GAP: `/c/${companyId}/gap`,
-    GAPHeavy: `/c/${companyId}/gap`,
-    AudienceLab: `/c/${companyId}/diagnostics/audience`,
-    BrandLab: `/c/${companyId}/diagnostics/brand`,
-    CreativeLab: `/c/${companyId}/labs/creative`,
-    CompetitorLab: `/c/${companyId}/labs/competitor`,
-    MediaLab: `/c/${companyId}/diagnostics/media`,
-    WebsiteLab: `/c/${companyId}/diagnostics/website-lab`,
-  };
-  return paths[source] || `/c/${companyId}/brain/setup`;
-}
-
-function getSourceLabel(source: string): string {
-  const labels: Record<string, string> = {
-    Setup: 'Setup',
-    GAP: 'GAP',
-    GAPHeavy: 'GAP',
-    AudienceLab: 'Audience',
-    BrandLab: 'Brand',
-    CreativeLab: 'Creative',
-    CompetitorLab: 'Competitor',
-    MediaLab: 'Media',
-    WebsiteLab: 'Website',
-  };
-  return labels[source] || source;
-}
-
 /**
  * Check if a field path is manual-only (cannot be auto-filled)
  */
@@ -155,19 +126,6 @@ function isManualOnlyField(path: string): boolean {
   // Objectives and Budget fields require human input
   const manualOnlyDomains = ['objectives', 'budgetOps'];
   return manualOnlyDomains.some(domain => path.startsWith(`${domain}.`));
-}
-
-/**
- * Get the appropriate destination for manual-only fields
- */
-function getManualFieldPath(path: string, companyId: string): string {
-  if (path.startsWith('objectives.')) {
-    return `/c/${companyId}/brain/setup`; // Or QBR objectives step
-  }
-  if (path.startsWith('budgetOps.')) {
-    return `/c/${companyId}/brain/setup`;
-  }
-  return `/c/${companyId}/brain/setup`;
 }
 
 /**
@@ -193,10 +151,11 @@ function formatBaselineDate(dateStr: string): string {
 interface PrimaryActionsProps {
   companyId: string;
   isAutoFilling: boolean;
+  autoFillStep: string;
   isOnboarding: boolean;
   isRunningFCB: boolean;
-  isRunningLab: RefinementLabId | 'all' | null;
   isRunningBaseline: boolean;
+  baselineStep: string;
   isInitialized: boolean;
   healthScore: number;
   onAutoFill: () => void;
@@ -207,10 +166,11 @@ interface PrimaryActionsProps {
 
 function ContextPrimaryActions({
   isAutoFilling,
+  autoFillStep,
   isOnboarding,
   isRunningFCB,
-  isRunningLab,
   isRunningBaseline,
+  baselineStep,
   isInitialized,
   healthScore,
   onAutoFill,
@@ -220,7 +180,7 @@ function ContextPrimaryActions({
 }: PrimaryActionsProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const isAnyRunning = isAutoFilling || isOnboarding || isRunningFCB || isRunningLab !== null || isRunningBaseline;
+  const isAnyRunning = isAutoFilling || isOnboarding || isRunningFCB || isRunningBaseline;
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -256,7 +216,7 @@ function ContextPrimaryActions({
                 <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-                Building Context...
+                <span className="min-w-[140px] text-left">{baselineStep}</span>
               </>
             ) : (
               <>
@@ -303,7 +263,9 @@ function ContextPrimaryActions({
                 <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-                Running...
+                <span className="min-w-[140px] text-left">
+                  {isAutoFilling ? autoFillStep : isRunningBaseline ? baselineStep : 'Running...'}
+                </span>
               </>
             ) : (
               <>
@@ -513,26 +475,30 @@ function ContextHealthSummary({ healthScore, companyId }: HealthSummaryProps) {
                           >
                             <span className="text-slate-300">{field.label}</span>
                             {isManual ? (
-                              // Manual-only fields get a distinct badge and link to Setup
+                              // Manual-only fields link to the field in Context editor
                               <Link
-                                href={getManualFieldPath(field.path, companyId)}
+                                href={`/c/${companyId}/brain/context?nodeId=${encodeURIComponent(field.path)}`}
                                 className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors flex items-center gap-0.5"
-                                title="This field requires human input - Smart Auto-Fill cannot set business goals"
+                                title="This field requires human input - click to edit"
                               >
                                 <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                 </svg>
-                                Manual
+                                Edit
                               </Link>
-                            ) : field.primarySources.length > 0 ? (
-                              // Auto-fillable fields show their source
+                            ) : (
+                              // All other fields also link to Context editor for inline editing
                               <Link
-                                href={getSourcePath(field.primarySources[0], companyId)}
-                                className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors"
+                                href={`/c/${companyId}/brain/context?nodeId=${encodeURIComponent(field.path)}`}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors flex items-center gap-0.5"
+                                title="Click to edit this field"
                               >
-                                {getSourceLabel(field.primarySources[0])}
+                                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                </svg>
+                                Edit
                               </Link>
-                            ) : null}
+                            )}
                           </div>
                         );
                       })}
@@ -567,77 +533,10 @@ function ContextHealthSummary({ healthScore, companyId }: HealthSummaryProps) {
   );
 }
 
-// ============================================================================
-// Secondary Actions Component (Row 3)
-// ============================================================================
-
-interface SecondaryActionsProps {
-  companyId: string;
-  isRunningLab: RefinementLabId | 'all' | null;
-  isAnyRunning: boolean;
-  onRunLab: (labId: RefinementLabId) => void;
-}
-
-function ContextSecondaryActions({
-  companyId,
-  isRunningLab,
-  isAnyRunning,
-  onRunLab,
-}: SecondaryActionsProps) {
-  const labs: { id: RefinementLabId; label: string }[] = [
-    { id: 'audience', label: 'Audience' },
-    { id: 'brand', label: 'Brand' },
-    { id: 'creative', label: 'Creative' },
-    { id: 'competitor', label: 'Competitor' },
-    { id: 'website', label: 'Website' },
-  ];
-
-  return (
-    <div className="flex flex-wrap items-center gap-1 text-xs">
-      {/* Lab Shortcuts */}
-      {labs.map((lab, idx) => (
-        <button
-          key={lab.id}
-          onClick={() => onRunLab(lab.id)}
-          disabled={isAnyRunning}
-          className={`px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-            isRunningLab === lab.id ? 'bg-slate-800 text-slate-200' : ''
-          }`}
-        >
-          {isRunningLab === lab.id ? (
-            <span className="flex items-center gap-1">
-              <svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              {lab.label}
-            </span>
-          ) : (
-            lab.label
-          )}
-        </button>
-      ))}
-
-      {/* Separator */}
-      <span className="text-slate-700 mx-1">|</span>
-
-      {/* Edit Link */}
-      <Link
-        href={`/c/${companyId}/brain/context?mode=editor`}
-        className="px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
-      >
-        Edit
-      </Link>
-
-      {/* Explorer Link */}
-      <Link
-        href={`/c/${companyId}/brain/context?view=explorer`}
-        className="px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
-      >
-        Explorer
-      </Link>
-    </div>
-  );
-}
+// NOTE: ContextSecondaryActions component removed.
+// Domain filters are now in the left sidebar (ContextGraphViewer).
+// Edit mode is always enabled (no toggle needed).
+// Explorer/Strategic modes moved to /brain/explorer tab.
 
 // ============================================================================
 // Main Component
@@ -645,12 +544,6 @@ function ContextSecondaryActions({
 
 export function ContextHealthHeader({ healthScore, companyId, baselineInitializedAt, autoFillReadiness }: ContextHealthHeaderProps) {
   const router = useRouter();
-
-  // Lab refinement state
-  const [isRunningLab, setIsRunningLab] = useState<RefinementLabId | 'all' | null>(null);
-  const [labResult, setLabResult] = useState<LabRefinementRunResult | null>(null);
-  const [labError, setLabError] = useState<string | null>(null);
-  const [showLabPanel, setShowLabPanel] = useState(false);
 
   // Onboarding state
   const [isOnboarding, setIsOnboarding] = useState(false);
@@ -660,6 +553,7 @@ export function ContextHealthHeader({ healthScore, companyId, baselineInitialize
 
   // Smart Auto-Fill state
   const [isAutoFilling, setIsAutoFilling] = useState(false);
+  const [autoFillStep, setAutoFillStep] = useState<string>('Starting...');
   const [autoFillResult, setAutoFillResult] = useState<{
     success: boolean;
     message: string;
@@ -680,41 +574,11 @@ export function ContextHealthHeader({ healthScore, companyId, baselineInitialize
   // Baseline Build state (Fill My Company Automatically)
   const [isRunningBaseline, setIsRunningBaseline] = useState(false);
   const [baselineResult, setBaselineResult] = useState<BaselineBuildApiResult | null>(null);
+  const [baselineStep, setBaselineStep] = useState<string>('Starting...');
 
   // Readiness modal state
   const [showReadinessModal, setShowReadinessModal] = useState(false);
   const [readinessError, setReadinessError] = useState<string | null>(null);
-
-  // Run a Lab in refinement mode
-  const runLabRefinement = useCallback(async (labId: RefinementLabId) => {
-    setIsRunningLab(labId);
-    setLabResult(null);
-    setLabError(null);
-    setShowLabPanel(false);
-
-    try {
-      const response = await fetch(`/api/os/companies/${companyId}/labs/refine`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ labId }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setLabError(data.error || `Failed to run ${labId} Lab`);
-        return;
-      }
-
-      setLabResult(data.result);
-      setShowLabPanel(true);
-      router.refresh();
-    } catch (error) {
-      setLabError(error instanceof Error ? error.message : 'Unknown error');
-    } finally {
-      setIsRunningLab(null);
-    }
-  }, [companyId, router]);
 
   // Run full onboarding ("Deep Context Build") with SSE streaming
   async function runOnboarding() {
@@ -729,7 +593,9 @@ export function ContextHealthHeader({ healthScore, companyId, baselineInitialize
       { step: 'creative_lab', status: 'pending' },
       { step: 'competitor_lab', status: 'pending' },
       { step: 'website_lab', status: 'pending' },
-      { step: 'competitor_auto_seed', status: 'pending' },
+      { step: 'gap_ia', status: 'pending' },
+      { step: 'competition_discovery', status: 'pending' },
+      { step: 'competition_import', status: 'pending' },
       { step: 'snapshot', status: 'pending' },
     ]);
 
@@ -837,6 +703,30 @@ export function ContextHealthHeader({ healthScore, companyId, baselineInitialize
   async function runSmartAutoFill() {
     setIsAutoFilling(true);
     setAutoFillResult(null);
+    setAutoFillStep('Starting...');
+
+    // Simulate progress steps since the API doesn't stream
+    const steps = [
+      { delay: 500, message: 'Checking existing data...' },
+      { delay: 2000, message: 'Running FCB extraction...' },
+      { delay: 5000, message: 'Running Audience Lab...' },
+      { delay: 8000, message: 'Running Brand Lab...' },
+      { delay: 11000, message: 'Running Creative Lab...' },
+      { delay: 14000, message: 'Running Competitor Lab...' },
+      { delay: 17000, message: 'Running Website Lab...' },
+      { delay: 20000, message: 'Running GAP IA analysis...' },
+      { delay: 24000, message: 'Merging results...' },
+      { delay: 27000, message: 'Updating context graph...' },
+    ];
+
+    // Set up timers for each step
+    const timers: NodeJS.Timeout[] = [];
+    for (const step of steps) {
+      const timer = setTimeout(() => {
+        setAutoFillStep(step.message);
+      }, step.delay);
+      timers.push(timer);
+    }
 
     try {
       const response = await fetch(`/api/os/companies/${companyId}/context/auto-fill`, {
@@ -844,6 +734,9 @@ export function ContextHealthHeader({ healthScore, companyId, baselineInitialize
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
+
+      // Clear all timers once API returns
+      timers.forEach(t => clearTimeout(t));
 
       const data = await response.json();
 
@@ -870,6 +763,9 @@ export function ContextHealthHeader({ healthScore, companyId, baselineInitialize
 
       router.refresh();
     } catch (error) {
+      // Clear all timers on error
+      timers.forEach(t => clearTimeout(t));
+
       setAutoFillResult({
         success: false,
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -950,6 +846,32 @@ export function ContextHealthHeader({ healthScore, companyId, baselineInitialize
   async function runBaselineBuildDirectly() {
     setIsRunningBaseline(true);
     setBaselineResult(null);
+    setBaselineStep('Starting...');
+
+    // Simulate progress steps since the API doesn't stream
+    const steps = [
+      { delay: 500, message: 'Crawling website...' },
+      { delay: 3000, message: 'Extracting brand signals...' },
+      { delay: 6000, message: 'Running Audience Lab...' },
+      { delay: 9000, message: 'Running Brand Lab...' },
+      { delay: 12000, message: 'Running Creative Lab...' },
+      { delay: 15000, message: 'Running Competitor Lab...' },
+      { delay: 18000, message: 'Running Website Lab...' },
+      { delay: 21000, message: 'Running GAP IA analysis...' },
+      { delay: 25000, message: 'Discovering competitors...' },
+      { delay: 28000, message: 'Importing competitor data...' },
+      { delay: 31000, message: 'Creating baseline snapshot...' },
+      { delay: 35000, message: 'Finalizing context...' },
+    ];
+
+    // Set up timers for each step
+    const timers: NodeJS.Timeout[] = [];
+    for (const step of steps) {
+      const timer = setTimeout(() => {
+        setBaselineStep(step.message);
+      }, step.delay);
+      timers.push(timer);
+    }
 
     try {
       const response = await fetch(`/api/os/companies/${companyId}/context/baseline`, {
@@ -957,6 +879,9 @@ export function ContextHealthHeader({ healthScore, companyId, baselineInitialize
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ force: !!baselineInitializedAt }), // Force if already initialized
       });
+
+      // Clear all timers once API returns
+      timers.forEach(t => clearTimeout(t));
 
       const data: BaselineBuildApiResult = await response.json();
 
@@ -971,6 +896,9 @@ export function ContextHealthHeader({ healthScore, companyId, baselineInitialize
       setBaselineResult(data);
       router.refresh();
     } catch (error) {
+      // Clear all timers on error
+      timers.forEach(t => clearTimeout(t));
+
       setBaselineResult({
         success: false,
         companyId,
@@ -988,7 +916,7 @@ export function ContextHealthHeader({ healthScore, companyId, baselineInitialize
     }
   }
 
-  const isAnyRunning = isAutoFilling || isOnboarding || isRunningFCB || isRunningLab !== null || isRunningBaseline;
+  const isAnyRunning = isAutoFilling || isOnboarding || isRunningFCB || isRunningBaseline;
 
   return (
     <div className="space-y-4">
@@ -996,10 +924,11 @@ export function ContextHealthHeader({ healthScore, companyId, baselineInitialize
       <ContextPrimaryActions
         companyId={companyId}
         isAutoFilling={isAutoFilling}
+        autoFillStep={autoFillStep}
         isOnboarding={isOnboarding}
         isRunningFCB={isRunningFCB}
-        isRunningLab={isRunningLab}
         isRunningBaseline={isRunningBaseline}
+        baselineStep={baselineStep}
         isInitialized={!!baselineInitializedAt}
         healthScore={healthScore.overallScore}
         onAutoFill={runSmartAutoFill}
@@ -1042,14 +971,6 @@ export function ContextHealthHeader({ healthScore, companyId, baselineInitialize
         </div>
       )}
 
-      {/* Row 3: Secondary Actions */}
-      <ContextSecondaryActions
-        companyId={companyId}
-        isRunningLab={isRunningLab}
-        isAnyRunning={isAnyRunning}
-        onRunLab={runLabRefinement}
-      />
-
       {/* Result Toasts */}
       {autoFillResult && (
         <Toast
@@ -1067,10 +988,6 @@ export function ContextHealthHeader({ healthScore, companyId, baselineInitialize
         />
       )}
 
-      {labError && (
-        <Toast type="red" message={labError} onClose={() => setLabError(null)} />
-      )}
-
       {/* Baseline Build Result Toast */}
       {baselineResult && (
         <Toast
@@ -1086,24 +1003,6 @@ export function ContextHealthHeader({ healthScore, companyId, baselineInitialize
           }
           onClose={() => setBaselineResult(null)}
         />
-      )}
-
-      {/* Lab Refinement Result Panel */}
-      {showLabPanel && labResult && (
-        <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="text-sm font-medium text-slate-200">Refinement Results</h4>
-            <button
-              onClick={() => setShowLabPanel(false)}
-              className="text-slate-400 hover:text-slate-200 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <RefinementSummary result={labResult} showDetails />
-        </div>
       )}
 
       {/* Onboarding Modal */}
@@ -1187,7 +1086,9 @@ const STEP_LABELS: Record<OnboardingStep['step'], string> = {
   creative_lab: 'Creative Lab',
   competitor_lab: 'Competitor Lab',
   website_lab: 'Website Lab',
-  competitor_auto_seed: 'Competitor Auto-Seed',
+  gap_ia: 'Marketing Assessment',
+  competition_discovery: 'Discover Competitors',
+  competition_import: 'Import Competitors',
   snapshot: 'Create Baseline Snapshot',
 };
 

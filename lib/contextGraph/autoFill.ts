@@ -32,6 +32,8 @@ import {
 import { isHumanSource } from './sourcePriority';
 import type { CompanyContextGraph, DomainName } from './companyContextGraph';
 import type { WithMetaType } from './types';
+import { runGapIaForOsBaseline, type OsGapIaBaselineResult } from '@/lib/gap/orchestrator/osGapIaBaseline';
+import { writeGapIaBaselineToContext } from './writers/gapIaBaselineWriter';
 
 // ============================================================================
 // Coverage Constants
@@ -116,8 +118,10 @@ function isLabAvailable(labId: RefinementLabId): boolean {
 export interface SmartAutoFillOptions {
   /** Force run FCB even if it ran recently */
   forceRunFCB?: boolean;
-  /** Include GAP pass (default false for now - heavy) */
-  includeGAPPass?: boolean;
+  /** Include GAP IA pass (default true - runs if no GAP IA data exists) */
+  includeGAPIA?: boolean;
+  /** Force run GAP IA even if it ran recently */
+  forceRunGAPIA?: boolean;
   /** Force run Labs even if completeness is high */
   forceRunLabs?: boolean;
 }
@@ -133,7 +137,8 @@ export interface SmartAutoFillResult {
   labsRun: string[];
   fcbRun: boolean;
   fcbResult?: FCBRunResult;
-  gapRun: boolean;
+  gapIaRun: boolean;
+  gapIaResult?: OsGapIaBaselineResult;
   labResults: Record<'audience' | 'brand' | 'creative' | 'competitor' | 'website', LabRefinementRunResult | null>;
   contextHealthBefore?: Pick<ContextHealthScore, 'overallScore' | 'completenessScore' | 'criticalCoverageScore' | 'severity'>;
   contextHealthAfter?: Pick<ContextHealthScore, 'overallScore' | 'completenessScore' | 'criticalCoverageScore' | 'severity'>;
@@ -348,7 +353,7 @@ export async function runSmartAutoFillContext(
     fieldsSkippedHighPriority: 0,
     labsRun: [],
     fcbRun: false,
-    gapRun: false,
+    gapIaRun: false,
     labResults: {
       audience: null,
       brand: null,
@@ -469,13 +474,58 @@ export async function runSmartAutoFillContext(
     }
 
     // =========================================================================
-    // Step 4: Optional GAP pass (disabled by default)
+    // Step 4: Run GAP IA if no data sources found or forced
     // =========================================================================
 
-    if (options.includeGAPPass) {
-      // TODO: Integrate GAP orchestrator in OS mode
-      console.log(`[AutoFill] GAP pass requested but not yet implemented`);
-      result.gapRun = false;
+    // Check if GAP IA should run (default: true, runs if no GAP IA data exists)
+    const shouldRunGapIa = options.includeGAPIA !== false; // Default to true
+
+    if (shouldRunGapIa && company.domain) {
+      // Check if GAP IA has run before by looking for gap_ia source in provenance
+      let gapIaHasRun = false;
+      const reloadedGraph = await loadContextGraph(companyId);
+
+      if (reloadedGraph) {
+        const domainsToCheck = ['seo', 'content', 'website', 'digitalInfra'] as const;
+        for (const domainName of domainsToCheck) {
+          const domainObj = reloadedGraph[domainName as keyof CompanyContextGraph];
+          if (!domainObj || typeof domainObj !== 'object') continue;
+
+          for (const fieldData of Object.values(domainObj as Record<string, unknown>)) {
+            if (!fieldData || typeof fieldData !== 'object') continue;
+            const field = fieldData as WithMetaType<unknown>;
+            if (field.provenance?.some((p) => p.source === 'gap_ia')) {
+              gapIaHasRun = true;
+              break;
+            }
+          }
+          if (gapIaHasRun) break;
+        }
+      }
+
+      if (options.forceRunGAPIA || !gapIaHasRun) {
+        console.log(`[AutoFill] Running GAP IA for ${company.name}... (${options.forceRunGAPIA ? 'forced' : 'no prior GAP IA data found'})`);
+        try {
+          const gapIaResult = await runGapIaForOsBaseline(companyId);
+          result.gapIaRun = true;
+          result.gapIaResult = gapIaResult;
+
+          if (gapIaResult.success) {
+            // Write GAP IA results to context graph
+            const writeResult = await writeGapIaBaselineToContext(companyId, gapIaResult);
+            result.fieldsUpdated += writeResult.fieldsWritten;
+
+            console.log(`[AutoFill] GAP IA complete: score=${gapIaResult.overallScore}, ${writeResult.fieldsWritten} fields written`);
+          } else {
+            console.warn(`[AutoFill] GAP IA failed:`, gapIaResult.error);
+          }
+        } catch (gapIaError) {
+          console.error(`[AutoFill] GAP IA error:`, gapIaError);
+          // Continue even if GAP IA fails
+        }
+      } else {
+        console.log(`[AutoFill] Skipping GAP IA (already run recently)`);
+      }
     }
 
     // =========================================================================

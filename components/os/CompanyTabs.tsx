@@ -2,56 +2,27 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { COMPANY_TABS, getCompanyTabFromPath } from '@/lib/nav/companyNav';
 
 export default function CompanyTabs({ companyId }: { companyId: string }) {
   const pathname = usePathname();
-
-  // Company navigation tabs (new IA):
-  // - Overview: Lightweight pulse-check with health summary
-  // - Blueprint: Strategic hub (GAP, plan tools, analytics)
-  // - Brain: Company memory & intelligence hub (Context, Setup, Insights, Library, History)
-  // - Work: Active tasks, experiments, backlog (includes Media access)
-  // - QBR: Quarterly Business Review mode
-  // Note: Setup is now a sub-tab under Brain (see BrainSubNav)
-  const tabs = [
-    { name: 'Overview', href: `/c/${companyId}` },
-    { name: 'Blueprint', href: `/c/${companyId}/blueprint` },
-    { name: 'Brain', href: `/c/${companyId}/brain` },
-    { name: 'Work', href: `/c/${companyId}/work` },
-    { name: 'Competition', href: `/c/${companyId}/competition` },
-    { name: 'QBR', href: `/c/${companyId}/qbr` },
-  ];
-
-  // Check if current path matches a tab or is a child route of that tab
-  const isTabActive = (tabHref: string) => {
-    if (pathname === tabHref) return true;
-    // Check if it's a child route (e.g., /c/123/brain/context matches /c/123/brain)
-    if (tabHref !== `/c/${companyId}` && pathname.startsWith(tabHref + '/')) {
-      return true;
-    }
-    // Special case: /c/123/brain exactly should match brain tab
-    if (tabHref === `/c/${companyId}/brain` && pathname === `/c/${companyId}/brain`) {
-      return true;
-    }
-    return false;
-  };
+  const activeTabId = getCompanyTabFromPath(pathname, companyId);
 
   return (
     <div className="border-b border-gray-800">
       <nav className="-mb-px flex gap-4 overflow-x-auto sm:gap-6">
-        {tabs.map((tab) => {
-          const isActive = isTabActive(tab.href);
-          const isDeemphasized = 'deemphasized' in tab && tab.deemphasized;
+        {COMPANY_TABS.map((tab) => {
+          const href = tab.href(companyId);
+          const isActive = tab.id === activeTabId;
+
           return (
             <Link
-              key={tab.href}
-              href={tab.href}
+              key={tab.id}
+              href={href}
               className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                 isActive
                   ? 'border-amber-400 text-amber-400'
-                  : isDeemphasized
-                    ? 'border-transparent text-gray-500 hover:text-gray-400 hover:border-gray-700'
-                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600'
+                  : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600'
               }`}
             >
               {tab.name}

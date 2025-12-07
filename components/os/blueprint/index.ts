@@ -18,6 +18,7 @@ export { BlueprintOpportunities } from './BlueprintOpportunities';
 export { BlueprintRoadmapSection } from './BlueprintRoadmapSection';
 export { BlueprintMiniNav } from './BlueprintMiniNav';
 export { BlueprintStartHere } from './BlueprintStartHere';
+export { BrainContextHealthBanner } from './BrainContextHealthBanner';
 
 // Shared utilities and types
 export * from './utils';

@@ -2,6 +2,7 @@
 // Competition Lab v2 - Main Export
 
 export { runCompetitionLab } from './competitionOrchestrator';
+export { runCompetitionV2 } from './discoveryV2';
 
 export {
   createCompetitionRun,
@@ -18,12 +19,19 @@ export {
 export {
   type CompetitorRole,
   type PriceTier,
+  type SimplePriceTier,
   type BrandScale,
   type DiscoverySource,
   type CompetitorProvenance,
   type EnrichedCompetitorData,
   type ScoredCompetitor,
   type CompetitionRunStatus,
+  type CompetitionRunStepName,
+  type CompetitionRunStepStatus,
+  type CompetitionRunStep,
+  type CompetitionRunStats,
+  type CompetitionRunQuerySummary,
+  type DiscoveredCandidate,
   type CompetitionRun,
   type CompetitionRunResult,
   type CompetitionSummary,
@@ -34,4 +42,13 @@ export {
   classifyCompetitorRole,
   generateCompetitorId,
   generateRunId,
+  createInitialSteps,
+  startStep,
+  completeStep,
+  failStep,
+  normalizeDomain,
+  derivePriceTierFromText,
+  resolvePriceTier,
+  calculatePriceTierOverlap,
+  computeRunStats,
 } from './types';

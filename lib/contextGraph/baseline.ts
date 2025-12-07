@@ -5,7 +5,7 @@
 // baseline Context Graph for a new company. After this runs, users refine
 // rather than start from a blank slate.
 //
-// Pipeline: FCB → Labs Refinement → GAP-IA (light) → Competitor Auto-Seed → Snapshot
+// Pipeline: FCB → Labs Refinement → GAP-IA (light) → Competition Discovery → Import → Snapshot
 
 import { randomUUID } from 'crypto';
 import { getCompanyById } from '@/lib/airtable/companies';
@@ -22,6 +22,8 @@ import { captureVersion } from './history';
 import type { CompanyContextGraph } from './companyContextGraph';
 import { runGapIaForOsBaseline } from '@/lib/gap/orchestrator/osGapIaBaseline';
 import { writeGapIaBaselineToContext } from './writers/gapIaBaselineWriter';
+import { runCompetitionV2 } from '@/lib/competition/discoveryV2';
+import { competitionLabImporter } from './importers/competitionLabImporter';
 
 // ============================================================================
 // Types
@@ -39,7 +41,8 @@ export type BaselineStep =
   | 'competitor_lab'
   | 'website_lab'
   | 'gap_ia'
-  | 'competitor_auto_seed'
+  | 'competition_discovery'
+  | 'competition_import'
   | 'snapshot';
 
 /**
@@ -184,7 +187,8 @@ const BASELINE_STEPS: BaselineStep[] = [
   'competitor_lab',
   'website_lab',
   'gap_ia',
-  'competitor_auto_seed',
+  'competition_discovery',
+  'competition_import',
   'snapshot',
 ];
 
@@ -197,7 +201,8 @@ const STEP_LABELS: Record<BaselineStep, string> = {
   competitor_lab: 'Competitor Lab Refinement',
   website_lab: 'Website Lab Refinement',
   gap_ia: 'Marketing Assessment (GAP-IA)',
-  competitor_auto_seed: 'Competitor Auto-Seed',
+  competition_discovery: 'Discover Competitors (AI)',
+  competition_import: 'Import Competitors to Context',
   snapshot: 'Create Baseline Snapshot',
 };
 
@@ -510,47 +515,107 @@ export async function runBaselineContextBuild(
     }
 
     // ========================================================================
-    // Phase 4: Competitor Auto-Seed (if still empty)
+    // Phase 4: Competition Discovery (discover competitors via AI)
     // ========================================================================
-    console.log('[Baseline] Phase 4: Checking competitor auto-seed...');
-    updateStep('competitor_auto_seed', 'running', { startedAt: new Date().toISOString() });
+    console.log('[Baseline] Phase 4: Running Competition Discovery...');
+    updateStep('competition_discovery', 'running', { startedAt: new Date().toISOString() });
+
+    let competitionRunId: string | null = null;
+    let competitorsDiscovered = 0;
 
     try {
-      // Reload graph to check competitive section
+      // Check if we already have competitors in Context Graph
       const currentGraph = await loadContextGraph(input.companyId);
-      const competitors = currentGraph?.competitive?.competitors;
-      const hasCompetitors = Array.isArray(competitors) && competitors.length > 0;
+      const existingCompetitors = currentGraph?.competitive?.competitors?.value;
+      const hasExistingCompetitors = Array.isArray(existingCompetitors) && existingCompetitors.length > 0;
 
-      if (hasCompetitors) {
-        console.log('[Baseline] Competitors already populated, skipping auto-seed');
-        updateStep('competitor_auto_seed', 'skipped', {
+      if (hasExistingCompetitors && !input.force) {
+        console.log('[Baseline] Competitors already in Context Graph, skipping discovery');
+        updateStep('competition_discovery', 'skipped', {
           completedAt: new Date().toISOString(),
-          message: 'Competitors already populated',
+          message: `${existingCompetitors.length} competitors already exist`,
         });
       } else {
-        // Re-run competitor lab with auto-seed mode hint
-        console.log('[Baseline] Running competitor auto-seed...');
-        const seedStart = Date.now();
+        // Run Competition Discovery V2
+        console.log('[Baseline] Running Competition Discovery V2...');
+        const discoveryStart = Date.now();
 
-        const seedResult = await runLabRefinement({
-          companyId: input.companyId,
-          labId: 'competitor',
-          forceRun: true,
-          dryRun: input.dryRun,
-        });
+        if (!input.dryRun) {
+          const competitionRun = await runCompetitionV2({ companyId: input.companyId });
+          competitionRunId = competitionRun.id;
+          competitorsDiscovered = competitionRun.competitors.length;
 
-        const refinementsCount = seedResult.refinement.refinedContext.length;
+          if (competitionRun.status === 'failed') {
+            throw new Error(competitionRun.errorMessage || 'Competition discovery failed');
+          }
 
-        updateStep('competitor_auto_seed', 'completed', {
-          completedAt: new Date().toISOString(),
-          durationMs: Date.now() - seedStart,
-          message: `Auto-seeded ${refinementsCount} competitor fields`,
-        });
+          updateStep('competition_discovery', 'completed', {
+            completedAt: new Date().toISOString(),
+            durationMs: Date.now() - discoveryStart,
+            message: `Discovered ${competitorsDiscovered} competitors`,
+          });
+        } else {
+          updateStep('competition_discovery', 'skipped', {
+            completedAt: new Date().toISOString(),
+            message: 'Dry run - skipped discovery',
+          });
+        }
       }
     } catch (e) {
       const err = e instanceof Error ? e.message : 'Unknown error';
-      console.error('[Baseline] Competitor auto-seed failed:', err);
-      updateStep('competitor_auto_seed', 'failed', {
+      console.error('[Baseline] Competition discovery failed:', err);
+      updateStep('competition_discovery', 'failed', {
+        completedAt: new Date().toISOString(),
+        error: err,
+      });
+      // Don't fail the whole pipeline - continue to import step
+    }
+
+    // ========================================================================
+    // Phase 4b: Import Competitors to Context Graph
+    // ========================================================================
+    console.log('[Baseline] Phase 4b: Importing competitors to Context Graph...');
+    updateStep('competition_import', 'running', { startedAt: new Date().toISOString() });
+
+    try {
+      if (competitorsDiscovered === 0 && !competitionRunId) {
+        console.log('[Baseline] No competitors to import, skipping');
+        updateStep('competition_import', 'skipped', {
+          completedAt: new Date().toISOString(),
+          message: 'No competitors discovered',
+        });
+      } else if (input.dryRun) {
+        updateStep('competition_import', 'skipped', {
+          completedAt: new Date().toISOString(),
+          message: 'Dry run - skipped import',
+        });
+      } else {
+        // Reload graph for import
+        const graphForImport = await loadContextGraph(input.companyId);
+        if (!graphForImport) {
+          throw new Error('Could not load context graph for import');
+        }
+
+        const importStart = Date.now();
+        const importResult = await competitionLabImporter.importAll(graphForImport, input.companyId, domain || '');
+
+        if (importResult.success) {
+          // Save the updated graph
+          await saveContextGraph(graphForImport, 'competition_import');
+
+          updateStep('competition_import', 'completed', {
+            completedAt: new Date().toISOString(),
+            durationMs: Date.now() - importStart,
+            message: `Imported ${importResult.fieldsUpdated} fields (${importResult.updatedPaths.length} paths)`,
+          });
+        } else {
+          throw new Error(importResult.errors.join(', ') || 'Import failed');
+        }
+      }
+    } catch (e) {
+      const err = e instanceof Error ? e.message : 'Unknown error';
+      console.error('[Baseline] Competition import failed:', err);
+      updateStep('competition_import', 'failed', {
         completedAt: new Date().toISOString(),
         error: err,
       });

@@ -1,45 +1,43 @@
 // app/c/[companyId]/brain/context/page.tsx
-// Company Context Graph Viewer - Server Component (nested under Brain workspace)
+// Context Editor - Field-level inspector for company context
 //
-// Comprehensive viewer for the Company Context Graph showing:
-// - All domains and fields with values and provenance
-// - Context health score and needs-refresh flags
-// - Snapshot timeline and diffs between versions
-// - Force-directed graph visualization (via ?view=explorer)
-// - "What AI Sees" toggle for AI-scoped view
-// - Interactive provenance and diagnostics drawers
+// Part of the 4-tab Brain IA:
+// - Explorer: Explore mode - visual map for discovery (at /brain/explorer)
+// - Context (this): Inspect mode - field-level editor for data entry
+// - Insights: Understand mode - AI-generated analysis
+// - Labs: Improve mode - diagnostic tools that refine context
+//
+// This page shows the ContextGraphViewer with field cards, inline editing,
+// and provenance tracking.
+//
+// URL Parameters:
+// - ?section=<domain> - Focus on specific domain (e.g., identity, audience)
+// - ?panel=<details|history|ai> - Open specific right panel tab
+// - ?nodeId=<field.path> - Deep link to a specific field (e.g., "identity.industry")
+//
+// Legacy params (redirected):
+// - ?view=explorer → redirects to /brain/explorer
+// - ?view=strategic → redirects to /brain/explorer
+// - ?mode=editor → ignored (inline editing is always enabled)
 
 import { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 import { notFound } from 'next/navigation';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
-import { createEmptyContextGraph, calculateDomainCoverage, calculateCompleteness } from '@/lib/contextGraph/companyContextGraph';
+import { createEmptyContextGraph, calculateCompleteness } from '@/lib/contextGraph/companyContextGraph';
 import { getNeedsRefreshReport } from '@/lib/contextGraph/needsRefresh';
-import {
-  checkContextGraphHealth,
-  computeContextHealthScore,
-  getSeverityLabel,
-  type ContextHealthScore,
-} from '@/lib/contextGraph/health';
-import {
-  computeContextHealthScoreFromCompleteness,
-  convertNeedsRefreshReport,
-} from '@/lib/contextGraph/contextHealth';
-import { listContextGraphSnapshots, listSnapshotSummaries } from '@/lib/contextGraph/history';
+import { computeContextHealthScore } from '@/lib/contextGraph/health';
+import { convertNeedsRefreshReport } from '@/lib/contextGraph/contextHealth';
+import { listContextGraphSnapshots } from '@/lib/contextGraph/history';
 import {
   flattenGraphToFields,
   diffGraphs,
   type GraphDiffItem,
 } from '@/lib/contextGraph/uiHelpers';
-import { collectGraphSanityReport } from '@/lib/contextGraph/diagnostics';
-import { getAllContext } from '@/lib/contextGraph/contextGateway';
 import { checkAutoFillReadiness } from '@/lib/contextGraph/readiness';
 import { ContextGraphViewer } from './ContextGraphViewer';
-import { ContextExplorerClient } from './ContextExplorerClient';
-import { getCompanyContextHealth } from '@/lib/contextGraph/diagnostics';
-import { ContextHealthPanel } from '@/components/os/ContextHealthPanel';
 import { ContextHealthHeader } from './ContextHealthHeader';
-import { ContextEditorClient } from './ContextEditorClient';
 
 // ============================================================================
 // Types
@@ -47,7 +45,13 @@ import { ContextEditorClient } from './ContextEditorClient';
 
 interface PageProps {
   params: Promise<{ companyId: string }>;
-  searchParams: Promise<{ view?: string; mode?: string; section?: string; panel?: string }>;
+  searchParams: Promise<{
+    view?: string;      // Legacy: redirect to explorer
+    mode?: string;      // Legacy: ignored
+    section?: string;   // Domain to focus on
+    panel?: string;     // Drawer to open
+    nodeId?: string;    // Field path to deep-link to (e.g., "identity.industry")
+  }>;
 }
 
 // ============================================================================
@@ -62,9 +66,14 @@ export const metadata: Metadata = {
 // Page Component
 // ============================================================================
 
-export default async function CompanyContextGraphPage({ params, searchParams }: PageProps) {
+export default async function ContextPage({ params, searchParams }: PageProps) {
   const { companyId } = await params;
-  const { view, mode, section, panel } = await searchParams;
+  const { view, section, panel, nodeId } = await searchParams;
+
+  // Legacy redirects: explorer and strategic views now live at /brain/explorer
+  if (view === 'explorer' || view === 'strategic') {
+    redirect(`/c/${companyId}/brain/explorer`);
+  }
 
   // Load company info
   const company = await getCompanyById(companyId);
@@ -81,101 +90,15 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
     graph = createEmptyContextGraph(companyId, company.name);
   }
 
-  // If using explorer view (force-directed graph), show that
-  if (view === 'explorer') {
-    // Calculate comprehensive health score (same as main view)
-    const healthScore = await computeContextHealthScore(companyId);
-    const domainCoverage = calculateDomainCoverage(graph);
-
-    // Get refresh report
-    let refreshReport = null;
-    if (!isNewGraph) {
-      try {
-        refreshReport = getNeedsRefreshReport(graph);
-      } catch (e) {
-        console.warn('[ContextPage] Could not compute refresh report:', e);
-      }
-    }
-
-    // Flatten fields
-    const fields = flattenGraphToFields(graph);
-
-    // Get snapshot summaries for selector
-    let snapshotInfos: Array<{ id: string; label: string; createdAt: string; reason?: string }> = [];
-    try {
-      const summaries = await listSnapshotSummaries(companyId);
-      snapshotInfos = summaries.slice(0, 20).map(s => ({
-        id: s.versionId,
-        label: s.description || formatSnapshotDate(s.versionAt),
-        createdAt: s.versionAt,
-        reason: s.changeReason,
-      }));
-    } catch (e) {
-      console.warn('[ContextPage] Could not load snapshots:', e);
-    }
-
-    return (
-      <ContextExplorerClient
-        companyId={companyId}
-        companyName={company.name}
-        initialGraph={graph}
-        isNewGraph={isNewGraph}
-        healthScore={healthScore}
-        domainCoverage={domainCoverage}
-        refreshReport={refreshReport}
-        fields={fields}
-        snapshots={snapshotInfos}
-      />
-    );
-  }
-
   // Compute comprehensive context health score
   const healthScore = await computeContextHealthScore(companyId);
 
-  // Get context health from diagnostics (for legacy panel)
-  const contextHealth = await getCompanyContextHealth(companyId);
-
-  // Flatten graph to UI fields (needed for both editor and default views)
+  // Flatten graph to UI fields
   const fields = flattenGraphToFields(graph);
 
   // Get needs-refresh report for detailed freshness info
   const refreshReport = getNeedsRefreshReport(graph);
   const needsRefresh = convertNeedsRefreshReport(refreshReport);
-
-  // If using editor mode, show the new Context Editor
-  if (mode === 'editor' && !isNewGraph) {
-    // Collect diagnostics for the editor
-    let diagnostics = null;
-    try {
-      diagnostics = collectGraphSanityReport();
-    } catch (e) {
-      console.warn('[ContextPage] Could not collect diagnostics:', e);
-    }
-
-    // Get AI-scoped context view
-    let aiContextData = null;
-    try {
-      aiContextData = await getAllContext(companyId, {
-        minConfidence: 0.4,
-        minFreshness: 0.3,
-      });
-    } catch (e) {
-      console.warn('[ContextPage] Could not load AI context:', e);
-    }
-
-    return (
-      <ContextEditorClient
-        companyId={companyId}
-        companyName={company.name}
-        graph={graph}
-        fields={fields}
-        needsRefresh={needsRefresh}
-        healthScore={healthScore}
-        diagnostics={diagnostics}
-        aiContextData={aiContextData}
-      />
-    );
-  }
 
   // Get baseline initialization date from graph meta
   const baselineInitializedAt = graph.meta?.contextInitializedAt || null;
@@ -183,11 +106,10 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
   // Compute auto-fill readiness
   const autoFillReadiness = checkAutoFillReadiness(company, graph, companyId);
 
-  // Default view: existing ContextGraphViewer
+  // Handle empty/new graph case
   if (isNewGraph) {
     return (
       <div className="space-y-6 p-6">
-        {/* Compact Context Health Header */}
         <ContextHealthHeader
           healthScore={healthScore}
           companyId={companyId}
@@ -205,6 +127,7 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
           diff={[]}
           initialDomain={section}
           initialPanel={panel}
+          initialNodeId={nodeId}
         />
       </div>
     );
@@ -249,21 +172,8 @@ export default async function CompanyContextGraphPage({ params, searchParams }: 
         coveragePercent={completenessScore}
         initialDomain={section}
         initialPanel={panel}
+        initialNodeId={nodeId}
       />
     </div>
   );
-}
-
-function formatSnapshotDate(dateString: string): string {
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return dateString;
-  }
 }

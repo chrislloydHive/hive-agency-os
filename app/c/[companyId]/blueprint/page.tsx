@@ -29,6 +29,7 @@ import {
 } from '@/lib/os/analytics/blueprintDataFetcher';
 import { getMediaLabSummary } from '@/lib/mediaLab';
 import { getAudienceLabSummary } from '@/lib/audience';
+import { buildBrainSummary } from '@/lib/brain/buildBrainSummary';
 import { BlueprintClient } from './BlueprintClient';
 
 type PageProps = {
@@ -75,6 +76,7 @@ export default async function BlueprintPage({ params }: PageProps) {
     alerts,
     performancePulse,
     brainSummary,
+    brainContextSummary,
     pipelineData,
     analyticsResult,
     mediaLabSummary,
@@ -86,6 +88,7 @@ export default async function BlueprintPage({ params }: PageProps) {
     getCompanyAlerts(companyId).catch(() => []),
     getPerformancePulse().catch(() => null),
     getInsightsSummary(companyId).catch(() => null),
+    buildBrainSummary({ companyId }).catch(() => null),
     runBlueprintPipeline(companyId).catch(() => null),
     fetchBlueprintAnalytics(companyId, { preset: '30d' }).catch(() => ({ ok: false, summary: null })),
     getMediaLabSummary(companyId).catch(() => null),
@@ -187,6 +190,7 @@ export default async function BlueprintPage({ params }: PageProps) {
       recommendedTools={serializedRecommendedTools}
       mediaLabSummary={mediaLabSummary}
       audienceLabSummary={audienceLabSummary}
+      brainContextSummary={brainContextSummary}
     />
   );
 }

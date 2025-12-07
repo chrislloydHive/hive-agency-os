@@ -1407,6 +1407,17 @@ export function NodeDrawer({ className = '' }: NodeDrawerProps) {
             onClick={handleCreateWorkItem}
           />
         </div>
+        {/* Competition Lab deep link for competitive domain nodes */}
+        {selectedNode.domain === 'competitive' && (
+          <div className="mt-2 pt-2 border-t border-slate-800/50">
+            <CTAButton
+              label="Open Competition Lab"
+              icon={Target}
+              variant="primary"
+              href={`/c/${companyId}/brain/labs/competition`}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,7 +1,16 @@
 // app/c/[companyId]/brain/layout.tsx
-// Brain workspace layout with sub-navigation
+// Brain workspace layout with 4-tab sub-navigation
+//
+// Brain IA (4-tab structure):
+// - Explorer: Visual map for discovery
+// - Context: Field-level editor for data entry
+// - Insights: AI-generated analysis
+// - Labs: Diagnostic tools that refine context
+//
+// History is a utility button (not a tab) that links to /brain/history
 
-import { Brain } from 'lucide-react';
+import Link from 'next/link';
+import { Brain, History } from 'lucide-react';
 import { BrainSubNav } from '@/components/os/BrainSubNav';
 
 interface BrainLayoutProps {
@@ -26,8 +35,19 @@ export default async function BrainLayout({ children, params }: BrainLayoutProps
           </div>
         </div>
 
-        {/* Sub-navigation */}
-        <BrainSubNav companyId={companyId} />
+        {/* Sub-navigation and utilities */}
+        <div className="flex items-center gap-3">
+          <BrainSubNav companyId={companyId} />
+
+          {/* History utility button */}
+          <Link
+            href={`/c/${companyId}/brain/history`}
+            className="p-2 rounded-lg bg-slate-900/50 border border-slate-800 text-slate-400 hover:text-slate-300 hover:bg-slate-800/50 hover:border-slate-700 transition-all"
+            title="Context History - Timeline of how company knowledge has evolved"
+          >
+            <History className="w-4 h-4" />
+          </Link>
+        </div>
       </div>
 
       {/* Page content */}

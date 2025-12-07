@@ -2,8 +2,103 @@
 // Competition Lab v2 - Core Type Definitions
 //
 // Defines the data model for competitor discovery, scoring, and classification.
+// Updated with step tracking, stats, and observable run state.
 
 import { z } from 'zod';
+
+// ============================================================================
+// Search Source Classification
+// ============================================================================
+
+export const CompetitorSearchSource = z.enum([
+  'ai_simulation', // LLM-generated competitor suggestions
+  'serp',          // Real web search (future: SerpAPI/Google)
+  'manual',        // User-provided competitor
+]);
+
+export type CompetitorSearchSource = z.infer<typeof CompetitorSearchSource>;
+
+// ============================================================================
+// Run Step Tracking
+// ============================================================================
+
+export const CompetitionRunStepName = z.enum([
+  'loadContext',
+  'generateQueries',
+  'discover',
+  'enrich',
+  'score',
+  'classify',
+  'analyze',
+  'position',
+]);
+
+export type CompetitionRunStepName = z.infer<typeof CompetitionRunStepName>;
+
+export const CompetitionRunStepStatus = z.enum([
+  'pending',
+  'running',
+  'completed',
+  'failed',
+]);
+
+export type CompetitionRunStepStatus = z.infer<typeof CompetitionRunStepStatus>;
+
+export const CompetitionRunStep = z.object({
+  name: CompetitionRunStepName,
+  status: CompetitionRunStepStatus,
+  startedAt: z.string().nullable().default(null),
+  finishedAt: z.string().nullable().default(null),
+  errorMessage: z.string().nullable().default(null),
+});
+
+export type CompetitionRunStep = z.infer<typeof CompetitionRunStep>;
+
+// ============================================================================
+// Run Stats
+// ============================================================================
+
+export const CompetitionRunStats = z.object({
+  candidatesDiscovered: z.number().default(0),
+  candidatesEnriched: z.number().default(0),
+  candidatesScored: z.number().default(0),
+  coreCount: z.number().default(0),
+  secondaryCount: z.number().default(0),
+  alternativeCount: z.number().default(0),
+});
+
+export type CompetitionRunStats = z.infer<typeof CompetitionRunStats>;
+
+// ============================================================================
+// Query Summary
+// ============================================================================
+
+export const CompetitionRunQuerySummary = z.object({
+  queriesGenerated: z.array(z.string()).default([]),
+  sourcesUsed: z.array(CompetitorSearchSource).default([]),
+});
+
+export type CompetitionRunQuerySummary = z.infer<typeof CompetitionRunQuerySummary>;
+
+// ============================================================================
+// Discovered Candidate (Pre-scoring)
+// ============================================================================
+
+export const DiscoveredCandidate = z.object({
+  name: z.string().min(1),
+  domain: z.string().nullable().default(null),
+  homepageUrl: z.string().nullable().default(null),
+  shortSummary: z.string().nullable().default(null),
+  geo: z.string().nullable().default(null),
+  priceTierGuess: z.enum(['low', 'mid', 'high']).nullable().default(null),
+  source: CompetitorSearchSource,
+  sourceNote: z.string().nullable().default(null),
+});
+
+export type DiscoveredCandidate = z.infer<typeof DiscoveredCandidate>;
+
+// Schema for validating AI discovery responses
+export const DiscoveredCandidatesSchema = z.array(DiscoveredCandidate).min(1);
 
 // ============================================================================
 // Competitor Role Classification
@@ -138,6 +233,10 @@ export const ScoredCompetitor = z.object({
   id: z.string(),
   competitorName: z.string(),
   competitorDomain: z.string().nullable(),
+  homepageUrl: z.string().nullable().default(null),
+  shortSummary: z.string().nullable().default(null),
+  geo: z.string().nullable().default(null),
+  priceTier: z.enum(['low', 'mid', 'high']).nullable().default(null),
 
   // Role classification
   role: CompetitorRole,
@@ -148,6 +247,7 @@ export const ScoredCompetitor = z.object({
   audienceSimilarity: z.number().min(0).max(100),
   geoOverlap: z.number().min(0).max(100),
   priceTierOverlap: z.number().min(0).max(100),
+  compositeScore: z.number().min(0).max(100).default(0), // Alias for overallScore
 
   // Brand scale
   brandScale: BrandScale.nullable(),
@@ -158,13 +258,21 @@ export const ScoredCompetitor = z.object({
   // Provenance
   provenance: CompetitorProvenance,
 
+  // Search source tracking
+  source: CompetitorSearchSource.default('ai_simulation'),
+  sourceNote: z.string().nullable().default(null),
+
+  // User actions
+  removedByUser: z.boolean().default(false),
+  promotedByUser: z.boolean().default(false),
+
   // Timestamps
   createdAt: z.string(),
   updatedAt: z.string().nullable().default(null),
 
   // Position for visualization (assigned after scoring)
-  xPosition: z.number().min(-100).max(100).nullable().default(null),
-  yPosition: z.number().min(-100).max(100).nullable().default(null),
+  xPosition: z.number().min(0).max(100).nullable().default(null),
+  yPosition: z.number().min(0).max(100).nullable().default(null),
 
   // AI-generated analysis
   whyThisCompetitorMatters: z.string().nullable().default(null),
@@ -201,6 +309,10 @@ export const CompetitionRun = z.object({
   // Timestamps
   startedAt: z.string(),
   completedAt: z.string().nullable().default(null),
+  updatedAt: z.string().default(() => new Date().toISOString()),
+
+  // Step tracking for observability
+  steps: z.array(CompetitionRunStep).default([]),
 
   // Configuration
   contextSnapshotId: z.string().nullable().default(null),
@@ -212,10 +324,19 @@ export const CompetitionRun = z.object({
   }).default({}),
   modelVersion: z.string().default('v2'),
 
+  // Query summary for UI display
+  querySummary: CompetitionRunQuerySummary.optional(),
+
   // Results
   competitors: z.array(ScoredCompetitor).default([]),
 
-  // Stats
+  // Intermediate data
+  discoveredCandidates: z.array(DiscoveredCandidate).optional(),
+
+  // Stats (new structured format)
+  stats: CompetitionRunStats.optional(),
+
+  // Legacy stats (for backwards compatibility)
   candidatesDiscovered: z.number().default(0),
   candidatesEnriched: z.number().default(0),
   candidatesScored: z.number().default(0),
@@ -223,8 +344,12 @@ export const CompetitionRun = z.object({
   // Data confidence
   dataConfidenceScore: z.number().min(0).max(100).default(0),
 
-  // Errors
+  // Error handling
   errors: z.array(z.string()).default([]),
+  errorMessage: z.string().nullable().default(null),
+
+  // Debug data (stored but not exposed to UI)
+  rawAiPayloads: z.record(z.unknown()).optional(),
 });
 
 export type CompetitionRun = z.infer<typeof CompetitionRun>;
@@ -277,7 +402,7 @@ export interface TargetCompanyContext {
   geographicFootprint: string | null;
   revenueModel: string | null;
   marketMaturity: string | null;
-  priceTier: PriceTier | null;
+  priceTier: PriceTier | SimplePriceTier | null;
   primaryOffers: string[];
   humanProvidedCompetitors: string[];
 }
@@ -352,4 +477,184 @@ export function generateCompetitorId(): string {
  */
 export function generateRunId(): string {
   return `run_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+// ============================================================================
+// Step Management Helpers
+// ============================================================================
+
+/**
+ * Create initial steps array for a new run
+ */
+export function createInitialSteps(): CompetitionRunStep[] {
+  const stepNames: CompetitionRunStepName[] = [
+    'loadContext',
+    'generateQueries',
+    'discover',
+    'enrich',
+    'score',
+    'classify',
+    'analyze',
+    'position',
+  ];
+  return stepNames.map((name) => ({
+    name,
+    status: 'pending' as const,
+    startedAt: null,
+    finishedAt: null,
+    errorMessage: null,
+  }));
+}
+
+/**
+ * Mark a step as running
+ */
+export function startStep(
+  run: CompetitionRun,
+  stepName: CompetitionRunStepName
+): CompetitionRun {
+  const steps = run.steps.map((step) =>
+    step.name === stepName
+      ? { ...step, status: 'running' as const, startedAt: new Date().toISOString() }
+      : step
+  );
+  return { ...run, steps, updatedAt: new Date().toISOString() };
+}
+
+/**
+ * Mark a step as completed
+ */
+export function completeStep(
+  run: CompetitionRun,
+  stepName: CompetitionRunStepName
+): CompetitionRun {
+  const steps = run.steps.map((step) =>
+    step.name === stepName
+      ? { ...step, status: 'completed' as const, finishedAt: new Date().toISOString() }
+      : step
+  );
+  return { ...run, steps, updatedAt: new Date().toISOString() };
+}
+
+/**
+ * Mark a step as failed
+ */
+export function failStep(
+  run: CompetitionRun,
+  stepName: CompetitionRunStepName,
+  errorMessage: string
+): CompetitionRun {
+  const steps = run.steps.map((step) =>
+    step.name === stepName
+      ? { ...step, status: 'failed' as const, finishedAt: new Date().toISOString(), errorMessage }
+      : step
+  );
+  return { ...run, steps, updatedAt: new Date().toISOString() };
+}
+
+// ============================================================================
+// Domain & URL Utilities
+// ============================================================================
+
+/**
+ * Normalize a URL to extract domain
+ */
+export function normalizeDomain(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    // Handle URLs without protocol
+    const urlToProcess = url.includes('://') ? url : `https://${url}`;
+    const u = new URL(urlToProcess);
+    return u.hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    // If URL parsing fails, try to extract domain-like string
+    const match = url.match(/([a-z0-9-]+\.)+[a-z]{2,}/i);
+    return match ? match[0].toLowerCase() : null;
+  }
+}
+
+// ============================================================================
+// Price Tier Utilities
+// ============================================================================
+
+export type SimplePriceTier = 'low' | 'mid' | 'high';
+
+/**
+ * Derive price tier from text context using keyword analysis
+ */
+export function derivePriceTierFromText(text: string | null | undefined): SimplePriceTier | null {
+  if (!text) return null;
+  const lower = text.toLowerCase();
+
+  // High tier keywords
+  const highKeywords = ['premium', 'enterprise', 'luxury', 'boutique', 'exclusive', 'high-end'];
+  if (highKeywords.some((k) => lower.includes(k))) return 'high';
+
+  // Low tier keywords
+  const lowKeywords = ['affordable', 'cheap', 'budget', 'low-cost', 'discount', 'free'];
+  if (lowKeywords.some((k) => lower.includes(k))) return 'low';
+
+  // Mid tier keywords (or default)
+  const midKeywords = ['competitive', 'value', 'mid-range', 'standard'];
+  if (midKeywords.some((k) => lower.includes(k))) return 'mid';
+
+  return null;
+}
+
+/**
+ * Resolve price tier from candidate guess or text context
+ */
+export function resolvePriceTier(
+  candidateGuess: SimplePriceTier | null | undefined,
+  textContext?: string | null
+): SimplePriceTier | null {
+  if (candidateGuess) return candidateGuess;
+  return derivePriceTierFromText(textContext);
+}
+
+/**
+ * Calculate price tier overlap score
+ */
+export function calculatePriceTierOverlap(
+  companyTier: SimplePriceTier | null,
+  competitorTier: SimplePriceTier | null
+): number {
+  // If either tier is unknown, return neutral score
+  if (!companyTier || !competitorTier) return 50;
+
+  // Same tier = maximum overlap
+  if (companyTier === competitorTier) return 100;
+
+  // Calculate based on tier distance
+  const tiers: SimplePriceTier[] = ['low', 'mid', 'high'];
+  const diff = Math.abs(tiers.indexOf(companyTier) - tiers.indexOf(competitorTier));
+
+  // Adjacent tier = moderate overlap
+  if (diff === 1) return 60;
+
+  // Two tiers apart = low overlap
+  return 20;
+}
+
+// ============================================================================
+// Stats Computation
+// ============================================================================
+
+/**
+ * Compute run stats from competitors
+ */
+export function computeRunStats(
+  competitors: ScoredCompetitor[],
+  discovered: number,
+  enriched: number
+): CompetitionRunStats {
+  const activeCompetitors = competitors.filter((c) => !c.removedByUser);
+  return {
+    candidatesDiscovered: discovered,
+    candidatesEnriched: enriched,
+    candidatesScored: competitors.length,
+    coreCount: activeCompetitors.filter((c) => c.role === 'core').length,
+    secondaryCount: activeCompetitors.filter((c) => c.role === 'secondary').length,
+    alternativeCount: activeCompetitors.filter((c) => c.role === 'alternative').length,
+  };
 }

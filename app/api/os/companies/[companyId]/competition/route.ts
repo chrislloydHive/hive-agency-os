@@ -1,5 +1,8 @@
 // app/api/os/companies/[companyId]/competition/route.ts
 // Competition Lab API - Get latest run and list runs
+//
+// Returns full run state including steps, stats, querySummary, and errorMessage
+// for UI observability.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getLatestCompetitionRun, listCompetitionRuns } from '@/lib/competition';
@@ -11,6 +14,10 @@ interface RouteParams {
 /**
  * GET /api/os/companies/[companyId]/competition
  * Get the latest competition run for a company, or list all runs
+ *
+ * Query params:
+ * - list=true: Return list of runs instead of latest
+ * - limit=N: Limit number of runs in list (default 10)
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
@@ -20,8 +27,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const limit = parseInt(searchParams.get('limit') || '10', 10);
 
     if (list) {
-      // List all runs
-      const runs = await listCompetitionRuns(companyId, limit);
+      // List all runs (limited summary)
+      const runs = await listCompetitionRuns(companyId, { limit });
       return NextResponse.json({
         success: true,
         runs: runs.map((run) => ({
@@ -29,8 +36,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           status: run.status,
           startedAt: run.startedAt,
           completedAt: run.completedAt,
-          competitorCount: run.competitors.filter((c) => !c.provenance.removed).length,
+          competitorCount: run.competitors.filter((c) => !c.provenance?.removed).length,
           dataConfidenceScore: run.dataConfidenceScore,
+          errorMessage: run.errorMessage,
         })),
       });
     }
@@ -42,53 +50,55 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({
         success: true,
         run: null,
+        runs: [],
         message: 'No competition run found for this company',
       });
     }
 
-    // Calculate summary
-    const activeCompetitors = run.competitors.filter((c) => !c.provenance.removed);
-    const summary = {
-      totalDiscovered: activeCompetitors.length,
-      coreCount: activeCompetitors.filter((c) => c.role === 'core').length,
-      secondaryCount: activeCompetitors.filter((c) => c.role === 'secondary').length,
-      alternativeCount: activeCompetitors.filter((c) => c.role === 'alternative').length,
-      avgOfferSimilarity:
-        activeCompetitors.length > 0
-          ? Math.round(
-              activeCompetitors.reduce((sum, c) => sum + c.offerSimilarity, 0) /
-                activeCompetitors.length
-            )
-          : 0,
-      avgAudienceSimilarity:
-        activeCompetitors.length > 0
-          ? Math.round(
-              activeCompetitors.reduce((sum, c) => sum + c.audienceSimilarity, 0) /
-                activeCompetitors.length
-            )
-          : 0,
-      topThreat:
-        activeCompetitors
-          .filter((c) => c.threatLevel !== null)
-          .sort((a, b) => (b.threatLevel || 0) - (a.threatLevel || 0))[0]?.competitorName || null,
-      dataConfidence: run.dataConfidenceScore,
-      humanOverrideCount: activeCompetitors.filter((c) => c.provenance.humanOverride).length,
-    };
+    // Get recent runs for history
+    const runs = await listCompetitionRuns(companyId, { limit: 5 });
 
+    // Filter active competitors (not removed)
+    const activeCompetitors = run.competitors.filter((c) => !c.provenance?.removed);
+
+    // Return full run data - UI needs all fields for observability
     return NextResponse.json({
       success: true,
       run: {
         id: run.id,
+        companyId: run.companyId,
         status: run.status,
         startedAt: run.startedAt,
         completedAt: run.completedAt,
+        updatedAt: run.updatedAt,
+        // Full competitors list (active only)
         competitors: activeCompetitors,
-        summary,
+        // Step tracking for UI progress indicator
+        steps: run.steps || [],
+        // Stats for summary display
+        stats: run.stats || null,
+        // Query summary for transparency
+        querySummary: run.querySummary || null,
+        // Error info for failure states
+        errorMessage: run.errorMessage || null,
+        errors: run.errors || [],
+        // Data quality
+        dataConfidenceScore: run.dataConfidenceScore,
+        // Legacy fields for backwards compatibility
         querySet: run.querySet,
-        candidatesDiscovered: run.candidatesDiscovered,
-        candidatesEnriched: run.candidatesEnriched,
-        candidatesScored: run.candidatesScored,
+        candidatesDiscovered: run.stats?.candidatesDiscovered ?? run.candidatesDiscovered,
+        candidatesEnriched: run.stats?.candidatesEnriched ?? run.candidatesEnriched,
+        candidatesScored: run.stats?.candidatesScored ?? run.candidatesScored,
       },
+      // Include recent runs for history selector
+      runs: runs.map((r) => ({
+        id: r.id,
+        status: r.status,
+        startedAt: r.startedAt,
+        completedAt: r.completedAt,
+        competitorCount: r.competitors.filter((c) => !c.provenance?.removed).length,
+        errorMessage: r.errorMessage,
+      })),
     });
   } catch (error) {
     console.error('[competition/api] Error fetching competition run:', error);

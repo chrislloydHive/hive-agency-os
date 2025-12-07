@@ -1,0 +1,24 @@
+{
+  "f82827af-1099-4b16-8e08-51c25e5cc305": {
+    "companyId": "rec2VOqRkrfhVBvri",
+    "proposedChanges": {
+      "workItems": [
+        {
+          "title": "Develop Marketing Materials Highlighting Competitive Axes",
+          "description": "Create content and collateral that emphasizes Hive Agency's unique positioning on the identified competitive axes.",
+          "area": "Brand",
+          "priority": "high"
+        }
+      ],
+      "actions": [
+        {
+          "type": "run_lab",
+          "labId": "brand",
+          "justification": "Refine brand positioning and messaging in alignment with competitive axes."
+        }
+      ]
+    },
+    "createdAt": 1765044143929,
+    "expiresAt": 1765045043929
+  }
+}

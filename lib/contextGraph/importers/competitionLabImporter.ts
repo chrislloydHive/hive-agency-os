@@ -99,7 +99,8 @@ export const competitionLabImporter: DomainImporter = {
 
   async importAll(
     graph: CompanyContextGraph,
-    companyId: string
+    companyId: string,
+    _domain: string // Required by DomainImporter interface, not used here
   ): Promise<ImportResult> {
     const result: ImportResult = {
       success: false,

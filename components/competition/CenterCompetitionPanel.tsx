@@ -175,15 +175,19 @@ function MapView({
 }) {
   if (competitors.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-center">
+      <div className="h-full flex items-center justify-center px-8">
+        <div className="text-center max-w-md">
           <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-slate-800 flex items-center justify-center">
             <svg className="w-8 h-8 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
             </svg>
           </div>
-          <p className="text-slate-400 text-sm">No competitors discovered yet</p>
-          <p className="text-slate-500 text-xs mt-1">Run discovery to populate the map</p>
+          <p className="text-slate-300 text-sm font-medium mb-2">No competitors discovered yet</p>
+          <p className="text-slate-500 text-xs leading-relaxed">
+            Competition Discovery analyzes your market landscape using AI and first-party context
+            (ICP, industry, geo, offers, positioning) to identify core competitors, secondary competitors,
+            and alternatives. Run your first discovery to populate the map.
+          </p>
         </div>
       </div>
     );

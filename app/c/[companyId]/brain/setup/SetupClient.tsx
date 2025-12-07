@@ -94,23 +94,53 @@ export function SetupClient({
     return completed;
   };
 
-  // Validate initialStep is a valid SetupStepId
-  const validInitialStep = initialStep && SETUP_STEPS.includes(initialStep as SetupStepId)
-    ? (initialStep as SetupStepId)
-    : 'business-identity';
+  // Determine initial step: URL param > localStorage > default
+  const getInitialStep = (): SetupStepId => {
+    // First check URL param
+    if (initialStep && SETUP_STEPS.includes(initialStep as SetupStepId)) {
+      return initialStep as SetupStepId;
+    }
 
-  const [progress, setProgress] = useState<SetupProgress>({
-    currentStep: validInitialStep,
+    // Then check localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        const savedStep = localStorage.getItem(`setup-step-${companyId}`);
+        if (savedStep && SETUP_STEPS.includes(savedStep as SetupStepId)) {
+          return savedStep as SetupStepId;
+        }
+      } catch {
+        // Ignore localStorage errors
+      }
+    }
+
+    // Default to first step
+    return 'business-identity';
+  };
+
+  const [progress, setProgress] = useState<SetupProgress>(() => ({
+    currentStep: getInitialStep(),
     completedSteps: calculateCompletedSteps(initialFormData),
     lastSavedAt: null,
     startedAt: new Date().toISOString(),
-  });
+  }));
 
   const [isPending, startTransition] = useTransition();
   const [isDirty, setIsDirty] = useState(false);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [isAIAssistOpen, setIsAIAssistOpen] = useState(false);
+
+  // Sync URL with current step on initial load (if restored from localStorage)
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const urlStep = url.searchParams.get('step');
+    const currentStepNumber = getStepIndex(progress.currentStep) + 1;
+
+    if (!urlStep || urlStep !== String(currentStepNumber)) {
+      url.searchParams.set('step', String(currentStepNumber));
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, []); // Only run once on mount
 
   // Update form data for a specific step
   const updateStepData = useCallback(
@@ -214,13 +244,25 @@ export function SetupClient({
     [companyId, formData, stepIdToKey]
   );
 
-  // Navigate to step
+  // Navigate to step and persist to localStorage + URL
   const navigateToStep = useCallback((stepId: SetupStepId) => {
     setProgress((prev) => ({
       ...prev,
       currentStep: stepId,
     }));
-  }, []);
+
+    // Persist to localStorage for this company
+    try {
+      localStorage.setItem(`setup-step-${companyId}`, stepId);
+    } catch {
+      // Ignore localStorage errors
+    }
+
+    // Update URL without reload
+    const url = new URL(window.location.href);
+    url.searchParams.set('step', String(getStepIndex(stepId) + 1));
+    window.history.replaceState({}, '', url.toString());
+  }, [companyId]);
 
   // Go to next step
   const goNext = useCallback(async () => {

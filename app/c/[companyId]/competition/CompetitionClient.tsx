@@ -56,13 +56,16 @@ export function CompetitionClient({
 
   // Fetch competition data
   const {
-    run,
+    latestRun: run,
     competitors: apiCompetitors,
+    steps,
+    stats,
     isLoading,
     isRunning,
     error,
-    refresh,
-    triggerRun,
+    runError,
+    refetch: refresh,
+    runV2: triggerRun,
     applyFeedback,
   } = useCompetitionRun(companyId);
 
@@ -78,12 +81,17 @@ export function CompetitionClient({
       id: `cg_${idx}`,
       competitorName: cp.name,
       competitorDomain: cp.domain,
+      homepageUrl: cp.domain ? `https://${cp.domain}` : null,
+      shortSummary: null,
+      geo: null,
+      priceTier: null,
       role: (cp.category as 'core' | 'secondary' | 'alternative') || 'secondary',
       overallScore: Math.round((cp.confidence || 0.5) * 100),
       offerSimilarity: 50, // Default
       audienceSimilarity: 50, // Default
       geoOverlap: 50, // Default
       priceTierOverlap: 50, // Default
+      compositeScore: Math.round((cp.confidence || 0.5) * 100),
       brandScale: null,
       enrichedData: {
         companyType: null,
@@ -121,6 +129,10 @@ export function CompetitionClient({
         promoted: false,
         promotedAt: null,
       },
+      source: 'manual',
+      sourceNote: 'From Context Graph',
+      removedByUser: false,
+      promotedByUser: false,
       createdAt: new Date().toISOString(),
       updatedAt: null,
       xPosition: cp.xPosition,
@@ -184,7 +196,7 @@ export function CompetitionClient({
             <p className="text-xs text-slate-400">
               {run
                 ? `Last run: ${formatRunDate(run.completedAt || run.startedAt)} • Model ${run.modelVersion}`
-                : 'No competition analysis run yet'
+                : 'Map the competitive landscape: core competitors, alternatives, and strategic differentiation'
               }
             </p>
           </div>
@@ -224,12 +236,12 @@ export function CompetitionClient({
             {isRunning ? (
               <span className="flex items-center gap-2">
                 <Spinner />
-                Running...
+                Running discovery...
               </span>
             ) : run ? (
-              'Re-run Discovery'
+              'Re-run Competition Discovery'
             ) : (
-              'Run Discovery'
+              'Run Competition Discovery'
             )}
           </button>
 
@@ -248,9 +260,39 @@ export function CompetitionClient({
       </div>
 
       {/* Error Banner */}
-      {error && (
+      {(error || runError) && (
         <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-4 text-sm text-red-400">
-          {error}
+          <div className="font-medium">{error ? 'Error loading data' : 'Run failed'}</div>
+          <div className="mt-1">{error || runError}</div>
+        </div>
+      )}
+
+      {/* Run Progress Banner */}
+      {isRunning && steps.length > 0 && (
+        <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-amber-300">Discovery in progress...</span>
+            <span className="text-xs text-amber-400">
+              {steps.filter(s => s.status === 'completed').length}/{steps.length} steps
+            </span>
+          </div>
+          <div className="flex gap-1">
+            {steps.map((step, idx) => (
+              <div
+                key={step.name}
+                className={`flex-1 h-1.5 rounded-full ${
+                  step.status === 'completed' ? 'bg-green-500' :
+                  step.status === 'running' ? 'bg-amber-500 animate-pulse' :
+                  step.status === 'failed' ? 'bg-red-500' :
+                  'bg-slate-700'
+                }`}
+                title={`${step.name}: ${step.status}`}
+              />
+            ))}
+          </div>
+          <div className="mt-2 text-xs text-slate-400">
+            {steps.find(s => s.status === 'running')?.name.replace(/([A-Z])/g, ' $1').trim() || 'Initializing...'}
+          </div>
         </div>
       )}
 

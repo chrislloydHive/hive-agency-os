@@ -1,8 +1,14 @@
 // app/api/os/companies/[companyId]/competition/feedback/route.ts
 // Competition Lab API - Handle user feedback on competitors
+//
+// Supports removing, promoting, and manually adding competitors.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { applyCompetitorFeedback, getLatestCompetitionRun, type CompetitorFeedbackAction } from '@/lib/competition';
+import {
+  applyCompetitorFeedback,
+  getLatestCompetitionRun,
+  type CompetitorFeedbackAction,
+} from '@/lib/competition';
 
 interface RouteParams {
   params: Promise<{ companyId: string }>;
@@ -98,13 +104,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Apply feedback
     const updatedRun = await applyCompetitorFeedback(recordId, feedbackAction);
 
-    // Return updated competitor list
-    const activeCompetitors = updatedRun.competitors.filter((c) => !c.provenance.removed);
+    // Return updated competitor list (active only)
+    const activeCompetitors = updatedRun.competitors.filter((c) => !c.provenance?.removed);
 
     return NextResponse.json({
       success: true,
       message: `Successfully applied ${action} action`,
       competitors: activeCompetitors,
+      stats: updatedRun.stats,
       summary: {
         totalDiscovered: activeCompetitors.length,
         coreCount: activeCompetitors.filter((c) => c.role === 'core').length,

@@ -1,0 +1,38 @@
+{
+  "entries": [
+    {
+      "companyId": "receXpHL8ukSlLFI5",
+      "path": "identity.revenueModel",
+      "oldValue": null,
+      "newValue": "Subscription/Platform fees from trainers and commission-based revenue from bookings",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "_7EABdITQYh077-Elz4pz",
+      "updatedAt": "2025-12-06T00:53:22.855Z"
+    },
+    {
+      "companyId": "receXpHL8ukSlLFI5",
+      "path": "identity.peakSeasons",
+      "oldValue": [],
+      "newValue": "[\"January-March (New Year resolutions)\",\"April-June (summer prep)\"]",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "fF_zk8GeDCUmpba2eIlVG",
+      "updatedAt": "2025-12-06T01:47:35.687Z"
+    },
+    {
+      "companyId": "receXpHL8ukSlLFI5",
+      "path": "identity.seasonalityNotes",
+      "oldValue": null,
+      "newValue": "Strong seasonal patterns driven by fitness motivation cycles. Q1 benefits from New Year resolutions, Q2 from summer preparation. Holiday seasons and summer months typically see decreased engagement.",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "VXenpTjiG6G-toTorU1PZ",
+      "updatedAt": "2025-12-06T01:48:47.554Z"
+    }
+  ],
+  "updatedAt": "2025-12-06T01:48:47.554Z"
+}

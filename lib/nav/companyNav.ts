@@ -1,0 +1,433 @@
+// lib/nav/companyNav.ts
+// Centralized navigation helpers for company routes
+//
+// Used by:
+// - CompanyTabs (company-level navigation)
+// - BrainSubNav (brain workspace navigation)
+// - QbrSubNav (QBR workspace navigation)
+// - BlueprintSubNav (blueprint workspace navigation)
+
+// ============================================================================
+// Company-Level Navigation
+// ============================================================================
+
+export type CompanyTabId = 'overview' | 'blueprint' | 'brain' | 'work' | 'reports';
+
+export interface CompanyTab {
+  id: CompanyTabId;
+  name: string;
+  href: (companyId: string) => string;
+  description?: string;
+}
+
+export const COMPANY_TABS: CompanyTab[] = [
+  {
+    id: 'overview',
+    name: 'Overview',
+    href: (companyId) => `/c/${companyId}`,
+    description: 'Company dashboard with health summary and quick actions',
+  },
+  {
+    id: 'blueprint',
+    name: 'Blueprint',
+    href: (companyId) => `/c/${companyId}/blueprint`,
+    description: 'Strategic hub with diagnostics, analytics, and growth plan',
+  },
+  {
+    id: 'brain',
+    name: 'Brain',
+    href: (companyId) => `/c/${companyId}/brain`,
+    description: 'Company memory & intelligence hub',
+  },
+  {
+    id: 'work',
+    name: 'Work',
+    href: (companyId) => `/c/${companyId}/work`,
+    description: 'Active tasks, experiments, and backlog',
+  },
+  {
+    id: 'reports',
+    name: 'Reports',
+    href: (companyId) => `/c/${companyId}/reports`,
+    description: 'Annual plans, QBRs, and strategic reports',
+  },
+];
+
+/**
+ * Determine which company tab is active based on pathname
+ */
+export function getCompanyTabFromPath(pathname: string, companyId: string): CompanyTabId {
+  // Check for specific tab routes (order matters - check more specific routes first)
+  if (pathname.startsWith(`/c/${companyId}/blueprint`)) return 'blueprint';
+  if (pathname.startsWith(`/c/${companyId}/brain`)) return 'brain';
+  if (pathname.startsWith(`/c/${companyId}/work`)) return 'work';
+  if (pathname.startsWith(`/c/${companyId}/reports`)) return 'reports';
+  // Legacy QBR route maps to reports
+  if (pathname.startsWith(`/c/${companyId}/qbr`)) return 'reports';
+
+  // Default to overview for exact match or unknown routes
+  return 'overview';
+}
+
+// ============================================================================
+// Brain Sub-Navigation (4-Tab Structure)
+// ============================================================================
+// Brain IA Framework:
+// - Explorer: Explore mode - visual map for discovery
+// - Context: Inspect mode - field-level editor for data entry
+// - Insights: Understand mode - AI-generated analysis
+// - Labs: Improve mode - diagnostic tools that refine context
+
+export type BrainTabId = 'explorer' | 'context' | 'insights' | 'labs';
+
+export interface BrainTab {
+  id: BrainTabId;
+  name: string;
+  /** Short action label shown below tab name (e.g., "Explore", "Edit") */
+  subLabel: string;
+  href: (companyId: string) => string;
+  tooltip: {
+    title: string;
+    description: string;
+  };
+}
+
+export const BRAIN_TABS: BrainTab[] = [
+  {
+    id: 'explorer',
+    name: 'Explorer',
+    subLabel: 'Explore',
+    href: (companyId) => `/c/${companyId}/brain/explorer`,
+    tooltip: {
+      title: 'Strategic Explorer',
+      description: 'Visual map of company context clustered by domain. Explore relationships between Identity, Audience, Brand, and Competitive.',
+    },
+  },
+  {
+    id: 'context',
+    name: 'Context',
+    subLabel: 'Edit',
+    href: (companyId) => `/c/${companyId}/brain/context`,
+    tooltip: {
+      title: 'Context Editor',
+      description: 'Field-level editor for company context. View and edit all structured data with inline editing and provenance tracking.',
+    },
+  },
+  {
+    id: 'insights',
+    name: 'Insights',
+    subLabel: 'Understand',
+    href: (companyId) => `/c/${companyId}/brain/insights`,
+    tooltip: {
+      title: 'AI-Generated Insights',
+      description: 'Strategic recommendations and patterns surfaced by analyzing the context graph.',
+    },
+  },
+  {
+    id: 'labs',
+    name: 'Labs',
+    subLabel: 'Improve',
+    href: (companyId) => `/c/${companyId}/brain/labs`,
+    tooltip: {
+      title: 'Diagnostic Labs',
+      description: 'Deep-dive diagnostics including Competition Lab, Creative Lab, and more. Labs refine company context and feed strategy.',
+    },
+  },
+];
+
+/**
+ * Determine which brain tab is active based on pathname
+ */
+export function getBrainTabFromPath(pathname: string, companyId: string): BrainTabId | null {
+  const brainBase = `/c/${companyId}/brain`;
+
+  if (!pathname.startsWith(brainBase)) return null;
+
+  const subPath = pathname.slice(brainBase.length);
+
+  // Match specific brain routes (new 4-tab structure)
+  if (subPath.startsWith('/explorer')) return 'explorer';
+  if (subPath.startsWith('/context')) return 'context';
+  if (subPath.startsWith('/insights')) return 'insights';
+  if (subPath.startsWith('/labs')) return 'labs';
+
+  // Legacy route mappings (redirect to appropriate tab)
+  if (subPath.startsWith('/map')) return 'explorer'; // Old strategic map → explorer
+  if (subPath.startsWith('/library')) return 'labs'; // Library moved to labs
+  if (subPath.startsWith('/setup')) return 'labs'; // Setup moved to labs
+  if (subPath.startsWith('/history')) return 'context'; // History is utility in context
+
+  // Default: bare /brain → explorer (exploration-first)
+  if (subPath === '' || subPath === '/') return 'explorer';
+
+  return 'explorer'; // Fallback to explorer
+}
+
+// ============================================================================
+// Reports Sub-Navigation
+// ============================================================================
+
+export type ReportsTabId = 'hub' | 'annual' | 'qbr';
+
+export interface ReportsTab {
+  id: ReportsTabId;
+  name: string;
+  href: (companyId: string) => string;
+  description?: string;
+}
+
+export const REPORTS_TABS: ReportsTab[] = [
+  {
+    id: 'hub',
+    name: 'All Reports',
+    href: (companyId) => `/c/${companyId}/reports`,
+    description: 'Reports dashboard and generation',
+  },
+  {
+    id: 'annual',
+    name: 'Annual Plan',
+    href: (companyId) => `/c/${companyId}/reports/annual`,
+    description: 'Yearly strategic and marketing plan',
+  },
+  {
+    id: 'qbr',
+    name: 'QBR',
+    href: (companyId) => `/c/${companyId}/reports/qbr`,
+    description: 'Quarterly Business Review',
+  },
+];
+
+/**
+ * Determine which Reports tab is active based on pathname
+ */
+export function getReportsTabFromPath(pathname: string, companyId: string): ReportsTabId | null {
+  const reportsBase = `/c/${companyId}/reports`;
+
+  if (!pathname.startsWith(reportsBase)) return null;
+
+  const subPath = pathname.slice(reportsBase.length);
+
+  // Match specific Reports routes
+  if (subPath === '' || subPath === '/') return 'hub';
+  if (subPath.startsWith('/annual')) return 'annual';
+  if (subPath.startsWith('/qbr')) return 'qbr';
+
+  return 'hub'; // Default to hub
+}
+
+// ============================================================================
+// QBR Sub-Navigation (Legacy - redirects to /reports/qbr)
+// ============================================================================
+
+export type QbrTabId = 'story' | 'scorecard' | 'history';
+
+export interface QbrTab {
+  id: QbrTabId;
+  name: string;
+  href: (companyId: string) => string;
+  description?: string;
+}
+
+export const QBR_TABS: QbrTab[] = [
+  {
+    id: 'story',
+    name: 'Story',
+    href: (companyId) => `/c/${companyId}/reports/qbr/story`,
+    description: 'AI-generated narrative with chapters by domain',
+  },
+  {
+    id: 'scorecard',
+    name: 'Scorecard',
+    href: (companyId) => `/c/${companyId}/reports/qbr/scorecard`,
+    description: 'Key performance indicators & metrics',
+  },
+  {
+    id: 'history',
+    name: 'History',
+    href: (companyId) => `/c/${companyId}/reports/qbr/history`,
+    description: 'Past QBR runs and exports',
+  },
+];
+
+/**
+ * Determine which QBR tab is active based on pathname
+ */
+export function getQbrTabFromPath(pathname: string, companyId: string): QbrTabId | null {
+  // Support both legacy /qbr and new /reports/qbr paths
+  const legacyBase = `/c/${companyId}/qbr`;
+  const newBase = `/c/${companyId}/reports/qbr`;
+
+  let subPath: string;
+  if (pathname.startsWith(newBase)) {
+    subPath = pathname.slice(newBase.length);
+  } else if (pathname.startsWith(legacyBase)) {
+    subPath = pathname.slice(legacyBase.length);
+  } else {
+    return null;
+  }
+
+  // Match specific QBR routes
+  if (subPath === '' || subPath === '/' || subPath.startsWith('/story')) return 'story';
+  if (subPath.startsWith('/scorecard') || subPath.startsWith('/kpis')) return 'scorecard';
+  if (subPath.startsWith('/history')) return 'history';
+
+  // Legacy routes map to story
+  if (subPath.startsWith('/strategic-plan') || subPath.startsWith('/priorities') ||
+      subPath.startsWith('/next-quarter') || subPath.startsWith('/risks')) {
+    return 'story';
+  }
+
+  return 'story'; // Default to story
+}
+
+// ============================================================================
+// Blueprint Sub-Navigation
+// ============================================================================
+
+export type BlueprintTabId = 'map' | 'plan' | 'pillars' | 'programs';
+
+export interface BlueprintTab {
+  id: BlueprintTabId;
+  name: string;
+  href: (companyId: string) => string;
+  description?: string;
+}
+
+export const BLUEPRINT_TABS: BlueprintTab[] = [
+  {
+    id: 'map',
+    name: 'Map',
+    href: (companyId) => `/c/${companyId}/blueprint`,
+    description: 'Strategic map in decision mode with pillars and sliders',
+  },
+  {
+    id: 'plan',
+    name: 'Plan',
+    href: (companyId) => `/c/${companyId}/blueprint/plan`,
+    description: 'Growth plan with initiatives and roadmap',
+  },
+  {
+    id: 'pillars',
+    name: 'Pillars',
+    href: (companyId) => `/c/${companyId}/blueprint/pillars`,
+    description: 'Strategic pillars and themes',
+  },
+  {
+    id: 'programs',
+    name: 'Programs',
+    href: (companyId) => `/c/${companyId}/blueprint/programs`,
+    description: 'Programs and tracks',
+  },
+];
+
+/**
+ * Determine which blueprint tab is active based on pathname
+ */
+export function getBlueprintTabFromPath(pathname: string, companyId: string): BlueprintTabId | null {
+  const blueprintBase = `/c/${companyId}/blueprint`;
+
+  if (!pathname.startsWith(blueprintBase)) return null;
+
+  const subPath = pathname.slice(blueprintBase.length);
+
+  // Match specific blueprint routes
+  if (subPath === '' || subPath === '/') return 'map';
+  if (subPath.startsWith('/plan')) return 'plan';
+  if (subPath.startsWith('/pillars')) return 'pillars';
+  if (subPath.startsWith('/programs')) return 'programs';
+
+  return 'map'; // Default to map
+}
+
+// ============================================================================
+// Labs Navigation
+// ============================================================================
+
+export type LabId = 'competition' | 'creative' | 'competitor' | 'website' | 'brand' | 'audience';
+
+export interface Lab {
+  id: LabId;
+  name: string;
+  href: (companyId: string) => string;
+  description: string;
+  status: 'active' | 'coming_soon';
+}
+
+export const LABS: Lab[] = [
+  {
+    id: 'competition',
+    name: 'Competition Lab',
+    href: (companyId) => `/c/${companyId}/brain/labs/competition`,
+    description: 'Map the competitive landscape: core competitors, alternatives, and strategic differentiation.',
+    status: 'active',
+  },
+  {
+    id: 'creative',
+    name: 'Creative Lab',
+    href: (companyId) => `/c/${companyId}/labs/creative`,
+    description: 'Generate messaging frameworks, campaign concepts, and creative territories.',
+    status: 'active',
+  },
+  {
+    id: 'competitor',
+    name: 'Competitor Deep Dive',
+    href: (companyId) => `/c/${companyId}/labs/competitor`,
+    description: 'Analyze individual competitors in-depth: positioning, messaging, strengths, and weaknesses.',
+    status: 'active',
+  },
+  {
+    id: 'website',
+    name: 'Website Lab',
+    href: (companyId) => `/c/${companyId}/brain/labs/website`,
+    description: 'Audit website structure, messaging clarity, conversion paths, and SEO foundations.',
+    status: 'active',
+  },
+  {
+    id: 'brand',
+    name: 'Brand Lab',
+    href: (companyId) => `/c/${companyId}/brain/labs/brand`,
+    description: 'Analyze brand voice, visual identity, and market positioning consistency.',
+    status: 'active',
+  },
+  {
+    id: 'audience',
+    name: 'Audience Lab',
+    href: (companyId) => `/c/${companyId}/brain/labs/audience`,
+    description: 'Deep-dive into audience segments, personas, and behavioral insights.',
+    status: 'active',
+  },
+];
+
+/**
+ * Get URL to a specific lab with optional source tracking
+ */
+export function getLabUrl(companyId: string, labId: LabId, from?: 'blueprint' | 'qbr' | 'strategic-map'): string {
+  const lab = LABS.find(l => l.id === labId);
+  if (!lab) return `/c/${companyId}/brain/labs`;
+
+  const baseUrl = lab.href(companyId);
+  if (from) {
+    return `${baseUrl}?from=${from}`;
+  }
+  return baseUrl;
+}
+
+// ============================================================================
+// Utility Helpers
+// ============================================================================
+
+/**
+ * Extract companyId from a pathname
+ */
+export function extractCompanyIdFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/c\/([^/]+)/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Check if a path is a child route of a given base path
+ */
+export function isChildRoute(pathname: string, basePath: string): boolean {
+  if (pathname === basePath) return true;
+  return pathname.startsWith(basePath + '/');
+}

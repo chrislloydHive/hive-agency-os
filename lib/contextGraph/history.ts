@@ -105,7 +105,7 @@ export async function saveContextGraphVersion(
       'Change Reason': version.changeReason,
       'Version At': version.versionAt,
       'Description': version.description || '',
-      'Graph JSON': JSON.stringify(version.graph),
+      'Run Data': JSON.stringify(version.graph),
       'Completeness Score': version.completenessScore,
       'Trigger Run ID': version.triggerRunId || '',
       'Previous Version ID': version.previousVersionId || '',
@@ -383,10 +383,10 @@ export const pruneOldSnapshots = pruneOldVersions;
 function mapAirtableRecordToVersion(record: any): ContextGraphVersion | null {
   try {
     const fields = record.fields;
-    const graphJson = fields['Graph JSON'] as string | undefined;
+    const graphJson = (fields['Run Data'] || fields['Graph JSON']) as string | undefined;
 
     if (!graphJson) {
-      console.warn(`[ContextGraph History] Record ${record.id} has no Graph JSON`);
+      console.warn(`[ContextGraph History] Record ${record.id} has no Run Data`);
       return null;
     }
 
