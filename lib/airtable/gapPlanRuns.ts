@@ -541,10 +541,17 @@ export async function getGapPlanRunsForCompanyOrDomain(
       .filter((record) => {
         const fields = record.fields;
 
-        // Match by Company linked record
+        // Match by Company linked record (legacy)
         const companyField = fields['Company'];
         if (Array.isArray(companyField) && companyField.includes(companyId)) {
-          console.log('[GAP-Plan Run] Matched by Company field:', record.id);
+          console.log('[GAP-Plan Run] Matched by Company linked field:', record.id);
+          return true;
+        }
+
+        // Match by Company ID text field (new from orchestrator)
+        const companyIdField = fields['Company ID'] as string | undefined;
+        if (companyIdField && companyIdField === companyId) {
+          console.log('[GAP-Plan Run] Matched by Company ID field:', record.id);
           return true;
         }
 
@@ -572,9 +579,12 @@ export async function getGapPlanRunsForCompanyOrDomain(
 
     return records.map((record: any) => {
       const fields = record.fields || {};
+      // Prefer Company ID text field, fall back to linked record
+      const resolvedCompanyId = fields['Company ID'] as string | undefined
+        || (Array.isArray(fields['Company']) ? fields['Company'][0] : undefined);
       return {
         id: record.id,
-        companyId: Array.isArray(fields['Company']) ? fields['Company'][0] : undefined,
+        companyId: resolvedCompanyId,
         url: fields['Website URL'] || fields['URL'] || '',
         domain: fields['Domain'] || '',
         status: (fields['Status'] || 'pending') as 'pending' | 'processing' | 'completed' | 'error',
@@ -593,6 +603,50 @@ export async function getGapPlanRunsForCompanyOrDomain(
   } catch (error) {
     console.error('[GAP-Plan Run] Failed to fetch runs for company/domain:', error);
     return [];
+  }
+}
+
+/**
+ * Get a single GAP Plan Run by ID
+ * Used for viewing run details on the diagnostics page
+ */
+export async function getGapPlanRunById(runId: string): Promise<GapPlanRun | null> {
+  try {
+    const tableName = getTableName('GAP_PLAN_RUN', 'AIRTABLE_GAP_PLAN_RUN_TABLE');
+    console.log('[GAP-Plan Run] Fetching run by ID:', runId, 'table:', tableName);
+
+    const { base } = await import('./client');
+
+    const record = await base(tableName).find(runId);
+
+    if (!record) {
+      console.log('[GAP-Plan Run] No record found for ID:', runId);
+      return null;
+    }
+
+    const fields = record.fields || {};
+    console.log('[GAP-Plan Run] Found record:', { id: record.id, status: fields['Status'] });
+
+    return {
+      id: record.id,
+      companyId: Array.isArray(fields['Company']) ? fields['Company'][0] : undefined,
+      url: fields['Website URL'] || fields['URL'] || '',
+      domain: fields['Domain'] || '',
+      status: (fields['Status'] || 'pending') as 'pending' | 'processing' | 'completed' | 'error',
+      overallScore: fields['Overall Score'] as number | undefined,
+      brandScore: fields['Brand Score'] as number | undefined,
+      contentScore: fields['Content Score'] as number | undefined,
+      websiteScore: fields['Website Score'] as number | undefined,
+      seoScore: fields['SEO Score'] as number | undefined,
+      authorityScore: fields['Authority Score'] as number | undefined,
+      maturityStage: fields['Maturity Stage'] as string | undefined,
+      createdAt: fields['Created At'] || new Date().toISOString(),
+      completedAt: fields['Completed At'] as string | undefined,
+      errorMessage: fields['Error Message'] as string | undefined,
+    } as GapPlanRun;
+  } catch (error) {
+    console.error('[GAP-Plan Run] Failed to fetch run by ID:', error);
+    return null;
   }
 }
 

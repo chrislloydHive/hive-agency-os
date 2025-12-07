@@ -1,16 +1,25 @@
 // app/c/[companyId]/reports/page.tsx
-// Reports Hub - Dashboard for Annual Plan and QBR reports
+// Reports Hub - Dashboard for Strategic Reports and Diagnostics
 //
-// Shows available report types with:
-// - Last generated date
-// - Generate / View Latest CTAs
-// - Report history
+// Features a tabbed layout:
+// - All: Shows both Strategic Reports and Diagnostics sections
+// - Strategic: Annual Plan + QBR cards only
+// - Diagnostics: Filterable table of diagnostic runs only
 
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { getCompanyById } from '@/lib/airtable/companies';
-import { ReportsHubClient } from './ReportsHubClient';
 import { getLatestReportByType } from '@/lib/reports/store';
+import {
+  listDiagnosticRunsForCompany,
+  getToolLabel,
+  type DiagnosticRun,
+} from '@/lib/os/diagnostics/runs';
+import { getHeavyGapRunsByCompanyId } from '@/lib/airtable/gapHeavyRuns';
+import { getGapIaRunsForCompanyOrDomain } from '@/lib/airtable/gapIaRuns';
+import { getGapPlanRunsForCompanyOrDomain } from '@/lib/airtable/gapPlanRuns';
+import { ReportsHubClient } from './ReportsHubClient';
+import type { DiagnosticRunSummary } from '@/components/reports/DiagnosticsSection';
 
 export const metadata: Metadata = {
   title: 'Reports',
@@ -20,6 +29,87 @@ interface PageProps {
   params: Promise<{ companyId: string }>;
 }
 
+// ============================================================================
+// Helper: Convert DiagnosticRun to DiagnosticRunSummary
+// ============================================================================
+
+function diagnosticRunToSummary(
+  run: DiagnosticRun,
+  companyId: string
+): DiagnosticRunSummary {
+  // Map status
+  const statusMap: Record<string, DiagnosticRunSummary['status']> = {
+    complete: 'success',
+    completed: 'success',
+    running: 'running',
+    pending: 'pending',
+    failed: 'failed',
+    error: 'failed',
+  };
+
+  // Generate URL based on tool type
+  let link: string | undefined;
+  const isComplete = run.status === 'complete';
+  if (isComplete) {
+    switch (run.toolId) {
+      case 'gapHeavy':
+        link = `/c/${companyId}/diagnostics/gap-heavy/${run.id}`;
+        break;
+      case 'websiteLab':
+        link = `/c/${companyId}/diagnostics/website/${run.id}`;
+        break;
+      case 'brandLab':
+        link = `/c/${companyId}/diagnostics/brand/${run.id}`;
+        break;
+      case 'seoLab':
+        link = `/c/${companyId}/diagnostics/seo/${run.id}`;
+        break;
+      case 'contentLab':
+        link = `/c/${companyId}/diagnostics/content/${run.id}`;
+        break;
+      case 'gapSnapshot':
+      case 'gapIa':
+        link = `/c/${companyId}/diagnostics/gap-ia/${run.id}`;
+        break;
+      case 'demandLab':
+        link = `/c/${companyId}/diagnostics/demand/${run.id}`;
+        break;
+      case 'opsLab':
+        link = `/c/${companyId}/diagnostics/ops/${run.id}`;
+        break;
+      case 'creativeLab':
+        link = `/c/${companyId}/labs/creative`;
+        break;
+      case 'competitorLab':
+      case 'competitionLab':
+        link = `/c/${companyId}/brain/labs/competition`;
+        break;
+      default:
+        link = `/c/${companyId}/diagnostics/gap-heavy/${run.id}`;
+    }
+  }
+
+  // Build score summary if available
+  let scoreSummary: string | undefined;
+  if (run.score !== null && run.score !== undefined) {
+    scoreSummary = `Score: ${run.score}`;
+  }
+
+  return {
+    id: run.id,
+    type: getToolLabel(run.toolId),
+    label: run.summary || `${getToolLabel(run.toolId)} diagnostic run`,
+    createdAt: run.createdAt,
+    status: statusMap[run.status] || 'pending',
+    scoreSummary,
+    link,
+  };
+}
+
+// ============================================================================
+// Page Component
+// ============================================================================
+
 export default async function ReportsPage({ params }: PageProps) {
   const { companyId } = await params;
 
@@ -28,11 +118,128 @@ export default async function ReportsPage({ params }: PageProps) {
     notFound();
   }
 
+  const domain = company.domain || company.website || '';
+
   // Fetch latest reports for each type
   const [latestAnnual, latestQbr] = await Promise.all([
     getLatestReportByType(companyId, 'annual'),
     getLatestReportByType(companyId, 'qbr'),
   ]);
+
+  // Collect all diagnostic runs
+  const diagnosticRuns: DiagnosticRunSummary[] = [];
+  const seenIds = new Set<string>();
+
+  // 1. Load from unified Diagnostic Runs table (primary source)
+  try {
+    const runs = await listDiagnosticRunsForCompany(companyId, { limit: 100 });
+    for (const run of runs) {
+      if (!seenIds.has(run.id)) {
+        seenIds.add(run.id);
+        diagnosticRuns.push(diagnosticRunToSummary(run, companyId));
+      }
+    }
+  } catch (error) {
+    console.error('[ReportsPage] Error loading diagnostic runs:', error);
+  }
+
+  // 2. Load GAP Heavy runs (legacy)
+  try {
+    const heavyRuns = await getHeavyGapRunsByCompanyId(companyId, 50);
+    for (const run of heavyRuns) {
+      if (seenIds.has(run.id)) continue;
+      seenIds.add(run.id);
+
+      const modules: string[] = [];
+      if (run.evidencePack?.websiteLabV4) modules.push('Website');
+      if (run.evidencePack?.brandLab) modules.push('Brand');
+      if (run.evidencePack?.modules?.length) {
+        const completedModules = run.evidencePack.modules
+          .filter(m => m.status === 'completed')
+          .map(m => m.module);
+        if (completedModules.includes('seo')) modules.push('SEO');
+        if (completedModules.includes('content')) modules.push('Content');
+        if (completedModules.includes('demand')) modules.push('Demand');
+        if (completedModules.includes('ops')) modules.push('Ops');
+      }
+
+      diagnosticRuns.push({
+        id: run.id,
+        type: 'GAP Heavy',
+        label: modules.length > 0
+          ? `Comprehensive analysis (${modules.join(', ')})`
+          : 'Comprehensive diagnostic analysis',
+        createdAt: run.createdAt,
+        status: run.status === 'completed' || run.status === 'paused' ? 'success'
+          : run.status === 'running' ? 'running'
+          : run.status === 'error' || run.status === 'cancelled' ? 'failed'
+          : 'pending',
+        link: `/c/${companyId}/diagnostics/gap-heavy/${run.id}`,
+      });
+    }
+  } catch (error) {
+    console.error('[ReportsPage] Error loading GAP Heavy runs:', error);
+  }
+
+  // 3. Load GAP-IA runs (legacy)
+  try {
+    const iaRuns = await getGapIaRunsForCompanyOrDomain(companyId, domain, 50);
+    for (const run of iaRuns) {
+      if (seenIds.has(run.id)) continue;
+      seenIds.add(run.id);
+
+      const isComplete = run.status === 'completed' || run.status === 'complete';
+      diagnosticRuns.push({
+        id: run.id,
+        type: 'GAP IA',
+        label: run.core?.quickSummary || 'Quick marketing health check',
+        createdAt: run.createdAt,
+        status: isComplete ? 'success'
+          : run.status === 'running' ? 'running'
+          : run.status === 'failed' || run.status === 'error' ? 'failed'
+          : 'pending',
+        scoreSummary: run.overallScore ? `Score: ${run.overallScore}` : undefined,
+        link: isComplete ? `/c/${companyId}/diagnostics/gap-ia/${run.id}` : undefined,
+      });
+    }
+  } catch (error) {
+    console.error('[ReportsPage] Error loading GAP-IA runs:', error);
+  }
+
+  // 4. Load GAP Plan runs (Full GAP from onboarding)
+  try {
+    const planRuns = await getGapPlanRunsForCompanyOrDomain(companyId, domain, 50);
+    for (const run of planRuns) {
+      if (seenIds.has(run.id)) continue;
+      seenIds.add(run.id);
+
+      const isComplete = run.status === 'completed';
+      const scores: string[] = [];
+      if (run.overallScore) scores.push(`Overall: ${run.overallScore}`);
+      if (run.websiteScore) scores.push(`Website: ${run.websiteScore}`);
+      if (run.brandScore) scores.push(`Brand: ${run.brandScore}`);
+
+      diagnosticRuns.push({
+        id: run.id,
+        type: 'Full GAP',
+        label: run.maturityStage
+          ? `${run.maturityStage} maturity - comprehensive analysis`
+          : 'Comprehensive marketing assessment',
+        createdAt: run.createdAt,
+        status: isComplete ? 'success'
+          : run.status === 'processing' ? 'running'
+          : run.status === 'error' ? 'failed'
+          : 'pending',
+        scoreSummary: scores.length > 0 ? scores.join(' / ') : undefined,
+        link: isComplete ? `/c/${companyId}/diagnostics/gap-plan/${run.id}` : undefined,
+      });
+    }
+  } catch (error) {
+    console.error('[ReportsPage] Error loading GAP Plan runs:', error);
+  }
+
+  // Sort by date, newest first
+  diagnosticRuns.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   return (
     <ReportsHubClient
@@ -40,6 +247,7 @@ export default async function ReportsPage({ params }: PageProps) {
       companyName={company.name}
       latestAnnual={latestAnnual}
       latestQbr={latestQbr}
+      diagnosticRuns={diagnosticRuns}
     />
   );
 }

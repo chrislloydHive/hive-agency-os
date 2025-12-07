@@ -15,6 +15,7 @@ import crypto from 'crypto';
 import { loadContextGraph, saveContextGraph } from '@/lib/contextGraph/storage';
 import { getOrCreateContextGraph } from '@/lib/contextGraph/storage';
 import { getCompanyById } from '@/lib/airtable/companies';
+import { logGapPlanRunToAirtable } from '@/lib/airtable/gapPlanRuns';
 import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
 import type { LabId } from '@/lib/contextGraph/labContext';
 import type { ClientInsight, InsightCategory } from '@/lib/types/clientBrain';
@@ -226,14 +227,51 @@ export async function runFullGAPOrchestrator(
       },
     };
 
-    // TODO: Save snapshot to Airtable/storage
+    // ========================================================================
+    // Step 8: Log to Airtable
+    // ========================================================================
+    console.log('[GAP Orchestrator] Step 8: Logging to Airtable...');
 
-    // ========================================================================
-    // Step 8: Return OS-Oriented Output
-    // ========================================================================
     const completedAt = new Date().toISOString();
     const durationMs = Date.now() - startTime;
 
+    // Log to GAP-Plan Run table for visibility in Reports
+    try {
+      await logGapPlanRunToAirtable({
+        planId: snapshotId,
+        url: company.website || company.domain || '',
+        maturityStage: gapStructured.maturityStage as 'Early' | 'Emerging' | 'Scaling' | 'Leading' | undefined,
+        scores: {
+          overall: gapStructured.scores.overall,
+          brand: gapStructured.scores.brand,
+          content: gapStructured.scores.content,
+          website: gapStructured.scores.website,
+          seo: gapStructured.scores.seo,
+          authority: gapStructured.scores.authority,
+          digitalFootprint: gapStructured.scores.digitalFootprint,
+        },
+        quickWinsCount: gapStructured.recommendedNextSteps.filter(s => s.effort === 'low').length,
+        initiativesCount: gapStructured.recommendedNextSteps.length,
+        createdAt: startedAt,
+        companyId: input.companyId,
+        rawPlan: {
+          companyName: company.name,
+          snapshotId,
+          labsRun,
+          gapStructured,
+          insights: insights.slice(0, 20), // Limit to avoid Airtable size limits
+          durationMs,
+        },
+      });
+      console.log('[GAP Orchestrator] Logged to Airtable successfully');
+    } catch (logError) {
+      // Don't fail the orchestrator if logging fails
+      console.error('[GAP Orchestrator] Failed to log to Airtable:', logError);
+    }
+
+    // ========================================================================
+    // Step 9: Return OS-Oriented Output
+    // ========================================================================
     console.log('[GAP Orchestrator] Complete:', {
       duration: `${Math.round(durationMs / 1000)}s`,
       labsRun: labsRun.length,

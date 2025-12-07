@@ -14,15 +14,8 @@ import {
   AlertCircle,
   Loader2,
   ExternalLink,
+  ChevronDown,
 } from 'lucide-react';
-import { Card } from '@/components/ui/card';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 
 // ============================================================================
 // Types
@@ -30,13 +23,13 @@ import {
 
 export interface DiagnosticRunSummary {
   id: string;
-  type: string;          // "GAP-IA" | "GAP-Full" | "Website Lab" | "Competition Lab" | ...
-  label: string;         // Human readable, e.g. "Website Lab – UX & Conversion"
+  type: string;
+  label: string;
   createdAt: string;
   createdBy?: string;
   status: 'success' | 'running' | 'failed' | 'pending';
-  scoreSummary?: string; // e.g. "Website 62 / SEO 48 / Brand 70"
-  link?: string;         // link to full report / lab
+  scoreSummary?: string;
+  link?: string;
 }
 
 export interface DiagnosticsSectionProps {
@@ -70,6 +63,36 @@ const TIME_OPTIONS = [
 ];
 
 // ============================================================================
+// Custom Select Component
+// ============================================================================
+
+interface SelectProps {
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+  className?: string;
+}
+
+function CustomSelect({ value, onChange, options, className = '' }: SelectProps) {
+  return (
+    <div className={`relative ${className}`}>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="appearance-none w-full h-7 px-2.5 pr-7 text-xs font-medium rounded-md border border-slate-700 bg-slate-800 text-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+      >
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+    </div>
+  );
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -80,11 +103,9 @@ export function DiagnosticsSection({
   const [typeFilter, setTypeFilter] = useState('all');
   const [timeFilter, setTimeFilter] = useState('all');
 
-  // Filter runs based on selected filters
   const filteredRuns = useMemo(() => {
     let result = [...runs];
 
-    // Filter by type
     if (typeFilter !== 'all') {
       result = result.filter((run) => {
         const typeLower = run.type.toLowerCase();
@@ -116,7 +137,6 @@ export function DiagnosticsSection({
       });
     }
 
-    // Filter by time
     if (timeFilter !== 'all') {
       const days = parseInt(timeFilter, 10);
       const cutoff = new Date();
@@ -128,102 +148,85 @@ export function DiagnosticsSection({
   }, [runs, typeFilter, timeFilter]);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {/* Section Header */}
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-100">Diagnostics History</h2>
-          <p className="text-xs text-muted-foreground">
-            AI-powered diagnostics and labs run for this company.
-          </p>
-        </div>
+      <div>
+        <h2 className="text-sm font-semibold text-slate-100">Diagnostics History</h2>
+        <p className="text-xs text-muted-foreground">
+          AI-powered labs and assessments.
+        </p>
       </div>
 
-      {/* Card with Filters + Table */}
-      <Card className="p-3 bg-card/70 border-border/60">
+      {/* Card Container */}
+      <div className="rounded-xl border border-border/60 bg-card/50 p-4">
         {/* Filter Bar */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-[140px] h-8 text-xs">
-              <SelectValue placeholder="Type" />
-            </SelectTrigger>
-            <SelectContent>
-              {TYPE_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={timeFilter} onValueChange={setTimeFilter}>
-            <SelectTrigger className="w-[130px] h-8 text-xs">
-              <SelectValue placeholder="Time" />
-            </SelectTrigger>
-            <SelectContent>
-              {TIME_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
+          <CustomSelect
+            value={typeFilter}
+            onChange={setTypeFilter}
+            options={TYPE_OPTIONS}
+            className="w-[130px]"
+          />
+          <CustomSelect
+            value={timeFilter}
+            onChange={setTimeFilter}
+            options={TIME_OPTIONS}
+            className="w-[120px]"
+          />
           {(typeFilter !== 'all' || timeFilter !== 'all') && (
             <button
               onClick={() => { setTypeFilter('all'); setTimeFilter('all'); }}
               className="text-[11px] text-slate-400 hover:text-slate-300 ml-1"
             >
-              Clear filters
+              Clear
             </button>
           )}
-
           <span className="ml-auto text-[11px] text-slate-500">
             {filteredRuns.length} run{filteredRuns.length !== 1 ? 's' : ''}
           </span>
         </div>
 
         {/* Table */}
-        <div className="max-h-[420px] overflow-auto text-xs">
-          <table className="w-full table-fixed border-collapse">
-            <thead className="sticky top-0 z-10 bg-background/95">
-              <tr className="text-[11px] text-muted-foreground border-b border-border/40">
-                <th className="px-2 py-2 text-left w-[18%] font-medium">Type</th>
-                <th className="px-2 py-2 text-left w-[30%] font-medium">Report</th>
-                <th className="px-2 py-2 text-left w-[16%] font-medium">Date</th>
+        <div className="max-h-[380px] overflow-auto">
+          <table className="w-full table-fixed border-collapse text-xs">
+            <thead className="sticky top-0 z-10 bg-card">
+              <tr className="text-[11px] text-slate-400 border-b border-border/60">
+                <th className="px-2 py-2 text-left w-[16%] font-medium">Type</th>
+                <th className="px-2 py-2 text-left w-[32%] font-medium">Report Name</th>
+                <th className="px-2 py-2 text-left w-[14%] font-medium">Date</th>
                 <th className="px-2 py-2 text-left w-[12%] font-medium">Status</th>
                 <th className="px-2 py-2 text-left font-medium">Summary</th>
-                <th className="px-2 py-2 text-right w-[10%] font-medium">Open</th>
+                <th className="px-2 py-2 text-right w-[10%] font-medium">Action</th>
               </tr>
             </thead>
             <tbody>
               {filteredRuns.map((run) => (
-                <tr key={run.id} className="border-t border-border/40 hover:bg-muted/30">
-                  <td className="px-2 py-2 align-top">
-                    <span className="inline-block rounded-full bg-muted px-2 py-[2px] text-[10px] font-medium">
+                <tr key={run.id} className="border-t border-border/40 hover:bg-slate-800/20">
+                  <td className="px-2 py-2 align-middle">
+                    <span className="inline-block rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-slate-300">
                       {run.type}
                     </span>
                   </td>
-                  <td className="px-2 py-2 align-top text-slate-200 truncate" title={run.label}>
+                  <td className="px-2 py-2 align-middle text-slate-200 truncate" title={run.label}>
                     {run.label}
                   </td>
-                  <td className="px-2 py-2 align-top text-muted-foreground">
+                  <td className="px-2 py-2 align-middle text-slate-400">
                     {formatDate(run.createdAt)}
                   </td>
-                  <td className="px-2 py-2 align-top">
+                  <td className="px-2 py-2 align-middle">
                     <StatusPill status={run.status} />
                   </td>
-                  <td className="px-2 py-2 align-top text-muted-foreground truncate" title={run.scoreSummary}>
+                  <td className="px-2 py-2 align-middle text-slate-400 truncate" title={run.scoreSummary}>
                     {run.scoreSummary ?? '-'}
                   </td>
-                  <td className="px-2 py-2 align-top text-right">
+                  <td className="px-2 py-2 align-middle text-right">
                     {run.link && run.status === 'success' ? (
                       <Link
                         href={run.link}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-700 text-[10px] font-medium text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors"
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-700 text-[10px] font-medium text-slate-300 hover:bg-slate-700 hover:text-slate-100 transition-colors"
                       >
                         View
-                        <ExternalLink className="w-3 h-3" />
+                        <ExternalLink className="w-2.5 h-2.5" />
                       </Link>
                     ) : (
                       <span className="text-slate-600">-</span>
@@ -235,16 +238,16 @@ export function DiagnosticsSection({
           </table>
 
           {filteredRuns.length === 0 && (
-            <div className="py-8 text-center text-xs text-muted-foreground">
+            <div className="py-8 text-center text-xs text-slate-400">
               No diagnostics found for this filter.
             </div>
           )}
         </div>
-      </Card>
+      </div>
 
-      {/* Subtle hint for future types */}
+      {/* Subtle footer hint */}
       <p className="text-[11px] text-slate-600 text-center">
-        More strategic report types (campaign reviews, competitive decks) will appear here over time.
+        More report types (campaign reviews, competitive analyses) will automatically appear here over time.
       </p>
     </div>
   );
@@ -260,7 +263,7 @@ function StatusPill({ status }: { status: DiagnosticRunSummary['status'] }) {
       icon: CheckCircle,
       color: 'text-emerald-400',
       bg: 'bg-emerald-500/10',
-      label: 'Completed',
+      label: 'Done',
     },
     running: {
       icon: Loader2,
@@ -288,7 +291,7 @@ function StatusPill({ status }: { status: DiagnosticRunSummary['status'] }) {
 
   return (
     <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${c.bg} ${c.color}`}>
-      <Icon className={`w-3 h-3 ${(c as { animate?: boolean }).animate ? 'animate-spin' : ''}`} />
+      <Icon className={`w-2.5 h-2.5 ${(c as { animate?: boolean }).animate ? 'animate-spin' : ''}`} />
       {c.label}
     </span>
   );
