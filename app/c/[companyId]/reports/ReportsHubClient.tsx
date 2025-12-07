@@ -58,10 +58,10 @@ export function ReportsHubClient({
       </div>
 
       {/* Tab Content */}
-      <div className="mt-8">
+      <div className="mt-4 space-y-4">
         {/* All Tab - Shows both sections */}
         {activeTab === 'all' && (
-          <div className="space-y-10">
+          <>
             <StrategicReportsSection
               companyId={companyId}
               latestAnnual={latestAnnual}
@@ -71,7 +71,10 @@ export function ReportsHubClient({
               companyId={companyId}
               runs={diagnosticRuns}
             />
-          </div>
+            <p className="text-[11px] text-muted-foreground text-center pt-2">
+              More report types will automatically appear here over time.
+            </p>
+          </>
         )}
 
         {/* Strategic Tab - Only strategic reports */}
