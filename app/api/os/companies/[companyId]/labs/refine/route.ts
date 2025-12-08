@@ -12,6 +12,11 @@ import {
   type RefinementLabId,
   type LabRefinementRunResult,
 } from '@/lib/labs/refinementRunner';
+import {
+  createDiagnosticRun,
+  updateDiagnosticRun,
+  type DiagnosticToolId,
+} from '@/lib/os/diagnostics/runs';
 
 // ============================================================================
 // Types
@@ -75,6 +80,35 @@ export async function POST(
       dryRun,
     });
 
+    // Map refinement labId to diagnostic toolId
+    const labIdToToolId: Record<RefinementLabId, DiagnosticToolId> = {
+      audience: 'audienceLab',
+      brand: 'brandLab',
+      creative: 'creativeLab',
+      competitor: 'competitorLab',
+      website: 'websiteLab',
+    };
+
+    // Create diagnostic run record for single lab runs (not for runAll)
+    let diagnosticRunId: string | null = null;
+    if (!runAll && labId) {
+      const toolId = labIdToToolId[labId];
+      if (toolId) {
+        try {
+          const run = await createDiagnosticRun({
+            companyId,
+            toolId,
+            status: 'running',
+          });
+          diagnosticRunId = run.id;
+          console.log(`[LabRefine API] Created diagnostic run: ${diagnosticRunId} for ${toolId}`);
+        } catch (error) {
+          console.warn(`[LabRefine API] Failed to create diagnostic run:`, error);
+          // Continue without diagnostic run - refinement can still proceed
+        }
+      }
+    }
+
     // Run refinement
     let results: Record<RefinementLabId, LabRefinementRunResult> | LabRefinementRunResult;
 
@@ -88,6 +122,28 @@ export async function POST(
         dryRun,
         maxRefinements,
       });
+
+      // Update diagnostic run with results if we created one
+      if (diagnosticRunId && !dryRun) {
+        const singleResult = results as LabRefinementRunResult;
+        try {
+          await updateDiagnosticRun(diagnosticRunId, {
+            status: singleResult.applyResult ? 'complete' : 'failed',
+            summary: `Refined ${singleResult.applyResult?.updated || 0} field(s)`,
+            rawJson: singleResult,
+            metadata: {
+              proposed: singleResult.refinement.refinedContext.length,
+              updated: singleResult.applyResult?.updated || 0,
+              skippedHuman: singleResult.applyResult?.skippedHumanOverride || 0,
+              skippedSource: singleResult.applyResult?.skippedHigherPriority || 0,
+              skippedUnchanged: singleResult.applyResult?.skippedUnchanged || 0,
+            },
+          });
+          console.log(`[LabRefine API] Updated diagnostic run: ${diagnosticRunId}`);
+        } catch (error) {
+          console.warn(`[LabRefine API] Failed to update diagnostic run:`, error);
+        }
+      }
     }
 
     // Build response summary
