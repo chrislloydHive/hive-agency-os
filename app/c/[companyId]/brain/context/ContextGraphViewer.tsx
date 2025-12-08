@@ -730,10 +730,11 @@ export function ContextGraphViewer({
             const domainFields = fieldsByDomain.get(domainId) ?? [];
             const hasIssues = domainFields.some((f) => needsRefreshByPath.has(f.path));
 
-            // Use healthScore.sectionScores if available for consistent display
-            const sectionScore = healthScore?.sectionScores?.find(s => s.section === domainId);
-            // Use completeness (0-100) from the authoritative health calculation
-            const healthPct = sectionScore ? Math.round(sectionScore.completeness) : 0;
+            // Calculate health from actual graph fields (same as DomainSummaryPanel)
+            // This ensures sidebar matches the detail panel's percentage
+            const totalFields = domainFields.length;
+            const populatedFields = domainFields.filter(f => f.value !== null && f.value !== '').length;
+            const healthPct = totalFields > 0 ? Math.round((populatedFields / totalFields) * 100) : 0;
             const hasLocks = domainFields.some((f) => locks.has(f.path));
             const isActive = selectedDomain === domainId && !isGlobalSearch;
 

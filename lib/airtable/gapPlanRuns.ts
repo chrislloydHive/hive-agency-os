@@ -292,8 +292,16 @@ export async function logGapPlanRunToAirtable(
     if (payload.tier) {
       setFieldIfExists('Tier', payload.tier);
     }
+
+    // ALWAYS set Company ID if provided - this is critical for OS visibility
+    // Note: Company ID is a text field storing the OS company UUID, NOT a linked record
     if (payload.companyId) {
-      setFieldIfExists('Company ID', payload.companyId);
+      // Force add to available fields since this is critical
+      availableFields.add('Company ID');
+      fields['Company ID'] = payload.companyId;
+      console.log('[GAP-Plan Run] ✅ Setting Company ID field:', payload.companyId);
+    } else {
+      console.warn('[GAP-Plan Run] ⚠️ No companyId provided - run will not be linked to OS company');
     }
 
     // Create the record
@@ -336,14 +344,19 @@ export async function logGapPlanRunToAirtable(
       console.log('[GAP-Plan Run] Save completed in', elapsed, 'seconds');
       return recordId || null;
     } catch (createError) {
-      // If we get a 422 error, it might be because Company ID or Data JSON fields don't exist
-      // Try again with just URL and Status, then log the error
-      if (createError instanceof Error && createError.message.includes('422')) {
+      const errorMessage = createError instanceof Error ? createError.message : String(createError);
+      console.error('[GAP-Plan Run] ❌ Create error:', errorMessage);
+
+      // If we get a 422 error, it might be because some fields don't exist
+      if (errorMessage.includes('422')) {
         console.error('[GAP-Plan Run] ❌ 422 Error - Field validation failed');
-        console.error('[GAP-Plan Run] This usually means "Company ID" or "Data JSON" fields don\'t exist in your Airtable table');
-        console.error('[GAP-Plan Run] Please add these fields to your GAP-Plan Run table:');
-        console.error('[GAP-Plan Run]   - "Company ID" (Single line text)');
-        console.error('[GAP-Plan Run]   - "Data JSON" (Long text)');
+        console.error('[GAP-Plan Run] Attempted fields:', Object.keys(fields));
+        console.error('[GAP-Plan Run] This usually means one or more fields don\'t exist in your Airtable table');
+        console.error('[GAP-Plan Run] Please ensure these fields exist in your GAP-Plan Run table:');
+        console.error('[GAP-Plan Run]   - "Company ID" (Single line text) - stores OS company UUID');
+        console.error('[GAP-Plan Run]   - "Data JSON" (Long text) - stores full run data');
+        console.error('[GAP-Plan Run]   - "URL" (URL or Single line text)');
+        console.error('[GAP-Plan Run]   - "Status" (Single select: completed, pending, error)');
 
         // Try to save with minimal fields as fallback
         const minimalFields: Record<string, unknown> = {
@@ -351,26 +364,48 @@ export async function logGapPlanRunToAirtable(
           'Status': 'completed',
         };
 
-        // Only add Company ID and Data JSON if they're in availableFields
-        if (availableFields.has('Company ID')) {
-          minimalFields['Company ID'] = payload.planId;
+        // Always try to include Company ID - this is critical for OS visibility
+        if (payload.companyId) {
+          minimalFields['Company ID'] = payload.companyId;
         }
-        if (availableFields.has('Data JSON') && payload.rawPlan) {
-          minimalFields['Data JSON'] = JSON.stringify(payload.rawPlan);
+
+        // Include Data JSON if possible
+        if (payload.rawPlan) {
+          const dataJson = JSON.stringify(payload.rawPlan);
+          if (dataJson.length <= 100000) {
+            minimalFields['Data JSON'] = dataJson;
+          }
         }
-        
-        console.log('[GAP-Plan Run] 🔄 Attempting fallback save with minimal fields:', Object.keys(minimalFields));
+
+        console.log('[GAP-Plan Run] 🔄 Attempting fallback save with fields:', Object.keys(minimalFields));
         try {
           const fallbackResult = await createRecord(tableName, minimalFields);
           const fallbackRecordId = fallbackResult?.id || fallbackResult?.records?.[0]?.id;
           console.log('[GAP-Plan Run] ✅ Fallback save succeeded:', fallbackRecordId);
           return fallbackRecordId || null;
         } catch (fallbackError) {
-          console.error('[GAP-Plan Run] ❌ Fallback save also failed:', fallbackError);
-          return null;
+          const fallbackMsg = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+          console.error('[GAP-Plan Run] ❌ Fallback save also failed:', fallbackMsg);
+
+          // Last resort: try with ONLY URL and Status
+          console.log('[GAP-Plan Run] 🔄 Attempting last-resort save with URL and Status only');
+          try {
+            const lastResortResult = await createRecord(tableName, {
+              'URL': payload.url,
+              'Status': 'completed',
+            });
+            const lastResortId = lastResortResult?.id || lastResortResult?.records?.[0]?.id;
+            console.log('[GAP-Plan Run] ✅ Last-resort save succeeded:', lastResortId);
+            console.warn('[GAP-Plan Run] ⚠️ Record saved but missing Company ID - will not appear in OS Reports');
+            return lastResortId || null;
+          } catch (lastResortError) {
+            console.error('[GAP-Plan Run] ❌ Last-resort save failed - check Airtable table exists:', lastResortError);
+            return null;
+          }
         }
       } else {
-        console.error('[GAP-Plan Run] ❌ Create error (not 422):', createError);
+        // Non-422 error - likely network or auth issue
+        console.error('[GAP-Plan Run] ❌ Non-422 error - check Airtable config and network');
         return null;
       }
     }

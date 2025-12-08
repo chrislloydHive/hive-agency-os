@@ -352,6 +352,18 @@ export const DOMAIN_PRIORITY_CONFIG: Record<DomainName, DomainPriorityConfig> = 
       'inferred',
     ],
   },
+
+  // Social & Local domain - GAP-IA is authoritative for social discovery
+  social: {
+    priority: [
+      'gap_ia',
+      'gap_heavy',
+      'gap_full',
+      'fcb',
+      'brain',
+      'inferred',
+    ],
+  },
 };
 
 // ============================================================================

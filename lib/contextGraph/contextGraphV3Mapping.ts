@@ -159,6 +159,7 @@ const DOMAIN_DEFAULT_IMPORTANCE: Record<DomainName, number> = {
   operationalConstraints: 2,
   storeRisk: 2,
   historyRefs: 1,
+  social: 3,
 };
 
 /**
@@ -228,6 +229,9 @@ export function generateDomainClusterLayout(
     operationalConstraints: -Math.PI,    // 9 o'clock (outer)
     storeRisk: 7 * Math.PI / 8,          // 8 o'clock (inner)
     historyRefs: -7 * Math.PI / 8,       // 10 o'clock (inner)
+
+    // Social & Local (near digital footprint)
+    social: Math.PI / 4,                 // 5 o'clock
   };
 
   // Domain colors (matching existing SECTION_COLORS)
@@ -250,6 +254,7 @@ export function generateDomainClusterLayout(
     operationalConstraints: '#f43f5e', // rose-500
     storeRisk: '#eab308',       // yellow-500
     historyRefs: '#71717a',     // zinc-500
+    social: '#10b981',          // emerald-500
   };
 
   // Domain labels
@@ -272,6 +277,7 @@ export function generateDomainClusterLayout(
     operationalConstraints: 'Constraints',
     storeRisk: 'Risk',
     historyRefs: 'History',
+    social: 'Social & Local',
   };
 
   const layout: Partial<DomainClusterLayout> = {};

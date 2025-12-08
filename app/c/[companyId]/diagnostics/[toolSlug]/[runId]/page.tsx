@@ -90,8 +90,8 @@ export default async function RunDetailPage({ params }: Props) {
   // Check if unified table result is valid (has matching companyId)
   const unifiedRunValid = diagnosticRun && diagnosticRun.companyId === companyId;
 
-  // If not found or companyId doesn't match, and this is a GAP IA/Snapshot, try legacy GAP IA Runs table
-  if (!unifiedRunValid && (toolId === 'gapSnapshot' || toolId === 'gapIa')) {
+  // If not found or companyId doesn't match, and this is a GAP IA (gapSnapshot), try legacy GAP IA Runs table
+  if (!unifiedRunValid && toolId === 'gapSnapshot') {
     console.log('[RunDetail] Trying legacy GAP IA Runs table for:', runId);
     const gapIaRun = await getGapIaRunById(runId);
     console.log('[RunDetail] Legacy GAP IA run result:', gapIaRun ? { id: gapIaRun.id, status: gapIaRun.status } : 'null');

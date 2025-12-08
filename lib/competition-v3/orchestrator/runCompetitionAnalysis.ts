@@ -115,7 +115,21 @@ export async function runCompetitionV3(
     run.steps.discovery.status = 'running';
     run.steps.discovery.startedAt = new Date().toISOString();
 
-    const candidates = await runDiscovery(context, queries);
+    let candidates = await runDiscovery(context, queries);
+
+    // Exclude durable invalid competitors
+    if (context.invalidCompetitors && context.invalidCompetitors.length > 0) {
+      const invalidSet = new Set(context.invalidCompetitors.map(d => d.toLowerCase()));
+      candidates = candidates.filter(c => !c.domain || !invalidSet.has((c.domain || '').toLowerCase()));
+    }
+
+    // Pre-filter obvious non-competitors (marketing agencies, ecommerce platforms, generic SaaS)
+    const genericPatterns = /(marketing agency|digital marketing|seo agency|woocommerce|shopify|bigcommerce|wordpress plugin|b2b software|platform)/i;
+    candidates = candidates.filter(c => {
+      const hay = `${c.name} ${c.snippet || ''}`.toLowerCase();
+      return !genericPatterns.test(hay);
+    });
+
     run.steps.discovery.candidatesFound = candidates.length;
     run.summary.totalCandidates = candidates.length;
 
@@ -156,6 +170,10 @@ export async function runCompetitionV3(
 
     const scored = scoreCompetitors(classified, context);
 
+    // Drop irrelevant/low-threat competitors
+    const filteredScored = scored.filter(c => c.classification.type !== 'irrelevant' && c.scores.threatScore >= 20);
+    const forSelection = filteredScored.length > 0 ? filteredScored : scored;
+
     console.log(`[competition-v3] Scored ${scored.length} competitors`);
 
     run.steps.scoring.status = 'completed';
@@ -163,7 +181,7 @@ export async function runCompetitionV3(
 
     // Step 7: Select final competitors using quota-based selection
     console.log('[competition-v3] Step 7: Selecting final competitors...');
-    const selected = selectFinalCompetitors(scored, {
+    const selected = selectFinalCompetitors(forSelection, {
       direct: { min: 3, max: 6 },
       partial: { min: 3, max: 5 },
       fractional: { min: 2, max: 3 },
@@ -188,6 +206,11 @@ export async function runCompetitionV3(
       summary: c.aiSummary || c.snippet || '',
       classification: c.classification,
       scores: c.scores,
+      jtbdMatches: c.jtbdMatches,
+      offerOverlapScore: c.offerOverlapScore,
+      signalsVerified: c.signalsVerified,
+      businessModelCategory: c.businessModelCategory,
+      geoScore: c.geoScore,
       positioning: {
         x: 50,
         y: 50,
@@ -328,6 +351,7 @@ function buildQueryContext(graph: any, companyId: string): QueryContext {
   const icp = graph.icp || {};
   const positioning = graph.positioning || {};
   const pricing = graph.pricing || {};
+  const competitive = graph.competitive || {};
 
   // Extract business name
   const businessName = identity.businessName?.value ||
@@ -414,11 +438,16 @@ function buildQueryContext(graph: any, companyId: string): QueryContext {
     aiOrientation = 'traditional';
   }
 
+  // Durable invalid competitors from context graph
+  const invalidCompetitors: string[] = Array.isArray(competitive.invalidCompetitors?.value)
+    ? competitive.invalidCompetitors.value
+    : [];
+
   return {
     businessName,
     domain,
-    industry: identity.industry?.value || 'Marketing',
-    businessModel: identity.businessModel?.value || 'agency',
+    industry: identity.industry?.value || positioning.industry?.value || null,
+    businessModel: identity.businessModel?.value || null,
     icpDescription,
     icpStage,
     targetIndustries,
@@ -427,9 +456,10 @@ function buildQueryContext(graph: any, companyId: string): QueryContext {
     pricePositioning: positioning.pricePositioning?.value || null,
     valueProposition,
     differentiators,
-    geography: identity.headquartersLocation?.value || null,
+    geography: identity.headquartersLocation?.value || identity.headquarters?.value || null,
     serviceRegions: identity.serviceRegions?.value || [],
     aiOrientation,
+    invalidCompetitors,
   };
 }
 

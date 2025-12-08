@@ -11,6 +11,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { getHeavyGapRunsByCompanyId } from '@/lib/airtable/gapHeavyRuns';
+import { listDiagnosticRunsForCompany } from '@/lib/os/diagnostics/runs';
 import { buildBrandActionPlan } from '@/lib/gap-heavy/modules/brandActionPlanBuilder';
 import type {
   BrandLabResult as BrandLabResultV1,
@@ -49,18 +50,45 @@ export default async function BrandDiagnosticPage({ params }: PageProps) {
     return notFound();
   }
 
-  // Fetch most recent Heavy Run
+  // Fetch most recent Heavy Run (legacy source)
   const heavyRuns = await getHeavyGapRunsByCompanyId(companyId, 1);
   const latestHeavyRun = heavyRuns[0] || null;
+
+  // Also check Diagnostic Runs table for completed Brand Lab runs (new source)
+  const diagnosticRuns = await listDiagnosticRunsForCompany(companyId, {
+    toolId: 'brandLab',
+    limit: 1,
+  });
+  const latestDiagnosticRun = diagnosticRuns.find(r => r.status === 'complete') || null;
 
   // Extract Brand Lab result from evidence pack (supports V1 and V2 formats)
   let brandLabResult: BrandLabResultV1 | BrandLabResultV2 | null = null;
   let narrativeReport: BrandNarrativeReport | null = null;
+  let sourceRunId: string | null = null;
 
-  if (latestHeavyRun?.evidencePack?.brandLab) {
+  // Priority: Check Diagnostic Runs first (newer system), then Heavy Runs
+  if (latestDiagnosticRun?.rawJson) {
+    // New system: Brand Lab from Diagnostic Runs
+    try {
+      const parsed = typeof latestDiagnosticRun.rawJson === 'string'
+        ? JSON.parse(latestDiagnosticRun.rawJson)
+        : latestDiagnosticRun.rawJson;
+      brandLabResult = parsed;
+      narrativeReport = parsed?.narrativeReport || null;
+      sourceRunId = latestDiagnosticRun.id;
+      console.log('[Brand Page] Using Diagnostic Runs result:', latestDiagnosticRun.id);
+    } catch (e) {
+      console.warn('[Brand Page] Failed to parse Diagnostic Run rawJson:', e);
+    }
+  }
+
+  // Fallback to Heavy Runs if no Diagnostic Runs result
+  if (!brandLabResult && latestHeavyRun?.evidencePack?.brandLab) {
     brandLabResult = latestHeavyRun.evidencePack.brandLab;
     // Check for existing narrative (V1 format)
     narrativeReport = (latestHeavyRun.evidencePack.brandLab as any)?.narrativeReport || null;
+    sourceRunId = latestHeavyRun.id;
+    console.log('[Brand Page] Using Heavy Run result:', latestHeavyRun.id);
   }
 
   // Also check for brand module results (from Heavy Worker V4)
@@ -69,15 +97,27 @@ export default async function BrandDiagnosticPage({ params }: PageProps) {
   );
 
   // Debug logging
-  console.log('[Brand Page] Latest run:', {
-    hasRun: !!latestHeavyRun,
+  console.log('[Brand Page] Data sources:', {
+    hasDiagnosticRun: !!latestDiagnosticRun,
+    diagnosticRunId: latestDiagnosticRun?.id,
+    diagnosticRunStatus: latestDiagnosticRun?.status,
+    diagnosticRunHasRawJson: !!latestDiagnosticRun?.rawJson,
+    diagnosticRunRawJsonType: latestDiagnosticRun?.rawJson ? typeof latestDiagnosticRun.rawJson : 'none',
+    hasHeavyRun: !!latestHeavyRun,
     hasEvidencePack: !!latestHeavyRun?.evidencePack,
-    hasBrandLab: !!latestHeavyRun?.evidencePack?.brandLab,
+    hasBrandLab: !!brandLabResult,
     hasBrandModule: !!brandModule,
     hasNarrative: !!narrativeReport,
-    brandModuleScore: brandModule?.score,
-    evidencePackKeys: latestHeavyRun?.evidencePack ? Object.keys(latestHeavyRun.evidencePack) : [],
+    sourceRunId,
   });
+
+  // Log all diagnostic runs found
+  console.log('[Brand Page] All diagnostic runs:', diagnosticRuns.map(r => ({
+    id: r.id,
+    status: r.status,
+    hasRawJson: !!r.rawJson,
+    score: r.score,
+  })));
 
   // If no Brand Lab diagnostics run yet, show runner
   if (!brandLabResult) {
@@ -241,7 +281,7 @@ export default async function BrandDiagnosticPage({ params }: PageProps) {
     labResult: labResultForMapper,
     companyName: company.name,
     companyUrl: displayUrl,
-    runId: latestHeavyRun.id,
+    runId: sourceRunId || latestHeavyRun?.id || '',
     maturityStage,
     dataConfidence,
   });

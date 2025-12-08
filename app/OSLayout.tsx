@@ -89,6 +89,15 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
       } : undefined,
     },
     {
+      name: 'Findings',
+      href: '/findings',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+      ),
+    },
+    {
       name: 'Pipeline',
       href: '/pipeline',
       icon: (
@@ -167,12 +176,9 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
     <>
       {/* Logo */}
       <div className="p-4 lg:p-6 border-b border-slate-800">
-        <Link href="/" className="flex items-center gap-3">
+        <Link href="/" className="flex items-center gap-1">
           <HiveLogo className="h-8 lg:h-10 w-auto" />
-          <div>
-            <div className="text-base lg:text-lg font-bold text-slate-100">Hive OS</div>
-            <div className="text-[10px] lg:text-xs text-slate-500">Growth Operating System</div>
-          </div>
+          <sup className="text-[10px] lg:text-xs font-bold text-white -ml-1 mt-1">OS</sup>
         </Link>
       </div>
 
@@ -290,9 +296,9 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-[#050509]">
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2">
+        <Link href="/" className="flex items-center gap-1">
           <HiveLogo className="h-8 w-auto" />
-          <span className="text-base font-bold text-slate-100">Hive OS</span>
+          <sup className="text-[10px] font-bold text-white -ml-1 mt-1">OS</sup>
         </Link>
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}

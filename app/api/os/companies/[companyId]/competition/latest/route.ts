@@ -76,6 +76,13 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         weaknesses: c.analysis.weaknesses,
         whyCompetitor: c.analysis.whyCompetitor || undefined,
       },
+      signals: {
+        businessModelCategory: c.businessModelCategory,
+        jtbdMatches: c.jtbdMatches,
+        offerOverlapScore: c.offerOverlapScore,
+        signalsVerified: c.signalsVerified,
+        geoScore: c.geoScore,
+      },
     }));
 
     // Build insights from stored data

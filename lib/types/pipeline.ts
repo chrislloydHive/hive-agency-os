@@ -49,7 +49,36 @@ export interface InboundLeadItem {
   gapIaRunId?: string | null;
   gapIaScore?: number | null;
   createdAt?: string | null;
+
+  // DMA Integration Fields (Phase 3)
+  /** Normalized domain extracted from website (e.g., "example.com") */
+  normalizedDomain?: string | null;
+  /** DMA audit run ID if lead came from digitalmarketingaudit.ai */
+  dmaAuditId?: string | null;
+  /** Import status for lead processing pipeline */
+  importStatus?: InboundLeadImportStatus | null;
+  /** Timestamp when lead was imported into Companies */
+  importedAt?: string | null;
+  /** Analysis status (has analysis linked, pending, none) */
+  analysisStatus?: InboundLeadAnalysisStatus | null;
+
+  // UTM Tracking Fields
+  utmSource?: string | null;
+  utmMedium?: string | null;
+  utmCampaign?: string | null;
+  utmTerm?: string | null;
+  utmContent?: string | null;
 }
+
+/**
+ * Import status for Inbound Lead processing
+ */
+export type InboundLeadImportStatus = 'not_imported' | 'imported' | 'skipped' | 'error';
+
+/**
+ * Analysis status for Inbound Lead
+ */
+export type InboundLeadAnalysisStatus = 'none' | 'pending' | 'has_analysis';
 
 export interface PipelineKpis {
   totalPipelineValue: number;

@@ -97,9 +97,9 @@ function getLatestRunAnyStatus(
 }
 
 function mapDiagnosticToCompanyToolId(diagnosticToolId: DiagnosticToolId): CompanyToolId | null {
+  // NOTE: gapSnapshot (DiagnosticToolId) maps to gapIa (CompanyToolId)
   const mapping: Record<DiagnosticToolId, CompanyToolId> = {
-    gapSnapshot: 'gapIa',
-    gapIa: 'gapIa',
+    gapSnapshot: 'gapIa',  // gapSnapshot is the canonical diagnostic type for GAP IA
     gapPlan: 'gapPlan',
     gapHeavy: 'gapHeavy',
     websiteLab: 'websiteLab',

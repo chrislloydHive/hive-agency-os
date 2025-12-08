@@ -12,8 +12,7 @@ type RouteContext = {
 
 // Tool-specific progress messages
 const toolProgressMessages: Record<string, string> = {
-  gapSnapshot: 'Running initial assessment...',
-  gapIa: 'Running GAP IA assessment...',
+  gapSnapshot: 'Running GAP IA assessment...',  // gapSnapshot is the canonical type for GAP IA
   gapPlan: 'Generating Full GAP plan...',
   gapHeavy: 'Running deep diagnostic...',
   websiteLab: 'Analyzing website...',
@@ -85,8 +84,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
       });
     }
 
-    // Special fallback for GAP IA - also check GAP IA Runs table
-    if (toolId === 'gapIa' || toolId === 'gapSnapshot') {
+    // Special fallback for GAP IA - also check legacy GAP IA Runs table
+    if (toolId === 'gapSnapshot') {
       const gapIaRuns = await getGapIaRunsForCompany(companyId, 1);
       if (gapIaRuns.length > 0) {
         const latestGapIa = gapIaRuns[0];

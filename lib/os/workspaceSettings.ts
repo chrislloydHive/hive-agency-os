@@ -14,6 +14,10 @@ const workspaceCache = new Map<string, { data: WorkspaceSettings | null; expires
 export interface WorkspaceSettings {
   id: string;
   workspaceId: string;
+  // Workspace Info
+  workspaceName?: string | null;
+  logoUrl?: string | null;
+  timezone?: string | null;
   // GA4 Integration
   ga4RefreshToken?: string | null;
   ga4PropertyId?: string | null;
@@ -30,6 +34,9 @@ export interface WorkspaceSettings {
 
 interface AirtableWorkspaceSettingsFields {
   WorkspaceId: string;
+  WorkspaceName?: string;
+  LogoUrl?: string;
+  Timezone?: string;
   GA4RefreshToken?: string;
   GA4PropertyId?: string;
   GA4ConnectedAt?: string;
@@ -49,6 +56,9 @@ function mapAirtableToWorkspaceSettings(record: any): WorkspaceSettings {
   return {
     id: record.id,
     workspaceId: fields.WorkspaceId || DEFAULT_WORKSPACE_ID,
+    workspaceName: fields.WorkspaceName || null,
+    logoUrl: fields.LogoUrl || null,
+    timezone: fields.Timezone || null,
     ga4RefreshToken: fields.GA4RefreshToken || null,
     ga4PropertyId: fields.GA4PropertyId || null,
     ga4ConnectedAt: fields.GA4ConnectedAt || null,
@@ -150,6 +160,18 @@ export async function updateWorkspaceSettings(
     UpdatedAt: new Date().toISOString(),
   };
 
+  // Workspace Info
+  if (updates.workspaceName !== undefined) {
+    fields.WorkspaceName = updates.workspaceName || '';
+  }
+  if (updates.logoUrl !== undefined) {
+    fields.LogoUrl = updates.logoUrl || '';
+  }
+  if (updates.timezone !== undefined) {
+    fields.Timezone = updates.timezone || '';
+  }
+
+  // GA4 Integration
   if (updates.ga4RefreshToken !== undefined) {
     fields.GA4RefreshToken = updates.ga4RefreshToken || '';
   }
@@ -159,6 +181,8 @@ export async function updateWorkspaceSettings(
   if (updates.ga4ConnectedAt !== undefined) {
     fields.GA4ConnectedAt = updates.ga4ConnectedAt || '';
   }
+
+  // GSC Integration
   if (updates.gscRefreshToken !== undefined) {
     fields.GSCRefreshToken = updates.gscRefreshToken || '';
   }
@@ -171,6 +195,9 @@ export async function updateWorkspaceSettings(
   if (updates.gscScopes !== undefined) {
     fields.GSCScopes = updates.gscScopes ? updates.gscScopes.join(',') : '';
   }
+
+  // Invalidate cache after update
+  workspaceCache.delete(workspaceId);
 
   const updatedRecord = await updateRecord(TABLE_NAME, current.id, fields);
   return mapAirtableToWorkspaceSettings(updatedRecord);

@@ -158,6 +158,11 @@ export const CONTEXT_DOMAIN_META: Record<
     description: 'Pointers to the latest diagnostic runs & plans.',
     labLink: () => null,
   },
+  social: {
+    label: 'Social & Local',
+    description: 'Social media profiles, Google Business Profile, and local presence.',
+    labLink: () => null,
+  },
 };
 
 // ============================================================================

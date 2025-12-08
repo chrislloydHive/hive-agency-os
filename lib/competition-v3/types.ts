@@ -94,6 +94,9 @@ export interface QueryContext {
 
   // Strategic
   aiOrientation: 'ai-first' | 'ai-augmented' | 'traditional' | null;
+
+  // V3.5: durable excludes and signals
+  invalidCompetitors?: string[];
 }
 
 // ============================================================================
@@ -186,6 +189,23 @@ export interface EnrichedCandidate extends DiscoveryCandidate {
   aiStrengths: string[];
   aiWeaknesses: string[];
   aiWhyCompetitor: string | null;
+
+  // V3.5 signal extraction
+  businessModelCategory?: 'retail-service' | 'retail-product' | 'ecommerce' | 'agency' | 'saas' | 'other';
+  jtbdMatches?: number;            // 0-1
+  offerOverlapScore?: number;      // 0-1
+  signalsVerified?: number;        // count of signals satisfied
+  geoScore?: number;               // 0-1
+  customerTypeMatch?: boolean;     // consumer vs B2B heuristic
+  offerGraph?: {
+    audioInstall: boolean;
+    remoteStart: boolean;
+    tinting: boolean;
+    dashcamInstall: boolean;
+    carElectronics: boolean;
+    detailing: boolean;
+    customFab: boolean;
+  };
 }
 
 // ============================================================================
@@ -235,6 +255,13 @@ export interface CompetitorScores {
     valueModelNotes: string | null;
     threatNotes: string | null;
   };
+
+  // V3.5 signals
+  jtbdMatches?: number;          // 0-1
+  offerOverlapScore?: number;    // 0-1
+  signalsVerified?: number;      // integer
+  businessModelCategory?: string;
+  geoScore?: number;
 }
 
 // ============================================================================
@@ -309,6 +336,13 @@ export interface CompetitorProfileV3 {
     differentiators: string[];
     opportunities: string[];
   };
+
+  // V3.5 signals
+  jtbdMatches?: number;
+  offerOverlapScore?: number;
+  signalsVerified?: number;
+  businessModelCategory?: string;
+  geoScore?: number;
 }
 
 // ============================================================================

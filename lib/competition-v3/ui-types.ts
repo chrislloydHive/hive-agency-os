@@ -52,6 +52,14 @@ export interface CompetitionCompetitor {
     weaknesses?: string[];
     whyCompetitor?: string;
   };
+  // V3.5 debug signals
+  signals?: {
+    businessModelCategory?: string;
+    jtbdMatches?: number;
+    offerOverlapScore?: number;
+    signalsVerified?: number;
+    geoScore?: number;
+  };
 }
 
 // ============================================================================

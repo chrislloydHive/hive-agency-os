@@ -57,6 +57,14 @@ const ICP_FIT_SCORES = [
   { value: 'C', label: 'C - Low Fit' },
 ];
 
+const RELATIONSHIP_TYPES = [
+  { value: 'Prospect', label: 'Prospect', description: 'Potential customer in sales pipeline' },
+  { value: 'Client', label: 'Client', description: 'Active paying customer' },
+  { value: 'Partner', label: 'Partner', description: 'Strategic partner or affiliate' },
+  { value: 'Internal', label: 'Internal', description: 'Internal project or test company' },
+  { value: 'Other', label: 'Other', description: 'Other relationship type' },
+];
+
 export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
   const router = useRouter();
   const [step, setStep] = useState<WizardStep>(1);
@@ -71,6 +79,7 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
   const [sizeBand, setSizeBand] = useState('');
 
   // Step 2 - Classification
+  const [relationshipType, setRelationshipType] = useState('Prospect');
   const [icpFitScore, setIcpFitScore] = useState('');
   const [owner, setOwner] = useState('');
   const [notes, setNotes] = useState('');
@@ -529,10 +538,27 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
         {/* Step 2: Classification */}
         {step === 2 && (
           <div className="space-y-4">
-            <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-              <p className="text-sm text-blue-300">
-                <strong>Stage:</strong> Prospect (default)
-              </p>
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Relationship Type
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {RELATIONSHIP_TYPES.map((type) => (
+                  <button
+                    key={type.value}
+                    type="button"
+                    onClick={() => setRelationshipType(type.value)}
+                    className={`p-3 rounded-lg border text-left transition-colors ${
+                      relationshipType === type.value
+                        ? 'bg-amber-500/10 border-amber-500/50 text-amber-300'
+                        : 'bg-slate-800/50 border-slate-700 text-slate-300 hover:bg-slate-800/70'
+                    }`}
+                  >
+                    <div className="text-sm font-medium">{type.label}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">{type.description}</div>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div>
@@ -590,7 +616,7 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
         {step === 3 && (
           <div className="space-y-4">
             <p className="text-sm text-slate-400 mb-4">
-              Select which actions to run after creating the prospect:
+              Select which actions to run after creating the company:
             </p>
 
             {/* Intelligence Actions Section */}
@@ -690,8 +716,8 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
                   <dd className="text-slate-200">{extractDomain(websiteUrl) || '—'}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-slate-500">Stage</dt>
-                  <dd className="text-blue-400">Prospect</dd>
+                  <dt className="text-slate-500">Type</dt>
+                  <dd className="text-amber-400">{relationshipType}</dd>
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-slate-500">Owner</dt>
@@ -730,10 +756,12 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <h2 className="text-xl font-semibold text-slate-100">Prospect Created & Initialized</h2>
+                  <h2 className="text-xl font-semibold text-slate-100">Company Created & Initialized</h2>
                   <p className="text-sm text-slate-400 mt-2">
-                    {createdCompany.name} has been added to the OS with full context.
+                    {createdCompany.name} has been added to the OS with baseline context.
+                    Initial diagnostics have been started. Results will appear in Reports and Context.
                   </p>
+                  <p className="text-xs text-slate-500 mt-1">Type: {relationshipType}</p>
                   {pipelineResult.contextHealthAfter && (
                     <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 bg-slate-800/50 rounded-lg">
                       <span className="text-xs text-slate-400">Context Health:</span>
@@ -753,10 +781,11 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                     </svg>
                   </div>
-                  <h2 className="text-xl font-semibold text-slate-100">Prospect Created</h2>
+                  <h2 className="text-xl font-semibold text-slate-100">Company Created</h2>
                   <p className="text-sm text-amber-400 mt-2">
                     Initialization pipeline partially completed — review context for missing fields.
                   </p>
+                  <p className="text-xs text-slate-500 mt-1">Type: {relationshipType}</p>
                 </>
               ) : (
                 <>
@@ -765,10 +794,11 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
-                  <h2 className="text-xl font-semibold text-slate-100">Prospect Created</h2>
+                  <h2 className="text-xl font-semibold text-slate-100">Company Created</h2>
                   <p className="text-sm text-slate-400 mt-2">
                     {createdCompany.name} has been added to the OS.
                   </p>
+                  <p className="text-xs text-slate-500 mt-1">Type: {relationshipType}</p>
                 </>
               )}
             </div>
@@ -861,6 +891,7 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
                 setIndustry('');
                 setCompanyType('');
                 setSizeBand('');
+                setRelationshipType('Prospect');
                 setIcpFitScore('');
                 setOwner('');
                 setNotes('');
@@ -939,7 +970,7 @@ export function ProspectWizard({ teamMembers }: ProspectWizardProps) {
                   Creating...
                 </>
               ) : (
-                'Create Prospect'
+                'Create Company'
               )}
             </button>
           ) : null}

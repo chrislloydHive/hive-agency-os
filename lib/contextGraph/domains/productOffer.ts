@@ -37,7 +37,14 @@ export type Promotion = z.infer<typeof Promotion>;
  * This informs offer strategy and creative messaging.
  */
 export const ProductOfferDomain = z.object({
-  // Product Lines
+  // FCB-extracted fields (primary, auto-filled from website)
+  primaryProducts: WithMetaArray(z.string()),
+  services: WithMetaArray(z.string()),
+  valueProposition: WithMeta(z.string()),
+  pricingModel: WithMeta(z.string()),
+  keyDifferentiators: WithMetaArray(z.string()),
+
+  // Product Lines (critical for strategy)
   productLines: WithMetaArray(z.string()),
   products: WithMetaArray(Product),
   heroProducts: WithMetaArray(z.string()),
@@ -78,24 +85,36 @@ export type ProductOfferDomain = z.infer<typeof ProductOfferDomain>;
  */
 export function createEmptyProductOfferDomain(): ProductOfferDomain {
   return {
+    // FCB-extracted fields
+    primaryProducts: { value: [], provenance: [] },
+    services: { value: [], provenance: [] },
+    valueProposition: { value: null, provenance: [] },
+    pricingModel: { value: null, provenance: [] },
+    keyDifferentiators: { value: [], provenance: [] },
+    // Product lines
     productLines: { value: [], provenance: [] },
     products: { value: [], provenance: [] },
     heroProducts: { value: [], provenance: [] },
     productCategories: { value: [], provenance: [] },
+    // Pricing
     pricingNotes: { value: null, provenance: [] },
     priceRange: { value: null, provenance: [] },
     avgTicketValue: { value: null, provenance: [] },
     avgOrderValue: { value: null, provenance: [] },
+    // Margins
     marginTiers: { value: null, provenance: [] },
     avgMargin: { value: null, provenance: [] },
     highMarginProducts: { value: [], provenance: [] },
+    // Promotions
     promoWindows: { value: null, provenance: [] },
     currentPromotions: { value: [], provenance: [] },
     upcomingPromotions: { value: [], provenance: [] },
     promoCalendarNotes: { value: null, provenance: [] },
+    // Inventory
     inventoryConstraints: { value: null, provenance: [] },
     stockLevels: { value: null, provenance: [] },
     fulfillmentNotes: { value: null, provenance: [] },
+    // Offers
     uniqueOffers: { value: [], provenance: [] },
     conversionOffers: { value: [], provenance: [] },
     leadMagnets: { value: [], provenance: [] },

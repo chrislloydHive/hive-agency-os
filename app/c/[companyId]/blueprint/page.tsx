@@ -125,19 +125,34 @@ export default async function BlueprintPage({ params }: PageProps) {
   }).catch(() => []);
 
   // Transform recent runs for display
+  console.log('[Blueprint] Raw recent runs:', recentRuns.map(r => ({
+    id: r.id,
+    toolId: r.toolId,
+    status: r.status,
+    score: r.score,
+  })));
+
   const recentDiagnostics = recentRuns.map((run: DiagnosticRun) => {
     const slug = toolIdToSlug[run.toolId] || run.toolId;
+    // Accept both 'complete' and 'completed' as valid complete statuses
+    const isComplete = run.status === 'complete' || (run.status as string) === 'completed';
     return {
       id: run.id,
       toolId: run.toolId,
       toolLabel: getToolLabel(run.toolId),
-      status: run.status,
+      status: isComplete ? 'complete' : run.status, // Normalize to 'complete'
       score: run.score,
-      completedAt: run.status === 'complete' ? run.updatedAt : null,
-      reportPath: run.status === 'complete' ? `/c/${companyId}/diagnostics/${slug}/${run.id}` : null,
+      completedAt: isComplete ? run.updatedAt : null,
+      reportPath: isComplete ? `/c/${companyId}/diagnostics/${slug}/${run.id}` : null,
       createdAt: run.createdAt,
     };
   });
+
+  console.log('[Blueprint] Transformed diagnostics:', recentDiagnostics.map(r => ({
+    toolId: r.toolId,
+    status: r.status,
+    hasReportPath: !!r.reportPath,
+  })));
 
   // Serialize recommended tools for client (strip functions)
   const serializedRecommendedTools = recommendedTools.map(rt => ({

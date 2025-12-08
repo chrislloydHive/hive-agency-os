@@ -20,6 +20,7 @@ import { CreativeDomain, createEmptyCreativeDomain } from './domains/creative';
 import { CompetitiveDomain, createEmptyCompetitiveDomain } from './domains/competitive';
 import { OperationalConstraintsDomain, createEmptyOperationalConstraintsDomain } from './domains/operationalConstraints';
 import { HistoryRefsDomain, createEmptyHistoryRefsDomain } from './domains/historyRefs';
+import { SocialDomain, createEmptySocialDomain } from './domains/social';
 
 /**
  * Context Graph Metadata
@@ -88,6 +89,9 @@ export const CompanyContextGraph = z.object({
 
   // Domain Schemas - References
   historyRefs: HistoryRefsDomain,
+
+  // Domain Schemas - Social & Local
+  social: SocialDomain,
 });
 
 export type CompanyContextGraph = z.infer<typeof CompanyContextGraph>;
@@ -114,6 +118,7 @@ export const DOMAIN_NAMES = [
   'operationalConstraints',
   'storeRisk',
   'historyRefs',
+  'social',
 ] as const;
 
 export type DomainName = typeof DOMAIN_NAMES[number];
@@ -155,6 +160,7 @@ export function createEmptyContextGraph(companyId: string, companyName: string):
     operationalConstraints: createEmptyOperationalConstraintsDomain(),
     storeRisk: createEmptyStoreRiskDomain(),
     historyRefs: createEmptyHistoryRefsDomain(),
+    social: createEmptySocialDomain(),
   };
 }
 

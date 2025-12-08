@@ -8,6 +8,8 @@ export interface DiagnosticStatusEntry {
   percent: number;
   error?: string;
   runId?: string;
+  score?: number;
+  benchmarkLabel?: string;
   updatedAt: number;
 }
 

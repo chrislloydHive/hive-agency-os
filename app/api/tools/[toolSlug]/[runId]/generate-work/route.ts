@@ -39,8 +39,7 @@ const slugToToolId: Record<string, DiagnosticToolId> = {
 
 // Tool name display mapping
 const toolNames: Record<DiagnosticToolId, string> = {
-  gapSnapshot: 'GAP IA',
-  gapIa: 'GAP IA',
+  gapSnapshot: 'GAP IA',  // gapSnapshot is displayed as "GAP IA"
   gapPlan: 'GAP Plan',
   gapHeavy: 'GAP Heavy',
   websiteLab: 'Website Lab',

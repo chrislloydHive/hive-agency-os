@@ -60,6 +60,7 @@ import {
 import {
   detectSocialAndGbp,
   type SocialFootprintSnapshot,
+  extractJsonLdSchemas,
 } from '@/lib/gap/socialDetection';
 import type {
   DimensionSummary,
@@ -449,7 +450,8 @@ async function discoverMultiPageContentSafe(
  */
 async function detectSocialAndGbpSafe(html: string, baseUrl?: string): Promise<SocialFootprintSnapshot | null> {
   try {
-    const result = detectSocialAndGbp({ html, schemas: [], baseUrl });
+    const schemas = extractJsonLdSchemas(html);
+    const result = detectSocialAndGbp({ html, schemas, baseUrl });
     return result;
   } catch (e) {
     console.warn('[OS GAP-IA Baseline] Social detection failed:', e);

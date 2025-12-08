@@ -66,12 +66,10 @@ export function DomainSummaryPanel({
   const expiredCount = issues.filter(i => i.reason === 'expired').length;
   const lowConfidenceCount = issues.filter(i => i.reason === 'low_confidence').length;
 
-  // Calculate domain health score (simple weighted average)
-  const healthScore = Math.max(0, Math.min(100,
-    populationPct * 0.4 +
-    (avgFreshness ?? 80) * 0.4 +
-    Math.max(0, 100 - issues.length * 10) * 0.2
-  ));
+  // Use population percentage as the primary health indicator
+  // This matches what users expect: "30% populated" = "30% health"
+  // Freshness and issues are shown separately below, not mixed into a confusing weighted score
+  const healthScore = populationPct;
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">

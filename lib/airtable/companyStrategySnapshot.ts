@@ -34,6 +34,40 @@ export interface CompanyStrategicSnapshot {
   // Metadata
   sourceToolIds?: string[];
   lastDiagnosticRunId?: string;
+
+  // =========================================================================
+  // Extracted Fields (Phase 3 - optional fields extracted from JSON arrays)
+  // These provide queryable/sortable access to key data points
+  // =========================================================================
+
+  /** Top strength (first from keyStrengths array) */
+  topStrength1?: string;
+  /** Second strength */
+  topStrength2?: string;
+  /** Third strength */
+  topStrength3?: string;
+
+  /** Top gap (first from keyGaps array) */
+  topGap1?: string;
+  /** Second gap */
+  topGap2?: string;
+  /** Third gap */
+  topGap3?: string;
+
+  /** Primary focus area (first from focusAreas array) */
+  primaryFocusArea?: string;
+  /** Secondary focus area */
+  secondaryFocusArea?: string;
+
+  /** Count of strengths identified */
+  strengthCount?: number;
+  /** Count of gaps identified */
+  gapCount?: number;
+
+  /** Whether a 90-day plan narrative exists */
+  hasActivePlan?: boolean;
+  /** Number of diagnostic tools that contributed */
+  sourceToolCount?: number;
 }
 
 /**
@@ -148,6 +182,50 @@ function snapshotToAirtableFields(
   if (snapshot.lastDiagnosticRunId) {
     fields['Last Diagnostic Run ID'] = snapshot.lastDiagnosticRunId;
   }
+
+  // =========================================================================
+  // Extract queryable fields from arrays for easier Airtable queries
+  // =========================================================================
+
+  // Top strengths (first 3)
+  if (snapshot.keyStrengths.length > 0) {
+    fields['Top Strength 1'] = snapshot.keyStrengths[0];
+  }
+  if (snapshot.keyStrengths.length > 1) {
+    fields['Top Strength 2'] = snapshot.keyStrengths[1];
+  }
+  if (snapshot.keyStrengths.length > 2) {
+    fields['Top Strength 3'] = snapshot.keyStrengths[2];
+  }
+
+  // Top gaps (first 3)
+  if (snapshot.keyGaps.length > 0) {
+    fields['Top Gap 1'] = snapshot.keyGaps[0];
+  }
+  if (snapshot.keyGaps.length > 1) {
+    fields['Top Gap 2'] = snapshot.keyGaps[1];
+  }
+  if (snapshot.keyGaps.length > 2) {
+    fields['Top Gap 3'] = snapshot.keyGaps[2];
+  }
+
+  // Focus areas (first 2)
+  if (snapshot.focusAreas.length > 0) {
+    fields['Primary Focus Area'] = snapshot.focusAreas[0];
+  }
+  if (snapshot.focusAreas.length > 1) {
+    fields['Secondary Focus Area'] = snapshot.focusAreas[1];
+  }
+
+  // Counts
+  fields['Strength Count'] = snapshot.keyStrengths.length;
+  fields['Gap Count'] = snapshot.keyGaps.length;
+
+  // Has active plan (non-empty narrative)
+  fields['Has Active Plan'] = snapshot.narrative90DayPlan.length > 0;
+
+  // Source tool count
+  fields['Source Tool Count'] = snapshot.sourceToolIds?.length ?? 0;
 
   return fields;
 }

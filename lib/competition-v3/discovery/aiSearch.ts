@@ -11,7 +11,7 @@ import type { QueryContext, DiscoveryCandidate } from '../types';
 // AI Search
 // ============================================================================
 
-const SEARCH_SYSTEM_PROMPT = `You are a competitive intelligence analyst with deep knowledge of the marketing agency, consultancy, and MarTech landscape.
+const SEARCH_SYSTEM_PROMPT = `You are a competitive intelligence analyst who anchors analysis in the target company's actual business category and industry (use the target company's industry, business model, ICP, and offerings to define the category—do NOT default to marketing/agency unless the target company itself is one).
 
 Your task is to identify real companies that compete with a target company. You must:
 1. Only suggest REAL, established companies (not fictional or made-up)
@@ -26,6 +26,10 @@ Your task is to identify real companies that compete with a target company. You 
 5. Be specific about WHY each is a competitor
 
 Always respond with valid JSON only. No commentary, explanations, or markdown.`;
+
+// Tunable embedding radius (env override)
+export const COMPETITION_EMBEDDING_RADIUS_V35 =
+  parseFloat(process.env.COMPETITION_EMBEDDING_RADIUS_V35 || '') || 0.72;
 
 /**
  * Search for competitors using AI
@@ -68,12 +72,12 @@ function buildSearchPrompt(context: QueryContext, queries: string[]): string {
 TARGET COMPANY CONTEXT:
 - Business Name: ${context.businessName}
 - Domain: ${context.domain || 'Unknown'}
-- Industry: ${context.industry || 'Marketing/Advertising'}
-- Business Model: ${context.businessModel || 'Agency'}
+- Industry: ${context.industry || 'Unknown'}
+- Business Model: ${context.businessModel || 'Unknown'}
 - ICP Description: ${context.icpDescription || 'Unknown'}
 - ICP Stage: ${context.icpStage || 'Unknown'}
 - Target Industries: ${context.targetIndustries.join(', ') || 'Various'}
-- Primary Offerings: ${context.primaryOffers.join(', ') || 'Marketing services'}
+- Primary Offerings: ${context.primaryOffers.join(', ') || 'Unknown'}
 - Service Model: ${context.serviceModel || 'Unknown'}
 - Price Positioning: ${context.pricePositioning || 'Unknown'}
 - Value Proposition: ${context.valueProposition || 'Unknown'}

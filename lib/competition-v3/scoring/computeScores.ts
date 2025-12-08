@@ -129,11 +129,22 @@ function computeScores(
   const aiOrientation = computeAIOrientation(metadata, context);
   const geographyFit = computeGeographyFit(metadata, context);
 
-  // Compute threat score using the new realistic formula
-  let threatScore = computeRealisticThreatScore(
-    { icpFit, valueModelFit, serviceOverlap },
-    classification.type
-  );
+  // Compute threat score using V3.5 signals when available
+  let threatScore: number;
+  if (candidate.offerOverlapScore !== undefined && candidate.jtbdMatches !== undefined) {
+    const offerOverlap = candidate.offerOverlapScore ?? 0;
+    const jtbd = candidate.jtbdMatches ?? 0;
+    const geoScore = candidate.geoScore ?? 0.4;
+    threatScore = Math.round(
+      ((offerOverlap * 0.5) + (jtbd * 0.3) + (geoScore * 0.2)) * 100
+    );
+  } else {
+    // Fallback to older realistic threat score
+    threatScore = computeRealisticThreatScore(
+      { icpFit, valueModelFit, serviceOverlap },
+      classification.type
+    );
+  }
 
   // Apply caps based on bad-fit signals
   const badFitSignals = detectBadFitSignals(candidate, context);
@@ -158,6 +169,11 @@ function computeScores(
     geographyFit,
     threatScore,
     relevanceScore,
+    jtbdMatches: candidate.jtbdMatches,
+    offerOverlapScore: candidate.offerOverlapScore,
+    signalsVerified: candidate.signalsVerified,
+    businessModelCategory: candidate.businessModelCategory,
+    geoScore: candidate.geoScore,
     scoringNotes: {
       icpNotes: null,
       businessModelNotes: null,
@@ -529,6 +545,7 @@ function computeRelevanceScore(
   classification: ClassificationResult,
   threatScore: number
 ): number {
+  if (threatScore < 20) return 5;
   // Base relevance from classification confidence
   let score = classification.confidence * 60;
 

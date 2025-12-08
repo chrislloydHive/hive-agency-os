@@ -75,6 +75,7 @@ export const SECTION_COLORS: Record<DomainName, string> = {
   operationalConstraints: '#f43f5e', // rose-500
   storeRisk: '#eab308',       // yellow-500
   historyRefs: '#71717a',     // zinc-500
+  social: '#10b981',          // emerald-500
 };
 
 export const SOURCE_COLORS: Record<string, string> = {

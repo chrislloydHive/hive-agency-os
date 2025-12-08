@@ -11,7 +11,7 @@
 // Company-Level Navigation
 // ============================================================================
 
-export type CompanyTabId = 'overview' | 'blueprint' | 'brain' | 'work' | 'reports';
+export type CompanyTabId = 'overview' | 'blueprint' | 'brain' | 'findings' | 'work' | 'reports';
 
 export interface CompanyTab {
   id: CompanyTabId;
@@ -40,6 +40,12 @@ export const COMPANY_TABS: CompanyTab[] = [
     description: 'Company memory & intelligence hub',
   },
   {
+    id: 'findings',
+    name: 'Findings',
+    href: (companyId) => `/c/${companyId}/findings`,
+    description: 'Issues and opportunities from diagnostic Labs',
+  },
+  {
     id: 'work',
     name: 'Work',
     href: (companyId) => `/c/${companyId}/work`,
@@ -60,6 +66,7 @@ export function getCompanyTabFromPath(pathname: string, companyId: string): Comp
   // Check for specific tab routes (order matters - check more specific routes first)
   if (pathname.startsWith(`/c/${companyId}/blueprint`)) return 'blueprint';
   if (pathname.startsWith(`/c/${companyId}/brain`)) return 'brain';
+  if (pathname.startsWith(`/c/${companyId}/findings`)) return 'findings';
   if (pathname.startsWith(`/c/${companyId}/work`)) return 'work';
   if (pathname.startsWith(`/c/${companyId}/reports`)) return 'reports';
   // Legacy QBR route maps to reports
@@ -350,7 +357,7 @@ export function getBlueprintTabFromPath(pathname: string, companyId: string): Bl
 // Labs Navigation
 // ============================================================================
 
-export type LabId = 'competition' | 'creative' | 'competitor' | 'website' | 'brand' | 'audience';
+export type LabId = 'competition' | 'creative' | 'competitor' | 'website' | 'brand' | 'audience' | 'content' | 'seo' | 'demand' | 'ops' | 'media';
 
 export interface Lab {
   id: LabId;
@@ -401,6 +408,41 @@ export const LABS: Lab[] = [
     name: 'Audience Lab',
     href: (companyId) => `/c/${companyId}/brain/labs/audience`,
     description: 'Deep-dive into audience segments, personas, and behavioral insights.',
+    status: 'active',
+  },
+  {
+    id: 'content',
+    name: 'Content Lab',
+    href: (companyId) => `/c/${companyId}/diagnostics/content`,
+    description: 'Analyze content inventory, quality, depth, freshness, and SEO signals.',
+    status: 'active',
+  },
+  {
+    id: 'seo',
+    name: 'SEO Lab',
+    href: (companyId) => `/c/${companyId}/diagnostics/seo`,
+    description: 'Comprehensive SEO diagnostic with technical analysis and search performance.',
+    status: 'active',
+  },
+  {
+    id: 'demand',
+    name: 'Demand Lab',
+    href: (companyId) => `/c/${companyId}/diagnostics/demand`,
+    description: 'Evaluate demand generation across paid, organic, and conversion channels.',
+    status: 'active',
+  },
+  {
+    id: 'ops',
+    name: 'Ops Lab',
+    href: (companyId) => `/c/${companyId}/diagnostics/ops`,
+    description: 'Assess marketing operations, analytics setup, and process maturity.',
+    status: 'active',
+  },
+  {
+    id: 'media',
+    name: 'Media Lab',
+    href: (companyId) => `/c/${companyId}/diagnostics/media`,
+    description: 'AI-powered media strategy with channel mix, budgets, and forecasts.',
     status: 'active',
   },
 ];

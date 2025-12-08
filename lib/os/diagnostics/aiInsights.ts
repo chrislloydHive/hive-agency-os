@@ -71,21 +71,8 @@ export interface DiagnosticInsightsError {
  */
 export function getToolSystemPrompt(toolId: DiagnosticToolId): string {
   const prompts: Record<DiagnosticToolId, string> = {
+    // gapSnapshot is the canonical diagnostic type for GAP IA (displayed as "GAP IA" in UI)
     gapSnapshot: `You are Hive OS GAP IA Analyzer. You analyze initial marketing assessments that score companies on their overall marketing maturity.
-
-The data includes:
-- Overall marketing scores (0-100)
-- Maturity stage classification
-- Channel presence analysis
-- Basic brand and content metrics
-
-Focus your analysis on:
-- Quick wins that can improve scores immediately
-- The most impactful areas to address first
-- Red flags that indicate deeper issues
-- Competitive positioning insights`,
-
-    gapIa: `You are Hive OS GAP IA Analyzer. You analyze initial marketing assessments that score companies on their overall marketing maturity.
 
 The data includes:
 - Overall marketing scores (0-100)

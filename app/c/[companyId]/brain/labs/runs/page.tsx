@@ -42,9 +42,9 @@ export const metadata: Metadata = {
 
 function diagnosticRunToReportItem(run: DiagnosticRun, companyId: string): ReportItem {
   // Map toolId to type (partial - not all tools have dedicated report types)
+  // NOTE: gapSnapshot is the canonical diagnostic type for GAP IA runs
   const typeMap: Partial<Record<DiagnosticToolId, ReportItem['type']>> = {
-    gapSnapshot: 'gap-snapshot',
-    gapIa: 'gap-snapshot',
+    gapSnapshot: 'gap-snapshot',  // Displayed as "GAP IA"
     gapPlan: 'gap-plan',
     gapHeavy: 'gap-heavy',
     websiteLab: 'website-lab',
@@ -72,6 +72,8 @@ function diagnosticRunToReportItem(run: DiagnosticRun, companyId: string): Repor
 
   // Generate URL based on tool type
   // Route format: /c/[companyId]/diagnostics/[toolSlug]/[runId]
+  // NOTE: Use kebab-case slugs (e.g., brand-lab not brand) to avoid
+  // conflicts with static folders like diagnostics/brand/page.tsx
   let url: string | undefined;
   const isComplete = run.status === 'complete' || (run.status as string) === 'completed';
   if (isComplete) {
@@ -80,26 +82,25 @@ function diagnosticRunToReportItem(run: DiagnosticRun, companyId: string): Repor
         url = `/c/${companyId}/diagnostics/gap-heavy/${run.id}`;
         break;
       case 'websiteLab':
-        url = `/c/${companyId}/diagnostics/website/${run.id}`;
+        url = `/c/${companyId}/diagnostics/website-lab/${run.id}`;
         break;
       case 'brandLab':
-        url = `/c/${companyId}/diagnostics/brand/${run.id}`;
+        url = `/c/${companyId}/diagnostics/brand-lab/${run.id}`;
         break;
       case 'seoLab':
-        url = `/c/${companyId}/diagnostics/seo/${run.id}`;
+        url = `/c/${companyId}/diagnostics/seo-lab/${run.id}`;
         break;
       case 'contentLab':
-        url = `/c/${companyId}/diagnostics/content/${run.id}`;
+        url = `/c/${companyId}/diagnostics/content-lab/${run.id}`;
         break;
       case 'gapSnapshot':
-      case 'gapIa':
         url = `/c/${companyId}/diagnostics/gap-ia/${run.id}`;
         break;
       case 'demandLab':
-        url = `/c/${companyId}/diagnostics/demand/${run.id}`;
+        url = `/c/${companyId}/diagnostics/demand-lab/${run.id}`;
         break;
       case 'opsLab':
-        url = `/c/${companyId}/diagnostics/ops/${run.id}`;
+        url = `/c/${companyId}/diagnostics/ops-lab/${run.id}`;
         break;
       case 'creativeLab':
         url = `/c/${companyId}/labs/creative`;

@@ -19,3 +19,4 @@ export * from './creative';
 export * from './competitive';
 export * from './operationalConstraints';
 export * from './historyRefs';
+export * from './social';

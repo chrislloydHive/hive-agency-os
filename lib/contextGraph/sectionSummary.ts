@@ -61,6 +61,7 @@ const SECTION_LABELS: Record<DomainName, string> = {
   operationalConstraints: 'Constraints',
   storeRisk: 'Store Risk',
   historyRefs: 'History Refs',
+  social: 'Social & Local',
 };
 
 // ============================================================================

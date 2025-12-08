@@ -19,6 +19,7 @@ import {
   type DiagnosticRun,
 } from '@/lib/os/diagnostics/runs';
 import { getPerformancePulse } from '@/lib/os/analytics/performancePulse';
+import { getBaselineStatus } from '@/lib/contextGraph/baseline';
 import { getMediaLabSummary } from '@/lib/mediaLab';
 import { CompanyOverviewPage } from '@/components/os/CompanyOverviewPage';
 
@@ -59,6 +60,7 @@ export default async function OsOverviewPage({
     alerts,
     performancePulse,
     mediaLabSummary,
+    baselineStatus,
   ] = await Promise.all([
     getCompanyById(companyId),
     getCompanyStrategySnapshot(companyId).catch(() => null),
@@ -77,6 +79,7 @@ export default async function OsOverviewPage({
     getCompanyAlerts(companyId).catch(() => []),
     getPerformancePulse().catch(() => null),
     getMediaLabSummary(companyId).catch(() => null),
+    getBaselineStatus(companyId).catch(() => null),
   ]);
 
   if (!company) {
@@ -127,6 +130,7 @@ export default async function OsOverviewPage({
       alerts={alerts}
       performancePulse={performancePulse}
       mediaLabSummary={mediaLabSummary}
+      baselineStatus={baselineStatus}
     />
   );
 }

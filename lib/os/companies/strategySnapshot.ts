@@ -83,9 +83,10 @@ async function getLatestDiagnosticScores(
     creativeLab: null,
   };
 
+  // Map DiagnosticToolId to property keys in DiagnosticScores
+  // NOTE: gapSnapshot is the canonical diagnostic type, mapped to 'gapIa' property
   const toolIdMap: Record<DiagnosticToolId, keyof DiagnosticScores> = {
-    gapSnapshot: 'gapIa',
-    gapIa: 'gapIa',
+    gapSnapshot: 'gapIa',  // gapSnapshot diagnostic maps to gapIa score property
     gapPlan: 'gapPlan',
     gapHeavy: 'gapHeavy',
     websiteLab: 'websiteLab',

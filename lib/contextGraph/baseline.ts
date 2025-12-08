@@ -24,6 +24,7 @@ import { runGapIaForOsBaseline } from '@/lib/gap/orchestrator/osGapIaBaseline';
 import { writeGapIaBaselineToContext } from './writers/gapIaBaselineWriter';
 import { runCompetitionV2 } from '@/lib/competition/discoveryV2';
 import { competitionLabImporter } from './importers/competitionLabImporter';
+import { logGapPlanRunToAirtable } from '@/lib/airtable/gapPlanRuns';
 
 // ============================================================================
 // Types
@@ -483,6 +484,42 @@ export async function runBaselineContextBuild(
           });
 
           console.log(`[Baseline] GAP-IA completed: score ${gapResult.overallScore}%, ${writeResult.fieldsWritten} fields`);
+
+          // Also log to GAP-Plan Run table for visibility in Reports Hub
+          try {
+            await logGapPlanRunToAirtable({
+              planId: `baseline-${runId}`,
+              url: domain ? `https://${domain}` : '',
+              maturityStage: gapResult.maturityStage as 'Early' | 'Emerging' | 'Scaling' | 'Leading' | undefined,
+              scores: {
+                overall: gapResult.overallScore,
+                brand: gapResult.dimensions.brand?.score,
+                content: gapResult.dimensions.content?.score,
+                website: gapResult.dimensions.website?.score,
+                seo: gapResult.dimensions.seo?.score,
+                digitalFootprint: gapResult.dimensions.digitalFootprint?.score,
+                authority: gapResult.dimensions.authority?.score,
+              },
+              quickWinsCount: gapResult.quickWins.length,
+              initiativesCount: gapResult.topOpportunities.length,
+              createdAt: startedAt,
+              companyId: input.companyId,
+              rawPlan: {
+                companyName: company.name,
+                source: 'baseline_context_build',
+                runId,
+                overallScore: gapResult.overallScore,
+                maturityStage: gapResult.maturityStage,
+                dimensions: gapResult.dimensions,
+                quickWins: gapResult.quickWins,
+                topOpportunities: gapResult.topOpportunities,
+              },
+            });
+            console.log('[Baseline] Logged to GAP-Plan Run table for Reports visibility');
+          } catch (logError) {
+            // Non-fatal - don't fail baseline if logging fails
+            console.warn('[Baseline] Failed to log to GAP-Plan Run table:', logError);
+          }
         } else {
           gapIaResult = {
             success: false,

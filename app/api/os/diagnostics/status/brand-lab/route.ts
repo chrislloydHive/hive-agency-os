@@ -28,6 +28,8 @@ export async function GET(request: NextRequest) {
         percent: status.percent,
         error: status.error,
         runId: status.runId,
+        score: (status as any).score,
+        benchmarkLabel: (status as any).benchmarkLabel,
       });
     }
 
@@ -35,20 +37,25 @@ export async function GET(request: NextRequest) {
     const latestRun = await getLatestRunForCompanyAndTool(companyId, 'brandLab');
 
     if (latestRun) {
-      // Map database status to polling status
-      const mappedStatus =
-        latestRun.status === 'complete' ? 'completed' :
-        latestRun.status === 'failed' ? 'failed' :
-        latestRun.status === 'running' ? 'running' :
-        'pending';
+      // Extract benchmarkLabel from rawJson if available
+      let benchmarkLabel: string | undefined;
+      if (latestRun.rawJson) {
+        try {
+          const parsed = typeof latestRun.rawJson === 'string'
+            ? JSON.parse(latestRun.rawJson)
+            : latestRun.rawJson;
+          benchmarkLabel = parsed?.benchmarkLabel || parsed?.maturityStage || parsed?.diagnostic?.benchmarkLabel;
+        } catch {}
+      }
 
       return NextResponse.json({
-        status: mappedStatus,
+        status: latestRun.status, // Return actual status (complete/failed/running)
         currentStep: latestRun.status === 'running' ? 'Processing...' : '',
         percent: latestRun.status === 'complete' ? 100 : latestRun.status === 'running' ? 50 : 0,
         error: latestRun.metadata?.error as string | undefined,
         runId: latestRun.id,
         score: latestRun.score,
+        benchmarkLabel,
         summary: latestRun.summary,
       });
     }

@@ -45,6 +45,7 @@ export function CompetitionLabV3({ companyId, companyName }: Props) {
   const [typeFilter, setTypeFilter] = useState<CompetitorType[]>([
     'direct', 'partial', 'fractional', 'platform', 'internal',
   ]);
+  const [excludedDomains, setExcludedDomains] = useState<string[]>([]);
 
   // Fetch V3 data
   const {
@@ -60,8 +61,12 @@ export function CompetitionLabV3({ companyId, companyName }: Props) {
   // Filter competitors by type
   const filteredCompetitors = useMemo(() => {
     if (!data?.competitors) return [];
-    return data.competitors.filter(c => typeFilter.includes(c.type));
-  }, [data?.competitors, typeFilter]);
+    const excluded = new Set(excludedDomains.map(d => d.toLowerCase()));
+    return data.competitors.filter(c =>
+      typeFilter.includes(c.type) &&
+      (!c.domain || !excluded.has(c.domain.toLowerCase()))
+    );
+  }, [data?.competitors, typeFilter, excludedDomains]);
 
   // Get selected competitor
   const selectedCompetitor = useMemo(
@@ -82,6 +87,26 @@ export function CompetitionLabV3({ companyId, companyName }: Props) {
     { id: 'map', label: 'Positioning Map' },
     { id: 'list', label: 'Competitor List' },
   ];
+
+  const handleMarkInvalid = useCallback(async (domain?: string | null) => {
+    if (!domain) return;
+    try {
+      await fetch(`/api/os/companies/${companyId}/competition/mark-invalid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain }),
+      });
+      setExcludedDomains(prev => Array.from(new Set([...prev, domain])));
+      if (selectedCompetitorId) {
+        const selected = filteredCompetitors.find(c => c.id === selectedCompetitorId);
+        if (selected?.domain?.toLowerCase() === domain.toLowerCase()) {
+          setSelectedCompetitorId(null);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to mark invalid competitor', e);
+    }
+  }, [companyId, filteredCompetitors, selectedCompetitorId]);
 
   return (
     <div className="space-y-4">
@@ -230,6 +255,7 @@ export function CompetitionLabV3({ companyId, companyName }: Props) {
             <CompetitorCardV3
               competitor={selectedCompetitor}
               onClose={() => setSelectedCompetitorId(null)}
+              onMarkInvalid={handleMarkInvalid}
             />
           ) : data?.insights ? (
             <LandscapeInsightsPanel insights={data.insights} />

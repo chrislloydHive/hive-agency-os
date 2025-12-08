@@ -29,6 +29,401 @@ export interface DiagnosticDetail {
   updatedAt?: string;
 }
 
+// ============================================================================
+// DiagnosticDetailFinding - Unified Lab Findings Model
+// ============================================================================
+
+/**
+ * Category for diagnostic findings
+ */
+export type DiagnosticFindingCategory =
+  | 'Technical'
+  | 'UX'
+  | 'Brand'
+  | 'Content'
+  | 'SEO'
+  | 'Analytics'
+  | 'Media'
+  | 'Demand'
+  | 'Ops';
+
+/**
+ * Severity level for diagnostic findings
+ */
+export type DiagnosticFindingSeverity =
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'critical';
+
+/**
+ * A single finding/issue from a Lab diagnostic run
+ *
+ * This represents an individual actionable finding that can be:
+ * - Displayed in issue lists
+ * - Filtered by category, severity, lab
+ * - Converted to Work Items
+ *
+ * Stored in the "Diagnostic Details" table alongside JSON chunks
+ */
+export interface DiagnosticDetailFinding {
+  id?: string;
+
+  // =========================================================================
+  // Links
+  // =========================================================================
+
+  /** Link to parent Diagnostic Run record */
+  labRunId: string;
+
+  /** Link to Company record */
+  companyId: string;
+
+  // =========================================================================
+  // Classification
+  // =========================================================================
+
+  /** Lab slug: website, brand, seo, content, etc. */
+  labSlug?: string;
+
+  /** Category: Technical, UX, Brand, Content, SEO, Analytics, Media */
+  category?: DiagnosticFindingCategory | string;
+
+  /** Dimension within category: Page speed, Navigation, Positioning, etc. */
+  dimension?: string;
+
+  /** Severity: low, medium, high, critical */
+  severity?: DiagnosticFindingSeverity | string;
+
+  // =========================================================================
+  // Location & Identity
+  // =========================================================================
+
+  /** Location identifier: URL, channel name, asset ID */
+  location?: string;
+
+  /** Unique key for deduplication across runs */
+  issueKey?: string;
+
+  // =========================================================================
+  // Content
+  // =========================================================================
+
+  /** Issue description/title */
+  description?: string;
+
+  /** Recommended fix or action */
+  recommendation?: string;
+
+  /** Estimated impact (text or numeric) */
+  estimatedImpact?: string | number;
+
+  // =========================================================================
+  // Work Item Conversion
+  // =========================================================================
+
+  /** Whether this finding has been converted to a Work Item */
+  isConvertedToWorkItem?: boolean;
+
+  /** ID of the Work Item if converted */
+  workItemId?: string;
+
+  // =========================================================================
+  // Timestamps
+  // =========================================================================
+
+  createdAt?: string;
+  updatedAt?: string;
+  /** Date when the finding was resolved (e.g., converted to work item or marked fixed) */
+  resolvedAt?: string;
+}
+
+/**
+ * Input for creating a diagnostic finding
+ */
+export type CreateDiagnosticFindingInput = Omit<DiagnosticDetailFinding, 'id' | 'createdAt' | 'updatedAt'>;
+
+/**
+ * Input for updating a diagnostic finding
+ */
+export type UpdateDiagnosticFindingInput = Partial<Omit<DiagnosticDetailFinding, 'id' | 'labRunId' | 'companyId' | 'createdAt' | 'updatedAt'>>;
+
+// ============================================================================
+// Findings CRUD Operations
+// ============================================================================
+
+// Airtable field names for Diagnostic Details findings
+const FINDING_FIELDS = {
+  LAB_RUN: 'Lab Run',           // Link to Diagnostic Runs
+  COMPANY: 'Company',           // Link to Companies
+  LAB_SLUG: 'Lab Slug',         // Single Select
+  CATEGORY: 'Category',         // Single Select
+  DIMENSION: 'Dimension',       // Text
+  SEVERITY: 'Severity',         // Single Select
+  LOCATION: 'Location',         // Text
+  ISSUE_KEY: 'Issue Key',       // Text
+  DESCRIPTION: 'Description',   // Long Text
+  RECOMMENDATION: 'Recommendation', // Long Text
+  ESTIMATED_IMPACT: 'Estimated Impact', // Text
+  IS_CONVERTED: 'Is Converted to Work Item', // Checkbox
+  WORK_ITEM: 'Work Item',       // Link to Work Items
+  RECORD_TYPE: 'Record Type',   // Single Select (finding vs json_chunk)
+  RESOLVED_AT: 'Resolved At',   // Date (when finding was resolved/fixed)
+} as const;
+
+/**
+ * Convert finding to Airtable fields
+ */
+function findingToAirtableFields(finding: CreateDiagnosticFindingInput): Record<string, unknown> {
+  const fields: Record<string, unknown> = {
+    [FINDING_FIELDS.RECORD_TYPE]: 'finding',
+  };
+
+  // Link fields - use array format
+  if (finding.labRunId) {
+    fields[FINDING_FIELDS.LAB_RUN] = [finding.labRunId];
+  }
+  if (finding.companyId) {
+    fields[FINDING_FIELDS.COMPANY] = [finding.companyId];
+  }
+
+  // Classification
+  if (finding.labSlug) {
+    fields[FINDING_FIELDS.LAB_SLUG] = finding.labSlug;
+  }
+  if (finding.category) {
+    fields[FINDING_FIELDS.CATEGORY] = finding.category;
+  }
+  if (finding.dimension) {
+    fields[FINDING_FIELDS.DIMENSION] = finding.dimension;
+  }
+  if (finding.severity) {
+    fields[FINDING_FIELDS.SEVERITY] = finding.severity;
+  }
+
+  // Location & Identity
+  if (finding.location) {
+    // Truncate to 1000 chars max
+    fields[FINDING_FIELDS.LOCATION] = String(finding.location).substring(0, 1000);
+  }
+  if (finding.issueKey) {
+    fields[FINDING_FIELDS.ISSUE_KEY] = String(finding.issueKey).substring(0, 255);
+  }
+
+  // Content
+  if (finding.description) {
+    fields[FINDING_FIELDS.DESCRIPTION] = String(finding.description).substring(0, 10000);
+  }
+  if (finding.recommendation) {
+    fields[FINDING_FIELDS.RECOMMENDATION] = String(finding.recommendation).substring(0, 10000);
+  }
+  if (finding.estimatedImpact !== undefined) {
+    fields[FINDING_FIELDS.ESTIMATED_IMPACT] = String(finding.estimatedImpact).substring(0, 500);
+  }
+
+  // Work Item
+  fields[FINDING_FIELDS.IS_CONVERTED] = finding.isConvertedToWorkItem ?? false;
+  if (finding.workItemId) {
+    fields[FINDING_FIELDS.WORK_ITEM] = [finding.workItemId];
+  }
+
+  return fields;
+}
+
+/**
+ * Convert Airtable record to DiagnosticDetailFinding
+ */
+function airtableRecordToFinding(record: { id: string; fields: Record<string, unknown> }): DiagnosticDetailFinding {
+  const f = record.fields;
+
+  return {
+    id: record.id,
+    labRunId: Array.isArray(f[FINDING_FIELDS.LAB_RUN]) ? (f[FINDING_FIELDS.LAB_RUN] as string[])[0] : '',
+    companyId: Array.isArray(f[FINDING_FIELDS.COMPANY]) ? (f[FINDING_FIELDS.COMPANY] as string[])[0] : '',
+    labSlug: f[FINDING_FIELDS.LAB_SLUG] as string | undefined,
+    category: f[FINDING_FIELDS.CATEGORY] as DiagnosticFindingCategory | undefined,
+    dimension: f[FINDING_FIELDS.DIMENSION] as string | undefined,
+    severity: f[FINDING_FIELDS.SEVERITY] as DiagnosticFindingSeverity | undefined,
+    location: f[FINDING_FIELDS.LOCATION] as string | undefined,
+    issueKey: f[FINDING_FIELDS.ISSUE_KEY] as string | undefined,
+    description: f[FINDING_FIELDS.DESCRIPTION] as string | undefined,
+    recommendation: f[FINDING_FIELDS.RECOMMENDATION] as string | undefined,
+    estimatedImpact: f[FINDING_FIELDS.ESTIMATED_IMPACT] as string | undefined,
+    isConvertedToWorkItem: f[FINDING_FIELDS.IS_CONVERTED] as boolean | undefined,
+    workItemId: Array.isArray(f[FINDING_FIELDS.WORK_ITEM]) ? (f[FINDING_FIELDS.WORK_ITEM] as string[])[0] : undefined,
+    createdAt: f['Created'] as string | undefined,
+    updatedAt: f['Last Modified'] as string | undefined,
+    resolvedAt: f[FINDING_FIELDS.RESOLVED_AT] as string | undefined,
+  };
+}
+
+/**
+ * Save multiple diagnostic findings to Airtable
+ * Creates records in batches of 10 (Airtable limit)
+ */
+export async function saveDiagnosticFindings(findings: CreateDiagnosticFindingInput[]): Promise<string[]> {
+  if (findings.length === 0) {
+    console.log('[diagnosticDetails] No findings to save');
+    return [];
+  }
+
+  console.log('[diagnosticDetails] Saving', findings.length, 'findings to Airtable');
+
+  const createdIds: string[] = [];
+  const BATCH_SIZE = 10;
+
+  try {
+    // Process in batches of 10
+    for (let i = 0; i < findings.length; i += BATCH_SIZE) {
+      const batch = findings.slice(i, i + BATCH_SIZE);
+
+      const recordsToCreate = batch.map(finding => ({
+        fields: findingToAirtableFields(finding) as Record<string, any>,
+      }));
+
+      const records = await getBase()(DIAGNOSTIC_DETAILS_TABLE).create(recordsToCreate as any);
+
+      const recordArray = Array.isArray(records) ? records : [records];
+      for (const record of recordArray) {
+        createdIds.push(record.id);
+      }
+
+      console.log(`[diagnosticDetails] Saved batch ${Math.floor(i / BATCH_SIZE) + 1}:`, {
+        count: recordArray.length,
+        firstId: recordArray[0]?.id,
+      });
+    }
+
+    console.log('[diagnosticDetails] Successfully saved', createdIds.length, 'findings');
+    return createdIds;
+  } catch (error) {
+    console.error('[diagnosticDetails] Error saving findings:', error);
+    console.error('[diagnosticDetails] Error details:', {
+      totalFindings: findings.length,
+      savedSoFar: createdIds.length,
+      firstFinding: findings[0] ? {
+        labSlug: findings[0].labSlug,
+        category: findings[0].category,
+        severity: findings[0].severity,
+      } : null,
+    });
+
+    // Return what we managed to save
+    return createdIds;
+  }
+}
+
+/**
+ * Get all findings for a specific run
+ */
+export async function getDiagnosticFindingsByRunId(runId: string): Promise<DiagnosticDetailFinding[]> {
+  console.log('[diagnosticDetails] getDiagnosticFindingsByRunId:', runId);
+
+  try {
+    const records = await getBase()(DIAGNOSTIC_DETAILS_TABLE)
+      .select({
+        filterByFormula: `AND({Record Type} = 'finding', FIND('${runId}', ARRAYJOIN({Lab Run})))`,
+        sort: [{ field: 'Created', direction: 'desc' }],
+      })
+      .all();
+
+    const findings = records.map(r => airtableRecordToFinding({ id: r.id, fields: r.fields as Record<string, unknown> }));
+
+    console.log('[diagnosticDetails] Found', findings.length, 'findings for run:', runId);
+    return findings;
+  } catch (error) {
+    console.error('[diagnosticDetails] Error getting findings by run:', error);
+    return [];
+  }
+}
+
+/**
+ * Get all findings for a company, optionally filtered by lab or severity
+ */
+export async function getDiagnosticFindingsForCompany(
+  companyId: string,
+  options?: { labSlug?: string; severity?: string }
+): Promise<DiagnosticDetailFinding[]> {
+  console.log('[diagnosticDetails] getDiagnosticFindingsForCompany:', { companyId, options });
+
+  try {
+    // Build filter formula
+    const filters: string[] = [
+      `{Record Type} = 'finding'`,
+      `FIND('${companyId}', ARRAYJOIN({Company}))`,
+    ];
+
+    if (options?.labSlug) {
+      filters.push(`{Lab Slug} = '${options.labSlug}'`);
+    }
+    if (options?.severity) {
+      filters.push(`{Severity} = '${options.severity}'`);
+    }
+
+    const filterFormula = `AND(${filters.join(', ')})`;
+
+    const records = await getBase()(DIAGNOSTIC_DETAILS_TABLE)
+      .select({
+        filterByFormula: filterFormula,
+        sort: [{ field: 'Created', direction: 'desc' }],
+        maxRecords: 200, // Reasonable limit
+      })
+      .all();
+
+    const findings = records.map(r => airtableRecordToFinding({ id: r.id, fields: r.fields as Record<string, unknown> }));
+
+    console.log('[diagnosticDetails] Found', findings.length, 'findings for company:', companyId);
+    return findings;
+  } catch (error) {
+    console.error('[diagnosticDetails] Error getting findings for company:', error);
+    return [];
+  }
+}
+
+/**
+ * Update a finding (e.g., mark as converted to work item)
+ */
+export async function updateDiagnosticFinding(
+  findingId: string,
+  updates: UpdateDiagnosticFindingInput
+): Promise<DiagnosticDetailFinding | null> {
+  console.log('[diagnosticDetails] updateDiagnosticFinding:', { findingId, updates });
+
+  try {
+    const fields: Record<string, unknown> = {};
+
+    if (updates.severity !== undefined) {
+      fields[FINDING_FIELDS.SEVERITY] = updates.severity;
+    }
+    if (updates.description !== undefined) {
+      fields[FINDING_FIELDS.DESCRIPTION] = updates.description;
+    }
+    if (updates.recommendation !== undefined) {
+      fields[FINDING_FIELDS.RECOMMENDATION] = updates.recommendation;
+    }
+    if (updates.isConvertedToWorkItem !== undefined) {
+      fields[FINDING_FIELDS.IS_CONVERTED] = updates.isConvertedToWorkItem;
+      // Auto-set resolvedAt when converting to work item
+      if (updates.isConvertedToWorkItem && !updates.resolvedAt) {
+        fields[FINDING_FIELDS.RESOLVED_AT] = new Date().toISOString();
+      }
+    }
+    if (updates.workItemId !== undefined) {
+      fields[FINDING_FIELDS.WORK_ITEM] = updates.workItemId ? [updates.workItemId] : null;
+    }
+    if (updates.resolvedAt !== undefined) {
+      fields[FINDING_FIELDS.RESOLVED_AT] = updates.resolvedAt;
+    }
+
+    const record = await getBase()(DIAGNOSTIC_DETAILS_TABLE).update(findingId, fields as any);
+
+    return airtableRecordToFinding({ id: record.id, fields: record.fields as Record<string, unknown> });
+  } catch (error) {
+    console.error('[diagnosticDetails] Error updating finding:', error);
+    return null;
+  }
+}
+
 /**
  * Save full diagnostic data to separate table
  * This bypasses the 100KB limit on Evidence JSON field

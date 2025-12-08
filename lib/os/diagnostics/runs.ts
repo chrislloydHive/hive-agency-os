@@ -19,10 +19,14 @@ import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 /**
  * Diagnostic tool identifiers
  * Maps to the tools available in the Diagnostics Suite
+ *
+ * NOTE: This is the TYPE stored in DiagnosticRuns records.
+ * - `gapSnapshot` is the canonical diagnostic type for GAP-IA runs
+ * - The UI may display this as "GAP IA" but the underlying type is always `gapSnapshot`
+ * - Do NOT add `gapIa` here - that's a CompanyToolId in lib/tools/registry.ts
  */
 export type DiagnosticToolId =
-  | 'gapSnapshot'    // GAP-IA Initial Assessment (legacy name)
-  | 'gapIa'          // GAP-IA Initial Assessment (preferred name)
+  | 'gapSnapshot'    // GAP Initial Assessment (the canonical GAP diagnostic)
   | 'gapPlan'        // Full GAP Plan generation
   | 'gapHeavy'       // Deep multi-source diagnostic (Heavy Worker V3)
   | 'websiteLab'     // Website UX/Conversion diagnostic
@@ -47,6 +51,42 @@ export type DiagnosticRunStatus =
   | 'failed';
 
 /**
+ * Lab slug for unified filtering across diagnostic tools
+ */
+export type LabSlug =
+  | 'gap'
+  | 'website'
+  | 'brand'
+  | 'ux'
+  | 'analytics'
+  | 'media'
+  | 'seo'
+  | 'content'
+  | 'demand'
+  | 'ops'
+  | 'creative'
+  | 'competitor'
+  | 'audience';
+
+/**
+ * Run type classification
+ */
+export type DiagnosticRunType =
+  | 'quick'
+  | 'full'
+  | 'followup'
+  | 'monitoring';
+
+/**
+ * Severity level for diagnostic findings
+ */
+export type DiagnosticSeverity =
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'critical';
+
+/**
  * A diagnostic run record
  */
 export interface DiagnosticRun {
@@ -60,6 +100,65 @@ export interface DiagnosticRun {
   updatedAt: string;
   metadata?: Record<string, unknown> | null;
   rawJson?: unknown;
+
+  // =========================================================================
+  // Unified Lab Model Fields (optional, additive)
+  // These enable filtering and grouping across all Labs
+  // =========================================================================
+
+  /** Lab slug for unified filtering: website, brand, seo, etc. */
+  labSlug?: LabSlug | string;
+
+  /** Type of run: quick, full, followup, monitoring */
+  runType?: DiagnosticRunType | string;
+
+  /** Overall severity level based on worst finding */
+  severityLevel?: DiagnosticSeverity | string;
+}
+
+/**
+ * Map Tool ID to Lab Slug for unified filtering
+ */
+export function getLabSlugForToolId(toolId: DiagnosticToolId): LabSlug {
+  const mapping: Record<DiagnosticToolId, LabSlug> = {
+    gapSnapshot: 'gap',
+    gapPlan: 'gap',
+    gapHeavy: 'gap',
+    websiteLab: 'website',
+    brandLab: 'brand',
+    audienceLab: 'audience',
+    mediaLab: 'media',
+    contentLab: 'content',
+    seoLab: 'seo',
+    demandLab: 'demand',
+    opsLab: 'ops',
+    creativeLab: 'creative',
+    competitorLab: 'competitor',
+    competitionLab: 'competitor',
+  };
+  return mapping[toolId] || 'gap';
+}
+
+/**
+ * Map Lab Slug to Tool IDs for querying
+ */
+export function getToolIdsForLabSlug(labSlug: LabSlug): DiagnosticToolId[] {
+  const mapping: Record<LabSlug, DiagnosticToolId[]> = {
+    gap: ['gapSnapshot', 'gapPlan', 'gapHeavy'],
+    website: ['websiteLab'],
+    brand: ['brandLab'],
+    ux: ['websiteLab'], // UX maps to Website Lab
+    analytics: [], // Analytics is live-only, no diagnostic runs
+    media: ['mediaLab'],
+    seo: ['seoLab'],
+    content: ['contentLab'],
+    demand: ['demandLab'],
+    ops: ['opsLab'],
+    creative: ['creativeLab'],
+    competitor: ['competitorLab', 'competitionLab'],
+    audience: ['audienceLab'],
+  };
+  return mapping[labSlug] || [];
 }
 
 /**
@@ -124,10 +223,14 @@ function airtableRecordToDiagnosticRun(record: {
 }): DiagnosticRun {
   const fields = record.fields;
 
-  // Handle Company field - check both "Company copy" (link) and "Company" (text)
+  // Handle Company field - check multiple sources
   let companyId = '';
-  // First try the link field "Company copy"
-  if (Array.isArray(fields['Company copy']) && fields['Company copy'].length > 0) {
+  // First try the dedicated "Company ID" text field (most reliable)
+  if (typeof fields['Company ID'] === 'string' && fields['Company ID']) {
+    companyId = fields['Company ID'];
+  }
+  // Then try the link field "Company copy"
+  else if (Array.isArray(fields['Company copy']) && fields['Company copy'].length > 0) {
     companyId = fields['Company copy'][0] as string;
   }
   // Fall back to the text field "Company"
@@ -246,13 +349,14 @@ function diagnosticRunToAirtableFields(
   const fields: Record<string, unknown> = {};
 
   if ('companyId' in run && run.companyId) {
-    // The Diagnostic Runs table only has "Company copy" (link field)
-    // The "Company" text field doesn't exist
-    console.log('[DiagnosticRuns] Setting Company copy field:', {
+    // Set both the link field AND a text field for reliable querying
+    // ARRAYJOIN on link fields returns display names, not record IDs
+    console.log('[DiagnosticRuns] Setting Company fields:', {
       companyId: run.companyId,
       isValidRecordId: run.companyId.startsWith('rec'),
     });
     fields['Company copy'] = [run.companyId]; // Link field (array format)
+    fields['Company ID'] = run.companyId; // Text field for querying by record ID
   }
   if ('toolId' in run && run.toolId) {
     fields['Tool ID'] = run.toolId;
@@ -356,6 +460,41 @@ function diagnosticRunToAirtableFields(
         essentialData.recommendations = raw.recommendations?.slice(0, 10);
       }
 
+      // For Brand Lab V2 results
+      if (raw.dimensions && raw.maturityStage && raw.quickWins) {
+        console.log('[DiagnosticRuns] Extracting Brand Lab V2 essential data');
+        essentialData.overallScore = raw.overallScore;
+        essentialData.maturityStage = raw.maturityStage;
+        essentialData.dataConfidence = raw.dataConfidence;
+        essentialData.narrativeSummary = raw.narrativeSummary;
+        essentialData.dimensions = raw.dimensions;
+        essentialData.issues = raw.issues?.slice(0, 20);
+        essentialData.quickWins = raw.quickWins;
+        essentialData.projects = raw.projects;
+        essentialData.generatedAt = raw.generatedAt;
+        essentialData.url = raw.url;
+        essentialData.companyId = raw.companyId;
+        essentialData.companyType = raw.companyType;
+        // Extract findings WITHOUT the large diagnosticV1
+        if (raw.findings) {
+          essentialData.findings = {
+            brandPillars: raw.findings.brandPillars,
+            identitySystem: raw.findings.identitySystem,
+            messagingSystem: raw.findings.messagingSystem,
+            positioning: raw.findings.positioning,
+            audienceFit: raw.findings.audienceFit,
+            trustAndProof: raw.findings.trustAndProof,
+            visualSystem: raw.findings.visualSystem,
+            brandAssets: raw.findings.brandAssets,
+            inconsistencies: raw.findings.inconsistencies?.slice(0, 10),
+            opportunities: raw.findings.opportunities?.slice(0, 10),
+            risks: raw.findings.risks?.slice(0, 10),
+            competitiveLandscape: raw.findings.competitiveLandscape,
+            // Exclude diagnosticV1 as it's large and redundant
+          };
+        }
+      }
+
       jsonStr = JSON.stringify(essentialData);
 
       // If still too large, just store minimal data
@@ -400,11 +539,19 @@ export async function createDiagnosticRun(
   // Note: "Created At" is auto-set by Airtable
 
   try {
+    console.log('[DiagnosticRuns] Creating record with fields:', {
+      companyId: input.companyId,
+      toolId: input.toolId,
+      fieldsBeingSent: Object.keys(fields),
+      companyFieldValue: fields['Company copy'],
+    });
+
     const result = await createRecord(DIAGNOSTIC_RUNS_TABLE, fields);
 
     console.log('[DiagnosticRuns] Run created:', {
       recordId: result?.id,
       toolId: input.toolId,
+      resultFields: result?.fields ? Object.keys(result.fields) : [],
     });
 
     return airtableRecordToDiagnosticRun(result);
@@ -463,16 +610,10 @@ export async function listDiagnosticRunsForCompany(
   const limit = opts?.limit || 50;
 
   // Build filter formula
-  // Check multiple ways the company ID might be stored:
-  // 1. "Company copy" link field (array of record IDs)
-  // 2. "Company" text field (record ID as string)
-  // 3. Direct RECORD_ID match on linked record
-  const companyFilter = `OR(
-    FIND('${companyId}', ARRAYJOIN({Company copy}, ',')),
-    {Company} = '${companyId}',
-    SEARCH('${companyId}', ARRAYJOIN({Company copy}))
-  )`;
-  let filterParts: string[] = [companyFilter.replace(/\s+/g, ' ')];
+  // Use "Company ID" text field for reliable querying (ARRAYJOIN on link fields returns names, not IDs)
+  // Also check legacy "Company" text field for backward compatibility
+  const companyFilter = `OR({Company ID} = '${companyId}', {Company} = '${companyId}')`;
+  let filterParts: string[] = [companyFilter];
 
   if (opts?.toolId) {
     filterParts.push(`{Tool ID} = '${opts.toolId}'`);
@@ -509,16 +650,31 @@ export async function listDiagnosticRunsForCompany(
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
+      const statusText = response.statusText;
+      const rawText = await response.text().catch(() => '');
+      let errorText = rawText;
+      // Try to parse JSON error bodies for clearer logging
+      try {
+        const maybeJson = JSON.parse(rawText);
+        if (maybeJson && typeof maybeJson === 'object') {
+          errorText = JSON.stringify(maybeJson);
+        }
+      } catch {
+        // ignore JSON parse errors
+      }
+      if (!errorText) {
+        errorText = statusText || 'No error body returned from Airtable';
+      }
       console.error('[DiagnosticRuns] Airtable API error:', {
         status: response.status,
         errorText,
         companyId,
         filterFormula,
       });
-      // Return empty array for common errors (table not found, invalid formula, etc.)
-      // This allows the app to work even if the Diagnostic Runs table isn't fully set up
-      if (response.status === 404 || response.status === 422 || response.status === 400) {
+      // Return empty array for common errors (table not found, invalid formula, missing auth, etc.)
+      // This keeps the UI functional even if the Diagnostic Runs table or API credentials are misconfigured.
+      const softFailStatuses = [400, 401, 403, 404, 422];
+      if (softFailStatuses.includes(response.status)) {
         console.warn(`[DiagnosticRuns] Table query failed (${response.status}), returning empty array`);
         return [];
       }
@@ -604,7 +760,6 @@ export async function getRunsGroupedByTool(
 
   const grouped: Record<DiagnosticToolId, DiagnosticRun[]> = {
     gapSnapshot: [],
-    gapIa: [],
     gapPlan: [],
     gapHeavy: [],
     websiteLab: [],
@@ -761,8 +916,7 @@ export async function getRunsGroupedByTool(
  */
 export function getToolLabel(toolId: DiagnosticToolId): string {
   const labels: Record<DiagnosticToolId, string> = {
-    gapSnapshot: 'GAP IA',
-    gapIa: 'GAP IA',
+    gapSnapshot: 'GAP IA',  // Display as "GAP IA" but stored as gapSnapshot
     gapPlan: 'GAP Plan',
     gapHeavy: 'GAP Heavy',
     websiteLab: 'Website Lab',
@@ -798,8 +952,7 @@ export function getStatusColor(status: DiagnosticRunStatus): string {
  */
 export function isValidToolId(toolId: string): toolId is DiagnosticToolId {
   const validToolIds: DiagnosticToolId[] = [
-    'gapSnapshot',
-    'gapIa',          // GAP-IA (preferred name)
+    'gapSnapshot',    // GAP Initial Assessment (canonical diagnostic type)
     'gapPlan',
     'gapHeavy',
     'websiteLab',
@@ -905,8 +1058,9 @@ export async function getLatestRunPerToolForCompany(
   for (const run of allRuns) {
     const existing = latestByTool.get(run.toolId);
 
-    // Only consider completed runs
-    if (run.status !== 'complete') continue;
+    // Only consider completed runs (handle both 'complete' and 'completed')
+    const isComplete = run.status === 'complete' || (run.status as string) === 'completed';
+    if (!isComplete) continue;
 
     // If no existing run or this run is newer, use it
     if (!existing || new Date(run.createdAt) > new Date(existing.createdAt)) {
@@ -947,11 +1101,14 @@ export async function getRecentRunsWithToolCoverage(
   const seenTools = new Set<DiagnosticToolId>();
   const result: DiagnosticRun[] = [];
 
+  // Helper to check if status is complete (handles both 'complete' and 'completed')
+  const isCompleteStatus = (status: string) => status === 'complete' || status === 'completed';
+
   // First pass: take recent runs up to limit, tracking tools
   for (const run of allRuns) {
     if (result.length < recentLimit) {
       result.push(run);
-      if (run.status === 'complete') {
+      if (isCompleteStatus(run.status)) {
         seenTools.add(run.toolId);
       }
     }
@@ -959,7 +1116,7 @@ export async function getRecentRunsWithToolCoverage(
 
   // Second pass: add latest completed run for any missing tools
   for (const run of allRuns) {
-    if (run.status === 'complete' && !seenTools.has(run.toolId)) {
+    if (isCompleteStatus(run.status) && !seenTools.has(run.toolId)) {
       // This is the latest completed run for this tool (since allRuns is sorted desc)
       result.push(run);
       seenTools.add(run.toolId);

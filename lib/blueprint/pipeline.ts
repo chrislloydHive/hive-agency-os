@@ -412,9 +412,9 @@ export async function fetchDiagnosticsData(companyId: string): Promise<Diagnosti
   const runs = await getRunsGroupedByTool(companyId);
 
   // Get latest complete run for each tool
+  // NOTE: gapSnapshot is the canonical diagnostic type for GAP IA runs
   const latestByTool: Record<DiagnosticToolId, DiagnosticRun | null> = {
-    gapSnapshot: null,
-    gapIa: null,
+    gapSnapshot: null,  // Displayed as "GAP IA"
     gapPlan: null,
     gapHeavy: null,
     websiteLab: null,

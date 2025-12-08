@@ -3,8 +3,9 @@
 // Canonical route: /c/[companyId]/brain/labs
 
 import Link from 'next/link';
-import { Swords, Globe, Palette, FlaskConical, Users, TrendingUp, FileText } from 'lucide-react';
+import { Swords, Globe, Palette, FlaskConical, Users, TrendingUp, FileText, Search, BarChart3, Megaphone, Settings, Play } from 'lucide-react';
 import { LABS } from '@/lib/nav/companyNav';
+import { FullIntelligenceScanCard } from '@/components/brain/labs/FullIntelligenceScanCard';
 
 interface Props {
   params: Promise<{ companyId: string }>;
@@ -29,6 +30,11 @@ const labIcons: Record<string, React.ElementType> = {
   website: Globe,
   brand: FlaskConical,
   audience: Users,
+  content: FileText,
+  seo: Search,
+  demand: Megaphone,
+  ops: Settings,
+  media: Play,
 };
 
 // Gradient mapping for labs
@@ -39,6 +45,11 @@ const labGradients: Record<string, { gradient: string; iconColor: string }> = {
   website: { gradient: 'from-emerald-500/20 to-teal-500/20', iconColor: 'text-emerald-400' },
   brand: { gradient: 'from-amber-500/20 to-orange-500/20', iconColor: 'text-amber-400' },
   audience: { gradient: 'from-blue-500/20 to-indigo-500/20', iconColor: 'text-blue-400' },
+  content: { gradient: 'from-purple-500/20 to-fuchsia-500/20', iconColor: 'text-purple-400' },
+  seo: { gradient: 'from-lime-500/20 to-green-500/20', iconColor: 'text-lime-400' },
+  demand: { gradient: 'from-red-500/20 to-pink-500/20', iconColor: 'text-red-400' },
+  ops: { gradient: 'from-slate-500/20 to-zinc-500/20', iconColor: 'text-slate-400' },
+  media: { gradient: 'from-sky-500/20 to-cyan-500/20', iconColor: 'text-sky-400' },
 };
 
 export default async function LabsHubPage({ params }: Props) {
@@ -69,6 +80,9 @@ export default async function LabsHubPage({ params }: Props) {
           Deep-dive diagnostics that refine company context and feed strategy, work, and QBR.
         </p>
       </div>
+
+      {/* Full Intelligence Scan */}
+      <FullIntelligenceScanCard companyId={companyId} />
 
       {/* Active Labs */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

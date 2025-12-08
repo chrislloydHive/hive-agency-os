@@ -85,6 +85,33 @@ export type GapFullReportRecord = {
   evidenceJson?: unknown;
   createdAt?: string;
   updatedAt?: string;
+
+  // =========================================================================
+  // Extracted Fields (Phase 3 - optional fields extracted from JSON)
+  // These provide queryable/sortable access to key data points
+  // =========================================================================
+
+  /** Maturity stage derived from overall score: Basic, Developing, Good, Advanced, World-Class */
+  maturityStage?: 'Basic' | 'Developing' | 'Good' | 'Advanced' | 'World-Class';
+
+  /** Primary pillar to focus on, from top priority */
+  primaryFocusArea?: 'Brand' | 'Content' | 'SEO' | 'Website' | 'Funnel';
+
+  /** Top 3 issues (titles) from diagnostics */
+  topIssue1?: string;
+  topIssue2?: string;
+  topIssue3?: string;
+
+  /** Top 3 initiatives (titles) from priorities */
+  topInitiative1?: string;
+  topInitiative2?: string;
+  topInitiative3?: string;
+
+  /** Total count of issues found */
+  issueCount?: number;
+
+  /** Count of high-severity issues */
+  criticalIssueCount?: number;
 };
 
 // ============================================================================
@@ -195,6 +222,10 @@ export async function upsertGapFullReportForOsRun({
     fields['Plan JSON'] = JSON.stringify(osResult.plan);
     fields['Evidence JSON'] = JSON.stringify(osResult.evidence);
 
+    // Extract queryable fields from osResult for easier Airtable queries
+    const extractedFields = extractGapFullReportFields(osResult);
+    Object.assign(fields, extractedFields);
+
     // Log the fields being written
     console.log('[GAP-Full Report] v2 schema fields prepared:', {
       meta: {
@@ -213,6 +244,14 @@ export async function upsertGapFullReportForOsRun({
       summary: {
         'Top Priority Summary': fields['Top Priority Summary'],
         'Status': fields['Status'],
+      },
+      extracted: {
+        'Maturity Stage': fields['Maturity Stage'],
+        'Primary Focus Area': fields['Primary Focus Area'],
+        'Top Issue 1': fields['Top Issue 1'],
+        'Top Initiative 1': fields['Top Initiative 1'],
+        'Issue Count': fields['Issue Count'],
+        'Critical Issue Count': fields['Critical Issue Count'],
       },
       jsonFieldSizes: {
         'Scores JSON': fields['Scores JSON']?.length || 0,
@@ -688,6 +727,93 @@ function deriveStatus(overallScore: number): string {
   if (overallScore < 4) return 'Critical';
   if (overallScore <= 7) return 'Needs Attention';
   return 'OK';
+}
+
+/**
+ * Derive maturity stage from overall score (0-10 scale)
+ * - 0-3.9: Basic
+ * - 4-5.4: Developing
+ * - 5.5-6.9: Good
+ * - 7-8.4: Advanced
+ * - 8.5-10: World-Class
+ */
+function deriveMaturityStage(overallScore: number): 'Basic' | 'Developing' | 'Good' | 'Advanced' | 'World-Class' {
+  if (overallScore < 4) return 'Basic';
+  if (overallScore < 5.5) return 'Developing';
+  if (overallScore < 7) return 'Good';
+  if (overallScore < 8.5) return 'Advanced';
+  return 'World-Class';
+}
+
+/**
+ * Map pillar name to Airtable-friendly focus area
+ */
+function mapPillarToFocusArea(pillar: Pillar | 'multi' | undefined): 'Brand' | 'Content' | 'SEO' | 'Website' | 'Funnel' | undefined {
+  if (!pillar || pillar === 'multi') return undefined;
+  const mapping: Record<Pillar, 'Brand' | 'Content' | 'SEO' | 'Website' | 'Funnel'> = {
+    brand: 'Brand',
+    content: 'Content',
+    seo: 'SEO',
+    websiteUx: 'Website',
+    funnel: 'Funnel',
+  };
+  return mapping[pillar];
+}
+
+/**
+ * Extract queryable fields from OsDiagnosticResult for Airtable columns
+ * These fields are extracted alongside the JSON blobs for easier querying
+ */
+function extractGapFullReportFields(result: OsDiagnosticResult): Record<string, unknown> {
+  const extracted: Record<string, unknown> = {};
+
+  // Maturity stage from overall score
+  if (result.overallScore !== undefined) {
+    extracted['Maturity Stage'] = deriveMaturityStage(result.overallScore);
+  }
+
+  // Primary focus area from first priority
+  if (result.priorities && result.priorities.length > 0) {
+    const primaryPillar = result.priorities[0]?.pillar;
+    const focusArea = mapPillarToFocusArea(primaryPillar);
+    if (focusArea) {
+      extracted['Primary Focus Area'] = focusArea;
+    }
+  }
+
+  // Collect all issues across pillars, sorted by severity
+  const allIssues: Array<{ title: string; severity: string; pillar: string }> = [];
+  for (const pillarScore of result.pillarScores) {
+    if (pillarScore.issues) {
+      for (const issue of pillarScore.issues) {
+        allIssues.push({
+          title: issue.title,
+          severity: issue.severity,
+          pillar: issue.pillar,
+        });
+      }
+    }
+  }
+
+  // Sort by severity (high first)
+  const severityOrder = { high: 0, medium: 1, low: 2 };
+  allIssues.sort((a, b) => (severityOrder[a.severity as keyof typeof severityOrder] ?? 3) - (severityOrder[b.severity as keyof typeof severityOrder] ?? 3));
+
+  // Top 3 issues
+  if (allIssues[0]) extracted['Top Issue 1'] = allIssues[0].title;
+  if (allIssues[1]) extracted['Top Issue 2'] = allIssues[1].title;
+  if (allIssues[2]) extracted['Top Issue 3'] = allIssues[2].title;
+
+  // Top 3 initiatives from priorities
+  if (result.priorities?.[0]) extracted['Top Initiative 1'] = result.priorities[0].title;
+  if (result.priorities?.[1]) extracted['Top Initiative 2'] = result.priorities[1].title;
+  if (result.priorities?.[2]) extracted['Top Initiative 3'] = result.priorities[2].title;
+
+  // Issue counts
+  extracted['Issue Count'] = allIssues.length;
+  extracted['Critical Issue Count'] = allIssues.filter(i => i.severity === 'high').length;
+
+  return extracted;
 }
 
 /**

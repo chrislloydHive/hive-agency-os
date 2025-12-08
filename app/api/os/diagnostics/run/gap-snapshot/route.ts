@@ -15,6 +15,8 @@ import { aiForCompany, addCompanyMemoryEntry } from '@/lib/ai-gateway';
 import { findOrCreateCompanyForGap } from '@/lib/pipeline/createOrMatchCompany';
 import { processDiagnosticRunCompletionAsync } from '@/lib/os/diagnostics/postRunHooks';
 import { createDiagnosticError, detectErrorCode, type DiagnosticErrorCode } from '@/lib/os/diagnostics/messages';
+import { createGapIaRun, updateGapIaRun } from '@/lib/airtable/gapIaRuns';
+import { extractDomain } from '@/lib/utils/extractDomain';
 import type { GapModelCaller } from '@/lib/gap/core';
 
 /**
@@ -79,6 +81,23 @@ export async function POST(request: NextRequest) {
       status: 'running',
     });
 
+    // Also create a GAP-IA Run record in Airtable (for Reports Hub visibility)
+    const domain = extractDomain(websiteUrl) || company.domain || '';
+    let gapIaRunId: string | null = null;
+    try {
+      const gapIaRun = await createGapIaRun({
+        url: websiteUrl,
+        domain,
+        source: 'os_diagnostic',
+        companyId: company.id,
+      });
+      gapIaRunId = gapIaRun.id;
+      console.log('[API] Created GAP-IA Run record:', gapIaRunId);
+    } catch (e) {
+      // Non-fatal - continue with analysis
+      console.warn('[API] Failed to create GAP-IA Run record:', e);
+    }
+
     // Create a model caller that uses aiForCompany() for memory-aware AI calls
     // This ensures the GAP engine:
     // - Loads prior company memory (previous GAP runs, analytics insights, work items)
@@ -135,6 +154,36 @@ You must always output valid JSON matching the GAP IA schema.
       success: result.success,
       score: result.score,
     });
+
+    // Update the GAP-IA Run record in Airtable with results
+    if (gapIaRunId) {
+      try {
+        const ia = result.data as Record<string, unknown> | undefined;
+        const iaData = ia?.initialAssessment as Record<string, unknown> | undefined;
+        const summary = iaData?.summary as Record<string, unknown> | undefined;
+        const core = iaData?.core as Record<string, unknown> | undefined;
+
+        await updateGapIaRun(gapIaRunId, {
+          status: result.success ? 'completed' : 'failed',
+          core: {
+            url: websiteUrl,
+            domain,
+            brand: {},
+            content: {},
+            seo: {},
+            website: {},
+            quickSummary: result.summary || '',
+            topOpportunities: (summary?.topOpportunities ?? core?.topOpportunities ?? []) as string[],
+            overallScore: result.score ?? (summary?.overallScore as number | undefined) ?? (core?.overallScore as number | undefined),
+            marketingMaturity: (summary?.maturityStage ?? core?.marketingMaturity ?? 'Unknown') as string,
+          },
+          errorMessage: result.error,
+        } as any);
+        console.log('[API] Updated GAP-IA Run record as completed:', gapIaRunId);
+      } catch (e) {
+        console.warn('[API] Failed to update GAP-IA Run record:', e);
+      }
+    }
 
     // =========================================================================
     // Save Summary to Company AI Memory (Client Brain)

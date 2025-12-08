@@ -203,6 +203,14 @@ export const ContextContracts: Record<DomainName, DomainContract> = {
     required: [],
     recommended: [],
   },
+
+  social: {
+    required: [],
+    recommended: [
+      'social.instagramUrl',
+      'social.gbpUrl',
+    ],
+  },
 };
 
 // ============================================================================

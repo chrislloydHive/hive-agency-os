@@ -48,6 +48,8 @@ function diagnosticRunToSummary(
   };
 
   // Generate URL based on tool type
+  // NOTE: Use kebab-case slugs (e.g., brand-lab not brand) to avoid
+  // conflicts with static folders like diagnostics/brand/page.tsx
   let link: string | undefined;
   const isComplete = run.status === 'complete';
   if (isComplete) {
@@ -56,26 +58,25 @@ function diagnosticRunToSummary(
         link = `/c/${companyId}/diagnostics/gap-heavy/${run.id}`;
         break;
       case 'websiteLab':
-        link = `/c/${companyId}/diagnostics/website/${run.id}`;
+        link = `/c/${companyId}/diagnostics/website-lab/${run.id}`;
         break;
       case 'brandLab':
-        link = `/c/${companyId}/diagnostics/brand/${run.id}`;
+        link = `/c/${companyId}/diagnostics/brand-lab/${run.id}`;
         break;
       case 'seoLab':
-        link = `/c/${companyId}/diagnostics/seo/${run.id}`;
+        link = `/c/${companyId}/diagnostics/seo-lab/${run.id}`;
         break;
       case 'contentLab':
-        link = `/c/${companyId}/diagnostics/content/${run.id}`;
+        link = `/c/${companyId}/diagnostics/content-lab/${run.id}`;
         break;
       case 'gapSnapshot':
-      case 'gapIa':
         link = `/c/${companyId}/diagnostics/gap-ia/${run.id}`;
         break;
       case 'demandLab':
-        link = `/c/${companyId}/diagnostics/demand/${run.id}`;
+        link = `/c/${companyId}/diagnostics/demand-lab/${run.id}`;
         break;
       case 'opsLab':
-        link = `/c/${companyId}/diagnostics/ops/${run.id}`;
+        link = `/c/${companyId}/diagnostics/ops-lab/${run.id}`;
         break;
       case 'creativeLab':
         link = `/c/${companyId}/labs/creative`;

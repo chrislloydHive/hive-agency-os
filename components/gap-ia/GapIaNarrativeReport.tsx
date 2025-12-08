@@ -12,6 +12,7 @@ import { getUTM } from '@/lib/utm';
 import { CoreMarketingScores } from './CoreMarketingScores';
 import { BusinessContextSnapshot } from './BusinessContextSnapshot';
 import { getDataConfidenceColor, getDataConfidenceBgColor } from '@/lib/gap/dataConfidence';
+import { SocialLocalPresenceCard } from '@/components/gap/SocialLocalPresenceCard';
 
 type Props = {
   run: GapIaRun;
@@ -870,6 +871,42 @@ export function GapIaNarrativeReport({ run }: Props) {
                 </div>
               )}
             </div>
+          </details>
+        </section>
+      )}
+
+      {/* ====================================================================== */}
+      {/* SOCIAL & LOCAL PRESENCE (V5 socialFootprint) */}
+      {/* ====================================================================== */}
+      {run.socialFootprint && (
+        <section className="space-y-3">
+          <details open className="group">
+            <summary className="cursor-pointer list-none">
+              <div className="mb-4 flex items-center gap-2">
+                <span className="text-slate-400 transition-transform group-open:rotate-90">
+                  ▶
+                </span>
+                <h2 className="text-xl font-bold text-slate-100">
+                  Social & Local Presence
+                </h2>
+                {run.socialLocalPresenceScore !== undefined && (
+                  <span
+                    className={`ml-2 rounded px-2 py-1 text-xs font-bold tabular-nums ${
+                      run.socialLocalPresenceScore >= 70 ? 'text-green-400' :
+                      run.socialLocalPresenceScore >= 50 ? 'text-yellow-400' :
+                      'text-orange-400'
+                    }`}
+                  >
+                    {run.socialLocalPresenceScore}/100
+                  </span>
+                )}
+              </div>
+            </summary>
+            <SocialLocalPresenceCard
+              snapshot={run.socialFootprint}
+              score={run.socialLocalPresenceScore}
+              showDebug={false}
+            />
           </details>
         </section>
       )}

@@ -19,9 +19,15 @@ import type { DiagnosticToolId } from '@/lib/os/diagnostics/runs';
 
 /**
  * Unified tool identifier for all company-level tools
+ *
+ * NOTE: CompanyToolId is the UI-facing identifier for tools.
+ * For tools that create DiagnosticRuns, the `diagnosticToolId` field
+ * specifies the actual type stored in the database.
+ *
+ * Example: CompanyToolId 'gapIa' maps to DiagnosticToolId 'gapSnapshot'
  */
 export type CompanyToolId =
-  | 'gapIa'          // GAP Initial Assessment (quick snapshot)
+  | 'gapIa'          // GAP Initial Assessment - maps to diagnosticToolId 'gapSnapshot'
   | 'gapPlan'        // Full GAP Plan (comprehensive)
   | 'gapHeavy'       // GAP Heavy (deep multi-source)
   | 'websiteLab'     // Website UX/Conversion Lab
@@ -403,7 +409,7 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     runApiPath: '/api/os/diagnostics/run/demand-lab',
     urlSlug: 'demand-lab',
     viewPath: (companyId, runId) =>
-      runId ? `/c/${companyId}/diagnostics/demand/${runId}` : `/c/${companyId}/diagnostics/demand`,
+      runId ? `/c/${companyId}/diagnostics/demand-lab/${runId}` : `/c/${companyId}/diagnostics/demand`,
     requiresWebsite: true,
     estimatedMinutes: 3,
     icon: 'trendingUp',
@@ -433,7 +439,7 @@ export const COMPANY_TOOL_DEFS: CompanyToolDefinition[] = [
     runApiPath: '/api/os/diagnostics/run/ops-lab',
     urlSlug: 'ops-lab',
     viewPath: (companyId, runId) =>
-      runId ? `/c/${companyId}/diagnostics/ops/${runId}` : `/c/${companyId}/diagnostics/ops`,
+      runId ? `/c/${companyId}/diagnostics/ops-lab/${runId}` : `/c/${companyId}/diagnostics/ops`,
     requiresWebsite: true,
     estimatedMinutes: 3,
     icon: 'settings',
@@ -705,13 +711,16 @@ export function getCategoryColor(category: ToolCategory): string {
 }
 
 /**
- * Map from old DiagnosticToolId to new CompanyToolId
- * Used for backward compatibility during migration
+ * Map from DiagnosticToolId to CompanyToolId
+ *
+ * DiagnosticToolId is what's stored in DiagnosticRuns records.
+ * CompanyToolId is the UI-facing identifier used in the tool registry.
+ *
+ * NOTE: 'gapSnapshot' (diagnostic type) maps to 'gapIa' (UI tool ID)
  */
 export function diagnosticToolIdToCompanyToolId(diagnosticToolId: DiagnosticToolId): CompanyToolId | undefined {
   const mapping: Record<DiagnosticToolId, CompanyToolId> = {
-    gapSnapshot: 'gapIa',
-    gapIa: 'gapIa',
+    gapSnapshot: 'gapIa',  // gapSnapshot is the canonical diagnostic type, displayed as "GAP IA"
     gapPlan: 'gapPlan',
     gapHeavy: 'gapHeavy',
     websiteLab: 'websiteLab',

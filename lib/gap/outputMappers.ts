@@ -1,12 +1,42 @@
 // lib/gap/outputMappers.ts
 // Backward compatibility mappers for GAP output templates
 // These map from the new canonical templates to existing API/Airtable formats
+//
+// NOTE: digitalFootprint scores + narratives are constrained by socialFootprint detection
+// to avoid contradictions (e.g., telling a company to 'set up' a GBP when one already exists).
+// See lib/gap/socialFootprintGating.ts for the sanitization logic.
+//
+// Previous behavior: estimateSubscore() used random variance around the overall score,
+// completely ignoring actual detection data.
+// New behavior: Subscores are derived from socialFootprint, and narratives are sanitized
+// to remove/rewrite contradictory recommendations.
+//
+// ============================================================================
+// WHICH SOURCES USE WHICH MAPPING
+// ============================================================================
+//
+// mapInitialAssessmentToApiResponse:
+//   - baseline_context_build: via lib/gap/orchestrator/osGapIaBaseline.ts → generateGapIaAnalysisCore
+//   - os_baseline: same path as above
+//   - gap_ia_run: via lib/gap/core.ts → generateGapIaAnalysisCore
+//
+// All sources MUST pass socialFootprint to enable gating. If socialFootprint is
+// undefined, a warning is logged and gating is skipped (raw LLM output used as-is).
+//
 
 import type {
   InitialAssessmentOutput,
   FullGapOutput,
   DimensionIdType,
 } from './outputTemplates';
+import type { SocialFootprintSnapshot } from './socialDetection';
+import {
+  computeDigitalFootprintSubscores,
+  computeDigitalFootprintScore,
+  sanitizeDigitalFootprintNarrative,
+  sanitizeSocialQuickWinsAndOpportunities,
+  sanitizeQuickSummary,
+} from './socialFootprintGating';
 import type {
   GapIaV2Result,
   GapIaSummary,
@@ -18,6 +48,14 @@ import type {
   QuickWinItem,
   CoreMarketingContext,
   DiagnosticCategory,
+  GapFullAssessmentV1,
+  GapDimensions,
+  GapQuickWin,
+  GapMaturityStage,
+  GapAssessmentSource,
+  DigitalFootprintData,
+  GapDataConfidence,
+  DimensionId,
 } from './types';
 import type { GrowthAccelerationPlan } from '../growth-plan/types';
 
@@ -69,9 +107,29 @@ export function mapInitialAssessmentToApiResponse(
     htmlSignals?: any;
     digitalFootprint?: any;
     multiPageSnapshot?: any;
+    /** V5 socialFootprint detection result - used to gate subscores and narratives */
+    socialFootprint?: SocialFootprintSnapshot;
   }
 ): GapIaV2AiOutput {
-  const { url, domain, businessName, companyType, brandTier } = enrichmentData;
+  const { url, domain, businessName, companyType, brandTier, socialFootprint } = enrichmentData;
+
+  // Defensive warning: if socialFootprint is missing, gating won't be applied
+  // This helps identify pipelines that aren't passing detection results
+  if (!socialFootprint) {
+    console.warn('[outputMappers] WARNING: socialFootprint is undefined for', {
+      domain,
+      url,
+      hint: 'Subscores and narratives will NOT be gated by detection results',
+    });
+  }
+
+  // Sanitize quickWins and topOpportunities to avoid contradicting detection
+  const rawQuickWinActions = templateOutput.quickWins.map(qw => qw.action);
+  const sanitized = sanitizeSocialQuickWinsAndOpportunities(
+    socialFootprint,
+    rawQuickWinActions,
+    templateOutput.topOpportunities
+  );
 
   // Map summary
   const summary: GapIaSummary = {
@@ -79,34 +137,45 @@ export function mapInitialAssessmentToApiResponse(
     maturityStage: mapMaturityStageToLegacy(templateOutput.maturityStage),
     headlineDiagnosis: generateHeadlineDiagnosis(templateOutput),
     narrative: templateOutput.executiveSummary,
-    topOpportunities: templateOutput.topOpportunities,
+    topOpportunities: sanitized.topOpportunities,
   };
 
   // Map dimensions (convert array to object structure)
-  const dimensions: GapIaDimensions = mapDimensionSummariesToLegacy(templateOutput.dimensionSummaries);
+  // Pass socialFootprint to derive accurate subscores from detection
+  const dimensions: GapIaDimensions = mapDimensionSummariesToLegacy(
+    templateOutput.dimensionSummaries,
+    socialFootprint
+  );
 
   // Map breakdown (generate from dimension key issues)
   const breakdown = {
     bullets: generateBreakdownBullets(templateOutput),
   };
 
-  // Map quick wins
+  // Map quick wins (using sanitized actions)
   const quickWins = {
-    bullets: templateOutput.quickWins.map((qw, index) => ({
-      category: mapDimensionToCategory(qw.dimensionId || inferDimensionFromAction(qw.action)),
-      action: qw.action,
-      expectedImpact: 'high' as const, // Default for IA quick wins
-      effortLevel: 'low' as const, // Default for IA quick wins
-    })),
+    bullets: templateOutput.quickWins.map((qw, index) => {
+      // Use sanitized action if available (may have been filtered/rewritten)
+      const sanitizedAction = sanitized.quickWins[index] ?? qw.action;
+      return {
+        category: mapDimensionToCategory(qw.dimensionId || inferDimensionFromAction(sanitizedAction)),
+        action: sanitizedAction,
+        expectedImpact: 'high' as const, // Default for IA quick wins
+        effortLevel: 'low' as const, // Default for IA quick wins
+      };
+    }).filter(qw => qw.action), // Remove any empty actions from filtering
   };
 
   // Generate legacy core object (required for Airtable)
+  // Pass sanitized topOpportunities and socialFootprint for quickSummary sanitization
   const core: CoreMarketingContext = generateCoreContext(
     url,
     domain,
     businessName,
     templateOutput.dimensionSummaries,
-    enrichmentData
+    enrichmentData,
+    sanitized.topOpportunities,
+    socialFootprint
   );
 
   // Generate legacy insights object (required for Airtable)
@@ -142,9 +211,14 @@ function mapMaturityStageToLegacy(stage: string): 'early' | 'developing' | 'adva
 
 /**
  * Convert dimensionSummaries array to legacy dimensions object structure
+ *
+ * For digitalFootprint dimension:
+ * - Subscores are derived from socialFootprint detection (not random variance)
+ * - Narratives (oneLiner, issues) are sanitized to avoid contradicting detection
  */
 function mapDimensionSummariesToLegacy(
-  dimensionSummaries: InitialAssessmentOutput['dimensionSummaries']
+  dimensionSummaries: InitialAssessmentOutput['dimensionSummaries'],
+  socialFootprint?: SocialFootprintSnapshot
 ): GapIaDimensions {
   const dimensions: Partial<GapIaDimensions> = {};
 
@@ -158,14 +232,26 @@ function mapDimensionSummariesToLegacy(
 
     // Special handling for dimensions with subscores
     if (dim.id === 'digitalFootprint') {
+      // V5: Compute subscores from socialFootprint detection instead of random variance
+      const subscores = computeDigitalFootprintSubscores(socialFootprint);
+
+      // Override the model's overall score with detection-based calculation
+      // This ensures the score is consistent with the subscores
+      const detectionBasedScore = computeDigitalFootprintScore(subscores);
+
+      // Sanitize narratives to avoid contradicting detection signals
+      const sanitizedNarrative = sanitizeDigitalFootprintNarrative(
+        socialFootprint,
+        dim.summary,
+        [dim.keyIssue]
+      );
+
       dimensions.digitalFootprint = {
-        ...baseDimension,
-        subscores: {
-          googleBusinessProfile: estimateSubscore(dim.score, 'gbp'),
-          linkedinPresence: estimateSubscore(dim.score, 'linkedin'),
-          socialPresence: estimateSubscore(dim.score, 'social'),
-          reviewsReputation: estimateSubscore(dim.score, 'reviews'),
-        },
+        score: detectionBasedScore,
+        label: formatDimensionLabel(dim.id),
+        oneLiner: sanitizedNarrative.oneLiner,
+        issues: sanitizedNarrative.issues,
+        subscores,
       } as DigitalFootprintDimension;
     } else if (dim.id === 'authority') {
       dimensions.authority = {
@@ -238,8 +324,14 @@ function generateCoreContext(
   domain: string,
   businessName: string | undefined,
   dimensionSummaries: InitialAssessmentOutput['dimensionSummaries'],
-  enrichmentData: any
+  enrichmentData: any,
+  sanitizedTopOpportunities: string[],
+  socialFootprint?: SocialFootprintSnapshot
 ): CoreMarketingContext {
+  // Generate quickSummary from top opportunities and sanitize it
+  const rawQuickSummary = sanitizedTopOpportunities.slice(0, 3).join(' ');
+  const quickSummary = sanitizeQuickSummary(socialFootprint, rawQuickSummary);
+
   const core: CoreMarketingContext = {
     url,
     domain,
@@ -255,9 +347,9 @@ function generateCoreContext(
     seo: {},
     website: {},
 
-    // Quick summary (use first topOpportunity or generate)
-    quickSummary: '', // Will be populated by API handler
-    topOpportunities: [], // Will be populated by API handler
+    // Quick summary (sanitized to avoid detection contradictions)
+    quickSummary,
+    topOpportunities: sanitizedTopOpportunities,
   };
 
   // Populate dimension scores in core (required for Airtable)
@@ -367,6 +459,247 @@ function inferDimensionFromAction(action: string): DimensionIdType {
   }
 
   return 'brand'; // Default fallback
+}
+
+// ============================================================================
+// Canonical GapFullAssessmentV1 Mapper (from InitialAssessmentOutput)
+// ============================================================================
+
+/**
+ * Input for mapping InitialAssessmentOutput to GapFullAssessmentV1
+ */
+export interface InitialAssessmentToCanonicalInput {
+  /** Validated InitialAssessmentOutput from LLM */
+  templateOutput: InitialAssessmentOutput;
+
+  /** Run metadata */
+  metadata: {
+    runId: string;
+    url: string;
+    domain: string;
+    companyName: string;
+    companyId?: string;
+    source: GapAssessmentSource;
+  };
+
+  /** Detection data for gating */
+  detectionData?: {
+    socialFootprint?: SocialFootprintSnapshot;
+    digitalFootprint?: DigitalFootprintData;
+    dataConfidence?: GapDataConfidence;
+  };
+}
+
+/**
+ * Map InitialAssessmentOutput directly to GapFullAssessmentV1
+ *
+ * This is the canonical mapper for GAP-IA outputs. It produces the unified
+ * GapFullAssessmentV1 type that both DMA and OS can consume.
+ *
+ * Social footprint gating is applied to digitalFootprint subscores and
+ * all narratives/recommendations.
+ *
+ * @param input - Initial assessment input with metadata and detection data
+ * @returns GapFullAssessmentV1 canonical assessment
+ */
+export function mapInitialAssessmentToCanonical(
+  input: InitialAssessmentToCanonicalInput
+): GapFullAssessmentV1 {
+  const { templateOutput, metadata, detectionData } = input;
+  const { socialFootprint } = detectionData ?? {};
+
+  // Sanitize quick wins and opportunities using social footprint gating
+  const rawQuickWinActions = templateOutput.quickWins.map((qw) => qw.action);
+  const sanitized = sanitizeSocialQuickWinsAndOpportunities(
+    socialFootprint,
+    rawQuickWinActions,
+    templateOutput.topOpportunities
+  );
+
+  // Build dimensions with gating
+  const dimensions = buildCanonicalDimensions(
+    templateOutput.dimensionSummaries,
+    socialFootprint
+  );
+
+  // Build quick wins
+  const quickWins: GapQuickWin[] = templateOutput.quickWins.map((qw, index) => ({
+    action: sanitized.quickWins[index] ?? qw.action,
+    dimensionId: qw.dimensionId as DimensionId | undefined,
+    impactLevel: 'high', // Default for IA quick wins
+    effortLevel: 'low', // Default for IA quick wins
+  }));
+
+  // Normalize maturity stage
+  const maturityStage = normalizeMaturityStageToCanonical(
+    templateOutput.maturityStage
+  );
+
+  // Build the canonical assessment
+  const assessment: GapFullAssessmentV1 = {
+    // Metadata
+    companyName: metadata.companyName,
+    url: metadata.url,
+    domain: metadata.domain,
+    source: metadata.source,
+    runId: metadata.runId,
+    generatedAt: new Date().toISOString(),
+    companyId: metadata.companyId,
+
+    // Overall metrics
+    overallScore: templateOutput.marketingReadinessScore,
+    maturityStage,
+    executiveSummary: templateOutput.executiveSummary,
+
+    // Dimensions
+    dimensions,
+
+    // Quick wins and opportunities
+    quickWins,
+    topOpportunities: sanitized.topOpportunities,
+
+    // Detection data (preserved for downstream consumers)
+    socialFootprint,
+    digitalFootprintData: detectionData?.digitalFootprint,
+    dataConfidence: detectionData?.dataConfidence,
+
+    // Business context
+    businessType: templateOutput.businessType,
+    brandTier: templateOutput.brandTier,
+
+    // Full GAP sections not populated for initial assessment
+    strategicPriorities: undefined,
+    roadmap90Days: undefined,
+    kpis: undefined,
+
+    // Notes
+    notes: templateOutput.notes,
+    confidence: templateOutput.confidence,
+  };
+
+  return assessment;
+}
+
+/**
+ * Build canonical dimensions from InitialAssessmentOutput dimension summaries
+ */
+function buildCanonicalDimensions(
+  dimensionSummaries: InitialAssessmentOutput['dimensionSummaries'],
+  socialFootprint?: SocialFootprintSnapshot
+): GapDimensions {
+  const dims: Partial<GapDimensions> = {};
+
+  for (const dim of dimensionSummaries) {
+    const baseDimension: DimensionSummary = {
+      score: dim.score,
+      label: formatDimensionLabel(dim.id),
+      oneLiner: dim.summary,
+      issues: [dim.keyIssue],
+    };
+
+    if (dim.id === 'digitalFootprint') {
+      // Apply social footprint gating to digitalFootprint
+      const subscores = computeDigitalFootprintSubscores(socialFootprint);
+      const gatedScore = computeDigitalFootprintScore(subscores);
+      const sanitizedNarrative = sanitizeDigitalFootprintNarrative(
+        socialFootprint,
+        dim.summary,
+        [dim.keyIssue]
+      );
+
+      dims.digitalFootprint = {
+        score: gatedScore,
+        label: formatDimensionLabel(dim.id),
+        oneLiner: sanitizedNarrative.oneLiner,
+        issues: sanitizedNarrative.issues,
+        subscores,
+      } as DigitalFootprintDimension;
+    } else if (dim.id === 'authority') {
+      dims.authority = {
+        ...baseDimension,
+        subscores: {
+          domainAuthority: estimateSubscore(dim.score, 'domain'),
+          backlinks: estimateSubscore(dim.score, 'backlinks'),
+          brandSearchDemand: estimateSubscore(dim.score, 'brand'),
+          industryRecognition: estimateSubscore(dim.score, 'recognition'),
+        },
+      } as AuthorityDimension;
+    } else {
+      // Standard dimensions
+      (dims as any)[dim.id] = baseDimension;
+    }
+  }
+
+  // Ensure all dimensions exist
+  if (!dims.brand) dims.brand = createEmptyDimension('brand');
+  if (!dims.content) dims.content = createEmptyDimension('content');
+  if (!dims.seo) dims.seo = createEmptyDimension('seo');
+  if (!dims.website) dims.website = createEmptyDimension('website');
+  if (!dims.digitalFootprint) {
+    dims.digitalFootprint = {
+      ...createEmptyDimension('digitalFootprint'),
+      subscores: computeDigitalFootprintSubscores(socialFootprint),
+    } as DigitalFootprintDimension;
+  }
+  if (!dims.authority) {
+    dims.authority = {
+      ...createEmptyDimension('authority'),
+      subscores: {
+        domainAuthority: 50,
+        backlinks: 50,
+        brandSearchDemand: 50,
+        industryRecognition: 50,
+      },
+    } as AuthorityDimension;
+  }
+
+  return dims as GapDimensions;
+}
+
+/**
+ * Create empty dimension placeholder
+ */
+function createEmptyDimension(id: DimensionIdType): DimensionSummary {
+  const labels: Record<DimensionIdType, string> = {
+    brand: 'Brand & Positioning',
+    content: 'Content & Messaging',
+    seo: 'SEO & Visibility',
+    website: 'Website & Conversion',
+    digitalFootprint: 'Digital Footprint',
+    authority: 'Authority & Trust',
+  };
+
+  return {
+    score: 50,
+    label: labels[id],
+    oneLiner: `${labels[id]} assessment pending`,
+    issues: [],
+  };
+}
+
+/**
+ * Normalize maturity stage to canonical GapMaturityStage
+ */
+function normalizeMaturityStageToCanonical(stage: string): GapMaturityStage {
+  const normalized = stage.toLowerCase().trim().replace(/[^a-z]/g, '');
+
+  const mappings: Record<string, GapMaturityStage> = {
+    early: 'Foundational',
+    earlystage: 'Foundational',
+    foundational: 'Foundational',
+    foundation: 'Foundational',
+    developing: 'Emerging',
+    emerging: 'Emerging',
+    established: 'Established',
+    scaling: 'Established',
+    advanced: 'Advanced',
+    mature: 'Advanced',
+    categoryleader: 'CategoryLeader',
+    leader: 'CategoryLeader',
+    leading: 'CategoryLeader',
+  };
+
+  return mappings[normalized] || 'Emerging';
 }
 
 // ============================================================================

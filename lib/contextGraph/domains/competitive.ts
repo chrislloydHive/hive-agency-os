@@ -127,9 +127,20 @@ export const CompetitorProfile = z.object({
   threatDrivers: z.array(z.string()).default([]),
   /** Whether this competitor was auto-seeded by AI (not human-verified) */
   autoSeeded: z.boolean().default(false),
+
+  // V3.5 Negative memory and signals (lightweight)
+  businessModelCategory: z.string().nullable().default(null),
+  jtbdMatches: z.number().min(0).max(1).nullable().default(null),
+  offerOverlapScore: z.number().min(0).max(1).nullable().default(null),
+  signalsVerified: z.number().nullable().default(null),
 });
 
 export type CompetitorProfile = z.infer<typeof CompetitorProfile>;
+
+/**
+ * Durable list of invalid competitors (domains) to always exclude
+ */
+export const InvalidCompetitors = WithMetaArray(z.string());
 
 // ============================================================================
 // Feature Matrix Types
@@ -525,6 +536,9 @@ export function createEmptyCompetitiveDomain(): CompetitiveDomain {
 
     // Substitutes
     substitutes: { value: [], provenance: [] },
+
+  // Negative competitor memory
+  invalidCompetitors: { value: [], provenance: [] },
   };
 }
 

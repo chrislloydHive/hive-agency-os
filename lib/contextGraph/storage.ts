@@ -13,6 +13,52 @@ import {
 const CONTEXT_GRAPHS_TABLE = AIRTABLE_TABLES.CONTEXT_GRAPHS;
 
 /**
+ * Calculate total number of populated fields (nodes) in a context graph
+ * Returns the count of fields with non-null, non-empty values
+ */
+function calculateNodeCount(graph: CompanyContextGraph): number {
+  let populatedFields = 0;
+
+  function countNodes(obj: unknown, depth = 0): void {
+    if (depth > 10) return;
+
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+      const record = obj as Record<string, unknown>;
+
+      if ('value' in record && 'provenance' in record) {
+        if (record.value !== null && record.value !== undefined) {
+          if (Array.isArray(record.value) && record.value.length === 0) {
+            // Empty arrays don't count
+          } else {
+            populatedFields++;
+          }
+        }
+      } else {
+        for (const value of Object.values(record)) {
+          countNodes(value, depth + 1);
+        }
+      }
+    }
+  }
+
+  // Count populated fields in each domain
+  const domainNames = [
+    'identity', 'brand', 'objectives', 'audience', 'productOffer',
+    'digitalInfra', 'website', 'content', 'seo', 'ops',
+    'performanceMedia', 'historical', 'creative', 'competitive',
+    'budgetOps', 'operationalConstraints', 'storeRisk', 'historyRefs', 'social',
+  ] as const;
+
+  for (const domain of domainNames) {
+    if ((graph as any)[domain]) {
+      countNodes((graph as any)[domain]);
+    }
+  }
+
+  return populatedFields;
+}
+
+/**
  * Compress a graph for storage by removing redundant data
  * - Keeps only the first provenance entry per field
  * - Removes detailed provenance from competitor profiles
@@ -129,6 +175,39 @@ export interface ContextGraphRecord {
   lastUpdatedBy: string | null;
   createdAt: string;
   updatedAt: string;
+
+  // =========================================================================
+  // Extracted Fields (Phase 3 - optional fields extracted from Graph JSON)
+  // These provide queryable/sortable access to key data points
+  // =========================================================================
+
+  /** Total number of fields with values in the graph */
+  nodeCount?: number;
+  /** Number of domains with >0% coverage */
+  domainCount?: number;
+  /** When the graph was last fused with new data */
+  lastFusionAt?: string | null;
+  /** Whether baseline context has been initialized */
+  contextInitialized?: boolean;
+
+  /** Business type from identity domain */
+  businessType?: string;
+  /** Industry classification from identity domain */
+  industry?: string;
+
+  /** Whether competitor data exists */
+  hasCompetitors?: boolean;
+  /** Number of competitors tracked */
+  competitorCount?: number;
+  /** Whether audience segment data exists */
+  hasAudienceData?: boolean;
+
+  /** Individual domain coverage percentages (optional) */
+  identityCoverage?: number;
+  brandCoverage?: number;
+  audienceCoverage?: number;
+  contentCoverage?: number;
+  seoCoverage?: number;
 }
 
 /**
@@ -357,6 +436,52 @@ export async function saveContextGraph(
       // Map various source names to 'user' for now
       fields['Last Updated By'] = 'user';
     }
+
+    // =========================================================================
+    // Extract queryable fields from Graph JSON for easier Airtable queries
+    // =========================================================================
+
+    // Node count (estimated from completeness calculation)
+    const nodeCount = calculateNodeCount(graph);
+    fields['Node Count'] = nodeCount;
+
+    // Domain count (domains with >0% coverage)
+    const domainCountValue = Object.values(domainCoverage).filter((v) => v > 0).length;
+    fields['Domain Count'] = domainCountValue;
+
+    // Last fusion timestamp
+    fields['Last Fusion At'] = graph.meta.lastFusionAt;
+
+    // Context initialized flag
+    fields['Context Initialized'] = graph.meta.contextInitializedAt !== null;
+
+    // Business type from identity domain
+    const businessType = (graph.identity as any)?.businessType?.value;
+    if (businessType) {
+      fields['Business Type'] = businessType;
+    }
+
+    // Industry from identity domain
+    const industry = (graph.identity as any)?.industry?.value;
+    if (industry) {
+      fields['Industry'] = industry;
+    }
+
+    // Competitor data
+    const topCompetitors = (graph.competitive as any)?.topCompetitors?.value;
+    fields['Has Competitors'] = Array.isArray(topCompetitors) && topCompetitors.length > 0;
+    fields['Competitor Count'] = Array.isArray(topCompetitors) ? topCompetitors.length : 0;
+
+    // Audience data
+    const primarySegments = (graph.audience as any)?.primarySegments?.value;
+    fields['Has Audience Data'] = Array.isArray(primarySegments) && primarySegments.length > 0;
+
+    // Individual domain coverages
+    fields['Identity Coverage'] = domainCoverage.identity ?? 0;
+    fields['Brand Coverage'] = domainCoverage.brand ?? 0;
+    fields['Audience Coverage'] = domainCoverage.audience ?? 0;
+    fields['Content Coverage'] = domainCoverage.content ?? 0;
+    fields['SEO Coverage'] = domainCoverage.seo ?? 0;
 
     let savedRecord: any;
 

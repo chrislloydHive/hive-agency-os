@@ -13,9 +13,10 @@ import {
 interface Props {
   competitor: CompetitionCompetitor;
   onClose: () => void;
+  onMarkInvalid?: (domain?: string | null) => void;
 }
 
-export function CompetitorCardV3({ competitor, onClose }: Props) {
+export function CompetitorCardV3({ competitor, onClose, onMarkInvalid }: Props) {
   const colors = TYPE_COLORS[competitor.type];
 
   return (
@@ -45,14 +46,25 @@ export function CompetitorCardV3({ competitor, onClose }: Props) {
             </div>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          className="p-1 rounded text-slate-400 hover:text-slate-300 hover:bg-slate-800 transition-colors"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-2">
+          {onMarkInvalid && competitor.domain && (
+            <button
+              onClick={() => onMarkInvalid(competitor.domain)}
+              className="text-xs text-slate-400 hover:text-amber-300 px-2 py-1 rounded hover:bg-slate-800 transition-colors"
+              title="Exclude from future runs"
+            >
+              Not a competitor
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="p-1 rounded text-slate-400 hover:text-slate-300 hover:bg-slate-800 transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Type Badge */}
@@ -168,6 +180,24 @@ export function CompetitorCardV3({ competitor, onClose }: Props) {
         <div className="p-3 rounded-lg bg-slate-800/50 border border-slate-700">
           <h4 className="text-xs font-medium text-slate-400 mb-1">Why They Compete</h4>
           <p className="text-xs text-slate-300">{competitor.analysis.whyCompetitor}</p>
+        </div>
+      )}
+
+      {/* Debug Signals */}
+      {competitor.signals && (
+        <div className="p-3 rounded-lg bg-slate-900/50 border border-slate-800">
+          <div className="flex items-center gap-2 text-[11px] text-slate-400 mb-1">
+            <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300">Debug</span>
+            <span>Why this competitor?</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+            <div>Business model: {competitor.signals.businessModelCategory || 'n/a'}</div>
+            <div>JTBD match: {competitor.signals.jtbdMatches?.toFixed(2) ?? 'n/a'}</div>
+            <div>Offer overlap: {competitor.signals.offerOverlapScore?.toFixed(2) ?? 'n/a'}</div>
+            <div>Signals verified: {competitor.signals.signalsVerified ?? 0}/5</div>
+            <div>Geo score: {competitor.signals.geoScore?.toFixed(2) ?? 'n/a'}</div>
+            <div>Threat: {competitor.scores.threat}</div>
+          </div>
         </div>
       )}
 

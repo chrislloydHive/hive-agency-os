@@ -33,6 +33,20 @@ function mapRecordToLead(record: any): InboundLeadItem {
     companyId,
     gapIaRunId,
     createdAt: fields['Created At'] || fields['Created'] || null,
+
+    // DMA Integration Fields (Phase 3 - optional)
+    normalizedDomain: fields['Normalized Domain'] || null,
+    dmaAuditId: fields['DMA Audit ID'] || null,
+    importStatus: fields['Import Status'] || null,
+    importedAt: fields['Imported At'] || null,
+    analysisStatus: fields['Analysis Status'] || null,
+
+    // UTM Tracking Fields
+    utmSource: fields['UTM Source'] || null,
+    utmMedium: fields['UTM Medium'] || null,
+    utmCampaign: fields['UTM Campaign'] || null,
+    utmTerm: fields['UTM Term'] || null,
+    utmContent: fields['UTM Content'] || null,
   };
 }
 
@@ -115,6 +129,17 @@ export async function createInboundLead(params: {
   assignee?: string;
   notes?: string;
   companyId?: string;
+  // DMA Integration Fields (Phase 3)
+  normalizedDomain?: string;
+  dmaAuditId?: string;
+  importStatus?: string;
+  analysisStatus?: string;
+  // UTM Tracking Fields
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmTerm?: string;
+  utmContent?: string;
 }): Promise<InboundLeadItem | null> {
   try {
     const base = getBase();
@@ -131,6 +156,19 @@ export async function createInboundLead(params: {
     if (params.assignee) fields['Assignee'] = params.assignee;
     if (params.notes) fields['Notes'] = params.notes;
     if (params.companyId) fields['Company'] = [params.companyId];
+
+    // DMA Integration Fields (Phase 3)
+    if (params.normalizedDomain) fields['Normalized Domain'] = params.normalizedDomain;
+    if (params.dmaAuditId) fields['DMA Audit ID'] = params.dmaAuditId;
+    if (params.importStatus) fields['Import Status'] = params.importStatus;
+    if (params.analysisStatus) fields['Analysis Status'] = params.analysisStatus;
+
+    // UTM Tracking Fields
+    if (params.utmSource) fields['UTM Source'] = params.utmSource;
+    if (params.utmMedium) fields['UTM Medium'] = params.utmMedium;
+    if (params.utmCampaign) fields['UTM Campaign'] = params.utmCampaign;
+    if (params.utmTerm) fields['UTM Term'] = params.utmTerm;
+    if (params.utmContent) fields['UTM Content'] = params.utmContent;
 
     const records = await base(INBOUND_LEADS_TABLE).create([{ fields: fields as any }]);
     const createdRecord = records[0];

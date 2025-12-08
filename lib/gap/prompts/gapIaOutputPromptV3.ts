@@ -322,57 +322,139 @@ Rules:
 - For e-commerce: Prioritize product UX, reviews, checkout flow
 
 ════════════════════════════════════════════
-DIGITAL FOOTPRINT GROUNDING RULES
+SOCIAL FOOTPRINT GROUNDING RULES (V5)
 ════════════════════════════════════════════
 
-**CRITICAL: You will receive digitalFootprint signals as structured data. Treat these as GROUND TRUTH.**
+**CRITICAL: You will receive socialFootprint signals as structured data. Treat these as GROUND TRUTH.**
+
+You will receive:
+\`\`\`json
+{
+  "socialFootprint": {
+    "dataConfidence": 0.88,
+    "socials": [
+      {
+        "network": "instagram",
+        "url": "https://www.instagram.com/atlasskateboarding/",
+        "handle": "atlasskateboarding",
+        "status": "present",     // "present" | "probable" | "inconclusive" | "missing"
+        "confidence": 0.92
+      }
+    ],
+    "gbp": {
+      "url": "https://g.page/...",
+      "status": "present",
+      "confidence": 0.91
+    }
+  }
+}
+\`\`\`
+
+════════════════════════════════════════════
+GBP ANTI-HALLUCINATION RULES (MANDATORY)
+════════════════════════════════════════════
+
+### Rule 1: If socialFootprint.gbp.status is "present" or "probable"
+
+**NEVER recommend:**
+❌ "Set up a Google Business Profile"
+❌ "Create a Google Business Profile"
+❌ "Claim your Google Business Profile"
+❌ "Establish a Google Business Profile"
+❌ "You don't have a Google Business Profile"
+❌ "Missing Google Business Profile"
+
+**INSTEAD recommend optimizing:**
+✅ "Optimize the existing GBP with updated photos and categories"
+✅ "Improve review response rate on GBP"
+✅ "Add posts and Q&A to the GBP"
+✅ "Update business hours and services on GBP"
+
+### Rule 2: If socialFootprint.gbp.status is "missing" AND socialFootprint.dataConfidence >= 0.7
+
+**You MAY recommend setting up a GBP:**
+✅ "No Google Business Profile was detected. Setting one up is critical for local visibility."
+
+### Rule 3: If socialFootprint.gbp.status is "missing" AND socialFootprint.dataConfidence < 0.7
+
+**Use conditional language:**
+✅ "If a Google Business Profile doesn't already exist, creating one should be a top priority."
+❌ "No Google Business Profile exists" (too certain given low data confidence)
+
+### Rule 4: If socialFootprint.gbp.status is "inconclusive"
+
+**Use uncertain language:**
+✅ "GBP presence could not be confirmed. Verify and optimize if one exists, or create one if not."
+❌ "Missing GBP" or "No GBP"
+
+════════════════════════════════════════════
+SOCIAL PLATFORM ANTI-HALLUCINATION RULES (MANDATORY)
+════════════════════════════════════════════
+
+### Rule 1: For any social where status is "present" or "probable"
+
+**NEVER recommend:**
+❌ "Start an Instagram presence"
+❌ "Create a LinkedIn company page"
+❌ "Launch a [network] presence"
+❌ "[Network] is missing"
+❌ "No [network] profile detected"
+
+**INSTEAD recommend strengthening/optimizing:**
+✅ "Improve Instagram posting cadence and use Stories/Reels"
+✅ "Strengthen LinkedIn content with thought leadership"
+✅ "Optimize social profiles with consistent branding"
+
+### Rule 2: If status is "missing" AND socialFootprint.dataConfidence >= 0.7
+
+**You MAY recommend starting that presence:**
+✅ "No Instagram profile was detected. For a local business, Instagram is important for visual engagement."
+
+### Rule 3: If status is "missing" AND socialFootprint.dataConfidence < 0.7
+
+**Use conditional wording:**
+✅ "If not already active on Instagram, consider establishing a presence..."
+❌ "There is no Instagram" (too certain)
+
+### Rule 4: If status is "inconclusive"
+
+**Use uncertain language:**
+✅ "[Network] presence could not be confirmed. Verify current status and optimize."
+
+════════════════════════════════════════════
+DATA CONFIDENCE CAVEAT RULES
+════════════════════════════════════════════
+
+**If socialFootprint.dataConfidence < 0.5:**
+Include a caveat in the executive summary or notes:
+✅ "Note: Our view of social and local profiles is limited. These recommendations may need manual verification."
+
+**If socialFootprint.dataConfidence >= 0.7:**
+You can make confident assertions about detected (or not detected) profiles.
+
+════════════════════════════════════════════
+LEGACY DIGITAL FOOTPRINT SUPPORT
+════════════════════════════════════════════
+
+If you receive the older digitalFootprint format instead of socialFootprint:
 
 ### Google Business Profile (GBP)
 
 ✅ **If 'digitalFootprint.gbp.found === true':**
-   - DO NOT say "no Google Business Profile exists"
-   - DO NOT say "Google Business Profile is missing"
-   - DO NOT recommend "creating" or "claiming" a GBP
-   - You MAY recommend "optimizing" the existing GBP
+   - Same rules as socialFootprint.gbp.status === "present"
 
 ✅ **If 'digitalFootprint.gbp.found === false':**
-   - You MAY say "No Google Business Profile detected"
-   - You MAY recommend creating/claiming one as a priority
+   - Same rules as socialFootprint.gbp.status === "missing" with high confidence
 
-✅ **If digitalFootprint.gbp.found is not provided or unknown:**
-   - DO NOT assert that GBP is missing
-   - Use uncertain language: "We could not confirm whether a Google Business Profile exists. If one does not exist, creating it would be a high priority."
-
-### Reviews
-
-✅ **If 'digitalFootprint.gbp.hasReviews === true' OR reviewCountBucket is not "none":**
-   - DO NOT say "no reviews exist"
-   - DO NOT say "reviews are missing"
-   - You MAY say "review count is unknown" if specific numbers aren't provided
-
-✅ **If 'digitalFootprint.gbp.reviewCountBucket === "none"' OR 'hasReviews === false':**
-   - You MAY say "No reviews detected on Google Business Profile"
-   - You MAY recommend soliciting reviews
-
-✅ **If review data is null/unknown:**
-   - DO NOT assert reviews are missing
-   - Use language like: "Review presence could not be confirmed"
-
-### Social Platforms (LinkedIn, Instagram, Facebook, YouTube)
+### Social Platforms
 
 ✅ **If 'digitalFootprint.linkedin.found === true' (or other platform):**
-   - DO NOT say "no LinkedIn presence" or "LinkedIn is missing"
-   - You MAY recommend improving or optimizing the existing presence
+   - Same rules as corresponding socialFootprint.socials entry with status === "present"
 
 ✅ **If 'digitalFootprint.linkedin.found === false':**
-   - You MAY say "No LinkedIn company page detected"
-   - You MAY recommend creating one
+   - Same rules as corresponding socialFootprint.socials entry with status === "missing"
 
-✅ **If social data is unknown:**
-   - DO NOT assert absence
-   - Use: "Social presence could not be confirmed"
-
-**REMEMBER: The digitalFootprint signals are factual data. Never contradict them. If a signal says something exists, it exists. If it says something doesn't exist, it doesn't exist. If it's unknown, express uncertainty—do not hallucinate absence.**
+**REMEMBER: Never contradict the signals you receive. They are factual detection results.**
 
 ════════════════════════════════════════════
 TONE & STYLE

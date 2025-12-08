@@ -131,7 +131,7 @@ export interface MultiPageSnapshot {
 
 export type GapIaStatus = 'pending' | 'running' | 'completed' | 'complete' | 'error' | 'failed';
 
-export type GapIaSource = 'lead-magnet' | 'internal' | 'imported' | 'os_baseline';
+export type GapIaSource = 'lead-magnet' | 'internal' | 'imported' | 'os_baseline' | 'os_diagnostic';
 
 // ============================================================================
 // Enhanced GAP-IA V2 Types (More Substance, Same Engine)
@@ -269,6 +269,110 @@ export interface DigitalFootprintData {
   };
 }
 
+// ============================================================================
+// Social Footprint Types (V5 - Enhanced Detection)
+// ============================================================================
+
+/**
+ * Detection source - where the social/GBP signal was found
+ */
+export type DetectionSource =
+  | 'html_link_header'
+  | 'html_link_footer'
+  | 'html_link_body'
+  | 'schema_sameAs'
+  | 'schema_url'
+  | 'schema_gbp'
+  | 'schema_social'
+  | 'search_fallback'
+  | 'manual';
+
+/**
+ * Presence status based on confidence thresholds
+ */
+export type PresenceStatus = 'present' | 'probable' | 'inconclusive' | 'missing';
+
+/**
+ * Supported social networks
+ */
+export type SocialNetwork =
+  | 'instagram'
+  | 'facebook'
+  | 'tiktok'
+  | 'x'
+  | 'linkedin'
+  | 'youtube';
+
+/**
+ * Social presence detection result for a single network
+ */
+export interface SocialPresence {
+  network: SocialNetwork;
+  url?: string;
+  handle?: string;
+  detectionSources: DetectionSource[];
+  confidence: number; // 0-1
+  status: PresenceStatus;
+}
+
+/**
+ * Google Business Profile presence detection result
+ */
+export interface GbpPresence {
+  url?: string;
+  detectionSources: DetectionSource[];
+  confidence: number; // 0-1
+  status: PresenceStatus;
+}
+
+/**
+ * Complete social footprint snapshot
+ */
+export interface SocialFootprintSnapshot {
+  socials: SocialPresence[];
+  gbp: GbpPresence | null;
+  dataConfidence: number; // 0-1 (how thoroughly we checked)
+}
+
+// ============================================================================
+// Legacy Social Presence Types (V4 - Backward Compatibility)
+// ============================================================================
+
+/**
+ * Enhanced Social Presence data with confidence scores
+ * Populated by the socialDiscovery module for more reliable detection
+ */
+export interface SocialPresenceData {
+  // Individual platform URLs (null if not found with high confidence)
+  instagramUrl: string | null;
+  facebookUrl: string | null;
+  tiktokUrl: string | null;
+  xUrl: string | null;
+  linkedinUrl: string | null;
+  youtubeUrl: string | null;
+  gbpUrl: string | null;
+
+  // Handles where extractable
+  instagramHandle?: string;
+  linkedinHandle?: string;
+  tiktokHandle?: string;
+
+  // Confidence scores (0-100)
+  socialConfidence: number;
+  gbpConfidence: number;
+
+  // Boolean flags for quick checks
+  hasInstagram: boolean;
+  hasFacebook: boolean;
+  hasLinkedIn: boolean;
+  hasTikTok: boolean;
+  hasYouTube: boolean;
+  hasGBP: boolean;
+
+  // Summary for GAP IA prompt
+  summary: string;
+}
+
 /**
  * Business Context metadata from V3 engine
  */
@@ -349,6 +453,15 @@ export interface GapIaRun {
   // V3 Metadata fields (added for frontend visibility)
   businessContext?: BusinessContextData;
   digitalFootprint?: DigitalFootprintData;
+
+  // Enhanced social presence detection (V4)
+  socialPresence?: SocialPresenceData;
+
+  // Enhanced social footprint with detection sources (V5)
+  socialFootprint?: SocialFootprintSnapshot;
+
+  // Social & Local Presence score (0-100)
+  socialLocalPresenceScore?: number;
 
   // Data confidence (aligned with Ops Lab pattern)
   dataConfidence?: GapDataConfidence;
@@ -699,6 +812,272 @@ export interface EvidencePayload {
 
   /** Any additional metadata */
   [key: string]: unknown;
+}
+
+// ============================================================================
+// GapFullAssessmentV1 - Canonical GAP Assessment Type
+// ============================================================================
+// This is THE canonical GAP assessment type shared by both DMA and OS.
+// All GAP outputs should eventually be mapped to this type.
+//
+// Key principle: Both baseline (OS) and full (DMA) GAP produce this same type.
+// Baseline may omit optional fields (like planSections), but the structure is
+// identical. This allows UI components to consume the same shape regardless of
+// source.
+//
+// Data flow:
+// 1. LLM generates InitialAssessmentOutput or FullGapOutput (outputTemplates.ts)
+// 2. mapToGapFullAssessmentV1() converts to this canonical type
+// 3. socialFootprint gating is applied during mapping
+// 4. projectToBaselineSummary() can extract a lean view if needed
+//
+// ============================================================================
+
+/**
+ * Canonical maturity stage used in GapFullAssessmentV1
+ */
+export type GapMaturityStage =
+  | 'Foundational'
+  | 'Emerging'
+  | 'Established'
+  | 'Advanced'
+  | 'CategoryLeader';
+
+/**
+ * Source identifier for GAP assessments
+ */
+export type GapAssessmentSource =
+  | 'baseline_context_build'   // OS baseline (lightweight)
+  | 'os_baseline'              // OS baseline (legacy name)
+  | 'os_diagnostic'            // OS diagnostic run
+  | 'dma_full_gap'             // DMA full GAP report
+  | 'lead_magnet'              // Lead magnet GAP-IA
+  | 'imported'                 // Imported from external source
+  | 'manual';                  // Manually created
+
+/**
+ * Quick win item for GapFullAssessmentV1
+ */
+export interface GapQuickWin {
+  action: string;
+  dimensionId?: DimensionId;
+  impactLevel?: 'low' | 'medium' | 'high';
+  effortLevel?: 'low' | 'medium' | 'high';
+  expectedOutcome?: string;
+}
+
+/**
+ * Strategic priority for full GAP assessments
+ */
+export interface GapStrategicPriority {
+  title: string;
+  description: string;
+  relatedDimensions?: DimensionId[];
+  timeframe?: 'short' | 'medium' | 'long'; // 0-3mo, 3-6mo, 6-12mo
+}
+
+/**
+ * Roadmap phase (30-day increment)
+ */
+export interface GapRoadmapPhase {
+  whyItMatters: string;
+  actions: string[];
+}
+
+/**
+ * 90-day roadmap structure
+ */
+export interface GapRoadmap90Days {
+  phase0_30: GapRoadmapPhase;
+  phase30_60: GapRoadmapPhase;
+  phase60_90: GapRoadmapPhase;
+}
+
+/**
+ * KPI definition for full GAP assessments
+ */
+export interface GapKPI {
+  name: string;
+  whatItMeasures: string;
+  whyItMatters: string;
+  whatGoodLooksLike: string;
+  relatedDimensions?: DimensionId[];
+}
+
+/**
+ * Dimension ID type for canonical assessments
+ */
+export type DimensionId =
+  | 'brand'
+  | 'content'
+  | 'seo'
+  | 'website'
+  | 'digitalFootprint'
+  | 'authority';
+
+/**
+ * All dimensions in canonical format
+ */
+export interface GapDimensions {
+  brand: DimensionSummary;
+  content: DimensionSummary;
+  seo: DimensionSummary;
+  website: DimensionSummary;
+  digitalFootprint: DigitalFootprintDimension;
+  authority: AuthorityDimension;
+}
+
+/**
+ * GapFullAssessmentV1 - The canonical GAP assessment type
+ *
+ * This is the single source of truth for GAP assessment data.
+ * Both DMA full GAP and OS baseline produce this exact type.
+ *
+ * Required fields are populated by both baseline and full GAP.
+ * Optional fields (marked with ?) are only populated by full GAP.
+ */
+export interface GapFullAssessmentV1 {
+  // ============================================================================
+  // Metadata
+  // ============================================================================
+
+  /** Business/company name */
+  companyName: string;
+
+  /** Website URL analyzed */
+  url: string;
+
+  /** Normalized domain */
+  domain: string;
+
+  /** Source of this assessment */
+  source: GapAssessmentSource;
+
+  /** Unique run identifier */
+  runId: string;
+
+  /** ISO timestamp when assessment was generated */
+  generatedAt: string;
+
+  /** Optional company ID (if linked to a company record) */
+  companyId?: string;
+
+  // ============================================================================
+  // Overall Metrics
+  // ============================================================================
+
+  /** Overall marketing readiness score (0-100) */
+  overallScore: number;
+
+  /** Maturity stage classification */
+  maturityStage: GapMaturityStage;
+
+  /** Executive summary (2-5 paragraphs) */
+  executiveSummary: string;
+
+  // ============================================================================
+  // Dimensions (Always 6 - same structure for baseline and full)
+  // ============================================================================
+
+  /** All 6 marketing dimensions */
+  dimensions: GapDimensions;
+
+  // ============================================================================
+  // Quick Wins & Opportunities (Present in both baseline and full)
+  // ============================================================================
+
+  /** Quick tactical wins (3-5 items) */
+  quickWins: GapQuickWin[];
+
+  /** Top strategic opportunities (3-5 items) */
+  topOpportunities: string[];
+
+  // ============================================================================
+  // Detection Data (Used for gating - always included if available)
+  // ============================================================================
+
+  /** V5 social footprint detection snapshot */
+  socialFootprint?: SocialFootprintSnapshot;
+
+  /** Legacy digital footprint data */
+  digitalFootprintData?: DigitalFootprintData;
+
+  /** Data confidence assessment */
+  dataConfidence?: GapDataConfidence;
+
+  // ============================================================================
+  // Full GAP Plan Sections (Optional - only populated by full GAP)
+  // ============================================================================
+
+  /** Strategic priorities (3-7 items) - full GAP only */
+  strategicPriorities?: GapStrategicPriority[];
+
+  /** 90-day roadmap - full GAP only */
+  roadmap90Days?: GapRoadmap90Days;
+
+  /** KPIs to track progress (4-8 items) - full GAP only */
+  kpis?: GapKPI[];
+
+  // ============================================================================
+  // Business Context (Optional)
+  // ============================================================================
+
+  /** Business type classification */
+  businessType?: string;
+
+  /** Brand tier classification */
+  brandTier?: string;
+
+  /** Company type classification */
+  companyType?: CompanyType;
+
+  // ============================================================================
+  // Benchmarks (Optional - when peer data is available)
+  // ============================================================================
+
+  /** Benchmark data for peer comparison */
+  benchmarks?: GapIaBenchmarks;
+
+  // ============================================================================
+  // Metadata & Notes
+  // ============================================================================
+
+  /** Overall confidence level */
+  confidence?: 'low' | 'medium' | 'high';
+
+  /** Additional notes from the analysis */
+  notes?: string;
+}
+
+/**
+ * BaselineGapSummary - Lean projection of GapFullAssessmentV1
+ *
+ * This is a simplified view used by OS UI components that don't need
+ * the full GAP plan sections. It's a strict subset of GapFullAssessmentV1.
+ */
+export interface BaselineGapSummary {
+  companyName: string;
+  url: string;
+  domain: string;
+  source: GapAssessmentSource;
+  runId: string;
+  generatedAt: string;
+  companyId?: string;
+
+  overallScore: number;
+  maturityStage: GapMaturityStage;
+  executiveSummary: string;
+
+  dimensions: GapDimensions;
+
+  quickWins: GapQuickWin[];
+  topOpportunities: string[];
+
+  socialFootprint?: SocialFootprintSnapshot;
+  dataConfidence?: GapDataConfidence;
+
+  businessType?: string;
+  brandTier?: string;
 }
 
 // ============================================================================

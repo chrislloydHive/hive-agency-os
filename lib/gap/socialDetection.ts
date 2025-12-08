@@ -98,6 +98,37 @@ export interface SocialDetectionResult {
   dataConfidence: number;
 }
 
+/**
+ * Extract JSON-LD schemas from raw HTML.
+ *
+ * We keep this lightweight (regex + JSON.parse) so detection callers can
+ * supply schema objects without needing cheerio.
+ */
+export function extractJsonLdSchemas(html: string): any[] {
+  const schemas: any[] = [];
+  const jsonLdRegex = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  const matches = html.matchAll(jsonLdRegex);
+
+  for (const match of matches) {
+    try {
+      const jsonContent = match[1].trim();
+      if (!jsonContent) continue;
+
+      const parsed = JSON.parse(jsonContent);
+      if (Array.isArray(parsed)) {
+        schemas.push(...parsed);
+      } else {
+        schemas.push(parsed);
+      }
+    } catch (e) {
+      // Ignore invalid JSON-LD blocks; continue parsing others
+      continue;
+    }
+  }
+
+  return schemas;
+}
+
 // ============================================================================
 // Constants
 // ============================================================================

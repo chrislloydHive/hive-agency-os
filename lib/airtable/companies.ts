@@ -207,6 +207,12 @@ function mapFieldsToCompanyRecord(record: any): CompanyRecord {
     mediaLabStatus: parseMediaLabStatus(fields['Media Status'] as string | undefined),
     mediaPrimaryObjective: parseMediaObjective(fields['Media Primary Objective'] as string | undefined),
     mediaLabNotes: (fields['Media Notes'] as string) || undefined,
+
+    // DMA Integration fields (Phase 3 - optional)
+    primaryDomain: domain, // Alias for domain
+    isFromDMA: (fields['Is From DMA'] as boolean) || undefined,
+    firstLeadSource: (fields['First Lead Source'] as string) || undefined,
+    firstLeadAt: (fields['First Lead At'] as string) || undefined,
   };
 }
 
@@ -263,7 +269,7 @@ export type CompanyRecord = {
   region?: string;
   owner?: string;
   tags?: string[];
-  source?: 'Referral' | 'Inbound' | 'Outbound' | 'Internal' | 'Other' | 'Full GAP' | 'GAP IA' | 'Manual Entry';
+  source?: 'Referral' | 'Inbound' | 'Outbound' | 'Internal' | 'Other' | 'Full GAP' | 'GAP IA' | 'Manual Entry' | 'DMA';
   icpFitScore?: 'A' | 'B' | 'C'; // ICP Fit Score from wizard
   primaryContactName?: string;
   primaryContactEmail?: string;
@@ -272,6 +278,16 @@ export type CompanyRecord = {
   updatedAt?: string;
   notes?: string;
   internalNotes?: string;
+
+  // DMA Integration Fields (Phase 3)
+  /** Normalized primary domain for deduplication (alias for domain) */
+  primaryDomain?: string;
+  /** True if company was originally created from a DMA lead */
+  isFromDMA?: boolean;
+  /** Source of the first lead that created/touched this company */
+  firstLeadSource?: string;
+  /** Timestamp of the first lead that created/touched this company */
+  firstLeadAt?: string;
 
   // Telemetry integration fields
   ga4PropertyId?: string;
@@ -314,8 +330,22 @@ export async function getCompanyById(
     }
 
     return mapFieldsToCompanyRecord(record);
-  } catch (error) {
-    console.error(`[Airtable] Failed to fetch company ${companyId}:`, error);
+  } catch (error: any) {
+    // Airtable SDK errors have statusCode, error, and message properties
+    // but they may not be enumerable (so JSON.stringify returns {})
+    const errorDetails = {
+      message: error?.message || error?.error || 'Unknown error',
+      statusCode: error?.statusCode,
+      name: error?.name,
+      // Airtable-specific properties
+      airtableError: error?.error,
+      // Fallback: try to get all own properties
+      raw: Object.getOwnPropertyNames(error || {}).reduce((acc: any, key) => {
+        try { acc[key] = error[key]; } catch {}
+        return acc;
+      }, {}),
+    };
+    console.error(`[Airtable] Failed to fetch company ${companyId}:`, errorDetails);
     return null;
   }
 }

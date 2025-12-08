@@ -81,6 +81,14 @@ export interface CompanyOverviewPageProps {
 
   // New: unified data model (when provided, takes precedence for common values)
   summary?: CompanySummary;
+
+  // Baseline status for orchestrator toggle
+  baselineStatus?: {
+    initialized: boolean;
+    initializedAt: string | null;
+    healthScore?: number;
+    completeness?: number;
+  } | null;
 }
 
 // ============================================================================
@@ -657,6 +665,7 @@ export function CompanyOverviewPage({
   performancePulse,
   mediaLabSummary,
   summary,
+  baselineStatus,
 }: CompanyOverviewPageProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -664,6 +673,9 @@ export function CompanyOverviewPage({
   // Setup completion toast
   const [showSetupToast, setShowSetupToast] = useState(false);
   const [setupWorkItems, setSetupWorkItems] = useState(0);
+  const [isRunningBaseline, setIsRunningBaseline] = useState(false);
+  const [baselineMessage, setBaselineMessage] = useState<string | null>(null);
+  const alreadyInitialized = baselineStatus?.initialized ?? false;
 
   useEffect(() => {
     if (searchParams.get('setup') === 'complete') {
@@ -681,6 +693,34 @@ export function CompanyOverviewPage({
       return () => clearTimeout(timer);
     }
   }, [searchParams, router]);
+
+  const runBaselineOrchestrator = async () => {
+    if (isRunningBaseline || alreadyInitialized) return;
+    setIsRunningBaseline(true);
+    setBaselineMessage(null);
+    try {
+      const response = await fetch(
+        `/api/os/companies/${companyId}/context/baseline`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: true }),
+        }
+      );
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        setBaselineMessage(body.error || 'Failed to start orchestrator');
+      } else {
+        setBaselineMessage('Baseline orchestrator kicked off. This may take a couple minutes.');
+        router.refresh();
+      }
+    } catch (e) {
+      setBaselineMessage('Failed to start orchestrator. Please try again.');
+    } finally {
+      setIsRunningBaseline(false);
+    }
+  };
 
   // When summary is provided, prefer its values for common fields
   const companyId = summary?.companyId ?? company.id;
@@ -844,6 +884,44 @@ export function CompanyOverviewPage({
               companyId={companyId}
               companyName={companyName}
             />
+          </div>
+        </div>
+        <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-800 text-slate-300">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </span>
+            <span>Run the full baseline orchestrator for this company.</span>
+          </div>
+          <div className="flex items-center gap-3">
+            {baselineMessage && (
+              <span className="text-xs text-slate-400">
+                {baselineMessage}
+              </span>
+            )}
+            <button
+              onClick={runBaselineOrchestrator}
+              disabled={isRunningBaseline || alreadyInitialized}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-emerald-500/90 text-white hover:bg-emerald-400 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isRunningBaseline ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  {alreadyInitialized ? 'Already Ran' : 'Run Orchestrator'}
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>

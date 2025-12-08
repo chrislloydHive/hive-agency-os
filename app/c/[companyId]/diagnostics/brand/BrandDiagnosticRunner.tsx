@@ -3,26 +3,93 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
 type Props = {
   companyId: string;
 };
 
+type RunStatus = {
+  status: 'pending' | 'running' | 'complete' | 'failed';
+  currentStep?: string;
+  percent?: number;
+  error?: string;
+  score?: number;
+  benchmarkLabel?: string;
+};
+
 export function BrandDiagnosticRunner({ companyId }: Props) {
   const router = useRouter();
   const [isRunning, setIsRunning] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [runStatus, setRunStatus] = useState<RunStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Poll for status updates
+  const pollStatus = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/os/diagnostics/status/brand-lab?companyId=${companyId}`);
+      const data = await response.json();
+
+      if (data.status === 'complete') {
+        setRunStatus({
+          status: 'complete',
+          score: data.score,
+          benchmarkLabel: data.benchmarkLabel || data.maturityStage,
+        });
+        setIsRunning(false);
+        // Refresh page after a short delay to show results
+        setTimeout(() => {
+          router.refresh();
+        }, 1500);
+        return true; // Stop polling
+      } else if (data.status === 'failed' || data.status === 'error') {
+        setRunStatus({ status: 'failed', error: data.error || 'Diagnostic failed' });
+        setIsRunning(false);
+        return true; // Stop polling
+      } else {
+        setRunStatus({
+          status: data.status || 'running',
+          currentStep: data.currentStep,
+          percent: data.percent,
+        });
+        return false; // Continue polling
+      }
+    } catch (err) {
+      console.error('[BrandDiagnosticRunner] Poll error:', err);
+      return false; // Continue polling on error
+    }
+  }, [companyId, router]);
+
+  // Polling effect
+  useEffect(() => {
+    if (!isRunning) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      if (cancelled) return;
+      const done = await pollStatus();
+      if (!done && !cancelled) {
+        setTimeout(poll, 2000); // Poll every 2 seconds
+      }
+    };
+
+    // Start polling after initial delay
+    const timeout = setTimeout(poll, 1000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [isRunning, pollStatus]);
 
   const handleRun = async () => {
     setIsRunning(true);
     setError(null);
-    setResult(null);
+    setRunStatus({ status: 'pending', currentStep: 'Starting...' });
 
     try {
-      const response = await fetch('/api/os/diagnostics/run-brand', {
+      // Use sync mode for more reliable execution (bypasses Inngest)
+      const response = await fetch('/api/os/diagnostics/run-brand?sync=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId }),
@@ -34,19 +101,30 @@ export function BrandDiagnosticRunner({ companyId }: Props) {
         throw new Error(data.error || 'Failed to run brand diagnostic');
       }
 
-      setResult(data);
+      // Sync mode returns complete result directly
+      if (data.mode === 'sync' && data.run?.status === 'complete') {
+        setRunStatus({
+          status: 'complete',
+          score: data.score,
+          benchmarkLabel: data.benchmarkLabel || data.maturityStage,
+        });
+        setIsRunning(false);
+        // Hard navigation after delay to ensure Airtable has propagated
+        setTimeout(() => {
+          // Use window.location for a full page reload
+          window.location.href = `/c/${companyId}/diagnostics/brand`;
+        }, 2000);
+        return;
+      }
 
-      // Reload after success (give Airtable time to propagate)
-      setTimeout(() => {
-        console.log('[BrandDiagnosticRunner] Refreshing to show results...');
-        router.refresh();
-      }, 3000);
+      // Async mode - polling will handle the rest
+      setRunStatus({ status: 'running', currentStep: 'Analyzing brand...' });
 
     } catch (err) {
       console.error('Brand diagnostic error:', err);
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
       setIsRunning(false);
+      setRunStatus(null);
     }
   };
 
@@ -55,7 +133,7 @@ export function BrandDiagnosticRunner({ companyId }: Props) {
       <h2 className="mb-4 text-xl font-bold text-slate-100">Brand Diagnostic</h2>
 
       {/* Empty State */}
-      {!isRunning && !result && !error && (
+      {!isRunning && !runStatus && !error && (
         <div className="space-y-4">
           <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-6 text-center">
             <div className="mb-3">
@@ -81,14 +159,23 @@ export function BrandDiagnosticRunner({ companyId }: Props) {
       )}
 
       {/* Running State */}
-      {isRunning && (
+      {isRunning && runStatus?.status !== 'complete' && runStatus?.status !== 'failed' && (
         <div className="space-y-4">
           <div className="flex items-center gap-3">
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-400 border-t-blue-500"></div>
             <span className="text-sm font-medium text-slate-300">
-              Running Brand Diagnostic...
+              {runStatus?.currentStep || 'Running Brand Diagnostic...'}
             </span>
           </div>
+
+          {runStatus?.percent !== undefined && (
+            <div className="w-full bg-slate-800 rounded-full h-2">
+              <div
+                className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${runStatus.percent}%` }}
+              />
+            </div>
+          )}
 
           <div className="space-y-2 text-xs text-slate-500">
             <p>✓ Fetching website content</p>
@@ -105,7 +192,7 @@ export function BrandDiagnosticRunner({ companyId }: Props) {
       )}
 
       {/* Error State */}
-      {error && (
+      {(error || runStatus?.status === 'failed') && (
         <div className="space-y-4">
           <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-4">
             <div className="flex items-center gap-2 text-red-300 mb-2">
@@ -118,7 +205,7 @@ export function BrandDiagnosticRunner({ companyId }: Props) {
               </svg>
               <span className="text-sm font-medium">Diagnostic failed</span>
             </div>
-            <p className="text-sm text-red-300">{error}</p>
+            <p className="text-sm text-red-300">{error || runStatus?.error}</p>
           </div>
 
           <button
@@ -131,7 +218,7 @@ export function BrandDiagnosticRunner({ companyId }: Props) {
       )}
 
       {/* Success State */}
-      {result && (
+      {runStatus?.status === 'complete' && (
         <div className="space-y-4">
           <div className="rounded-lg border border-green-500/50 bg-green-500/10 p-4">
             <div className="flex items-center gap-2 text-green-300 mb-2">
@@ -144,9 +231,11 @@ export function BrandDiagnosticRunner({ companyId }: Props) {
               </svg>
               <span className="text-sm font-medium">Brand diagnostic complete!</span>
             </div>
-            <p className="text-sm text-green-300">
-              Score: {result.score}/100 ({result.benchmarkLabel})
-            </p>
+            {runStatus.score !== undefined && (
+              <p className="text-sm text-green-300">
+                Score: {runStatus.score}/100{runStatus.benchmarkLabel ? ` (${runStatus.benchmarkLabel})` : ''}
+              </p>
+            )}
           </div>
 
           <p className="text-xs text-slate-400">

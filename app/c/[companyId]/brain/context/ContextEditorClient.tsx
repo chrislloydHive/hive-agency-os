@@ -112,14 +112,23 @@ export function ContextEditorClient({
     return map;
   }, [needsRefresh]);
 
-  // Calculate domain stats
+  // Calculate domain stats with health score (matching DomainSummaryPanel formula)
   const domainStats = useMemo(() => {
-    const stats = new Map<ContextDomainId, { total: number; populated: number; issues: number }>();
+    const stats = new Map<ContextDomainId, { total: number; populated: number; issues: number; healthScore: number }>();
     DOMAIN_NAMES.forEach((domainId) => {
       const domainFields = fieldsByDomain.get(domainId) ?? [];
       const populated = domainFields.filter((f) => f.value !== null && f.value !== '').length;
       const issues = domainFields.filter((f) => needsRefreshByPath.has(f.path)).length;
-      stats.set(domainId, { total: domainFields.length, populated, issues });
+      const total = domainFields.length;
+
+      // Calculate population percentage
+      const populationPct = total > 0 ? Math.round((populated / total) * 100) : 0;
+
+      // Use population percentage directly as the health score for consistency
+      // This matches what users expect: "30% populated" should show as "30%"
+      const healthScore = populationPct;
+
+      stats.set(domainId, { total, populated, issues, healthScore });
     });
     return stats;
   }, [fieldsByDomain, needsRefreshByPath]);

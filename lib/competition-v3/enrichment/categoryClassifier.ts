@@ -44,12 +44,41 @@ export async function classifyCandidates(
 ): Promise<Array<EnrichedCandidate & { classification: ClassificationResult }>> {
   console.log(`[competition-v3/classifier] Classifying ${candidates.length} candidates`);
 
-  // Process in batches of 5 for efficiency
-  const batchSize = 5;
   const results: Array<EnrichedCandidate & { classification: ClassificationResult }> = [];
 
-  for (let i = 0; i < candidates.length; i += batchSize) {
-    const batch = candidates.slice(i, i + batchSize);
+  // Pre-compute deterministic V3.5 signals and exclude obvious non-competitors
+  const validCandidates: EnrichedCandidate[] = [];
+  for (const c of candidates) {
+    const augmented = applyV35Signals(c, context);
+    // Hard filter: business model and negative signal gates
+    if (shouldRejectCandidate(augmented)) {
+      results.push({
+        ...augmented,
+        classification: {
+          type: 'irrelevant',
+          confidence: 0.2,
+          reasoning: 'Failed V3.5 gates (business model / JTBD / offer overlap / signals)',
+          signals: {
+            businessModelMatch: false,
+            icpOverlap: false,
+            serviceOverlap: false,
+            sameMarket: false,
+            isPlatform: augmented.businessModelCategory === 'saas',
+            isFractional: false,
+            isInternalAlt: false,
+          },
+        },
+      });
+    } else {
+      validCandidates.push(augmented);
+    }
+  }
+
+  // Process remaining in batches of 5 for efficiency
+  const batchSize = 5;
+  const pool = validCandidates.length > 0 ? validCandidates : candidates;
+  for (let i = 0; i < pool.length; i += batchSize) {
+    const batch = pool.slice(i, i + batchSize).map(c => applyV35Signals(c, context));
     const batchResults = await classifyBatch(batch, context);
     results.push(...batchResults);
   }
@@ -246,6 +275,134 @@ function validateCompetitorType(type: unknown): CompetitorType {
     return type as CompetitorType;
   }
   return 'partial';
+}
+
+// ============================================================================
+// V3.5 Deterministic Signals & Gates
+// ============================================================================
+
+function normalizeText(candidate: EnrichedCandidate): string {
+  return [
+    candidate.name,
+    candidate.domain,
+    candidate.snippet,
+    candidate.aiSummary,
+    candidate.crawledContent?.services?.offerings?.join(' '),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function inferBusinessModel(text: string): EnrichedCandidate['businessModelCategory'] {
+  if (/saas|software|platform|cloud|subscription/.test(text)) return 'saas';
+  if (/shopify|woocommerce|bigcommerce|ecommerce|online store/.test(text)) return 'ecommerce';
+  if (/agency|marketing|digital agency|web design|seo agency|ppc agency/.test(text)) return 'agency';
+  if (/autozone|napa|advance auto|o'reilly/.test(text)) return 'retail-product';
+  if (/(install|installer|service bay|services|installation)/.test(text) && /(audio|remote start|tint|dashcam|car|vehicle)/.test(text)) {
+    return 'retail-service';
+  }
+  if (/retail|store/.test(text)) return 'retail-product';
+  return 'other';
+}
+
+function computeJTBDMatches(text: string): number {
+  const jtbdKeywords = [
+    'aftermarket car audio',
+    'car audio installation',
+    'car electronics',
+    'auto customization',
+    'window tint',
+    'remote start',
+    'dashcam',
+    'car tech upgrades',
+  ];
+  let hits = 0;
+  for (const k of jtbdKeywords) {
+    if (text.includes(k.replace(/\s+/g, ' ')) || text.includes(k.split(' ')[0])) {
+      hits++;
+    }
+  }
+  return Math.min(1, hits / Math.max(1, jtbdKeywords.length / 2));
+}
+
+function computeOfferGraph(text: string) {
+  return {
+    audioInstall: /audio|stereo|sound system/.test(text) && /install/.test(text),
+    remoteStart: /remote start/.test(text),
+    tinting: /tint/.test(text),
+    dashcamInstall: /dashcam|dash cam/.test(text),
+    carElectronics: /car electronics|vehicle electronics|infotainment/.test(text),
+    detailing: /detail|detailing/.test(text),
+    customFab: /custom fab|custom fabrication|custom enclosure/.test(text),
+  };
+}
+
+function computeOfferOverlap(offerGraph: ReturnType<typeof computeOfferGraph>): number {
+  const keys = Object.keys(offerGraph) as Array<keyof typeof offerGraph>;
+  const matches = keys.filter(k => offerGraph[k]).length;
+  return matches / keys.length;
+}
+
+function computeCustomerTypeMatch(text: string, context: QueryContext): boolean {
+  const candidateB2B = /b2b|enterprise|business|wholesale/.test(text);
+  const candidateB2C = /retail|consumer|store|shop/.test(text);
+  const targetB2B = context.icpDescription?.toLowerCase().includes('b2b') || context.targetIndustries.some(i => i.toLowerCase().includes('b2b'));
+  if (targetB2B && candidateB2B) return true;
+  if (!targetB2B && candidateB2C) return true;
+  if (!targetB2B && !candidateB2B) return true; // default consumer
+  return false;
+}
+
+function computeGeoScore(text: string, context: QueryContext): number {
+  if (!context.geography) return 0.5;
+  const loc = context.geography.toLowerCase();
+  return text.includes(loc) ? 0.9 : 0.4;
+}
+
+function applyV35Signals(candidate: EnrichedCandidate, context: QueryContext): EnrichedCandidate {
+  const text = normalizeText(candidate);
+  const businessModelCategory = inferBusinessModel(text);
+  const jtbdMatches = computeJTBDMatches(text);
+  const offerGraph = computeOfferGraph(text);
+  const offerOverlapScore = computeOfferOverlap(offerGraph);
+  const customerTypeMatch = computeCustomerTypeMatch(text, context);
+  const geoScore = computeGeoScore(text, context);
+
+  const signals = [
+    businessModelCategory === 'retail-service' || businessModelCategory === 'retail-product',
+    jtbdMatches >= 0.4,
+    offerOverlapScore >= 0.25,
+    customerTypeMatch,
+    geoScore >= 0.4,
+  ];
+  const signalsVerified = signals.filter(Boolean).length;
+
+  return {
+    ...candidate,
+    businessModelCategory,
+    jtbdMatches,
+    offerOverlapScore,
+    signalsVerified,
+    geoScore,
+    customerTypeMatch,
+    offerGraph,
+  } as any;
+}
+
+function shouldRejectCandidate(candidate: EnrichedCandidate & { businessModelCategory?: string; jtbdMatches?: number; offerOverlapScore?: number; signalsVerified?: number; customerTypeMatch?: boolean; geoScore?: number }): boolean {
+  // Hard business model exclusions
+  if (candidate.businessModelCategory === 'saas' || candidate.businessModelCategory === 'ecommerce' || candidate.businessModelCategory === 'agency') {
+    return true;
+  }
+  // Auto parts without install
+  if (candidate.businessModelCategory === 'retail-product' && (!candidate.offerGraph || (!candidate.offerGraph.audioInstall && !candidate.offerGraph.remoteStart && !candidate.offerGraph.tinting && !candidate.offerGraph.dashcamInstall && !candidate.offerGraph.carElectronics))) {
+    return true;
+  }
+  if ((candidate.jtbdMatches ?? 0) < 0.4) return true;
+  if ((candidate.offerOverlapScore ?? 0) < 0.25) return true;
+  if ((candidate.signalsVerified ?? 0) < 3) return true;
+  return false;
 }
 
 // ============================================================================

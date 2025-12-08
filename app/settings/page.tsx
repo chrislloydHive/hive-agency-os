@@ -9,6 +9,7 @@
  */
 
 import { IntegrationsSection } from '@/components/settings/IntegrationsSection';
+import { WorkspaceSection } from '@/components/settings/WorkspaceSection';
 
 export default function SettingsPage() {
   return (
@@ -21,61 +22,8 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-8">
-        {/* Workspace Settings */}
-        <section className="bg-slate-900/70 border border-slate-800 rounded-2xl p-6">
-          <h2 className="text-lg font-semibold text-slate-100 mb-6">Workspace</h2>
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Workspace Name
-                </label>
-                <input
-                  type="text"
-                  defaultValue="Hive Agency"
-                  className="w-full px-4 py-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Timezone
-                </label>
-                <select className="w-full px-4 py-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50">
-                  <option value="America/New_York">Eastern Time (ET)</option>
-                  <option value="America/Chicago">Central Time (CT)</option>
-                  <option value="America/Denver">Mountain Time (MT)</option>
-                  <option value="America/Los_Angeles">Pacific Time (PT)</option>
-                  <option value="UTC">UTC</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Workspace Logo
-              </label>
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-slate-800 rounded-lg flex items-center justify-center">
-                  <svg
-                    className="w-8 h-8 text-slate-600"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={1.5}
-                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                    />
-                  </svg>
-                </div>
-                <button className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors text-sm">
-                  Upload Logo
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
+        {/* Workspace Settings - Client Component with Logo Upload */}
+        <WorkspaceSection />
 
         {/* Integrations - Live Status */}
         <IntegrationsSection />
