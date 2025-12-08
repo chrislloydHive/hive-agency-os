@@ -8,6 +8,38 @@
 // - Called during baseline context build AFTER FCB and Labs
 // - Fills SEO, Content, DigitalInfra, and Ops sections
 // - Does NOT affect lead magnet GAP behavior
+//
+// ============================================================================
+// DATA FLOW: baseline_context_build runs
+// ============================================================================
+//
+// 1. runBaselineContextBuild() [lib/contextGraph/baseline.ts]
+//    ↓ calls runGapIaForOsBaseline(companyId)
+//
+// 2. runGapIaForOsBaseline() [this file]
+//    a) Fetch HTML: fetchHtmlBounded(url, 150000) - 150KB to capture footer links
+//    b) Extract signals: extractHtmlSignals(html)
+//    c) Parallel detection:
+//       - collectDigitalFootprintSafe(domain, html)
+//       - detectSocialAndGbpSafe(html) → SocialFootprintSnapshot
+//       - discoverMultiPageContentSafe(url, html)
+//    d) Core analysis: generateGapIaAnalysisCore(coreInput)
+//       - coreInput includes socialFootprint for gating
+//       - Calls mapInitialAssessmentToApiResponse() with socialFootprint
+//       - mapDimensionSummariesToLegacy() computes subscores from detection
+//       - sanitizeDigitalFootprintNarrative() rewrites contradictory text
+//    e) Return OsGapIaBaselineResult with dimensions, quickWins, etc.
+//
+// 3. Back in baseline.ts:
+//    a) writeGapIaBaselineToContext() - writes to Context Graph
+//    b) logGapPlanRunToAirtable() - logs to GAP-Plan Run table
+//       - Sets source: 'baseline_context_build'
+//       - rawPlan includes dimensions with gated subscores/narratives
+//
+// Key insight: HTML truncation affects detection. We fetch 150KB (not 50KB)
+// because social links and GBP references are commonly in the footer.
+// Example: Atlas Skateboarding's footer starts at ~108KB.
+//
 
 import { getCompanyById } from '@/lib/airtable/companies';
 import {
@@ -25,11 +57,21 @@ import {
   collectDigitalFootprint,
   type DigitalFootprint,
 } from '@/lib/digital-footprint/collectDigitalFootprint';
+import {
+  detectSocialAndGbp,
+  type SocialFootprintSnapshot,
+} from '@/lib/gap/socialDetection';
 import type {
   DimensionSummary,
   DigitalFootprintDimension,
   AuthorityDimension,
+  GapFullAssessmentV1,
+  BaselineGapSummary,
 } from '@/lib/gap/types';
+import {
+  mapBaselineCoreToFullAssessment,
+  projectToBaselineSummary,
+} from '@/lib/gap/canonicalMapper';
 
 // ============================================================================
 // Types
@@ -53,8 +95,10 @@ export interface OsGapIaBaselineResult {
     digitalFootprint: DigitalFootprintDimension | null;
     authority: AuthorityDimension | null;
   };
-  /** Digital footprint raw data */
+  /** Digital footprint raw data (legacy) */
   digitalFootprintData: DigitalFootprint | null;
+  /** V5 Social footprint detection (GBP, social networks) */
+  socialFootprint: SocialFootprintSnapshot | null;
   /** Quick wins extracted */
   quickWins: string[];
   /** Top opportunities */
@@ -63,6 +107,26 @@ export interface OsGapIaBaselineResult {
   error?: string;
   /** Processing time in ms */
   durationMs: number;
+
+  // ============================================================================
+  // Canonical Assessment (V1)
+  // ============================================================================
+
+  /**
+   * Canonical GAP assessment in unified format
+   *
+   * This is the primary output - all other fields above are for backward
+   * compatibility. New consumers should use this field.
+   */
+  canonicalAssessment?: GapFullAssessmentV1;
+
+  /**
+   * Lean projection of the canonical assessment
+   *
+   * A subset of canonicalAssessment for UI components that don't need
+   * full GAP plan sections (which aren't populated for baseline anyway).
+   */
+  baselineSummary?: BaselineGapSummary;
 }
 
 // ============================================================================
@@ -123,9 +187,14 @@ export async function runGapIaForOsBaseline(
     }
 
     // 2. Fetch website HTML
+    // NOTE: We fetch 150KB (not 50KB) because social links and GBP are typically
+    // in the footer, which can be beyond 100KB on modern sites. The LLM prompt
+    // only uses a 10KB sample (see core.ts), so this doesn't affect LLM costs.
+    // Example: Atlas Skateboarding's footer with Instagram/YouTube/GBP links
+    // starts at byte ~108KB, which was being missed with the 50KB limit.
     let html: string;
     try {
-      html = await fetchHtmlBounded(url, 50000);
+      html = await fetchHtmlBounded(url, 150000);
     } catch (e) {
       console.warn('[OS GAP-IA Baseline] Failed to fetch HTML:', e);
       return createErrorResult(
@@ -134,16 +203,33 @@ export async function runGapIaForOsBaseline(
       );
     }
 
+    // Log HTML size for debugging truncation issues
+    console.log('[OS GAP-IA Baseline] HTML fetched:', {
+      domain,
+      htmlLength: html.length,
+      htmlLimitUsed: 150000,
+      footerReached: html.length >= 100000, // True if we likely got the footer
+    });
+
     // 3. Extract website signals
     const signals = extractHtmlSignals(html);
 
-    // 4. Collect digital footprint and multi-page content (parallel)
-    const [digitalFootprint, multiPageSnapshot] = await Promise.all([
+    // 4. Collect digital footprint, social footprint, and multi-page content (parallel)
+    const [digitalFootprint, socialFootprint, multiPageSnapshot] = await Promise.all([
       collectDigitalFootprintSafe(domain, html),
+      detectSocialAndGbpSafe(html, url),
       discoverMultiPageContentSafe(url, html),
     ]);
 
+    console.log('[OS GAP-IA Baseline] Social detection result:', {
+      gbpStatus: socialFootprint?.gbp?.status,
+      gbpConfidence: socialFootprint?.gbp?.confidence,
+      activeSocials: socialFootprint?.socials?.filter(s => s.status === 'present' || s.status === 'probable').map(s => s.network),
+      dataConfidence: socialFootprint?.dataConfidence,
+    });
+
     // 5. Run GAP-IA core engine
+    // NOTE: socialFootprint is passed to enable gating of subscores and narratives
     const coreInput: GapIaCoreInput = {
       url,
       domain,
@@ -151,28 +237,65 @@ export async function runGapIaForOsBaseline(
       signals,
       digitalFootprint,
       multiPageSnapshot,
+      socialFootprint: socialFootprint ?? undefined,
       // No modelCaller specified - will use default OpenAI
     };
 
     const gapIaResult = await generateGapIaAnalysisCore(coreInput);
 
     // 6. Extract structured outputs from the V2 API response format
+    const legacyDimensions = {
+      brand: extractDimensionSummary(gapIaResult, 'brand'),
+      content: extractDimensionSummary(gapIaResult, 'content'),
+      seo: extractDimensionSummary(gapIaResult, 'seo'),
+      website: extractDimensionSummary(gapIaResult, 'website'),
+      digitalFootprint: extractDigitalFootprintDimension(gapIaResult),
+      authority: extractAuthorityDimension(gapIaResult),
+    };
+
+    const legacyQuickWins = extractQuickWins(gapIaResult);
+    const legacyTopOpportunities = gapIaResult.summary?.topOpportunities || [];
+
+    // 7. Build canonical assessment using unified mapper
+    // This applies social footprint gating consistently
+    const canonicalAssessment = mapBaselineCoreToFullAssessment({
+      coreResult: gapIaResult,
+      metadata: {
+        runId: gapIaRunId || `baseline-${Date.now()}`,
+        url,
+        domain,
+        companyName: company.name || domain,
+        companyId,
+        source: 'baseline_context_build',
+      },
+      detectionData: {
+        socialFootprint: socialFootprint ?? undefined,
+        digitalFootprint: digitalFootprint ?? undefined,
+        dataConfidence: undefined, // TODO: Compute data confidence
+      },
+      businessContext: {
+        businessType: gapIaResult.core?.companyType,
+        brandTier: gapIaResult.core?.brandTier,
+      },
+    });
+
+    // Create lean projection for UI components
+    const baselineSummary = projectToBaselineSummary(canonicalAssessment);
+
     const result: OsGapIaBaselineResult = {
       success: true,
+      // Legacy fields (backward compatibility)
       overallScore: gapIaResult.summary?.overallScore || gapIaResult.core?.overallScore || 0,
       maturityStage: gapIaResult.core?.marketingMaturity || 'Unknown',
-      dimensions: {
-        brand: extractDimensionSummary(gapIaResult, 'brand'),
-        content: extractDimensionSummary(gapIaResult, 'content'),
-        seo: extractDimensionSummary(gapIaResult, 'seo'),
-        website: extractDimensionSummary(gapIaResult, 'website'),
-        digitalFootprint: extractDigitalFootprintDimension(gapIaResult),
-        authority: extractAuthorityDimension(gapIaResult),
-      },
+      dimensions: legacyDimensions,
       digitalFootprintData: digitalFootprint,
-      quickWins: extractQuickWins(gapIaResult),
-      topOpportunities: gapIaResult.summary?.topOpportunities || [],
+      socialFootprint,
+      quickWins: legacyQuickWins,
+      topOpportunities: legacyTopOpportunities,
       durationMs: Date.now() - startTime,
+      // Canonical assessment (new unified format)
+      canonicalAssessment,
+      baselineSummary,
     };
 
     console.log('[OS GAP-IA Baseline] Complete:', {
@@ -181,6 +304,16 @@ export async function runGapIaForOsBaseline(
       dimensionsFound: Object.values(result.dimensions).filter(Boolean).length,
       durationMs: result.durationMs,
     });
+
+    // Log final digitalFootprint subscores for debugging gating issues
+    if (result.dimensions.digitalFootprint) {
+      console.log('[OS GAP-IA Baseline] DigitalFootprint final output:', {
+        score: result.dimensions.digitalFootprint.score,
+        subscores: result.dimensions.digitalFootprint.subscores,
+        oneLinerPreview: result.dimensions.digitalFootprint.oneLiner?.substring(0, 80),
+        socialFootprintProvided: !!socialFootprint,
+      });
+    }
 
     // Update the GAP IA Run record with completed status and results
     if (gapIaRunId) {
@@ -250,6 +383,7 @@ function createErrorResult(error: string, startTime: number): OsGapIaBaselineRes
       authority: null,
     },
     digitalFootprintData: null,
+    socialFootprint: null,
     quickWins: [],
     topOpportunities: [],
     error,
@@ -304,6 +438,22 @@ async function discoverMultiPageContentSafe(
   } catch (e) {
     console.warn('[OS GAP-IA Baseline] Multi-page discovery failed:', e);
     return undefined;
+  }
+}
+
+/**
+ * Safely detect social media and GBP presence (non-blocking)
+ *
+ * This is critical for gating digitalFootprint subscores and narratives.
+ * If detection fails, we return null and the gating layer will use defaults.
+ */
+async function detectSocialAndGbpSafe(html: string, baseUrl?: string): Promise<SocialFootprintSnapshot | null> {
+  try {
+    const result = detectSocialAndGbp({ html, schemas: [], baseUrl });
+    return result;
+  } catch (e) {
+    console.warn('[OS GAP-IA Baseline] Social detection failed:', e);
+    return null;
   }
 }
 

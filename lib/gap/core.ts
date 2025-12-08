@@ -23,6 +23,13 @@ import type { CoreMarketingContext, GapIaRun } from '@/lib/gap/types';
  */
 export type GapModelCaller = (prompt: string) => Promise<string>;
 import { collectDigitalFootprint } from '@/lib/digital-footprint/collectDigitalFootprint';
+import { discoverSocialPresence, type SocialDiscoveryResult } from '@/lib/digitalFootprint/socialDiscovery';
+import type { SocialPresenceData } from '@/lib/gap/types';
+import {
+  detectSocialAndGbp,
+  computeSocialLocalPresenceScore,
+  type SocialFootprintSnapshot,
+} from '@/lib/gap/socialDetection';
 import {
   GAP_SHARED_SYSTEM_PROMPT,
   GAP_SHARED_REASONING_PROMPT,
@@ -105,10 +112,14 @@ export function normalizeDomain(url: string): string {
 
 /**
  * Fetch HTML from a URL with a bounded response size
+ *
+ * Default is 150KB to ensure we capture footer content where social links
+ * and GBP references are commonly placed. The LLM prompt only uses 10KB
+ * (see htmlSample in generateGapIaAnalysisCore), so this doesn't affect costs.
  */
 export async function fetchHtmlBounded(
   url: string,
-  maxBytes: number = 50000
+  maxBytes: number = 150000
 ): Promise<string> {
   console.log('[gap/core] Fetching HTML from:', url);
 
@@ -433,6 +444,11 @@ export interface GapIaCoreInput {
    * For API routes with company context, pass a caller created from aiForCompany().
    */
   modelCaller?: GapModelCaller;
+  /**
+   * V5 Social Footprint detection result.
+   * Used to gate digitalFootprint subscores and sanitize narratives.
+   */
+  socialFootprint?: SocialFootprintSnapshot;
 }
 
 /**
@@ -583,6 +599,7 @@ ${GAP_IA_OUTPUT_PROMPT_V3}`;
     });
 
     // Map V3 output to V2 format for backward compatibility
+    // socialFootprint is passed to gate subscores and sanitize narratives
     const v2Output = mapInitialAssessmentToApiResponse(validatedV3, {
       url: params.url,
       domain: params.domain,
@@ -592,6 +609,7 @@ ${GAP_IA_OUTPUT_PROMPT_V3}`;
       htmlSignals: params.signals,
       digitalFootprint: params.digitalFootprint,
       multiPageSnapshot: params.multiPageSnapshot,
+      socialFootprint: params.socialFootprint,
     });
 
     console.log('[gap/core/V3] ✅ Mapped to V2 format for compatibility');
@@ -799,7 +817,8 @@ export async function runInitialAssessment(input: InitialAssessmentInput) {
   const domain = normalizeDomain(url);
 
   // 2. Fetch HTML
-  const html = await fetchHtmlBounded(url);
+  // NOTE: We fetch 150KB to capture footer links (social/GBP often in footer)
+  const html = await fetchHtmlBounded(url, 150000);
 
   // 3. Extract HTML signals
   const signals = extractHtmlSignals(html);
@@ -810,7 +829,73 @@ export async function runInitialAssessment(input: InitialAssessmentInput) {
   // 5. Collect digital footprint (pass HTML for accurate detection)
   const digitalFootprint = await collectDigitalFootprint(domain, html);
 
-  // 6. Infer business context
+  // 5.5 Enhanced Social Discovery (more robust detection with confidence scores)
+  let socialDiscoveryResult: SocialDiscoveryResult | undefined;
+  let socialPresence: SocialPresenceData | undefined;
+
+  try {
+    // Extract company name from HTML for search-based discovery fallback
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const companyName = titleMatch?.[1]?.split(/[-|–]/).map(s => s.trim())[0] || domain;
+
+    // Check for location hints in HTML (for local businesses)
+    const locationHint = extractLocationHint(html);
+
+    socialDiscoveryResult = await discoverSocialPresence({
+      companyUrl: url,
+      html,
+      companyName,
+      locationHint,
+    });
+
+    // Map to SocialPresenceData for GAP types
+    socialPresence = mapSocialDiscoveryToPresence(socialDiscoveryResult);
+
+    console.log('[gap/core] Social discovery complete:', {
+      hasInstagram: socialPresence.hasInstagram,
+      hasGBP: socialPresence.hasGBP,
+      socialConfidence: socialPresence.socialConfidence,
+      gbpConfidence: socialPresence.gbpConfidence,
+    });
+  } catch (error) {
+    console.warn('[gap/core] Social discovery failed, continuing with basic detection:', error);
+  }
+
+  // 5.6 V5 Social Footprint Detection (more granular status + confidence)
+  // This provides the new SocialFootprintSnapshot with status levels
+  let socialFootprint: SocialFootprintSnapshot | undefined;
+  let socialLocalPresenceScore: number | undefined;
+
+  try {
+    // Extract JSON-LD schemas from HTML for schema.org sameAs detection
+    const schemaJsonLds: any[] = [];
+    const schemaMatches = html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+    for (const match of schemaMatches) {
+      try {
+        schemaJsonLds.push(JSON.parse(match[1]));
+      } catch {
+        // Skip invalid JSON-LD
+      }
+    }
+
+    socialFootprint = detectSocialAndGbp({
+      html,
+      schemas: schemaJsonLds,
+      baseUrl: url,
+    });
+    socialLocalPresenceScore = computeSocialLocalPresenceScore(socialFootprint);
+
+    console.log('[gap/core] V5 Social footprint detection complete:', {
+      socialsDetected: socialFootprint.socials.filter(s => s.status !== 'missing').length,
+      gbpStatus: socialFootprint.gbp?.status ?? 'missing',
+      dataConfidence: socialFootprint.dataConfidence,
+      socialLocalPresenceScore,
+    });
+  } catch (error) {
+    console.warn('[gap/core] V5 Social footprint detection failed:', error);
+  }
+
+  // 6. Infer business context (use enhanced social signals if available)
   const businessContext = getBusinessContext({
     url,
     domain,
@@ -819,8 +904,10 @@ export async function runInitialAssessment(input: InitialAssessmentInput) {
       hasPhysicalAddress: html.toLowerCase().includes('address'),
       hasOpeningHours: html.toLowerCase().includes('hours'),
       hasEventDates: html.toLowerCase().includes('event'),
-      hasGoogleBusinessProfile: digitalFootprint.gbp.found,
-      hasLinkedInCompanyPage: digitalFootprint.linkedin.found,
+      // Use enhanced social discovery if available, fall back to basic detection
+      hasGoogleBusinessProfile: socialPresence?.hasGBP ?? digitalFootprint.gbp.found,
+      hasLinkedInCompanyPage: socialPresence?.hasLinkedIn ?? digitalFootprint.linkedin.found,
+      socialPlatforms: socialPresence ? getSocialPlatformList(socialPresence) : undefined,
       hasBlog: signals.hasBlog,
       hasCaseStudies: signals.hasCaseStudies,
       hasProductCatalog: html.toLowerCase().includes('product'),
@@ -832,12 +919,17 @@ export async function runInitialAssessment(input: InitialAssessmentInput) {
   });
 
   // 7. Generate GAP-IA (pass modelCaller if provided)
+  // Augment digital footprint with enhanced social signals
+  const enhancedDigitalFootprint = socialPresence
+    ? augmentDigitalFootprintWithSocial(digitalFootprint, socialPresence)
+    : digitalFootprint;
+
   const gapIaOutput = await generateGapIaAnalysisCore({
     url,
     domain,
     html,
     signals,
-    digitalFootprint,
+    digitalFootprint: enhancedDigitalFootprint,
     multiPageSnapshot,
     modelCaller,
   });
@@ -847,9 +939,9 @@ export async function runInitialAssessment(input: InitialAssessmentInput) {
   const dataConfidence = computeGapDataConfidence({
     htmlSignals: signals,
     digitalFootprint: {
-      gbp: digitalFootprint.gbp,
-      linkedin: digitalFootprint.linkedin,
-      otherSocials: digitalFootprint.otherSocials,
+      gbp: enhancedDigitalFootprint.gbp,
+      linkedin: enhancedDigitalFootprint.linkedin,
+      otherSocials: enhancedDigitalFootprint.otherSocials,
     },
     pagesAnalyzed,
     businessType: businessContext?.businessType,
@@ -865,11 +957,107 @@ export async function runInitialAssessment(input: InitialAssessmentInput) {
     initialAssessment: gapIaOutput,
     businessContext,
     dataConfidence,
+    socialPresence,
+    // V5 Social Footprint (new granular detection)
+    socialFootprint,
+    socialLocalPresenceScore,
     metadata: {
       url,
       domain,
       analyzedAt: new Date().toISOString(),
       pagesAnalyzed,
+    },
+  };
+}
+
+/**
+ * Extract location hint from HTML (for local business discovery)
+ */
+function extractLocationHint(html: string): string | undefined {
+  // Try to find location from schema.org
+  const schemaMatch = html.match(/"addressLocality"\s*:\s*"([^"]+)"/i);
+  if (schemaMatch) return schemaMatch[1];
+
+  // Try to find from address patterns
+  const addressMatch = html.match(/(?:(?:San|Los|New|Las|Salt|Fort|St\.?)\s+)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s*,\s*(?:CA|NY|TX|FL|IL|PA|OH|GA|NC|MI|NJ|VA|WA|AZ|MA|TN|IN|MO|MD|WI|CO|MN|SC|AL|LA|KY|OR|OK|CT|UT|IA|NV|AR|MS|KS|NM|NE|WV|ID|HI|NH|ME|MT|RI|DE|SD|ND|AK|VT|DC|WY)/);
+  if (addressMatch) return addressMatch[0];
+
+  return undefined;
+}
+
+/**
+ * Map SocialDiscoveryResult to SocialPresenceData
+ */
+function mapSocialDiscoveryToPresence(discovery: SocialDiscoveryResult): SocialPresenceData {
+  const instagram = discovery.socialProfiles.find(p => p.platform === 'instagram');
+  const facebook = discovery.socialProfiles.find(p => p.platform === 'facebook');
+  const tiktok = discovery.socialProfiles.find(p => p.platform === 'tiktok');
+  const x = discovery.socialProfiles.find(p => p.platform === 'x');
+  const linkedin = discovery.socialProfiles.find(p => p.platform === 'linkedin');
+  const youtube = discovery.socialProfiles.find(p => p.platform === 'youtube');
+
+  return {
+    instagramUrl: instagram?.url ?? null,
+    facebookUrl: facebook?.url ?? null,
+    tiktokUrl: tiktok?.url ?? null,
+    xUrl: x?.url ?? null,
+    linkedinUrl: linkedin?.url ?? null,
+    youtubeUrl: youtube?.url ?? null,
+    gbpUrl: discovery.gbp?.url ?? null,
+
+    instagramHandle: instagram?.handle,
+    linkedinHandle: linkedin?.handle,
+    tiktokHandle: tiktok?.handle,
+
+    socialConfidence: discovery.socialConfidence,
+    gbpConfidence: discovery.gbpConfidence,
+
+    hasInstagram: discovery.hasInstagram,
+    hasFacebook: discovery.hasFacebook,
+    hasLinkedIn: discovery.hasLinkedIn,
+    hasTikTok: discovery.hasTikTok,
+    hasYouTube: discovery.hasYouTube,
+    hasGBP: discovery.hasGBP,
+
+    summary: discovery.summary,
+  };
+}
+
+/**
+ * Get list of detected social platforms for business context
+ */
+function getSocialPlatformList(presence: SocialPresenceData): string[] {
+  const platforms: string[] = [];
+  if (presence.hasInstagram) platforms.push('instagram');
+  if (presence.hasFacebook) platforms.push('facebook');
+  if (presence.hasLinkedIn) platforms.push('linkedin');
+  if (presence.hasTikTok) platforms.push('tiktok');
+  if (presence.hasYouTube) platforms.push('youtube');
+  return platforms;
+}
+
+/**
+ * Augment basic digital footprint with enhanced social discovery results
+ */
+function augmentDigitalFootprintWithSocial(
+  basic: Awaited<ReturnType<typeof collectDigitalFootprint>>,
+  social: SocialPresenceData
+): Awaited<ReturnType<typeof collectDigitalFootprint>> {
+  return {
+    ...basic,
+    gbp: {
+      ...basic.gbp,
+      // Use enhanced detection if we have higher confidence
+      found: social.hasGBP || basic.gbp.found,
+    },
+    linkedin: {
+      ...basic.linkedin,
+      found: social.hasLinkedIn || basic.linkedin.found,
+    },
+    otherSocials: {
+      instagram: social.hasInstagram || basic.otherSocials.instagram,
+      facebook: social.hasFacebook || basic.otherSocials.facebook,
+      youtube: social.hasYouTube || basic.otherSocials.youtube,
     },
   };
 }
