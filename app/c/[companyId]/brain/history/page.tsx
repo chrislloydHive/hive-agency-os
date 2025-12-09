@@ -1,5 +1,10 @@
 // app/c/[companyId]/brain/history/page.tsx
-// Brain History - Context graph version history and changelog
+// Brain History - Timeline of changes and activity
+//
+// Part of the 3-tab Brain structure:
+// - Context: Field-level editor for company data
+// - Insights: AI-generated analysis and patterns
+// - History (this): Timeline of changes, updates, and events
 
 import { Metadata } from 'next';
 import Link from 'next/link';
@@ -7,6 +12,7 @@ import { notFound } from 'next/navigation';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
 import { getSnapshotMetaForCompany, type SnapshotMeta } from '@/lib/contextGraph/snapshots';
+import { CompanyActivityTimeline } from '@/components/os/CompanyActivityTimeline';
 import { History, GitBranch, Clock, ArrowRight, FileText, Zap, User, Database } from 'lucide-react';
 
 // ============================================================================
@@ -67,7 +73,7 @@ export default async function BrainHistoryPage({ params }: PageProps) {
       <div>
         <h1 className="text-xl font-semibold text-slate-200">History</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Snapshots of the Context Graph over time (QBRs, SSM runs, manual checkpoints)
+          Timeline of changes, diagnostic runs, and context evolution
         </p>
       </div>
 
@@ -92,7 +98,14 @@ export default async function BrainHistoryPage({ params }: PageProps) {
         />
       </div>
 
-      {/* Snapshots Table */}
+      {/* Two Column Layout: Activity + Snapshots */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Activity Timeline */}
+        <div>
+          <CompanyActivityTimeline companyId={companyId} limit={15} />
+        </div>
+
+        {/* Snapshots Table */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-800">
           <h3 className="text-sm font-medium text-slate-200">Snapshots</h3>
@@ -136,6 +149,7 @@ export default async function BrainHistoryPage({ params }: PageProps) {
             </table>
           </div>
         )}
+      </div>
       </div>
     </div>
   );
