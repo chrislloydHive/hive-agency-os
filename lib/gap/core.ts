@@ -34,7 +34,7 @@ import {
   GAP_SHARED_SYSTEM_PROMPT,
   GAP_SHARED_REASONING_PROMPT,
 } from '@/lib/gap/prompts/sharedPrompts';
-import { GAP_IA_OUTPUT_PROMPT_V3 } from '@/lib/gap/prompts/gapIaOutputPromptV3';
+import { GAP_IA_OUTPUT_PROMPT_V4 } from '@/lib/gap/prompts/gapIaOutputPromptV4';
 import { FULL_GAP_OUTPUT_PROMPT_V3 } from '@/lib/gap/prompts/fullGapOutputPromptV3';
 import {
   InitialAssessmentOutputSchema,
@@ -454,12 +454,12 @@ export interface GapIaCoreInput {
 /**
  * Generate GAP-IA analysis (core function without Airtable writes)
  *
- * Uses InitialAssessmentPromptV3 and InitialAssessmentOutputSchema exclusively
+ * Uses InitialAssessmentPromptV4 and InitialAssessmentOutputSchema exclusively
  */
 export async function generateGapIaAnalysisCore(params: GapIaCoreInput) {
-  console.log('[gap/core/V3] 🚀 Starting GAP-IA generation with InitialAssessmentPromptV3');
-  console.log('[gap/core/V3] Target:', params.domain);
-  console.log('[gap/core/V3] Digital Footprint Signals:', {
+  console.log('[gap/core/V4] 🚀 Starting GAP-IA generation with InitialAssessmentPromptV4');
+  console.log('[gap/core/V4] Target:', params.domain);
+  console.log('[gap/core/V4] Digital Footprint Signals:', {
     gbpFound: params.digitalFootprint.gbp.found,
     linkedinFound: params.digitalFootprint.linkedin.found,
     instagramFound: params.digitalFootprint.otherSocials.instagram,
@@ -528,17 +528,17 @@ export async function generateGapIaAnalysisCore(params: GapIaCoreInput) {
   // Build the full prompt for the model caller
   const fullPrompt = `${GAP_SHARED_REASONING_PROMPT}
 
-**Analysis Mode:** GAP_IA (Initial Assessment - V3)
+**Analysis Mode:** GAP_IA (Initial Assessment - V4)
 
 **Input Signals:**
 ${JSON.stringify(signalPayload, null, 2)}
 
-${GAP_IA_OUTPUT_PROMPT_V3}`;
+${GAP_IA_OUTPUT_PROMPT_V4}`;
 
   // Call the model
   const responseText = await modelCaller(fullPrompt);
 
-  console.log('[gap/core/V3] ✅ Received OpenAI response:', {
+  console.log('[gap/core/V4] ✅ Received OpenAI response:', {
     length: responseText.length,
   });
 
@@ -546,14 +546,14 @@ ${GAP_IA_OUTPUT_PROMPT_V3}`;
   const parsed = JSON.parse(responseText);
 
   // DEBUG: Log actual model output to verify V3 format
-  console.log('[gap/core/V3] 🔍 RAW MODEL OUTPUT:');
-  console.log('[gap/core/V3]   executiveSummary preview:', parsed.executiveSummary?.substring(0, 200));
-  console.log('[gap/core/V3]   topOpportunities count:', parsed.topOpportunities?.length);
-  console.log('[gap/core/V3]   quickWins count:', parsed.quickWins?.length);
-  console.log('[gap/core/V3]   First topOpportunity:', parsed.topOpportunities?.[0]);
-  console.log('[gap/core/V3]   First quickWin format:', parsed.quickWins?.[0]?.action?.substring(0, 100));
+  console.log('[gap/core/V4] 🔍 RAW MODEL OUTPUT:');
+  console.log('[gap/core/V4]   executiveSummary preview:', parsed.executiveSummary?.substring(0, 200));
+  console.log('[gap/core/V4]   topOpportunities count:', parsed.topOpportunities?.length);
+  console.log('[gap/core/V4]   quickWins count:', parsed.quickWins?.length);
+  console.log('[gap/core/V4]   First topOpportunity:', parsed.topOpportunities?.[0]);
+  console.log('[gap/core/V4]   First quickWin format:', parsed.quickWins?.[0]?.action?.substring(0, 100));
 
-  console.log('[gap/core/V3] Validating response structure...', {
+  console.log('[gap/core/V4] Validating response structure...', {
     hasExecutiveSummary: !!parsed.executiveSummary,
     hasMarketingReadinessScore: typeof parsed.marketingReadinessScore === 'number',
     hasMaturityStage: !!parsed.maturityStage,
@@ -589,7 +589,7 @@ ${GAP_IA_OUTPUT_PROMPT_V3}`;
     // Validate using V3 schema
     const validatedV3 = InitialAssessmentOutputSchema.parse(parsed);
 
-    console.log('[gap/core/V3] ✅ Schema validation successful:', {
+    console.log('[gap/core/V4] ✅ Schema validation successful:', {
       businessType: parsed.businessType || 'Not specified',
       overallScore: validatedV3.marketingReadinessScore,
       maturityStage: validatedV3.maturityStage,
@@ -612,16 +612,16 @@ ${GAP_IA_OUTPUT_PROMPT_V3}`;
       socialFootprint: params.socialFootprint,
     });
 
-    console.log('[gap/core/V3] ✅ Mapped to V2 format for compatibility');
+    console.log('[gap/core/V4] ✅ Mapped to V2 format for compatibility');
 
     return v2Output;
   } catch (error) {
-    console.error('[gap/core/V3] Validation or mapping failed:', error);
+    console.error('[gap/core/V4] Validation or mapping failed:', error);
 
     // Log validation errors for debugging
     if (error instanceof Error) {
       if ('issues' in error && Array.isArray((error as any).issues)) {
-        console.error('[gap/core/V3] Validation issues:', JSON.stringify((error as any).issues.slice(0, 5), null, 2));
+        console.error('[gap/core/V4] Validation issues:', JSON.stringify((error as any).issues.slice(0, 5), null, 2));
       }
     }
 
@@ -651,7 +651,7 @@ export interface FullGapCoreInput {
  * If no modelCaller is provided, uses direct OpenAI calls.
  */
 export async function generateFullGapAnalysisCore(params: FullGapCoreInput) {
-  console.log('[gap/core/V3] Generating Full GAP for:', params.domain);
+  console.log('[gap/core/V4] Generating Full GAP for:', params.domain);
 
   // Build the full prompt
   const fullPrompt = `${GAP_SHARED_REASONING_PROMPT}
@@ -682,14 +682,14 @@ ${FULL_GAP_OUTPUT_PROMPT_V3}`;
     throw new Error('Empty response from model when generating Full GAP');
   }
 
-  console.log('[gap/core/V3] ✅ Received Full GAP response:', {
+  console.log('[gap/core/V4] ✅ Received Full GAP response:', {
     length: content.length,
   });
 
   try {
     const parsed = JSON.parse(content);
 
-    console.log('[gap/core/V3] Validating Full GAP structure...', {
+    console.log('[gap/core/V4] Validating Full GAP structure...', {
       hasExecutiveSummary: !!parsed.executiveSummary,
       hasOverallScore: typeof parsed.overallScore === 'number',
       hasMaturityStage: !!parsed.maturityStage,
@@ -704,7 +704,7 @@ ${FULL_GAP_OUTPUT_PROMPT_V3}`;
     // Validate using V3 schema
     const validatedV3 = FullGapOutputSchema.parse(parsed);
 
-    console.log('[gap/core/V3] ✅ Schema validation successful:', {
+    console.log('[gap/core/V4] ✅ Schema validation successful:', {
       overallScore: validatedV3.overallScore,
       maturityStage: validatedV3.maturityStage,
       quickWinCount: validatedV3.quickWins.length,
@@ -721,16 +721,16 @@ ${FULL_GAP_OUTPUT_PROMPT_V3}`;
       gapId: params.gapIa.id || 'unknown',
     });
 
-    console.log('[gap/core/V3] ✅ Mapped to API format for compatibility');
+    console.log('[gap/core/V4] ✅ Mapped to API format for compatibility');
 
     return apiResponse;
   } catch (error) {
-    console.error('[gap/core/V3] Full GAP validation or mapping failed:', error);
+    console.error('[gap/core/V4] Full GAP validation or mapping failed:', error);
 
     // Log validation errors for debugging
     if (error instanceof Error) {
       if ('issues' in error && Array.isArray((error as any).issues)) {
-        console.error('[gap/core/V3] Validation issues:', JSON.stringify((error as any).issues.slice(0, 5), null, 2));
+        console.error('[gap/core/V4] Validation issues:', JSON.stringify((error as any).issues.slice(0, 5), null, 2));
       }
     }
 
