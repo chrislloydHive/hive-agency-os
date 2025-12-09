@@ -172,9 +172,9 @@ export function FindingsClient({ company }: FindingsClientProps) {
     <div className="space-y-6">
       {/* Page Header */}
       <div>
-        <h1 className="text-2xl font-semibold text-white">Findings</h1>
+        <h1 className="text-2xl font-semibold text-white">Plan</h1>
         <p className="text-sm text-slate-400 mt-1">
-          Issues and opportunities discovered by diagnostic Labs
+          Prioritize findings from diagnostics and build your strategic roadmap
         </p>
       </div>
 

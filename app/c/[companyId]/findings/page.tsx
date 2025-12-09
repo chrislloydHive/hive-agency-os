@@ -26,8 +26,8 @@ export async function generateMetadata({ params }: PageProps) {
   }
 
   return {
-    title: `Findings | ${company.name} | Hive OS`,
-    description: `Diagnostic findings and issues for ${company.name}`,
+    title: `Plan | ${company.name} | Hive OS`,
+    description: `Strategic planning surface: prioritize findings and build the roadmap for ${company.name}`,
   };
 }
 

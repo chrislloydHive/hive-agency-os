@@ -29,9 +29,9 @@ export const COMPANY_TABS: CompanyTab[] = [
   },
   {
     id: 'blueprint',
-    name: 'Blueprint',
+    name: 'Diagnostics',
     href: (companyId) => `/c/${companyId}/blueprint`,
-    description: 'Strategic hub with diagnostics, analytics, and growth plan',
+    description: 'Run labs and assessments to uncover issues and opportunities',
   },
   {
     id: 'brain',
@@ -41,9 +41,9 @@ export const COMPANY_TABS: CompanyTab[] = [
   },
   {
     id: 'findings',
-    name: 'Findings',
+    name: 'Plan',
     href: (companyId) => `/c/${companyId}/findings`,
-    description: 'Issues and opportunities from diagnostic Labs',
+    description: 'Strategic planning surface: prioritize findings and build the roadmap',
   },
   {
     id: 'work',

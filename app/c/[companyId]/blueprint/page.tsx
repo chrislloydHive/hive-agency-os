@@ -47,8 +47,8 @@ export async function generateMetadata({ params }: PageProps) {
   }
 
   return {
-    title: `Blueprint | ${company.name} | Hive OS`,
-    description: `Strategic blueprint and growth plan for ${company.name}`,
+    title: `Diagnostics | ${company.name} | Hive OS`,
+    description: `Run labs and assessments to uncover issues and opportunities for ${company.name}`,
   };
 }
 

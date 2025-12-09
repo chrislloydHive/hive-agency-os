@@ -1,7 +1,7 @@
 'use client';
 
 // app/c/[companyId]/blueprint/BlueprintClient.tsx
-// Client component for the Blueprint page - the strategic hub
+// Client component for the Diagnostics page (formerly "Blueprint")
 // Two-column layout: Left = Diagnostics/Findings, Right = Actions/Roadmap
 
 import { useState, useCallback, type ReactNode } from 'react';
