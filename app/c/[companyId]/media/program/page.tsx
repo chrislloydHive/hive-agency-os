@@ -82,7 +82,7 @@ export default async function MediaProgramPage({ params, searchParams }: PagePro
         companyName={company.name}
         initialProgram={program}
         mode={mode}
-        sourcePlan={sourcePlan}
+        sourcePlan={sourcePlan as any}
       />
     </div>
   );

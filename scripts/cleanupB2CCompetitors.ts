@@ -76,7 +76,7 @@ function buildQueryContext(
 ): QueryContext {
   return {
     businessName: company.name,
-    domain: company.domain || company.website,
+    domain: company.domain || company.website || null,
     industry: graph?.identity?.industry?.value || company.industry || null,
     businessModel: graph?.identity?.businessModel?.value || null,
     businessModelCategory: graph?.identity?.businessModelCategory?.value || null,

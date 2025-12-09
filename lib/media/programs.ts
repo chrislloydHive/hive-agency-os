@@ -375,7 +375,7 @@ export async function promoteMediaPlanToProgram(args: {
   // 3. Convert plan channels to program channels
   const programChannels: MediaProgramChannel[] = planChannels.map(pc => ({
     channel: pc.channel as unknown as MediaChannel, // Channel key mapping
-    provider: pc.provider || getProviderForChannelKey(pc.channel),
+    provider: (pc as any).provider || getProviderForChannelKey(pc.channel),
     isActive: pc.priority !== null, // Consider channels with priority as active
     monthlyBudget: pc.budgetAmount ?? 0,
   }));

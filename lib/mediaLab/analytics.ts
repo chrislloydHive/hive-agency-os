@@ -161,7 +161,7 @@ export async function getMediaAnalyticsSummary(
   const storePerformance = buildStorePerformance(storeScorecardsV2, stores);
 
   // Build seasonal flight performance from plans
-  const seasonalFlights = buildSeasonalFlights(plansWithDetails);
+  const seasonalFlights = buildSeasonalFlights(plansWithDetails as any);
 
   // Generate insights
   const insights = generateInsights(
@@ -194,7 +194,7 @@ export async function getMediaAnalyticsSummary(
     storeCount: storePerformance.length,
     storesNeedingAttention: storePerformance.filter(s => s.overallScore < 50).length,
     seasonalFlights,
-    activePlans: plansWithDetails.filter(p => p.status === 'active'),
+    activePlans: plansWithDetails.filter(p => p.status === 'active') as any,
     insights,
     hasData,
     hasMediaPlans,

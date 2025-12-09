@@ -247,10 +247,10 @@ export async function getCompanyMediaFields(companyId: string): Promise<{
     const fields = record.fields;
 
     return {
-      hasMediaProgram: fields['Has Media Program'] || false,
-      mediaStatus: (fields['Media Status'] || 'none') as 'none' | 'planning' | 'running' | 'paused',
+      hasMediaProgram: Boolean(fields['Has Media Program']) || false,
+      mediaStatus: (String(fields['Media Status'] || 'none')) as 'none' | 'planning' | 'running' | 'paused',
       mediaPrimaryObjective: (fields['Media Primary Objective'] || null) as MediaObjective | null,
-      mediaNotes: fields['Media Notes'] || null,
+      mediaNotes: (fields['Media Notes'] as string) || null,
     };
   } catch (error) {
     console.error('[getCompanyMediaFields] Error:', error);
@@ -261,4 +261,47 @@ export async function getCompanyMediaFields(companyId: string): Promise<{
       mediaNotes: null,
     };
   }
+}
+
+// ============================================================================
+// Stub Functions (TODO: Implement when needed)
+// ============================================================================
+
+/**
+ * Get plans with full details (channels, flights) - stub
+ */
+export async function getMediaPlansWithDetailsForCompany(companyId: string): Promise<MediaPlan[]> {
+  // For now, just return basic plans
+  return getMediaPlansForCompany(companyId);
+}
+
+/**
+ * Get active media plans - stub
+ */
+export async function getActiveMediaPlansForCompany(companyId: string): Promise<MediaPlan[]> {
+  const plans = await getMediaPlansForCompany(companyId);
+  return plans.filter(p => p.status === 'active');
+}
+
+/**
+ * Create draft media plan - stub
+ */
+export async function createDraftMediaPlan(_companyId: string, _data: { name: string }): Promise<MediaPlan | null> {
+  console.warn('[createDraftMediaPlan] Not implemented yet');
+  return null;
+}
+
+/**
+ * Get plan with full details - stub
+ */
+export async function getMediaPlanWithDetails(planId: string): Promise<MediaPlan | null> {
+  return getMediaPlanById(planId);
+}
+
+/**
+ * Update media plan status - stub
+ */
+export async function updateMediaPlanStatus(_planId: string, _status: string): Promise<boolean> {
+  console.warn('[updateMediaPlanStatus] Not implemented yet');
+  return false;
 }

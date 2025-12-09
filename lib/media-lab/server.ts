@@ -52,7 +52,7 @@ export async function getMediaLabForCompany(companyId: string): Promise<MediaLab
 
     // Calculate summary metrics
     const activePlans = plans.filter(
-      (p) => p.status === 'active' || p.status === 'running'
+      (p) => p.status === 'active'
     );
 
     const totalActiveBudget = activePlans.reduce(

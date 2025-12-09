@@ -39,7 +39,7 @@ export async function getMediaLabForCompany(companyId: string): Promise<MediaLab
 
   // Build summary
   const activePlans = plans.filter(p => p.status === 'active');
-  const totalActiveBudget = calculateTotalActiveBudget(plans);
+  const totalActiveBudget = calculateTotalActiveBudget(plans as any);
 
   // Determine primary objective (from first active plan, or first plan)
   const representativePlan = activePlans[0] || plans[0];
@@ -67,7 +67,7 @@ export async function getMediaLabForCompany(companyId: string): Promise<MediaLab
 
   return {
     summary,
-    plans,
+    plans: plans as any,
   };
 }
 
@@ -101,7 +101,7 @@ export async function initializeMediaLabForCompany(
   // Create a draft plan
   const plan = await createDraftMediaPlan(
     companyId,
-    planName || 'Initial Media Plan'
+    { name: planName || 'Initial Media Plan' }
   );
 
   if (!plan) {
@@ -114,7 +114,7 @@ export async function initializeMediaLabForCompany(
     ...plan,
     channels: [],
     flights: [],
-  };
+  } as any;
 }
 
 // ============================================================================

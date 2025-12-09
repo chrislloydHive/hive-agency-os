@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { companyHasMediaProgram } from '@/lib/companies/media';
 import { getMediaScenariosForCompany } from '@/lib/media/scenarios';
-import { getActiveMediaPlansForCompany } from '@/lib/airtable/mediaLab';
+import { getMediaPlansForCompany } from '@/lib/airtable/mediaLab';
 import { MediaProgramEmptyState } from '@/components/os/media';
 import { ScenariosClient } from './ScenariosClient';
 
@@ -55,10 +55,11 @@ export default async function MediaScenariosPage({ params }: PageProps) {
   }
 
   // Fetch scenarios and active plans
-  const [scenarios, activePlans] = await Promise.all([
+  const [scenarios, allPlans] = await Promise.all([
     getMediaScenariosForCompany(companyId),
-    getActiveMediaPlansForCompany(companyId),
+    getMediaPlansForCompany(companyId),
   ]);
+  const activePlans = allPlans.filter(p => p.status === 'active');
 
   return (
     <div className="space-y-6">

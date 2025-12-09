@@ -372,7 +372,8 @@ export async function createScenarioFromMediaPlan(
   }
 
   // Convert plan channels to scenario allocations
-  const allocations: MediaScenarioChannelAllocation[] = plan.channels.map(channel => ({
+  const planChannels = (plan as any).channels || [];
+  const allocations: MediaScenarioChannelAllocation[] = planChannels.map((channel: any) => ({
     id: `alloc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
     channel: channelKeyToMediaChannel(channel.channel),
     provider: channel.provider || undefined,

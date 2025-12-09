@@ -16,15 +16,15 @@ import type {
   MediaPlan,
   MediaPlanChannel,
   MediaPlanFlight,
-} from '@/lib/types/mediaLab';
+} from '@/lib/media-lab/types';
 import { getDateRangeFromPreset } from '@/lib/types/media';
 import {
   getMediaPerformanceByCompany,
 } from '@/lib/airtable/mediaPerformance';
 import {
-  getActiveMediaPlansForCompany,
-  getChannelsForMediaPlans,
-  getFlightsForMediaPlans,
+  getMediaPlansForCompany,
+  getChannelsForMediaPlan,
+  getFlightsForMediaPlan,
 } from '@/lib/airtable/mediaLab';
 import { getMediaStoresByCompany } from '@/lib/airtable/mediaStores';
 
@@ -184,15 +184,21 @@ export async function getMediaCockpitData(
       storeId: storeId || undefined,
     }),
     getMediaStoresByCompany(companyId),
-    getActiveMediaPlansForCompany(companyId),
+    getMediaPlansForCompany(companyId).then(plans => plans.filter(p => p.status === 'active')),
   ]);
 
-  // Get channels and flights for active plans
-  const planIds = activePlans.map(p => p.id);
-  const [channelsByPlan, flightsByPlan] = await Promise.all([
-    getChannelsForMediaPlans(planIds),
-    getFlightsForMediaPlans(planIds),
-  ]);
+  // Get channels and flights for active plans (fetch for each plan individually)
+  const channelsByPlan = new Map<string, MediaPlanChannel[]>();
+  const flightsByPlan = new Map<string, MediaPlanFlight[]>();
+
+  for (const plan of activePlans) {
+    const [channels, flights] = await Promise.all([
+      getChannelsForMediaPlan(plan.id),
+      getFlightsForMediaPlan(plan.id),
+    ]);
+    channelsByPlan.set(plan.id, channels);
+    flightsByPlan.set(plan.id, flights);
+  }
 
   // Aggregate actuals from performance data
   const actuals = aggregatePerformance(performance);
@@ -330,8 +336,9 @@ function aggregatePlannedValues(
       // Use flight budgets
       for (const flight of activeFlights) {
         totalBudget += flight.budget || 0;
-        totalLeads += flight.leadGoal || 0;
-        totalInstalls += flight.installGoal || 0;
+        // leadGoal and installGoal may not exist on all flight types
+        totalLeads += (flight as any).leadGoal || 0;
+        totalInstalls += (flight as any).installGoal || 0;
       }
     } else {
       // Use plan budget (prorated to date range if needed)
@@ -559,7 +566,8 @@ function countActiveFlights(
 
       // Check if flight overlaps with date range and is active
       const overlaps = (!fStart || fStart <= dateRange.end) && (!fEnd || fEnd >= dateRange.start);
-      const isActive = flight.status === 'active' || flight.status === undefined;
+      const flightStatus = (flight as any).status;
+      const isActive = flightStatus === 'active' || flightStatus === undefined;
 
       if (overlaps && isActive) {
         count++;
