@@ -1,8 +1,8 @@
 // app/c/[companyId]/diagnostics/page.tsx
-// DEPRECATED: Redirects to /tools - the canonical tools hub
+// Redirects to /blueprint - the canonical Diagnostics hub
 //
-// This route is kept for backwards compatibility.
-// All diagnostic/tool functionality has been consolidated into /tools.
+// The Diagnostics tab (formerly "Blueprint") is at /blueprint for URL stability.
+// This route provides a semantic alias.
 
 import { redirect } from 'next/navigation';
 
@@ -13,6 +13,6 @@ type PageProps = {
 export default async function DiagnosticsHubPage({ params }: PageProps) {
   const { companyId } = await params;
 
-  // Redirect to the canonical Tools hub
-  redirect(`/c/${companyId}/tools`);
+  // Redirect to the Diagnostics hub (at /blueprint path for URL stability)
+  redirect(`/c/${companyId}/blueprint`);
 }

@@ -1,6 +1,7 @@
 // app/c/[companyId]/tools/page.tsx
-// REDIRECT: Tools page now redirects to Blueprint
-// Tools are now part of the Blueprint strategic hub
+// Redirects to /blueprint - the canonical Diagnostics hub
+//
+// Tools/Labs are now integrated into the Diagnostics hub.
 
 import { redirect } from 'next/navigation';
 
