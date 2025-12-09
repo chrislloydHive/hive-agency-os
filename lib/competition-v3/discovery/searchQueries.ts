@@ -821,19 +821,23 @@ function extractIcpStage(icpDescription: string | null): string | null {
 function extractIndustries(audience: any): string[] {
   const industries: string[] = [];
 
-  // Check segment details
-  const segments = audience.segmentDetails?.value || [];
-  for (const segment of segments) {
-    if (segment.industry) {
-      industries.push(segment.industry);
+  // Check segment details (ensure it's an array)
+  const segments = audience.segmentDetails?.value;
+  if (Array.isArray(segments)) {
+    for (const segment of segments) {
+      if (segment?.industry) {
+        industries.push(segment.industry);
+      }
     }
   }
 
-  // Check core segments
-  const coreSegments = audience.coreSegments?.value || [];
-  for (const segment of coreSegments) {
-    if (typeof segment === 'string' && segment.length < 50) {
-      industries.push(segment);
+  // Check core segments (ensure it's an array)
+  const coreSegments = audience.coreSegments?.value;
+  if (Array.isArray(coreSegments)) {
+    for (const segment of coreSegments) {
+      if (typeof segment === 'string' && segment.length < 50) {
+        industries.push(segment);
+      }
     }
   }
 
