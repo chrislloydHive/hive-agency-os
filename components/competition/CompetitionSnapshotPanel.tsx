@@ -104,17 +104,59 @@ export function CompetitionSnapshotPanel({ insights, competitors, onSelectCompet
       {/* Divider */}
       <div className="border-t border-slate-800" />
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="p-2 rounded-lg bg-slate-900/50 border border-slate-800">
-          <div className="text-[10px] text-slate-500 mb-0.5">Key Risks</div>
-          <div className="text-sm font-semibold text-red-400">{insights.keyRisks.length}</div>
+      {/* Key Risks */}
+      {insights.keyRisks.length > 0 && (
+        <div className="p-3 rounded-lg bg-red-500/5 border border-red-500/20">
+          <div className="flex items-center gap-1.5 mb-2">
+            <svg className="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span className="text-[10px] font-medium text-red-400 uppercase tracking-wider">
+              Key Risks ({insights.keyRisks.length})
+            </span>
+          </div>
+          <ul className="space-y-1.5">
+            {insights.keyRisks.slice(0, 3).map((risk, idx) => (
+              <li key={idx} className="flex items-start gap-2 text-xs text-slate-300">
+                <span className="text-red-400 mt-0.5 shrink-0">•</span>
+                <span>{risk}</span>
+              </li>
+            ))}
+            {insights.keyRisks.length > 3 && (
+              <li className="text-[10px] text-slate-500 pl-4">
+                +{insights.keyRisks.length - 3} more in Data view
+              </li>
+            )}
+          </ul>
         </div>
-        <div className="p-2 rounded-lg bg-slate-900/50 border border-slate-800">
-          <div className="text-[10px] text-slate-500 mb-0.5">Opportunities</div>
-          <div className="text-sm font-semibold text-emerald-400">{insights.keyOpportunities.length}</div>
+      )}
+
+      {/* Opportunities */}
+      {insights.keyOpportunities.length > 0 && (
+        <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
+          <div className="flex items-center gap-1.5 mb-2">
+            <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <span className="text-[10px] font-medium text-emerald-400 uppercase tracking-wider">
+              Opportunities ({insights.keyOpportunities.length})
+            </span>
+          </div>
+          <ul className="space-y-1.5">
+            {insights.keyOpportunities.slice(0, 3).map((opp, idx) => (
+              <li key={idx} className="flex items-start gap-2 text-xs text-slate-300">
+                <span className="text-emerald-400 mt-0.5 shrink-0">•</span>
+                <span>{opp}</span>
+              </li>
+            ))}
+            {insights.keyOpportunities.length > 3 && (
+              <li className="text-[10px] text-slate-500 pl-4">
+                +{insights.keyOpportunities.length - 3} more in Data view
+              </li>
+            )}
+          </ul>
         </div>
-      </div>
+      )}
 
       {/* Recommended Moves Preview */}
       {insights.recommendedMoves.now.length > 0 && (
