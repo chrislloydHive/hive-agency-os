@@ -77,20 +77,21 @@ export function getCompanyTabFromPath(pathname: string, companyId: string): Comp
 }
 
 // ============================================================================
-// Brain Sub-Navigation (4-Tab Structure)
+// Brain Sub-Navigation (3-Tab Structure)
 // ============================================================================
-// Brain IA Framework:
-// - Explorer: Explore mode - visual map for discovery
-// - Context: Inspect mode - field-level editor for data entry
-// - Insights: Understand mode - AI-generated analysis
-// - Labs: Improve mode - diagnostic tools that refine context
+// Brain is purely context/memory oriented:
+// - Context: Field-level editor for company data
+// - Insights: AI-generated analysis and patterns
+// - History: Timeline of changes and updates
+//
+// Note: Labs have moved to Diagnostics (/blueprint)
 
-export type BrainTabId = 'explorer' | 'context' | 'insights' | 'labs';
+export type BrainTabId = 'context' | 'insights' | 'history';
 
 export interface BrainTab {
   id: BrainTabId;
   name: string;
-  /** Short action label shown below tab name (e.g., "Explore", "Edit") */
+  /** Short action label shown below tab name (e.g., "Edit", "Analyze") */
   subLabel: string;
   href: (companyId: string) => string;
   tooltip: {
@@ -100,16 +101,6 @@ export interface BrainTab {
 }
 
 export const BRAIN_TABS: BrainTab[] = [
-  {
-    id: 'explorer',
-    name: 'Explorer',
-    subLabel: 'Explore',
-    href: (companyId) => `/c/${companyId}/brain/explorer`,
-    tooltip: {
-      title: 'Strategic Explorer',
-      description: 'Visual map of company context clustered by domain. Explore relationships between Identity, Audience, Brand, and Competitive.',
-    },
-  },
   {
     id: 'context',
     name: 'Context',
@@ -123,7 +114,7 @@ export const BRAIN_TABS: BrainTab[] = [
   {
     id: 'insights',
     name: 'Insights',
-    subLabel: 'Understand',
+    subLabel: 'Analyze',
     href: (companyId) => `/c/${companyId}/brain/insights`,
     tooltip: {
       title: 'AI-Generated Insights',
@@ -131,13 +122,13 @@ export const BRAIN_TABS: BrainTab[] = [
     },
   },
   {
-    id: 'labs',
-    name: 'Labs',
-    subLabel: 'Improve',
-    href: (companyId) => `/c/${companyId}/brain/labs`,
+    id: 'history',
+    name: 'History',
+    subLabel: 'Review',
+    href: (companyId) => `/c/${companyId}/brain/history`,
     tooltip: {
-      title: 'Diagnostic Labs',
-      description: 'Deep-dive diagnostics including Competition Lab, Creative Lab, and more. Labs refine company context and feed strategy.',
+      title: 'Context History',
+      description: 'Timeline of changes, updates, and events across the context graph.',
     },
   },
 ];
@@ -152,22 +143,22 @@ export function getBrainTabFromPath(pathname: string, companyId: string): BrainT
 
   const subPath = pathname.slice(brainBase.length);
 
-  // Match specific brain routes (new 4-tab structure)
-  if (subPath.startsWith('/explorer')) return 'explorer';
+  // Match brain routes (3-tab structure: Context | Insights | History)
   if (subPath.startsWith('/context')) return 'context';
   if (subPath.startsWith('/insights')) return 'insights';
-  if (subPath.startsWith('/labs')) return 'labs';
+  if (subPath.startsWith('/history')) return 'history';
 
-  // Legacy route mappings (redirect to appropriate tab)
-  if (subPath.startsWith('/map')) return 'explorer'; // Old strategic map → explorer
-  if (subPath.startsWith('/library')) return 'labs'; // Library moved to labs
-  if (subPath.startsWith('/setup')) return 'labs'; // Setup moved to labs
-  if (subPath.startsWith('/history')) return 'context'; // History is utility in context
+  // Legacy route mappings (redirect to context)
+  if (subPath.startsWith('/explorer')) return 'context'; // Explorer → Context
+  if (subPath.startsWith('/map')) return 'context'; // Old strategic map → Context
+  if (subPath.startsWith('/library')) return 'context'; // Library → Context
+  if (subPath.startsWith('/setup')) return 'context'; // Setup → Context
+  // Note: /labs should redirect to /blueprint (Diagnostics) - handled by page redirect
 
-  // Default: bare /brain → explorer (exploration-first)
-  if (subPath === '' || subPath === '/') return 'explorer';
+  // Default: bare /brain → context (context-first)
+  if (subPath === '' || subPath === '/') return 'context';
 
-  return 'explorer'; // Fallback to explorer
+  return 'context'; // Fallback to context
 }
 
 // ============================================================================

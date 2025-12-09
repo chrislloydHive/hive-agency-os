@@ -1,6 +1,6 @@
 // app/c/[companyId]/brain/page.tsx
-// Brain default route - redirects to Explorer (exploration-first)
-// Canonical Brain routes: /brain/explorer, /brain/context, /brain/insights, /brain/labs
+// Brain default route - redirects to Context (context-first)
+// Canonical Brain routes: /brain/context, /brain/insights, /brain/history
 
 import { redirect } from 'next/navigation';
 
@@ -10,5 +10,5 @@ interface BrainPageProps {
 
 export default async function BrainPage({ params }: BrainPageProps) {
   const { companyId } = await params;
-  redirect(`/c/${companyId}/brain/explorer`);
+  redirect(`/c/${companyId}/brain/context`);
 }
