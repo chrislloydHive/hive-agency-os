@@ -217,7 +217,7 @@ export function ToolReportLayout({
         </Link>
         <span>/</span>
         <Link href={`/c/${company.id}/blueprint`} className="hover:text-slate-300 transition-colors">
-          Blueprint
+          Diagnostics
         </Link>
         <span>/</span>
         <span className="text-slate-300">{tool.label}</span>
@@ -321,13 +321,22 @@ export function ToolReportLayout({
                   Run History
                 </Link>
               </div>
-              <Link
-                href={`/c/${company.id}/blueprint`}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition-all text-sm font-medium"
-              >
-                <LucideIcons.ArrowLeft className="w-4 h-4" />
-                Back to Blueprint
-              </Link>
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  href={`/c/${company.id}/findings`}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/30 hover:bg-purple-500/20 transition-all text-sm font-medium"
+                >
+                  <LucideIcons.ClipboardList className="w-4 h-4" />
+                  View in Plan
+                </Link>
+                <Link
+                  href={`/c/${company.id}/blueprint`}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition-all text-sm font-medium"
+                >
+                  <LucideIcons.ArrowLeft className="w-4 h-4" />
+                  Back to Diagnostics
+                </Link>
+              </div>
             </div>
           </div>
         </div>
