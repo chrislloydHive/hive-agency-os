@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { BarChart3, Sparkles, RefreshCw, ArrowLeft, FileText, Clock } from 'lucide-react';
+import { BarChart3, Sparkles, RefreshCw, ArrowLeft, FileText, Clock, ClipboardList } from 'lucide-react';
 import type { CompanyReport } from '@/lib/reports/types';
 import { ReportRenderer } from '@/components/reports/ReportRenderer';
 
@@ -88,6 +88,13 @@ export function QBRReportClient({
               Last updated: {new Date(report.meta.updatedAt).toLocaleDateString()}
             </div>
           )}
+          <Link
+            href={`/c/${companyId}/work`}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors"
+          >
+            <ClipboardList className="w-4 h-4" />
+            View Work
+          </Link>
           <button
             onClick={handleGenerate}
             disabled={generating}
