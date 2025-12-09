@@ -27,12 +27,15 @@ export const config = {
      * Match all request paths except:
      * - api/auth (NextAuth routes)
      * - api/inngest (Inngest webhook endpoint)
+     * - api/gap-ia (GAP-IA run endpoint for DMA)
+     * - api/gap-plan (GAP Plan generation for DMA)
+     * - api/gap-worker (GAP Worker endpoint for DMA)
      * - auth (sign-in and error pages)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public folder files
      */
-    '/((?!api/auth|api/inngest|auth|_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.svg$|.*\\.jpg$|.*\\.ico$).*)',
+    '/((?!api/auth|api/inngest|api/gap-ia|api/gap-plan|api/gap-worker|auth|_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.svg$|.*\\.jpg$|.*\\.ico$).*)',
   ],
 };
