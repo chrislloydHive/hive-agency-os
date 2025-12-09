@@ -1,16 +1,17 @@
 'use client';
 
 // app/c/[companyId]/findings/FindingsClient.tsx
-// Company Findings Client Component
+// Plan Page Client Component (formerly "Findings")
 //
-// Client-side component for the findings page with:
+// Strategic planning surface that shows:
 // - Summary strip showing counts by severity
 // - Filters for labs, severities, categories, converted status
-// - Table of findings
-// - Detail drawer for individual findings
-// - Work item conversion
+// - Table of prioritized findings from all diagnostics
+// - Detail drawer for individual findings with "Add to Work" CTA
+// - Links to run more diagnostics and generate formal reports
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { FindingsSummaryStrip } from './FindingsSummaryStrip';
 import { FindingsFilters } from './FindingsFilters';
 import { FindingsTable } from './FindingsTable';
@@ -171,11 +172,44 @@ export function FindingsClient({ company }: FindingsClientProps) {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div>
-        <h1 className="text-2xl font-semibold text-white">Plan</h1>
-        <p className="text-sm text-slate-400 mt-1">
-          Prioritize findings from diagnostics and build your strategic roadmap
-        </p>
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-white">Plan</h1>
+          <p className="text-sm text-slate-400 mt-1">
+            Prioritize findings from diagnostics and build your strategic roadmap
+          </p>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/c/${company.id}/blueprint`}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/30 hover:bg-blue-500/20 transition-all text-sm font-medium"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+            </svg>
+            Run Diagnostics
+          </Link>
+          <Link
+            href={`/c/${company.id}/reports/qbr`}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/30 hover:bg-purple-500/20 transition-all text-sm font-medium"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Generate QBR
+          </Link>
+          <Link
+            href={`/c/${company.id}/work`}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition-all text-sm font-medium"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+            </svg>
+            View Work
+          </Link>
+        </div>
       </div>
 
       {/* Summary Strip */}
