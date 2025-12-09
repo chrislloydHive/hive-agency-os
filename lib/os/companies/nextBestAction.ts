@@ -51,7 +51,7 @@ export function deriveNextBestAction(
       action: `Address: ${firstCritical.title}`,
       reason: 'Critical issue detected that needs immediate attention',
       priority: 'high',
-      linkPath: firstCritical.linkPath || `/c/${companyId}/tools`,
+      linkPath: firstCritical.linkPath || `/c/${companyId}/blueprint`,
     };
   }
 
@@ -61,7 +61,7 @@ export function deriveNextBestAction(
       action: healthCheck.recommendedNextStep,
       reason: healthCheck.primaryIssue || 'From latest health check',
       priority: healthCheck.status === 'at_risk' ? 'high' : 'medium',
-      linkPath: `/c/${companyId}/tools`,
+      linkPath: `/c/${companyId}/blueprint`,
     };
   }
 
@@ -127,7 +127,7 @@ export function deriveNextBestAction(
       action: 'Run your first diagnostic',
       reason: 'No baseline established yet. Start with GAP IA or Website Lab.',
       priority: 'medium',
-      linkPath: `/c/${companyId}/tools`,
+      linkPath: `/c/${companyId}/blueprint`,
     };
   }
 
