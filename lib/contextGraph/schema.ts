@@ -1428,7 +1428,7 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     section: 'competitive',
     label: 'Invalid Competitors',
     type: 'string[]',
-    primarySources: ['CompetitorLab', 'manual'],
+    primarySources: ['CompetitorLab', 'Manual'],
   },
   {
     path: 'competitive.competitiveOpportunities',

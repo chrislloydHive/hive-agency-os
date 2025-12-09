@@ -6,6 +6,61 @@
 // - Six-category classification
 // - Multi-dimension scoring
 // - Context-driven positioning
+// - Vertical category intelligence (V3.5)
+
+// ============================================================================
+// Vertical Category Intelligence
+// ============================================================================
+
+/**
+ * Primary vertical category for business classification
+ * Used to drive vertical-specific competitor filtering, narratives, and recommendations
+ */
+export type VerticalCategory =
+  | 'retail'           // Physical retail stores, shops
+  | 'services'         // Agencies, consultancies, professional services
+  | 'software'         // SaaS, platforms, software products
+  | 'manufacturing'    // Manufacturing, industrial, B2B product companies
+  | 'consumer-dtc'     // Direct-to-consumer brands (online-first)
+  | 'automotive'       // Automotive retail, service, aftermarket
+  | 'unknown';         // Unable to determine
+
+/**
+ * Vertical detection result with reasoning
+ */
+export interface VerticalDetectionResult {
+  verticalCategory: VerticalCategory;
+  subVertical: string | null;
+  confidence: number;
+  reasoning: string;
+  signals: string[];
+}
+
+/**
+ * Competitor types allowed per vertical
+ */
+export const VERTICAL_ALLOWED_TYPES: Record<VerticalCategory, CompetitorType[]> = {
+  'retail': ['direct', 'partial', 'platform'],
+  'services': ['direct', 'partial', 'fractional', 'internal', 'platform'],
+  'software': ['direct', 'partial', 'platform'],
+  'manufacturing': ['direct', 'partial', 'platform'],
+  'consumer-dtc': ['direct', 'partial', 'platform'],
+  'automotive': ['direct', 'partial', 'platform'],
+  'unknown': ['direct', 'partial', 'fractional', 'internal', 'platform'],
+};
+
+/**
+ * Competitor types NOT allowed per vertical
+ */
+export const VERTICAL_DISALLOWED_TYPES: Record<VerticalCategory, CompetitorType[]> = {
+  'retail': ['fractional', 'internal', 'irrelevant'],
+  'services': ['irrelevant'],
+  'software': ['fractional', 'internal', 'irrelevant'],
+  'manufacturing': ['fractional', 'internal', 'irrelevant'],
+  'consumer-dtc': ['fractional', 'internal', 'irrelevant'],
+  'automotive': ['fractional', 'internal', 'irrelevant'],
+  'unknown': ['irrelevant'],
+};
 
 // ============================================================================
 // Competitor Classification
@@ -73,6 +128,11 @@ export interface QueryContext {
   // Identity
   industry: string | null;
   businessModel: string | null;
+  businessModelCategory: 'B2B' | 'B2C' | 'Hybrid' | null;
+
+  // V3.5: Vertical Category Intelligence
+  verticalCategory?: VerticalCategory;
+  subVertical?: string | null;
 
   // Audience
   icpDescription: string | null;
@@ -206,6 +266,10 @@ export interface EnrichedCandidate extends DiscoveryCandidate {
     detailing: boolean;
     customFab: boolean;
   };
+
+  // V3.5 vertical category (detected during enrichment)
+  verticalCategory?: VerticalCategory;
+  subVertical?: string | null;
 }
 
 // ============================================================================
@@ -343,6 +407,10 @@ export interface CompetitorProfileV3 {
   signalsVerified?: number;
   businessModelCategory?: string;
   geoScore?: number;
+
+  // V3.5 vertical category
+  verticalCategory?: VerticalCategory;
+  subVertical?: string | null;
 }
 
 // ============================================================================

@@ -23,7 +23,7 @@ import type { CoreMarketingContext, GapIaRun } from '@/lib/gap/types';
  */
 export type GapModelCaller = (prompt: string) => Promise<string>;
 import { collectDigitalFootprint } from '@/lib/digital-footprint/collectDigitalFootprint';
-import { discoverSocialPresence, type SocialDiscoveryResult } from '@/lib/digitalFootprint/socialDiscovery';
+import { discoverSocialPresence, type SocialDiscoveryResult } from '@/lib/digital-footprint/socialDiscovery';
 import type { SocialPresenceData } from '@/lib/gap/types';
 import {
   detectSocialAndGbp,

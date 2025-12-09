@@ -31,7 +31,9 @@ import type {
   CompetitorProfileV3,
   LandscapeInsight,
   StrategicRecommendation,
+  VerticalCategory,
 } from '../types';
+import { detectVerticalCategory } from '../verticalClassifier';
 
 // ============================================================================
 // Main Orchestrator
@@ -443,11 +445,61 @@ function buildQueryContext(graph: any, companyId: string): QueryContext {
     ? competitive.invalidCompetitors.value
     : [];
 
+  // Determine business model category (B2B vs B2C vs Hybrid)
+  let businessModelCategory: QueryContext['businessModelCategory'] = null;
+  const businessModelText = [
+    identity.businessModel?.value,
+    icp.customerType?.value,
+    icp.targetAudience?.value,
+    identity.industry?.value,
+  ].join(' ').toLowerCase();
+
+  // Check for B2C indicators
+  const b2cIndicators = ['consumer', 'b2c', 'retail', 'household', 'individual', 'shopper', 'driver', 'customer'];
+  const b2bIndicators = ['b2b', 'business', 'enterprise', 'company', 'organization', 'saas', 'client', 'corporate'];
+
+  const hasB2C = b2cIndicators.some(indicator => businessModelText.includes(indicator));
+  const hasB2B = b2bIndicators.some(indicator => businessModelText.includes(indicator));
+
+  if (hasB2C && hasB2B) {
+    businessModelCategory = 'Hybrid';
+  } else if (hasB2C) {
+    businessModelCategory = 'B2C';
+  } else if (hasB2B) {
+    businessModelCategory = 'B2B';
+  }
+
+  // Build partial context for vertical detection
+  const partialContext: Partial<QueryContext> = {
+    businessName,
+    domain,
+    industry: identity.industry?.value || positioning.industry?.value || null,
+    businessModel: identity.businessModel?.value || null,
+    businessModelCategory,
+    icpDescription,
+    primaryOffers,
+    valueProposition,
+    differentiators,
+  };
+
+  // Detect vertical category
+  const verticalResult = detectVerticalCategory(partialContext);
+  const verticalCategory: VerticalCategory = verticalResult.verticalCategory;
+  const subVertical = verticalResult.subVertical;
+
+  console.log(`[competition-v3] Vertical detected: ${verticalCategory}${subVertical ? ` (${subVertical})` : ''} - confidence: ${verticalResult.confidence}`);
+  if (verticalResult.signals.length > 0) {
+    console.log(`[competition-v3] Vertical signals: ${verticalResult.signals.slice(0, 3).join(', ')}`);
+  }
+
   return {
     businessName,
     domain,
     industry: identity.industry?.value || positioning.industry?.value || null,
     businessModel: identity.businessModel?.value || null,
+    businessModelCategory,
+    verticalCategory,
+    subVertical,
     icpDescription,
     icpStage,
     targetIndustries,

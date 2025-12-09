@@ -10,7 +10,21 @@
 // - irrelevant: Not a real competitor (filtered out)
 
 import { aiSimple } from '@/lib/ai-gateway';
-import type { QueryContext, EnrichedCandidate, CompetitorType, ClassificationResult } from '../types';
+import type { QueryContext, EnrichedCandidate, CompetitorType, ClassificationResult, VerticalCategory } from '../types';
+import { VERTICAL_ALLOWED_TYPES, VERTICAL_DISALLOWED_TYPES } from '../types';
+import {
+  isB2CCompany,
+  preClassifyForB2C,
+  enforceB2CClassification,
+  shouldFilterB2BCandidate,
+  getSelectionQuotas,
+} from '../b2cRetailClassifier';
+import {
+  isCompetitorTypeAllowedForVertical,
+  getAllowedTypesForVertical,
+  filterCompetitorsByVertical,
+  getVerticalTerminology,
+} from '../verticalClassifier';
 
 // ============================================================================
 // Classification
@@ -44,12 +58,71 @@ export async function classifyCandidates(
 ): Promise<Array<EnrichedCandidate & { classification: ClassificationResult }>> {
   console.log(`[competition-v3/classifier] Classifying ${candidates.length} candidates`);
 
+  // Get vertical context
+  const vertical = context.verticalCategory || 'unknown';
+  const allowedTypes = getAllowedTypesForVertical(vertical);
+
+  console.log(`[competition-v3/classifier] Vertical: ${vertical} - Allowed types: ${allowedTypes.join(', ')}`);
+
+  const isB2C = isB2CCompany(context);
+  if (isB2C) {
+    console.log(`[competition-v3/classifier] B2C retail mode enabled - filtering B2B-only types`);
+  }
+
   const results: Array<EnrichedCandidate & { classification: ClassificationResult }> = [];
 
   // Pre-compute deterministic V3.5 signals and exclude obvious non-competitors
   const validCandidates: EnrichedCandidate[] = [];
   for (const c of candidates) {
     const augmented = applyV35Signals(c, context);
+
+    // B2C-specific: Filter out B2B service providers (agencies, consulting, etc.)
+    if (isB2C && shouldFilterB2BCandidate(augmented, context)) {
+      results.push({
+        ...augmented,
+        classification: {
+          type: 'irrelevant',
+          confidence: 0.9,
+          reasoning: 'B2B service provider - not relevant for B2C retail',
+          signals: {
+            businessModelMatch: false,
+            icpOverlap: false,
+            serviceOverlap: false,
+            sameMarket: false,
+            isPlatform: false,
+            isFractional: false,
+            isInternalAlt: false,
+          },
+        },
+      });
+      continue;
+    }
+
+    // B2C-specific: Try pre-classification (e.g., Amazon -> platform)
+    if (isB2C) {
+      const b2cClassification = preClassifyForB2C(augmented, context);
+      if (b2cClassification) {
+        results.push({
+          ...augmented,
+          classification: {
+            type: b2cClassification.type,
+            confidence: b2cClassification.confidence,
+            reasoning: b2cClassification.reasoning,
+            signals: {
+              businessModelMatch: b2cClassification.type === 'direct',
+              icpOverlap: b2cClassification.type === 'direct' || b2cClassification.type === 'partial',
+              serviceOverlap: b2cClassification.type === 'direct',
+              sameMarket: b2cClassification.type !== 'irrelevant',
+              isPlatform: b2cClassification.type === 'platform',
+              isFractional: false,
+              isInternalAlt: false,
+            },
+          },
+        });
+        continue;
+      }
+    }
+
     // Hard filter: business model and negative signal gates
     if (shouldRejectCandidate(augmented)) {
       results.push({
@@ -83,16 +156,29 @@ export async function classifyCandidates(
     results.push(...batchResults);
   }
 
-  console.log(`[competition-v3/classifier] Classified ${results.length} candidates`);
+  // B2C-specific: Enforce B2C classification rules (convert fractional/internal to irrelevant)
+  let finalResults = results;
+  if (isB2C) {
+    finalResults = enforceB2CClassification(results, context);
+    console.log(`[competition-v3/classifier] Applied B2C enforcement rules`);
+  }
+
+  // Vertical-specific: Enforce vertical classification rules
+  if (vertical !== 'unknown') {
+    finalResults = enforceVerticalClassification(finalResults, vertical);
+    console.log(`[competition-v3/classifier] Applied vertical (${vertical}) enforcement rules`);
+  }
+
+  console.log(`[competition-v3/classifier] Classified ${finalResults.length} candidates`);
 
   // Log distribution
-  const distribution = results.reduce((acc, r) => {
+  const distribution = finalResults.reduce((acc, r) => {
     acc[r.classification.type] = (acc[r.classification.type] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
   console.log(`[competition-v3/classifier] Distribution:`, distribution);
 
-  return results;
+  return finalResults;
 }
 
 /**
@@ -658,13 +744,26 @@ const DEFAULT_QUOTAS: SelectionQuotas = {
  *
  * This ensures a representative set across all competitor types,
  * not just a wall of generic agencies sorted by threat score.
+ *
+ * For B2C contexts, uses B2C-specific quotas (no fractional/internal slots).
  */
 export function selectFinalCompetitors<T extends EnrichedCandidate & { classification: ClassificationResult; scores?: { threatScore: number } }>(
   classified: T[],
-  quotas: SelectionQuotas = DEFAULT_QUOTAS
+  quotas: SelectionQuotas = DEFAULT_QUOTAS,
+  context?: QueryContext
 ): T[] {
-  // Filter out irrelevant and excluded candidates
-  const relevant = classified.filter(c => c.classification.type !== 'irrelevant');
+  // Use B2C quotas if context indicates B2C company
+  const effectiveQuotas = context && isB2CCompany(context)
+    ? getSelectionQuotas(context)
+    : quotas;
+
+  // For B2C, also filter out fractional/internal types
+  let relevant = classified.filter(c => c.classification.type !== 'irrelevant');
+  if (context && isB2CCompany(context)) {
+    relevant = relevant.filter(c =>
+      c.classification.type !== 'fractional' && c.classification.type !== 'internal'
+    );
+  }
 
   console.log(`[competition-v3/selection] Starting with ${relevant.length} relevant candidates`);
 
@@ -704,11 +803,11 @@ export function selectFinalCompetitors<T extends EnrichedCandidate & { classific
   // Phase 1: Fill minimum quotas
   for (const type of typeOrder) {
     if (type === 'total') continue;
-    const quota = quotas[type] as { min: number; max: number };
+    const quota = effectiveQuotas[type] as { min: number; max: number };
     const candidates = byType[type as CompetitorType];
 
     for (const candidate of candidates) {
-      if (selected.length >= quotas.total) break;
+      if (selected.length >= effectiveQuotas.total) break;
       if (selectedDomains.has(candidate.domain || '')) continue;
 
       // Count how many of this type we already have
@@ -723,13 +822,13 @@ export function selectFinalCompetitors<T extends EnrichedCandidate & { classific
   // Phase 2: Fill up to max quotas (if we have room)
   for (const type of typeOrder) {
     if (type === 'total') continue;
-    if (selected.length >= quotas.total) break;
+    if (selected.length >= effectiveQuotas.total) break;
 
-    const quota = quotas[type] as { min: number; max: number };
+    const quota = effectiveQuotas[type] as { min: number; max: number };
     const candidates = byType[type as CompetitorType];
 
     for (const candidate of candidates) {
-      if (selected.length >= quotas.total) break;
+      if (selected.length >= effectiveQuotas.total) break;
       if (selectedDomains.has(candidate.domain || '')) continue;
 
       // Count how many of this type we already have
@@ -742,12 +841,12 @@ export function selectFinalCompetitors<T extends EnrichedCandidate & { classific
   }
 
   // Phase 3: Backfill with best remaining candidates (direct/partial priority)
-  if (selected.length < quotas.total) {
+  if (selected.length < effectiveQuotas.total) {
     const backfillTypes: CompetitorType[] = ['direct', 'partial'];
     for (const type of backfillTypes) {
       const candidates = byType[type];
       for (const candidate of candidates) {
-        if (selected.length >= quotas.total) break;
+        if (selected.length >= effectiveQuotas.total) break;
         if (selectedDomains.has(candidate.domain || '')) continue;
         selected.push(candidate);
         if (candidate.domain) selectedDomains.add(candidate.domain);
@@ -764,4 +863,101 @@ export function selectFinalCompetitors<T extends EnrichedCandidate & { classific
   console.log(`[competition-v3/selection] Selected ${selected.length} finalists: ${JSON.stringify(finalDist)}`);
 
   return selected;
+}
+
+// ============================================================================
+// Vertical-Aware Classification Enforcement
+// ============================================================================
+
+/**
+ * Enforce vertical classification rules
+ * Converts disallowed competitor types to 'irrelevant' for the given vertical
+ */
+function enforceVerticalClassification<T extends { classification: ClassificationResult }>(
+  classified: T[],
+  vertical: VerticalCategory
+): T[] {
+  const disallowedTypes = VERTICAL_DISALLOWED_TYPES[vertical] || [];
+
+  if (disallowedTypes.length === 0) {
+    return classified;
+  }
+
+  return classified.map(c => {
+    const originalType = c.classification.type;
+
+    // Convert disallowed types
+    if (disallowedTypes.includes(originalType)) {
+      return {
+        ...c,
+        classification: {
+          ...c.classification,
+          type: 'irrelevant' as CompetitorType,
+          reasoning: `${c.classification.reasoning} [Converted from ${originalType} - not applicable for ${vertical} vertical]`,
+        },
+      };
+    }
+
+    return c;
+  });
+}
+
+/**
+ * Get vertical-specific selection quotas
+ */
+export function getVerticalSelectionQuotas(vertical: VerticalCategory) {
+  switch (vertical) {
+    case 'retail':
+    case 'automotive':
+    case 'consumer-dtc':
+      // No fractional/internal for retail-type verticals
+      return {
+        direct: { min: 4, max: 8 },
+        partial: { min: 3, max: 6 },
+        fractional: { min: 0, max: 0 },
+        platform: { min: 2, max: 5 },
+        internal: { min: 0, max: 0 },
+        total: 18,
+      };
+    case 'software':
+      // Software has platforms but no fractional/internal
+      return {
+        direct: { min: 4, max: 7 },
+        partial: { min: 3, max: 5 },
+        fractional: { min: 0, max: 0 },
+        platform: { min: 3, max: 6 },
+        internal: { min: 0, max: 0 },
+        total: 18,
+      };
+    case 'services':
+      // Services (agencies) get all types including fractional/internal
+      return {
+        direct: { min: 3, max: 6 },
+        partial: { min: 3, max: 6 },
+        fractional: { min: 2, max: 4 },
+        platform: { min: 1, max: 4 },
+        internal: { min: 1, max: 3 },
+        total: 18,
+      };
+    case 'manufacturing':
+      // Manufacturing: direct, partial, platform
+      return {
+        direct: { min: 4, max: 7 },
+        partial: { min: 3, max: 5 },
+        fractional: { min: 0, max: 0 },
+        platform: { min: 2, max: 4 },
+        internal: { min: 0, max: 0 },
+        total: 18,
+      };
+    default:
+      // Default: all types allowed
+      return {
+        direct: { min: 3, max: 6 },
+        partial: { min: 3, max: 6 },
+        fractional: { min: 2, max: 4 },
+        platform: { min: 1, max: 4 },
+        internal: { min: 1, max: 3 },
+        total: 18,
+      };
+  }
 }

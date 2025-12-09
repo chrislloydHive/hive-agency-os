@@ -41,6 +41,7 @@ interface CompetitorLabClientProps {
 
 type TabId =
   | 'discovery'
+  | 'strategist'
   | 'profiles'
   | 'features'
   | 'pricing'
@@ -103,9 +104,15 @@ export function CompetitorLabClient({
     labContext.competitors[0]?.name || null
   );
 
+  // Count strategic items
+  const strategicItemsCount = (labContext.competitiveAdvantages?.length || 0) +
+    (labContext.competitiveThreats?.length || 0) +
+    (labContext.competitiveOpportunities?.length || 0);
+
   // Tabs configuration
   const tabs: { id: TabId; label: string; description: string; count?: number }[] = [
     { id: 'discovery', label: 'Discovery', description: 'Run AI competitor discovery pipeline' },
+    { id: 'strategist', label: 'Strategist', description: 'Strategic plays, risks, and opportunities', count: strategicItemsCount > 0 ? strategicItemsCount : undefined },
     { id: 'profiles', label: 'Profiles', description: 'Manage competitor profiles', count: labContext.competitors.filter(c => c.category !== 'own').length },
     { id: 'features', label: 'Features', description: 'Feature comparison matrix', count: labContext.featuresMatrix.length },
     { id: 'pricing', label: 'Pricing', description: 'Pricing landscape analysis', count: labContext.pricingModels.length },
@@ -321,6 +328,22 @@ export function CompetitorLabClient({
             existingCount={competitors.length}
             onRunDiscovery={runDiscovery}
             companyName={companyName}
+          />
+        )}
+
+        {activeTab === 'strategist' && (
+          <StrategistTab
+            companyName={companyName}
+            verticalTerminology={labContext.verticalTerminology}
+            isB2C={labContext.isB2C}
+            competitiveAdvantages={labContext.competitiveAdvantages}
+            competitiveThreats={labContext.competitiveThreats}
+            competitiveOpportunities={labContext.competitiveOpportunities}
+            whitespaceOpportunities={labContext.whitespaceOpportunities}
+            whitespaceMap={labContext.whitespaceMap}
+            differentiationStrategy={labContext.differentiationStrategy}
+            marketTrends={labContext.marketTrends}
+            competitors={competitors}
           />
         )}
 
@@ -593,8 +616,266 @@ function EmptyState({
 }
 
 // ============================================================================
+// Tab: Strategist - Plays, Risks, Opportunities
+// ============================================================================
+
+function StrategistTab({
+  companyName,
+  verticalTerminology,
+  isB2C,
+  competitiveAdvantages,
+  competitiveThreats,
+  competitiveOpportunities,
+  whitespaceOpportunities,
+  whitespaceMap,
+  differentiationStrategy,
+  marketTrends,
+  competitors,
+}: {
+  companyName: string;
+  verticalTerminology: CompetitorLabContext['verticalTerminology'];
+  isB2C: boolean;
+  competitiveAdvantages: string[];
+  competitiveThreats: string[];
+  competitiveOpportunities: string[];
+  whitespaceOpportunities: string[];
+  whitespaceMap: WhitespaceOpportunity[];
+  differentiationStrategy: string | null;
+  marketTrends: string[];
+  competitors: CompetitorProfile[];
+}) {
+  // Get top threats from competitors
+  const topThreats = competitors
+    .filter(c => c.threatLevel !== null && c.threatLevel !== undefined)
+    .sort((a, b) => (b.threatLevel || 0) - (a.threatLevel || 0))
+    .slice(0, 3);
+
+  const hasContent =
+    competitiveAdvantages.length > 0 ||
+    competitiveThreats.length > 0 ||
+    competitiveOpportunities.length > 0 ||
+    whitespaceOpportunities.length > 0 ||
+    whitespaceMap.length > 0 ||
+    differentiationStrategy ||
+    marketTrends.length > 0;
+
+  if (!hasContent) {
+    return (
+      <EmptyState
+        icon="target"
+        title="Strategic Insights Not Available"
+        description="Run Competitor Lab analysis to generate strategic plays, risks, and opportunities."
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      {/* Strategic Header */}
+      <div>
+        <h2 className="text-xl font-semibold text-slate-100">Strategic Intelligence</h2>
+        <p className="text-sm text-slate-400 mt-1">
+          {isB2C
+            ? `Strategic plays and market opportunities for ${companyName} in the ${verticalTerminology.market}`
+            : `Competitive positioning and growth opportunities for ${companyName}`}
+        </p>
+      </div>
+
+      {/* Differentiation Strategy */}
+      {differentiationStrategy && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-6">
+          <h3 className="text-sm font-medium text-amber-400 mb-3 flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            Differentiation Strategy
+          </h3>
+          <p className="text-slate-200">{differentiationStrategy}</p>
+        </div>
+      )}
+
+      {/* Three Column Layout: Plays, Risks, Opportunities */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Strategic Plays (Competitive Advantages) */}
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-5">
+          <h3 className="text-sm font-medium text-emerald-400 mb-4 flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Strategic Plays
+          </h3>
+          {competitiveAdvantages.length > 0 ? (
+            <ul className="space-y-3">
+              {competitiveAdvantages.map((advantage, i) => (
+                <li key={i} className="flex items-start gap-2">
+                  <span className="text-emerald-400 mt-1">→</span>
+                  <span className="text-slate-300 text-sm">{advantage}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-slate-500 text-sm italic">No strategic plays defined yet</p>
+          )}
+        </div>
+
+        {/* Risks (Competitive Threats) */}
+        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-5">
+          <h3 className="text-sm font-medium text-red-400 mb-4 flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            Risks
+          </h3>
+          {competitiveThreats.length > 0 ? (
+            <ul className="space-y-3">
+              {competitiveThreats.map((threat, i) => (
+                <li key={i} className="flex items-start gap-2">
+                  <span className="text-red-400 mt-1">!</span>
+                  <span className="text-slate-300 text-sm">{threat}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-slate-500 text-sm italic">No risks identified yet</p>
+          )}
+        </div>
+
+        {/* Opportunities */}
+        <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-5">
+          <h3 className="text-sm font-medium text-blue-400 mb-4 flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+            </svg>
+            Opportunities
+          </h3>
+          {competitiveOpportunities.length > 0 || whitespaceOpportunities.length > 0 ? (
+            <ul className="space-y-3">
+              {competitiveOpportunities.map((opp, i) => (
+                <li key={`opp-${i}`} className="flex items-start gap-2">
+                  <span className="text-blue-400 mt-1">○</span>
+                  <span className="text-slate-300 text-sm">{opp}</span>
+                </li>
+              ))}
+              {whitespaceOpportunities.map((ws, i) => (
+                <li key={`ws-${i}`} className="flex items-start gap-2">
+                  <span className="text-blue-400 mt-1">◇</span>
+                  <span className="text-slate-300 text-sm">{ws}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-slate-500 text-sm italic">No opportunities identified yet</p>
+          )}
+        </div>
+      </div>
+
+      {/* Whitespace Map (if structured data available) */}
+      {whitespaceMap.length > 0 && (
+        <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-6">
+          <h3 className="text-sm font-medium text-slate-400 mb-4">Whitespace Analysis</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {whitespaceMap.map((ws, i) => (
+              <div
+                key={i}
+                className="rounded-lg border border-slate-700 bg-slate-800/50 p-4"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-slate-200">{ws.name || `Opportunity ${i + 1}`}</span>
+                  {ws.strategicFit !== undefined && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-300">
+                      {Math.round(ws.strategicFit * 100)}% fit
+                    </span>
+                  )}
+                </div>
+                {ws.description && (
+                  <p className="text-sm text-slate-400">{ws.description}</p>
+                )}
+                {ws.captureActions && ws.captureActions.length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-xs text-blue-400">Actions: {ws.captureActions.slice(0, 2).join(', ')}</p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Top Competitor Threats */}
+      {topThreats.length > 0 && (
+        <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-6">
+          <h3 className="text-sm font-medium text-slate-400 mb-4">
+            Top Competitive Threats from {isB2C ? verticalTerminology.competitors : 'Competitors'}
+          </h3>
+          <div className="space-y-3">
+            {topThreats.map((competitor, i) => (
+              <div
+                key={competitor.name}
+                className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50"
+              >
+                <div className="flex items-center gap-3">
+                  <span className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold ${
+                    i === 0 ? 'bg-red-500/20 text-red-400' :
+                    i === 1 ? 'bg-orange-500/20 text-orange-400' :
+                    'bg-yellow-500/20 text-yellow-400'
+                  }`}>
+                    {i + 1}
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium text-slate-200">{competitor.name}</p>
+                    {competitor.positioning && (
+                      <p className="text-xs text-slate-500">{competitor.positioning}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-medium text-slate-300">
+                    {competitor.threatLevel}% threat
+                  </p>
+                  {competitor.category && (
+                    <p className="text-xs text-slate-500 capitalize">
+                      {competitor.category}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Market Trends */}
+      {marketTrends.length > 0 && (
+        <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-6">
+          <h3 className="text-sm font-medium text-slate-400 mb-4 flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+            </svg>
+            Market Trends
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {marketTrends.map((trend, i) => (
+              <span
+                key={i}
+                className="px-3 py-1.5 rounded-full bg-slate-800 text-slate-300 text-sm"
+              >
+                {trend}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // Tab: Profiles
 // ============================================================================
+
+type CategoryFilter = 'all' | 'direct' | 'indirect' | 'aspirational' | 'emerging';
+type ThreatFilter = 'all' | 'high' | 'medium' | 'low';
 
 function ProfilesTab({
   competitors,
@@ -605,6 +886,43 @@ function ProfilesTab({
   selectedCompetitor: CompetitorProfile | null;
   onSelect: (name: string) => void;
 }) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
+  const [threatFilter, setThreatFilter] = useState<ThreatFilter>('all');
+
+  // Apply filters
+  const filteredCompetitors = useMemo(() => {
+    return competitors.filter(c => {
+      // Search filter
+      if (searchQuery && !c.name.toLowerCase().includes(searchQuery.toLowerCase())) {
+        return false;
+      }
+      // Category filter
+      if (categoryFilter !== 'all' && c.category !== categoryFilter) {
+        return false;
+      }
+      // Threat filter
+      if (threatFilter !== 'all') {
+        const threat = c.threatLevel || 0;
+        if (threatFilter === 'high' && threat < 60) return false;
+        if (threatFilter === 'medium' && (threat < 30 || threat >= 60)) return false;
+        if (threatFilter === 'low' && threat >= 30) return false;
+      }
+      return true;
+    });
+  }, [competitors, searchQuery, categoryFilter, threatFilter]);
+
+  // Count by category for filter badges
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: competitors.length };
+    for (const c of competitors) {
+      if (c.category) {
+        counts[c.category] = (counts[c.category] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [competitors]);
+
   if (competitors.length === 0) {
     return (
       <EmptyState
@@ -616,10 +934,89 @@ function ProfilesTab({
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {/* Left: Competitor List */}
-      <div className="lg:col-span-1 space-y-2 max-h-[600px] overflow-y-auto pr-2">
-        {competitors.map((competitor) => (
+    <div className="space-y-4">
+      {/* Filters Row */}
+      <div className="flex flex-wrap items-center gap-3 p-3 rounded-lg bg-slate-900/50 border border-slate-800">
+        {/* Search */}
+        <div className="relative flex-1 min-w-[200px]">
+          <svg
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search competitors..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-3 py-2 text-sm rounded-lg bg-slate-800 border border-slate-700 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-rose-500"
+          />
+        </div>
+
+        {/* Category Filter */}
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-slate-500 mr-1">Type:</span>
+          {(['all', 'direct', 'indirect', 'aspirational', 'emerging'] as CategoryFilter[]).map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setCategoryFilter(cat)}
+              className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                categoryFilter === cat
+                  ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                  : 'bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600'
+              }`}
+            >
+              {cat === 'all' ? 'All' : cat.charAt(0).toUpperCase() + cat.slice(1)}
+              {categoryCounts[cat] !== undefined && (
+                <span className="ml-1 opacity-60">({categoryCounts[cat]})</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Threat Filter */}
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-slate-500 mr-1">Threat:</span>
+          {(['all', 'high', 'medium', 'low'] as ThreatFilter[]).map((level) => (
+            <button
+              key={level}
+              onClick={() => setThreatFilter(level)}
+              className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                threatFilter === level
+                  ? level === 'high' ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                  : level === 'medium' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                  : level === 'low' ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                  : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                  : 'bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-600'
+              }`}
+            >
+              {level.charAt(0).toUpperCase() + level.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Results Count */}
+      {(searchQuery || categoryFilter !== 'all' || threatFilter !== 'all') && (
+        <div className="text-xs text-slate-500">
+          Showing {filteredCompetitors.length} of {competitors.length} competitors
+          {searchQuery && ` matching "${searchQuery}"`}
+        </div>
+      )}
+
+      {/* Competitor Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left: Competitor List */}
+        <div className="lg:col-span-1 space-y-2 max-h-[600px] overflow-y-auto pr-2">
+          {filteredCompetitors.length === 0 ? (
+            <div className="text-center py-8 text-slate-500 text-sm">
+              No competitors match your filters
+            </div>
+          ) : (
+            filteredCompetitors.map((competitor) => (
           <button
             key={competitor.name}
             onClick={() => onSelect(competitor.name)}
@@ -650,18 +1047,20 @@ function ProfilesTab({
               )}
             </div>
           </button>
-        ))}
-      </div>
+            ))
+          )}
+        </div>
 
-      {/* Right: Competitor Detail */}
-      <div className="lg:col-span-2">
-        {selectedCompetitor ? (
-          <CompetitorDetail competitor={selectedCompetitor} />
-        ) : (
-          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-8 text-center">
-            <p className="text-slate-400">Select a competitor to view details</p>
-          </div>
-        )}
+        {/* Right: Competitor Detail */}
+        <div className="lg:col-span-2">
+          {selectedCompetitor ? (
+            <CompetitorDetail competitor={selectedCompetitor} />
+          ) : (
+            <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-8 text-center">
+              <p className="text-slate-400">Select a competitor to view details</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

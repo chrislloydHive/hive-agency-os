@@ -1,10 +1,11 @@
 // components/competition/CompetitionLabDataView.tsx
-// Competition Lab V4 - Data View (UI Redesign)
+// Competition Lab V3.5 - Data View (Analyst Mode)
 //
 // Layout structure:
-// 1. Summary Strip - Compact type counts + avg threat
-// 2. Analysis Section - Map + Snapshot Panel side by side
-// 3. Detailed Sections - Competitor List + Full Insights (both collapsible)
+// 1. Controls Strip - Filters + Summary chips
+// 2. Sub-tabs - Positioning Map / Competitor Table
+// 3. Main Content - Map or Table + Detail drawer on right
+// 4. Collapsible Sections - Full Insights
 
 'use client';
 
@@ -17,11 +18,23 @@ import type {
   CompetitionCompetitor,
   CompetitionRunV3Response,
   CompetitorType,
+  GeoScope,
 } from '@/lib/competition-v3/ui-types';
 import {
-  TYPE_COLORS,
-  TYPE_LABELS,
+  GEO_SCOPE_COLORS,
+  GEO_SCOPE_LABELS,
 } from '@/lib/competition-v3/ui-types';
+import {
+  getUiTypeModelForContext,
+  getTypeTailwindClasses,
+  getTypeLabel,
+  getTypeBadgeLabel,
+  getTypeHexColor,
+  mapTypeForContext,
+  type UiCompetitorTypeKey,
+  type BusinessModelCategory,
+  type VerticalCategory,
+} from '@/lib/competition-v3/uiTypeModel';
 
 // ============================================================================
 // Types
@@ -32,25 +45,85 @@ interface Props {
   companyName: string;
   data: CompetitionRunV3Response | null;
   isLoading: boolean;
+  // Vertical-aware context
+  businessModelCategory?: BusinessModelCategory | null;
+  verticalCategory?: VerticalCategory | string | null;
 }
+
+type DataViewTab = 'map' | 'table';
+type GeoFilter = 'all' | GeoScope;
 
 // ============================================================================
 // Component
 // ============================================================================
 
-export function CompetitionLabDataView({ companyId, companyName, data, isLoading }: Props) {
-  const [selectedCompetitorId, setSelectedCompetitorId] = useState<string | null>(null);
-  const [typeFilter, setTypeFilter] = useState<CompetitorType[]>([
-    'direct', 'partial', 'fractional', 'platform', 'internal',
-  ]);
-  const [showCompetitorList, setShowCompetitorList] = useState(true);
-  const [showFullInsights, setShowFullInsights] = useState(false);
+export function CompetitionLabDataView({
+  companyId,
+  companyName,
+  data,
+  isLoading,
+  businessModelCategory,
+  verticalCategory,
+}: Props) {
+  // Get vertical-aware type model
+  const typeModel = useMemo(
+    () => getUiTypeModelForContext({ businessModelCategory, verticalCategory }),
+    [businessModelCategory, verticalCategory]
+  );
 
-  // Filter competitors by type
+  const [selectedCompetitorId, setSelectedCompetitorId] = useState<string | null>(null);
+  const [hoveredCompetitorId, setHoveredCompetitorId] = useState<string | null>(null);
+  const [activeViewTab, setActiveViewTab] = useState<DataViewTab>('map');
+  // Initialize filter with allowed types from the model
+  const [typeFilter, setTypeFilter] = useState<UiCompetitorTypeKey[]>(typeModel.allowedTypes);
+  const [geoFilter, setGeoFilter] = useState<GeoFilter>('all');
+  const [minThreat, setMinThreat] = useState(0);
+  const [showFullInsights, setShowFullInsights] = useState(false);
+  const [excludedDomains, setExcludedDomains] = useState<string[]>([]);
+
+  // Handle mark invalid
+  const handleMarkInvalid = useCallback(async (domain?: string | null) => {
+    if (!domain) return;
+    try {
+      await fetch(`/api/os/companies/${companyId}/competition/mark-invalid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain }),
+      });
+      // Optimistically remove from UI
+      setExcludedDomains(prev => Array.from(new Set([...prev, domain])));
+      // Clear selection if the excluded competitor was selected
+      if (selectedCompetitorId) {
+        const selected = data?.competitors?.find(c => c.id === selectedCompetitorId);
+        if (selected?.domain?.toLowerCase() === domain.toLowerCase()) {
+          setSelectedCompetitorId(null);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to mark invalid competitor', e);
+    }
+  }, [companyId, data?.competitors, selectedCompetitorId]);
+
+  // Map context for type mapping
+  const typeContext = useMemo(
+    () => ({ businessModelCategory, verticalCategory }),
+    [businessModelCategory, verticalCategory]
+  );
+
+  // Filter competitors by type, geo, threat, and excluded domains
   const filteredCompetitors = useMemo(() => {
     if (!data?.competitors) return [];
-    return data.competitors.filter(c => typeFilter.includes(c.type));
-  }, [data?.competitors, typeFilter]);
+    const excluded = new Set(excludedDomains.map(d => d.toLowerCase()));
+    return data.competitors.filter(c => {
+      // Map the backend type to the appropriate UI type for this context
+      const mappedType = mapTypeForContext(c.type, typeContext);
+      if (!typeFilter.includes(mappedType)) return false;
+      if (geoFilter !== 'all' && c.geoScope && c.geoScope !== geoFilter) return false;
+      if (c.scores.threat < minThreat) return false;
+      if (c.domain && excluded.has(c.domain.toLowerCase())) return false;
+      return true;
+    });
+  }, [data?.competitors, typeFilter, geoFilter, minThreat, excludedDomains, typeContext]);
 
   // Get selected competitor
   const selectedCompetitor = useMemo(
@@ -58,8 +131,33 @@ export function CompetitionLabDataView({ companyId, companyName, data, isLoading
     [filteredCompetitors, selectedCompetitorId]
   );
 
+  // Calculate summary stats using mapped types
+  const summaryStats = useMemo(() => {
+    if (!filteredCompetitors.length) return null;
+    const threats = filteredCompetitors.map(c => c.scores.threat).sort((a, b) => a - b);
+    const avgThreat = Math.round(threats.reduce((a, b) => a + b, 0) / threats.length);
+    const medianThreat = threats[Math.floor(threats.length / 2)];
+
+    // Count by mapped type (context-aware)
+    const byType: Record<UiCompetitorTypeKey, number> = {
+      direct: 0,
+      partial: 0,
+      marketplace: 0,
+      substitute: 0,
+      internal: 0,
+      fractional: 0,
+      platform: 0,
+    };
+    for (const c of filteredCompetitors) {
+      const mappedType = mapTypeForContext(c.type, typeContext);
+      byType[mappedType]++;
+    }
+
+    return { avgThreat, medianThreat, byType };
+  }, [filteredCompetitors, typeContext]);
+
   // Toggle type filter
-  const toggleTypeFilter = useCallback((type: CompetitorType) => {
+  const toggleTypeFilter = useCallback((type: UiCompetitorTypeKey) => {
     setTypeFilter(prev =>
       prev.includes(type)
         ? prev.filter(t => t !== type)
@@ -81,69 +179,165 @@ export function CompetitionLabDataView({ companyId, companyName, data, isLoading
   return (
     <div className="space-y-4">
       {/* ================================================================== */}
-      {/* Layer 1: Summary Strip */}
+      {/* Layer 1: Controls + Summary Strip */}
       {/* ================================================================== */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1">
-        {/* Type breakdown chips */}
-        {(['direct', 'partial', 'fractional', 'platform', 'internal'] as const).map(type => {
-          const count = data.summary.byType[type] || 0;
-          const isActive = typeFilter.includes(type);
-          const colors = TYPE_COLORS[type];
-
-          return (
-            <button
-              key={type}
-              onClick={() => toggleTypeFilter(type)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all text-xs whitespace-nowrap ${
-                isActive
-                  ? `${colors.bg}/20 border-current ${colors.text}`
-                  : 'bg-slate-900/50 border-slate-800 text-slate-500 opacity-60'
-              }`}
-            >
-              <span className="font-bold">{count}</span>
-              <span className="capitalize">{TYPE_LABELS[type]}</span>
-            </button>
-          );
-        })}
+      <div className="flex flex-wrap items-center gap-3 p-3 rounded-lg bg-slate-900/50 border border-slate-800">
+        {/* Type Filter - vertical-aware */}
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-slate-500 uppercase mr-1">Type:</span>
+          {typeModel.allowedTypes.map(type => {
+            const isActive = typeFilter.includes(type);
+            const colors = getTypeTailwindClasses(type);
+            return (
+              <button
+                key={type}
+                onClick={() => toggleTypeFilter(type)}
+                className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
+                  isActive
+                    ? `${colors.bg}/20 ${colors.text} border border-current/30`
+                    : 'bg-slate-800/50 text-slate-500 border border-transparent hover:border-slate-700'
+                }`}
+                title={getTypeLabel(type)}
+              >
+                {getTypeBadgeLabel(type)}
+              </button>
+            );
+          })}
+        </div>
 
         {/* Divider */}
-        <div className="w-px h-5 bg-slate-700 mx-1" />
+        <div className="w-px h-6 bg-slate-700" />
 
-        {/* Avg threat */}
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/50 border border-slate-800 text-xs whitespace-nowrap">
-          <span className={`font-bold ${data.summary.avgThreatScore >= 60 ? 'text-red-400' : 'text-slate-400'}`}>
-            {data.summary.avgThreatScore}
-          </span>
-          <span className="text-slate-500">Avg Threat</span>
+        {/* Geo Filter */}
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-slate-500 uppercase mr-1">Geo:</span>
+          <select
+            value={geoFilter}
+            onChange={(e) => setGeoFilter(e.target.value as GeoFilter)}
+            className="text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300 focus:outline-none focus:border-slate-600"
+          >
+            <option value="all">All</option>
+            <option value="local">Local</option>
+            <option value="regional">Regional</option>
+            <option value="national">National</option>
+            <option value="online-only">Online Only</option>
+          </select>
         </div>
 
-        {/* Total */}
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/50 border border-slate-800 text-xs whitespace-nowrap">
-          <span className="font-bold text-slate-300">{filteredCompetitors.length}</span>
-          <span className="text-slate-500">Showing</span>
+        {/* Min Threat Slider */}
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-slate-500 uppercase">Min Threat:</span>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={minThreat}
+            onChange={(e) => setMinThreat(parseInt(e.target.value))}
+            className="w-20 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
+          />
+          <span className="text-xs text-slate-400 w-6 tabular-nums">{minThreat}</span>
         </div>
+
+        {/* Divider */}
+        <div className="flex-1" />
+
+        {/* Summary Chips - vertical-aware */}
+        {summaryStats && (
+          <div className="flex items-center gap-2 text-[10px]">
+            {/* Show counts only for types that have competitors */}
+            {typeModel.allowedTypes.slice(0, 2).map(type => {
+              const count = summaryStats.byType[type];
+              if (count === 0) return null;
+              const colors = getTypeTailwindClasses(type);
+              return (
+                <span
+                  key={type}
+                  className={`px-2 py-1 rounded ${colors.bg}/10 ${colors.text} border ${colors.bg}/20`}
+                >
+                  {getTypeBadgeLabel(type)}: {count}
+                </span>
+              );
+            })}
+            <span className="px-2 py-1 rounded bg-slate-800 text-slate-400">
+              Avg: <span className={summaryStats.avgThreat >= 60 ? 'text-red-400' : ''}>{summaryStats.avgThreat}</span>
+            </span>
+            <span className="px-2 py-1 rounded bg-slate-800 text-slate-400">
+              Median: {summaryStats.medianThreat}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* ================================================================== */}
-      {/* Layer 2: Analysis Section (Map + Snapshot) */}
+      {/* Layer 2: Sub-tabs (Map / Table) */}
       {/* ================================================================== */}
-      <div className="grid grid-cols-[1fr,320px] gap-4">
-        {/* Left: Positioning Map */}
-        <div className="rounded-lg border border-slate-800 bg-slate-900/30 p-4 aspect-square max-h-[600px]">
-          <PositioningMapV3
-            companyName={companyName}
-            competitors={filteredCompetitors}
-            selectedCompetitorId={selectedCompetitorId}
-            onSelectCompetitor={setSelectedCompetitorId}
-          />
+      <div className="flex items-center gap-1 border-b border-slate-800">
+        <button
+          onClick={() => setActiveViewTab('map')}
+          className={`px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
+            activeViewTab === 'map'
+              ? 'text-amber-400 border-amber-400'
+              : 'text-slate-400 border-transparent hover:text-slate-300'
+          }`}
+        >
+          Positioning Map
+        </button>
+        <button
+          onClick={() => setActiveViewTab('table')}
+          className={`px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
+            activeViewTab === 'table'
+              ? 'text-slate-100 border-slate-400'
+              : 'text-slate-400 border-transparent hover:text-slate-300'
+          }`}
+        >
+          Competitor Table
+        </button>
+        <span className="ml-auto text-[10px] text-slate-500 pr-2">
+          {filteredCompetitors.length} competitor{filteredCompetitors.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {/* ================================================================== */}
+      {/* Layer 3: Main Content (Map/Table + Detail Drawer) */}
+      {/* ================================================================== */}
+      <div className="grid grid-cols-[1fr,360px] gap-4">
+        {/* Left: Map or Table */}
+        <div className="rounded-lg border border-slate-800 bg-slate-900/30 overflow-hidden">
+          {activeViewTab === 'map' ? (
+            <div className="p-4 h-[550px]">
+              <PositioningMapV3
+                companyName={companyName}
+                competitors={filteredCompetitors}
+                selectedCompetitorId={selectedCompetitorId}
+                hoveredCompetitorId={hoveredCompetitorId}
+                onSelectCompetitor={setSelectedCompetitorId}
+                onHoverCompetitor={setHoveredCompetitorId}
+                businessModelCategory={businessModelCategory}
+                verticalCategory={verticalCategory}
+              />
+            </div>
+          ) : (
+            <div className="max-h-[550px] overflow-auto">
+              <CompetitorTableV35
+                competitors={filteredCompetitors}
+                selectedCompetitorId={selectedCompetitorId}
+                hoveredCompetitorId={hoveredCompetitorId}
+                onSelectCompetitor={setSelectedCompetitorId}
+                onHoverCompetitor={setHoveredCompetitorId}
+                businessModelCategory={businessModelCategory}
+                verticalCategory={verticalCategory}
+              />
+            </div>
+          )}
         </div>
 
-        {/* Right: Snapshot or Selected Competitor */}
-        <div className="rounded-lg border border-slate-800 bg-slate-900/30 p-4 overflow-auto">
+        {/* Right: Detail Drawer */}
+        <div className="rounded-lg border border-slate-800 bg-slate-900/30 p-4 overflow-auto max-h-[550px]">
           {selectedCompetitor ? (
             <CompetitorCardV3
               competitor={selectedCompetitor}
               onClose={() => setSelectedCompetitorId(null)}
+              onMarkInvalid={handleMarkInvalid}
             />
           ) : data?.insights ? (
             <CompetitionSnapshotPanel
@@ -157,46 +351,30 @@ export function CompetitionLabDataView({ companyId, companyName, data, isLoading
         </div>
       </div>
 
-      {/* ================================================================== */}
-      {/* Layer 3a: Competitor List (Collapsible) */}
-      {/* ================================================================== */}
-      <div className="rounded-lg border border-slate-800 bg-slate-900/30 overflow-hidden">
-        <button
-          onClick={() => setShowCompetitorList(!showCompetitorList)}
-          className="w-full flex items-center justify-between p-3 hover:bg-slate-800/30 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+      {/* Low Data Warning */}
+      {filteredCompetitors.length > 0 && filteredCompetitors.length < 3 && (
+        <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-4">
+          <div className="flex items-start gap-3">
+            <svg className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
-            <span className="text-sm font-medium text-slate-200">Competitor List</span>
-            <span className="px-1.5 py-0.5 rounded-full bg-slate-800 text-[10px] text-slate-400">
-              {filteredCompetitors.length}
-            </span>
+            <div>
+              <p className="text-sm font-medium text-amber-300">Limited competitor data</p>
+              <p className="text-xs text-amber-400/70 mt-1">
+                Only {filteredCompetitors.length} competitor{filteredCompetitors.length !== 1 ? 's' : ''} found. Consider:
+              </p>
+              <ul className="text-xs text-amber-400/70 mt-2 space-y-1">
+                <li>• Adding known competitors manually in Brain → Context → Competitive</li>
+                <li>• Adjusting filters above to show more results</li>
+                <li>• Re-running the analysis with updated company context</li>
+              </ul>
+            </div>
           </div>
-          <svg
-            className={`w-4 h-4 text-slate-500 transition-transform ${showCompetitorList ? 'rotate-180' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-
-        {showCompetitorList && (
-          <div className="border-t border-slate-800">
-            <CompetitorListV3
-              competitors={filteredCompetitors}
-              selectedCompetitorId={selectedCompetitorId}
-              onSelectCompetitor={setSelectedCompetitorId}
-            />
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ================================================================== */}
-      {/* Layer 3b: Full Strategic Insights (Collapsible) */}
+      {/* Layer 4: Full Strategic Insights (Collapsible) */}
       {/* ================================================================== */}
       <div className="rounded-lg border border-slate-800 bg-slate-900/30 overflow-hidden">
         <button
@@ -235,20 +413,31 @@ export function CompetitionLabDataView({ companyId, companyName, data, isLoading
 }
 
 // ============================================================================
-// Competitor List View
+// Competitor Table V3.5 (Enhanced with V3.5 fields)
 // ============================================================================
 
-function CompetitorListV3({
+function CompetitorTableV35({
   competitors,
   selectedCompetitorId,
+  hoveredCompetitorId,
   onSelectCompetitor,
+  onHoverCompetitor,
+  businessModelCategory,
+  verticalCategory,
 }: {
   competitors: CompetitionCompetitor[];
   selectedCompetitorId: string | null;
+  hoveredCompetitorId: string | null;
   onSelectCompetitor: (id: string | null) => void;
+  onHoverCompetitor: (id: string | null) => void;
+  businessModelCategory?: BusinessModelCategory | null;
+  verticalCategory?: VerticalCategory | string | null;
 }) {
-  const [sortKey, setSortKey] = useState<'name' | 'type' | 'threat' | 'icpFit' | 'valueModelFit'>('threat');
+  const [sortKey, setSortKey] = useState<'name' | 'type' | 'threat' | 'jtbd' | 'overlap' | 'signals' | 'geo'>('threat');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  // Context for type mapping
+  const typeContext = { businessModelCategory, verticalCategory };
 
   const sortedCompetitors = useMemo(() => {
     return [...competitors].sort((a, b) => {
@@ -269,13 +458,22 @@ function CompetitorListV3({
           aVal = a.scores.threat;
           bVal = b.scores.threat;
           break;
-        case 'icpFit':
-          aVal = a.coordinates.icpFit;
-          bVal = b.coordinates.icpFit;
+        case 'jtbd':
+          aVal = a.signals?.jtbdMatches ?? 0;
+          bVal = b.signals?.jtbdMatches ?? 0;
           break;
-        case 'valueModelFit':
-          aVal = a.coordinates.valueModelFit;
-          bVal = b.coordinates.valueModelFit;
+        case 'overlap':
+          aVal = a.signals?.offerOverlapScore ?? 0;
+          bVal = b.signals?.offerOverlapScore ?? 0;
+          break;
+        case 'signals':
+          aVal = a.signals?.signalsVerified ?? 0;
+          bVal = b.signals?.signalsVerified ?? 0;
+          break;
+        case 'geo':
+          const geoOrder = { local: 0, regional: 1, national: 2, 'online-only': 3 };
+          aVal = a.geoScope ? geoOrder[a.geoScope] : 4;
+          bVal = b.geoScope ? geoOrder[b.geoScope] : 4;
           break;
         default:
           aVal = 0;
@@ -306,10 +504,11 @@ function CompetitorListV3({
     );
   }
 
-  const SortHeader = ({ label, sortKeyVal }: { label: string; sortKeyVal: typeof sortKey }) => (
+  const SortHeader = ({ label, sortKeyVal, title }: { label: string; sortKeyVal: typeof sortKey; title?: string }) => (
     <th
-      className="px-3 py-2 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider cursor-pointer hover:text-slate-400 select-none"
+      className="px-3 py-2 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider cursor-pointer hover:text-slate-400 select-none whitespace-nowrap"
       onClick={() => handleSort(sortKeyVal)}
+      title={title}
     >
       <div className="flex items-center gap-1">
         {label}
@@ -323,47 +522,109 @@ function CompetitorListV3({
   return (
     <div className="overflow-x-auto">
       <table className="w-full">
-        <thead className="bg-slate-900/50 sticky top-0">
+        <thead className="bg-slate-900/50 sticky top-0 z-10">
           <tr>
             <SortHeader label="Name" sortKeyVal="name" />
-            <th className="px-3 py-2 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">Domain</th>
             <SortHeader label="Type" sortKeyVal="type" />
-            <SortHeader label="ICP Fit" sortKeyVal="icpFit" />
-            <SortHeader label="Value Fit" sortKeyVal="valueModelFit" />
             <SortHeader label="Threat" sortKeyVal="threat" />
+            <SortHeader label="JTBD" sortKeyVal="jtbd" title="Jobs-to-be-done match" />
+            <SortHeader label="Overlap" sortKeyVal="overlap" title="Offer overlap score" />
+            <SortHeader label="Signals" sortKeyVal="signals" title="Verified signals" />
+            <SortHeader label="Geo" sortKeyVal="geo" title="Geographic scope" />
+            <th className="px-3 py-2 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">
+              Actions
+            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-800/50">
           {sortedCompetitors.map(comp => {
             const isSelected = comp.id === selectedCompetitorId;
-            const colors = TYPE_COLORS[comp.type];
+            const isHovered = comp.id === hoveredCompetitorId;
+            // Map backend type to UI type for this context
+            const mappedType = mapTypeForContext(comp.type, typeContext);
+            const colors = getTypeTailwindClasses(mappedType);
+            const geoColors = comp.geoScope ? GEO_SCOPE_COLORS[comp.geoScope] : null;
 
             return (
               <tr
                 key={comp.id}
                 className={`cursor-pointer transition-colors ${
-                  isSelected ? 'bg-amber-500/10' : 'hover:bg-slate-800/30'
+                  isSelected ? 'bg-amber-500/10' : isHovered ? 'bg-slate-800/50' : 'hover:bg-slate-800/30'
                 }`}
                 onClick={() => onSelectCompetitor(comp.id)}
+                onMouseEnter={() => onHoverCompetitor(comp.id)}
+                onMouseLeave={() => onHoverCompetitor(null)}
               >
+                {/* Name */}
                 <td className="px-3 py-2">
                   <div className="flex items-center gap-2">
                     <div className={`w-2 h-2 rounded-full ${colors.bg}`} />
-                    <span className="text-xs font-medium text-slate-200">{comp.name}</span>
+                    <div className="min-w-0">
+                      <span className="text-xs font-medium text-slate-200 block truncate max-w-[150px]">{comp.name}</span>
+                      {comp.domain && (
+                        <span className="text-[10px] text-slate-500 block truncate max-w-[150px]">{comp.domain}</span>
+                      )}
+                    </div>
                   </div>
                 </td>
-                <td className="px-3 py-2 text-[10px] text-slate-500">{comp.domain || '-'}</td>
+
+                {/* Type - vertical-aware */}
                 <td className="px-3 py-2">
                   <span className={`px-1.5 py-0.5 rounded text-[9px] ${colors.bg}/20 ${colors.text}`}>
-                    {TYPE_LABELS[comp.type]}
+                    {getTypeBadgeLabel(mappedType)}
                   </span>
                 </td>
-                <td className="px-3 py-2 text-xs text-emerald-400">{comp.coordinates.icpFit}%</td>
-                <td className="px-3 py-2 text-xs text-blue-400">{comp.coordinates.valueModelFit}%</td>
+
+                {/* Threat */}
                 <td className="px-3 py-2">
                   <span className={`text-xs font-medium ${comp.scores.threat >= 60 ? 'text-red-400' : 'text-slate-400'}`}>
                     {comp.scores.threat}
                   </span>
+                </td>
+
+                {/* JTBD Match */}
+                <td className="px-3 py-2 text-xs text-slate-400">
+                  {comp.signals?.jtbdMatches != null
+                    ? `${Math.round(comp.signals.jtbdMatches * 100)}%`
+                    : '-'}
+                </td>
+
+                {/* Offer Overlap */}
+                <td className="px-3 py-2 text-xs text-slate-400">
+                  {comp.signals?.offerOverlapScore != null
+                    ? `${Math.round(comp.signals.offerOverlapScore * 100)}%`
+                    : '-'}
+                </td>
+
+                {/* Signals Verified */}
+                <td className="px-3 py-2 text-xs text-slate-400">
+                  {comp.signals?.signalsVerified != null
+                    ? `${comp.signals.signalsVerified}/5`
+                    : '-'}
+                </td>
+
+                {/* Geo Scope */}
+                <td className="px-3 py-2">
+                  {comp.geoScope && geoColors ? (
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] ${geoColors.bg}/20 ${geoColors.text}`}>
+                      {GEO_SCOPE_LABELS[comp.geoScope]}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-500">-</span>
+                  )}
+                </td>
+
+                {/* Actions */}
+                <td className="px-3 py-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectCompetitor(comp.id);
+                    }}
+                    className="text-[10px] text-slate-400 hover:text-amber-400 transition-colors"
+                  >
+                    View
+                  </button>
                 </td>
               </tr>
             );

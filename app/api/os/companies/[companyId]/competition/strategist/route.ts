@@ -103,6 +103,16 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         weaknesses: c.analysis.weaknesses,
         whyCompetitor: c.analysis.whyCompetitor || undefined,
       },
+      // V3.5 signals for alignment with Data view
+      geoScope: (c as any).geoScope,
+      signals: {
+        businessModelCategory: c.businessModelCategory,
+        jtbdMatches: c.jtbdMatches,
+        offerOverlapScore: c.offerOverlapScore,
+        signalsVerified: c.signalsVerified,
+        geoScore: c.geoScore,
+      },
+      offerGraph: (c as any).offerGraph,
     }));
 
     // Build insights

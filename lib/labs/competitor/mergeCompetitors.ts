@@ -295,6 +295,14 @@ export function mergeCompetitorRecord(
     threatDrivers: mergeArrays(a.threatDrivers || [], b.threatDrivers || []),
     // If either is human-verified (not autoSeeded), the result is human-verified
     autoSeeded: (a.autoSeeded ?? true) && (b.autoSeeded ?? true),
+    // V3.5 fields - pick better values where available
+    businessModelCategory: a.businessModelCategory || b.businessModelCategory || null,
+    jtbdMatches: pickNumber(a.jtbdMatches, b.jtbdMatches),
+    offerOverlapScore: pickNumber(a.offerOverlapScore, b.offerOverlapScore),
+    signalsVerified: pickNumber(a.signalsVerified, b.signalsVerified),
+    // Vertical classification
+    verticalCategory: a.verticalCategory || b.verticalCategory || null,
+    subVertical: pickString(a.subVertical, b.subVertical),
   };
 }
 
@@ -523,6 +531,14 @@ export function sanitizeCompetitorProfile(comp: Partial<CompetitorProfile>): Com
     threatLevel: clampThreatLevel(comp.threatLevel),
     threatDrivers: Array.isArray(comp.threatDrivers) ? comp.threatDrivers : [],
     autoSeeded: comp.autoSeeded ?? false,
+    // V3.5 fields
+    businessModelCategory: comp.businessModelCategory || null,
+    jtbdMatches: typeof comp.jtbdMatches === 'number' ? comp.jtbdMatches : null,
+    offerOverlapScore: typeof comp.offerOverlapScore === 'number' ? comp.offerOverlapScore : null,
+    signalsVerified: typeof comp.signalsVerified === 'number' ? comp.signalsVerified : null,
+    // Vertical classification
+    verticalCategory: comp.verticalCategory || null,
+    subVertical: comp.subVertical || null,
   };
 }
 

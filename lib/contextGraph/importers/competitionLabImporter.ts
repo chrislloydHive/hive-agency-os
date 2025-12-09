@@ -12,6 +12,34 @@ import type { CompanyContextGraph } from '../companyContextGraph';
 import type { CompetitorProfile, ThreatScore, PriceTier } from '../domains/competitive';
 import { getLatestCompetitionRun, type ScoredCompetitor } from '@/lib/competition';
 import { setFieldUntyped, createProvenance } from '../mutate';
+import { getCompanyById } from '@/lib/airtable/companies';
+
+// ============================================================================
+// Domain Normalization Helpers
+// ============================================================================
+
+/**
+ * Normalize a domain for comparison - removes protocol, www, and trailing slashes
+ */
+function normalizeDomain(domain: string | null | undefined): string | null {
+  if (!domain) return null;
+  let normalized = domain.toLowerCase().trim();
+  normalized = normalized.replace(/^https?:\/\//, '');
+  normalized = normalized.replace(/^www\./, '');
+  normalized = normalized.replace(/\/$/, '');
+  normalized = normalized.split('/')[0];
+  return normalized || null;
+}
+
+/**
+ * Check if two domains are the same company
+ */
+function isSameDomain(domain1: string | null | undefined, domain2: string | null | undefined): boolean {
+  const norm1 = normalizeDomain(domain1);
+  const norm2 = normalizeDomain(domain2);
+  if (!norm1 || !norm2) return false;
+  return norm1 === norm2;
+}
 
 /**
  * Map Competition Lab competitor to Context Graph CompetitorProfile
@@ -59,6 +87,14 @@ function mapToCompetitorProfile(competitor: ScoredCompetitor): CompetitorProfile
     threatLevel: competitor.threatLevel,
     threatDrivers: competitor.threatDrivers,
     autoSeeded: !competitor.provenance.humanOverride,
+    // V3.5 fields
+    businessModelCategory: null,
+    jtbdMatches: null,
+    offerOverlapScore: null,
+    signalsVerified: null,
+    // Vertical classification
+    verticalCategory: null,
+    subVertical: null,
   };
 }
 
@@ -128,7 +164,40 @@ export const competitionLabImporter: DomainImporter = {
       });
 
       // Get active competitors (not removed)
-      const activeCompetitors = run.competitors.filter((c) => !c.provenance.removed);
+      let activeCompetitors = run.competitors.filter((c) => !c.provenance.removed);
+
+      // CRITICAL: Filter out self-competitors before writing to context graph
+      // The company should NEVER appear as its own competitor
+      let companyDomain: string | null = null;
+      let companyNameForFilter: string | null = null;
+      try {
+        const company = await getCompanyById(companyId);
+        companyDomain = normalizeDomain(company?.domain || company?.website);
+        companyNameForFilter = company?.name?.toLowerCase().trim() || null;
+      } catch (e) {
+        console.warn('[competitionLabImporter] Could not fetch company for self-filtering:', e);
+      }
+
+      // Filter out self-competitors by domain and name
+      if (companyDomain || companyNameForFilter) {
+        const beforeCount = activeCompetitors.length;
+        activeCompetitors = activeCompetitors.filter((c) => {
+          // Filter by domain match
+          if (companyDomain && isSameDomain(c.competitorDomain, companyDomain)) {
+            console.log(`[competitionLabImporter] Filtered out self-competitor: ${c.competitorName} (${c.competitorDomain})`);
+            return false;
+          }
+          // Filter by name match
+          if (companyNameForFilter && c.competitorName?.toLowerCase().trim() === companyNameForFilter) {
+            console.log(`[competitionLabImporter] Filtered out self-competitor by name: ${c.competitorName}`);
+            return false;
+          }
+          return true;
+        });
+        if (beforeCount !== activeCompetitors.length) {
+          console.log(`[competitionLabImporter] Removed ${beforeCount - activeCompetitors.length} self-competitor(s)`);
+        }
+      }
 
       if (activeCompetitors.length === 0) {
         result.errors.push('No active competitors in the run');

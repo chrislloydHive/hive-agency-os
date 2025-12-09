@@ -11,7 +11,17 @@
 // - Price positioning
 // - Strategic map nodes
 
-import type { QueryContext } from '../types';
+import type { QueryContext, VerticalCategory } from '../types';
+import { getVerticalSearchModifiers } from '../verticalClassifier';
+
+// ============================================================================
+// Vertical Query Template Types
+// ============================================================================
+
+/**
+ * Vertical query templates can have nested sub-vertical templates
+ */
+type VerticalQueryTemplates = Record<string, string[] | Record<string, string[]>>;
 
 // ============================================================================
 // Query Templates
@@ -111,6 +121,180 @@ const BOUTIQUE_AGENCY_QUERY_TEMPLATES: string[] = [
 ];
 
 // ============================================================================
+// Vertical-Specific Query Templates
+// ============================================================================
+
+/**
+ * Query templates for RETAIL vertical
+ */
+const RETAIL_QUERY_TEMPLATES: Record<string, string[]> = {
+  general: [
+    '{businessName} competitors',
+    '{businessName} alternatives',
+    'stores like {businessName}',
+    '{industry} stores {geography}',
+    '{primaryOffer} retailers',
+    '{primaryOffer} shops near me',
+    'best {primaryOffer} stores',
+  ],
+  direct: [
+    '{industry} retail stores',
+    '{primaryOffer} specialty shops',
+    'local {industry} stores',
+  ],
+  platform: [
+    '{primaryOffer} on Amazon',
+    '{primaryOffer} on eBay',
+    '{primaryOffer} online retailers',
+  ],
+};
+
+/**
+ * Query templates for AUTOMOTIVE vertical
+ */
+const AUTOMOTIVE_QUERY_TEMPLATES: Record<string, string[] | Record<string, string[]>> = {
+  general: [
+    '{businessName} competitors',
+    '{businessName} alternatives',
+    'car electronics stores like {businessName}',
+    'car audio shops {geography}',
+    'mobile electronics installers {geography}',
+    'car stereo installation near me',
+    'best car audio shops',
+  ],
+  direct: [
+    'car audio installation shops',
+    'mobile electronics retailers',
+    'car stereo stores {geography}',
+    'remote start installers',
+    'window tint shops {geography}',
+    'custom car audio',
+  ],
+  platform: [
+    'car audio on Amazon',
+    'car electronics on eBay',
+    'Crutchfield alternatives',
+  ],
+  subVertical: {
+    'car-audio': [
+      'car audio shops',
+      'car stereo installation',
+      'subwoofer installation',
+      'speaker installation shops',
+    ],
+    'car-electronics': [
+      'remote start installation',
+      'dash cam installation',
+      'backup camera installation',
+    ],
+    'window-tint': [
+      'window tint shops',
+      'ceramic tint installation',
+      'automotive window film',
+    ],
+    'detailing': [
+      'auto detailing shops',
+      'ceramic coating installers',
+      'paint protection film installers',
+    ],
+  },
+};
+
+/**
+ * Query templates for SERVICES vertical (agencies, consulting)
+ */
+const SERVICES_QUERY_TEMPLATES: Record<string, string[]> = {
+  general: [
+    '{businessName} competitors',
+    '{businessName} alternatives',
+    'agencies like {businessName}',
+    '{industry} agency {geography}',
+    '{primaryOffer} consultants',
+  ],
+  direct: [
+    '{industry} agencies',
+    '{primaryOffer} firms',
+    'boutique {industry} agency',
+  ],
+  fractional: [
+    'fractional CMO',
+    'fractional marketing executive',
+    'part-time marketing director',
+    'outsourced marketing leader',
+  ],
+  internal: [
+    'hiring marketing director',
+    'in-house marketing team',
+    'marketing team vs agency',
+  ],
+};
+
+/**
+ * Query templates for SOFTWARE vertical
+ */
+const SOFTWARE_QUERY_TEMPLATES: Record<string, string[]> = {
+  general: [
+    '{businessName} competitors',
+    '{businessName} alternatives',
+    'software like {businessName}',
+    '{primaryOffer} software',
+    '{primaryOffer} platform',
+  ],
+  direct: [
+    '{primaryOffer} software comparison',
+    'best {primaryOffer} tools',
+    '{industry} software',
+  ],
+  platform: [
+    '{primaryOffer} alternatives',
+    '{primaryOffer} integrations',
+    '{primaryOffer} API',
+  ],
+};
+
+/**
+ * Query templates for CONSUMER-DTC vertical
+ */
+const CONSUMER_DTC_QUERY_TEMPLATES: Record<string, string[]> = {
+  general: [
+    '{businessName} competitors',
+    '{businessName} alternatives',
+    'brands like {businessName}',
+    '{primaryOffer} brands',
+    'best {primaryOffer} brands',
+  ],
+  direct: [
+    '{primaryOffer} D2C brands',
+    '{primaryOffer} direct to consumer',
+    'new {primaryOffer} brands',
+  ],
+  platform: [
+    '{primaryOffer} on Amazon',
+    '{primaryOffer} subscription box',
+  ],
+};
+
+/**
+ * Get vertical-specific query templates
+ */
+function getVerticalQueryTemplates(vertical: VerticalCategory): VerticalQueryTemplates {
+  switch (vertical) {
+    case 'retail':
+      return RETAIL_QUERY_TEMPLATES;
+    case 'automotive':
+      return AUTOMOTIVE_QUERY_TEMPLATES;
+    case 'services':
+      return SERVICES_QUERY_TEMPLATES;
+    case 'software':
+      return SOFTWARE_QUERY_TEMPLATES;
+    case 'consumer-dtc':
+      return CONSUMER_DTC_QUERY_TEMPLATES;
+    default:
+      return {};
+  }
+}
+
+// ============================================================================
 // Query Generation
 // ============================================================================
 
@@ -118,14 +302,16 @@ const BOUTIQUE_AGENCY_QUERY_TEMPLATES: string[] = [
  * Generate search queries from context
  *
  * Strategy:
- * 1. Start with ICP-aware queries that target the right company shape
- * 2. Add type-specific queries (fractional, AI-agencies, boutique)
- * 3. Add brand/competitor queries if we have a business name
- * 4. Fill with directory queries
+ * 1. Start with vertical-specific queries if vertical is known
+ * 2. Add ICP-aware queries that target the right company shape
+ * 3. Add type-specific queries (fractional, AI-agencies, boutique) - only for relevant verticals
+ * 4. Add brand/competitor queries if we have a business name
+ * 5. Fill with directory queries
  */
 export function generateSearchQueries(context: QueryContext): string[] {
   const queries: string[] = [];
   const seen = new Set<string>();
+  const vertical = context.verticalCategory || 'unknown';
 
   const addQuery = (query: string): boolean => {
     const normalized = normalizeQuery(query);
@@ -137,11 +323,71 @@ export function generateSearchQueries(context: QueryContext): string[] {
     return false;
   };
 
+  // Get vertical-specific modifiers to filter irrelevant results
+  const verticalMods = getVerticalSearchModifiers(vertical);
+
+  // Phase 0: Add VERTICAL-SPECIFIC queries first (highest priority)
+  const verticalTemplates = getVerticalQueryTemplates(vertical);
+  if (Object.keys(verticalTemplates).length > 0) {
+    console.log(`[competition-v3/queries] Using ${vertical} vertical-specific templates`);
+
+    // Add general vertical queries
+    const generalTemplates = verticalTemplates.general;
+    if (Array.isArray(generalTemplates)) {
+      for (const template of generalTemplates) {
+        const expanded = expandVerticalTemplate(template, context);
+        for (const q of expanded) {
+          addQuery(q);
+        }
+      }
+    }
+
+    // Add direct competitor queries
+    const directTemplates = verticalTemplates.direct;
+    if (Array.isArray(directTemplates)) {
+      for (const template of directTemplates) {
+        const expanded = expandVerticalTemplate(template, context);
+        for (const q of expanded) {
+          addQuery(q);
+        }
+      }
+    }
+
+    // Add platform queries (only for verticals that have them)
+    const platformTemplates = verticalTemplates.platform;
+    if (Array.isArray(platformTemplates)) {
+      for (const template of platformTemplates) {
+        const expanded = expandVerticalTemplate(template, context);
+        for (const q of expanded) {
+          addQuery(q);
+        }
+      }
+    }
+
+    // Add sub-vertical queries if applicable (e.g., car-audio for automotive)
+    if (context.subVertical && verticalTemplates.subVertical) {
+      const subTemplates = (verticalTemplates.subVertical as Record<string, string[]>)[context.subVertical];
+      if (subTemplates) {
+        for (const template of subTemplates) {
+          addQuery(template);
+        }
+      }
+    }
+  }
+
   // Sort templates by priority
   const sortedTemplates = [...QUERY_TEMPLATES].sort((a, b) => b.priority - a.priority);
 
   // Phase 1: Add templated queries (ICP-driven, brand, etc.)
+  // Skip agency-specific templates for non-services verticals
   for (const template of sortedTemplates) {
+    // Skip agency templates for retail/automotive/consumer verticals
+    if (vertical !== 'services' && vertical !== 'unknown') {
+      if (template.template.includes('agency') || template.template.includes('consultancy')) {
+        continue;
+      }
+    }
+
     if (!hasRequiredFields(context, template.requires)) {
       continue;
     }
@@ -154,27 +400,34 @@ export function generateSearchQueries(context: QueryContext): string[] {
     if (queries.length >= 20) break;
   }
 
-  // Phase 2: Add FRACTIONAL executive queries (always relevant for agencies)
-  for (const template of FRACTIONAL_QUERY_TEMPLATES) {
-    const expanded = expandSimpleTemplate(template, context);
-    if (expanded) addQuery(expanded);
-  }
-
-  // Phase 3: Add AI/AUTOMATION agency queries (especially if AI-oriented)
-  if (context.aiOrientation === 'ai-first' || context.aiOrientation === 'ai-augmented') {
-    for (const template of AI_AGENCY_QUERY_TEMPLATES) {
-      addQuery(template);
+  // Phase 2: Add FRACTIONAL executive queries - ONLY for services vertical
+  // Retail, automotive, software, etc. should NOT see fractional queries
+  if (vertical === 'services' || vertical === 'unknown') {
+    for (const template of FRACTIONAL_QUERY_TEMPLATES) {
+      const expanded = expandSimpleTemplate(template, context);
+      if (expanded) addQuery(expanded);
     }
-  } else {
-    // Add fewer AI queries for non-AI companies
-    addQuery(AI_AGENCY_QUERY_TEMPLATES[0]);
-    addQuery(AI_AGENCY_QUERY_TEMPLATES[1]);
   }
 
-  // Phase 4: Add BOUTIQUE agency queries (for startup ICPs)
-  if (context.icpStage === 'startup' || context.icpStage === 'growth') {
-    for (const template of BOUTIQUE_AGENCY_QUERY_TEMPLATES) {
-      addQuery(template);
+  // Phase 3: Add AI/AUTOMATION agency queries - ONLY for services vertical
+  if (vertical === 'services' || vertical === 'unknown') {
+    if (context.aiOrientation === 'ai-first' || context.aiOrientation === 'ai-augmented') {
+      for (const template of AI_AGENCY_QUERY_TEMPLATES) {
+        addQuery(template);
+      }
+    } else {
+      // Add fewer AI queries for non-AI companies
+      addQuery(AI_AGENCY_QUERY_TEMPLATES[0]);
+      addQuery(AI_AGENCY_QUERY_TEMPLATES[1]);
+    }
+  }
+
+  // Phase 4: Add BOUTIQUE agency queries - ONLY for services vertical
+  if (vertical === 'services' || vertical === 'unknown') {
+    if (context.icpStage === 'startup' || context.icpStage === 'growth') {
+      for (const template of BOUTIQUE_AGENCY_QUERY_TEMPLATES) {
+        addQuery(template);
+      }
     }
   }
 
@@ -182,13 +435,52 @@ export function generateSearchQueries(context: QueryContext): string[] {
   if (queries.length < 25) {
     const fallbacks = generateFallbackQueries(context);
     for (const query of fallbacks) {
+      // Filter out queries that don't match the vertical
+      const lowerQuery = query.toLowerCase();
+      const shouldExclude = verticalMods.exclude.some(ex => lowerQuery.includes(ex.toLowerCase()));
+      if (shouldExclude) continue;
+
       addQuery(query);
       if (queries.length >= 30) break;
     }
   }
 
-  console.log(`[competition-v3/queries] Generated ${queries.length} queries for ${context.businessName}`);
+  console.log(`[competition-v3/queries] Generated ${queries.length} queries for ${context.businessName} (vertical: ${vertical})`);
   return queries;
+}
+
+/**
+ * Expand a vertical-specific template
+ */
+function expandVerticalTemplate(template: string, context: QueryContext): string[] {
+  const results: string[] = [];
+  let query = template;
+
+  // Replace single-value placeholders
+  query = query.replace('{businessName}', context.businessName || '');
+  query = query.replace('{industry}', context.industry || '');
+  query = query.replace('{geography}', context.geography || '');
+
+  // Handle primaryOffer - generate multiple queries
+  if (template.includes('{primaryOffer}')) {
+    const offers = context.primaryOffers.slice(0, 3);
+    if (offers.length > 0) {
+      for (const offer of offers) {
+        const expanded = query.replace('{primaryOffer}', offer);
+        if (!expanded.includes('{') && expanded.length >= 10) {
+          results.push(expanded.trim());
+        }
+      }
+    }
+    return results;
+  }
+
+  // Single query (no array expansion needed)
+  if (!query.includes('{') && query.trim().length >= 10) {
+    results.push(query.trim());
+  }
+
+  return results;
 }
 
 /**
@@ -444,6 +736,29 @@ export function buildQueryContextFromGraph(graph: any): QueryContext {
   const icpStageRaw = extractIcpStage(icpDesc);
   const aiOrientationRaw = extractAiOrientation(brand, productOffer);
 
+  // Determine business model category (B2B vs B2C vs Hybrid)
+  const businessModelText = [
+    identity.businessModel?.value,
+    audience.customerType?.value,
+    audience.targetAudience?.value,
+    identity.industry?.value,
+  ].join(' ').toLowerCase();
+
+  const b2cIndicators = ['consumer', 'b2c', 'retail', 'household', 'individual', 'shopper', 'driver', 'customer'];
+  const b2bIndicators = ['b2b', 'business', 'enterprise', 'company', 'organization', 'saas', 'client', 'corporate'];
+
+  const hasB2C = b2cIndicators.some(indicator => businessModelText.includes(indicator));
+  const hasB2B = b2bIndicators.some(indicator => businessModelText.includes(indicator));
+
+  let businessModelCategory: QueryContext['businessModelCategory'] = null;
+  if (hasB2C && hasB2B) {
+    businessModelCategory = 'Hybrid';
+  } else if (hasB2C) {
+    businessModelCategory = 'B2C';
+  } else if (hasB2B) {
+    businessModelCategory = 'B2B';
+  }
+
   return {
     businessName: identity.businessName?.value || graph.companyName || 'Unknown',
     domain: graph.meta?.domain || null,
@@ -451,6 +766,7 @@ export function buildQueryContextFromGraph(graph: any): QueryContext {
     // Identity
     industry: identity.industry?.value || null,
     businessModel: identity.businessModel?.value || null,
+    businessModelCategory,
 
     // Audience
     icpDescription: icpDesc,

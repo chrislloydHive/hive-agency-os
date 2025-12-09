@@ -16,6 +16,7 @@
 
 import type { EnrichedCandidate, QueryContext, CompetitorScores, ClassificationResult } from '../types';
 import { detectBadFitSignals, getThreatScoreCap } from '../enrichment/categoryClassifier';
+import { isB2CCompany, getPositioningAxes } from '../b2cRetailClassifier';
 
 // ============================================================================
 // Scoring Weights
@@ -39,6 +40,22 @@ const DEFAULT_WEIGHTS: ScoringWeights = {
   icpStageMatch: 0.10,
   aiOrientation: 0.10,
   geographyFit: 0.10,
+};
+
+/**
+ * B2C Retail-specific weights
+ * - Emphasizes product overlap (JTBD) and geography
+ * - De-emphasizes ICP stage (irrelevant for consumer retail)
+ * - AI orientation matters less for retail
+ */
+const B2C_RETAIL_WEIGHTS: ScoringWeights = {
+  icpFit: 0.15,           // Customer fit still matters
+  businessModelFit: 0.10, // Less important for retail
+  serviceOverlap: 0.30,   // Product/service overlap is key for retail
+  valueModelFit: 0.15,    // Price positioning matters
+  icpStageMatch: 0.00,    // Not relevant for B2C (no startup vs enterprise)
+  aiOrientation: 0.00,    // Not relevant for retail
+  geographyFit: 0.30,     // Geography is crucial for local retail
 };
 
 // Threat score weights by competitor type
@@ -101,10 +118,15 @@ export function scoreCompetitors(
   candidates: Array<EnrichedCandidate & { classification: ClassificationResult }>,
   context: QueryContext
 ): Array<EnrichedCandidate & { classification: ClassificationResult; scores: CompetitorScores }> {
-  console.log(`[competition-v3/scoring] Scoring ${candidates.length} candidates`);
+  const isB2C = isB2CCompany(context);
+  console.log(`[competition-v3/scoring] Scoring ${candidates.length} candidates (B2C: ${isB2C})`);
+
+  if (isB2C) {
+    console.log(`[competition-v3/scoring] Using B2C retail scoring weights`);
+  }
 
   return candidates.map(candidate => {
-    const scores = computeScores(candidate, context);
+    const scores = computeScores(candidate, context, isB2C);
     return { ...candidate, scores };
   });
 }
@@ -114,7 +136,8 @@ export function scoreCompetitors(
  */
 function computeScores(
   candidate: EnrichedCandidate & { classification: ClassificationResult },
-  context: QueryContext
+  context: QueryContext,
+  isB2C: boolean = false
 ): CompetitorScores {
   const similarity = candidate.semanticSimilarity;
   const metadata = candidate.metadata;
@@ -125,8 +148,8 @@ function computeScores(
   const businessModelFit = computeBusinessModelFit(metadata, context);
   const serviceOverlap = computeServiceOverlap(candidate, context, similarity);
   const valueModelFit = computeValueModelFit(candidate, context, similarity);
-  const icpStageMatch = computeICPStageMatch(candidate, context);
-  const aiOrientation = computeAIOrientation(metadata, context);
+  const icpStageMatch = isB2C ? 50 : computeICPStageMatch(candidate, context); // Neutral for B2C
+  const aiOrientation = isB2C ? 50 : computeAIOrientation(metadata, context);  // Neutral for B2C
   const geographyFit = computeGeographyFit(metadata, context);
 
   // Compute threat score using V3.5 signals when available
@@ -135,14 +158,23 @@ function computeScores(
     const offerOverlap = candidate.offerOverlapScore ?? 0;
     const jtbd = candidate.jtbdMatches ?? 0;
     const geoScore = candidate.geoScore ?? 0.4;
-    threatScore = Math.round(
-      ((offerOverlap * 0.5) + (jtbd * 0.3) + (geoScore * 0.2)) * 100
-    );
+
+    // B2C weighting: geography matters more, JTBD/product overlap is key
+    if (isB2C) {
+      threatScore = Math.round(
+        ((offerOverlap * 0.4) + (jtbd * 0.25) + (geoScore * 0.35)) * 100
+      );
+    } else {
+      threatScore = Math.round(
+        ((offerOverlap * 0.5) + (jtbd * 0.3) + (geoScore * 0.2)) * 100
+      );
+    }
   } else {
     // Fallback to older realistic threat score
     threatScore = computeRealisticThreatScore(
-      { icpFit, valueModelFit, serviceOverlap },
-      classification.type
+      { icpFit, valueModelFit, serviceOverlap, geographyFit },
+      classification.type,
+      isB2C
     );
   }
 
@@ -193,30 +225,42 @@ function computeScores(
  *
  * This punishes low values in any dimension - a competitor needs
  * good ICP fit, value model fit, AND service overlap to be a real threat.
+ *
+ * For B2C: Geography matters more, service overlap is key.
  */
 function computeRealisticThreatScore(
-  coreScores: { icpFit: number; valueModelFit: number; serviceOverlap: number },
-  competitorType: string
+  coreScores: { icpFit: number; valueModelFit: number; serviceOverlap: number; geographyFit?: number },
+  competitorType: string,
+  isB2C: boolean = false
 ): number {
-  const { icpFit, valueModelFit, serviceOverlap } = coreScores;
+  const { icpFit, valueModelFit, serviceOverlap, geographyFit = 50 } = coreScores;
 
-  // Use geometric-ish mean that punishes low values
-  // Formula: cbrt(icpFit * valueModelFit * serviceOverlap) normalized to 0-100
-  const product = Math.max(1, icpFit) * Math.max(1, valueModelFit) * Math.max(1, serviceOverlap);
-  let threat = Math.pow(product / 1_000_000, 1/3) * 100;
+  let threat: number;
+
+  if (isB2C) {
+    // B2C retail scoring: emphasize geography and product overlap
+    // Formula: weighted geometric mean with geography emphasis
+    const product = Math.max(1, serviceOverlap) * Math.max(1, geographyFit) * Math.max(1, valueModelFit);
+    threat = Math.pow(product / 1_000_000, 1/3) * 100;
+  } else {
+    // B2B scoring: ICP fit, value model, and service overlap
+    const product = Math.max(1, icpFit) * Math.max(1, valueModelFit) * Math.max(1, serviceOverlap);
+    threat = Math.pow(product / 1_000_000, 1/3) * 100;
+  }
 
   // Apply type-specific caps
   switch (competitorType) {
     case 'platform':
       // Platforms are alternatives, not primary threats
-      threat = Math.min(threat, 55);
+      // For B2C retail, platforms like Amazon are more significant
+      threat = Math.min(threat, isB2C ? 70 : 55);
       break;
     case 'internal':
-      // Internal hire is an alternative path, not same market
+      // Internal hire is an alternative path - not relevant for B2C
       threat = Math.min(threat, 65);
       break;
     case 'fractional':
-      // Fractional competes for budget but different model
+      // Fractional competes for budget - not relevant for B2C
       threat = Math.min(threat, 75);
       break;
     case 'partial':

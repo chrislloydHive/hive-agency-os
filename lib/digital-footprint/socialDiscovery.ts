@@ -1,4 +1,4 @@
-// lib/digitalFootprint/socialDiscovery.ts
+// lib/digital-footprint/socialDiscovery.ts
 // Robust social media and Google Business Profile detection
 //
 // This module provides comprehensive detection of social profiles and GBP

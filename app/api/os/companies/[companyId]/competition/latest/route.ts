@@ -7,6 +7,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getLatestCompetitionRunV3 } from '@/lib/competition-v3/store';
+import { loadContextGraph } from '@/lib/contextGraph/storage';
+import { buildQueryContextFromGraph } from '@/lib/competition-v3/discovery/searchQueries';
+import { detectVertical } from '@/lib/competition-v3/orchestrator/verticalDetection';
 import type {
   CompetitionCompetitor,
   CompetitionInsights,
@@ -29,6 +32,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     // Load full V3 run from Competition Runs table
     const v3Run = await getLatestCompetitionRunV3(companyId);
+
+    // Load context graph to get business model category
+    const contextGraph = await loadContextGraph(companyId);
 
     if (!v3Run) {
       return NextResponse.json({
@@ -110,6 +116,18 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       },
     };
 
+    // Build query context for vertical-aware UI
+    let queryContext: CompetitionRunV3Response['queryContext'] = undefined;
+    if (contextGraph) {
+      const fullContext = buildQueryContextFromGraph(contextGraph);
+      const verticalResult = detectVertical(fullContext);
+      queryContext = {
+        businessModelCategory: fullContext.businessModelCategory,
+        verticalCategory: verticalResult.verticalCategory,
+      };
+      console.log(`[competition/latest] Context: ${queryContext.businessModelCategory}/${queryContext.verticalCategory}`);
+    }
+
     const response: CompetitionRunV3Response = {
       runId: v3Run.runId,
       companyId: v3Run.companyId,
@@ -124,6 +142,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         byType: v3Run.summary.byType,
         avgThreatScore: v3Run.summary.avgThreatScore,
       },
+      queryContext,
     };
 
     console.log(`[competition/latest] Returning full V3 data: ${competitors.length} competitors`);

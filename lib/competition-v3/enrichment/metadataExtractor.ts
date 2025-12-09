@@ -66,6 +66,12 @@ async function enrichCandidate(
       aiStrengths: enrichmentData.strengths,
       aiWeaknesses: enrichmentData.weaknesses,
       aiWhyCompetitor: enrichmentData.whyCompetitor,
+      // V3.5 signals for threat scoring
+      jtbdMatches: enrichmentData.jtbdMatches,
+      offerOverlapScore: enrichmentData.offerOverlapScore,
+      geoScore: enrichmentData.geoScore,
+      businessModelCategory: enrichmentData.businessModelCategory,
+      signalsVerified: enrichmentData.signalsVerified,
     };
   } catch (error) {
     console.warn(`[competition-v3/enrichment] Failed to enrich ${candidate.name}:`, error);
@@ -80,6 +86,12 @@ async function enrichCandidate(
       aiStrengths: [],
       aiWeaknesses: [],
       aiWhyCompetitor: null,
+      // Default V3.5 signals for failed enrichment
+      jtbdMatches: 0.4,
+      offerOverlapScore: 0.4,
+      geoScore: 0.4,
+      businessModelCategory: undefined,
+      signalsVerified: 0,
     };
   }
 }
@@ -96,13 +108,24 @@ interface EnrichmentResult {
   strengths: string[];
   weaknesses: string[];
   whyCompetitor: string | null;
+  // V3.5 signals for threat scoring
+  jtbdMatches?: number;
+  offerOverlapScore?: number;
+  geoScore?: number;
+  businessModelCategory?: 'retail-service' | 'retail-product' | 'ecommerce' | 'agency' | 'saas' | 'other';
+  signalsVerified?: number;
 }
 
 const ENRICHMENT_SYSTEM_PROMPT = `You are a competitive intelligence analyst. Your task is to analyze a company and extract structured metadata.
 
 Be objective and fact-based. Use your knowledge of the company if available, or make reasonable inferences based on the information provided.
 
-For unknown fields, return null rather than guessing.`;
+For unknown fields, return null rather than guessing.
+
+For V3.5 scoring signals (jtbdMatches, offerOverlapScore, geoScore), you MUST provide numeric values between 0 and 1:
+- jtbdMatches: How well their jobs-to-be-done match the target company (0=no overlap, 1=identical)
+- offerOverlapScore: Service/product offering similarity (0=completely different, 1=identical offerings)
+- geoScore: Geographic market overlap (0=no overlap, 1=same exact markets)`;
 
 /**
  * Extract all enrichment data using AI
@@ -164,6 +187,13 @@ Extract and return JSON with this structure:
     "offeringSimilarity": 0.0-1.0,
     "overallSimilarity": 0.0-1.0
   },
+  "v35Signals": {
+    "jtbdMatches": 0.0-1.0,
+    "offerOverlapScore": 0.0-1.0,
+    "geoScore": 0.0-1.0,
+    "businessModelCategory": "retail-service" | "retail-product" | "ecommerce" | "agency" | "saas" | "other",
+    "signalsVerified": 0-5
+  },
   "summary": "1-2 sentence company description",
   "strengths": ["strength1", "strength2", "strength3"],
   "weaknesses": ["weakness1", "weakness2"],
@@ -180,7 +210,13 @@ Team Size Guidelines:
 Similarity Scoring (0-1):
 - 0.0-0.3: Low similarity
 - 0.4-0.6: Moderate similarity
-- 0.7-1.0: High similarity`;
+- 0.7-1.0: High similarity
+
+V3.5 Signal Scoring (CRITICAL for threat calculation):
+- jtbdMatches: Jobs-to-be-done overlap (0=different jobs, 1=same jobs)
+- offerOverlapScore: Product/service offering similarity (0=none, 1=identical)
+- geoScore: Geographic market overlap (0=different markets, 1=same markets)
+- signalsVerified: Count of verified competitive signals (0-5)`;
 
   try {
     const response = await aiSimple({
@@ -249,11 +285,23 @@ Similarity Scoring (0-1):
       strengths: parsed.strengths || [],
       weaknesses: parsed.weaknesses || [],
       whyCompetitor: parsed.whyCompetitor || null,
+      // V3.5 signals for threat scoring
+      jtbdMatches: parsed.v35Signals?.jtbdMatches != null
+        ? clamp(parsed.v35Signals.jtbdMatches, 0, 1)
+        : parsed.similarity?.icpSimilarity ?? 0.5,
+      offerOverlapScore: parsed.v35Signals?.offerOverlapScore != null
+        ? clamp(parsed.v35Signals.offerOverlapScore, 0, 1)
+        : parsed.similarity?.offeringSimilarity ?? 0.5,
+      geoScore: parsed.v35Signals?.geoScore != null
+        ? clamp(parsed.v35Signals.geoScore, 0, 1)
+        : 0.5,
+      businessModelCategory: parsed.v35Signals?.businessModelCategory || undefined,
+      signalsVerified: parsed.v35Signals?.signalsVerified ?? 0,
     };
   } catch (error) {
     console.warn(`[competition-v3/enrichment] AI extraction failed for ${candidate.name}:`, error);
 
-    // Return minimal data
+    // Return minimal data with default V3.5 signals
     return {
       crawledContent: null,
       metadata: {
@@ -274,6 +322,12 @@ Similarity Scoring (0-1):
       strengths: [],
       weaknesses: [],
       whyCompetitor: null,
+      // Default V3.5 signals for fallback
+      jtbdMatches: 0.4,
+      offerOverlapScore: 0.4,
+      geoScore: 0.4,
+      businessModelCategory: undefined,
+      signalsVerified: 0,
     };
   }
 }

@@ -1,5 +1,5 @@
 // components/competition/CompetitorCardV3.tsx
-// V3 Competitor Detail Card with 6-category display and threat scores
+// V3.5 Competitor Detail Card with enhanced signal display
 
 'use client';
 
@@ -8,6 +8,8 @@ import {
   TYPE_COLORS,
   TYPE_LABELS,
   TYPE_DESCRIPTIONS,
+  GEO_SCOPE_COLORS,
+  GEO_SCOPE_LABELS,
 } from '@/lib/competition-v3/ui-types';
 
 interface Props {
@@ -18,21 +20,22 @@ interface Props {
 
 export function CompetitorCardV3({ competitor, onClose, onMarkInvalid }: Props) {
   const colors = TYPE_COLORS[competitor.type];
+  const geoColors = competitor.geoScope ? GEO_SCOPE_COLORS[competitor.geoScope] : null;
 
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <div
-              className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold"
+              className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
               style={{ backgroundColor: getTypeHexColor(competitor.type) }}
             >
               {competitor.name.slice(0, 2).toUpperCase()}
             </div>
-            <div>
-              <h3 className="font-semibold text-white">{competitor.name}</h3>
+            <div className="min-w-0">
+              <h3 className="font-semibold text-white truncate">{competitor.name}</h3>
               {competitor.domain && (
                 <a
                   href={`https://${competitor.domain}`}
@@ -46,37 +49,78 @@ export function CompetitorCardV3({ competitor, onClose, onMarkInvalid }: Props) 
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {onMarkInvalid && competitor.domain && (
-            <button
-              onClick={() => onMarkInvalid(competitor.domain)}
-              className="text-xs text-slate-400 hover:text-amber-300 px-2 py-1 rounded hover:bg-slate-800 transition-colors"
-              title="Exclude from future runs"
-            >
-              Not a competitor
-            </button>
-          )}
-          <button
-            onClick={onClose}
-            className="p-1 rounded text-slate-400 hover:text-slate-300 hover:bg-slate-800 transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+        <button
+          onClick={onClose}
+          className="p-1 rounded text-slate-400 hover:text-slate-300 hover:bg-slate-800 transition-colors shrink-0"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
       </div>
 
-      {/* Type Badge */}
-      <div className={`p-3 rounded-lg ${colors.bg}/10 border border-current/20 ${colors.text}`}>
-        <div className="flex items-center justify-between">
-          <span className="font-medium">{TYPE_LABELS[competitor.type]}</span>
-          <span className="text-xs opacity-80">
-            {Math.round(competitor.classification.confidence * 100)}% confidence
+      {/* Type + Geo + Threat Badges */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`px-2 py-1 rounded text-xs font-medium ${colors.bg}/20 ${colors.text}`}>
+          {TYPE_LABELS[competitor.type]}
+        </span>
+        {competitor.geoScope && geoColors && (
+          <span className={`px-2 py-1 rounded text-xs ${geoColors.bg}/20 ${geoColors.text}`}>
+            {GEO_SCOPE_LABELS[competitor.geoScope]}
           </span>
-        </div>
-        <p className="text-xs mt-1 opacity-80">{TYPE_DESCRIPTIONS[competitor.type]}</p>
+        )}
+        <span className={`px-2 py-1 rounded text-xs font-medium ${
+          competitor.scores.threat >= 70 ? 'bg-red-500/20 text-red-400' :
+          competitor.scores.threat >= 50 ? 'bg-amber-500/20 text-amber-400' :
+          'bg-slate-500/20 text-slate-400'
+        }`}>
+          Threat: {competitor.scores.threat}
+        </span>
       </div>
+
+      {/* Why This Competitor? Section */}
+      {competitor.signals && (
+        <div className="p-3 rounded-lg bg-slate-800/50 border border-slate-700">
+          <h4 className="text-xs font-medium text-slate-400 mb-2 flex items-center gap-1.5">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Why this competitor?
+          </h4>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            {competitor.signals.businessModelCategory && (
+              <div>
+                <span className="text-slate-500">Business model:</span>
+                <span className="text-slate-300 ml-1">{competitor.signals.businessModelCategory}</span>
+              </div>
+            )}
+            {competitor.signals.jtbdMatches != null && (
+              <div>
+                <span className="text-slate-500">JTBD match:</span>
+                <span className="text-emerald-400 ml-1">{Math.round(competitor.signals.jtbdMatches * 100)}%</span>
+              </div>
+            )}
+            {competitor.signals.offerOverlapScore != null && (
+              <div>
+                <span className="text-slate-500">Offer overlap:</span>
+                <span className="text-blue-400 ml-1">{Math.round(competitor.signals.offerOverlapScore * 100)}%</span>
+              </div>
+            )}
+            {competitor.signals.signalsVerified != null && (
+              <div>
+                <span className="text-slate-500">Signals verified:</span>
+                <span className="text-slate-300 ml-1">{competitor.signals.signalsVerified}/5</span>
+              </div>
+            )}
+            {competitor.signals.geoScore != null && (
+              <div>
+                <span className="text-slate-500">Geo score:</span>
+                <span className="text-slate-300 ml-1">{Math.round(competitor.signals.geoScore * 100)}%</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Scores Grid */}
       <div className="grid grid-cols-2 gap-3">
@@ -183,20 +227,19 @@ export function CompetitorCardV3({ competitor, onClose, onMarkInvalid }: Props) 
         </div>
       )}
 
-      {/* Debug Signals */}
-      {competitor.signals && (
-        <div className="p-3 rounded-lg bg-slate-900/50 border border-slate-800">
-          <div className="flex items-center gap-2 text-[11px] text-slate-400 mb-1">
-            <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300">Debug</span>
-            <span>Why this competitor?</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400">
-            <div>Business model: {competitor.signals.businessModelCategory || 'n/a'}</div>
-            <div>JTBD match: {competitor.signals.jtbdMatches?.toFixed(2) ?? 'n/a'}</div>
-            <div>Offer overlap: {competitor.signals.offerOverlapScore?.toFixed(2) ?? 'n/a'}</div>
-            <div>Signals verified: {competitor.signals.signalsVerified ?? 0}/5</div>
-            <div>Geo score: {competitor.signals.geoScore?.toFixed(2) ?? 'n/a'}</div>
-            <div>Threat: {competitor.scores.threat}</div>
+      {/* Offer Graph */}
+      {competitor.offerGraph && competitor.offerGraph.length > 0 && (
+        <div>
+          <h4 className="text-xs font-medium text-slate-500 mb-2">Offer Graph</h4>
+          <div className="flex flex-wrap gap-1.5">
+            {competitor.offerGraph.map((offer, i) => (
+              <span
+                key={i}
+                className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 border border-slate-700"
+              >
+                {offer}
+              </span>
+            ))}
           </div>
         </div>
       )}
@@ -231,6 +274,21 @@ export function CompetitorCardV3({ competitor, onClose, onMarkInvalid }: Props) 
       {competitor.classification.reasoning && (
         <div className="text-xs text-slate-500 italic border-t border-slate-800 pt-3">
           "{competitor.classification.reasoning}"
+        </div>
+      )}
+
+      {/* Not a Competitor Action */}
+      {onMarkInvalid && competitor.domain && (
+        <div className="pt-3 border-t border-slate-800">
+          <button
+            onClick={() => onMarkInvalid(competitor.domain)}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-amber-300 bg-slate-800/50 hover:bg-slate-800 border border-slate-700 hover:border-amber-500/30 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+            </svg>
+            Not a competitor
+          </button>
         </div>
       )}
     </div>

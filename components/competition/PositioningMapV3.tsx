@@ -19,26 +19,43 @@
 
 import { useState, useRef, useCallback } from 'react';
 import type { CompetitionCompetitor } from '@/lib/competition-v3/ui-types';
+import { MAP_AXES, QUADRANT_LABELS } from '@/lib/competition-v3/ui-types';
 import {
-  TYPE_COLORS,
-  TYPE_LABELS,
-  MAP_AXES,
-  QUADRANT_LABELS,
-} from '@/lib/competition-v3/ui-types';
+  getUiTypeModelForContext,
+  getTypeTailwindClasses,
+  getTypeLabel,
+  getTypeHexColor as getUiTypeHexColor,
+  mapTypeForContext,
+  type BusinessModelCategory,
+  type VerticalCategory,
+} from '@/lib/competition-v3/uiTypeModel';
 
 interface Props {
   companyName: string;
   competitors: CompetitionCompetitor[];
   selectedCompetitorId: string | null;
+  hoveredCompetitorId?: string | null;
   onSelectCompetitor: (id: string | null) => void;
+  onHoverCompetitor?: (id: string | null) => void;
+  // Vertical-aware context
+  businessModelCategory?: BusinessModelCategory | null;
+  verticalCategory?: VerticalCategory | string | null;
 }
 
 export function PositioningMapV3({
   companyName,
   competitors,
   selectedCompetitorId,
+  hoveredCompetitorId,
   onSelectCompetitor,
+  onHoverCompetitor,
+  businessModelCategory,
+  verticalCategory,
 }: Props) {
+  // Get vertical-aware type model
+  const typeModel = getUiTypeModelForContext({ businessModelCategory, verticalCategory });
+  const typeContext = { businessModelCategory, verticalCategory };
+
   // Zoom and pan state
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -141,20 +158,20 @@ export function PositioningMapV3({
     <div className="flex flex-col h-full">
       {/* Header row: Legend + Zoom Controls */}
       <div className="flex items-center justify-between mb-2 shrink-0">
-        {/* Inline Legend */}
+        {/* Inline Legend - vertical-aware */}
         <div className="flex flex-wrap items-center gap-2 text-[10px]">
           <div className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-white/50" />
             <span className="text-slate-400">{companyName}</span>
           </div>
           <div className="w-px h-3 bg-slate-700" />
-          {(['direct', 'partial', 'fractional', 'platform', 'internal'] as const).map(type => (
+          {typeModel.legendOrder.map(type => (
             <div key={type} className="flex items-center gap-1">
               <div
                 className="w-2.5 h-2.5 rounded-full"
-                style={{ backgroundColor: getTypeHexColor(type) }}
+                style={{ backgroundColor: getUiTypeHexColor(type) }}
               />
-              <span className="text-slate-500">{TYPE_LABELS[type]}</span>
+              <span className="text-slate-500">{getTypeLabel(type)}</span>
             </div>
           ))}
         </div>
@@ -264,7 +281,10 @@ export function PositioningMapV3({
             const size = rawSize / zoom; // Keep visual size constant
 
             const isSelected = comp.id === selectedCompetitorId;
-            const colors = TYPE_COLORS[comp.type];
+            const isHovered = comp.id === hoveredCompetitorId;
+            // Map backend type to UI type for this context
+            const mappedType = mapTypeForContext(comp.type, typeContext);
+            const colors = getTypeTailwindClasses(mappedType);
 
             return (
               <div
@@ -274,23 +294,27 @@ export function PositioningMapV3({
                   left: `${x}%`,
                   top: `${y}%`,
                   transform: 'translate(-50%, -50%)',
-                  zIndex: isSelected ? 10 : 1,
+                  zIndex: isSelected ? 10 : isHovered ? 9 : 1,
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onSelectCompetitor(comp.id);
                 }}
+                onMouseEnter={() => onHoverCompetitor?.(comp.id)}
+                onMouseLeave={() => onHoverCompetitor?.(null)}
               >
                 {/* Bubble */}
                 <div
-                  className={`rounded-full border-2 flex items-center justify-center text-white font-bold shadow-lg transition-all duration-200 hover:scale-110 ${
-                    isSelected ? 'ring-2 ring-white/30 border-white' : 'border-white/50'
+                  className={`rounded-full border-2 flex items-center justify-center text-white font-bold shadow-lg transition-all duration-200 ${
+                    isSelected ? 'ring-2 ring-white/30 border-white scale-110' :
+                    isHovered ? 'ring-2 ring-amber-400/50 border-amber-400 scale-110' :
+                    'border-white/50 hover:scale-110'
                   }`}
                   style={{
                     width: size,
                     height: size,
                     fontSize: `${10 / zoom}px`,
-                    backgroundColor: getTypeHexColor(comp.type),
+                    backgroundColor: getUiTypeHexColor(mappedType),
                   }}
                 >
                   {comp.name.slice(0, 2).toUpperCase()}
@@ -298,7 +322,9 @@ export function PositioningMapV3({
 
                 {/* Hover tooltip */}
                 <div
-                  className="absolute left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 p-2.5 rounded-lg text-slate-200 whitespace-nowrap z-20 shadow-xl border border-slate-700 pointer-events-none"
+                  className={`absolute left-1/2 -translate-x-1/2 transition-opacity bg-slate-800 p-2.5 rounded-lg text-slate-200 whitespace-nowrap z-20 shadow-xl border border-slate-700 pointer-events-none ${
+                    isHovered ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                  }`}
                   style={{
                     top: `-${96 / zoom}px`,
                     fontSize: `${10 / zoom}px`,
@@ -307,14 +333,14 @@ export function PositioningMapV3({
                   <p className="font-semibold text-white" style={{ fontSize: `${12 / zoom}px` }}>{comp.name}</p>
                   {comp.domain && <p className="text-slate-400">{comp.domain}</p>}
                   <div className="mt-1.5 space-y-0.5">
-                    <p>ICP Fit: <span className="text-emerald-400">{comp.coordinates.icpFit}%</span></p>
-                    <p>Value Model: <span className="text-blue-400">{comp.coordinates.valueModelFit}%</span></p>
+                    <p>Type: <span className={colors.text}>{getTypeLabel(mappedType)}</span></p>
                     <p>Threat: <span className={comp.scores.threat >= 60 ? 'text-red-400' : 'text-slate-400'}>{comp.scores.threat}</span></p>
-                  </div>
-                  <div className="mt-1.5 pt-1.5 border-t border-slate-700">
-                    <span className={`px-1.5 py-0.5 rounded ${colors.bg}/20 ${colors.text}`} style={{ fontSize: `${9 / zoom}px` }}>
-                      {TYPE_LABELS[comp.type]}
-                    </span>
+                    {comp.signals?.jtbdMatches != null && (
+                      <p>JTBD: <span className="text-slate-300">{Math.round(comp.signals.jtbdMatches * 100)}%</span></p>
+                    )}
+                    {comp.signals?.offerOverlapScore != null && (
+                      <p>Overlap: <span className="text-slate-300">{Math.round(comp.signals.offerOverlapScore * 100)}%</span></p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -356,17 +382,4 @@ export function PositioningMapV3({
       </div>
     </div>
   );
-}
-
-// Get hex color for competitor type
-function getTypeHexColor(type: CompetitionCompetitor['type']): string {
-  switch (type) {
-    case 'direct': return '#ef4444';
-    case 'partial': return '#fb923c';
-    case 'fractional': return '#38bdf8';
-    case 'internal': return '#60a5fa';
-    case 'platform': return '#fcd34d';
-    case 'irrelevant': return '#64748b';
-    default: return '#64748b';
-  }
 }

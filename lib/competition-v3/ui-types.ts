@@ -15,6 +15,8 @@ export type CompetitorType =
   | 'platform'
   | 'irrelevant';
 
+export type GeoScope = 'local' | 'regional' | 'national' | 'online-only';
+
 export interface CompetitionCompetitor {
   id: string;
   name: string;
@@ -52,7 +54,8 @@ export interface CompetitionCompetitor {
     weaknesses?: string[];
     whyCompetitor?: string;
   };
-  // V3.5 debug signals
+  // V3.5 fields
+  geoScope?: GeoScope;
   signals?: {
     businessModelCategory?: string;
     jtbdMatches?: number;
@@ -60,6 +63,7 @@ export interface CompetitionCompetitor {
     signalsVerified?: number;
     geoScore?: number;
   };
+  offerGraph?: string[];
 }
 
 // ============================================================================
@@ -101,6 +105,11 @@ export interface CompetitionRunV3Response {
       internal: number;
     };
     avgThreatScore: number;
+  };
+  // V3.5/3.6: Business context for vertical-aware UI
+  queryContext?: {
+    businessModelCategory?: 'B2B' | 'B2C' | 'Hybrid' | null;
+    verticalCategory?: string | null;
   };
 }
 
@@ -183,4 +192,22 @@ export const QUADRANT_LABELS = {
   topLeft: { name: 'Different Value', description: 'High ICP + Low Value alignment' },
   bottomRight: { name: 'Different ICP', description: 'Low ICP + High Value alignment' },
   bottomLeft: { name: 'Distant', description: 'Low overlap on both dimensions' },
+};
+
+// ============================================================================
+// Geo Scope Constants
+// ============================================================================
+
+export const GEO_SCOPE_COLORS: Record<GeoScope, { bg: string; text: string }> = {
+  local: { bg: 'bg-emerald-500', text: 'text-emerald-400' },
+  regional: { bg: 'bg-blue-500', text: 'text-blue-400' },
+  national: { bg: 'bg-purple-500', text: 'text-purple-400' },
+  'online-only': { bg: 'bg-slate-500', text: 'text-slate-400' },
+};
+
+export const GEO_SCOPE_LABELS: Record<GeoScope, string> = {
+  local: 'Local',
+  regional: 'Regional',
+  national: 'National',
+  'online-only': 'Online Only',
 };

@@ -1,0 +1,114 @@
+{
+  "company": {
+    "id": "recCarToysTest",
+    "name": "Car Toys",
+    "domain": "cartoys.com",
+    "website": "https://www.cartoys.com"
+  },
+  "mockCompetitors": [
+    {
+      "id": "comp-1",
+      "name": "Car Toys",
+      "domain": "cartoys.com",
+      "type": "direct",
+      "summary": "This is the target company (should be filtered out)",
+      "scores": {
+        "threat": 100,
+        "icp": 100,
+        "services": 100
+      },
+      "signals": {
+        "jtbdMatches": 1.0,
+        "offerOverlapScore": 1.0,
+        "geoScore": 1.0
+      }
+    },
+    {
+      "id": "comp-2",
+      "name": "Best Buy Car Electronics",
+      "domain": "bestbuy.com/car-electronics",
+      "type": "direct",
+      "summary": "National retailer with car electronics installation services",
+      "scores": {
+        "threat": 75,
+        "icp": 80,
+        "services": 85
+      },
+      "signals": {
+        "jtbdMatches": 0.8,
+        "offerOverlapScore": 0.7,
+        "geoScore": 0.9
+      }
+    },
+    {
+      "id": "comp-3",
+      "name": "Audio Express",
+      "domain": "audioexpress.com",
+      "type": "direct",
+      "summary": "Regional car audio and accessories retailer",
+      "scores": {
+        "threat": 68,
+        "icp": 75,
+        "services": 80
+      },
+      "signals": {
+        "jtbdMatches": 0.75,
+        "offerOverlapScore": 0.65,
+        "geoScore": 0.6
+      }
+    },
+    {
+      "id": "comp-4",
+      "name": "Crutchfield",
+      "domain": "crutchfield.com",
+      "type": "partial",
+      "summary": "E-commerce car audio with DIY focus",
+      "scores": {
+        "threat": 55,
+        "icp": 60,
+        "services": 70
+      },
+      "signals": {
+        "jtbdMatches": 0.5,
+        "offerOverlapScore": 0.6,
+        "geoScore": 0.3
+      }
+    },
+    {
+      "id": "comp-5",
+      "name": "Amazon Car Electronics",
+      "domain": "amazon.com",
+      "type": "platform",
+      "summary": "E-commerce platform for car electronics",
+      "scores": {
+        "threat": 45,
+        "icp": 50,
+        "services": 40
+      },
+      "signals": {
+        "jtbdMatches": 0.4,
+        "offerOverlapScore": 0.5,
+        "geoScore": 0.2
+      }
+    }
+  ],
+  "mockInsights": {
+    "landscapeSummary": "Car Toys operates in a competitive car electronics retail market with 4 key competitors identified.",
+    "categoryBreakdown": "2 direct, 1 partial, 1 platform",
+    "keyRisks": [
+      "Best Buy's national footprint provides greater accessibility than Car Toys' regional presence",
+      "E-commerce platforms like Crutchfield and Amazon offer convenience that may attract DIY customers",
+      "Price competition from big-box retailers could pressure margins"
+    ],
+    "keyOpportunities": [
+      "Professional installation expertise differentiates from DIY-focused competitors",
+      "Custom integration services create higher margins and customer loyalty",
+      "Local market knowledge enables better customer relationships"
+    ],
+    "recommendedMoves": {
+      "now": ["Emphasize professional installation quality in marketing"],
+      "next": ["Expand custom integration service offerings"],
+      "later": ["Consider regional expansion strategy"]
+    }
+  }
+}

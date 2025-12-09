@@ -133,6 +133,10 @@ export const CompetitorProfile = z.object({
   jtbdMatches: z.number().min(0).max(1).nullable().default(null),
   offerOverlapScore: z.number().min(0).max(1).nullable().default(null),
   signalsVerified: z.number().nullable().default(null),
+
+  // V3.5 Vertical category intelligence
+  verticalCategory: z.enum(['retail', 'services', 'software', 'manufacturing', 'consumer-dtc', 'automotive', 'unknown']).nullable().default(null),
+  subVertical: z.string().nullable().default(null),
 });
 
 export type CompetitorProfile = z.infer<typeof CompetitorProfile>;
@@ -439,6 +443,10 @@ export const CompetitiveDomain = z.object({
   // === NEW: SUBSTITUTES / CATEGORY-CREEP ===
   /** Substitute products/services that compete */
   substitutes: WithMetaArray(Substitute),
+
+  // === NEGATIVE MEMORY ===
+  /** Durable list of invalid competitor domains to always exclude from analysis */
+  invalidCompetitors: InvalidCompetitors,
 });
 
 export type CompetitiveDomain = z.infer<typeof CompetitiveDomain>;
@@ -573,6 +581,14 @@ export function createDefaultCompetitorProfile(name: string): CompetitorProfile 
     threatLevel: null,
     threatDrivers: [],
     autoSeeded: false,
+    // V3.5 fields
+    businessModelCategory: null,
+    jtbdMatches: null,
+    offerOverlapScore: null,
+    signalsVerified: null,
+    // Vertical classification
+    verticalCategory: null,
+    subVertical: null,
   };
 }
 
