@@ -28,6 +28,7 @@ interface PlanSnapshotProps {
   loading: boolean;
   onSynthesize: () => Promise<void>;
   isSynthesizing?: boolean;
+  hasFindings?: boolean;
 }
 
 // ============================================================================
@@ -50,6 +51,7 @@ export function PlanSnapshot({
   loading,
   onSynthesize,
   isSynthesizing = false,
+  hasFindings = true,
 }: PlanSnapshotProps) {
   if (loading) {
     return (
@@ -140,7 +142,8 @@ export function PlanSnapshot({
           )}
           <button
             onClick={onSynthesize}
-            disabled={isSynthesizing}
+            disabled={isSynthesizing || !hasFindings}
+            title={!hasFindings ? 'Run diagnostics first to generate findings' : undefined}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-semibold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-purple-500/20"
           >
             {isSynthesizing ? (

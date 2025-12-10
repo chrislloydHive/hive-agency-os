@@ -322,6 +322,7 @@ export function FindingsClient({ company }: FindingsClientProps) {
         loading={loading}
         onSynthesize={handleSynthesize}
         isSynthesizing={isSynthesizing}
+        hasFindings={findings.length > 0}
       />
 
       {/* Error State */}
