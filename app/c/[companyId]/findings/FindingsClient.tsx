@@ -12,6 +12,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { Camera, Loader2 } from 'lucide-react';
 import { FindingsSummaryStrip } from './FindingsSummaryStrip';
 import { FindingsFilters } from './FindingsFilters';
 import { FindingsTable } from './FindingsTable';
@@ -50,12 +52,15 @@ interface FilterOptions {
 // ============================================================================
 
 export function FindingsClient({ company }: FindingsClientProps) {
+  const router = useRouter();
+
   // State
   const [findings, setFindings] = useState<DiagnosticDetailFinding[]>([]);
   const [summary, setSummary] = useState<FindingsSummary | null>(null);
   const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
 
   // Filters
   const [selectedLabs, setSelectedLabs] = useState<string[]>([]);
@@ -155,6 +160,63 @@ export function FindingsClient({ company }: FindingsClientProps) {
     }
   }, [selectedFinding, fetchFindings]);
 
+  // Handle bulk conversion to work items
+  const handleBulkConvert = useCallback(async (findingsToConvert: DiagnosticDetailFinding[]) => {
+    try {
+      const response = await fetch(`/api/os/companies/${company.id}/work/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: findingsToConvert.map(f => ({
+            title: f.description || 'Finding from diagnostic',
+            description: f.recommendation || '',
+            priority: f.severity === 'critical' || f.severity === 'high' ? 'P1' :
+                     f.severity === 'medium' ? 'P2' : 'P3',
+            domain: f.category || f.labSlug || 'Other',
+            sourceLabSlug: f.labSlug,
+            sourceRunId: f.labRunId,
+          })),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || 'Failed to create work items');
+      }
+
+      // Refresh findings to show updated status
+      fetchFindings();
+    } catch (err) {
+      console.error('[FindingsClient] Error bulk converting:', err);
+      throw err;
+    }
+  }, [company.id, fetchFindings]);
+
+  // Handle creating a plan snapshot
+  const handleCreateSnapshot = useCallback(async () => {
+    setIsCreatingSnapshot(true);
+    try {
+      const response = await fetch(`/api/os/companies/${company.id}/snapshot/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to create snapshot');
+      }
+
+      // Navigate to reports page
+      router.push(`/c/${company.id}/reports`);
+    } catch (err) {
+      console.error('[FindingsClient] Error creating snapshot:', err);
+    } finally {
+      setIsCreatingSnapshot(false);
+    }
+  }, [company.id, router]);
+
   // Clear all filters
   const handleClearFilters = useCallback(() => {
     setSelectedLabs([]);
@@ -209,6 +271,18 @@ export function FindingsClient({ company }: FindingsClientProps) {
             </svg>
             View Work
           </Link>
+          <button
+            onClick={handleCreateSnapshot}
+            disabled={isCreatingSnapshot}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition-all text-sm font-medium disabled:opacity-50"
+          >
+            {isCreatingSnapshot ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Camera className="w-4 h-4" />
+            )}
+            Create Plan Snapshot
+          </button>
         </div>
       </div>
 
@@ -251,6 +325,7 @@ export function FindingsClient({ company }: FindingsClientProps) {
         onSelectFinding={handleSelectFinding}
         selectedFindingId={selectedFinding?.id}
         companyId={company.id}
+        onBulkConvert={handleBulkConvert}
       />
 
       {/* Finding Detail Drawer */}
