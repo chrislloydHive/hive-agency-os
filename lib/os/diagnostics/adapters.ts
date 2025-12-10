@@ -6,7 +6,7 @@
 
 import * as React from 'react';
 import type { DiagnosticToolId, DiagnosticRun } from './runs';
-import type { ScoreItem, ReportSection } from '@/lib/types/toolReport';
+import type { ScoreItem, ReportSection, DiagnosticIssue, DiagnosticIssueSeverity } from '@/lib/types/toolReport';
 import { normalizeBrandLab, DIMENSION_LABELS } from '@/lib/brandLab/normalizeBrandLab';
 
 // ============================================================================
@@ -18,6 +18,7 @@ export interface ToolReportData {
   keyFindings: string[];
   opportunities: string[];
   sections: ReportSection[];
+  issues: DiagnosticIssue[];
 }
 
 // Types for GAP IA breakdown bullets
@@ -78,7 +79,7 @@ function groupIssuesByCategory(bullets: GapIaIssueBullet[] = []): GroupedIssues[
 export function extractReportData(run: DiagnosticRun): ToolReportData {
   const rawJson = run.rawJson;
   if (!rawJson) {
-    return { scores: [], keyFindings: [], opportunities: [], sections: [] };
+    return { scores: [], keyFindings: [], opportunities: [], sections: [], issues: [] };
   }
 
   switch (run.toolId) {
@@ -115,6 +116,7 @@ function extractGapSnapshotData(rawJson: any): ToolReportData {
   const keyFindings: string[] = [];
   const opportunities: string[] = [];
   const sections: ReportSection[] = [];
+  const issues: DiagnosticIssue[] = [];
 
   // Extract overall score from summary (V2 format)
   if (ia.summary?.overallScore != null) {
@@ -171,6 +173,25 @@ function extractGapSnapshotData(rawJson: any): ToolReportData {
       const category = bullet?.category;
       if (text) {
         keyFindings.push(category ? `${category}: ${text}` : text);
+      }
+    });
+
+    // Also populate issues from breakdown bullets
+    sortedBullets.forEach((bullet: any, idx: number) => {
+      const text = bullet?.statement || bullet?.description;
+      if (text) {
+        const impactToSeverity: Record<string, DiagnosticIssueSeverity> = {
+          high: 'high',
+          medium: 'medium',
+          low: 'low',
+        };
+        issues.push({
+          id: `gap-bullet-${idx}`,
+          title: text,
+          severity: impactToSeverity[bullet?.impactLevel] || 'medium',
+          domain: bullet?.category || 'Strategy',
+          category: bullet?.category,
+        });
       }
     });
   }
@@ -247,7 +268,7 @@ function extractGapSnapshotData(rawJson: any): ToolReportData {
     });
   }
 
-  return { scores, keyFindings, opportunities, sections };
+  return { scores, keyFindings, opportunities, sections, issues };
 }
 
 // ============================================================================
@@ -552,7 +573,7 @@ function extractGapPlanData(rawJson: any): ToolReportData {
     });
   }
 
-  return { scores, keyFindings, opportunities, sections };
+  return { scores, keyFindings, opportunities, sections, issues: [] };
 }
 
 // ============================================================================
@@ -624,7 +645,7 @@ function extractGapHeavyData(rawJson: any): ToolReportData {
     });
   }
 
-  return { scores, keyFindings, opportunities, sections };
+  return { scores, keyFindings, opportunities, sections, issues: [] };
 }
 
 // ============================================================================
@@ -710,7 +731,7 @@ function extractWebsiteLabData(rawJson: any): ToolReportData {
     });
   }
 
-  return { scores, keyFindings, opportunities, sections };
+  return { scores, keyFindings, opportunities, sections, issues: [] };
 }
 
 // ============================================================================
@@ -812,7 +833,7 @@ function extractBrandLabData(rawJson: any): ToolReportData {
     });
   }
 
-  return { scores, keyFindings, opportunities, sections };
+  return { scores, keyFindings, opportunities, sections, issues: [] };
 }
 
 // ============================================================================
@@ -1510,7 +1531,7 @@ function extractContentLabData(rawJson: any): ToolReportData {
     });
   }
 
-  return { scores, keyFindings, opportunities, sections };
+  return { scores, keyFindings, opportunities, sections, issues: [] };
 }
 
 /**
@@ -1701,7 +1722,7 @@ function extractSeoLabData(rawJson: any): ToolReportData {
     });
   }
 
-  return { scores, keyFindings, opportunities, sections };
+  return { scores, keyFindings, opportunities, sections, issues: [] };
 }
 
 /**
@@ -2008,7 +2029,7 @@ function extractDemandLabData(rawJson: any): ToolReportData {
     });
   }
 
-  return { scores, keyFindings, opportunities, sections };
+  return { scores, keyFindings, opportunities, sections, issues: [] };
 }
 
 // ============================================================================
@@ -2276,7 +2297,7 @@ function extractOpsLabData(rawJson: any): ToolReportData {
     });
   }
 
-  return { scores, keyFindings, opportunities, sections };
+  return { scores, keyFindings, opportunities, sections, issues: [] };
 }
 
 // ============================================================================
@@ -2521,7 +2542,7 @@ function extractGenericData(rawJson: any): ToolReportData {
     }
   }
 
-  return { scores, keyFindings, opportunities, sections };
+  return { scores, keyFindings, opportunities, sections, issues: [] };
 }
 
 // ============================================================================

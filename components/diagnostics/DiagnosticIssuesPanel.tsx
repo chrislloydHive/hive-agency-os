@@ -27,17 +27,13 @@ import {
 // Types
 // ============================================================================
 
-export type IssueSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+import type { DiagnosticIssue, DiagnosticIssueSeverity } from '@/lib/types/toolReport';
 
-export interface DiagnosticIssue {
-  id: string;
-  title: string;
-  description?: string;
-  severity: IssueSeverity;
-  domain?: string;
-  category?: string;
-  recommendedAction?: string;
-}
+// Re-export for consumers
+export type { DiagnosticIssue, DiagnosticIssueSeverity } from '@/lib/types/toolReport';
+
+// Alias for local use
+type IssueSeverity = DiagnosticIssueSeverity;
 
 interface DiagnosticIssuesPanelProps {
   companyId: string;

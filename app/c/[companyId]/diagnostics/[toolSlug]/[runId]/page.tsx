@@ -162,6 +162,7 @@ export default async function RunDetailPage({ params }: Props) {
       keyFindings={reportData.keyFindings}
       opportunities={reportData.opportunities}
       sections={reportData.sections as ReportSection[]}
+      issues={reportData.issues}
       workItemCount={workItemCount}
     />
   );

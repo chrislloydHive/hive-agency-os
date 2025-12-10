@@ -27,3 +27,21 @@ export interface ReportSection {
   icon?: string;
   body: ReactNode;
 }
+
+/**
+ * Severity level for diagnostic issues
+ */
+export type DiagnosticIssueSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+/**
+ * Issue/finding extracted from a diagnostic run
+ */
+export interface DiagnosticIssue {
+  id: string;
+  title: string;
+  description?: string;
+  severity: DiagnosticIssueSeverity;
+  domain?: string;
+  category?: string;
+  recommendedAction?: string;
+}

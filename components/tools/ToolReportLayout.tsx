@@ -13,11 +13,12 @@ import ReactMarkdown from 'react-markdown';
 import type { DiagnosticToolConfig, DiagnosticToolCategory } from '@/lib/os/diagnostics/tools';
 import type { DiagnosticRun } from '@/lib/os/diagnostics/runs';
 import type { CompanyRecord } from '@/lib/airtable/companies';
-import type { ScoreItem, ReportSection } from '@/lib/types/toolReport';
+import type { ScoreItem, ReportSection, DiagnosticIssue } from '@/lib/types/toolReport';
+import { DiagnosticIssuesPanel } from '@/components/diagnostics/DiagnosticIssuesPanel';
 import * as LucideIcons from 'lucide-react';
 
 // Re-export types for consumers
-export type { ScoreItem, ReportSection } from '@/lib/types/toolReport';
+export type { ScoreItem, ReportSection, DiagnosticIssue } from '@/lib/types/toolReport';
 
 export interface ToolReportLayoutProps {
   tool: DiagnosticToolConfig;
@@ -27,6 +28,7 @@ export interface ToolReportLayoutProps {
   keyFindings?: string[];
   opportunities?: string[];
   sections?: ReportSection[];
+  issues?: DiagnosticIssue[];
   workItemCount?: number;
 }
 
@@ -81,6 +83,7 @@ export function ToolReportLayout({
   keyFindings = [],
   opportunities = [],
   sections = [],
+  issues = [],
   workItemCount,
 }: ToolReportLayoutProps) {
   const router = useRouter();
@@ -341,6 +344,18 @@ export function ToolReportLayout({
           </div>
         </div>
       </div>
+
+      {/* Issues Panel - Prominent placement for actionable findings */}
+      {issues.length > 0 && (
+        <DiagnosticIssuesPanel
+          companyId={company.id}
+          labSlug={tool.id.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '')}
+          runId={run.id}
+          issues={issues}
+          title="Issues & Findings"
+          showSelectAll={true}
+        />
+      )}
 
       {/* Summary */}
       {(() => {

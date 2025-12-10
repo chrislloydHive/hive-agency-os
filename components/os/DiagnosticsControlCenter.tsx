@@ -169,15 +169,6 @@ const LABS: LabDefinition[] = [
     category: 'specialized',
   },
   {
-    id: 'audienceLab',
-    name: 'Audience Lab',
-    description: 'Segments & personas',
-    icon: 'users',
-    color: 'violet',
-    viewPath: '/diagnostics/audience',
-    category: 'specialized',
-  },
-  {
     id: 'competitionLab',
     name: 'Competition Lab',
     description: 'Competitive landscape',
@@ -513,11 +504,11 @@ export function DiagnosticsControlCenter({
               )}
             </button>
             <Link
-              href={`/c/${company.id}/blueprint`}
+              href={`/c/${company.id}/reports/diagnostics`}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium text-sm transition-colors border border-slate-700"
             >
-              <Zap className="w-4 h-4" />
-              Start Guided Flow
+              <Clock className="w-4 h-4" />
+              View History
             </Link>
           </div>
         </div>
