@@ -346,7 +346,7 @@ export function ToolReportLayout({
       </div>
 
       {/* Issues Panel - Prominent placement for actionable findings */}
-      {issues.length > 0 && (
+      {issues.length > 0 ? (
         <DiagnosticIssuesPanel
           companyId={company.id}
           labSlug={tool.id.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '')}
@@ -355,6 +355,20 @@ export function ToolReportLayout({
           title="Issues & Findings"
           showSelectAll={true}
         />
+      ) : (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0">
+              <LucideIcons.ClipboardList className="w-5 h-5 text-slate-500" />
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-slate-300">No Structured Issues</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                This diagnostic did not output structured issues. Use the summary below to manually create findings if needed.
+              </p>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Summary */}
