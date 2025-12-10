@@ -1,23 +1,30 @@
 'use client';
 
 // app/c/[companyId]/findings/FindingsClient.tsx
-// Plan Page Client Component (formerly "Findings")
+// Plan Page Client Component
 //
-// Strategic planning surface that shows:
-// - Summary strip showing counts by severity
-// - Filters for labs, severities, categories, converted status
-// - Table of prioritized findings from all diagnostics
-// - Detail drawer for individual findings with "Add to Work" CTA
-// - Links to run more diagnostics and generate formal reports
+// Strategic planning workspace that shows:
+// - Summary snapshot with severity breakdown
+// - View toggle: Themes / Priority / Lab / All
+// - Themed/Priority/Lab grouped findings with cards
+// - Detail drawer for individual findings
+// - AI synthesis modal
+// - Links to Diagnostics, QBR, Work
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Camera, Loader2 } from 'lucide-react';
+import { Camera, Loader2, Lightbulb, BarChart3, ClipboardList } from 'lucide-react';
 import { FindingsSummaryStrip } from './FindingsSummaryStrip';
 import { FindingsFilters } from './FindingsFilters';
 import { FindingsTable } from './FindingsTable';
 import { FindingDetailDrawer } from './FindingDetailDrawer';
+import { PlanSnapshot } from '@/components/plan/PlanSnapshot';
+import { ViewToggle, type PlanViewType } from '@/components/plan/ViewToggle';
+import { ThemeView } from '@/components/plan/ThemeView';
+import { PriorityView } from '@/components/plan/PriorityView';
+import { LabView } from '@/components/plan/LabView';
+import { PlanSynthesisModal, type PlanSynthesis } from '@/components/plan/PlanSynthesisModal';
 import type { DiagnosticDetailFinding } from '@/lib/airtable/diagnosticDetails';
 import type { FindingsSummary, FindingsFilter } from '@/lib/os/findings/companyFindings';
 
@@ -62,6 +69,9 @@ export function FindingsClient({ company }: FindingsClientProps) {
   const [error, setError] = useState<string | null>(null);
   const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
 
+  // View state
+  const [activeView, setActiveView] = useState<PlanViewType>('themes');
+
   // Filters
   const [selectedLabs, setSelectedLabs] = useState<string[]>([]);
   const [selectedSeverities, setSelectedSeverities] = useState<string[]>([]);
@@ -70,6 +80,12 @@ export function FindingsClient({ company }: FindingsClientProps) {
 
   // Selected finding for drawer
   const [selectedFinding, setSelectedFinding] = useState<DiagnosticDetailFinding | null>(null);
+
+  // AI Synthesis state
+  const [showSynthesisModal, setShowSynthesisModal] = useState(false);
+  const [synthesis, setSynthesis] = useState<PlanSynthesis | null>(null);
+  const [isSynthesizing, setIsSynthesizing] = useState(false);
+  const [synthesisError, setSynthesisError] = useState<string | null>(null);
 
   // Fetch findings
   const fetchFindings = useCallback(async () => {
@@ -217,6 +233,33 @@ export function FindingsClient({ company }: FindingsClientProps) {
     }
   }, [company.id, router]);
 
+  // Handle AI synthesis
+  const handleSynthesize = useCallback(async () => {
+    setShowSynthesisModal(true);
+    setIsSynthesizing(true);
+    setSynthesisError(null);
+
+    try {
+      const response = await fetch(`/api/os/companies/${company.id}/plan/synthesize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to generate synthesis');
+      }
+
+      setSynthesis(data.synthesis);
+    } catch (err) {
+      console.error('[FindingsClient] Error synthesizing plan:', err);
+      setSynthesisError(err instanceof Error ? err.message : 'Failed to generate synthesis');
+    } finally {
+      setIsSynthesizing(false);
+    }
+  }, [company.id]);
+
   // Clear all filters
   const handleClearFilters = useCallback(() => {
     setSelectedLabs([]);
@@ -236,9 +279,9 @@ export function FindingsClient({ company }: FindingsClientProps) {
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Plan</h1>
+          <h1 className="text-2xl font-bold text-white">Plan</h1>
           <p className="text-sm text-slate-400 mt-1">
-            Prioritize findings from diagnostics and build your strategic roadmap
+            Prioritize findings and build your strategic roadmap
           </p>
         </div>
 
@@ -246,63 +289,39 @@ export function FindingsClient({ company }: FindingsClientProps) {
         <div className="flex flex-wrap gap-2">
           <Link
             href={`/c/${company.id}/blueprint`}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/30 hover:bg-blue-500/20 transition-all text-sm font-medium"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition-all text-sm font-medium"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-            </svg>
+            <Lightbulb className="w-4 h-4" />
             Run Diagnostics
           </Link>
           <Link
-            href={`/c/${company.id}/reports/qbr`}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/30 hover:bg-purple-500/20 transition-all text-sm font-medium"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            Generate QBR
-          </Link>
-          <Link
             href={`/c/${company.id}/work`}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition-all text-sm font-medium"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition-all text-sm font-medium"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-            </svg>
+            <ClipboardList className="w-4 h-4" />
             View Work
           </Link>
           <button
             onClick={handleCreateSnapshot}
             disabled={isCreatingSnapshot}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition-all text-sm font-medium disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white transition-all text-sm font-semibold disabled:opacity-50"
           >
             {isCreatingSnapshot ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               <Camera className="w-4 h-4" />
             )}
-            Create Plan Snapshot
+            Generate Snapshot
           </button>
         </div>
       </div>
 
-      {/* Summary Strip */}
-      <FindingsSummaryStrip summary={summary} loading={loading} />
-
-      {/* Filters */}
-      <FindingsFilters
-        filterOptions={filterOptions}
-        selectedLabs={selectedLabs}
-        selectedSeverities={selectedSeverities}
-        selectedCategories={selectedCategories}
-        showConverted={showConverted}
-        onLabsChange={setSelectedLabs}
-        onSeveritiesChange={setSelectedSeverities}
-        onCategoriesChange={setSelectedCategories}
-        onConvertedChange={setShowConverted}
-        onClearFilters={handleClearFilters}
-        hasActiveFilters={hasActiveFilters}
+      {/* Plan Snapshot Strip */}
+      <PlanSnapshot
+        summary={summary}
         loading={loading}
+        onSynthesize={handleSynthesize}
+        isSynthesizing={isSynthesizing}
       />
 
       {/* Error State */}
@@ -318,15 +337,65 @@ export function FindingsClient({ company }: FindingsClientProps) {
         </div>
       )}
 
-      {/* Findings Table */}
-      <FindingsTable
-        findings={findings}
-        loading={loading}
-        onSelectFinding={handleSelectFinding}
-        selectedFindingId={selectedFinding?.id}
-        companyId={company.id}
-        onBulkConvert={handleBulkConvert}
-      />
+      {/* View Controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {/* View Toggle */}
+        <ViewToggle activeView={activeView} onViewChange={setActiveView} />
+
+        {/* Filters (only show for 'all' view or when filters are active) */}
+        {(activeView === 'all' || hasActiveFilters) && (
+          <FindingsFilters
+            filterOptions={filterOptions}
+            selectedLabs={selectedLabs}
+            selectedSeverities={selectedSeverities}
+            selectedCategories={selectedCategories}
+            showConverted={showConverted}
+            onLabsChange={setSelectedLabs}
+            onSeveritiesChange={setSelectedSeverities}
+            onCategoriesChange={setSelectedCategories}
+            onConvertedChange={setShowConverted}
+            onClearFilters={handleClearFilters}
+            hasActiveFilters={hasActiveFilters}
+            loading={loading}
+          />
+        )}
+      </div>
+
+      {/* Main Content - Different Views */}
+      {activeView === 'themes' && (
+        <ThemeView
+          findings={findings}
+          onConvert={handleConvertToWorkItem}
+          onSelectFinding={handleSelectFinding}
+        />
+      )}
+
+      {activeView === 'priority' && (
+        <PriorityView
+          findings={findings}
+          onConvert={handleConvertToWorkItem}
+          onSelectFinding={handleSelectFinding}
+        />
+      )}
+
+      {activeView === 'lab' && (
+        <LabView
+          findings={findings}
+          onConvert={handleConvertToWorkItem}
+          onSelectFinding={handleSelectFinding}
+        />
+      )}
+
+      {activeView === 'all' && (
+        <FindingsTable
+          findings={findings}
+          loading={loading}
+          onSelectFinding={handleSelectFinding}
+          selectedFindingId={selectedFinding?.id}
+          companyId={company.id}
+          onBulkConvert={handleBulkConvert}
+        />
+      )}
 
       {/* Finding Detail Drawer */}
       <FindingDetailDrawer
@@ -334,6 +403,15 @@ export function FindingsClient({ company }: FindingsClientProps) {
         onClose={() => setSelectedFinding(null)}
         onConvertToWorkItem={handleConvertToWorkItem}
         companyId={company.id}
+      />
+
+      {/* AI Synthesis Modal */}
+      <PlanSynthesisModal
+        isOpen={showSynthesisModal}
+        onClose={() => setShowSynthesisModal(false)}
+        synthesis={synthesis}
+        isLoading={isSynthesizing}
+        error={synthesisError}
       />
     </div>
   );
