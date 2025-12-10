@@ -375,7 +375,9 @@ export async function getDiagnosticFindingsForCompany(
     console.log('[diagnosticDetails] Found', findings.length, 'findings for company:', companyId);
     return findings;
   } catch (error) {
-    console.error('[diagnosticDetails] Error getting findings for company:', error);
+    // Airtable errors often don't serialize well - extract message if available
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error (table may not exist)';
+    console.warn('[diagnosticDetails] Could not fetch findings for company:', companyId, '-', errorMessage);
     return [];
   }
 }
