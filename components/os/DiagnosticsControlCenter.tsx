@@ -428,6 +428,16 @@ export function DiagnosticsControlCenter({
 
   return (
     <div className="space-y-6">
+      {/* ================================================================== */}
+      {/* HEADER */}
+      {/* ================================================================== */}
+      <div>
+        <h1 className="text-2xl font-bold text-white">Diagnostics</h1>
+        <p className="text-sm text-slate-400 mt-1">
+          Run labs to surface issues. Fix them in your Plan.
+        </p>
+      </div>
+
       {/* Toast */}
       {toast && (
         <div
