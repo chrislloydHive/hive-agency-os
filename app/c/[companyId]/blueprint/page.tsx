@@ -1,36 +1,14 @@
 // app/c/[companyId]/blueprint/page.tsx
-// Blueprint - The Strategic Hub for a Company
+// Diagnostics Control Center
 //
-// Blueprint is the heart of Hive OS for a company. It displays:
-// - Strategic Overview (latest diagnostics + health score + maturity stage)
-// - Key Focus Areas (prioritized areas: UX, SEO, brand, content, demand gen, ops)
-// - 90-Day Plan (AI-generated from Brain + latest diagnostics)
-// - Insights (from GAP, labs, analytics, Brain memories tagged strategy/insight)
-// - Diagnostics & Tools (consolidated list of all tools with status)
-// - Analytics Summary (traffic, search, funnel metrics)
-// - Media & Demand Engine (conditional on media program status)
+// Clean dashboard for running GAP and Lab diagnostics.
+// Shows lab grid, recent runs, and links to Plan.
 
 import { notFound } from 'next/navigation';
 import { getCompanyById } from '@/lib/airtable/companies';
-import { companyHasMediaProgram } from '@/lib/companies/media';
 import { getCompanyStrategySnapshot } from '@/lib/os/companies/strategySnapshot';
-import { getCompanyAlerts } from '@/lib/os/companies/alerts';
 import { getRecentRunsWithToolCoverage, getToolLabel, type DiagnosticRun } from '@/lib/os/diagnostics/runs';
-import { getPerformancePulse } from '@/lib/os/analytics/performancePulse';
-import { getInsightsSummary } from '@/lib/airtable/clientBrain';
-import {
-  runBlueprintPipeline,
-  synthesizeStrategy,
-  getRecommendedToolsForBlueprint,
-} from '@/lib/blueprint';
-import {
-  fetchBlueprintAnalytics,
-  generateAnalyticsInsights,
-} from '@/lib/os/analytics/blueprintDataFetcher';
-import { getMediaLabSummary } from '@/lib/mediaLab';
-import { getAudienceLabSummary } from '@/lib/audience';
-import { buildBrainSummary } from '@/lib/brain/buildBrainSummary';
-import { BlueprintClient } from './BlueprintClient';
+import { DiagnosticsControlCenter } from '@/components/os/DiagnosticsControlCenter';
 
 type PageProps = {
   params: Promise<{ companyId: string }>;
@@ -63,84 +41,33 @@ const toolIdToSlug: Record<string, string> = {
   seoLab: 'seo-lab',
   demandLab: 'demand-lab',
   opsLab: 'ops-lab',
+  audienceLab: 'audience',
+  competitionLab: 'competition',
 };
 
-export default async function BlueprintPage({ params }: PageProps) {
+export default async function DiagnosticsPage({ params }: PageProps) {
   const { companyId } = await params;
 
-  // Fetch all data in parallel
-  const [
-    company,
-    strategySnapshot,
-    recentRuns,
-    alerts,
-    performancePulse,
-    brainSummary,
-    brainContextSummary,
-    pipelineData,
-    analyticsResult,
-    mediaLabSummary,
-    audienceLabSummary,
-  ] = await Promise.all([
+  // Fetch data in parallel
+  const [company, strategySnapshot, recentRuns] = await Promise.all([
     getCompanyById(companyId),
     getCompanyStrategySnapshot(companyId).catch(() => null),
     getRecentRunsWithToolCoverage(companyId, 10).catch(() => []),
-    getCompanyAlerts(companyId).catch(() => []),
-    getPerformancePulse().catch(() => null),
-    getInsightsSummary(companyId).catch(() => null),
-    buildBrainSummary({ companyId }).catch(() => null),
-    runBlueprintPipeline(companyId).catch(() => null),
-    fetchBlueprintAnalytics(companyId, { preset: '30d' }).catch(() => ({ ok: false, summary: null })),
-    getMediaLabSummary(companyId).catch(() => null),
-    getAudienceLabSummary(companyId).catch(() => null),
   ]);
 
   if (!company) {
     notFound();
   }
 
-  // Generate strategy synthesis from pipeline data
-  let strategySynthesis = null;
-  if (pipelineData) {
-    try {
-      strategySynthesis = await synthesizeStrategy(pipelineData, { useAI: true });
-    } catch (error) {
-      console.error('[Blueprint] Strategy synthesis failed:', error);
-    }
-  }
-
-  // Generate analytics insights
-  const analyticsSummary = analyticsResult.summary;
-  const analyticsInsights = analyticsSummary
-    ? generateAnalyticsInsights(analyticsSummary)
-    : [];
-
-  // Generate tool recommendations
-  const hasWebsite = Boolean(company.website || company.domain);
-  const recommendedTools = await getRecommendedToolsForBlueprint({
-    companyId,
-    pipelineData,
-    strategySynthesis,
-    hasWebsite,
-  }).catch(() => []);
-
   // Transform recent runs for display
-  console.log('[Blueprint] Raw recent runs:', recentRuns.map(r => ({
-    id: r.id,
-    toolId: r.toolId,
-    status: r.status,
-    score: r.score,
-  })));
-
   const recentDiagnostics = recentRuns.map((run: DiagnosticRun) => {
     const slug = toolIdToSlug[run.toolId] || run.toolId;
-    // Accept both 'complete' and 'completed' as valid complete statuses
     const isComplete = run.status === 'complete' || (run.status as string) === 'completed';
     return {
       id: run.id,
       toolId: run.toolId,
       toolLabel: getToolLabel(run.toolId),
-      status: isComplete ? 'complete' : run.status, // Normalize to 'complete'
+      status: (isComplete ? 'complete' : run.status) as 'complete' | 'running' | 'failed' | 'pending',
       score: run.score,
       completedAt: isComplete ? run.updatedAt : null,
       reportPath: isComplete ? `/c/${companyId}/diagnostics/${slug}/${run.id}` : null,
@@ -148,64 +75,26 @@ export default async function BlueprintPage({ params }: PageProps) {
     };
   });
 
-  console.log('[Blueprint] Transformed diagnostics:', recentDiagnostics.map(r => ({
-    toolId: r.toolId,
-    status: r.status,
-    hasReportPath: !!r.reportPath,
-  })));
-
-  // Serialize recommended tools for client (strip functions)
-  const serializedRecommendedTools = recommendedTools.map(rt => ({
-    toolId: rt.toolId,
-    scoreImpact: rt.scoreImpact,
-    urgency: rt.urgency,
-    reason: rt.reason,
-    blueprintMeta: rt.blueprintMeta,
-    hasRecentRun: rt.hasRecentRun,
-    lastRunAt: rt.lastRunAt,
-    lastScore: rt.lastScore,
-    lastRunId: rt.lastRunId,
-    daysSinceRun: rt.daysSinceRun,
-    lastRunStatus: rt.lastRunStatus,
-    // Tool definition (without functions)
-    toolLabel: rt.tool.label,
-    toolDescription: rt.tool.description,
-    toolCategory: rt.tool.category,
-    toolIcon: rt.tool.icon,
-    runApiPath: rt.tool.runApiPath,
-    urlSlug: rt.tool.urlSlug,
-    requiresWebsite: rt.tool.requiresWebsite,
-    estimatedMinutes: rt.tool.estimatedMinutes,
-  }));
-
-  // Check if company has an active media program
-  const hasMediaProgram = companyHasMediaProgram(company);
+  // Try to get open findings count (optional)
+  let openFindingsCount = 0;
+  try {
+    const { getCompanyFindingsCount } = await import('@/lib/os/findings/companyFindings');
+    openFindingsCount = await getCompanyFindingsCount(companyId);
+  } catch {
+    // Findings count not critical
+  }
 
   return (
-    <BlueprintClient
+    <DiagnosticsControlCenter
       company={{
         id: company.id,
         name: company.name,
         website: company.website,
         domain: company.domain,
-        industry: company.industry,
-        ga4PropertyId: company.ga4PropertyId,
-        searchConsoleSiteUrl: company.searchConsoleSiteUrl,
-        hasMediaProgram,
       }}
       strategySnapshot={strategySnapshot}
       recentDiagnostics={recentDiagnostics}
-      alerts={alerts}
-      performancePulse={performancePulse}
-      brainSummary={brainSummary}
-      pipelineData={pipelineData}
-      strategySynthesis={strategySynthesis}
-      analyticsSummary={analyticsSummary}
-      analyticsInsights={analyticsInsights}
-      recommendedTools={serializedRecommendedTools}
-      mediaLabSummary={mediaLabSummary}
-      audienceLabSummary={audienceLabSummary}
-      brainContextSummary={brainContextSummary}
+      openFindingsCount={openFindingsCount}
     />
   );
 }

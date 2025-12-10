@@ -154,6 +154,19 @@ export async function getCompanyFindingsSummary(
 }
 
 /**
+ * Get the count of unconverted findings for a company
+ *
+ * @param companyId - Company ID
+ * @returns Count of unconverted findings
+ */
+export async function getCompanyFindingsCount(
+  companyId: string
+): Promise<number> {
+  const summary = await getCompanyFindingsSummary(companyId);
+  return summary.unconverted;
+}
+
+/**
  * Get a single finding by ID
  *
  * @param findingId - Finding record ID
