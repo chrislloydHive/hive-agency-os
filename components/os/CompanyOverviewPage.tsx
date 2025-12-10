@@ -955,7 +955,7 @@ export function CompanyOverviewPage({
       </div>
 
       {/* ================================================================== */}
-      {/* Quick Actions Launcher */}
+      {/* Quick Actions Launcher - Job-Oriented Labels */}
       {/* ================================================================== */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <Link
@@ -968,8 +968,8 @@ export function CompanyOverviewPage({
             </svg>
           </div>
           <div className="text-center">
-            <p className="text-sm font-medium text-slate-200">Diagnostics</p>
-            <p className="text-xs text-slate-500">Run labs</p>
+            <p className="text-sm font-medium text-slate-200">Run Diagnostics</p>
+            <p className="text-xs text-slate-500">Full scan</p>
           </div>
         </Link>
 
@@ -983,8 +983,8 @@ export function CompanyOverviewPage({
             </svg>
           </div>
           <div className="text-center">
-            <p className="text-sm font-medium text-slate-200">Plan</p>
-            <p className="text-xs text-slate-500">Roadmap</p>
+            <p className="text-sm font-medium text-slate-200">Build the Plan</p>
+            <p className="text-xs text-slate-500">Prioritize findings</p>
           </div>
         </Link>
 
@@ -998,13 +998,13 @@ export function CompanyOverviewPage({
             </svg>
           </div>
           <div className="text-center">
-            <p className="text-sm font-medium text-slate-200">Work</p>
-            <p className="text-xs text-slate-500">Tasks</p>
+            <p className="text-sm font-medium text-slate-200">Track Work</p>
+            <p className="text-xs text-slate-500">Manage tasks</p>
           </div>
         </Link>
 
         <Link
-          href={`/c/${companyId}/reports`}
+          href={`/c/${companyId}/reports/qbr`}
           className="flex flex-col items-center gap-2 p-4 rounded-xl bg-slate-900 border border-slate-800 hover:border-purple-500/50 hover:bg-purple-500/5 transition-colors group"
         >
           <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center group-hover:bg-purple-500/30 transition-colors">
@@ -1013,8 +1013,8 @@ export function CompanyOverviewPage({
             </svg>
           </div>
           <div className="text-center">
-            <p className="text-sm font-medium text-slate-200">Reports</p>
-            <p className="text-xs text-slate-500">QBR</p>
+            <p className="text-sm font-medium text-slate-200">Prepare QBR</p>
+            <p className="text-xs text-slate-500">Generate report</p>
           </div>
         </Link>
 
@@ -1028,8 +1028,8 @@ export function CompanyOverviewPage({
             </svg>
           </div>
           <div className="text-center">
-            <p className="text-sm font-medium text-slate-200">Brain</p>
-            <p className="text-xs text-slate-500">Context</p>
+            <p className="text-sm font-medium text-slate-200">Update Context</p>
+            <p className="text-xs text-slate-500">Brain data</p>
           </div>
         </Link>
       </div>
