@@ -325,6 +325,13 @@ async function extractAndSaveFindings(
   companyId: string,
   run: DiagnosticRun
 ): Promise<ExtractAndSaveFindingsResult> {
+  console.log('[postRunHooks] extractAndSaveFindings starting:', {
+    companyId,
+    runId: run.id,
+    toolId: run.toolId,
+    hasRawJson: !!run.rawJson,
+  });
+
   // Get the labSlug for this tool
   const labSlug = getLabSlugForToolId(run.toolId);
 
@@ -349,8 +356,29 @@ async function extractAndSaveFindings(
     };
   }
 
+  // Log the raw JSON structure for debugging
+  const raw = run.rawJson as Record<string, unknown>;
+  console.log('[postRunHooks] rawJson structure keys:', Object.keys(raw));
+  if (raw.siteAssessment) {
+    const sa = raw.siteAssessment as Record<string, unknown>;
+    console.log('[postRunHooks] siteAssessment keys:', Object.keys(sa));
+    console.log('[postRunHooks] siteAssessment.issues count:', Array.isArray(sa.issues) ? (sa.issues as unknown[]).length : 0);
+    console.log('[postRunHooks] siteAssessment.recommendations count:', Array.isArray(sa.recommendations) ? (sa.recommendations as unknown[]).length : 0);
+  }
+
   // Extract findings using the appropriate extractor
   const findings = extractFindingsForLab(labSlug, run.id, companyId, run.rawJson);
+
+  console.log('[postRunHooks] Extracted findings:', {
+    labSlug,
+    findingsCount: findings.length,
+    firstFinding: findings[0] ? {
+      labSlug: findings[0].labSlug,
+      category: findings[0].category,
+      severity: findings[0].severity,
+      description: (findings[0].description || '').slice(0, 80),
+    } : null,
+  });
 
   if (findings.length === 0) {
     console.log('[postRunHooks] No findings extracted for labSlug:', labSlug);
@@ -363,7 +391,9 @@ async function extractAndSaveFindings(
   }
 
   // Save findings to Diagnostic Details
+  console.log('[postRunHooks] Saving', findings.length, 'findings to Airtable...');
   const savedIds = await saveDiagnosticFindings(findings);
+  console.log('[postRunHooks] Saved', savedIds.length, 'findings, IDs:', savedIds.slice(0, 3));
 
   // Determine worst severity
   const worstSeverity = getWorstSeverity(findings);
