@@ -65,6 +65,13 @@ export function getWorstSeverity(findings: CreateDiagnosticFindingInput[]): Diag
 
 /**
  * Extract findings from Website Lab V4 results
+ *
+ * Website Lab V4 structure (WebsiteUXLabResultV4):
+ * - siteAssessment.issues[]: { id, tag, severity, evidence, description }
+ * - siteAssessment.recommendations[]: { id, tag, priority, evidence, description }
+ * - siteAssessment.workItems[]: { id, title, description, priority, reason }
+ * - heuristics.findings[]: heuristic violations
+ * - impactMatrix.items[]: prioritized opportunities
  */
 export function extractWebsiteLabFindings(
   runId: string,
@@ -76,70 +83,145 @@ export function extractWebsiteLabFindings(
 
   if (!raw) return findings;
 
-  // Try different paths where issues might be stored
-  const issuesSources = [
-    raw.siteAssessment?.issues,
-    raw.siteAssessment?.criticalIssues,
-    raw.rawEvidence?.labResultV4?.siteAssessment?.issues,
-    raw.issues,
-  ];
-
   const seenKeys = new Set<string>();
 
-  for (const issues of issuesSources) {
-    if (!Array.isArray(issues)) continue;
+  // 1. Extract from siteAssessment.issues (V3/V4 structure)
+  const siteIssues = raw.siteAssessment?.issues || [];
+  for (const issue of siteIssues) {
+    const issueKey = issue.id || `website-issue-${issue.tag || 'general'}-${(issue.description || '').slice(0, 50)}`;
 
-    for (const issue of issues) {
-      const issueKey = issue.id || issue.key || `${issue.dimension || 'general'}-${issue.title || issue.description}`;
+    if (seenKeys.has(issueKey)) continue;
+    seenKeys.add(issueKey);
 
-      // Deduplicate
+    findings.push({
+      labRunId: runId,
+      companyId,
+      labSlug: 'website',
+      category: mapWebsiteCategory(issue.tag),
+      dimension: issue.tag || 'General',
+      severity: mapSeverity(issue.severity),
+      location: raw.siteAssessment?.url || undefined,
+      issueKey,
+      description: issue.description,
+      recommendation: issue.evidence ? `Evidence: ${issue.evidence}` : undefined,
+      estimatedImpact: undefined,
+    });
+  }
+
+  // 2. Extract from siteAssessment.recommendations as lower-severity items
+  const recommendations = raw.siteAssessment?.recommendations || [];
+  for (const rec of recommendations) {
+    const issueKey = rec.id || `website-rec-${rec.tag || 'general'}-${(rec.description || '').slice(0, 50)}`;
+
+    if (seenKeys.has(issueKey)) continue;
+    seenKeys.add(issueKey);
+
+    // Map priority to severity
+    const severity = rec.priority === 'now' ? 'high' : rec.priority === 'next' ? 'medium' : 'low';
+
+    findings.push({
+      labRunId: runId,
+      companyId,
+      labSlug: 'website',
+      category: mapWebsiteCategory(rec.tag),
+      dimension: rec.tag || 'Recommendation',
+      severity,
+      location: raw.siteAssessment?.url || undefined,
+      issueKey,
+      description: rec.description,
+      recommendation: rec.evidence ? `Evidence: ${rec.evidence}` : undefined,
+      estimatedImpact: `Priority: ${rec.priority || 'medium'}`,
+    });
+  }
+
+  // 3. Extract from heuristics.findings if available
+  const heuristicFindings = raw.heuristics?.findings || [];
+  for (const hf of heuristicFindings) {
+    const issueKey = hf.id || `website-heuristic-${(hf.heuristic || 'general').slice(0, 30)}-${(hf.description || '').slice(0, 30)}`;
+
+    if (seenKeys.has(issueKey)) continue;
+    seenKeys.add(issueKey);
+
+    findings.push({
+      labRunId: runId,
+      companyId,
+      labSlug: 'website',
+      category: mapWebsiteCategory(hf.category || hf.heuristic),
+      dimension: hf.heuristic || 'Heuristic',
+      severity: mapSeverity(hf.severity),
+      location: hf.pageUrl || undefined,
+      issueKey,
+      description: hf.description || hf.title || hf.finding,
+      recommendation: hf.recommendation || hf.fix,
+      estimatedImpact: hf.impact,
+    });
+  }
+
+  // 4. Extract from impactMatrix.items if available (high-value opportunities)
+  const impactItems = raw.impactMatrix?.items || [];
+  for (const item of impactItems) {
+    const issueKey = item.id || `website-impact-${(item.title || item.description || '').slice(0, 50)}`;
+
+    if (seenKeys.has(issueKey)) continue;
+    seenKeys.add(issueKey);
+
+    // Map impact/effort to severity
+    const severity = item.impact === 'high' ? 'high' : item.impact === 'medium' ? 'medium' : 'low';
+
+    findings.push({
+      labRunId: runId,
+      companyId,
+      labSlug: 'website',
+      category: mapWebsiteCategory(item.category),
+      dimension: item.category || 'Opportunity',
+      severity,
+      location: item.url || undefined,
+      issueKey,
+      description: item.title || item.description,
+      recommendation: item.recommendation || item.action,
+      estimatedImpact: item.effort ? `Impact: ${item.impact}, Effort: ${item.effort}` : undefined,
+    });
+  }
+
+  // 5. Extract from page-level issues (V4 pageLevelScores)
+  const pageLevelScores = raw.siteAssessment?.pageLevelScores || [];
+  for (const pageScore of pageLevelScores) {
+    if (!Array.isArray(pageScore.issues)) continue;
+
+    for (const issue of pageScore.issues) {
+      const issueKey = `website-page-${pageScore.url || 'unknown'}-${(issue.description || issue).slice(0, 40)}`;
+
       if (seenKeys.has(issueKey)) continue;
       seenKeys.add(issueKey);
+
+      // Issue might be a string or object
+      const description = typeof issue === 'string' ? issue : issue.description;
+      const severity = typeof issue === 'object' ? mapSeverity(issue.severity) : 'medium';
 
       findings.push({
         labRunId: runId,
         companyId,
         labSlug: 'website',
-        category: mapWebsiteCategory(issue.category || issue.dimension),
-        dimension: issue.dimension || issue.category || 'General',
-        severity: mapSeverity(issue.severity || issue.priority),
-        location: issue.url || issue.location || issue.page,
+        category: 'UX',
+        dimension: 'Page-Specific',
+        severity,
+        location: pageScore.url,
         issueKey,
-        description: issue.title || issue.description || issue.issue,
-        recommendation: issue.recommendation || issue.fix || issue.solution,
-        estimatedImpact: issue.impact || issue.estimatedImpact,
+        description,
+        recommendation: undefined,
+        estimatedImpact: pageScore.score ? `Page score: ${pageScore.score}/100` : undefined,
       });
     }
   }
 
-  // Also extract from page assessments if present
-  const pageAssessments = raw.siteAssessment?.pageAssessments || [];
-  for (const page of pageAssessments) {
-    if (!Array.isArray(page.issues)) continue;
+  console.log('[findingsExtractors] Website Lab extracted:', findings.length, 'findings from:', {
+    issues: siteIssues.length,
+    recommendations: recommendations.length,
+    heuristics: heuristicFindings.length,
+    impactItems: impactItems.length,
+    pageLevelScores: pageLevelScores.length,
+  });
 
-    for (const issue of page.issues) {
-      const issueKey = `page-${page.url}-${issue.title || issue.description}`;
-
-      if (seenKeys.has(issueKey)) continue;
-      seenKeys.add(issueKey);
-
-      findings.push({
-        labRunId: runId,
-        companyId,
-        labSlug: 'website',
-        category: mapWebsiteCategory(issue.category || issue.dimension),
-        dimension: issue.dimension || 'Page-Specific',
-        severity: mapSeverity(issue.severity),
-        location: page.url,
-        issueKey,
-        description: issue.title || issue.description,
-        recommendation: issue.recommendation,
-        estimatedImpact: issue.impact,
-      });
-    }
-  }
-
-  console.log('[findingsExtractors] Website Lab extracted:', findings.length, 'findings');
   return findings;
 }
 
@@ -148,7 +230,34 @@ function mapWebsiteCategory(raw: string | undefined): DiagnosticFindingCategory 
 
   const normalized = raw.toLowerCase();
 
-  if (normalized.includes('tech') || normalized.includes('performance') || normalized.includes('speed')) {
+  // V3/V4 sectionScores tags
+  if (normalized === 'hierarchy' || normalized === 'visual hierarchy') {
+    return 'UX';
+  }
+  if (normalized === 'clarity' || normalized === 'message clarity') {
+    return 'Content';
+  }
+  if (normalized === 'trust' || normalized === 'trust signals') {
+    return 'Brand';
+  }
+  if (normalized === 'navigation') {
+    return 'UX';
+  }
+  if (normalized === 'conversion' || normalized === 'cta') {
+    return 'UX';
+  }
+  if (normalized === 'visualdesign' || normalized === 'visual design' || normalized === 'visual') {
+    return 'Brand';
+  }
+  if (normalized === 'mobile' || normalized === 'mobile experience') {
+    return 'Technical';
+  }
+  if (normalized === 'intentalignment' || normalized === 'intent alignment') {
+    return 'UX';
+  }
+
+  // Keyword-based fallbacks
+  if (normalized.includes('tech') || normalized.includes('performance') || normalized.includes('speed') || normalized.includes('load')) {
     return 'Technical';
   }
   if (normalized.includes('seo') || normalized.includes('search')) {
@@ -157,7 +266,7 @@ function mapWebsiteCategory(raw: string | undefined): DiagnosticFindingCategory 
   if (normalized.includes('content') || normalized.includes('copy') || normalized.includes('message')) {
     return 'Content';
   }
-  if (normalized.includes('brand') || normalized.includes('visual')) {
+  if (normalized.includes('brand') || normalized.includes('trust')) {
     return 'Brand';
   }
 
