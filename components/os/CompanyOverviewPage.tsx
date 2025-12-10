@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 import QuickHealthCheckCard from './QuickHealthCheckCard';
 import { CompanyActivityTimeline } from './CompanyActivityTimeline';
+import { ActivitySnippet } from './ActivitySnippet';
 import { MediaEmptyStateCompact } from './media';
 import ContextHealthCard from './ContextHealthCard';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
@@ -1033,6 +1034,11 @@ export function CompanyOverviewPage({
           </div>
         </Link>
       </div>
+
+      {/* ================================================================== */}
+      {/* Recent Activity Snippet */}
+      {/* ================================================================== */}
+      <ActivitySnippet companyId={companyId} />
 
       {/* ================================================================== */}
       {/* Band 1: Strategic Snapshot + Score Trends + Performance Pulse */}
