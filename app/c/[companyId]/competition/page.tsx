@@ -1,5 +1,5 @@
 // app/c/[companyId]/competition/page.tsx
-// Legacy redirect to new location: Brain → Labs → Competition Lab
+// Legacy route - redirects to canonical /diagnostics/competition
 
 import { redirect } from 'next/navigation';
 
@@ -9,5 +9,5 @@ interface Props {
 
 export default async function LegacyCompetitionRedirect({ params }: Props) {
   const { companyId } = await params;
-  redirect(`/c/${companyId}/brain/labs/competition`);
+  redirect(`/c/${companyId}/diagnostics/competition`);
 }

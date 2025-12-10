@@ -358,46 +358,52 @@ export interface Lab {
   status: 'active' | 'coming_soon';
 }
 
+// ============================================================================
+// Canonical Lab Routes
+// ============================================================================
+// All labs use the canonical pattern: /c/[companyId]/diagnostics/[labSlug]
+// Legacy paths (/brain/labs/*, /labs/*) redirect to canonical routes.
+
 export const LABS: Lab[] = [
   {
     id: 'competition',
     name: 'Competition Lab',
-    href: (companyId) => `/c/${companyId}/brain/labs/competition`,
+    href: (companyId) => `/c/${companyId}/diagnostics/competition`,
     description: 'Map the competitive landscape: core competitors, alternatives, and strategic differentiation.',
     status: 'active',
   },
   {
     id: 'creative',
     name: 'Creative Lab',
-    href: (companyId) => `/c/${companyId}/labs/creative`,
+    href: (companyId) => `/c/${companyId}/diagnostics/creative`,
     description: 'Generate messaging frameworks, campaign concepts, and creative territories.',
     status: 'active',
   },
   {
     id: 'competitor',
     name: 'Competitor Deep Dive',
-    href: (companyId) => `/c/${companyId}/labs/competitor`,
+    href: (companyId) => `/c/${companyId}/diagnostics/competitor`,
     description: 'Analyze individual competitors in-depth: positioning, messaging, strengths, and weaknesses.',
     status: 'active',
   },
   {
     id: 'website',
     name: 'Website Lab',
-    href: (companyId) => `/c/${companyId}/brain/labs/website`,
+    href: (companyId) => `/c/${companyId}/diagnostics/website`,
     description: 'Audit website structure, messaging clarity, conversion paths, and SEO foundations.',
     status: 'active',
   },
   {
     id: 'brand',
     name: 'Brand Lab',
-    href: (companyId) => `/c/${companyId}/brain/labs/brand`,
+    href: (companyId) => `/c/${companyId}/diagnostics/brand`,
     description: 'Analyze brand voice, visual identity, and market positioning consistency.',
     status: 'active',
   },
   {
     id: 'audience',
     name: 'Audience Lab',
-    href: (companyId) => `/c/${companyId}/brain/labs/audience`,
+    href: (companyId) => `/c/${companyId}/diagnostics/audience`,
     description: 'Deep-dive into audience segments, personas, and behavioral insights.',
     status: 'active',
   },
