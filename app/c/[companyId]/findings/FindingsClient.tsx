@@ -220,7 +220,7 @@ export function FindingsClient({ company }: FindingsClientProps) {
 
       const data = await response.json();
 
-      if (!response.ok || !data.success) {
+      if (!response.ok || (!data.success && !data.ok)) {
         throw new Error(data.error || 'Failed to create snapshot');
       }
 
