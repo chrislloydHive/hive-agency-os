@@ -68,6 +68,113 @@ export interface InboundLeadItem {
   utmCampaign?: string | null;
   utmTerm?: string | null;
   utmContent?: string | null;
+
+  // DMA Full GAP Integration Fields
+  /** Full GAP (GAP-Plan) run ID if lead came from DMA Full GAP */
+  gapPlanRunId?: string | null;
+  /** Overall GAP score (0-100) from Full GAP */
+  gapOverallScore?: number | null;
+  /** Maturity stage from Full GAP (e.g., "Early", "Emerging", "Scaling", "Leading") */
+  gapMaturityStage?: string | null;
+  /** Pipeline stage for board view */
+  pipelineStage?: PipelineLeadStage | null;
+  /** Last activity timestamp */
+  lastActivityAt?: string | null;
+  /** Contact message from DMA form */
+  contactMessage?: string | null;
+
+  // Full Workup Checklist (for DMA leads)
+  /** Whether QBR draft has been reviewed */
+  qbrReviewed?: boolean | null;
+  /** Whether Media Lab has been checked */
+  mediaLabReviewed?: boolean | null;
+  /** Whether SEO Lab has been checked */
+  seoLabReviewed?: boolean | null;
+  /** Whether Competition Lab snapshot exists */
+  competitionLabReviewed?: boolean | null;
+  /** Whether work plan has been drafted */
+  workPlanDrafted?: boolean | null;
+}
+
+/**
+ * Pipeline lead stages for board view
+ */
+export type PipelineLeadStage =
+  | 'new'
+  | 'qualified'
+  | 'meeting_scheduled'
+  | 'proposal'
+  | 'won'
+  | 'lost';
+
+/**
+ * Pipeline lead sources
+ */
+export type PipelineLeadSource =
+  | 'dma_full_gap'
+  | 'dma_ia'
+  | 'site_contact'
+  | 'referral'
+  | 'manual'
+  | 'outbound';
+
+/**
+ * Get display label for pipeline lead stage
+ */
+export function getPipelineStageLabel(stage: PipelineLeadStage | null | undefined): string {
+  const labels: Record<PipelineLeadStage, string> = {
+    new: 'New',
+    qualified: 'Qualified',
+    meeting_scheduled: 'Meeting Scheduled',
+    proposal: 'Proposal',
+    won: 'Won',
+    lost: 'Lost',
+  };
+  return stage ? labels[stage] || 'Unknown' : 'Unknown';
+}
+
+/**
+ * Get color classes for pipeline lead stage
+ */
+export function getPipelineStageColorClasses(stage: PipelineLeadStage | null | undefined): string {
+  const colors: Record<PipelineLeadStage, string> = {
+    new: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
+    qualified: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
+    meeting_scheduled: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    proposal: 'bg-orange-500/10 text-orange-400 border-orange-500/30',
+    won: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    lost: 'bg-red-500/10 text-red-400 border-red-500/30',
+  };
+  return stage ? colors[stage] || 'bg-slate-500/10 text-slate-400 border-slate-500/30' : 'bg-slate-500/10 text-slate-400 border-slate-500/30';
+}
+
+/**
+ * All pipeline lead stages in order
+ */
+export const PIPELINE_LEAD_STAGES: PipelineLeadStage[] = [
+  'new',
+  'qualified',
+  'meeting_scheduled',
+  'proposal',
+  'won',
+  'lost',
+];
+
+/**
+ * Get maturity stage display color
+ */
+export function getMaturityStageColorClasses(stage: string | null | undefined): string {
+  const stageLower = (stage || '').toLowerCase();
+  if (stageLower.includes('lead') || stageLower.includes('scaling')) {
+    return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
+  }
+  if (stageLower.includes('emerg') || stageLower.includes('growing')) {
+    return 'bg-amber-500/10 text-amber-400 border-amber-500/30';
+  }
+  if (stageLower.includes('early') || stageLower.includes('foundation') || stageLower.includes('basic')) {
+    return 'bg-orange-500/10 text-orange-400 border-orange-500/30';
+  }
+  return 'bg-slate-500/10 text-slate-400 border-slate-500/30';
 }
 
 /**

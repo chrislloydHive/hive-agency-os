@@ -5,7 +5,9 @@
 // It surfaces the company's Strategic Snapshot (scores, focus areas, 90-day plan),
 // active work, score trends, alerts, and recent diagnostic activity.
 //
+// STATUS VIEW: Shows "Where we are", "What's working", "What's not" at the top
 // MEDIA PROGRAM: Shows Media Lab summary (derived from plans) + operational media status
+// DMA PIPELINE: Shows DMA banner + Full Workup checklist when coming from Pipeline
 
 import { getCompanyById } from '@/lib/airtable/companies';
 import { companyHasMediaProgram } from '@/lib/companies/media';
@@ -18,10 +20,17 @@ import {
   getToolLabel,
   type DiagnosticRun,
 } from '@/lib/os/diagnostics/runs';
-import { getPerformancePulse } from '@/lib/os/analytics/performancePulse';
+import { getCompanyPerformancePulse } from '@/lib/os/analytics/companyPerformancePulse';
 import { getBaselineStatus } from '@/lib/contextGraph/baseline';
 import { getMediaLabSummary } from '@/lib/mediaLab';
+import { loadQBRData, getQBRSummary, calculateOverallHealthScore } from '@/lib/os/reports/qbrData';
+import { getInboundLeadById } from '@/lib/airtable/inboundLeads';
+import { getCompanyStatusSummary } from '@/lib/os/companies/companyStatus';
+import { getCompanyAnalyticsSnapshot } from '@/lib/os/companies/companyAnalytics';
 import { CompanyOverviewPage } from '@/components/os/CompanyOverviewPage';
+import { DmaFullGapBanner } from '@/components/os/DmaFullGapBanner';
+import { FullWorkupChecklist } from '@/components/os/FullWorkupChecklist';
+import { StatusSummaryPanel } from '@/components/os/StatusSummaryPanel';
 
 // ============================================================================
 // Tool Slug Mapping (for report paths)
@@ -45,10 +54,16 @@ const toolIdToSlug: Record<string, string> = {
 
 export default async function OsOverviewPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ companyId: string }>;
+  searchParams: Promise<{ from?: string; leadId?: string; gapRunId?: string }>;
 }) {
   const { companyId } = await params;
+  const { from, leadId, gapRunId } = await searchParams;
+
+  // Check if coming from pipeline with a lead ID
+  const isFromPipeline = from === 'pipeline' && !!leadId;
 
   // Fetch all data in parallel
   const [
@@ -61,6 +76,10 @@ export default async function OsOverviewPage({
     performancePulse,
     mediaLabSummary,
     baselineStatus,
+    qbrData,
+    pipelineLead,
+    statusSummary,
+    analyticsSnapshot,
   ] = await Promise.all([
     getCompanyById(companyId),
     getCompanyStrategySnapshot(companyId).catch(() => null),
@@ -77,10 +96,22 @@ export default async function OsOverviewPage({
       brand: [],
     })),
     getCompanyAlerts(companyId).catch(() => []),
-    getPerformancePulse().catch(() => null),
+    getCompanyPerformancePulse(companyId).catch(() => null),
     getMediaLabSummary(companyId).catch(() => null),
     getBaselineStatus(companyId).catch(() => null),
+    loadQBRData(companyId).catch(() => null),
+    // Fetch pipeline lead if coming from pipeline
+    isFromPipeline && leadId ? getInboundLeadById(leadId).catch(() => null) : Promise.resolve(null),
+    // Status View data
+    getCompanyStatusSummary({ companyId, leadId }).catch(() => null),
+    getCompanyAnalyticsSnapshot({ companyId }).catch(() => null),
   ]);
+
+  // Compute QBR summary if data is available
+  const qbrSummary = qbrData ? {
+    ...getQBRSummary(qbrData),
+    overallHealthScore: calculateOverallHealthScore(qbrData),
+  } : null;
 
   if (!company) {
     return (
@@ -110,27 +141,67 @@ export default async function OsOverviewPage({
   // Check if company has an active media program
   const hasMediaProgram = companyHasMediaProgram(company);
 
+  // Determine if we should show DMA pipeline context
+  const showDmaPipelineContext = isFromPipeline && pipelineLead && pipelineLead.leadSource === 'DMA Full GAP';
+
   return (
-    <CompanyOverviewPage
-      company={{
-        id: company.id,
-        name: company.name,
-        website: company.website,
-        industry: company.industry,
-        stage: company.stage,
-        companyType: company.companyType,
-        sizeBand: company.sizeBand,
-        owner: company.owner,
-        hasMediaProgram,
-      }}
-      strategySnapshot={strategySnapshot}
-      recentDiagnostics={recentDiagnostics}
-      workSummary={workSummary}
-      scoreTrends={scoreTrends}
-      alerts={alerts}
-      performancePulse={performancePulse}
-      mediaLabSummary={mediaLabSummary}
-      baselineStatus={baselineStatus}
-    />
+    <div className="space-y-4">
+      {/* Status Summary Panel - always shown at top */}
+      {statusSummary && analyticsSnapshot && (
+        <StatusSummaryPanel
+          status={statusSummary}
+          analytics={analyticsSnapshot}
+          companyName={company.name}
+        />
+      )}
+
+      {/* DMA Full GAP Banner - shown when coming from pipeline */}
+      {showDmaPipelineContext && pipelineLead && (
+        <DmaFullGapBanner
+          lead={pipelineLead}
+          gapRunId={gapRunId}
+          companyId={companyId}
+        />
+      )}
+
+      {/* Full Workup Checklist - shown when coming from pipeline */}
+      {showDmaPipelineContext && pipelineLead && (
+        <FullWorkupChecklist
+          leadId={pipelineLead.id}
+          companyId={companyId}
+          initialValues={{
+            qbrReviewed: pipelineLead.qbrReviewed ?? false,
+            mediaLabReviewed: pipelineLead.mediaLabReviewed ?? false,
+            seoLabReviewed: pipelineLead.seoLabReviewed ?? false,
+            competitionLabReviewed: pipelineLead.competitionLabReviewed ?? false,
+            workPlanDrafted: pipelineLead.workPlanDrafted ?? false,
+          }}
+        />
+      )}
+
+      {/* Main Company Overview */}
+      <CompanyOverviewPage
+        company={{
+          id: company.id,
+          name: company.name,
+          website: company.website,
+          industry: company.industry,
+          stage: company.stage,
+          companyType: company.companyType,
+          sizeBand: company.sizeBand,
+          owner: company.owner,
+          hasMediaProgram,
+        }}
+        strategySnapshot={strategySnapshot}
+        recentDiagnostics={recentDiagnostics}
+        workSummary={workSummary}
+        scoreTrends={scoreTrends}
+        alerts={alerts}
+        performancePulse={performancePulse}
+        mediaLabSummary={mediaLabSummary}
+        baselineStatus={baselineStatus}
+        qbrSummary={qbrSummary}
+      />
+    </div>
   );
 }

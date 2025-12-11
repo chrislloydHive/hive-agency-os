@@ -34,6 +34,10 @@ interface ContextNodeInspectorProps {
   onLock?: (path: string) => void;
   onUnlock?: (path: string) => void;
   onExplain?: () => void;
+  /** Direct save handler for inline editing in Graph view */
+  onSave?: (path: string, value: string) => Promise<{ success: boolean; error?: string }>;
+  /** Whether to use inline editing (true in Graph view) */
+  inlineEdit?: boolean;
 }
 
 // ============================================================================
@@ -117,9 +121,17 @@ export function ContextNodeInspector({
   onLock,
   onUnlock,
   onExplain,
+  onSave,
+  inlineEdit = false,
 }: ContextNodeInspectorProps) {
   const { label, path, value, freshness, provenance, domain } = field;
   const domainMeta = CONTEXT_DOMAIN_META[domain];
+
+  // Inline editing state
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(value ?? '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const freshnessPct =
     freshness && Number.isFinite(freshness.normalized)
@@ -128,6 +140,45 @@ export function ContextNodeInspector({
 
   const isLocked = !!lock;
   const isHardLocked = lock?.severity === 'hard';
+
+  // Handle inline edit start
+  const handleStartEdit = useCallback(() => {
+    if (inlineEdit && onSave) {
+      setEditValue(value ?? '');
+      setIsEditing(true);
+      setSaveError(null);
+    } else if (onEdit) {
+      onEdit();
+    }
+  }, [inlineEdit, onSave, onEdit, value]);
+
+  // Handle inline save
+  const handleSave = useCallback(async () => {
+    if (!onSave) return;
+
+    setIsSaving(true);
+    setSaveError(null);
+
+    try {
+      const result = await onSave(path, editValue);
+      if (result.success) {
+        setIsEditing(false);
+      } else {
+        setSaveError(result.error || 'Failed to save');
+      }
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [onSave, path, editValue]);
+
+  // Handle cancel edit
+  const handleCancelEdit = useCallback(() => {
+    setIsEditing(false);
+    setEditValue(value ?? '');
+    setSaveError(null);
+  }, [value]);
 
   return (
     <div className="space-y-4">
@@ -192,25 +243,80 @@ export function ContextNodeInspector({
 
       {/* Current Value */}
       <div className="space-y-2">
-        <div className="text-[11px] uppercase tracking-wide text-slate-500">
-          Current Value
-        </div>
-        <div className="rounded-md bg-slate-950/80 p-3 border border-slate-800">
-          {value === null || value === '' ? (
-            <span className="text-xs text-slate-500 italic">Not set</span>
-          ) : (
-            <div className="text-sm text-slate-200 whitespace-pre-wrap break-words">
-              {value}
-            </div>
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] uppercase tracking-wide text-slate-500">
+            Current Value
+          </div>
+          {isEditing && (
+            <span className="text-[10px] text-amber-400">Editing...</span>
           )}
         </div>
+
+        {isEditing ? (
+          /* Inline Edit Mode */
+          <div className="space-y-2">
+            <textarea
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              className="w-full rounded-md bg-slate-950 p-3 border border-amber-500/50 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30 min-h-[80px] resize-y"
+              placeholder="Enter value..."
+              autoFocus
+            />
+
+            {saveError && (
+              <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded px-2 py-1.5">
+                {saveError}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-amber-500 hover:bg-amber-400 text-xs font-medium text-slate-900 transition-colors disabled:opacity-50"
+              >
+                {isSaving ? (
+                  <>
+                    <div className="w-3 h-3 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Save
+                  </>
+                )}
+              </button>
+              <button
+                onClick={handleCancelEdit}
+                disabled={isSaving}
+                className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Display Mode */
+          <div className="rounded-md bg-slate-950/80 p-3 border border-slate-800">
+            {value === null || value === '' ? (
+              <span className="text-xs text-slate-500 italic">Not set</span>
+            ) : (
+              <div className="text-sm text-slate-200 whitespace-pre-wrap break-words">
+                {value}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Quick Actions */}
       <div className="flex flex-wrap gap-2">
-        {onEdit && !isHardLocked && (
+        {(onEdit || (inlineEdit && onSave)) && !isHardLocked && !isEditing && (
           <button
-            onClick={onEdit}
+            onClick={handleStartEdit}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-xs text-amber-300 transition-colors border border-amber-500/30"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -8,9 +8,11 @@
 // - Experiments: A/B tests and growth experiments
 // - Backlog: Suggested work from diagnostics
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
+import { Lightbulb, Zap, Plus, Loader2, ArrowRight, Target, Clock } from 'lucide-react';
+import type { ExtendedNextBestAction } from '@/lib/os/companies/nextBestAction.types';
 import type {
   WorkItemRecord,
   WorkItemStatus,
@@ -151,13 +153,22 @@ export function WorkClient({
           {/* Quick Access Links */}
           <div className="flex items-center gap-2">
             <Link
-              href={`/c/${company.id}/reports/qbr`}
+              href={`/c/${company.id}/plan`}
               className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-800/50 border border-slate-700 rounded-lg hover:bg-slate-700/50 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              Plan
+            </Link>
+            <Link
+              href={`/c/${company.id}/reports/qbr`}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-500/10 border border-blue-500/30 rounded-lg hover:bg-blue-500/20 transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
-              QBR Report
+              QBR
             </Link>
             <Link
               href={`/c/${company.id}/media`}
@@ -166,7 +177,7 @@ export function WorkClient({
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
-              Media & Ads
+              Media
             </Link>
           </div>
         </div>
@@ -273,8 +284,153 @@ function TasksSection({
 }) {
   const hasWorkItems = activeItems.length > 0 || doneItems.length > 0;
 
+  // Suggested Actions state
+  const [suggestedActions, setSuggestedActions] = useState<ExtendedNextBestAction[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(true);
+  const [addingActionId, setAddingActionId] = useState<string | null>(null);
+  const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
+
+  // Fetch suggested actions
+  useEffect(() => {
+    const fetchSuggestions = async () => {
+      try {
+        const response = await fetch(
+          `/api/os/companies/${companyId}/next-best-actions?limit=3`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setSuggestedActions(data.actions || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch suggested actions:', error);
+      } finally {
+        setLoadingSuggestions(false);
+      }
+    };
+    fetchSuggestions();
+  }, [companyId]);
+
+  // Handle adding a suggested action to work
+  const handleAddSuggestionToWork = async (action: ExtendedNextBestAction) => {
+    if (addingActionId) return;
+    setAddingActionId(action.id);
+    try {
+      const response = await fetch(`/api/os/companies/${companyId}/work`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: action.action,
+          description: `${action.reason}\n\n**Expected Impact:** ${action.expectedImpact || 'Not specified'}\n\n_Source: AI Recommendation_`,
+          area: action.category || 'Strategy',
+          priority: action.priority === 'high' ? 'High' : action.priority === 'medium' ? 'Medium' : 'Low',
+          status: 'Backlog',
+          sourceType: 'AI Recommendation',
+          sourceId: action.id,
+        }),
+      });
+
+      if (response.ok) {
+        setAddedIds(prev => new Set(prev).add(action.id));
+      }
+    } catch (error) {
+      console.error('Failed to add suggestion to work:', error);
+    } finally {
+      setAddingActionId(null);
+    }
+  };
+
+  // Filter out added actions
+  const displaySuggestions = suggestedActions.filter(a => !addedIds.has(a.id));
+
   return (
     <div className="space-y-6">
+      {/* Suggested Actions Panel */}
+      {!loadingSuggestions && displaySuggestions.length > 0 && (
+        <div className="bg-slate-900/70 border border-amber-500/20 rounded-xl p-5">
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-amber-500/15 flex items-center justify-center">
+                <Lightbulb className="w-4 h-4 text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-white">Suggested Actions</h3>
+                <p className="text-xs text-slate-500 mt-0.5">From your latest diagnostics</p>
+              </div>
+            </div>
+            <Link
+              href={`/c/${companyId}/findings`}
+              className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+            >
+              View all
+              <ArrowRight className="w-3 h-3" />
+            </Link>
+          </div>
+
+          <div className="space-y-3">
+            {displaySuggestions.map(action => (
+              <div
+                key={action.id}
+                className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 hover:border-slate-700 transition-colors"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      {action.isQuickWin && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          <Zap className="w-3 h-3" />
+                          Quick win
+                        </span>
+                      )}
+                      {action.theme && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-700/50 text-slate-300">
+                          {action.theme}
+                        </span>
+                      )}
+                    </div>
+                    <h4 className="text-sm font-medium text-slate-100 leading-tight">
+                      {action.action}
+                    </h4>
+                    {action.reason && (
+                      <p className="text-xs text-slate-400 mt-1 line-clamp-2">
+                        {action.reason}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-3 mt-2 text-[10px] text-slate-500">
+                      {action.expectedImpact && (
+                        <span className="flex items-center gap-1">
+                          <Target className="w-3 h-3" />
+                          {action.expectedImpact.length > 30
+                            ? action.expectedImpact.slice(0, 27) + '...'
+                            : action.expectedImpact}
+                        </span>
+                      )}
+                      {action.estimatedHours && (
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          ~{action.estimatedHours}h
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleAddSuggestionToWork(action)}
+                    disabled={addingActionId === action.id}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 transition-colors disabled:opacity-50 flex-shrink-0"
+                  >
+                    {addingActionId === action.id ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Plus className="w-3 h-3" />
+                    )}
+                    Add to Work
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Active Work */}
       <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">

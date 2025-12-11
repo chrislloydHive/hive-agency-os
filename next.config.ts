@@ -3,6 +3,11 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   /* config options here */
 
+  // ESLint: Don't fail on warnings during builds
+  eslint: {
+    ignoreDuringBuilds: true, // Run lint separately via `npm run lint`
+  },
+
   // Redirects for SEO Heavy -> SEO Lab rename
   async redirects() {
     return [

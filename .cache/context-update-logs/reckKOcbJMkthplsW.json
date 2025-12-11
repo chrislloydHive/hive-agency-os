@@ -1,0 +1,51 @@
+{
+  "entries": [
+    {
+      "companyId": "reckKOcbJMkthplsW",
+      "path": "competitive.positioningAxes",
+      "oldValue": {
+        "primaryAxis": {
+          "label": "Value Model Alignment",
+          "lowLabel": "Different Model",
+          "highLabel": "Same Model",
+          "description": "How closely the competitor's value proposition and business model aligns with ours"
+        },
+        "secondaryAxis": {
+          "label": "ICP Alignment",
+          "lowLabel": "Different ICP",
+          "highLabel": "Same ICP",
+          "description": "How closely the competitor targets the same ideal customer profile"
+        }
+      },
+      "newValue": "{\"primaryAxis\":{\"label\":\"Digital Focus\",\"lowLabel\":\"Different Model\",\"highLabel\":\"Same Model\",\"description\":null},\"secondaryAxis\":{\"label\":\"ICP Alignment\",\"lowLabel\":\"Different ICP\",\"highLabel\":\"Same ICP\",\"description\":\"How closely the competitor targets the same ideal customer profile\"}}",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "iP1MpsbXl3jFuQCFHVBSG",
+      "updatedAt": "2025-12-10T22:13:40.345Z"
+    },
+    {
+      "companyId": "reckKOcbJMkthplsW",
+      "path": "competitive.positioningAxes",
+      "oldValue": "{\"primaryAxis\":{\"label\":\"Digital Focus\",\"lowLabel\":\"Different Model\",\"highLabel\":\"Same Model\",\"description\":null},\"secondaryAxis\":{\"label\":\"ICP Alignment\",\"lowLabel\":\"Different ICP\",\"highLabel\":\"Same ICP\",\"description\":\"How closely the competitor targets the same ideal customer profile\"}}",
+      "newValue": "{\"primaryAxis\":null,\"secondaryAxis\":{\"label\":\"Cost\",\"lowLabel\":\"\",\"highLabel\":\"\",\"description\":null}}",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "9VRAjPKAi8h2azGTvkRO8",
+      "updatedAt": "2025-12-10T22:13:48.242Z"
+    },
+    {
+      "companyId": "reckKOcbJMkthplsW",
+      "path": "competitive.positioningAxes",
+      "oldValue": "{\"primaryAxis\":null,\"secondaryAxis\":{\"label\":\"Cost\",\"lowLabel\":\"\",\"highLabel\":\"\",\"description\":null}}",
+      "newValue": "{\"primaryAxis\":null,\"secondaryAxis\":{\"label\":\"Cost\",\"lowLabel\":\"\",\"highLabel\":\"\",\"description\":null}}",
+      "updatedBy": "human",
+      "status": "applied",
+      "metadata": {},
+      "updateId": "ZOVfEW1DXdXNEW8X036se",
+      "updatedAt": "2025-12-10T22:14:01.864Z"
+    }
+  ],
+  "updatedAt": "2025-12-10T22:14:01.864Z"
+}

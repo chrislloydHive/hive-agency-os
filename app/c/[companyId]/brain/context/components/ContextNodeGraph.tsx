@@ -12,6 +12,7 @@ import type { GraphFieldUi, ContextDomainId } from '@/lib/contextGraph/uiHelpers
 import type { NeedsRefreshFlag } from '@/lib/contextGraph/contextHealth';
 import type {
   ContextGraphNode,
+  ContextGraphEdge,
   ContextGraphV3Snapshot,
   ContextNodeStatus,
 } from '@/lib/contextGraph/contextGraphV3Types';
@@ -296,6 +297,24 @@ export function ContextNodeGraph({
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [dimensions, setDimensions] = useState({ width: 1200, height: 700 });
+  const [edges, setEdges] = useState<ContextGraphEdge[]>([]);
+  const [showEdges, setShowEdges] = useState(true);
+
+  // Fetch edges from the V3 API
+  useEffect(() => {
+    async function fetchEdges() {
+      try {
+        const response = await fetch(`/api/os/companies/${companyId}/context/graph`);
+        if (response.ok) {
+          const snapshot: ContextGraphV3Snapshot = await response.json();
+          setEdges(snapshot.edges || []);
+        }
+      } catch (error) {
+        console.error('[ContextNodeGraph] Failed to fetch edges:', error);
+      }
+    }
+    fetchEdges();
+  }, [companyId]);
 
   // Measure container size
   useEffect(() => {
@@ -453,6 +472,52 @@ export function ContextNodeGraph({
             );
           })}
 
+          {/* Edges - rendered before nodes so nodes appear on top */}
+          {showEdges && edges.length > 0 && (
+            <g className="edges">
+              {edges.map((edge, idx) => {
+                const sourceNode = layout.nodeById[edge.source];
+                const targetNode = layout.nodeById[edge.target];
+
+                // Skip edges where we don't have both nodes in the layout
+                if (!sourceNode || !targetNode) return null;
+
+                // Determine if edge is related to selected node
+                const isHighlighted = selectedNodeId === edge.source || selectedNodeId === edge.target;
+                const isDimmed = selectedNodeId && !isHighlighted;
+
+                // Edge styling based on kind
+                const edgeColors: Record<string, string> = {
+                  dependency: '#f59e0b',   // Amber
+                  correlation: '#8b5cf6',  // Purple
+                  derived: '#06b6d4',      // Cyan
+                };
+                const edgeColor = edgeColors[edge.kind] || '#64748b';
+
+                // Stroke width based on weight
+                const strokeWidth = isHighlighted
+                  ? 2.5
+                  : (0.5 + edge.weight * 1.5);
+
+                return (
+                  <line
+                    key={`edge-${idx}`}
+                    x1={sourceNode.x}
+                    y1={sourceNode.y}
+                    x2={targetNode.x}
+                    y2={targetNode.y}
+                    stroke={edgeColor}
+                    strokeWidth={strokeWidth}
+                    strokeOpacity={isDimmed ? 0.1 : isHighlighted ? 0.9 : 0.3}
+                    style={{
+                      transition: 'stroke-opacity 0.2s ease',
+                    }}
+                  />
+                );
+              })}
+            </g>
+          )}
+
           {/* Nodes */}
           <g className="nodes">
             {layout.nodes.map((node) => {
@@ -594,16 +659,61 @@ export function ContextNodeGraph({
       )}
 
       {/* Legend */}
-      <div className="absolute top-4 left-4 bg-slate-900/90 border border-slate-800 rounded-lg p-3 text-[10px]">
-        <div className="text-slate-400 font-medium mb-2 uppercase tracking-wide">Status</div>
-        <div className="space-y-1">
-          {Object.entries(STATUS_COLORS).map(([status, color]) => (
-            <div key={status} className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
-              <span className="text-slate-300 capitalize">{status.replace('_', ' ')}</span>
-            </div>
-          ))}
+      <div className="absolute top-4 left-4 bg-slate-900/90 border border-slate-800 rounded-lg p-3 text-[10px] space-y-3">
+        {/* Node Status Legend */}
+        <div>
+          <div className="text-slate-400 font-medium mb-2 uppercase tracking-wide">Node Status</div>
+          <div className="space-y-1">
+            {Object.entries(STATUS_COLORS).map(([status, color]) => (
+              <div key={status} className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
+                <span className="text-slate-300 capitalize">{status.replace('_', ' ')}</span>
+              </div>
+            ))}
+          </div>
         </div>
+
+        {/* Edge Types Legend */}
+        {edges.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-slate-400 font-medium uppercase tracking-wide">Edges</span>
+              <button
+                onClick={() => setShowEdges(!showEdges)}
+                className={`px-1.5 py-0.5 rounded text-[9px] transition-colors ${
+                  showEdges
+                    ? 'bg-amber-500/20 text-amber-300'
+                    : 'bg-slate-700 text-slate-400'
+                }`}
+              >
+                {showEdges ? 'ON' : 'OFF'}
+              </button>
+            </div>
+            {showEdges && (
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-0.5" style={{ backgroundColor: '#f59e0b' }} />
+                  <span className="text-slate-300">Dependency</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-0.5" style={{ backgroundColor: '#8b5cf6' }} />
+                  <span className="text-slate-300">Correlation</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-0.5" style={{ backgroundColor: '#06b6d4' }} />
+                  <span className="text-slate-300">Derived</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Edge count */}
+        {edges.length > 0 && showEdges && (
+          <div className="pt-2 border-t border-slate-700 text-slate-500">
+            {edges.length} relationship{edges.length !== 1 ? 's' : ''}
+          </div>
+        )}
       </div>
     </div>
   );

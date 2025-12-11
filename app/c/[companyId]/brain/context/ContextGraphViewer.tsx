@@ -51,6 +51,7 @@ import { UpdateLogPanel } from './components/UpdateLogPanel';
 import { HealingModal } from './components/HealingModal';
 import { ContextNodeInspector } from './components/ContextNodeInspector';
 import { ContextNodeGraph } from './components/ContextNodeGraph';
+import { ContextGraphV3Panel } from './components/ContextGraphV3Panel';
 
 // Import Phase 4 components
 import {
@@ -91,7 +92,9 @@ interface Props {
   diff: GraphDiffItem[];
   /** Coverage percentage for auto-complete banner (0-100) */
   coveragePercent?: number;
-  /** Initial domain to select (from URL query param) */
+  /** Initial view mode from URL param ?view= */
+  initialView?: 'overview' | 'graph' | 'form';
+  /** Initial domain filter from URL param ?domain= (null = all domains) */
   initialDomain?: string;
   /** Initial right panel tab to show (from URL query param) */
   initialPanel?: string;
@@ -124,8 +127,8 @@ interface PanelTabDef {
 
 const PRIMARY_TABS: PanelTabDef[] = [
   { id: 'inspector', label: 'Details', description: 'Inspect selected field' },
-  { id: 'snapshots', label: 'History', description: 'Past versions and changes' },
   { id: 'suggestions', label: 'AI', description: 'AI-generated suggestions' },
+  // Note: 'snapshots' moved to Brain → History page
 ];
 
 const ADVANCED_TABS: PanelTabDef[] = [
@@ -148,6 +151,7 @@ export function ContextGraphViewer({
   snapshots,
   diff,
   coveragePercent,
+  initialView,
   initialDomain,
   initialPanel,
   initialNodeId,
@@ -156,14 +160,19 @@ export function ContextGraphViewer({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // Validate initialDomain is a valid ContextDomainId
+  // Validate initialDomain is a valid ContextDomainId (null means "all domains")
   // If nodeId is provided, extract domain from it (e.g., "identity.industry" -> "identity")
   const nodeIdDomain = initialNodeId?.split('.')[0] as ContextDomainId | undefined;
   const validInitialDomain = nodeIdDomain && DOMAIN_NAMES.includes(nodeIdDomain)
     ? nodeIdDomain
     : initialDomain && DOMAIN_NAMES.includes(initialDomain as ContextDomainId)
       ? (initialDomain as ContextDomainId)
-      : 'identity';
+      : null; // null = all domains (company-level view)
+
+  // Validate initialView
+  const validInitialView = initialView && ['overview', 'graph', 'form'].includes(initialView)
+    ? initialView
+    : 'form';
 
   // Validate initialPanel is a valid tab
   // If nodeId is provided, show inspector panel by default
@@ -171,9 +180,10 @@ export function ContextGraphViewer({
     ? 'inspector' // Show inspector panel when node is selected via URL
     : initialPanel && VALID_PANEL_TABS.includes(initialPanel as RightPanelTab)
       ? (initialPanel as RightPanelTab)
-      : 'snapshots';
+      : 'inspector'; // Changed default from 'snapshots' to 'inspector'
 
-  const [selectedDomain, setSelectedDomain] = useState<ContextDomainId>(validInitialDomain);
+  // Domain filter state (null = all domains, or specific domain)
+  const [selectedDomain, setSelectedDomain] = useState<ContextDomainId | null>(validInitialDomain);
 
   // Selected node (field) state for the inspector
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(initialNodeId || null);
@@ -184,8 +194,8 @@ export function ContextGraphViewer({
   const [isGlobalSearch, setIsGlobalSearch] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>(validInitialPanel);
 
-  // View mode state (list or graph)
-  const [viewMode, setViewMode] = useState<'list' | 'graph'>('list');
+  // View mode state (overview: cluster circles, graph: node-edge map, form: field list)
+  const [viewMode, setViewMode] = useState<'overview' | 'graph' | 'form'>(validInitialView);
 
   // Provenance modal state
   const [provenanceModalField, setProvenanceModalField] = useState<GraphFieldUi | null>(null);
@@ -281,8 +291,9 @@ export function ContextGraphViewer({
     return map;
   }, [needsRefresh]);
 
-  // Get issues for current domain
+  // Get issues for current domain (or all if no domain selected)
   const domainIssues = useMemo(() => {
+    if (!selectedDomain) return needsRefresh; // All issues when no domain filter
     return needsRefresh.filter(n => n.domain === selectedDomain);
   }, [needsRefresh, selectedDomain]);
 
@@ -306,7 +317,10 @@ export function ContextGraphViewer({
       return globalSearchResults;
     }
 
-    let domainFields = fieldsByDomain.get(selectedDomain) ?? [];
+    // If no domain selected, show all fields; otherwise filter by domain
+    let domainFields = selectedDomain
+      ? (fieldsByDomain.get(selectedDomain) ?? [])
+      : fields;
 
     if (showOnlyWithValue) {
       domainFields = domainFields.filter((f) => f.value !== null && f.value !== '');
@@ -317,9 +331,10 @@ export function ContextGraphViewer({
     }
 
     return domainFields;
-  }, [fieldsByDomain, selectedDomain, showOnlyWithValue, showOnlyRefreshIssues, isGlobalSearch, globalSearchTerm, globalSearchResults, needsRefreshByPath]);
+  }, [fieldsByDomain, selectedDomain, fields, showOnlyWithValue, showOnlyRefreshIssues, isGlobalSearch, globalSearchTerm, globalSearchResults, needsRefreshByPath]);
 
-  const domainMeta = CONTEXT_DOMAIN_META[selectedDomain];
+  // Domain meta (null if no domain selected = company-level view)
+  const domainMeta = selectedDomain ? CONTEXT_DOMAIN_META[selectedDomain] : null;
 
   // Handlers
   const handleOpenProvenance = useCallback((field: GraphFieldUi) => {
@@ -342,14 +357,38 @@ export function ContextGraphViewer({
     setIsGlobalSearch(false);
   };
 
+  // Update URL params helper
+  const updateUrlParams = useCallback((updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === null) {
+        params.delete(key);
+      } else {
+        params.set(key, value);
+      }
+    }
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [pathname, router, searchParams]);
+
+  // Handle view mode change with URL sync
+  const handleViewChange = useCallback((newView: 'overview' | 'graph' | 'form') => {
+    setViewMode(newView);
+    updateUrlParams({ view: newView === 'form' ? null : newView }); // 'form' is default, don't need in URL
+  }, [updateUrlParams]);
+
+  // Handle domain filter change with URL sync
+  const handleDomainChange = useCallback((newDomain: ContextDomainId | null) => {
+    setSelectedDomain(newDomain);
+    setIsGlobalSearch(false);
+    setGlobalSearchTerm('');
+    updateUrlParams({ domain: newDomain }); // null removes the param
+  }, [updateUrlParams]);
+
   // Handle node (field) selection with URL sync
   const handleSelectNode = useCallback((nodeId: string | null) => {
     setSelectedNodeId(nodeId);
 
-    // Update URL with nodeId param (shallow navigation)
-    const params = new URLSearchParams(searchParams.toString());
     if (nodeId) {
-      params.set('nodeId', nodeId);
       // Also ensure we're on the correct domain
       const domain = nodeId.split('.')[0] as ContextDomainId;
       if (DOMAIN_NAMES.includes(domain)) {
@@ -359,15 +398,11 @@ export function ContextGraphViewer({
       }
       // Switch to inspector tab when selecting a node
       setRightPanelTab('inspector');
+      updateUrlParams({ nodeId, domain });
     } else {
-      params.delete('nodeId');
-      // Switch back to history tab when deselecting
-      if (rightPanelTab === 'inspector') {
-        setRightPanelTab('snapshots');
-      }
+      updateUrlParams({ nodeId: null });
     }
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  }, [pathname, router, searchParams, rightPanelTab]);
+  }, [updateUrlParams]);
 
   // Scroll to selected field on mount or when selection changes
   useEffect(() => {
@@ -720,18 +755,37 @@ export function ContextGraphViewer({
           )}
         </div>
 
-        {/* Domain Navigation */}
+        {/* Domain Filter Navigation */}
         <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
           <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-slate-600 font-medium">
-            Domains
+            Filter by Domain
           </div>
+          {/* All Domains option */}
+          <button
+            type="button"
+            onClick={() => handleDomainChange(null)}
+            className={cn(
+              'flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-xs transition-colors group',
+              selectedDomain === null && !isGlobalSearch
+                ? 'bg-amber-500/10 text-slate-50 border border-amber-500/30'
+                : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-100 border border-transparent'
+            )}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="w-2 h-2 rounded-full flex-shrink-0 bg-slate-500" />
+              <span className="truncate font-medium">All Domains</span>
+            </div>
+            <span className="text-[10px] tabular-nums text-slate-500">
+              {fields.length}
+            </span>
+          </button>
+          {/* Individual domains */}
           {DOMAIN_NAMES.map((domainId) => {
             const meta = CONTEXT_DOMAIN_META[domainId];
             const domainFields = fieldsByDomain.get(domainId) ?? [];
             const hasIssues = domainFields.some((f) => needsRefreshByPath.has(f.path));
 
             // Calculate health from actual graph fields (same as DomainSummaryPanel)
-            // This ensures sidebar matches the detail panel's percentage
             const totalFields = domainFields.length;
             const populatedFields = domainFields.filter(f => f.value !== null && f.value !== '').length;
             const healthPct = totalFields > 0 ? Math.round((populatedFields / totalFields) * 100) : 0;
@@ -742,11 +796,7 @@ export function ContextGraphViewer({
               <button
                 key={domainId}
                 type="button"
-                onClick={() => {
-                  setSelectedDomain(domainId);
-                  setIsGlobalSearch(false);
-                  setGlobalSearchTerm('');
-                }}
+                onClick={() => handleDomainChange(domainId)}
                 className={cn(
                   'flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-xs transition-colors group',
                   isActive
@@ -787,13 +837,26 @@ export function ContextGraphViewer({
               </button>
             );
           })}
+
+          {/* Link to Brain → History */}
+          <div className="mt-4 pt-4 border-t border-slate-800">
+            <Link
+              href={`/c/${companyId}/brain/history`}
+              className="flex items-center gap-2 px-2 py-2 rounded-md text-xs text-slate-500 hover:text-slate-300 hover:bg-slate-900/60 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              View context history
+            </Link>
+          </div>
         </nav>
 
         {/* Phase 4: Intent Panel in sidebar */}
         <div className="p-4 border-t border-slate-900">
           <IntentPanel
             companyId={companyId}
-            currentDomain={selectedDomain}
+            currentDomain={selectedDomain ?? undefined}
           />
         </div>
 
@@ -817,81 +880,111 @@ export function ContextGraphViewer({
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
+        {/* Header - Simplified company-level view */}
         <header className="flex items-center justify-between border-b border-slate-900 bg-slate-950/80 px-6 py-3">
           <div>
-            {/* Breadcrumb */}
+            {/* Simple breadcrumb - no domain */}
             <div className="text-[11px] text-slate-500 mb-1">
               <Link
-                href={`/c/${companyId}/brain/explorer`}
+                href={`/c/${companyId}/brain`}
                 className="hover:text-slate-300 transition-colors"
               >
                 Brain
               </Link>
               <span className="mx-1.5">·</span>
               <span className="text-slate-400">Context</span>
-              {!isGlobalSearch && (
-                <>
-                  <span className="mx-1.5">·</span>
-                  <span className="text-slate-300">{CONTEXT_DOMAIN_META[selectedDomain].label}</span>
-                </>
-              )}
             </div>
             {isGlobalSearch ? (
               <>
                 <div className="text-xs uppercase tracking-wide text-amber-400">
-                  Global Search Results
+                  Search Results
                 </div>
                 <div className="text-sm text-slate-300">
-                  Showing {globalSearchResults.length} matches for "{globalSearchTerm}"
+                  {globalSearchResults.length} matches for "{globalSearchTerm}"
                 </div>
               </>
             ) : (
               <>
                 <div className="text-sm font-medium text-slate-100">
-                  {CONTEXT_DOMAIN_META[selectedDomain].label}
+                  {selectedDomain ? CONTEXT_DOMAIN_META[selectedDomain].label : 'All Context'}
                 </div>
-                {domainMeta.description && (
-                  <div className="text-xs text-slate-400 mt-0.5">{domainMeta.description}</div>
-                )}
+                <div className="text-xs text-slate-400 mt-0.5">
+                  {selectedDomain && domainMeta?.description
+                    ? domainMeta.description
+                    : 'Define and explore what Hive knows about this business.'
+                  }
+                </div>
               </>
             )}
           </div>
           <div className="flex items-center gap-4">
-            {/* View Mode Toggle */}
+            {/* View Mode Toggle - 3-way: Overview / Graph / Form */}
             <div className="flex items-center rounded-lg border border-slate-700 bg-slate-900 p-0.5">
               <button
-                onClick={() => setViewMode('list')}
+                onClick={() => handleViewChange('overview')}
                 className={cn(
                   'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
-                  viewMode === 'list'
+                  viewMode === 'overview'
                     ? 'bg-slate-700 text-slate-100'
                     : 'text-slate-400 hover:text-slate-200'
                 )}
+                title="Cluster Circles Overview - company-level"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                  <circle cx="8" cy="8" r="3" strokeWidth={2} />
+                  <circle cx="16" cy="8" r="2" strokeWidth={2} />
+                  <circle cx="12" cy="16" r="4" strokeWidth={2} />
                 </svg>
-                List
+                Overview
               </button>
               <button
-                onClick={() => setViewMode('graph')}
+                onClick={() => handleViewChange('graph')}
                 className={cn(
                   'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
                   viewMode === 'graph'
                     ? 'bg-slate-700 text-slate-100'
                     : 'text-slate-400 hover:text-slate-200'
                 )}
+                title="Node Graph Map - relationships between fields"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                 </svg>
                 Graph
               </button>
+              <button
+                onClick={() => handleViewChange('form')}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                  viewMode === 'form'
+                    ? 'bg-slate-700 text-slate-100'
+                    : 'text-slate-400 hover:text-slate-200'
+                )}
+                title="Form view - field cards for editing"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                </svg>
+                Form
+              </button>
             </div>
 
-            {/* Filters (only when not in global search and in list mode) */}
-            {!isGlobalSearch && viewMode === 'list' && (
+            {/* Domain Filter Indicator */}
+            {selectedDomain && (
+              <button
+                onClick={() => handleDomainChange(null)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 transition-colors"
+                title="Clear domain filter"
+              >
+                {CONTEXT_DOMAIN_META[selectedDomain].label}
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+
+            {/* Filters (only when not in global search and in form mode) */}
+            {!isGlobalSearch && viewMode === 'form' && (
               <div className="flex items-center gap-3">
                 <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
                   <input
@@ -914,8 +1007,8 @@ export function ContextGraphViewer({
               </div>
             )}
 
-            {/* Lab Link (only when not in global search) */}
-            {!isGlobalSearch && domainMeta.labLink && domainMeta.labLink(companyId) && (
+            {/* Lab Link (only when viewing a specific domain, not in global search) */}
+            {!isGlobalSearch && domainMeta?.labLink && domainMeta.labLink(companyId) && (
               <Link
                 href={domainMeta.labLink(companyId)!}
                 className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:border-amber-400 hover:text-amber-300 transition-colors"
@@ -928,9 +1021,14 @@ export function ContextGraphViewer({
 
         {/* Body */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Main Content Area - Either List or Graph view */}
-          {viewMode === 'graph' ? (
-            /* Graph View */
+          {/* Main Content Area - Overview / Graph / Form views */}
+          {viewMode === 'overview' ? (
+            /* Overview View - Cluster circles grouped by domain */
+            <section className="flex-1 overflow-hidden">
+              <ContextGraphV3Panel companyId={companyId} />
+            </section>
+          ) : viewMode === 'graph' ? (
+            /* Graph View - Node-edge relationship map */
             <section className="flex-1 overflow-hidden">
               <ContextNodeGraph
                 fields={fields}
@@ -941,7 +1039,7 @@ export function ContextGraphViewer({
               />
             </section>
           ) : (
-            /* List View */
+            /* Form View - Field cards for editing */
             <section className="flex-1 overflow-y-auto p-6 space-y-3">
               {/* Auto-Complete Banner (only when coverage is low) */}
               {coveragePercent !== undefined && coveragePercent < 50 && (
@@ -952,8 +1050,8 @@ export function ContextGraphViewer({
                 />
               )}
 
-              {/* Domain Summary (only when viewing a domain, not global search) */}
-              {!isGlobalSearch && (
+              {/* Domain Summary (only when viewing a specific domain, not global search or all domains) */}
+              {!isGlobalSearch && selectedDomain && (
                 <DomainSummaryPanel
                   domainId={selectedDomain}
                   fields={fieldsByDomain.get(selectedDomain) ?? []}
@@ -1031,15 +1129,18 @@ export function ContextGraphViewer({
                   issue={needsRefreshByPath.get(selectedField.path)}
                   lock={locks.get(selectedField.path)}
                   onClose={() => handleSelectNode(null)}
-                  onEdit={() => {
-                    // Trigger edit mode on the field - scroll to it and focus
+                  onEdit={viewMode === 'form' ? () => {
+                    // In form mode, trigger edit mode on the field card
                     selectedFieldRef.current?.querySelector('button[title="Edit field"]')?.dispatchEvent(
                       new MouseEvent('click', { bubbles: true })
                     );
-                  }}
+                  } : undefined}
                   onLock={handleLockField}
                   onUnlock={handleUnlockField}
                   onExplain={() => handleExplainField(selectedField)}
+                  // Enable inline editing in overview and graph views (form mode has field cards)
+                  inlineEdit={viewMode === 'overview' || viewMode === 'graph'}
+                  onSave={handleSaveField}
                 />
               )}
 
@@ -1053,7 +1154,7 @@ export function ContextGraphViewer({
                   </div>
                   <div className="text-sm font-medium text-slate-400 mb-2">Select a field to inspect</div>
                   <p className="text-xs text-slate-500 leading-relaxed mb-4">
-                    Click on any field card in the {viewMode === 'list' ? 'list' : 'graph'} to see its details, provenance history, and available actions.
+                    Click on any field card in the {viewMode === 'form' ? 'form' : viewMode === 'graph' ? 'graph' : 'overview'} to see its details, provenance history, and available actions.
                   </p>
                   <div className="text-[10px] text-slate-600 space-y-1">
                     <div className="flex items-center justify-center gap-2">
@@ -1068,18 +1169,34 @@ export function ContextGraphViewer({
                 </div>
               )}
 
+              {/* History moved to Brain → History page */}
               {rightPanelTab === 'snapshots' && (
-                <SnapshotComparePanel
-                  versions={snapshots}
-                  currentDiff={diff}
-                  companyId={companyId}
-                />
+                <div className="text-center py-8 px-4">
+                  <div className="w-12 h-12 rounded-full bg-slate-800/50 flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div className="text-sm font-medium text-slate-400 mb-2">Context History</div>
+                  <p className="text-xs text-slate-500 leading-relaxed mb-4">
+                    View past versions and compare changes in Brain → History.
+                  </p>
+                  <Link
+                    href={`/c/${companyId}/brain/history`}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-xs text-slate-300 hover:bg-slate-700 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Go to History
+                  </Link>
+                </div>
               )}
 
               {rightPanelTab === 'notes' && (
                 <NotesPanel
                   companyId={companyId}
-                  domainId={selectedDomain}
+                  domainId={selectedDomain ?? 'identity'}
                 />
               )}
 
@@ -1123,7 +1240,7 @@ export function ContextGraphViewer({
               {rightPanelTab === 'predict' && (
                 <PredictivePanel
                   companyId={companyId}
-                  domain={selectedDomain}
+                  domain={selectedDomain ?? undefined}
                   onPredictionAccepted={handlePredictionAccepted}
                 />
               )}
@@ -1132,7 +1249,7 @@ export function ContextGraphViewer({
               {rightPanelTab === 'temporal' && (
                 <TemporalPanel
                   companyId={companyId}
-                  selectedDomain={selectedDomain}
+                  selectedDomain={selectedDomain ?? undefined}
                   onFieldSelect={(path) => {
                     const field = fields.find(f => f.path === path);
                     if (field) {

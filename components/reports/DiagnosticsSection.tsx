@@ -15,6 +15,8 @@ import {
   Loader2,
   ExternalLink,
   ChevronDown,
+  Activity,
+  ArrowRight,
 } from 'lucide-react';
 
 // ============================================================================
@@ -242,9 +244,30 @@ export function DiagnosticsSection({
           </tbody>
         </table>
 
-        {filteredRuns.length === 0 && (
+        {filteredRuns.length === 0 && runs.length > 0 && (
           <div className="py-8 text-center text-xs text-slate-400">
             No diagnostics found for this filter.
+          </div>
+        )}
+
+        {runs.length === 0 && (
+          <div className="py-10 flex flex-col items-center justify-center text-center">
+            <div className="p-3 rounded-full bg-slate-800 mb-4">
+              <Activity className="w-6 h-6 text-slate-500" />
+            </div>
+            <h3 className="text-sm font-semibold text-slate-200 mb-1">
+              No diagnostics yet
+            </h3>
+            <p className="text-xs text-slate-400 mb-4 max-w-xs">
+              Run a diagnostic lab to analyze this company and see results here.
+            </p>
+            <Link
+              href={`/c/${companyId}/diagnostics`}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors"
+            >
+              Go to Diagnostics
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
           </div>
         )}
       </div>

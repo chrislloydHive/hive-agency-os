@@ -28,6 +28,7 @@ import { getCompanyById } from '@/lib/airtable/companies';
 import { getToolConfig } from '@/lib/os/diagnostics/tools';
 import { aiForCompany, addCompanyMemoryEntry } from '@/lib/ai-gateway';
 import type { GapModelCaller } from '@/lib/gap/core';
+import { processDiagnosticRunCompletionAsync } from '@/lib/os/diagnostics/postRunHooks';
 
 export const maxDuration = 300; // 5 minutes timeout (longest for GAP Plan)
 
@@ -199,23 +200,40 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     // Update run with results
-    const updatedRun = await updateDiagnosticRun(run.id, {
-      status: result.success ? 'complete' : 'failed',
-      score: result.score ?? null,
-      summary: result.summary ?? null,
-      rawJson: result.data,
-      metadata: {
-        url: targetUrl,
-        domain: domain || new URL(targetUrl).hostname,
-        ...(result.error ? { error: result.error } : {}),
-      },
-    });
+    console.log(`[API] Updating run status to:`, result.success ? 'complete' : 'failed');
+    let updatedRun;
+    try {
+      updatedRun = await updateDiagnosticRun(run.id, {
+        status: result.success ? 'complete' : 'failed',
+        score: result.score ?? null,
+        summary: result.summary ?? null,
+        rawJson: result.data,
+        metadata: {
+          url: targetUrl,
+          domain: domain || new URL(targetUrl).hostname,
+          ...(result.error ? { error: result.error } : {}),
+        },
+      });
+      console.log(`[API] Run status updated successfully:`, {
+        runId: updatedRun.id,
+        status: updatedRun.status,
+      });
+    } catch (updateError) {
+      console.error(`[API] FAILED to update run status:`, updateError);
+      // Still return success since the diagnostic ran, just status update failed
+      updatedRun = { ...run, status: (result.success ? 'complete' : 'failed') as 'complete' | 'failed', score: result.score ?? null };
+    }
 
     console.log(`[API] ${toolConfig.label} complete:`, {
       runId: updatedRun.id,
       success: result.success,
       score: result.score,
     });
+
+    // Process post-run hooks (Brain entry, Context Graph, Findings extraction) in background
+    if (result.success) {
+      processDiagnosticRunCompletionAsync(companyId, updatedRun);
+    }
 
     // Save summary to AI memory for strategic tools
     if (result.success && result.data && (toolId === 'gapSnapshot' || toolId === 'gapPlan')) {

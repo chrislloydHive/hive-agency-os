@@ -12,6 +12,7 @@
 
 import Link from 'next/link';
 import { ActivitySnippet } from './ActivitySnippet';
+import { NextBestActionsCard } from './NextBestActionsCard';
 import { DataConfidenceBadge, type DataSource } from '@/components/diagnostics/DataConfidenceBadge';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
 import type { DiagnosticRunStatus, DiagnosticToolId, CompanyScoreTrends } from '@/lib/os/diagnostics/runs';
@@ -19,10 +20,11 @@ import type { CompanyWorkSummary } from '@/lib/os/companies/workSummary';
 import type { CompanyAlert } from '@/lib/os/companies/alerts';
 import type { PerformancePulse } from '@/lib/os/analytics/performancePulse';
 import type { MediaLabSummary } from '@/lib/types/mediaLab';
-import { deriveNextBestAction, getPriorityColorClasses } from '@/lib/os/companies/nextBestAction';
+import { deriveNextBestAction, getPriorityColorClasses } from '@/lib/os/companies/nextBestAction.types';
 import type { CompanySummary } from '@/lib/os/companySummary';
 import { type SetupStatus } from '@/lib/types/company';
-import { ArrowRight, BarChart3, ClipboardList, CheckCircle, FileText, Brain } from 'lucide-react';
+import { ArrowRight, BarChart3, ClipboardList, CheckCircle, FileText, Brain, TrendingUp, Activity, Search, Zap } from 'lucide-react';
+import { formatPercentChange, getChangeColorClass, getChangeArrow } from '@/lib/os/analytics/pulseUtils';
 
 // ============================================================================
 // Types
@@ -53,6 +55,16 @@ interface RecentDiagnostic {
   reportPath?: string | null;
 }
 
+interface QBRSummaryData {
+  healthScore: number;
+  overallHealthScore: number;
+  diagnosticsScore: number | null;
+  contextScore: number | null;
+  activeWorkItems: number;
+  unresolvedFindings: number;
+  lastDiagnosticRun: string | null;
+}
+
 export interface CompanyOverviewPageProps {
   company: CompanyData;
   strategySnapshot: CompanyStrategicSnapshot | null;
@@ -69,6 +81,7 @@ export interface CompanyOverviewPageProps {
     healthScore?: number;
     completeness?: number;
   } | null;
+  qbrSummary?: QBRSummaryData | null;
 }
 
 // ============================================================================
@@ -161,6 +174,8 @@ export function CompanyOverviewPage({
   recentDiagnostics,
   alerts,
   summary,
+  qbrSummary,
+  performancePulse,
 }: CompanyOverviewPageProps) {
   // Extract company data (prefer summary when available)
   const companyId = summary?.companyId ?? company.id;
@@ -338,7 +353,180 @@ export function CompanyOverviewPage({
       </div>
 
       {/* ================================================================== */}
-      {/* 3. RECENT ACTIVITY SNIPPET */}
+      {/* 3. QBR HEALTH SUMMARY */}
+      {/* ================================================================== */}
+      {qbrSummary && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-purple-500/15 flex items-center justify-center">
+                <TrendingUp className="w-4 h-4 text-purple-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-white">QBR Health Summary</h3>
+                <p className="text-[10px] text-slate-500">Quarterly business review readiness</p>
+              </div>
+            </div>
+            <Link
+              href={`/c/${companyId}/reports/qbr`}
+              className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1"
+            >
+              View QBR
+              <ArrowRight className="w-3 h-3" />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {/* Overall Health Score */}
+            <div className="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div className={`text-xl font-bold tabular-nums ${getScoreColor(qbrSummary.overallHealthScore)}`}>
+                {qbrSummary.overallHealthScore}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-0.5">Health Score</p>
+            </div>
+
+            {/* Diagnostics Score */}
+            <div className="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div className={`text-xl font-bold tabular-nums ${getScoreColor(qbrSummary.diagnosticsScore)}`}>
+                {qbrSummary.diagnosticsScore ?? '—'}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-0.5">Diagnostics Avg</p>
+            </div>
+
+            {/* Active Work */}
+            <div className="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div className="text-xl font-bold tabular-nums text-blue-400">
+                {qbrSummary.activeWorkItems}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-0.5">Active Work</p>
+            </div>
+
+            {/* Unresolved Findings */}
+            <div className="bg-slate-800/40 rounded-lg p-3 text-center">
+              <div className={`text-xl font-bold tabular-nums ${qbrSummary.unresolvedFindings > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                {qbrSummary.unresolvedFindings}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-0.5">Open Findings</p>
+            </div>
+          </div>
+
+          {/* Last diagnostic run */}
+          {qbrSummary.lastDiagnosticRun && (
+            <p className="text-[10px] text-slate-500 mt-2 text-right">
+              Last diagnostic: {new Date(qbrSummary.lastDiagnosticRun).toLocaleDateString()}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ================================================================== */}
+      {/* 4. PERFORMANCE PULSE (7-day analytics) */}
+      {/* ================================================================== */}
+      {performancePulse && (performancePulse.hasGa4 || performancePulse.hasGsc) && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-cyan-500/15 flex items-center justify-center">
+                <Activity className="w-4 h-4 text-cyan-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-white">Performance Pulse</h3>
+                <p className="text-[10px] text-slate-500">7-day analytics from connected integrations</p>
+              </div>
+            </div>
+            {performancePulse.hasAnomalies && performancePulse.anomalySummary && (
+              <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-1 rounded-md border border-amber-500/20">
+                {performancePulse.anomalySummary}
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            {/* Traffic (GA4) */}
+            {performancePulse.hasGa4 && (
+              <div className="bg-slate-800/40 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wide">Traffic</span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-lg font-bold tabular-nums text-white">
+                    {performancePulse.currentSessions?.toLocaleString() ?? '—'}
+                  </span>
+                  <span className={`text-xs font-medium ${getChangeColorClass(performancePulse.trafficChange7d)}`}>
+                    {getChangeArrow(performancePulse.trafficChange7d)} {formatPercentChange(performancePulse.trafficChange7d)}
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-0.5">sessions vs prior week</p>
+              </div>
+            )}
+
+            {/* Conversions (GA4) */}
+            {performancePulse.hasGa4 && (
+              <div className="bg-slate-800/40 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wide">Conversions</span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-lg font-bold tabular-nums text-white">
+                    {performancePulse.currentConversions?.toLocaleString() ?? '—'}
+                  </span>
+                  <span className={`text-xs font-medium ${getChangeColorClass(performancePulse.conversionsChange7d)}`}>
+                    {getChangeArrow(performancePulse.conversionsChange7d)} {formatPercentChange(performancePulse.conversionsChange7d)}
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-0.5">vs prior week</p>
+              </div>
+            )}
+
+            {/* SEO Visibility (GSC) */}
+            {performancePulse.hasGsc && (
+              <div className="bg-slate-800/40 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Search className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wide">SEO Clicks</span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-lg font-bold tabular-nums text-white">
+                    {performancePulse.currentClicks?.toLocaleString() ?? '—'}
+                  </span>
+                  <span className={`text-xs font-medium ${getChangeColorClass(performancePulse.seoVisibilityChange7d)}`}>
+                    {getChangeArrow(performancePulse.seoVisibilityChange7d)} {formatPercentChange(performancePulse.seoVisibilityChange7d)}
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-0.5">vs prior week</p>
+              </div>
+            )}
+          </div>
+
+          {/* Not connected message */}
+          {!performancePulse.hasGa4 && !performancePulse.hasGsc && (
+            <div className="text-center py-4">
+              <p className="text-xs text-slate-500">
+                Connect GA4 and Search Console in{' '}
+                <Link href={`/c/${companyId}/brain/setup?step=9`} className="text-cyan-400 hover:underline">
+                  Setup → Measurement
+                </Link>
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ================================================================== */}
+      {/* 5. NEXT BEST ACTIONS */}
+      {/* ================================================================== */}
+      <NextBestActionsCard
+        companyId={companyId}
+        limit={3}
+        title="Next Best Actions"
+        subtitle="Highest impact moves based on current diagnostics and plan."
+        showViewAll
+      />
+
+      {/* ================================================================== */}
+      {/* 6. RECENT ACTIVITY SNIPPET */}
       {/* ================================================================== */}
       <div className="border-t border-slate-800/40 pt-4">
         <ActivitySnippet companyId={companyId} />

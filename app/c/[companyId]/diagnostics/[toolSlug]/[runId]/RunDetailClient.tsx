@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { DiagnosticToolId, DiagnosticRunStatus } from '@/lib/os/diagnostics/runs';
 
@@ -17,12 +17,42 @@ export function RunDetailClient({
   companyId,
   toolId,
   toolLabel,
-  runStatus,
+  runStatus: initialRunStatus,
 }: RunDetailClientProps) {
   const router = useRouter();
   const [isGeneratingWork, setIsGeneratingWork] = useState(false);
   const [isRerunning, setIsRerunning] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [currentStatus, setCurrentStatus] = useState<DiagnosticRunStatus>(initialRunStatus);
+
+  // Poll for status updates when run is in progress
+  const checkRunStatus = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/os/companies/${companyId}/diagnostics/runs/${runId}/status`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.status && data.status !== currentStatus) {
+          setCurrentStatus(data.status);
+          if (data.status === 'complete' || data.status === 'failed') {
+            // Refresh the page to show updated results
+            router.refresh();
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to check run status:', error);
+    }
+  }, [companyId, runId, currentStatus, router]);
+
+  // Set up polling when status is 'running'
+  useEffect(() => {
+    if (currentStatus !== 'running') return;
+
+    // Poll every 3 seconds
+    const interval = setInterval(checkRunStatus, 3000);
+
+    return () => clearInterval(interval);
+  }, [currentStatus, checkRunStatus]);
 
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type });
@@ -103,7 +133,7 @@ export function RunDetailClient({
     <>
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-3">
-        {runStatus === 'complete' && (
+        {currentStatus === 'complete' && (
           <button
             onClick={handleGenerateWorkItems}
             disabled={isGeneratingWork}
@@ -130,7 +160,7 @@ export function RunDetailClient({
 
         <button
           onClick={handleRerun}
-          disabled={isRerunning || runStatus === 'running'}
+          disabled={isRerunning || currentStatus === 'running'}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/30 hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-medium"
         >
           {isRerunning ? (
@@ -141,7 +171,7 @@ export function RunDetailClient({
               </svg>
               Running...
             </>
-          ) : runStatus === 'running' ? (
+          ) : currentStatus === 'running' ? (
             <>
               <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />

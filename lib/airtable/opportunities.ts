@@ -62,16 +62,37 @@ function mapRecordToOpportunity(record: any): OpportunityItem {
 export async function getAllOpportunities(): Promise<OpportunityItem[]> {
   try {
     const base = getBase();
+    // Don't specify sort - let Airtable return default order
+    // Field names vary between Airtable bases
     const records = await base(OPPORTUNITIES_TABLE)
       .select({
-        sort: [{ field: 'Close Date', direction: 'asc' }],
         maxRecords: 200,
       })
       .all();
 
-    return records.map(mapRecordToOpportunity);
-  } catch (error) {
-    console.error('[Opportunities] Failed to fetch opportunities:', error);
+    // Sort client-side by created date (most recent first)
+    const opportunities = records.map(mapRecordToOpportunity);
+    return opportunities.sort((a, b) => {
+      const dateA = a.closeDate || a.createdAt || '';
+      const dateB = b.closeDate || b.createdAt || '';
+      return dateA.localeCompare(dateB);
+    });
+  } catch (error: any) {
+    // Extract useful error info from Airtable SDK errors
+    const errorMessage = error?.message || error?.error || 'Unknown error';
+    const statusCode = error?.statusCode;
+    console.error(
+      `[Opportunities] Failed to fetch from table "${OPPORTUNITIES_TABLE}":`,
+      statusCode ? `[${statusCode}]` : '',
+      errorMessage
+    );
+    // If table doesn't exist, log helpful message
+    if (statusCode === 404 || errorMessage?.includes('NOT_FOUND')) {
+      console.warn(
+        `[Opportunities] Table "${OPPORTUNITIES_TABLE}" not found. ` +
+        'Set AIRTABLE_OPPORTUNITIES_TABLE env var or create the table in Airtable.'
+      );
+    }
     return [];
   }
 }

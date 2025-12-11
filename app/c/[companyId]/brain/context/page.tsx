@@ -1,24 +1,24 @@
 // app/c/[companyId]/brain/context/page.tsx
-// Context Editor - Field-level inspector for company context
+// Context Graph Page - Revamped Experience
 //
-// Part of the 4-tab Brain IA:
-// - Explorer: Explore mode - visual map for discovery (at /brain/explorer)
-// - Context (this): Inspect mode - field-level editor for data entry
-// - Insights: Understand mode - AI-generated analysis
-// - Labs: Improve mode - diagnostic tools that refine context
+// The Context Graph shows what Hive knows about a company, how fields connect,
+// and where the gaps are. This is the main entry point for context management.
 //
-// This page shows the ContextGraphViewer with field cards, inline editing,
-// and provenance tracking.
+// Three-Tab Layout:
+// - Coverage View (default): Cluster circles showing field completeness by domain
+// - Relationship View: Dependency graph showing how fields connect and derive
+// - Form View: Structured editor for direct field editing
 //
 // URL Parameters:
-// - ?section=<domain> - Focus on specific domain (e.g., identity, audience)
-// - ?panel=<details|history|ai> - Open specific right panel tab
+// - ?view=coverage|relationships|form - Which view to show (default: coverage)
+// - ?domain=<domainSlug> - Filter to specific domain (default: all)
 // - ?nodeId=<field.path> - Deep link to a specific field (e.g., "identity.industry")
 //
-// Legacy params (redirected):
-// - ?view=explorer → redirects to /brain/explorer
-// - ?view=strategic → redirects to /brain/explorer
-// - ?mode=editor → ignored (inline editing is always enabled)
+// Legacy params (auto-redirected):
+// - ?view=overview → coverage
+// - ?view=graph → relationships
+// - ?section=<domain> → ?domain=<domain>
+// - ?view=explorer|strategic → redirects to /brain/explorer
 
 import { Metadata } from 'next';
 import { redirect } from 'next/navigation';
@@ -36,8 +36,9 @@ import {
   type GraphDiffItem,
 } from '@/lib/contextGraph/uiHelpers';
 import { checkAutoFillReadiness } from '@/lib/contextGraph/readiness';
-import { ContextGraphViewer } from './ContextGraphViewer';
+import { loadCoverageGraph, loadRelationshipGraph } from '@/lib/os/context';
 import { ContextHealthHeader } from './ContextHealthHeader';
+import { ContextPageClient } from './ContextPageClient';
 
 // ============================================================================
 // Types
@@ -46,10 +47,11 @@ import { ContextHealthHeader } from './ContextHealthHeader';
 interface PageProps {
   params: Promise<{ companyId: string }>;
   searchParams: Promise<{
-    view?: string;      // Legacy: redirect to explorer
+    view?: string;      // coverage | relationships | form (default: coverage)
+    domain?: string;    // Domain filter (default: all)
+    section?: string;   // Legacy: redirects to ?domain=
     mode?: string;      // Legacy: ignored
-    section?: string;   // Domain to focus on
-    panel?: string;     // Drawer to open
+    panel?: string;     // Right panel tab to open
     nodeId?: string;    // Field path to deep-link to (e.g., "identity.industry")
   }>;
 }
@@ -59,8 +61,18 @@ interface PageProps {
 // ============================================================================
 
 export const metadata: Metadata = {
-  title: 'Brain - Context',
+  title: 'Brain - Context Graph',
 };
+
+// ============================================================================
+// Legacy View Mapping
+// ============================================================================
+
+function mapLegacyView(view: string | undefined): string | undefined {
+  if (view === 'overview') return 'coverage';
+  if (view === 'graph') return 'relationships';
+  return view;
+}
 
 // ============================================================================
 // Page Component
@@ -68,11 +80,34 @@ export const metadata: Metadata = {
 
 export default async function ContextPage({ params, searchParams }: PageProps) {
   const { companyId } = await params;
-  const { view, section, panel, nodeId } = await searchParams;
+  const { view: rawView, domain, section, panel, nodeId } = await searchParams;
+
+  // Map legacy view names
+  const view = mapLegacyView(rawView);
 
   // Legacy redirects: explorer and strategic views now live at /brain/explorer
-  if (view === 'explorer' || view === 'strategic') {
+  if (rawView === 'explorer' || rawView === 'strategic') {
     redirect(`/c/${companyId}/brain/explorer`);
+  }
+
+  // Legacy redirect: ?section= → ?domain=
+  if (section && !domain) {
+    const params = new URLSearchParams();
+    params.set('domain', section);
+    if (view) params.set('view', view);
+    if (panel) params.set('panel', panel);
+    if (nodeId) params.set('nodeId', nodeId);
+    redirect(`/c/${companyId}/brain/context?${params.toString()}`);
+  }
+
+  // Redirect legacy view params to new names
+  if (rawView === 'overview' || rawView === 'graph') {
+    const params = new URLSearchParams();
+    params.set('view', view!);
+    if (domain) params.set('domain', domain);
+    if (panel) params.set('panel', panel);
+    if (nodeId) params.set('nodeId', nodeId);
+    redirect(`/c/${companyId}/brain/context?${params.toString()}`);
   }
 
   // Load company info
@@ -106,33 +141,6 @@ export default async function ContextPage({ params, searchParams }: PageProps) {
   // Compute auto-fill readiness
   const autoFillReadiness = checkAutoFillReadiness(company, graph, companyId);
 
-  // Handle empty/new graph case
-  if (isNewGraph) {
-    return (
-      <div className="space-y-6 p-6">
-        <ContextHealthHeader
-          healthScore={healthScore}
-          companyId={companyId}
-          baselineInitializedAt={baselineInitializedAt}
-          autoFillReadiness={autoFillReadiness}
-        />
-        <ContextGraphViewer
-          companyId={companyId}
-          companyName={company.name}
-          graph={null}
-          fields={[]}
-          needsRefresh={[]}
-          contextHealthScore={0}
-          snapshots={[]}
-          diff={[]}
-          initialDomain={section}
-          initialPanel={panel}
-          initialNodeId={nodeId}
-        />
-      </div>
-    );
-  }
-
   // Calculate completeness for auto-complete banner
   const completenessScore = calculateCompleteness(graph);
 
@@ -149,10 +157,16 @@ export default async function ContextPage({ params, searchParams }: PageProps) {
     }
   }
 
+  // Load coverage and relationship data in parallel
+  const [coverageData, relationshipData] = await Promise.all([
+    loadCoverageGraph(companyId),
+    loadRelationshipGraph(companyId),
+  ]);
+
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col h-full">
       {/* Compact Context Health Header at top */}
-      <div className="px-6 pt-6">
+      <div className="shrink-0 px-6 pt-6 pb-4 border-b border-slate-800">
         <ContextHealthHeader
           healthScore={healthScore}
           companyId={companyId}
@@ -160,20 +174,24 @@ export default async function ContextPage({ params, searchParams }: PageProps) {
           autoFillReadiness={autoFillReadiness}
         />
       </div>
-      <ContextGraphViewer
+
+      {/* Main content with new 3-tab layout */}
+      <ContextPageClient
         companyId={companyId}
         companyName={company.name}
-        graph={graph}
+        graph={isNewGraph ? null : graph}
         fields={fields}
         needsRefresh={needsRefresh}
-        contextHealthScore={healthScore.overallScore}
         healthScore={healthScore}
         snapshots={snapshots}
         diff={diff}
         coveragePercent={completenessScore}
-        initialDomain={section}
-        initialPanel={panel}
+        initialView={view}
+        initialDomain={domain}
         initialNodeId={nodeId}
+        initialPanel={panel}
+        coverageData={coverageData}
+        relationshipData={relationshipData}
       />
     </div>
   );

@@ -105,10 +105,10 @@ function getSeverityConfig(severity: ContextSeverity): {
     case 'unhealthy':
     default:
       return {
-        color: 'text-red-400',
-        bg: 'bg-red-500/10',
-        border: 'border-red-500/30',
-        label: 'Weak / Incomplete',
+        color: 'text-amber-400',
+        bg: 'bg-amber-500/10',
+        border: 'border-amber-500/30',
+        label: 'Needs Attention',
       };
   }
 }

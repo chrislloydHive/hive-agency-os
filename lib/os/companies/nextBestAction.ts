@@ -1,171 +1,248 @@
 // lib/os/companies/nextBestAction.ts
 // Next Best Action Helper
 //
-// Derives a single practical next step based on alerts, snapshot, and health data.
+// Derives a single practical next step based on alerts, snapshot, health data,
+// and AI-generated recommendations from the recommendations engine.
 // Displayed prominently on the Overview page to guide users.
 
-import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
-import type { CompanyAlert } from './alerts';
-import type { QuickHealthCheckResult } from './healthCheck';
+import { getCompanyFindings } from '@/lib/os/findings/companyFindings';
+import { synthesizePlan, type PlanSynthesisResult } from '@/lib/os/recommendations';
+import type { Finding, FindingCategory, FindingDimension, FindingSeverity, LabSlug } from '@/lib/os/findings/types';
+import type { DiagnosticDetailFinding } from '@/lib/airtable/diagnosticDetails';
+
+// Re-export types and functions from client-safe types file
+export type {
+  NextBestAction,
+  AIRecommendation,
+  ExtendedNextBestAction,
+  GetNextBestActionsOptions,
+} from './nextBestAction.types';
+
+export {
+  deriveNextBestAction,
+  getPriorityColorClasses,
+} from './nextBestAction.types';
+
+import type {
+  NextBestAction,
+  AIRecommendation,
+  ExtendedNextBestAction,
+  GetNextBestActionsOptions,
+} from './nextBestAction.types';
 
 // ============================================================================
-// Types
-// ============================================================================
-
-export interface NextBestAction {
-  action: string;
-  reason: string;
-  priority: 'high' | 'medium' | 'low';
-  linkPath?: string;
-}
-
-// ============================================================================
-// Action Derivation
+// Finding Conversion (shared logic with plan synthesis)
 // ============================================================================
 
 /**
- * Derive the next best action for a company based on available data.
- *
- * Priority order:
- * 1. Critical alerts → address immediately
- * 2. Health check issues → run diagnostics or fix identified problems
- * 3. Low scores → focus on weakest area
- * 4. Snapshot focus areas → work on top priority
- * 5. Default → run a diagnostic to establish baseline
+ * Convert Airtable finding to standardized Finding type
  */
-export function deriveNextBestAction(
-  companyId: string,
-  options: {
-    alerts?: CompanyAlert[];
-    snapshot?: CompanyStrategicSnapshot | null;
-    healthCheck?: QuickHealthCheckResult | null;
-  }
-): NextBestAction {
-  const { alerts = [], snapshot, healthCheck } = options;
+function convertToStandardizedFinding(f: DiagnosticDetailFinding, index: number): Finding {
+  const categoryMap: Record<string, FindingCategory> = {
+    'Technical': 'technical',
+    'UX': 'website',
+    'Brand': 'content',
+    'Content': 'content',
+    'SEO': 'seo',
+    'Analytics': 'technical',
+    'Media': 'social',
+    'Demand': 'content',
+    'Ops': 'technical',
+  };
 
-  // 1. Check for critical alerts
-  const criticalAlerts = alerts.filter((a) => a.severity === 'critical');
-  if (criticalAlerts.length > 0) {
-    const firstCritical = criticalAlerts[0];
-    return {
-      action: `Address: ${firstCritical.title}`,
-      reason: 'Critical issue detected that needs immediate attention',
-      priority: 'high',
-      linkPath: firstCritical.linkPath || `/c/${companyId}/blueprint`,
-    };
-  }
+  const dimensionMap: Record<string, FindingDimension> = {
+    'Performance': 'performance',
+    'Presence': 'presence',
+    'Visibility': 'visibility',
+    'Accuracy': 'accuracy',
+    'Completeness': 'completeness',
+    'Consistency': 'consistency',
+    'Engagement': 'engagement',
+    'Authority': 'authority',
+    'Compliance': 'compliance',
+    'General': 'presence',
+    'Summary': 'presence',
+  };
 
-  // 2. Check health check recommendations
-  if (healthCheck?.recommendedNextStep) {
-    return {
-      action: healthCheck.recommendedNextStep,
-      reason: healthCheck.primaryIssue || 'From latest health check',
-      priority: healthCheck.status === 'at_risk' ? 'high' : 'medium',
-      linkPath: `/c/${companyId}/blueprint`,
-    };
-  }
+  const labSlugMap: Record<string, LabSlug> = {
+    'website': 'website',
+    'brand': 'brand',
+    'seo': 'rankings',
+    'content': 'content',
+    'demand': 'audience',
+    'ops': 'technical',
+    'gap': 'gbp',
+    'gbp': 'gbp',
+    'social': 'social',
+    'competition': 'competition',
+  };
 
-  // 3. Check for warning alerts
-  const warningAlerts = alerts.filter((a) => a.severity === 'warning');
-  if (warningAlerts.length > 0) {
-    const firstWarning = warningAlerts[0];
-    return {
-      action: `Review: ${firstWarning.title}`,
-      reason: 'Warning that should be addressed soon',
-      priority: 'medium',
-      linkPath: firstWarning.linkPath || `/c/${companyId}/tools`,
-    };
-  }
+  const severityMap: Record<string, FindingSeverity> = {
+    'critical': 'critical',
+    'high': 'high',
+    'medium': 'medium',
+    'low': 'low',
+    'info': 'info',
+  };
 
-  // 4. Check for low overall score
-  if (snapshot?.overallScore !== null && snapshot?.overallScore !== undefined) {
-    if (snapshot.overallScore < 50) {
-      // Find the weakest area from focus areas
-      const topFocus = snapshot.focusAreas?.[0];
-      if (topFocus) {
-        return {
-          action: `Focus on: ${topFocus}`,
-          reason: `Overall score is ${snapshot.overallScore}. Prioritizing the top focus area.`,
-          priority: 'high',
-          linkPath: `/c/${companyId}/work`,
-        };
-      }
-      return {
-        action: 'Run GAP IA diagnostic',
-        reason: `Overall score is ${snapshot.overallScore}. A fresh diagnostic will identify priorities.`,
-        priority: 'high',
-        linkPath: `/c/${companyId}/diagnostics/gap-ia`,
-      };
-    }
+  const impactLevelMap: Record<string, 'high' | 'medium' | 'low'> = {
+    'critical': 'high',
+    'high': 'high',
+    'medium': 'medium',
+    'low': 'low',
+  };
 
-    if (snapshot.overallScore < 70) {
-      const topFocus = snapshot.focusAreas?.[0];
-      if (topFocus) {
-        return {
-          action: `Work on: ${topFocus}`,
-          reason: 'Top strategic priority from the snapshot',
-          priority: 'medium',
-          linkPath: `/c/${companyId}/work`,
-        };
-      }
-    }
-  }
+  const category = categoryMap[f.category || ''] || 'technical';
+  const dimension = dimensionMap[f.dimension || ''] || 'presence';
+  const severity = severityMap[f.severity || 'medium'] || 'medium';
+  const labSlug = labSlugMap[f.labSlug || 'website'] || 'website';
 
-  // 5. Use snapshot focus areas if available
-  if (snapshot?.focusAreas && snapshot.focusAreas.length > 0) {
-    return {
-      action: `Continue: ${snapshot.focusAreas[0]}`,
-      reason: 'Top focus area from strategic snapshot',
-      priority: 'medium',
-      linkPath: `/c/${companyId}/work`,
-    };
-  }
-
-  // 6. No snapshot - suggest running diagnostics
-  if (!snapshot || snapshot.overallScore === null) {
-    return {
-      action: 'Run your first diagnostic',
-      reason: 'No baseline established yet. Start with GAP IA or Website Lab.',
-      priority: 'medium',
-      linkPath: `/c/${companyId}/blueprint`,
-    };
-  }
-
-  // 7. Default - everything looks good
   return {
-    action: 'Review recent work items',
-    reason: 'No urgent issues detected. Check on in-progress work.',
-    priority: 'low',
-    linkPath: `/c/${companyId}/work`,
+    id: f.id || `finding-${index}`,
+    labSlug,
+    category,
+    dimension,
+    severity,
+    location: {
+      url: f.location || undefined,
+      platform: f.labSlug || undefined,
+    },
+    issueKey: `${category}-${dimension}-${index}`,
+    description: f.description || 'No description',
+    recommendation: f.recommendation || 'Review and address this finding',
+    estimatedImpact: {
+      level: impactLevelMap[f.severity || 'medium'] || 'medium',
+      metric: category === 'seo' ? 'visibility' : category === 'website' ? 'conversions' : 'engagement',
+      effort: severity === 'critical' || severity === 'high' ? 'moderate' : 'quick',
+    },
+    confidence: 80,
+    detectedAt: f.createdAt || new Date().toISOString(),
+    tags: [f.labSlug || 'unknown', f.category || 'unknown'].filter(Boolean),
   };
 }
 
+// ============================================================================
+// Async Fetcher for Next Best Actions
+// ============================================================================
+
 /**
- * Get the color classes for a priority level
+ * Get multiple next best actions for a company
+ *
+ * This is the main async function to fetch recommended actions.
+ * It loads findings, runs the recommendations engine, and returns prioritized actions.
+ *
+ * @param companyId - Company ID
+ * @param options - Filter and limit options
+ * @returns Array of ExtendedNextBestAction
  */
-export function getPriorityColorClasses(priority: 'high' | 'medium' | 'low'): {
-  bg: string;
-  text: string;
-  border: string;
-} {
-  switch (priority) {
-    case 'high':
-      return {
-        bg: 'bg-red-500/10',
-        text: 'text-red-300',
-        border: 'border-red-500/30',
-      };
-    case 'medium':
-      return {
-        bg: 'bg-amber-500/10',
-        text: 'text-amber-300',
-        border: 'border-amber-500/30',
-      };
-    case 'low':
-      return {
-        bg: 'bg-blue-500/10',
-        text: 'text-blue-300',
-        border: 'border-blue-500/30',
-      };
+export async function getNextBestActionsForCompany(
+  companyId: string,
+  options: GetNextBestActionsOptions = {}
+): Promise<ExtendedNextBestAction[]> {
+  const { limit = 5, theme, labSlug, quickWinsOnly = false } = options;
+
+  console.log('[nextBestAction] getNextBestActionsForCompany:', { companyId, options });
+
+  // 1. Load findings for company
+  const findings = await getCompanyFindings(companyId, {
+    labs: labSlug ? [labSlug] : undefined,
+  });
+
+  if (findings.length === 0) {
+    console.log('[nextBestAction] No findings found for company');
+    return [];
   }
+
+  // 2. Convert to standardized Finding type
+  const standardizedFindings: Finding[] = findings.map((f, i) =>
+    convertToStandardizedFinding(f, i)
+  );
+
+  // 3. Generate plan synthesis
+  const synthesis: PlanSynthesisResult = synthesizePlan(standardizedFindings, {
+    maxNextBestActions: Math.max(limit * 2, 10), // Get more to filter
+    maxQuickWins: quickWinsOnly ? limit : 5,
+  });
+
+  // 4. Convert to ExtendedNextBestAction format
+  let actions: ExtendedNextBestAction[] = [];
+
+  // Add quick wins first if requested or if available
+  for (const qw of synthesis.quickWins) {
+    actions.push({
+      id: qw.id,
+      action: qw.title,
+      reason: qw.description,
+      priority: 'medium',
+      linkPath: `/c/${companyId}/findings`,
+      source: 'recommendation',
+      isQuickWin: true,
+      expectedImpact: qw.expectedImpact,
+      effort: 'quick-win',
+      estimatedHours: qw.estimatedHours,
+    });
+  }
+
+  // Add next best actions
+  for (const nba of synthesis.nextBestActions) {
+    // Skip if already added as quick win
+    if (actions.some(a => a.id === nba.id)) continue;
+
+    // Map priority
+    const priorityMap: Record<string, 'high' | 'medium' | 'low'> = {
+      'Critical': 'high',
+      'High': 'high',
+      'Medium': 'medium',
+      'Low': 'low',
+    };
+
+    // Map effort
+    const effortMap: Record<string, 'quick-win' | 'moderate' | 'significant'> = {
+      'quick-win': 'quick-win',
+      'moderate': 'moderate',
+      'significant': 'significant',
+    };
+
+    actions.push({
+      id: nba.id,
+      action: nba.title,
+      reason: nba.description,
+      priority: priorityMap[nba.priority] || 'medium',
+      linkPath: `/c/${companyId}/findings`,
+      source: 'recommendation',
+      theme: nba.theme,
+      isQuickWin: nba.isQuickWin,
+      expectedImpact: nba.expectedImpact,
+      effort: effortMap[nba.effort] || 'moderate',
+      category: nba.category,
+      quarter: nba.quarter,
+    });
+  }
+
+  // 5. Apply filters
+  if (quickWinsOnly) {
+    actions = actions.filter(a => a.isQuickWin);
+  }
+
+  if (theme) {
+    actions = actions.filter(a => a.theme?.toLowerCase().includes(theme.toLowerCase()));
+  }
+
+  // 6. Limit results
+  actions = actions.slice(0, limit);
+
+  console.log('[nextBestAction] Returning', actions.length, 'actions');
+  return actions;
+}
+
+/**
+ * Get the single top action for a company
+ * Convenience wrapper around getNextBestActionsForCompany
+ */
+export async function getTopActionForCompany(
+  companyId: string,
+  options?: Omit<GetNextBestActionsOptions, 'limit'>
+): Promise<ExtendedNextBestAction | null> {
+  const actions = await getNextBestActionsForCompany(companyId, { ...options, limit: 1 });
+  return actions[0] || null;
 }

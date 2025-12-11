@@ -30,13 +30,15 @@ import {
 export interface DataSource {
   id: string;
   name: string;
-  type: 'brain' | 'analytics' | 'diagnostic' | 'integration' | 'manual';
+  type: 'brain' | 'analytics' | 'diagnostic' | 'integration' | 'manual' | 'detection';
   lastUpdated: string | null;
   status: 'fresh' | 'stale' | 'missing' | 'error';
   /** Link to refresh or update this source */
   refreshHref?: string;
   /** Additional context */
   description?: string;
+  /** Confidence score (0-100) for detection sources */
+  confidence?: number;
 }
 
 interface DataConfidenceBadgeProps {
@@ -113,6 +115,8 @@ function getSourceTypeLabel(type: DataSource['type']): string {
       return 'Integration';
     case 'manual':
       return 'Manual Entry';
+    case 'detection':
+      return 'Auto-Detected';
   }
 }
 
@@ -130,6 +134,13 @@ function SourceRow({
   const config = getStatusConfig(source.status);
   const StatusIcon = config.icon;
 
+  // Get confidence color
+  const getConfidenceColor = (confidence: number) => {
+    if (confidence >= 80) return 'text-emerald-400';
+    if (confidence >= 50) return 'text-amber-400';
+    return 'text-red-400';
+  };
+
   return (
     <div className="flex items-center justify-between py-3 border-b border-slate-800 last:border-0">
       <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -142,6 +153,11 @@ function SourceRow({
             <span className="text-xs text-slate-500 px-1.5 py-0.5 bg-slate-800 rounded">
               {getSourceTypeLabel(source.type)}
             </span>
+            {source.confidence !== undefined && (
+              <span className={`text-xs font-medium ${getConfidenceColor(source.confidence)}`}>
+                {source.confidence}%
+              </span>
+            )}
           </div>
           {source.lastUpdated ? (
             <p className="text-xs text-slate-400 mt-0.5">

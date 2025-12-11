@@ -70,6 +70,12 @@ export default async function PlanPage({ params }: PageProps) {
           >
             Work
           </Link>
+          <Link
+            href={`/c/${companyId}/reports/qbr`}
+            className="rounded-full border border-blue-600/50 bg-blue-500/10 px-3 py-1 text-xs text-blue-400 hover:bg-blue-500/20"
+          >
+            QBR
+          </Link>
         </div>
       </div>
 

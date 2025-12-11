@@ -19,7 +19,7 @@ import { processCompletedDiagnostic } from '@/lib/insights/engine';
 import type { DiagnosticRun, LabSlug } from './runs';
 import { getLabSlugForToolId } from './runs';
 import { extractFindingsForLab, getWorstSeverity } from './findingsExtractors';
-import { saveDiagnosticFindings, type CreateDiagnosticFindingInput } from '@/lib/airtable/diagnosticDetails';
+import { saveDiagnosticFindings, deleteUnconvertedFindingsForCompanyLab, type CreateDiagnosticFindingInput } from '@/lib/airtable/diagnosticDetails';
 import type { WebsiteUXLabResultV4 } from '@/lib/gap-heavy/modules/websiteLab';
 import type { BrandLabSummary } from '@/lib/media/diagnosticsInputs';
 import {
@@ -388,6 +388,14 @@ async function extractAndSaveFindings(
       savedIds: [],
       worstSeverity: null,
     };
+  }
+
+  // Delete old unconverted findings for this company/lab before saving new ones
+  // This prevents duplicate findings from accumulating across runs
+  console.log('[postRunHooks] Clearing old unconverted findings...');
+  const deletedCount = await deleteUnconvertedFindingsForCompanyLab(companyId, labSlug);
+  if (deletedCount > 0) {
+    console.log('[postRunHooks] Deleted', deletedCount, 'old unconverted findings');
   }
 
   // Save findings to Diagnostic Details

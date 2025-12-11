@@ -6,9 +6,10 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import type { ExtendedNextBestAction } from '@/lib/os/companies/nextBestAction.types';
 import ReactMarkdown from 'react-markdown';
 import type { DiagnosticToolConfig, DiagnosticToolCategory } from '@/lib/os/diagnostics/tools';
 import type { DiagnosticRun } from '@/lib/os/diagnostics/runs';
@@ -91,6 +92,78 @@ export function ToolReportLayout({
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [showRawJson, setShowRawJson] = useState(false);
   const [showFullReport, setShowFullReport] = useState(false);
+
+  // Recommended Next Fix state
+  const [recommendedAction, setRecommendedAction] = useState<ExtendedNextBestAction | null>(null);
+  const [isLoadingAction, setIsLoadingAction] = useState(true);
+  const [isAddingToWork, setIsAddingToWork] = useState(false);
+
+  // Compute labSlug from tool ID
+  const labSlug = tool.id.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '');
+
+  // Fetch recommended action for this lab
+  useEffect(() => {
+    const fetchRecommendedAction = async () => {
+      try {
+        const params = new URLSearchParams({
+          limit: '1',
+          labSlug,
+        });
+        const response = await fetch(
+          `/api/os/companies/${company.id}/next-best-actions?${params}`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          if (data.actions && data.actions.length > 0) {
+            setRecommendedAction(data.actions[0]);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch recommended action:', error);
+      } finally {
+        setIsLoadingAction(false);
+      }
+    };
+
+    if (run.status === 'complete') {
+      fetchRecommendedAction();
+    } else {
+      setIsLoadingAction(false);
+    }
+  }, [company.id, labSlug, run.status]);
+
+  // Handle adding recommended action to work
+  const handleAddRecommendedToWork = async () => {
+    if (!recommendedAction || isAddingToWork) return;
+    setIsAddingToWork(true);
+    try {
+      const response = await fetch(`/api/os/companies/${company.id}/work`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: recommendedAction.action,
+          description: `${recommendedAction.reason}\n\n**Expected Impact:** ${recommendedAction.expectedImpact || 'Not specified'}\n\n_Source: AI Recommendation_`,
+          area: recommendedAction.category || tool.category,
+          priority: recommendedAction.priority,
+          status: 'Backlog',
+          sourceType: 'AI Recommendation',
+          sourceId: recommendedAction.id,
+        }),
+      });
+
+      if (response.ok) {
+        showToast('Added to Work', 'success');
+        setRecommendedAction(null); // Hide the banner after adding
+      } else {
+        throw new Error('Failed to add to work');
+      }
+    } catch (error) {
+      console.error('Failed to add recommended action to work:', error);
+      showToast('Failed to add to Work', 'error');
+    } finally {
+      setIsAddingToWork(false);
+    }
+  };
 
   // Get icon component
   const IconComponent = (LucideIcons as unknown as Record<string, React.ComponentType<{ className?: string }>>)[tool.icon] || LucideIcons.HelpCircle;
@@ -345,11 +418,60 @@ export function ToolReportLayout({
         </div>
       </div>
 
+      {/* Recommended Next Fix Banner */}
+      {recommendedAction && !isLoadingAction && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+                <LucideIcons.Lightbulb className="w-4 h-4 text-amber-400" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="text-sm font-semibold text-amber-300">Recommended Next Fix</h3>
+                  {recommendedAction.isQuickWin && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      <LucideIcons.Zap className="w-3 h-3" />
+                      Quick win
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-slate-200 leading-tight">{recommendedAction.action}</p>
+                {recommendedAction.reason && (
+                  <p className="text-xs text-slate-400 mt-1 line-clamp-1">{recommendedAction.reason}</p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Link
+                href={`/c/${company.id}/findings`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/20 transition-colors"
+              >
+                <LucideIcons.ArrowRight className="w-3 h-3" />
+                View in Plan
+              </Link>
+              <button
+                onClick={handleAddRecommendedToWork}
+                disabled={isAddingToWork}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-slate-700/50 text-slate-300 border border-slate-600/50 hover:bg-slate-700 hover:text-slate-100 transition-colors disabled:opacity-50"
+              >
+                {isAddingToWork ? (
+                  <LucideIcons.Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <LucideIcons.Plus className="w-3 h-3" />
+                )}
+                Add to Work
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Issues Panel - Prominent placement for actionable findings */}
       {issues.length > 0 ? (
         <DiagnosticIssuesPanel
           companyId={company.id}
-          labSlug={tool.id.replace(/([A-Z])/g, '-$1').toLowerCase().replace(/^-/, '')}
+          labSlug={labSlug}
           runId={run.id}
           issues={issues}
           title="Issues & Findings"

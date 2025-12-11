@@ -25,6 +25,7 @@ import { ThemeView } from '@/components/plan/ThemeView';
 import { PriorityView } from '@/components/plan/PriorityView';
 import { LabView } from '@/components/plan/LabView';
 import { PlanSynthesisModal, type PlanSynthesis } from '@/components/plan/PlanSynthesisModal';
+import { NextBestActionsCard } from '@/components/os/NextBestActionsCard';
 import type { DiagnosticDetailFinding } from '@/lib/airtable/diagnosticDetails';
 import type { FindingsSummary, FindingsFilter } from '@/lib/os/findings/companyFindings';
 
@@ -324,6 +325,17 @@ export function FindingsClient({ company }: FindingsClientProps) {
         isSynthesizing={isSynthesizing}
         hasFindings={findings.length > 0}
       />
+
+      {/* Next Best Actions Section */}
+      <div id="next-best-actions">
+        <NextBestActionsCard
+          companyId={company.id}
+          limit={5}
+          title="Next Best Actions"
+          subtitle="Ranked by impact, urgency, and dependencies."
+          showViewAll={false}
+        />
+      </div>
 
       {/* Error State */}
       {error && (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import type { DiagnosticArea, DiagnosticIssue } from "@/lib/airtable/fullReports";
 import type { DiagnosticModuleKey, PageEvaluationResult } from '@/lib/gap-heavy/types';
@@ -35,6 +35,40 @@ export function DiagnosticAreaCard({
       ? "bg-amber-400"
       : "bg-red-500";
 
+  // Poll for run completion
+  const pollForCompletion = useCallback(async (runId: string) => {
+    const maxAttempts = 60; // 5 minutes max (60 * 5 seconds)
+    let attempts = 0;
+
+    const checkStatus = async (): Promise<boolean> => {
+      try {
+        const response = await fetch(`/api/os/companies/${companyId}/diagnostics/runs/${runId}/status`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.status === 'complete' || data.status === 'failed') {
+            return true; // Done
+          }
+        }
+        return false; // Still running
+      } catch {
+        return false;
+      }
+    };
+
+    while (attempts < maxAttempts) {
+      const isDone = await checkStatus();
+      if (isDone) {
+        window.location.reload();
+        return;
+      }
+      attempts++;
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+    }
+
+    // Timeout - reload anyway
+    window.location.reload();
+  }, [companyId]);
+
   const handleRunModule = async () => {
     setIsRunning(true);
 
@@ -52,10 +86,17 @@ export function DiagnosticAreaCard({
         throw new Error('Failed to run module');
       }
 
-      // Refresh page after a short delay
-      setTimeout(() => {
-        window.location.reload();
-      }, 1000);
+      const result = await response.json();
+
+      // If we got a runId, poll for completion
+      if (result.runId) {
+        pollForCompletion(result.runId);
+      } else {
+        // Fallback: reload after delay
+        setTimeout(() => {
+          window.location.reload();
+        }, 3000);
+      }
     } catch (error) {
       console.error('Error running module:', error);
       setIsRunning(false);

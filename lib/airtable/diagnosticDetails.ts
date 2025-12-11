@@ -155,7 +155,9 @@ export type UpdateDiagnosticFindingInput = Partial<Omit<DiagnosticDetailFinding,
 // Airtable field names for Diagnostic Details findings
 const FINDING_FIELDS = {
   LAB_RUN: 'Lab Run',           // Link to Diagnostic Runs
+  RUN_ID: 'Run ID',             // Text field for querying (ARRAYJOIN on link fields returns names, not IDs)
   COMPANY: 'Company',           // Link to Companies
+  COMPANY_ID: 'Company ID',     // Text field for querying (ARRAYJOIN on link fields returns names, not IDs)
   LAB_SLUG: 'Lab Slug',         // Single Select
   CATEGORY: 'Category',         // Single Select
   DIMENSION: 'Dimension',       // Text
@@ -180,11 +182,15 @@ function findingToAirtableFields(finding: CreateDiagnosticFindingInput): Record<
   };
 
   // Link fields - use array format
+  // Also store in text fields for reliable querying
+  // (ARRAYJOIN on link fields returns display names, not record IDs)
   if (finding.labRunId) {
     fields[FINDING_FIELDS.LAB_RUN] = [finding.labRunId];
+    fields[FINDING_FIELDS.RUN_ID] = finding.labRunId;
   }
   if (finding.companyId) {
     fields[FINDING_FIELDS.COMPANY] = [finding.companyId];
+    fields[FINDING_FIELDS.COMPANY_ID] = finding.companyId;
   }
 
   // Classification
@@ -320,9 +326,10 @@ export async function getDiagnosticFindingsByRunId(runId: string): Promise<Diagn
   console.log('[diagnosticDetails] getDiagnosticFindingsByRunId:', runId);
 
   try {
+    // Use "Run ID" text field to avoid ambiguity with linked "Lab Run" field
     const records = await getBase()(DIAGNOSTIC_DETAILS_TABLE)
       .select({
-        filterByFormula: `AND({Record Type} = 'finding', FIND('${runId}', ARRAYJOIN({Lab Run})))`,
+        filterByFormula: `AND({Record Type} = 'finding', {Run ID} = '${runId}')`,
         sort: [{ field: 'Created', direction: 'desc' }],
       })
       .all();
@@ -348,9 +355,14 @@ export async function getDiagnosticFindingsForCompany(
 
   try {
     // Build filter formula
+    // IMPORTANT: Use ONLY unique field names to avoid "multiple fields" Airtable error
+    // The table has duplicate field names like "Company", "Description" etc.
+    // We use our specific fields: "Company ID", "Record Type", "Lab Slug"
     const filters: string[] = [
+      // Match by Company ID text field (unique)
+      `{Company ID} = '${companyId}'`,
+      // Match Record Type = 'finding' (if field exists and is set)
       `{Record Type} = 'finding'`,
-      `FIND('${companyId}', ARRAYJOIN({Company}))`,
     ];
 
     if (options?.labSlug) {
@@ -362,22 +374,51 @@ export async function getDiagnosticFindingsForCompany(
 
     const filterFormula = `AND(${filters.join(', ')})`;
 
+    console.log('[diagnosticDetails] Filter formula:', filterFormula);
+
     const records = await getBase()(DIAGNOSTIC_DETAILS_TABLE)
       .select({
         filterByFormula: filterFormula,
         sort: [{ field: 'Created', direction: 'desc' }],
-        maxRecords: 200, // Reasonable limit
+        maxRecords: 200,
       })
       .all();
+
+    console.log('[diagnosticDetails] Records fetched:', records.length);
+
+    // If no records found, try simpler query just by Company ID
+    if (records.length === 0) {
+      console.log('[diagnosticDetails] No records with Record Type = finding. Trying Company ID only...');
+
+      const fallbackRecords = await getBase()(DIAGNOSTIC_DETAILS_TABLE)
+        .select({
+          filterByFormula: `{Company ID} = '${companyId}'`,
+          maxRecords: 10,
+        })
+        .all();
+
+      console.log('[diagnosticDetails] Fallback found', fallbackRecords.length, 'records');
+      if (fallbackRecords.length > 0) {
+        console.log('[diagnosticDetails] Sample record:', {
+          id: fallbackRecords[0].id,
+          recordType: fallbackRecords[0].get('Record Type'),
+          labSlug: fallbackRecords[0].get('Lab Slug'),
+        });
+      }
+    }
 
     const findings = records.map(r => airtableRecordToFinding({ id: r.id, fields: r.fields as Record<string, unknown> }));
 
     console.log('[diagnosticDetails] Found', findings.length, 'findings for company:', companyId);
     return findings;
   } catch (error) {
-    // Airtable errors often don't serialize well - extract message if available
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error (table may not exist)';
-    console.warn('[diagnosticDetails] Could not fetch findings for company:', companyId, '-', errorMessage);
+    // Log Airtable error details
+    const airtableError = error as { error?: string; message?: string; statusCode?: number };
+    console.error('[diagnosticDetails] Query error:', {
+      type: airtableError.error,
+      message: airtableError.message,
+      status: airtableError.statusCode,
+    });
     return [];
   }
 }
@@ -423,6 +464,79 @@ export async function updateDiagnosticFinding(
   } catch (error) {
     console.error('[diagnosticDetails] Error updating finding:', error);
     return null;
+  }
+}
+
+/**
+ * Delete all findings for a company and lab slug
+ * Used to clear old findings before saving new ones from a fresh run
+ * Only deletes findings that haven't been converted to work items
+ */
+export async function deleteUnconvertedFindingsForCompanyLab(
+  companyId: string,
+  labSlug: string
+): Promise<number> {
+  console.log('[diagnosticDetails] Deleting unconverted findings:', { companyId, labSlug });
+
+  try {
+    // Find all unconverted findings for this company/lab
+    // Use only "Company ID" text field to avoid ambiguity with linked "Company" field
+    // Note: Airtable has multiple fields with "Company" in the name, so we must be specific
+    const filterFormula = `AND(
+      {Record Type} = 'finding',
+      {Company ID} = '${companyId}',
+      OR(
+        {Lab Slug} = '${labSlug}',
+        {Lab Slug} = '${labSlug}Lab',
+        LOWER({Lab Slug}) = '${labSlug.toLowerCase()}'
+      ),
+      NOT({Is Converted to Work Item})
+    )`;
+
+    console.log('[diagnosticDetails] Delete filter formula:', filterFormula);
+
+    const records = await getBase()(DIAGNOSTIC_DETAILS_TABLE)
+      .select({
+        filterByFormula: filterFormula,
+        fields: ['Record Type', 'Lab Slug', 'Company ID', 'Is Converted to Work Item'], // For debugging
+      })
+      .all();
+
+    console.log('[diagnosticDetails] Found', records.length, 'records to potentially delete');
+    if (records.length > 0) {
+      console.log('[diagnosticDetails] Sample record fields:', {
+        id: records[0].id,
+        labSlug: records[0].get('Lab Slug'),
+        companyId: records[0].get('Company ID'),
+        isConverted: records[0].get('Is Converted to Work Item'),
+      });
+    }
+
+    if (records.length === 0) {
+      console.log('[diagnosticDetails] No unconverted findings to delete');
+      return 0;
+    }
+
+    const recordIds = records.map(r => r.id);
+    console.log('[diagnosticDetails] Deleting', recordIds.length, 'unconverted findings:', recordIds.slice(0, 5));
+
+    // Delete in batches of 10 (Airtable limit)
+    for (let i = 0; i < recordIds.length; i += 10) {
+      const batch = recordIds.slice(i, i + 10);
+      await getBase()(DIAGNOSTIC_DETAILS_TABLE).destroy(batch);
+      console.log('[diagnosticDetails] Deleted batch:', batch.length, 'records');
+    }
+
+    console.log('[diagnosticDetails] Successfully deleted', recordIds.length, 'findings');
+    return recordIds.length;
+  } catch (error) {
+    console.error('[diagnosticDetails] Error deleting findings:', error);
+    // Log more details about the error
+    if (error instanceof Error) {
+      console.error('[diagnosticDetails] Error message:', error.message);
+      console.error('[diagnosticDetails] Error stack:', error.stack);
+    }
+    return 0;
   }
 }
 
