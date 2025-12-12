@@ -23,8 +23,10 @@ import type { CompanyContextGraph } from './companyContextGraph';
 import { runGapIaForOsBaseline } from '@/lib/gap/orchestrator/osGapIaBaseline';
 import { writeGapIaBaselineToContext } from './writers/gapIaBaselineWriter';
 import { runCompetitionV2 } from '@/lib/competition/discoveryV2';
+import { runCompetitionV4, shouldRunV4, type CompetitionV4Result } from '@/lib/competition-v4';
 import { competitionLabImporter } from './importers/competitionLabImporter';
 import { logGapPlanRunToAirtable } from '@/lib/airtable/gapPlanRuns';
+import { createDefaultCompetitorProfile, createEmptyCompetitiveDomain } from './domains/competitive';
 
 // ============================================================================
 // Types
@@ -43,6 +45,7 @@ export type BaselineStep =
   | 'website_lab'
   | 'gap_ia'
   | 'competition_discovery'
+  | 'competition_v4'
   | 'competition_import'
   | 'snapshot';
 
@@ -189,6 +192,7 @@ const BASELINE_STEPS: BaselineStep[] = [
   'website_lab',
   'gap_ia',
   'competition_discovery',
+  'competition_v4',
   'competition_import',
   'snapshot',
 ];
@@ -202,7 +206,8 @@ const STEP_LABELS: Record<BaselineStep, string> = {
   competitor_lab: 'Competitor Lab Refinement',
   website_lab: 'Website Lab Refinement',
   gap_ia: 'Marketing Assessment (GAP-IA)',
-  competition_discovery: 'Discover Competitors (AI)',
+  competition_discovery: 'Discover Competitors (V2)',
+  competition_v4: 'Validate Competitors (V4)',
   competition_import: 'Import Competitors to Context',
   snapshot: 'Create Baseline Snapshot',
 };
@@ -605,17 +610,75 @@ export async function runBaselineContextBuild(
         completedAt: new Date().toISOString(),
         error: err,
       });
-      // Don't fail the whole pipeline - continue to import step
+      // Don't fail the whole pipeline - continue to V4/import step
     }
 
     // ========================================================================
-    // Phase 4b: Import Competitors to Context Graph
+    // Phase 4b: Competition V4 (Validation & Classification)
     // ========================================================================
-    console.log('[Baseline] Phase 4b: Importing competitors to Context Graph...');
+    let v4Result: CompetitionV4Result | null = null;
+
+    if (shouldRunV4()) {
+      console.log('[Baseline] Phase 4b: Running Competition V4 (Classification Tree)...');
+      updateStep('competition_v4', 'running', { startedAt: new Date().toISOString() });
+
+      try {
+        const v4Start = Date.now();
+
+        if (!input.dryRun) {
+          v4Result = await runCompetitionV4({
+            companyId: input.companyId,
+            companyName: company.name ?? undefined,
+            domain: domain ?? undefined,
+          });
+
+          const validatedCount = v4Result.competitors.validated.length;
+          const removedCount = v4Result.competitors.removed.length;
+
+          console.log(`[Baseline] V4 completed: ${validatedCount} validated, ${removedCount} removed`);
+          console.log(`[Baseline] V4 category: ${v4Result.category.category_name}`);
+          console.log('[Baseline] V4 top competitors:', v4Result.competitors.validated.slice(0, 5).map(c => c.domain));
+
+          updateStep('competition_v4', 'completed', {
+            completedAt: new Date().toISOString(),
+            durationMs: Date.now() - v4Start,
+            message: `${validatedCount} validated, ${removedCount} removed (${v4Result.category.category_name})`,
+          });
+        } else {
+          updateStep('competition_v4', 'skipped', {
+            completedAt: new Date().toISOString(),
+            message: 'Dry run - skipped V4',
+          });
+        }
+      } catch (e) {
+        const err = e instanceof Error ? e.message : 'Unknown error';
+        console.error('[Baseline] Competition V4 failed:', err);
+        updateStep('competition_v4', 'failed', {
+          completedAt: new Date().toISOString(),
+          error: err,
+        });
+        // Don't fail the whole pipeline - continue with V2 results
+      }
+    } else {
+      console.log('[Baseline] Phase 4b: Competition V4 skipped (feature flag off)');
+      updateStep('competition_v4', 'skipped', {
+        completedAt: new Date().toISOString(),
+        message: 'V4 not enabled (COMPETITION_ENGINE != v4|both)',
+      });
+    }
+
+    // ========================================================================
+    // Phase 4c: Import Competitors to Context Graph
+    // ========================================================================
+    console.log('[Baseline] Phase 4c: Importing competitors to Context Graph...');
     updateStep('competition_import', 'running', { startedAt: new Date().toISOString() });
 
+    // Check if we have V4 validated competitors to use
+    const hasV4Competitors = v4Result && v4Result.competitors.validated.length > 0;
+    const hasV2Competitors = competitorsDiscovered > 0 || competitionRunId;
+
     try {
-      if (competitorsDiscovered === 0 && !competitionRunId) {
+      if (!hasV4Competitors && !hasV2Competitors) {
         console.log('[Baseline] No competitors to import, skipping');
         updateStep('competition_import', 'skipped', {
           completedAt: new Date().toISOString(),
@@ -634,20 +697,90 @@ export async function runBaselineContextBuild(
         }
 
         const importStart = Date.now();
-        const importResult = await competitionLabImporter.importAll(graphForImport, input.companyId, domain || '');
+        let importMessage: string;
 
-        if (importResult.success) {
-          // Save the updated graph
-          await saveContextGraph(graphForImport, 'competition_import');
+        // Prefer V4 validated competitors when available
+        if (hasV4Competitors && v4Result) {
+          console.log('[Baseline] Using V4 validated competitors for import');
 
-          updateStep('competition_import', 'completed', {
-            completedAt: new Date().toISOString(),
-            durationMs: Date.now() - importStart,
-            message: `Imported ${importResult.fieldsUpdated} fields (${importResult.updatedPaths.length} paths)`,
+          // Convert V4 competitors to CompetitorProfile format
+          const v4Competitors = v4Result.competitors.validated.map(c => {
+            // Map V4 type to CompetitorCategory
+            const categoryMap: Record<string, 'direct' | 'indirect' | 'aspirational' | 'emerging'> = {
+              direct: 'direct',
+              indirect: 'indirect',
+              adjacent: 'indirect', // V4 'adjacent' maps to 'indirect' in context graph
+            };
+            const category = categoryMap[c.type] || 'direct';
+
+            return {
+              ...createDefaultCompetitorProfile(c.name),
+              domain: c.domain,
+              website: c.domain,
+              category,
+              confidence: c.confidence / 100, // V4 uses 0-100, context graph uses 0-1
+              autoSeeded: true,
+              notes: c.reason || null,
+              provenance: [{
+                field: 'competitor',
+                source: 'competition_v4',
+                updatedAt: new Date().toISOString(),
+                confidence: c.confidence / 100,
+              }],
+            };
           });
+
+          // Ensure competitive domain exists with proper structure
+          if (!graphForImport.competitive) {
+            graphForImport.competitive = createEmptyCompetitiveDomain();
+          }
+
+          // Update competitors with proper provenance format
+          graphForImport.competitive.competitors = {
+            value: v4Competitors,
+            provenance: [{
+              updatedAt: new Date().toISOString(),
+              source: 'competition_lab',
+              confidence: 0.9,
+              notes: 'Competition V4 validated competitors',
+            }],
+          };
+
+          // Store V4 category in market position field
+          if (v4Result.category.category_name) {
+            graphForImport.competitive.marketPosition = {
+              value: v4Result.category.category_name,
+              provenance: [{
+                updatedAt: new Date().toISOString(),
+                source: 'competition_lab',
+                confidence: 0.85,
+                notes: `Competition V4 category: ${v4Result.category.category_name}`,
+              }],
+            };
+          }
+
+          await saveContextGraph(graphForImport, 'competition_v4_import');
+
+          importMessage = `V4: ${v4Competitors.length} validated competitors (${v4Result.category.category_name})`;
+          console.log(`[Baseline] Imported ${v4Competitors.length} V4 competitors`);
         } else {
-          throw new Error(importResult.errors.join(', ') || 'Import failed');
+          // Fall back to V2 import
+          console.log('[Baseline] Using V2 competitors for import');
+          const importResult = await competitionLabImporter.importAll(graphForImport, input.companyId, domain || '');
+
+          if (!importResult.success) {
+            throw new Error(importResult.errors.join(', ') || 'Import failed');
+          }
+
+          await saveContextGraph(graphForImport, 'competition_import');
+          importMessage = `V2: ${importResult.fieldsUpdated} fields (${importResult.updatedPaths.length} paths)`;
         }
+
+        updateStep('competition_import', 'completed', {
+          completedAt: new Date().toISOString(),
+          durationMs: Date.now() - importStart,
+          message: importMessage,
+        });
       }
     } catch (e) {
       const err = e instanceof Error ? e.message : 'Unknown error';

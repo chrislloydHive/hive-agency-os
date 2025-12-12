@@ -210,7 +210,7 @@ export interface SetupProgress {
   currentStep: SetupStepId;
   completedSteps: SetupStepId[];
   lastSavedAt: string | null;
-  startedAt: string;
+  startedAt: string | null;
 }
 
 export interface SetupState {

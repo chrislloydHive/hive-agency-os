@@ -27,6 +27,9 @@ import { loadQBRData, getQBRSummary, calculateOverallHealthScore } from '@/lib/o
 import { getInboundLeadById } from '@/lib/airtable/inboundLeads';
 import { getCompanyStatusSummary } from '@/lib/os/companies/companyStatus';
 import { getCompanyAnalyticsSnapshot } from '@/lib/os/companies/companyAnalytics';
+import { getCompanyFindings } from '@/lib/os/findings/companyFindings';
+import { generateCompanyStatusNarrative } from '@/lib/os/contextAi/generateCompanyStatusNarrative';
+import { getDiagnosticFindingsForCompany } from '@/lib/airtable/diagnosticDetails';
 import { CompanyOverviewPage } from '@/components/os/CompanyOverviewPage';
 import { DmaFullGapBanner } from '@/components/os/DmaFullGapBanner';
 import { FullWorkupChecklist } from '@/components/os/FullWorkupChecklist';
@@ -80,6 +83,8 @@ export default async function OsOverviewPage({
     pipelineLead,
     statusSummary,
     analyticsSnapshot,
+    topFindings,
+    rawAnalyticsFindings,
   ] = await Promise.all([
     getCompanyById(companyId),
     getCompanyStrategySnapshot(companyId).catch(() => null),
@@ -105,13 +110,40 @@ export default async function OsOverviewPage({
     // Status View data
     getCompanyStatusSummary({ companyId, leadId }).catch(() => null),
     getCompanyAnalyticsSnapshot({ companyId }).catch(() => null),
+    // Fetch top findings for AI context (high severity only)
+    getCompanyFindings(companyId, { severities: ['high', 'critical'] }).catch(() => []),
+    // Fetch analytics-specific findings for Status Panel
+    getDiagnosticFindingsForCompany(companyId, { labSlug: 'analytics' }).catch(() => []),
   ]);
+
+  // Filter analytics findings for high/medium severity (top 3 for Status Panel)
+  const analyticsFindings = (rawAnalyticsFindings || [])
+    .filter((f) => f.severity === 'high' || f.severity === 'medium')
+    .slice(0, 3);
 
   // Compute QBR summary if data is available
   const qbrSummary = qbrData ? {
     ...getQBRSummary(qbrData),
     overallHealthScore: calculateOverallHealthScore(qbrData),
   } : null;
+
+  // Generate AI narrative for Status View (if we have status and analytics data)
+  const narrative = statusSummary && analyticsSnapshot
+    ? await generateCompanyStatusNarrative({
+        companyId,
+        companyName: company?.name,
+        status: statusSummary,
+        analytics: analyticsSnapshot,
+        existingFindings: topFindings?.slice(0, 10).map((f) => ({
+          title: f.description || '',
+          severity: f.severity || 'medium',
+          labSlug: f.labSlug,
+        })),
+      }).catch((error) => {
+        console.error('[CompanyOverview] Failed to generate narrative:', error);
+        return null;
+      })
+    : null;
 
   if (!company) {
     return (
@@ -152,6 +184,8 @@ export default async function OsOverviewPage({
           status={statusSummary}
           analytics={analyticsSnapshot}
           companyName={company.name}
+          narrative={narrative ?? undefined}
+          analyticsFindings={analyticsFindings.length > 0 ? analyticsFindings : undefined}
         />
       )}
 

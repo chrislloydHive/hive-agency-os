@@ -94,26 +94,12 @@ export function SetupClient({
     return completed;
   };
 
-  // Determine initial step: URL param > localStorage > default
+  // Determine initial step from server (URL param converted to step ID)
+  // localStorage is checked in useEffect to avoid hydration mismatch
   const getInitialStep = (): SetupStepId => {
-    // First check URL param
     if (initialStep && SETUP_STEPS.includes(initialStep as SetupStepId)) {
       return initialStep as SetupStepId;
     }
-
-    // Then check localStorage
-    if (typeof window !== 'undefined') {
-      try {
-        const savedStep = localStorage.getItem(`setup-step-${companyId}`);
-        if (savedStep && SETUP_STEPS.includes(savedStep as SetupStepId)) {
-          return savedStep as SetupStepId;
-        }
-      } catch {
-        // Ignore localStorage errors
-      }
-    }
-
-    // Default to first step
     return 'business-identity';
   };
 
@@ -121,8 +107,27 @@ export function SetupClient({
     currentStep: getInitialStep(),
     completedSteps: calculateCompletedSteps(initialFormData),
     lastSavedAt: null,
-    startedAt: new Date().toISOString(),
+    startedAt: null, // Set in useEffect to avoid hydration mismatch
   }));
+
+  // Set startedAt after hydration to avoid mismatch
+  useEffect(() => {
+    setProgress((prev) => prev.startedAt ? prev : { ...prev, startedAt: new Date().toISOString() });
+  }, []);
+
+  // Check localStorage for saved step AFTER hydration (only if no URL param)
+  useEffect(() => {
+    if (initialStep) return; // URL param takes precedence
+
+    try {
+      const savedStep = localStorage.getItem(`setup-step-${companyId}`);
+      if (savedStep && SETUP_STEPS.includes(savedStep as SetupStepId)) {
+        setProgress((prev) => ({ ...prev, currentStep: savedStep as SetupStepId }));
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, [companyId, initialStep]);
 
   const [isPending, startTransition] = useTransition();
   const [isDirty, setIsDirty] = useState(false);

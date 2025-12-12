@@ -1,0 +1,378 @@
+// lib/competition-v4/runCompetitionV4.ts
+// Competition V4 - Classification Tree Orchestrator
+//
+// Sequential AI pipeline:
+// 1. Business Decomposition → 2. Category Definition → 3. Discovery → 4. Validation → 5. Summary
+
+import { aiSimple } from '@/lib/ai-gateway';
+import { getCompanyById } from '@/lib/airtable/companies';
+import { loadContextGraph } from '@/lib/contextGraph/storage';
+import type {
+  CompetitionV4Input,
+  CompetitionV4Result,
+  BusinessDecompositionResult,
+  CategoryDefinition,
+  CompetitorDiscoveryResult,
+  CompetitorValidationResult,
+  CompetitiveSummary,
+  ProposedCompetitor,
+} from './types';
+import {
+  PROMPT_1_BUSINESS_DECOMPOSITION,
+  PROMPT_2_CATEGORY_DEFINITION,
+  PROMPT_3_COMPETITOR_DISCOVERY,
+  PROMPT_4_COMPETITOR_VALIDATION,
+  PROMPT_5_COMPETITIVE_SUMMARY,
+  buildDecompositionPrompt,
+  buildCategoryPrompt,
+  buildDiscoveryPrompt,
+  buildValidationPrompt,
+  buildSummaryPrompt,
+} from './prompts';
+
+// ============================================================================
+// JSON Parsing Helpers
+// ============================================================================
+
+interface ParseResult<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  raw?: string;
+}
+
+function parseJsonResponse<T>(response: string, stepName: string): ParseResult<T> {
+  try {
+    // Try to extract JSON from the response (handle markdown code blocks)
+    let jsonStr = response.trim();
+
+    // Remove markdown code blocks if present
+    if (jsonStr.startsWith('```json')) {
+      jsonStr = jsonStr.slice(7);
+    } else if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.slice(3);
+    }
+    if (jsonStr.endsWith('```')) {
+      jsonStr = jsonStr.slice(0, -3);
+    }
+    jsonStr = jsonStr.trim();
+
+    const parsed = JSON.parse(jsonStr) as T;
+    return { success: true, data: parsed, raw: response };
+  } catch (error) {
+    console.error(`[competition-v4] Failed to parse ${stepName} response:`, error);
+    console.error(`[competition-v4] Raw response:`, response.slice(0, 500));
+    return {
+      success: false,
+      error: `Failed to parse ${stepName}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      raw: response,
+    };
+  }
+}
+
+// ============================================================================
+// Individual Step Functions
+// ============================================================================
+
+async function runStep1Decomposition(
+  input: CompetitionV4Input
+): Promise<ParseResult<BusinessDecompositionResult>> {
+  console.log('[competition-v4] Step 1: Business Decomposition...');
+
+  const taskPrompt = buildDecompositionPrompt({
+    companyName: input.companyName || 'Unknown Company',
+    domain: input.domain,
+    websiteText: input.websiteText,
+    diagnosticsSummary: input.diagnosticsSummary,
+  });
+
+  const response = await aiSimple({
+    systemPrompt: PROMPT_1_BUSINESS_DECOMPOSITION,
+    taskPrompt,
+    temperature: 0.2,
+    maxTokens: 1500,
+    jsonMode: true,
+  });
+
+  return parseJsonResponse<BusinessDecompositionResult>(response, 'Business Decomposition');
+}
+
+async function runStep2CategoryDefinition(
+  decomposition: BusinessDecompositionResult
+): Promise<ParseResult<CategoryDefinition>> {
+  console.log('[competition-v4] Step 2: Category Definition...');
+
+  const taskPrompt = buildCategoryPrompt(decomposition);
+
+  const response = await aiSimple({
+    systemPrompt: PROMPT_2_CATEGORY_DEFINITION,
+    taskPrompt,
+    temperature: 0.2,
+    maxTokens: 1500,
+    jsonMode: true,
+  });
+
+  return parseJsonResponse<CategoryDefinition>(response, 'Category Definition');
+}
+
+async function runStep3CompetitorDiscovery(
+  category: CategoryDefinition,
+  companyName: string
+): Promise<ParseResult<CompetitorDiscoveryResult>> {
+  console.log('[competition-v4] Step 3: Competitor Discovery...');
+
+  const taskPrompt = buildDiscoveryPrompt(category, companyName);
+
+  const response = await aiSimple({
+    systemPrompt: PROMPT_3_COMPETITOR_DISCOVERY,
+    taskPrompt,
+    temperature: 0.3, // Slightly higher for diversity
+    maxTokens: 3000,
+    jsonMode: true,
+  });
+
+  return parseJsonResponse<CompetitorDiscoveryResult>(response, 'Competitor Discovery');
+}
+
+async function runStep4CompetitorValidation(
+  category: CategoryDefinition,
+  competitors: ProposedCompetitor[]
+): Promise<ParseResult<CompetitorValidationResult>> {
+  console.log('[competition-v4] Step 4: Competitor Validation...');
+
+  const taskPrompt = buildValidationPrompt(category, competitors);
+
+  const response = await aiSimple({
+    systemPrompt: PROMPT_4_COMPETITOR_VALIDATION,
+    taskPrompt,
+    temperature: 0.1, // Low for strict validation
+    maxTokens: 3000,
+    jsonMode: true,
+  });
+
+  return parseJsonResponse<CompetitorValidationResult>(response, 'Competitor Validation');
+}
+
+async function runStep5CompetitiveSummary(
+  category: CategoryDefinition,
+  validatedCompetitors: ProposedCompetitor[]
+): Promise<ParseResult<CompetitiveSummary>> {
+  console.log('[competition-v4] Step 5: Competitive Summary...');
+
+  const taskPrompt = buildSummaryPrompt(category, validatedCompetitors);
+
+  const response = await aiSimple({
+    systemPrompt: PROMPT_5_COMPETITIVE_SUMMARY,
+    taskPrompt,
+    temperature: 0.3,
+    maxTokens: 1500,
+    jsonMode: true,
+  });
+
+  return parseJsonResponse<CompetitiveSummary>(response, 'Competitive Summary');
+}
+
+// ============================================================================
+// Main Orchestrator
+// ============================================================================
+
+export async function runCompetitionV4(
+  input: CompetitionV4Input
+): Promise<CompetitionV4Result> {
+  const startTime = Date.now();
+  const runId = `comp-v4-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`[COMPETITION V4] Starting Classification Tree Analysis`);
+  console.log(`[COMPETITION V4] Run ID: ${runId}`);
+  console.log(`[COMPETITION V4] Company: ${input.companyId}`);
+  console.log(`${'='.repeat(60)}\n`);
+
+  const stepErrors: { step: string; error: string }[] = [];
+  let stepsCompleted = 0;
+
+  // Get company info if not provided
+  let companyName = input.companyName;
+  let domain = input.domain;
+
+  if (!companyName || !domain) {
+    try {
+      const company = await getCompanyById(input.companyId);
+      if (company) {
+        companyName = companyName || company.name || 'Unknown Company';
+        domain = domain || company.domain || company.website || undefined;
+      }
+    } catch (error) {
+      console.warn('[competition-v4] Failed to load company:', error);
+    }
+  }
+
+  companyName = companyName || 'Unknown Company';
+
+  // Get website text from context graph if not provided
+  let websiteText = input.websiteText;
+  if (!websiteText) {
+    try {
+      const graph = await loadContextGraph(input.companyId);
+      if (graph) {
+        // Try to extract relevant text from context graph
+        const identity = (graph as any)?.identity || {};
+        const productOffer = (graph as any)?.productOffer || {};
+        const audience = (graph as any)?.audience || {};
+
+        const parts: string[] = [];
+        if (identity.businessName?.value) parts.push(`Business: ${identity.businessName.value}`);
+        if (identity.industry?.value) parts.push(`Industry: ${identity.industry.value}`);
+        if (identity.businessModel?.value) parts.push(`Business Model: ${identity.businessModel.value}`);
+        if (productOffer.coreServices?.value) parts.push(`Services: ${JSON.stringify(productOffer.coreServices.value)}`);
+        if (audience.targetAudience?.value) parts.push(`Target Audience: ${audience.targetAudience.value}`);
+
+        websiteText = parts.join('\n');
+      }
+    } catch (error) {
+      console.warn('[competition-v4] Failed to load context graph:', error);
+    }
+  }
+
+  // Initialize result with defaults
+  let decomposition: BusinessDecompositionResult = {
+    market_orientation: 'Unknown',
+    economic_model: 'Unknown',
+    offering_type: 'Unknown',
+    buyer_user_relationship: 'Unknown',
+    transaction_model: 'Unknown',
+    primary_vertical: 'Unknown',
+    secondary_verticals: [],
+    geographic_scope: 'Unknown',
+    confidence_notes: 'Failed to complete decomposition',
+  };
+
+  let category: CategoryDefinition = {
+    category_slug: 'unknown',
+    category_name: 'Unknown Category',
+    category_description: 'Category could not be determined',
+    qualification_rules: [],
+    exclusion_rules: [],
+  };
+
+  let validatedCompetitors: ProposedCompetitor[] = [];
+  let removedCompetitors: { name: string; domain: string; reason: string }[] = [];
+  let summary: CompetitiveSummary | undefined;
+
+  try {
+    // Step 1: Business Decomposition
+    const step1Result = await runStep1Decomposition({
+      ...input,
+      companyName,
+      domain,
+      websiteText,
+    });
+
+    if (!step1Result.success || !step1Result.data) {
+      stepErrors.push({ step: 'decomposition', error: step1Result.error || 'Unknown error' });
+      throw new Error(`Step 1 failed: ${step1Result.error}`);
+    }
+
+    decomposition = step1Result.data;
+    stepsCompleted++;
+    console.log(`[competition-v4] Decomposition: ${decomposition.economic_model} / ${decomposition.primary_vertical}`);
+
+    // Step 2: Category Definition
+    const step2Result = await runStep2CategoryDefinition(decomposition);
+
+    if (!step2Result.success || !step2Result.data) {
+      stepErrors.push({ step: 'category', error: step2Result.error || 'Unknown error' });
+      throw new Error(`Step 2 failed: ${step2Result.error}`);
+    }
+
+    category = step2Result.data;
+    stepsCompleted++;
+    console.log(`[competition-v4] Category: ${category.category_name} (${category.category_slug})`);
+
+    // Step 3: Competitor Discovery
+    const step3Result = await runStep3CompetitorDiscovery(category, companyName);
+
+    if (!step3Result.success || !step3Result.data) {
+      stepErrors.push({ step: 'discovery', error: step3Result.error || 'Unknown error' });
+      throw new Error(`Step 3 failed: ${step3Result.error}`);
+    }
+
+    const discoveredCompetitors = step3Result.data.competitors || [];
+    stepsCompleted++;
+    console.log(`[competition-v4] Discovered ${discoveredCompetitors.length} competitors`);
+
+    // Step 4: Competitor Validation
+    if (discoveredCompetitors.length > 0) {
+      const step4Result = await runStep4CompetitorValidation(category, discoveredCompetitors);
+
+      if (!step4Result.success || !step4Result.data) {
+        stepErrors.push({ step: 'validation', error: step4Result.error || 'Unknown error' });
+        // Don't throw - we can still use discovered competitors
+        validatedCompetitors = discoveredCompetitors;
+      } else {
+        validatedCompetitors = step4Result.data.validated_competitors || [];
+        removedCompetitors = step4Result.data.removed_competitors || [];
+        stepsCompleted++;
+        console.log(`[competition-v4] Validated ${validatedCompetitors.length} competitors, removed ${removedCompetitors.length}`);
+      }
+    } else {
+      stepsCompleted++; // Skip validation if no competitors
+    }
+
+    // Step 5: Competitive Summary (optional)
+    if (!input.skipSummary && validatedCompetitors.length > 0) {
+      const step5Result = await runStep5CompetitiveSummary(category, validatedCompetitors);
+
+      if (step5Result.success && step5Result.data) {
+        summary = step5Result.data;
+        stepsCompleted++;
+        console.log(`[competition-v4] Summary generated`);
+      } else {
+        stepErrors.push({ step: 'summary', error: step5Result.error || 'Unknown error' });
+        // Don't throw - summary is optional
+      }
+    }
+  } catch (error) {
+    console.error('[competition-v4] Pipeline error:', error);
+  }
+
+  const durationMs = Date.now() - startTime;
+  const status = stepsCompleted >= 4 ? 'completed' : stepsCompleted >= 1 ? 'partial' : 'failed';
+
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`[COMPETITION V4] Analysis Complete`);
+  console.log(`[COMPETITION V4] Status: ${status}`);
+  console.log(`[COMPETITION V4] Steps: ${stepsCompleted}/5`);
+  console.log(`[COMPETITION V4] Competitors: ${validatedCompetitors.length} validated, ${removedCompetitors.length} removed`);
+  console.log(`[COMPETITION V4] Duration: ${durationMs}ms`);
+  console.log(`${'='.repeat(60)}\n`);
+
+  return {
+    version: 4,
+    runId,
+    companyId: input.companyId,
+    companyName,
+    domain: domain || null,
+    decomposition,
+    category,
+    competitors: {
+      validated: validatedCompetitors,
+      removed: removedCompetitors,
+    },
+    summary,
+    execution: {
+      status,
+      startedAt: new Date(startTime).toISOString(),
+      completedAt: new Date().toISOString(),
+      durationMs,
+      stepsCompleted,
+      stepErrors: stepErrors.length > 0 ? stepErrors : undefined,
+    },
+  };
+}
+
+// ============================================================================
+// Export
+// ============================================================================
+
+export { runCompetitionV4 as default };

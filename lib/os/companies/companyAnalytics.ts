@@ -182,12 +182,15 @@ export async function getCompanyAnalyticsSnapshot(
     companyId,
     range,
     comparedTo: 'prev_period',
+    hasAnalytics: false,
+    analyticsStatusMessage: 'Analytics not connected for this company.',
+    hasGa4: false,
+    hasGsc: false,
+    hasMedia: false,
     keyAlerts: [],
     startDate,
     endDate,
     updatedAt: now,
-    hasGa4: false,
-    hasGsc: false,
   };
 
   try {
@@ -199,6 +202,17 @@ export async function getCompanyAnalyticsSnapshot(
       // Set integration status
       snapshot.hasGa4 = pulse.hasGa4;
       snapshot.hasGsc = pulse.hasGsc;
+      snapshot.hasAnalytics = pulse.hasGa4 || pulse.hasGsc;
+
+      // Update status message based on what's connected
+      if (snapshot.hasAnalytics) {
+        const connectedSources: string[] = [];
+        if (pulse.hasGa4) connectedSources.push('GA4');
+        if (pulse.hasGsc) connectedSources.push('Search Console');
+        snapshot.analyticsStatusMessage = undefined; // Clear the "not connected" message
+      } else {
+        snapshot.analyticsStatusMessage = 'Analytics not connected. Connect GA4 or Search Console to see performance data.';
+      }
 
       // GA4 metrics
       if (pulse.hasGa4) {

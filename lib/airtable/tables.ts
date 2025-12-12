@@ -43,6 +43,10 @@ export const AIRTABLE_TABLES = {
   CONTEXT_GRAPHS: 'ContextGraphs', // Company Context Graph storage (JSON blobs)
   CONTEXT_GRAPH_VERSIONS: 'ContextGraphVersions', // Version history of context graphs
 
+  // Company Context (Draftable Resource)
+  COMPANY_CONTEXT: 'Company Context', // Saved company context
+  COMPANY_CONTEXT_DRAFTS: 'Company Context Drafts', // AI-generated context drafts
+
   // QBR Stories
   QBR_STORIES: 'QBR Stories', // QBR Story narratives (JSON blobs)
 

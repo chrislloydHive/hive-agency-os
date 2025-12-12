@@ -10,7 +10,7 @@
 // History is a utility button (not a tab) that links to /brain/history
 
 import Link from 'next/link';
-import { Brain, History } from 'lucide-react';
+import { Brain, History, SlidersHorizontal } from 'lucide-react';
 import { BrainSubNav } from '@/components/os/BrainSubNav';
 
 interface BrainLayoutProps {
@@ -38,6 +38,15 @@ export default async function BrainLayout({ children, params }: BrainLayoutProps
         {/* Sub-navigation and utilities */}
         <div className="flex items-center gap-3">
           <BrainSubNav companyId={companyId} />
+
+          {/* Setup utility button */}
+          <Link
+            href={`/c/${companyId}/brain/setup`}
+            className="p-2 rounded-lg bg-slate-900/50 border border-slate-800 text-slate-400 hover:text-slate-300 hover:bg-slate-800/50 hover:border-slate-700 transition-all"
+            title="Setup Wizard - Guided setup for company context"
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+          </Link>
 
           {/* History utility button */}
           <Link

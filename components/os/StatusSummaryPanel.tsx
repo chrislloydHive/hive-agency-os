@@ -22,9 +22,13 @@ import {
   BarChart3,
   Search,
   Zap,
+  Focus,
+  Sparkles,
 } from 'lucide-react';
+import { RefreshAnalyticsFindingsButton } from '@/components/os/RefreshAnalyticsFindingsButton';
 import type { CompanyStatusSummary } from '@/lib/types/companyStatus';
 import type { CompanyAnalyticsSnapshot } from '@/lib/types/companyAnalytics';
+import type { CompanyStatusNarrative } from '@/lib/types/companyNarrative';
 import {
   getLifecycleStageLabel,
   getLifecycleStageColorClasses,
@@ -41,6 +45,7 @@ import {
   getChangeColorClass,
   formatCurrency,
 } from '@/lib/types/companyAnalytics';
+import type { DiagnosticDetailFinding } from '@/lib/airtable/diagnosticDetails';
 
 // ============================================================================
 // Types
@@ -50,6 +55,10 @@ interface StatusSummaryPanelProps {
   status: CompanyStatusSummary;
   analytics: CompanyAnalyticsSnapshot;
   companyName?: string;
+  /** AI-generated narrative (optional - falls back to computed signals if not provided) */
+  narrative?: CompanyStatusNarrative;
+  /** Analytics-specific findings to display (optional - shows in "What's not working" section) */
+  analyticsFindings?: DiagnosticDetailFinding[];
 }
 
 // ============================================================================
@@ -120,48 +129,61 @@ export function StatusSummaryPanel({
   status,
   analytics,
   companyName,
+  narrative,
+  analyticsFindings,
 }: StatusSummaryPanelProps) {
-  // Build positive signals
-  const positiveSignals: string[] = [];
-  if (analytics.conversionsChangePct !== null && analytics.conversionsChangePct !== undefined && analytics.conversionsChangePct > 0) {
-    positiveSignals.push(`Conversions up ${analytics.conversionsChangePct}% vs prior period`);
-  }
-  if (analytics.sessionsChangePct !== null && analytics.sessionsChangePct !== undefined && analytics.sessionsChangePct > 0) {
-    positiveSignals.push(`Sessions up ${analytics.sessionsChangePct}% vs prior period`);
-  }
-  if (analytics.organicClicksChangePct !== null && analytics.organicClicksChangePct !== undefined && analytics.organicClicksChangePct > 0) {
-    positiveSignals.push(`Organic clicks up ${analytics.organicClicksChangePct}% vs prior period`);
-  }
-  if (analytics.cplChangePct !== null && analytics.cplChangePct !== undefined && analytics.cplChangePct < 0) {
-    positiveSignals.push(`CPL improved ${Math.abs(analytics.cplChangePct)}% vs prior period`);
-  }
-  if (status.mediaProgramActive) {
-    positiveSignals.push('Active media program running');
-  }
-  if (analytics.trend === 'up') {
-    positiveSignals.push('Overall trend is improving');
+  // Use AI narrative if provided, otherwise compute signals from analytics
+  const useAiNarrative = narrative && narrative.isAiGenerated;
+
+  // Build positive signals (fallback when no AI narrative)
+  const computedPositiveSignals: string[] = [];
+  if (!useAiNarrative) {
+    if (analytics.conversionsChangePct !== null && analytics.conversionsChangePct !== undefined && analytics.conversionsChangePct > 0) {
+      computedPositiveSignals.push(`Conversions up ${analytics.conversionsChangePct}% vs prior period`);
+    }
+    if (analytics.sessionsChangePct !== null && analytics.sessionsChangePct !== undefined && analytics.sessionsChangePct > 0) {
+      computedPositiveSignals.push(`Sessions up ${analytics.sessionsChangePct}% vs prior period`);
+    }
+    if (analytics.organicClicksChangePct !== null && analytics.organicClicksChangePct !== undefined && analytics.organicClicksChangePct > 0) {
+      computedPositiveSignals.push(`Organic clicks up ${analytics.organicClicksChangePct}% vs prior period`);
+    }
+    if (analytics.cplChangePct !== null && analytics.cplChangePct !== undefined && analytics.cplChangePct < 0) {
+      computedPositiveSignals.push(`CPL improved ${Math.abs(analytics.cplChangePct)}% vs prior period`);
+    }
+    if (status.mediaProgramActive) {
+      computedPositiveSignals.push('Active media program running');
+    }
+    if (analytics.trend === 'up') {
+      computedPositiveSignals.push('Overall trend is improving');
+    }
   }
 
-  // Build negative signals
-  const negativeSignals: string[] = [];
-  if (analytics.sessionsChangePct !== null && analytics.sessionsChangePct !== undefined && analytics.sessionsChangePct < -10) {
-    negativeSignals.push(`Sessions down ${Math.abs(analytics.sessionsChangePct)}% vs prior period`);
+  // Build negative signals (fallback when no AI narrative)
+  const computedNegativeSignals: string[] = [];
+  if (!useAiNarrative) {
+    if (analytics.sessionsChangePct !== null && analytics.sessionsChangePct !== undefined && analytics.sessionsChangePct < -10) {
+      computedNegativeSignals.push(`Sessions down ${Math.abs(analytics.sessionsChangePct)}% vs prior period`);
+    }
+    if (analytics.conversionsChangePct !== null && analytics.conversionsChangePct !== undefined && analytics.conversionsChangePct < -10) {
+      computedNegativeSignals.push(`Conversions down ${Math.abs(analytics.conversionsChangePct)}% vs prior period`);
+    }
+    if (analytics.organicClicksChangePct !== null && analytics.organicClicksChangePct !== undefined && analytics.organicClicksChangePct < -10) {
+      computedNegativeSignals.push(`Organic clicks down ${Math.abs(analytics.organicClicksChangePct)}% vs prior period`);
+    }
+    if (analytics.cplChangePct !== null && analytics.cplChangePct !== undefined && analytics.cplChangePct > 10) {
+      computedNegativeSignals.push(`CPL increased ${analytics.cplChangePct}% vs prior period`);
+    }
+    if (status.highSeverityIssuesCount !== undefined && status.highSeverityIssuesCount > 0) {
+      computedNegativeSignals.push(`${status.highSeverityIssuesCount} high-severity issue${status.highSeverityIssuesCount > 1 ? 's' : ''} in diagnostics`);
+    }
+    if (analytics.trend === 'down') {
+      computedNegativeSignals.push('Overall trend is declining');
+    }
   }
-  if (analytics.conversionsChangePct !== null && analytics.conversionsChangePct !== undefined && analytics.conversionsChangePct < -10) {
-    negativeSignals.push(`Conversions down ${Math.abs(analytics.conversionsChangePct)}% vs prior period`);
-  }
-  if (analytics.organicClicksChangePct !== null && analytics.organicClicksChangePct !== undefined && analytics.organicClicksChangePct < -10) {
-    negativeSignals.push(`Organic clicks down ${Math.abs(analytics.organicClicksChangePct)}% vs prior period`);
-  }
-  if (analytics.cplChangePct !== null && analytics.cplChangePct !== undefined && analytics.cplChangePct > 10) {
-    negativeSignals.push(`CPL increased ${analytics.cplChangePct}% vs prior period`);
-  }
-  if (status.highSeverityIssuesCount !== undefined && status.highSeverityIssuesCount > 0) {
-    negativeSignals.push(`${status.highSeverityIssuesCount} high-severity issue${status.highSeverityIssuesCount > 1 ? 's' : ''} in diagnostics`);
-  }
-  if (analytics.trend === 'down') {
-    negativeSignals.push('Overall trend is declining');
-  }
+
+  // Final signals: use AI narrative if available, otherwise computed
+  const positiveSignals = useAiNarrative ? narrative.whatsWorking : computedPositiveSignals;
+  const negativeSignals = useAiNarrative ? narrative.whatsNotWorking : computedNegativeSignals;
 
   // Format GAP run date
   const formatDate = (dateStr?: string | null) => {
@@ -177,8 +199,8 @@ export function StatusSummaryPanel({
     }
   };
 
-  // Has analytics data
-  const hasAnalyticsData = analytics.hasGa4 || analytics.hasGsc;
+  // Has analytics data - use the unified hasAnalytics field
+  const hasAnalyticsData = analytics.hasAnalytics;
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
@@ -212,10 +234,12 @@ export function StatusSummaryPanel({
           </div>
         </div>
 
-        {/* Status Reason */}
-        {status.overallStatusReason && (
+        {/* AI Summary or Status Reason */}
+        {useAiNarrative && narrative.summary ? (
+          <p className="mt-2 text-sm text-slate-300">{narrative.summary}</p>
+        ) : status.overallStatusReason ? (
           <p className="mt-2 text-xs text-slate-500">{status.overallStatusReason}</p>
-        )}
+        ) : null}
       </div>
 
       {/* ================================================================== */}
@@ -316,8 +340,61 @@ export function StatusSummaryPanel({
               No major negative trends detected in the last 28 days.
             </p>
           )}
+
+          {/* Analytics Issues Subsection */}
+          {analyticsFindings && analyticsFindings.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-slate-700/50">
+              <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-2 flex items-center gap-1.5">
+                <Activity className="w-3 h-3" />
+                Analytics Issues
+              </div>
+              <ul className="space-y-1.5">
+                {analyticsFindings.map((finding) => (
+                  <li key={finding.id || finding.issueKey} className="flex items-start gap-2 text-xs">
+                    <span
+                      className={`inline-flex h-1.5 w-1.5 rounded-full mt-1.5 flex-shrink-0 ${
+                        finding.severity === 'high' || finding.severity === 'critical'
+                          ? 'bg-red-500'
+                          : 'bg-amber-400'
+                      }`}
+                    />
+                    <span className="text-slate-300">{finding.description || 'Untitled finding'}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* ================================================================== */}
+      {/* Priority Focus (AI-driven, only shown when narrative is available) */}
+      {/* ================================================================== */}
+      {useAiNarrative && narrative.priorityFocus && narrative.priorityFocus.length > 0 && (
+        <div className="border-t border-slate-800 px-4 py-3 bg-gradient-to-r from-cyan-900/10 to-blue-900/10">
+          <div className="flex items-center gap-2 mb-3">
+            <Focus className="w-4 h-4 text-cyan-400" />
+            <span className="text-sm font-medium text-slate-200">Priority Focus</span>
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+              <Sparkles className="w-2.5 h-2.5" />
+              AI
+            </span>
+          </div>
+          <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {narrative.priorityFocus.slice(0, 5).map((focus, index) => (
+              <li
+                key={index}
+                className="flex items-start gap-2 text-xs bg-slate-800/30 rounded-lg px-3 py-2"
+              >
+                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-[10px] font-bold">
+                  {index + 1}
+                </span>
+                <span className="text-slate-300">{focus}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* ================================================================== */}
       {/* Analytics Strip */}
@@ -334,14 +411,22 @@ export function StatusSummaryPanel({
             </span>
           </div>
 
-          {!hasAnalyticsData && (
-            <Link
-              href={`/c/${status.companyId}/brain/setup?step=9`}
-              className="text-xs text-cyan-400 hover:text-cyan-300"
-            >
-              Connect integrations
-            </Link>
-          )}
+          <div className="flex items-center gap-3">
+            {hasAnalyticsData && (
+              <RefreshAnalyticsFindingsButton
+                companyId={status.companyId}
+                size="sm"
+              />
+            )}
+            {!hasAnalyticsData && (
+              <Link
+                href={`/c/${status.companyId}/brain/setup?step=9`}
+                className="text-xs text-cyan-400 hover:text-cyan-300"
+              >
+                Connect integrations
+              </Link>
+            )}
+          </div>
         </div>
 
         {hasAnalyticsData ? (
@@ -408,7 +493,7 @@ export function StatusSummaryPanel({
         ) : (
           <div className="text-center py-4">
             <p className="text-xs text-slate-500">
-              Connect GA4 and Search Console to see analytics data.
+              {analytics.analyticsStatusMessage || 'Connect GA4 and Search Console to see analytics data.'}
             </p>
           </div>
         )}

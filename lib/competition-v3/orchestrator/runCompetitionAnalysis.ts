@@ -15,6 +15,7 @@
 
 import { loadContextGraph } from '@/lib/contextGraph/storage';
 import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
+import { getCompanyById } from '@/lib/airtable/companies';
 import { generateSearchQueries } from '../discovery/searchQueries';
 import { runDiscovery } from '../discovery/aiSearch';
 import { enrichCandidates } from '../enrichment/metadataExtractor';
@@ -32,8 +33,14 @@ import type {
   LandscapeInsight,
   StrategicRecommendation,
   VerticalCategory,
+  CompanyArchetype,
 } from '../types';
-import { detectVerticalCategory } from '../verticalClassifier';
+import {
+  detectVerticalCategory,
+  detectCompanyArchetype,
+  detectMarketplaceVertical,
+  classifyCompanyArchetypeAndVertical,
+} from '../verticalClassifier';
 
 // ============================================================================
 // Main Orchestrator
@@ -53,6 +60,9 @@ export interface CompetitionV3Result {
   recommendations: StrategicRecommendation[];
 }
 
+// Version stamp for tracking which code version is running
+const COMPETITION_V3_VERSION = '2025-12-11-marketplace-fix';
+
 /**
  * Run the full V3 competition analysis pipeline
  */
@@ -62,6 +72,7 @@ export async function runCompetitionV3(
   const { companyId, maxCandidates = 30, maxFinal = 18, skipNarrative = false } = options;
 
   console.log(`\n${'='.repeat(60)}`);
+  console.log(`[COMPV3 VERSION] ${COMPETITION_V3_VERSION}`);
   console.log(`[competition-v3] Starting analysis for company: ${companyId}`);
   console.log(`${'='.repeat(60)}\n`);
 
@@ -98,8 +109,11 @@ export async function runCompetitionV3(
   try {
     // Step 1: Load context and build query context
     console.log('[competition-v3] Step 1: Loading context...');
-    const graph = await loadContextGraph(companyId);
-    const context = buildQueryContext(graph, companyId);
+    const [graph, company] = await Promise.all([
+      loadContextGraph(companyId),
+      getCompanyById(companyId),
+    ]);
+    const context = buildQueryContext(graph, companyId, company);
 
     // Step 2: Generate discovery queries
     console.log('[competition-v3] Step 2: Generating queries...');
@@ -108,6 +122,14 @@ export async function runCompetitionV3(
 
     const queries = generateSearchQueries(context);
     console.log(`[competition-v3] Generated ${queries.length} search queries`);
+
+    // VERIFICATION LOG: Show first 10 queries for debugging agency default issue
+    console.log(`\n[VERIFICATION] === GENERATED QUERIES ===`);
+    console.log(`[VERIFICATION] Company: ${context.businessName}, Vertical: ${context.verticalCategory}, Archetype: ${context.archetype}`);
+    queries.slice(0, 10).forEach((q, i) => {
+      console.log(`[VERIFICATION] Query ${i + 1}: ${q}`);
+    });
+    console.log(`[VERIFICATION] === END QUERIES ===\n`);
 
     run.steps.queryGeneration.status = 'completed';
     run.steps.queryGeneration.completedAt = new Date().toISOString();
@@ -161,6 +183,15 @@ export async function runCompetitionV3(
     const classified = await classifyCandidates(enriched, context);
 
     console.log(`[competition-v3] Classified ${classified.length} competitors`);
+
+    // VERIFICATION LOG: Show top 10 competitor domains after classification
+    const nonIrrelevant = classified.filter(c => c.classification.type !== 'irrelevant');
+    console.log(`\n[VERIFICATION] === TOP CLASSIFIED COMPETITORS ===`);
+    console.log(`[VERIFICATION] Non-irrelevant: ${nonIrrelevant.length} / ${classified.length}`);
+    nonIrrelevant.slice(0, 10).forEach((c, i) => {
+      console.log(`[VERIFICATION] ${i + 1}. ${c.domain || c.name} (type: ${c.classification.type}, conf: ${c.classification.confidence.toFixed(2)})`);
+    });
+    console.log(`[VERIFICATION] === END COMPETITORS ===\n`);
 
     run.steps.classification.status = 'completed';
     run.steps.classification.completedAt = new Date().toISOString();
@@ -300,13 +331,13 @@ export async function runCompetitionV3(
       run.steps.narrative.status = 'skipped';
     }
 
+    // Complete the run BEFORE storing (so stored record has correct status)
+    run.status = 'completed';
+    run.completedAt = new Date().toISOString();
+
     // Step 10: Store results in Context Graph
     console.log('[competition-v3] Step 10: Storing results...');
     await storeResults(companyId, graph as CompanyContextGraph, positioned, insights, recommendations, run);
-
-    // Complete the run
-    run.status = 'completed';
-    run.completedAt = new Date().toISOString();
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`\n${'='.repeat(60)}`);
@@ -346,8 +377,12 @@ export async function runCompetitionV3(
 
 /**
  * Build QueryContext from Context Graph
+ *
+ * @param graph - The Context Graph for the company
+ * @param companyId - The company ID
+ * @param company - Optional company data from Airtable (used as fallback)
  */
-function buildQueryContext(graph: any, companyId: string): QueryContext {
+function buildQueryContext(graph: any, companyId: string, company?: { name: string; domain?: string; website?: string } | null): QueryContext {
   const identity = graph.identity || {};
   const offer = graph.offer || {};
   const icp = graph.icp || {};
@@ -355,15 +390,19 @@ function buildQueryContext(graph: any, companyId: string): QueryContext {
   const pricing = graph.pricing || {};
   const competitive = graph.competitive || {};
 
-  // Extract business name
+  // Extract business name (with fallback to Airtable company data)
   const businessName = identity.businessName?.value ||
     identity.brandName?.value ||
+    company?.name ||
     `Company ${companyId.slice(0, 8)}`;
 
-  // Extract domain
-  const domain = identity.websiteUrl?.value
+  // Extract domain (with fallback to Airtable company data)
+  const graphDomain = identity.websiteUrl?.value
     ? extractDomain(identity.websiteUrl.value)
     : null;
+  const domain = graphDomain ||
+    (company?.domain ? extractDomain(company.domain) : null) ||
+    (company?.website ? extractDomain(company.website) : null);
 
   // Extract ICP description
   const icpParts = [
@@ -482,14 +521,33 @@ function buildQueryContext(graph: any, companyId: string): QueryContext {
     differentiators,
   };
 
-  // Detect vertical category
-  const verticalResult = detectVerticalCategory(partialContext);
-  const verticalCategory: VerticalCategory = verticalResult.verticalCategory;
-  const subVertical = verticalResult.subVertical;
+  // Detect archetype and vertical using combined classification
+  const classification = classifyCompanyArchetypeAndVertical(partialContext);
+  const archetype: CompanyArchetype = classification.archetype.archetype;
+  const verticalCategory: VerticalCategory = classification.vertical.verticalCategory;
+  const subVertical = classification.vertical.subVertical;
 
-  console.log(`[competition-v3] Vertical detected: ${verticalCategory}${subVertical ? ` (${subVertical})` : ''} - confidence: ${verticalResult.confidence}`);
-  if (verticalResult.signals.length > 0) {
-    console.log(`[competition-v3] Vertical signals: ${verticalResult.signals.slice(0, 3).join(', ')}`);
+  // Detect marketplace sub-vertical if this is a marketplace
+  let marketplaceVertical: string | null = null;
+  if (verticalCategory === 'marketplace' || archetype === 'two_sided_marketplace') {
+    // Build text for marketplace vertical detection
+    const textForMarketplace = [
+      businessName,
+      identity.industry?.value,
+      identity.businessModel?.value,
+      icpDescription,
+      ...primaryOffers,
+    ].filter(Boolean).join(' ');
+    marketplaceVertical = detectMarketplaceVertical(textForMarketplace);
+  }
+
+  console.log(`[competition-v3] Archetype detected: ${archetype} - confidence: ${classification.archetype.confidence}`);
+  console.log(`[competition-v3] Vertical detected: ${verticalCategory}${subVertical ? ` (${subVertical})` : ''}${marketplaceVertical ? ` [marketplace: ${marketplaceVertical}]` : ''} - confidence: ${classification.vertical.confidence}`);
+  if (classification.archetype.signals.length > 0) {
+    console.log(`[competition-v3] Archetype signals: ${classification.archetype.signals.slice(0, 3).join(', ')}`);
+  }
+  if (classification.vertical.signals.length > 0) {
+    console.log(`[competition-v3] Vertical signals: ${classification.vertical.signals.slice(0, 3).join(', ')}`);
   }
 
   return {
@@ -500,6 +558,8 @@ function buildQueryContext(graph: any, companyId: string): QueryContext {
     businessModelCategory,
     verticalCategory,
     subVertical,
+    archetype,
+    marketplaceVertical,
     icpDescription,
     icpStage,
     targetIndustries,

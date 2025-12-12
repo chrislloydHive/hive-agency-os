@@ -374,12 +374,13 @@ export function extractBrandLabFindings(
 
   if (!raw) return findings;
 
-  // Try different paths
+  // Try different paths - including 'insights' from V4 snapshot format
   const issuesSources = [
     raw.diagnostic?.issues,
     raw.diagnostic?.gaps,
     raw.issues,
     raw.gaps,
+    raw.insights, // V4 snapshot format stores findings in insights array
   ];
 
   const seenKeys = new Set<string>();
@@ -398,12 +399,13 @@ export function extractBrandLabFindings(
         companyId,
         labSlug: 'brand',
         category: 'Brand',
-        dimension: issue.dimension || issue.area || 'General',
+        dimension: issue.dimension || issue.area || issue.category || 'General',
         severity: mapSeverity(issue.severity || issue.priority),
         location: issue.element || issue.location,
         issueKey,
+        // V4 format uses 'title' + 'body', legacy uses 'description' + 'recommendation'
         description: issue.title || issue.description || issue.gap,
-        recommendation: issue.recommendation || issue.suggestion,
+        recommendation: issue.recommendation || issue.suggestion || issue.body,
         estimatedImpact: issue.impact,
       });
     }

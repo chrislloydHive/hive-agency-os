@@ -17,13 +17,53 @@
  * Used to drive vertical-specific competitor filtering, narratives, and recommendations
  */
 export type VerticalCategory =
-  | 'retail'           // Physical retail stores, shops
-  | 'services'         // Agencies, consultancies, professional services
-  | 'software'         // SaaS, platforms, software products
-  | 'manufacturing'    // Manufacturing, industrial, B2B product companies
-  | 'consumer-dtc'     // Direct-to-consumer brands (online-first)
-  | 'automotive'       // Automotive retail, service, aftermarket
-  | 'unknown';         // Unable to determine
+  | 'retail'              // Physical retail stores, shops
+  | 'services'            // Agencies, consultancies, professional services
+  | 'software'            // SaaS, platforms, software products
+  | 'manufacturing'       // Manufacturing, industrial, B2B product companies
+  | 'consumer-dtc'        // Direct-to-consumer brands (online-first)
+  | 'automotive'          // Automotive retail, service, aftermarket
+  | 'marketplace'         // Two-sided marketplaces (fitness, services, rentals, etc.)
+  | 'financial-services'  // Banks, credit unions, lending, insurance, wealth management
+  | 'unknown';            // Unable to determine
+
+// ============================================================================
+// Company Archetype Intelligence
+// ============================================================================
+
+/**
+ * Company archetype based on business model structure
+ * Provides higher-level classification than vertical for understanding competitive dynamics
+ */
+export type CompanyArchetype =
+  | 'two_sided_marketplace'  // Connects supply + demand (TrainrHub, Airbnb, Uber)
+  | 'saas'                   // Software as a Service
+  | 'directory'              // Directory/listing site with monetization
+  | 'agency'                 // Service agency (marketing, design, etc.)
+  | 'consultancy'            // Professional consulting
+  | 'ecommerce'              // Online retail/DTC
+  | 'local_service'          // Local service business (plumber, salon, etc.)
+  | 'content_platform'       // Content/media platform
+  | 'enterprise_software'    // Enterprise B2B software
+  | 'unknown';               // Unable to determine
+
+/**
+ * Archetype detection result with reasoning
+ */
+export interface ArchetypeDetectionResult {
+  archetype: CompanyArchetype;
+  confidence: number;
+  reasoning: string;
+  signals: string[];
+}
+
+/**
+ * Combined archetype + vertical detection result
+ */
+export interface CompanyClassificationResult {
+  archetype: ArchetypeDetectionResult;
+  vertical: VerticalDetectionResult;
+}
 
 /**
  * Vertical detection result with reasoning
@@ -46,6 +86,8 @@ export const VERTICAL_ALLOWED_TYPES: Record<VerticalCategory, CompetitorType[]> 
   'manufacturing': ['direct', 'partial', 'platform'],
   'consumer-dtc': ['direct', 'partial', 'platform'],
   'automotive': ['direct', 'partial', 'platform'],
+  'marketplace': ['direct', 'partial', 'platform'],  // Marketplaces compete with other marketplaces and platforms
+  'financial-services': ['direct', 'partial', 'platform'],  // Banks compete with other banks, credit unions, fintechs
   'unknown': ['direct', 'partial', 'fractional', 'internal', 'platform'],
 };
 
@@ -59,6 +101,8 @@ export const VERTICAL_DISALLOWED_TYPES: Record<VerticalCategory, CompetitorType[
   'manufacturing': ['fractional', 'internal', 'irrelevant'],
   'consumer-dtc': ['fractional', 'internal', 'irrelevant'],
   'automotive': ['fractional', 'internal', 'irrelevant'],
+  'marketplace': ['fractional', 'internal', 'irrelevant'],  // Marketplaces don't compete with fractional execs
+  'financial-services': ['fractional', 'internal', 'irrelevant'],  // Banks don't compete with marketing agencies
   'unknown': ['irrelevant'],
 };
 
@@ -133,6 +177,10 @@ export interface QueryContext {
   // V3.5: Vertical Category Intelligence
   verticalCategory?: VerticalCategory;
   subVertical?: string | null;
+
+  // V3.6: Company Archetype Intelligence
+  archetype?: CompanyArchetype;
+  marketplaceVertical?: string | null;  // For marketplaces: fitness, services, rentals, etc.
 
   // Audience
   icpDescription: string | null;

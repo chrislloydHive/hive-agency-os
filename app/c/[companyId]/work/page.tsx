@@ -2,7 +2,7 @@
 // Work Hub - Tasks, Experiments, and Backlog
 //
 // This page now includes:
-// - Tasks: Active work items (In Progress, Planned, Done)
+// - Tasks: Active work items (In Progress, Planned, Done) + MVP Workstreams/Tasks
 // - Experiments: A/B tests and growth experiments
 // - Backlog: Suggested work from diagnostics
 
@@ -11,6 +11,7 @@ import { getCompanyById } from '@/lib/airtable/companies';
 import { getFullReportsForCompany } from '@/lib/airtable/fullReports';
 import { getWorkItemsForCompany, getWorkItemsForCompanyByPriorityId } from '@/lib/airtable/workItems';
 import { getCompanyStrategySnapshot } from '@/lib/os/companies/strategySnapshot';
+import { getWorkstreamsForCompany, getTasksForCompany } from '@/lib/os/work';
 import type { PrioritiesPayload } from '@/lib/airtable/fullReports';
 import type { EvidencePayload } from '@/lib/gap/types';
 import { WorkClient } from './WorkClient';
@@ -48,11 +49,17 @@ export default async function WorkPage({ params }: PageProps) {
   const reports = await getFullReportsForCompany(companyId);
   const latestReport = reports[0]; // Assuming sorted newest first
 
-  // Load work items
+  // Load work items (legacy system)
   const workItems = await getWorkItemsForCompany(companyId);
 
   // Load work items indexed by priority ID for quick lookup
   const workItemsByPriorityId = await getWorkItemsForCompanyByPriorityId(companyId);
+
+  // Load MVP workstreams and tasks (from strategy finalization)
+  const [mvpWorkstreams, mvpTasks] = await Promise.all([
+    getWorkstreamsForCompany(companyId),
+    getTasksForCompany(companyId),
+  ]);
 
   // Load strategic snapshot for focus areas
   const strategicSnapshot = await getCompanyStrategySnapshot(companyId);
@@ -72,6 +79,8 @@ export default async function WorkPage({ params }: PageProps) {
         website: company.website,
       }}
       workItems={workItems}
+      mvpWorkstreams={mvpWorkstreams}
+      mvpTasks={mvpTasks}
       priorities={priorities}
       evidence={evidence}
       strategicSnapshot={strategicSnapshot}

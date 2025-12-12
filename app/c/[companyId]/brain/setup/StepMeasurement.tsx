@@ -347,6 +347,40 @@ export function StepMeasurement({
     }
   };
 
+  // Disconnect Google state
+  const [disconnectingGoogle, setDisconnectingGoogle] = useState(false);
+
+  // Disconnect Google
+  const disconnectGoogle = async () => {
+    if (!confirm('Are you sure you want to disconnect Google? This will remove GA4 and Search Console connections.')) {
+      return;
+    }
+
+    setDisconnectingGoogle(true);
+    try {
+      const response = await fetch(`/api/os/companies/${companyId}/measurement/google/disconnect`, {
+        method: 'POST',
+      });
+      const data = await response.json();
+
+      if (data.ok) {
+        // Clear form data
+        update({
+          ga4PropertyId: '',
+          ga4ConversionEvents: [],
+        });
+        // Refresh status
+        await fetchGoogleStatus();
+      } else {
+        console.error('Error disconnecting Google:', data.message);
+      }
+    } catch (error) {
+      console.error('Error disconnecting Google:', error);
+    } finally {
+      setDisconnectingGoogle(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Google Integration Banner */}
@@ -372,12 +406,20 @@ export function StepMeasurement({
                 </p>
               </div>
             </div>
-            {!googleStatus?.connected && (
+            {!googleStatus?.connected ? (
               <button
                 onClick={connectGoogle}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
               >
                 Connect Google
+              </button>
+            ) : (
+              <button
+                onClick={disconnectGoogle}
+                disabled={disconnectingGoogle}
+                className="px-3 py-1.5 bg-slate-700 hover:bg-red-600/80 text-slate-300 hover:text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+              >
+                {disconnectingGoogle ? 'Disconnecting...' : 'Disconnect'}
               </button>
             )}
           </div>

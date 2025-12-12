@@ -91,6 +91,7 @@ const iconMap = {
   barChart: BarChart3,
   users: Users,
   target: Target,
+  activity: Activity,
 };
 
 const LABS: LabDefinition[] = [
@@ -175,6 +176,15 @@ const LABS: LabDefinition[] = [
     icon: 'target',
     color: 'red',
     viewPath: '/diagnostics/competition',
+    category: 'specialized',
+  },
+  {
+    id: 'analyticsLab',
+    name: 'Analytics Lab',
+    description: 'GA4, Search Console & Media',
+    icon: 'activity',
+    color: 'indigo',
+    viewPath: '/labs/analytics',
     category: 'specialized',
   },
 ];

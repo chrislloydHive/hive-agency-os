@@ -14,9 +14,11 @@ import type { QueryContext, EnrichedCandidate, CompetitorType, ClassificationRes
 import { VERTICAL_ALLOWED_TYPES, VERTICAL_DISALLOWED_TYPES } from '../types';
 import {
   isB2CCompany,
+  isMarketplaceCompany,
   preClassifyForB2C,
   enforceB2CClassification,
   shouldFilterB2BCandidate,
+  shouldFilterForMarketplace,
   getSelectionQuotas,
 } from '../b2cRetailClassifier';
 import {
@@ -65,8 +67,13 @@ export async function classifyCandidates(
   console.log(`[competition-v3/classifier] Vertical: ${vertical} - Allowed types: ${allowedTypes.join(', ')}`);
 
   const isB2C = isB2CCompany(context);
+  const isMarketplace = isMarketplaceCompany(context);
+
   if (isB2C) {
     console.log(`[competition-v3/classifier] B2C retail mode enabled - filtering B2B-only types`);
+  }
+  if (isMarketplace) {
+    console.log(`[competition-v3/classifier] Marketplace mode enabled - filtering agency competitors`);
   }
 
   const results: Array<EnrichedCandidate & { classification: ClassificationResult }> = [];
@@ -84,6 +91,51 @@ export async function classifyCandidates(
           type: 'irrelevant',
           confidence: 0.9,
           reasoning: 'B2B service provider - not relevant for B2C retail',
+          signals: {
+            businessModelMatch: false,
+            icpOverlap: false,
+            serviceOverlap: false,
+            sameMarket: false,
+            isPlatform: false,
+            isFractional: false,
+            isInternalAlt: false,
+          },
+        },
+      });
+      continue;
+    }
+
+    // Marketplace-specific: Filter out agencies for marketplace companies
+    if (isMarketplace && shouldFilterForMarketplace(augmented, context)) {
+      results.push({
+        ...augmented,
+        classification: {
+          type: 'irrelevant',
+          confidence: 0.95,
+          reasoning: 'Marketing/digital agency - not relevant for marketplace competition',
+          signals: {
+            businessModelMatch: false,
+            icpOverlap: false,
+            serviceOverlap: false,
+            sameMarket: false,
+            isPlatform: false,
+            isFractional: false,
+            isInternalAlt: false,
+          },
+        },
+      });
+      continue;
+    }
+
+    // GLOBAL AGENCY GATE: Filter out marketing agencies for non-agency companies
+    // This is the critical fix for the "marketing agency default" problem
+    if (shouldFilterAgencyCandidate(augmented, context)) {
+      results.push({
+        ...augmented,
+        classification: {
+          type: 'irrelevant',
+          confidence: 0.95,
+          reasoning: 'Marketing agency - not relevant for non-agency company competition',
           signals: {
             businessModelMatch: false,
             icpOverlap: false,
@@ -545,6 +597,94 @@ const B2C_LOCAL_KEYWORDS = [
   'home services', 'contractors', 'real estate agents',
   'medical practices', 'law firms', // These are B2C/local oriented
 ];
+
+/**
+ * Keywords that indicate a marketing/digital agency
+ * Used to gate agency competitors for non-agency companies
+ */
+const MARKETING_AGENCY_KEYWORDS = [
+  'marketing agency', 'digital agency', 'creative agency',
+  'seo agency', 'ppc agency', 'social media agency',
+  'advertising agency', 'branding agency', 'web design agency',
+  'content agency', 'digital marketing', 'growth agency',
+  'performance marketing', 'media agency', 'full-service agency',
+  'marketing firm', 'marketing company', 'digital marketing company',
+  'marketing services', 'marketing solutions', 'digital marketing services',
+];
+
+/**
+ * Check if a candidate is a marketing agency based on content
+ */
+export function isMarketingAgencyCandidate(candidate: EnrichedCandidate): boolean {
+  const name = candidate.name?.toLowerCase() || '';
+  const domain = candidate.domain?.toLowerCase() || '';
+  const snippet = candidate.snippet?.toLowerCase() || '';
+  const summary = candidate.aiSummary?.toLowerCase() || '';
+  const content = candidate.crawledContent;
+
+  // Combine all text for keyword matching
+  const allText = [
+    name,
+    snippet,
+    summary,
+    content?.homepage?.title,
+    content?.homepage?.h1,
+    content?.homepage?.description,
+    ...(content?.services?.offerings || []),
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  // Check for marketing agency keywords
+  const agencyKeywordCount = MARKETING_AGENCY_KEYWORDS.filter(kw => allText.includes(kw)).length;
+
+  // Strong signal: multiple agency keywords OR domain contains 'agency' or 'marketing'
+  return agencyKeywordCount >= 2 ||
+    domain.includes('agency') ||
+    (domain.includes('marketing') && allText.includes('agency')) ||
+    (name.includes('agency') && (name.includes('marketing') || name.includes('digital') || name.includes('creative')));
+}
+
+/**
+ * Check if the target company is an agency (based on vertical or archetype)
+ */
+export function isAgencyCompany(context: QueryContext): boolean {
+  const vertical = context.verticalCategory || 'unknown';
+  const archetype = (context as any).archetype;
+
+  // Explicitly an agency
+  if (vertical === 'services') return true;
+  if (archetype === 'agency') return true;
+
+  // Check business model and industry
+  const businessModel = context.businessModel?.toLowerCase() || '';
+  const industry = context.industry?.toLowerCase() || '';
+
+  return businessModel.includes('agency') ||
+    industry.includes('agency') ||
+    industry.includes('marketing services') ||
+    industry.includes('advertising');
+}
+
+/**
+ * Global agency gate: Filter out marketing agency competitors for non-agency companies
+ * This is the CRITICAL fix for the "marketing agency default" problem
+ */
+export function shouldFilterAgencyCandidate(
+  candidate: EnrichedCandidate,
+  context: QueryContext
+): boolean {
+  // If the target company IS an agency, don't filter agencies
+  if (isAgencyCompany(context)) {
+    return false;
+  }
+
+  // If the candidate is a marketing agency and target is NOT an agency, filter it
+  if (isMarketingAgencyCandidate(candidate)) {
+    console.log(`[competition-v3/classifier] AGENCY GATE: Filtering ${candidate.name} (${candidate.domain}) - marketing agency detected for non-agency company`);
+    return true;
+  }
+
+  return false;
+}
 
 /**
  * Detect bad-fit signals for a candidate

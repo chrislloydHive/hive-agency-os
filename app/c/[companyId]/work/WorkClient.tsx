@@ -20,6 +20,8 @@ import type {
 import type { PriorityItem, PrioritiesPayload } from '@/lib/airtable/fullReports';
 import type { EvidencePayload } from '@/lib/gap/types';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
+import type { Workstream, Task } from '@/lib/types/workMvp';
+import { STATUS_LABELS, STATUS_COLORS } from '@/lib/types/workMvp';
 import PriorityCardWithAction from './PriorityCardWithAction';
 import WorkItemCardWithStatus from './WorkItemCardWithStatus';
 import { ExperimentsClient } from '@/components/experiments/ExperimentsClient';
@@ -37,6 +39,8 @@ interface CompanyData {
 export interface WorkClientProps {
   company: CompanyData;
   workItems: WorkItemRecord[];
+  mvpWorkstreams?: Workstream[];
+  mvpTasks?: Task[];
   priorities: PriorityItem[];
   evidence?: EvidencePayload;
   strategicSnapshot?: CompanyStrategicSnapshot | null;
@@ -53,6 +57,8 @@ type ActiveTab = 'tasks' | 'experiments' | 'backlog';
 export function WorkClient({
   company,
   workItems,
+  mvpWorkstreams = [],
+  mvpTasks = [],
   priorities,
   evidence,
   strategicSnapshot,
@@ -189,6 +195,8 @@ export function WorkClient({
           grouped={grouped}
           activeItems={activeItems}
           doneItems={doneItems}
+          mvpWorkstreams={mvpWorkstreams}
+          mvpTasks={mvpTasks}
           selectedWorkItem={selectedWorkItem}
           onSelectWorkItem={handleSelectWorkItem}
           aiAdditionalInfo={aiAdditionalInfo}
@@ -263,6 +271,8 @@ function TasksSection({
   grouped,
   activeItems,
   doneItems,
+  mvpWorkstreams,
+  mvpTasks,
   selectedWorkItem,
   onSelectWorkItem,
   aiAdditionalInfo,
@@ -274,6 +284,8 @@ function TasksSection({
   grouped: Record<WorkItemStatus, WorkItemRecord[]>;
   activeItems: WorkItemRecord[];
   doneItems: WorkItemRecord[];
+  mvpWorkstreams: Workstream[];
+  mvpTasks: Task[];
   selectedWorkItem: WorkItemRecord | null;
   onSelectWorkItem: (item: WorkItemRecord | null) => void;
   aiAdditionalInfo: string | null;
@@ -283,6 +295,7 @@ function TasksSection({
   companyId: string;
 }) {
   const hasWorkItems = activeItems.length > 0 || doneItems.length > 0;
+  const hasMvpWork = mvpWorkstreams.length > 0 || mvpTasks.length > 0;
 
   // Suggested Actions state
   const [suggestedActions, setSuggestedActions] = useState<ExtendedNextBestAction[]>([]);
@@ -427,6 +440,115 @@ function TasksSection({
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Strategy Workstreams (from finalized strategy) */}
+      {hasMvpWork && (
+        <div className="bg-slate-900/70 border border-blue-500/20 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
+                Strategy Workstreams ({mvpWorkstreams.length})
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Generated from your finalized strategy
+              </p>
+            </div>
+            <Link
+              href={`/c/${companyId}/strategy`}
+              className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+            >
+              View Strategy
+              <ArrowRight className="w-3 h-3" />
+            </Link>
+          </div>
+
+          <div className="space-y-4">
+            {mvpWorkstreams.map(workstream => {
+              const workstreamTasks = mvpTasks.filter(t => t.workstreamId === workstream.id);
+              const completedTasks = workstreamTasks.filter(t => t.status === 'complete').length;
+              const progress = workstreamTasks.length > 0
+                ? Math.round((completedTasks / workstreamTasks.length) * 100)
+                : 0;
+
+              return (
+                <div
+                  key={workstream.id}
+                  className="rounded-lg border border-slate-700 bg-slate-800/30 p-4"
+                >
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="text-sm font-medium text-slate-100">
+                          {workstream.title}
+                        </h4>
+                        {workstream.service && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-700/50 text-slate-400 capitalize">
+                            {workstream.service}
+                          </span>
+                        )}
+                      </div>
+                      {workstream.description && (
+                        <p className="text-xs text-slate-400 line-clamp-2">
+                          {workstream.description}
+                        </p>
+                      )}
+                    </div>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${STATUS_COLORS[workstream.status]}`}>
+                      {STATUS_LABELS[workstream.status]}
+                    </span>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1">
+                      <span>{completedTasks} of {workstreamTasks.length} tasks</span>
+                      <span>{progress}%</span>
+                    </div>
+                    <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-blue-500 rounded-full transition-all"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Task list */}
+                  {workstreamTasks.length > 0 && (
+                    <div className="space-y-1.5">
+                      {workstreamTasks.slice(0, 5).map(task => (
+                        <div
+                          key={task.id}
+                          className="flex items-center gap-2 py-1.5 px-2 rounded bg-slate-800/50"
+                        >
+                          <div className={`w-1.5 h-1.5 rounded-full ${
+                            task.status === 'complete' ? 'bg-emerald-500' :
+                            task.status === 'in_progress' ? 'bg-blue-500' :
+                            task.status === 'blocked' ? 'bg-red-500' :
+                            'bg-slate-500'
+                          }`} />
+                          <span className={`text-xs flex-1 ${
+                            task.status === 'complete' ? 'text-slate-500 line-through' : 'text-slate-300'
+                          }`}>
+                            {task.title}
+                          </span>
+                          <span className="text-[10px] text-slate-500">
+                            {STATUS_LABELS[task.status]}
+                          </span>
+                        </div>
+                      ))}
+                      {workstreamTasks.length > 5 && (
+                        <p className="text-[10px] text-slate-500 text-center pt-1">
+                          + {workstreamTasks.length - 5} more tasks
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

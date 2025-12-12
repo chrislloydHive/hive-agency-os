@@ -4,3 +4,5 @@
 export { MediaEmptyStateCompact } from './MediaEmptyStateCompact';
 export { MediaBlueprintEmptyState } from './MediaBlueprintEmptyState';
 export { MediaProgramEmptyState } from './MediaProgramEmptyState';
+export { MediaIssuesPanel } from './MediaIssuesPanel';
+export { MediaProgramSummaryPanel } from './MediaProgramSummaryPanel';

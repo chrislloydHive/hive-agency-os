@@ -11,66 +11,129 @@
 // Company-Level Navigation
 // ============================================================================
 
-export type CompanyTabId = 'overview' | 'blueprint' | 'brain' | 'findings' | 'work' | 'reports';
+export type CompanyTabId =
+  | 'overview'
+  | 'context'
+  | 'strategy'
+  | 'work'
+  | 'reports'
+  | 'documents'
+  | 'blueprint'
+  | 'brain'
+  | 'findings';
 
 export interface CompanyTab {
   id: CompanyTabId;
   name: string;
   href: (companyId: string) => string;
   description?: string;
+  /** If true, tab is shown in primary navigation */
+  primary?: boolean;
+  /** If true, tab is hidden from navigation but routes still work */
+  hidden?: boolean;
 }
 
 export const COMPANY_TABS: CompanyTab[] = [
+  // === Primary Navigation (MVP 1.0) ===
   {
     id: 'overview',
     name: 'Overview',
     href: (companyId) => `/c/${companyId}`,
     description: 'Company dashboard with health summary and quick actions',
+    primary: true,
   },
   {
+    id: 'context',
+    name: 'Context',
+    href: (companyId) => `/c/${companyId}/context`,
+    description: 'Editable company context: business model, audience, objectives, constraints',
+    primary: true,
+  },
+  {
+    id: 'strategy',
+    name: 'Strategy',
+    href: (companyId) => `/c/${companyId}/strategy`,
+    description: 'Marketing strategy with pillars, objectives, and AI-assisted planning',
+    primary: true,
+  },
+  {
+    id: 'work',
+    name: 'Work',
+    href: (companyId) => `/c/${companyId}/work`,
+    description: 'Active tasks, workstreams, and 90-day plan',
+    primary: true,
+  },
+  {
+    id: 'reports',
+    name: 'Reports',
+    href: (companyId) => `/c/${companyId}/reports`,
+    description: 'Monthly reports, QBRs, and strategic documents',
+    primary: true,
+  },
+  {
+    id: 'documents',
+    name: 'Documents',
+    href: (companyId) => `/c/${companyId}/documents`,
+    description: 'Briefs, proposals, and generated documents',
+    primary: true,
+  },
+  // === Secondary Navigation (accessible but not in main tabs) ===
+  {
     id: 'blueprint',
-    name: 'Diagnostics',
+    name: 'Labs',
     href: (companyId) => `/c/${companyId}/blueprint`,
     description: 'Run labs and assessments to uncover issues and opportunities',
+    primary: false,
   },
   {
     id: 'brain',
     name: 'Brain',
     href: (companyId) => `/c/${companyId}/brain`,
     description: 'Company memory & intelligence hub',
+    primary: false,
   },
   {
     id: 'findings',
-    name: 'Plan',
+    name: 'Findings',
     href: (companyId) => `/c/${companyId}/findings`,
-    description: 'Strategic planning surface: prioritize findings and build the roadmap',
-  },
-  {
-    id: 'work',
-    name: 'Work',
-    href: (companyId) => `/c/${companyId}/work`,
-    description: 'Active tasks, experiments, and backlog',
-  },
-  {
-    id: 'reports',
-    name: 'Reports',
-    href: (companyId) => `/c/${companyId}/reports`,
-    description: 'Annual plans, QBRs, and strategic reports',
+    description: 'Issues and opportunities from diagnostics',
+    primary: false,
   },
 ];
+
+/**
+ * Get only the primary navigation tabs for display
+ */
+export function getPrimaryCompanyTabs(): CompanyTab[] {
+  return COMPANY_TABS.filter(tab => tab.primary !== false && !tab.hidden);
+}
+
+/**
+ * Get all navigation tabs including secondary ones
+ */
+export function getAllCompanyTabs(): CompanyTab[] {
+  return COMPANY_TABS.filter(tab => !tab.hidden);
+}
 
 /**
  * Determine which company tab is active based on pathname
  */
 export function getCompanyTabFromPath(pathname: string, companyId: string): CompanyTabId {
   // Check for specific tab routes (order matters - check more specific routes first)
+  // New MVP 1.0 routes
+  if (pathname.startsWith(`/c/${companyId}/context`)) return 'context';
+  if (pathname.startsWith(`/c/${companyId}/strategy`)) return 'strategy';
+  if (pathname.startsWith(`/c/${companyId}/documents`)) return 'documents';
+  // Existing routes
   if (pathname.startsWith(`/c/${companyId}/blueprint`)) return 'blueprint';
   if (pathname.startsWith(`/c/${companyId}/brain`)) return 'brain';
   if (pathname.startsWith(`/c/${companyId}/findings`)) return 'findings';
   if (pathname.startsWith(`/c/${companyId}/work`)) return 'work';
   if (pathname.startsWith(`/c/${companyId}/reports`)) return 'reports';
-  // Legacy QBR route maps to reports
+  // Legacy routes
   if (pathname.startsWith(`/c/${companyId}/qbr`)) return 'reports';
+  if (pathname.startsWith(`/c/${companyId}/diagnostics`)) return 'blueprint';
+  if (pathname.startsWith(`/c/${companyId}/labs`)) return 'blueprint';
 
   // Default to overview for exact match or unknown routes
   return 'overview';
@@ -348,7 +411,7 @@ export function getBlueprintTabFromPath(pathname: string, companyId: string): Bl
 // Labs Navigation
 // ============================================================================
 
-export type LabId = 'competition' | 'creative' | 'competitor' | 'website' | 'brand' | 'audience' | 'content' | 'seo' | 'demand' | 'ops' | 'media';
+export type LabId = 'competition' | 'creative' | 'competitor' | 'website' | 'brand' | 'audience' | 'content' | 'seo' | 'demand' | 'ops' | 'media' | 'analytics';
 
 export interface Lab {
   id: LabId;
@@ -440,6 +503,13 @@ export const LABS: Lab[] = [
     name: 'Media Lab',
     href: (companyId) => `/c/${companyId}/diagnostics/media`,
     description: 'AI-powered media strategy with channel mix, budgets, and forecasts.',
+    status: 'active',
+  },
+  {
+    id: 'analytics',
+    name: 'Analytics Lab',
+    href: (companyId) => `/c/${companyId}/labs/analytics`,
+    description: 'Unified analytics dashboard aggregating GA4, Search Console, GBP, and paid media.',
     status: 'active',
   },
 ];

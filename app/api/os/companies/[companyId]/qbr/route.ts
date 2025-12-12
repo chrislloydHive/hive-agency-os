@@ -190,7 +190,10 @@ export async function POST(
         quarterStart: data.history?.quarterStart,
         quarterEnd: data.history?.quarterEnd,
         loadedAt: data.loadedAt,
+        hasAnalytics: data.analyticsSnapshot?.hasAnalytics ?? false,
       },
+      // Include analytics snapshot
+      analytics: data.analyticsSnapshot,
       // Include enhanced sections for v2 clients
       enhancedData: {
         plan: data.plan,

@@ -8,6 +8,10 @@ import { inngest } from '@/lib/inngest/client';
 import { generateFullGap } from '@/lib/inngest/functions/generate-full-gap';
 import { websiteDiagnostic, websiteDiagnosticErrorHandler } from '@/lib/inngest/functions/website-diagnostic';
 import { brandDiagnostic, brandDiagnosticErrorHandler } from '@/lib/inngest/functions/brand-diagnostic';
+import {
+  refreshAnalyticsFindingsScheduled,
+  refreshAnalyticsFindingsManual,
+} from '@/lib/inngest/functions/refresh-analytics-findings';
 
 // Serve all functions
 export const { GET, POST, PUT } = serve({
@@ -21,5 +25,8 @@ export const { GET, POST, PUT } = serve({
     // Brand Lab
     brandDiagnostic,
     brandDiagnosticErrorHandler,
+    // Analytics Findings
+    refreshAnalyticsFindingsScheduled,
+    refreshAnalyticsFindingsManual,
   ],
 });

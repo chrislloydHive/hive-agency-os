@@ -417,6 +417,8 @@ function generateReasoning(
     services: 'B2B professional services provider',
     'consumer-dtc': 'direct-to-consumer brand',
     manufacturing: 'manufacturing/industrial company',
+    marketplace: 'two-sided marketplace/platform',
+    'financial-services': 'bank, credit union, or financial institution',
     unknown: 'unknown business type',
   };
 
@@ -425,9 +427,17 @@ function generateReasoning(
 
 /**
  * Check if a vertical is B2C (retail-oriented)
+ * Note: marketplace is NOT B2C retail - they have different competitor dynamics
  */
 export function isB2CVertical(vertical: VerticalCategory): boolean {
   return ['retail', 'automotive', 'consumer-dtc'].includes(vertical);
+}
+
+/**
+ * Check if a vertical is a marketplace/platform
+ */
+export function isMarketplaceVertical(vertical: VerticalCategory): boolean {
+  return vertical === 'marketplace';
 }
 
 /**

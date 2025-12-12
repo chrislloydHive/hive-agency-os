@@ -13,6 +13,7 @@
 import Link from 'next/link';
 import { ActivitySnippet } from './ActivitySnippet';
 import { NextBestActionsCard } from './NextBestActionsCard';
+import { RunDiagnosticsButton } from './RunDiagnosticsButton';
 import { DataConfidenceBadge, type DataSource } from '@/components/diagnostics/DataConfidenceBadge';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
 import type { DiagnosticRunStatus, DiagnosticToolId, CompanyScoreTrends } from '@/lib/os/diagnostics/runs';
@@ -23,7 +24,7 @@ import type { MediaLabSummary } from '@/lib/types/mediaLab';
 import { deriveNextBestAction, getPriorityColorClasses } from '@/lib/os/companies/nextBestAction.types';
 import type { CompanySummary } from '@/lib/os/companySummary';
 import { type SetupStatus } from '@/lib/types/company';
-import { ArrowRight, BarChart3, ClipboardList, CheckCircle, FileText, Brain, TrendingUp, Activity, Search, Zap } from 'lucide-react';
+import { ArrowRight, ClipboardList, CheckCircle, FileText, Brain, TrendingUp, Activity, Search, Zap } from 'lucide-react';
 import { formatPercentChange, getChangeColorClass, getChangeArrow } from '@/lib/os/analytics/pulseUtils';
 
 // ============================================================================
@@ -280,19 +281,8 @@ export function CompanyOverviewPage({
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-          {/* Run Diagnostics */}
-          <Link
-            href={`/c/${companyId}/blueprint`}
-            className="flex flex-col items-center gap-1.5 p-3 rounded-lg bg-slate-800/40 border border-slate-700/40 hover:border-amber-500/50 hover:bg-amber-500/5 hover:-translate-y-0.5 transition-all group"
-          >
-            <div className="w-10 h-10 rounded-lg bg-amber-500/15 flex items-center justify-center group-hover:bg-amber-500/25 transition-colors">
-              <BarChart3 className="w-5 h-5 text-amber-400" />
-            </div>
-            <div className="text-center">
-              <p className="text-xs font-medium text-slate-200">Run Diagnostics</p>
-              <p className="text-[10px] text-slate-500">Full scan</p>
-            </div>
-          </Link>
+          {/* Run Diagnostics - actually executes Full GAP + Competition */}
+          <RunDiagnosticsButton companyId={companyId} variant="card" />
 
           {/* Build the Plan */}
           <Link

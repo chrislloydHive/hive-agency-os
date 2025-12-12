@@ -16,6 +16,8 @@ import { getCompanyFindings, getCompanyFindingsSummary, type FindingsSummary } f
 import { loadContextGraphRecord, getContextGraphStats } from '@/lib/contextGraph/storage';
 import { listDiagnosticRunsForCompany, type DiagnosticRun, type DiagnosticToolId, type LabSlug, getLabSlugForToolId } from '@/lib/os/diagnostics/runs';
 import type { DiagnosticDetailFinding } from '@/lib/airtable/diagnosticDetails';
+import { getCompanyAnalyticsSnapshot } from '@/lib/os/companies/companyAnalytics';
+import type { CompanyAnalyticsSnapshot } from '@/lib/types/companyAnalytics';
 
 // ============================================================================
 // Types
@@ -250,6 +252,8 @@ export interface QBRData {
   contextHealth: ContextGraphHealth | null;
   /** Diagnostics snapshot */
   diagnostics: DiagnosticsSnapshot;
+  /** Analytics snapshot (GA4, GSC, media metrics) */
+  analyticsSnapshot?: CompanyAnalyticsSnapshot;
   /** Timestamp when data was loaded */
   loadedAt: string;
   /** Data loading errors (non-fatal) */
@@ -733,6 +737,7 @@ export async function loadQBRData(companyId: string): Promise<QBRData> {
     work,
     contextHealth,
     diagnostics,
+    analyticsSnapshot,
   ] = await Promise.all([
     getCompanyFindings(companyId).catch((err) => {
       warnings.push(`Failed to load findings: ${err.message}`);
@@ -779,6 +784,10 @@ export async function loadQBRData(companyId: string): Promise<QBRData> {
         trends: [],
       } as DiagnosticsSnapshot;
     }),
+    getCompanyAnalyticsSnapshot({ companyId }).catch((err) => {
+      warnings.push(`Failed to load analytics: ${err.message}`);
+      return undefined;
+    }),
   ]);
 
   // Build enhanced sections
@@ -794,6 +803,7 @@ export async function loadQBRData(companyId: string): Promise<QBRData> {
     work,
     contextHealth,
     diagnostics,
+    analyticsSnapshot,
     loadedAt: new Date().toISOString(),
     warnings,
 
@@ -831,6 +841,7 @@ export async function loadQBRData(companyId: string): Promise<QBRData> {
     contextHealthScore: contextHealth?.completenessScore ?? 'N/A',
     diagnosticModulesCount: diagnostics.totalModuleCount,
     trendsCount: diagnostics.trends.length,
+    hasAnalytics: analyticsSnapshot?.hasAnalytics ?? false,
     warningsCount: warnings.length,
   });
 

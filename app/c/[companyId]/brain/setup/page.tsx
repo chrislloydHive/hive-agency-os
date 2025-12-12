@@ -9,7 +9,7 @@ import { getCompanyById } from '@/lib/airtable/companies';
 import { loadSetupFromContextGraph } from '@/lib/contextGraph/setupLoader';
 import { redirect } from 'next/navigation';
 import { SetupClient } from './SetupClient';
-import { createEmptyFormData } from './types';
+import { createEmptyFormData, SETUP_STEPS, SetupStepId } from './types';
 
 export default async function SetupPage({
   params,
@@ -19,7 +19,19 @@ export default async function SetupPage({
   searchParams: Promise<{ step?: string }>;
 }) {
   const { companyId } = await params;
-  const { step: initialStep } = await searchParams;
+  const { step: stepParam } = await searchParams;
+
+  // Convert step number to step ID (e.g., "9" -> "measurement")
+  let initialStep: SetupStepId | undefined;
+  if (stepParam) {
+    const stepNum = parseInt(stepParam, 10);
+    if (!isNaN(stepNum) && stepNum >= 1 && stepNum <= SETUP_STEPS.length) {
+      initialStep = SETUP_STEPS[stepNum - 1];
+    } else if (SETUP_STEPS.includes(stepParam as SetupStepId)) {
+      // Also accept step ID directly (e.g., "measurement")
+      initialStep = stepParam as SetupStepId;
+    }
+  }
   const company = await getCompanyById(companyId);
 
   if (!company) {

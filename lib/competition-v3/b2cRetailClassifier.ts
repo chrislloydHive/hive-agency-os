@@ -67,6 +67,23 @@ export const B2C_RETAIL_INDICATORS = [
 ];
 
 /**
+ * Industries/categories that indicate marketplace
+ */
+export const MARKETPLACE_INDICATORS = [
+  'marketplace',
+  'platform',
+  'two-sided',
+  'multi-sided',
+  'booking',
+  'connect',
+  'trainer',
+  'fitness marketplace',
+  'service marketplace',
+  'gig economy',
+  'on-demand',
+];
+
+/**
  * Keywords that indicate B2B service/agency (NOT B2C retail)
  */
 export const B2B_SERVICE_INDICATORS = [
@@ -132,9 +149,50 @@ export const AUTOMOTIVE_PLATFORM_DOMAINS = new Set([
 // ============================================================================
 
 /**
+ * Determine if a company is a marketplace/platform based on its context
+ */
+export function isMarketplaceCompany(context: QueryContext): boolean {
+  // Explicit marketplace vertical
+  if (context.verticalCategory === 'marketplace') return true;
+
+  // Explicit marketplace archetype
+  if (context.archetype === 'two_sided_marketplace') return true;
+
+  // Check industry for marketplace indicators
+  const industryLower = context.industry?.toLowerCase() || '';
+  if (MARKETPLACE_INDICATORS.some(indicator => industryLower.includes(indicator))) {
+    return true;
+  }
+
+  // Check business model for marketplace indicators
+  const businessModelLower = context.businessModel?.toLowerCase() || '';
+  if (businessModelLower.includes('marketplace') ||
+      businessModelLower.includes('platform') ||
+      businessModelLower.includes('two-sided') ||
+      businessModelLower.includes('connect')) {
+    return true;
+  }
+
+  // Check for domain patterns that indicate marketplace
+  const domain = context.domain?.toLowerCase() || '';
+  const marketplaceDomainPatterns = ['hub', 'connect', 'find', 'book', 'hire', 'match'];
+  if (marketplaceDomainPatterns.some(pattern => domain.includes(pattern))) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Determine if a company is B2C based on its context
  */
 export function isB2CCompany(context: QueryContext): boolean {
+  // Marketplace companies should NOT be treated as B2C retail
+  // They have different competitor dynamics
+  if (isMarketplaceCompany(context)) {
+    return false;
+  }
+
   // Explicit B2C category
   if (context.businessModelCategory === 'B2C') return true;
 
@@ -299,6 +357,82 @@ export function shouldFilterB2BCandidate(
 
   // Check for agency/consulting indicators
   return hasB2BServiceIndicators(text);
+}
+
+/**
+ * Check if a candidate should be filtered out for marketplace contexts
+ * Marketplaces compete with other marketplaces, not agencies
+ */
+export function shouldFilterForMarketplace(
+  candidate: EnrichedCandidate,
+  context: QueryContext
+): boolean {
+  if (!isMarketplaceCompany(context)) return false;
+
+  // Build text from all available content
+  const textParts = [
+    candidate.name,
+    candidate.domain,
+    candidate.snippet,
+    candidate.aiSummary,
+    candidate.crawledContent?.homepage?.description,
+    candidate.crawledContent?.services?.offerings?.join(' '),
+  ];
+  const text = textParts.filter(Boolean).join(' ').toLowerCase();
+
+  // Agency indicators - filter these out for marketplaces
+  const agencyIndicators = [
+    'marketing agency',
+    'digital agency',
+    'seo agency',
+    'ppc agency',
+    'growth agency',
+    'advertising agency',
+    'creative agency',
+    'branding agency',
+    'web agency',
+    'design agency',
+    'media agency',
+    'consulting firm',
+    'consultancy',
+    'fractional cmo',
+    'fractional marketing',
+    // Additional patterns for companies that provide marketing/advertising services
+    'disruptive advertising',
+    'paid media',
+    'lead generation agency',
+    'performance marketing',
+    'social media marketing',
+    'content marketing',
+    'email marketing',
+    'digital marketing',
+    'marketing services',
+    'advertising services',
+  ];
+
+  // If candidate is clearly an agency, filter it out
+  if (agencyIndicators.some(indicator => text.includes(indicator))) {
+    return true;
+  }
+
+  // Check the domain for agency patterns
+  const domain = candidate.domain?.toLowerCase() || '';
+  const agencyDomainPatterns = [
+    'agency',
+    'consulting',
+    'consultants',
+    'advisors',
+    'advertising',  // disruptiveadvertising.com, etc.
+    'marketing',    // lyfemarketing.com, etc.
+    'growthlab',
+    'cleverly',
+    'mediabuying',
+  ];
+  if (agencyDomainPatterns.some(pattern => domain.includes(pattern))) {
+    return true;
+  }
+
+  return false;
 }
 
 // ============================================================================

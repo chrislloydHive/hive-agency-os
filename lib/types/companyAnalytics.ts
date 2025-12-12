@@ -27,6 +27,25 @@ export interface CompanyAnalyticsSnapshot {
   comparedTo?: 'prev_period';
 
   // =========================================================================
+  // Connection Status
+  // =========================================================================
+
+  /** Whether any analytics are configured for this company (GA4, GSC, media, etc.) */
+  hasAnalytics: boolean;
+
+  /** User-friendly message about analytics status (e.g. "GA4 not connected") */
+  analyticsStatusMessage?: string;
+
+  /** Whether GA4 is connected */
+  hasGa4?: boolean;
+
+  /** Whether GSC is connected */
+  hasGsc?: boolean;
+
+  /** Whether media/ads accounts are connected */
+  hasMedia?: boolean;
+
+  // =========================================================================
   // Web / Demand Metrics
   // =========================================================================
 
@@ -112,12 +131,6 @@ export interface CompanyAnalyticsSnapshot {
 
   /** When this snapshot was computed (ISO) */
   updatedAt: string;
-
-  /** Whether GA4 is connected */
-  hasGa4?: boolean;
-
-  /** Whether GSC is connected */
-  hasGsc?: boolean;
 }
 
 /**

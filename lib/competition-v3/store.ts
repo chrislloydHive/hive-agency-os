@@ -70,6 +70,7 @@ export async function saveCompetitionRunV3(
       'Company ID': payload.companyId,
       'Status': payload.status,
       'Run Data': JSON.stringify(payload),
+      'Created At': new Date().toISOString(),
     });
 
     console.log(`[competition-v3/store] Saved run with record ID: ${record.id}`);
@@ -149,13 +150,19 @@ export async function getLatestCompetitionRunV3(
   try {
     const config = getAirtableConfig();
     const filterFormula = `{Company ID} = '${companyId.replace(/'/g, "\\'")}'`;
-    const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE)}?filterByFormula=${encodeURIComponent(filterFormula)}&maxRecords=1&sort%5B0%5D%5Bfield%5D=Created%20At&sort%5B0%5D%5Bdirection%5D=desc`;
+    // Sort by "Created At" field to get the most recent run
+    // Fetch more records to debug which one is newest
+    const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE)}?filterByFormula=${encodeURIComponent(filterFormula)}&maxRecords=5&sort%5B0%5D%5Bfield%5D=Created%20At&sort%5B0%5D%5Bdirection%5D=desc`;
+
+    console.log('[competition-v3/store] Fetching latest run:', { companyId, table: TABLE });
 
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
       },
+      // Disable caching to ensure fresh results
+      cache: 'no-store',
     });
 
     if (!response.ok) {
@@ -164,6 +171,17 @@ export async function getLatestCompetitionRunV3(
 
     const result = await response.json();
     const records = result.records || [];
+
+    console.log('[competition-v3/store] Query result:', {
+      recordCount: records.length,
+      companyId,
+      // Log ALL record IDs and Created At values for debugging
+      allRecords: records.map((r: { id: string; fields: Record<string, unknown> }) => ({
+        id: r.id,
+        createdAt: r.fields['Created At'],
+        runId: (r.fields['Run ID'] as string)?.slice(0, 20),
+      })),
+    });
 
     if (records.length === 0) return null;
 
@@ -177,6 +195,15 @@ export async function getLatestCompetitionRunV3(
       console.log('[competition-v3/store] Latest run is not V3 format');
       return null;
     }
+
+    console.log('[competition-v3/store] Latest run found:', {
+      runId: runData.runId,
+      competitorCount: runData.competitors?.length ?? 0,
+      topDomains: runData.competitors?.slice(0, 3).map(c => c.domain),
+      createdAt: runData.createdAt,
+      airtableRecordId: record.id,
+      airtableCreatedAt: record.fields['Created At'],
+    });
 
     return runData;
   } catch (error) {

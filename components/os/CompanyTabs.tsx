@@ -2,16 +2,17 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { COMPANY_TABS, getCompanyTabFromPath } from '@/lib/nav/companyNav';
+import { getPrimaryCompanyTabs, getCompanyTabFromPath } from '@/lib/nav/companyNav';
 
 export default function CompanyTabs({ companyId }: { companyId: string }) {
   const pathname = usePathname();
   const activeTabId = getCompanyTabFromPath(pathname, companyId);
+  const primaryTabs = getPrimaryCompanyTabs();
 
   return (
     <div className="border-b border-gray-800">
       <nav className="-mb-px flex gap-4 overflow-x-auto sm:gap-6">
-        {COMPANY_TABS.map((tab) => {
+        {primaryTabs.map((tab) => {
           const href = tab.href(companyId);
           const isActive = tab.id === activeTabId;
 

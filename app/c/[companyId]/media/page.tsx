@@ -6,6 +6,11 @@
 // - Tab is always present in navigation
 // - Content renders conditionally based on company.hasMediaProgram
 // - Shows MediaProgramEmptyState when no media program is active
+//
+// MEDIA LAB V2 FEATURES:
+// - MediaProgramSummaryPanel: High-level KPIs, program health, trends
+// - MediaIssuesPanel: AI-generated findings and opportunities
+// - Enhanced campaign and store scorecards
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -41,8 +46,15 @@ import {
   type MediaChannelPerformance,
 } from '@/lib/types/media';
 import { GenerateMediaWorkButton } from './GenerateMediaWorkButton';
-import { MediaProgramEmptyState } from '@/components/os/media';
+import {
+  MediaProgramEmptyState,
+  MediaProgramSummaryPanel,
+  MediaIssuesPanel,
+} from '@/components/os/media';
 import { MediaCockpit } from '@/components/media/cockpit';
+import { getCompanyAnalyticsSnapshot } from '@/lib/os/companies/companyAnalytics';
+import { getCompanyMediaProgramSummary } from '@/lib/os/analytics/getCompanyMediaProgramSummary';
+import { getTopMediaFindingsForCompany } from '@/lib/os/findings/mediaFindings';
 
 export const dynamic = 'force-dynamic';
 
@@ -749,7 +761,7 @@ export default async function CompanyMediaPage({ params }: PageProps) {
     );
   }
 
-  // Fetch all media data in parallel - V2 analytics + legacy data + cockpit
+  // Fetch all media data in parallel - V2 analytics + legacy data + cockpit + findings
   const [
     overview,
     programSummaries,
@@ -761,6 +773,10 @@ export default async function CompanyMediaPage({ params }: PageProps) {
     storeScorecardsV2,
     cockpitData,
     cockpitStores,
+    // Media Lab v2 data
+    analyticsSnapshot,
+    mediaProgramSummary,
+    mediaFindings,
   ] = await Promise.all([
     getMediaOverviewForCompany(companyId),
     getProgramSummariesForCompany(companyId),
@@ -772,6 +788,10 @@ export default async function CompanyMediaPage({ params }: PageProps) {
     getStoreScorecards(companyId),
     getMediaCockpitData(companyId),
     getMediaStoreOptions(companyId),
+    // Media Lab v2: Analytics, program summary, and findings
+    getCompanyAnalyticsSnapshot({ companyId, range: '28d' }).catch(() => null),
+    getCompanyMediaProgramSummary({ companyId }).catch(() => null),
+    getTopMediaFindingsForCompany(companyId, 8).catch(() => []),
   ]);
 
   // Use V2 scorecards if available, otherwise fall back to legacy
@@ -816,11 +836,29 @@ export default async function CompanyMediaPage({ params }: PageProps) {
             </svg>
             Scenarios
           </Link>
+          <Link
+            href={`/c/${companyId}/media/qbr`}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-cyan-400 bg-cyan-500/10 border border-cyan-500/30 rounded-lg hover:bg-cyan-500/20 hover:text-cyan-300 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Generate QBR
+          </Link>
           {hasV2Scorecards && (
             <GenerateMediaWorkButton companyId={companyId} companyName={company.name} />
           )}
         </div>
       </div>
+
+      {/* Media Lab v2: Program Summary Panel */}
+      {mediaProgramSummary && mediaProgramSummary.hasMediaProgram && (
+        <MediaProgramSummaryPanel
+          mediaSummary={mediaProgramSummary}
+          analytics={analyticsSnapshot || undefined}
+          companyName={company.name}
+        />
+      )}
 
       {/* Media Cockpit - Overview with Plan vs Actual */}
       <section>
@@ -830,6 +868,13 @@ export default async function CompanyMediaPage({ params }: PageProps) {
           stores={cockpitStores}
         />
       </section>
+
+      {/* Media Lab v2: Issues & Opportunities Panel */}
+      <MediaIssuesPanel
+        companyId={companyId}
+        findings={mediaFindings}
+        hasAnalytics={analyticsSnapshot?.hasAnalytics || false}
+      />
 
       {/* Detailed KPI Summary Section (legacy - can be removed once cockpit is stable) */}
       <section className="opacity-60 hover:opacity-100 transition-opacity">

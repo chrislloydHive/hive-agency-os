@@ -400,6 +400,8 @@ export const VERTICAL_MODELS: Record<VerticalCategory, VerticalCompetitorModel> 
   software: B2B_SOFTWARE_MODEL,
   'consumer-dtc': CONSUMER_DTC_MODEL,
   manufacturing: UNKNOWN_MODEL, // Default to unknown for manufacturing
+  marketplace: B2B_SOFTWARE_MODEL, // Marketplaces use software-like competitor dynamics
+  'financial-services': B2B_SERVICES_MODEL, // Financial services use similar competitor dynamics to B2B services
   unknown: UNKNOWN_MODEL,
 };
 

@@ -15,6 +15,9 @@ import type {
   QueryContext,
   CrawledContent,
   CompetitorType,
+  CompanyArchetype,
+  ArchetypeDetectionResult,
+  CompanyClassificationResult,
 } from './types';
 import { VERTICAL_ALLOWED_TYPES, VERTICAL_DISALLOWED_TYPES } from './types';
 
@@ -103,6 +106,103 @@ export const MANUFACTURING_KEYWORDS = [
   'raw materials', 'components', 'parts',
 ];
 
+/**
+ * Keywords that indicate marketplace/platform vertical
+ */
+export const MARKETPLACE_KEYWORDS = [
+  'marketplace', 'platform', 'connect', 'book',
+  'find', 'hire', 'browse', 'search',
+  'providers', 'professionals', 'experts',
+  'trainers', 'coaches', 'instructors', 'tutors',
+  'freelancers', 'contractors', 'vendors',
+  'supply and demand', 'two-sided', 'multi-sided',
+  'booking', 'appointments', 'schedule',
+  'reviews', 'ratings', 'verified',
+  'join as provider', 'become a provider', 'list your',
+  'sign up as', 'register as',
+];
+
+/**
+ * Keywords that indicate financial services vertical
+ */
+export const FINANCIAL_SERVICES_KEYWORDS = [
+  // Banking
+  'bank', 'banking', 'banker', 'bankers',
+  'credit union', 'savings', 'checking', 'deposit', 'deposits',
+  'lending', 'loan', 'loans', 'mortgage', 'mortgages',
+  'interest rate', 'apr', 'apy', 'fdic',
+  'branch', 'branches', 'atm', 'online banking', 'mobile banking',
+  // Financial services
+  'financial services', 'financial institution',
+  'wealth management', 'asset management', 'portfolio',
+  'investment', 'investments', 'investing',
+  'retirement', '401k', 'ira', 'pension',
+  'financial planning', 'financial advisor',
+  // Insurance
+  'insurance', 'insurer', 'underwriting', 'coverage', 'policy', 'premium',
+  'claims', 'deductible', 'beneficiary',
+  // Credit
+  'credit', 'credit card', 'line of credit', 'credit score', 'fico',
+  // Fintech
+  'fintech', 'neobank', 'digital bank', 'challenger bank',
+  'payment', 'payments', 'transaction', 'transfer', 'wire',
+];
+
+// ============================================================================
+// Archetype Detection Keywords
+// ============================================================================
+
+/**
+ * Keywords that indicate two-sided marketplace archetype
+ */
+export const TWO_SIDED_MARKETPLACE_KEYWORDS = [
+  'marketplace', 'platform connecting', 'connects',
+  'find and book', 'hire', 'browse',
+  'providers', 'professionals', 'experts',
+  'customers', 'clients', 'users',
+  'supply', 'demand', 'two-sided', 'multi-sided',
+  'join as provider', 'become a provider', 'list your',
+  'sign up as a', 'register as a',
+  'booking platform', 'matching', 'matchmaking',
+];
+
+/**
+ * Keywords that indicate SaaS archetype
+ */
+export const SAAS_KEYWORDS = [
+  'software', 'saas', 'cloud', 'subscription',
+  'free trial', 'pricing plans', 'per user', 'per seat',
+  'api', 'integrations', 'dashboard', 'analytics',
+  'log in', 'sign up', 'get started',
+  'enterprise plan', 'team plan', 'pro plan',
+];
+
+/**
+ * Keywords that indicate agency archetype
+ */
+export const AGENCY_ARCHETYPE_KEYWORDS = [
+  'agency', 'marketing agency', 'digital agency',
+  'creative agency', 'design agency', 'web agency',
+  'full-service', 'managed services',
+  'our team', 'our experts', 'our specialists',
+  'case studies', 'portfolio', 'our work',
+  'retainer', 'project-based', 'engagement',
+];
+
+/**
+ * Marketplace sub-verticals (what the marketplace is about)
+ */
+export const MARKETPLACE_VERTICALS: Record<string, string[]> = {
+  'fitness': ['trainer', 'fitness', 'gym', 'workout', 'personal training', 'yoga', 'pilates', 'crossfit', 'boot camp'],
+  'wellness': ['wellness', 'spa', 'massage', 'meditation', 'health coaching', 'nutrition'],
+  'home-services': ['home service', 'cleaning', 'plumber', 'electrician', 'handyman', 'contractor', 'landscaping'],
+  'professional-services': ['consultant', 'lawyer', 'accountant', 'financial advisor', 'business services'],
+  'creative': ['designer', 'photographer', 'videographer', 'artist', 'creative', 'freelance'],
+  'education': ['tutor', 'teacher', 'instructor', 'lessons', 'classes', 'courses', 'learning'],
+  'rentals': ['rental', 'rent', 'vacation', 'property', 'equipment', 'vehicle'],
+  'events': ['event', 'wedding', 'party', 'venue', 'catering', 'entertainment'],
+};
+
 // ============================================================================
 // Sub-Vertical Detection
 // ============================================================================
@@ -158,6 +258,15 @@ export const DOMAIN_VERTICAL_HINTS: Record<string, VerticalCategory> = {
   'shopify': 'consumer-dtc',
   'bigcommerce': 'consumer-dtc',
   'woocommerce': 'retail',
+
+  // Financial services - TLD indicators
+  '.bank': 'financial-services',       // .bank TLD (e.g., portage.bank)
+  '.insurance': 'financial-services',  // .insurance TLD
+  // Financial services - known patterns
+  'creditunion': 'financial-services',
+  'savings': 'financial-services',
+  'mortgage': 'financial-services',
+  'lending': 'financial-services',
 };
 
 // ============================================================================
@@ -232,6 +341,8 @@ export function detectVerticalCategory(
     'manufacturing': 0,
     'consumer-dtc': 0,
     'automotive': 0,
+    'marketplace': 0,
+    'financial-services': 0,
     'unknown': 0,
   };
 
@@ -288,6 +399,8 @@ export function detectVerticalCategory(
   const softwareMatches = countKeywordMatches(combinedText, SOFTWARE_KEYWORDS);
   const dtcMatches = countKeywordMatches(combinedText, CONSUMER_DTC_KEYWORDS);
   const manufacturingMatches = countKeywordMatches(combinedText, MANUFACTURING_KEYWORDS);
+  const marketplaceMatches = countKeywordMatches(combinedText, MARKETPLACE_KEYWORDS);
+  const financialServicesMatches = countKeywordMatches(combinedText, FINANCIAL_SERVICES_KEYWORDS);
 
   // Weight the matches
   scores['retail'] += retailMatches * 3;
@@ -296,6 +409,8 @@ export function detectVerticalCategory(
   scores['software'] += softwareMatches * 3;
   scores['consumer-dtc'] += dtcMatches * 3;
   scores['manufacturing'] += manufacturingMatches * 3;
+  scores['marketplace'] += marketplaceMatches * 5; // Higher weight for marketplace (they often overlap with other verticals)
+  scores['financial-services'] += financialServicesMatches * 4; // Higher weight for financial services specificity
 
   // Record signals
   if (retailMatches > 0) signals.push(`${retailMatches} retail keywords matched`);
@@ -304,6 +419,8 @@ export function detectVerticalCategory(
   if (softwareMatches > 0) signals.push(`${softwareMatches} software keywords matched`);
   if (dtcMatches > 0) signals.push(`${dtcMatches} DTC keywords matched`);
   if (manufacturingMatches > 0) signals.push(`${manufacturingMatches} manufacturing keywords matched`);
+  if (marketplaceMatches > 0) signals.push(`${marketplaceMatches} marketplace keywords matched`);
+  if (financialServicesMatches > 0) signals.push(`${financialServicesMatches} financial services keywords matched`);
 
   // 4. Check for sub-vertical (can override or boost)
   const subVerticalResult = detectSubVertical(combinedText);
@@ -329,9 +446,26 @@ export function detectVerticalCategory(
     scores['services'] += 25;
     signals.push('Industry field contains services indicators');
   }
-  if (industryLower.includes('software') || industryLower.includes('saas') || industryLower.includes('platform')) {
+  if (industryLower.includes('software') || industryLower.includes('saas')) {
     scores['software'] += 25;
     signals.push('Industry field contains software indicators');
+  }
+  if (industryLower.includes('marketplace') || industryLower.includes('platform') || industryLower.includes('booking')) {
+    scores['marketplace'] += 30; // Strong signal for marketplace
+    signals.push('Industry field contains marketplace indicators');
+  }
+  if (industryLower.includes('bank') || industryLower.includes('financial') || industryLower.includes('lending') ||
+      industryLower.includes('credit union') || industryLower.includes('insurance') || industryLower.includes('mortgage')) {
+    scores['financial-services'] += 35; // Strong signal for financial services
+    signals.push('Industry field contains financial services indicators');
+  }
+
+  // 5b. Check business model for marketplace indicators
+  const businessModelLower = context.businessModel?.toLowerCase() || '';
+  if (businessModelLower.includes('marketplace') || businessModelLower.includes('two-sided') ||
+      businessModelLower.includes('platform') || businessModelLower.includes('connect')) {
+    scores['marketplace'] += 35;
+    signals.push('Business model indicates marketplace');
   }
 
   // 6. Determine winner
@@ -513,6 +647,30 @@ export const VERTICAL_TERMINOLOGY: Record<VerticalCategory, VerticalTerminology>
     differentiation: ['brand story', 'community', 'product quality', 'values', 'experience'],
     threats: ['established brands', 'Amazon', 'copycats', 'acquisition costs'],
   },
+  'marketplace': {
+    customer: 'user',
+    customers: 'users',
+    product: 'service',
+    products: 'services',
+    purchase: 'booking',
+    competitor: 'competing marketplace',
+    competitors: 'competing marketplaces',
+    market: 'marketplace vertical',
+    differentiation: ['supply density', 'user experience', 'trust and safety', 'network effects', 'specialization'],
+    threats: ['established marketplaces', 'vertical entrants', 'aggregators', 'direct booking'],
+  },
+  'financial-services': {
+    customer: 'customer',
+    customers: 'customers',
+    product: 'product',
+    products: 'products',
+    purchase: 'account opening',
+    competitor: 'competing institution',
+    competitors: 'competing institutions',
+    market: 'financial services market',
+    differentiation: ['rates', 'fees', 'digital experience', 'branch network', 'customer service', 'product offerings'],
+    threats: ['national banks', 'credit unions', 'fintechs', 'neobanks', 'big tech financial products'],
+  },
   'unknown': {
     customer: 'customer',
     customers: 'customers',
@@ -576,9 +734,201 @@ export function getVerticalSearchModifiers(vertical: VerticalCategory): {
         include: ['manufacturer', 'oem', 'supplier', 'wholesale'],
         exclude: ['agency', 'consulting', 'retail', 'consumer'],
       };
+    case 'marketplace':
+      return {
+        include: ['marketplace', 'platform', 'book', 'find', 'hire'],
+        exclude: ['agency', 'consulting', 'marketing agency', 'seo agency', 'digital agency'],
+      };
+    case 'financial-services':
+      return {
+        include: ['bank', 'credit union', 'lending', 'mortgage', 'financial services', 'fintech'],
+        exclude: ['agency', 'consulting', 'marketing agency', 'seo agency', 'digital agency', 'web design'],
+      };
     default:
       return { include: [], exclude: [] };
   }
+}
+
+// ============================================================================
+// Archetype Detection
+// ============================================================================
+
+/**
+ * Detect the company archetype (business model structure)
+ * This provides a higher-level classification than vertical
+ */
+export function detectCompanyArchetype(
+  context: Partial<QueryContext>,
+  crawledContent?: CrawledContent | null
+): ArchetypeDetectionResult {
+  const signals: string[] = [];
+  const scores: Record<CompanyArchetype, number> = {
+    'two_sided_marketplace': 0,
+    'saas': 0,
+    'directory': 0,
+    'agency': 0,
+    'consultancy': 0,
+    'ecommerce': 0,
+    'local_service': 0,
+    'content_platform': 0,
+    'enterprise_software': 0,
+    'unknown': 0,
+  };
+
+  // Build combined text for analysis
+  const textParts: string[] = [];
+  if (context.businessName) textParts.push(context.businessName);
+  if (context.industry) textParts.push(context.industry);
+  if (context.businessModel) textParts.push(context.businessModel);
+  if (context.icpDescription) textParts.push(context.icpDescription);
+  if (context.valueProposition) textParts.push(context.valueProposition);
+  if (context.primaryOffers) textParts.push(...context.primaryOffers);
+  if (context.differentiators) textParts.push(...context.differentiators);
+
+  if (crawledContent) {
+    if (crawledContent.homepage.title) textParts.push(crawledContent.homepage.title);
+    if (crawledContent.homepage.h1) textParts.push(crawledContent.homepage.h1);
+    if (crawledContent.homepage.description) textParts.push(crawledContent.homepage.description);
+    if (crawledContent.homepage.keywords) textParts.push(...crawledContent.homepage.keywords);
+    if (crawledContent.services.offerings) textParts.push(...crawledContent.services.offerings);
+  }
+
+  const combinedText = textParts.join(' ').toLowerCase();
+
+  // Two-sided marketplace detection
+  const marketplaceMatches = countKeywordMatches(combinedText, TWO_SIDED_MARKETPLACE_KEYWORDS);
+  scores['two_sided_marketplace'] += marketplaceMatches * 5;
+  if (marketplaceMatches > 0) signals.push(`${marketplaceMatches} marketplace keywords matched`);
+
+  // Check for two-sided signals specifically
+  const hasBothSides = (
+    (combinedText.includes('provider') || combinedText.includes('professional') || combinedText.includes('trainer') || combinedText.includes('expert')) &&
+    (combinedText.includes('customer') || combinedText.includes('client') || combinedText.includes('user') || combinedText.includes('book'))
+  );
+  if (hasBothSides) {
+    scores['two_sided_marketplace'] += 25;
+    signals.push('Both supply and demand side signals detected');
+  }
+
+  // SaaS detection
+  const saasMatches = countKeywordMatches(combinedText, SAAS_KEYWORDS);
+  scores['saas'] += saasMatches * 4;
+  if (saasMatches > 0) signals.push(`${saasMatches} SaaS keywords matched`);
+
+  // Agency detection
+  const agencyMatches = countKeywordMatches(combinedText, AGENCY_ARCHETYPE_KEYWORDS);
+  scores['agency'] += agencyMatches * 4;
+  if (agencyMatches > 0) signals.push(`${agencyMatches} agency keywords matched`);
+
+  // Check explicit business model field
+  const businessModelLower = context.businessModel?.toLowerCase() || '';
+  if (businessModelLower.includes('marketplace') || businessModelLower.includes('two-sided')) {
+    scores['two_sided_marketplace'] += 40;
+    signals.push('Business model explicitly mentions marketplace');
+  } else if (businessModelLower.includes('saas') || businessModelLower.includes('software')) {
+    scores['saas'] += 40;
+    signals.push('Business model explicitly mentions SaaS');
+  } else if (businessModelLower.includes('agency')) {
+    scores['agency'] += 40;
+    signals.push('Business model explicitly mentions agency');
+  } else if (businessModelLower.includes('ecommerce') || businessModelLower.includes('dtc') || businessModelLower.includes('d2c')) {
+    scores['ecommerce'] += 40;
+    signals.push('Business model explicitly mentions ecommerce/DTC');
+  }
+
+  // Check for known marketplace domain patterns
+  const domain = context.domain?.toLowerCase() || '';
+  const marketplaceDomainPatterns = ['hub', 'connect', 'find', 'book', 'hire', 'match', 'link'];
+  for (const pattern of marketplaceDomainPatterns) {
+    if (domain.includes(pattern)) {
+      scores['two_sided_marketplace'] += 15;
+      signals.push(`Domain contains marketplace indicator: ${pattern}`);
+      break;
+    }
+  }
+
+  // Determine winner
+  let winner: CompanyArchetype = 'unknown';
+  let maxScore = 0;
+  for (const [archetype, score] of Object.entries(scores)) {
+    if (score > maxScore && archetype !== 'unknown') {
+      maxScore = score;
+      winner = archetype as CompanyArchetype;
+    }
+  }
+
+  // Calculate confidence
+  const totalScore = Object.values(scores).reduce((a, b) => a + b, 0);
+  const confidence = totalScore > 0 ? Math.min(maxScore / totalScore * 1.5, 1) : 0;
+
+  // Build reasoning
+  let reasoning = '';
+  if (winner === 'unknown' || maxScore < 10) {
+    reasoning = 'Insufficient signals to determine archetype';
+    winner = 'unknown';
+  } else {
+    const topSignals = signals.slice(0, 3).join('; ');
+    reasoning = `Detected as ${winner} based on: ${topSignals}`;
+  }
+
+  return {
+    archetype: winner,
+    confidence: Math.round(confidence * 100) / 100,
+    reasoning,
+    signals,
+  };
+}
+
+/**
+ * Detect marketplace sub-vertical (fitness, wellness, home-services, etc.)
+ */
+export function detectMarketplaceVertical(text: string): string | null {
+  const lowerText = text.toLowerCase();
+  let bestMatch: { vertical: string; score: number } | null = null;
+
+  for (const [vertical, keywords] of Object.entries(MARKETPLACE_VERTICALS)) {
+    const matchCount = countKeywordMatches(lowerText, keywords);
+    if (matchCount >= 2 && (!bestMatch || matchCount > bestMatch.score)) {
+      bestMatch = { vertical, score: matchCount };
+    }
+  }
+
+  return bestMatch?.vertical ?? null;
+}
+
+/**
+ * Combined classification: archetype + vertical
+ * This is the main entry point for classifying a company
+ */
+export function classifyCompanyArchetypeAndVertical(
+  context: Partial<QueryContext>,
+  crawledContent?: CrawledContent | null,
+  html?: string
+): CompanyClassificationResult {
+  // Detect archetype
+  const archetypeResult = detectCompanyArchetype(context, crawledContent);
+
+  // Detect vertical
+  const verticalResult = detectVerticalCategory(context, crawledContent, html);
+
+  // If archetype is two_sided_marketplace but vertical didn't pick up marketplace,
+  // override the vertical to marketplace
+  if (archetypeResult.archetype === 'two_sided_marketplace' && verticalResult.verticalCategory !== 'marketplace') {
+    return {
+      archetype: archetypeResult,
+      vertical: {
+        ...verticalResult,
+        verticalCategory: 'marketplace',
+        reasoning: `${verticalResult.reasoning} [Overridden to marketplace due to archetype detection]`,
+        signals: [...verticalResult.signals, 'Archetype is two_sided_marketplace'],
+      },
+    };
+  }
+
+  return {
+    archetype: archetypeResult,
+    vertical: verticalResult,
+  };
 }
 
 // ============================================================================
