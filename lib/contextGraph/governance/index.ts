@@ -91,13 +91,13 @@ export {
   type RulePerformance,
 } from './adaptiveRules';
 
-// Governed Lab Writer
-export {
-  governedLabWrite,
-  previewLabWrite,
-  getProtectedFieldsForLab,
-  type LabSource,
-  type LabWriteField,
-  type LabWriteProposal,
-  type GovernedLabWriteResult,
-} from './governedLabWriter';
+// Governed Lab Writer - TEMP DISABLED: depends on WIP governedLabWriter module
+// export {
+//   governedLabWrite,
+//   previewLabWrite,
+//   getProtectedFieldsForLab,
+//   type LabSource,
+//   type LabWriteField,
+//   type LabWriteProposal,
+//   type GovernedLabWriteResult,
+// } from './governedLabWriter';
