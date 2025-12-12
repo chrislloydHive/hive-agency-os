@@ -78,19 +78,26 @@ Describe:
 This should be concrete enough to guide targeting and messaging.
 
 objectives (REQUIRED - 3-5 items)
-Each objective should be outcome-oriented and specific.
+Each objective should be OUTCOME-ORIENTED and MEASURABLE.
+Format each as: "[Action verb] [specific outcome] [via mechanism/channel]"
 Examples:
-- "Increase qualified customer acquisition through organic search"
-- "Improve conversion efficiency from trial to paid"
-- "Expand product adoption among existing customers"
-Avoid vague goals. Each should suggest a measurable outcome.
+- "Increase qualified lead volume by 30% through organic search optimization"
+- "Improve trial-to-paid conversion rate from 5% to 12% via onboarding optimization"
+- "Reduce customer acquisition cost by expanding referral and word-of-mouth channels"
+- "Grow monthly recurring revenue by 25% through upsell of existing customer base"
+BAD objectives (too vague):
+- "Improve marketing" (no outcome)
+- "Get more customers" (no mechanism)
+- "Increase brand awareness" (not measurable)
 
-constraints (2-4 sentences)
-Include relevant:
-- Budget sensitivity
-- Regulatory or compliance constraints
-- Resource, timing, or operational limitations
-If unknown, state what is unclear rather than inventing constraints.
+constraints (REQUIRED - 2-4 sentences)
+Include CONCRETE constraints from these categories:
+- Budget: Estimated monthly/annual marketing budget, or "Budget unknown - assume moderate SMB constraints"
+- Regulatory: Industry-specific compliance (HIPAA, FINRA, etc.) or "No apparent regulatory constraints"
+- Resources: Team size, in-house vs. agency reliance, technical capabilities
+- Timeline: Launch windows, seasonal considerations, urgency factors
+CRITICAL: If a constraint category is unknown, explicitly state it as unknown rather than omitting.
+Example: "Budget is unknown. No apparent regulatory constraints. Team appears small (likely <5 marketing FTEs). Timeline urgency is unclear."
 
 marketSignals (3-5 items)
 Short bullet-style signals about the market landscape.
@@ -140,7 +147,28 @@ Return a JSON object with ONLY these keys:
       "confidence": number (0-100, how confident you are in this assessment)
     }
   ],
+  "confidenceNotes": {
+    "highConfidence": ["field names where inference is strong"],
+    "needsReview": ["field name: reason for uncertainty"]
+  },
   "summary": string (1-2 sentences summarizing what was generated)
+}
+
+CONFIDENCE NOTES REQUIREMENTS:
+- List fields in "highConfidence" when signals are clear and unambiguous
+- List fields in "needsReview" with specific reasons when:
+  - Signals are conflicting or sparse
+  - Industry-specific nuance may be missed
+  - Multiple interpretations are possible
+  - Data is inferred rather than explicit
+Example:
+{
+  "highConfidence": ["businessModel", "primaryAudience", "companyCategory"],
+  "needsReview": [
+    "valueProposition: differentiation unclear from available signals",
+    "constraints: no budget or regulatory information provided",
+    "icpDescription: audience segment may be broader than inferred"
+  ]
 }
 
 COMPETITOR TYPE DEFINITIONS:
@@ -253,6 +281,16 @@ export async function generateContextDraft(
     // Merge with baseline competitors (baseline takes precedence for domains we already have)
     const mergedCompetitors = mergeCompetitors(signals.competitors, aiCompetitors);
 
+    // Parse confidence notes from AI response
+    const rawConfidence = parsed.confidenceNotes as {
+      highConfidence?: string[];
+      needsReview?: string[];
+    } | undefined;
+    const confidenceNotes = rawConfidence ? {
+      highConfidence: Array.isArray(rawConfidence.highConfidence) ? rawConfidence.highConfidence : undefined,
+      needsReview: Array.isArray(rawConfidence.needsReview) ? rawConfidence.needsReview : undefined,
+    } : undefined;
+
     // Build context from AI output
     const generatedContext: CompanyContext = {
       companyId,
@@ -267,6 +305,7 @@ export async function generateContextDraft(
       competitors: mergedCompetitors.length > 0 ? mergedCompetitors : undefined,
       marketSignals: Array.isArray(parsed.marketSignals) ? (parsed.marketSignals as string[]) : undefined,
       companyCategory: (parsed.companyCategory as string) || signals.inferredCategory || undefined,
+      confidenceNotes,
       isAiGenerated: true,
     };
 

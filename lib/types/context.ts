@@ -78,6 +78,12 @@ export interface CompanyContext {
   // Free-form notes
   notes?: string;
 
+  // AI Confidence Notes (per-field quality signals)
+  confidenceNotes?: {
+    highConfidence?: string[];   // Fields where inference is strong
+    needsReview?: string[];      // "field: reason" for fields needing human review
+  };
+
   // Metadata
   createdAt?: string;
   updatedAt?: string;
