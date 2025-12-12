@@ -27,8 +27,12 @@ import type { CompanyContext, Competitor } from '@/lib/types/context';
 import type { DraftableState } from '@/lib/os/draft/types';
 import type { DiagnosticsDebugInfo } from '@/lib/os/diagnostics/debugInfo';
 import { useDraftableResource } from '@/hooks/useDraftableResource';
-import { CompetitorEditor } from '@/components/context/CompetitorEditor';
-import { DiagnosticsDebugDrawer } from '@/components/context/DiagnosticsDebugDrawer';
+import {
+  CompetitorEditor,
+  DiagnosticsDebugDrawer,
+  ContextSection,
+  ContextField,
+} from '@/components/context';
 
 // ============================================================================
 // Types
@@ -323,6 +327,8 @@ export function ContextWorkspaceClient({
             onChange={v => updateField('businessModel', v)}
             placeholder="How does the business create and deliver value?"
             multiline
+            fieldName="businessModel"
+            confidenceNotes={context.confidenceNotes}
           />
           <ContextField
             label="Value Proposition"
@@ -330,12 +336,16 @@ export function ContextWorkspaceClient({
             onChange={v => updateField('valueProposition', v)}
             placeholder="What unique value does the company offer?"
             multiline
+            fieldName="valueProposition"
+            confidenceNotes={context.confidenceNotes}
           />
           <ContextField
             label="Company Category"
             value={context.companyCategory || ''}
             onChange={v => updateField('companyCategory', v)}
             placeholder="e.g., SaaS, E-commerce, Local Service"
+            fieldName="companyCategory"
+            confidenceNotes={context.confidenceNotes}
           />
         </ContextSection>
 
@@ -350,12 +360,16 @@ export function ContextWorkspaceClient({
             onChange={v => updateField('primaryAudience', v)}
             placeholder="Who is the primary target audience?"
             multiline
+            fieldName="primaryAudience"
+            confidenceNotes={context.confidenceNotes}
           />
           <ContextField
             label="Secondary Audience"
             value={context.secondaryAudience || ''}
             onChange={v => updateField('secondaryAudience', v)}
             placeholder="Any secondary audiences?"
+            fieldName="secondaryAudience"
+            confidenceNotes={context.confidenceNotes}
           />
           <ContextField
             label="ICP Description"
@@ -363,6 +377,8 @@ export function ContextWorkspaceClient({
             onChange={v => updateField('icpDescription', v)}
             placeholder="Detailed ideal customer profile"
             multiline
+            fieldName="icpDescription"
+            confidenceNotes={context.confidenceNotes}
           />
         </ContextSection>
 
@@ -412,18 +428,24 @@ export function ContextWorkspaceClient({
             onChange={v => updateField('constraints', v)}
             placeholder="Budget limits, resource constraints, timing..."
             multiline
+            fieldName="constraints"
+            confidenceNotes={context.confidenceNotes}
           />
           <ContextField
             label="Budget"
             value={context.budget || ''}
             onChange={v => updateField('budget', v)}
             placeholder="Marketing budget range"
+            fieldName="budget"
+            confidenceNotes={context.confidenceNotes}
           />
           <ContextField
             label="Timeline"
             value={context.timeline || ''}
             onChange={v => updateField('timeline', v)}
             placeholder="Key timelines or deadlines"
+            fieldName="timeline"
+            confidenceNotes={context.confidenceNotes}
           />
         </ContextSection>
 
@@ -450,6 +472,8 @@ export function ContextWorkspaceClient({
               placeholder="High-level notes on competitive dynamics, positioning..."
               multiline
               rows={2}
+              fieldName="competitorsNotes"
+              confidenceNotes={context.confidenceNotes}
             />
           </div>
         </ContextSection>
@@ -483,72 +507,3 @@ export function ContextWorkspaceClient({
   );
 }
 
-// ============================================================================
-// Helper Components
-// ============================================================================
-
-function ContextSection({
-  icon,
-  title,
-  children,
-  fullWidth,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  children: React.ReactNode;
-  fullWidth?: boolean;
-}) {
-  return (
-    <div className={`bg-slate-900/50 border border-slate-800 rounded-xl p-5 ${fullWidth ? 'lg:col-span-2' : ''}`}>
-      <div className="flex items-center gap-2 mb-4">
-        <div className="text-cyan-400">{icon}</div>
-        <h2 className="text-sm font-medium text-slate-200">{title}</h2>
-      </div>
-      <div className="space-y-4">{children}</div>
-    </div>
-  );
-}
-
-function ContextField({
-  label,
-  value,
-  onChange,
-  placeholder,
-  multiline = false,
-  rows = 3,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  multiline?: boolean;
-  rows?: number;
-}) {
-  const inputClasses =
-    'w-full px-3 py-2 text-sm bg-slate-800/50 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 resize-none';
-
-  return (
-    <div>
-      <label className="block text-xs font-medium text-slate-400 mb-1.5">
-        {label}
-      </label>
-      {multiline ? (
-        <textarea
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          placeholder={placeholder}
-          rows={rows}
-          className={inputClasses}
-        />
-      ) : (
-        <input
-          type="text"
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          placeholder={placeholder}
-          className={inputClasses}
-        />
-      )}
-    </div>
-  );
-}
