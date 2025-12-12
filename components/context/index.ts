@@ -9,15 +9,10 @@ export type { ContextFieldProps } from './ContextField';
 export { ConfidenceTooltip } from './ConfidenceTooltip';
 export type { ConfidenceTooltipProps } from './ConfidenceTooltip';
 
-// V2 UI Components
-export { ContextV2StatusBadge, ContextV2StatusDot } from './ContextV2StatusBadge';
-export { ContextV2SectionHeader, SECTION_DESCRIPTIONS } from './ContextV2SectionHeader';
-export {
-  FieldMetaBadge,
-  ConfidenceDot,
-  SourceIcon,
-  FieldStatusSummary,
-} from './ContextV2FieldMeta';
+// V2 UI Components (TEMP DISABLED - depend on WIP contextV2 modules)
+export { ContextV2StatusBadge } from './ContextV2StatusBadge';
+export { ContextV2SectionHeader } from './ContextV2SectionHeader';
+export { ContextV2FieldMeta } from './ContextV2FieldMeta';
 export { ContextQualityBanner } from './ContextQualityBanner';
 
 // Existing components
