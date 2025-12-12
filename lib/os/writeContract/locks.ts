@@ -10,9 +10,11 @@ import type {
   LockStatus,
   LockReason,
   LockEvaluationMeta,
+  ContextFieldSource,
+  ContextField,
+  FieldSource,
+  FieldProvenance,
 } from './types';
-import type { ContextFieldSource, ContextField } from '@/lib/types/contextV2';
-import type { FieldSource, FieldProvenance } from '@/lib/types/strategyV2';
 
 // ============================================================================
 // JSON Pointer Utilities

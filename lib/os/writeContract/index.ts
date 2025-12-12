@@ -25,7 +25,7 @@ import { buildProposal, isProposalValid } from './proposal';
 import { applyProposal, previewProposal } from './apply';
 import { validateProposalRevision, isRevisionCurrent } from './revision';
 import { buildLockMeta } from './locks';
-import type { FieldProvenance } from '@/lib/types/strategyV2';
+import type { FieldProvenance } from './types';
 
 // Re-export types
 export * from './types';

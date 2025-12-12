@@ -263,3 +263,72 @@ export interface ApplyProposalInput {
   /** Who is applying this proposal */
   appliedBy: string;
 }
+
+// ============================================================================
+// Field Provenance Types (for strategy field locking)
+// ============================================================================
+
+/**
+ * Source of a field's value - used to protect user edits from AI overwrites
+ */
+export type FieldSource = 'User' | 'AI' | 'AI_suggestion' | 'Inherited';
+
+/**
+ * Confidence level for a field value
+ */
+export type FieldConfidence = 'High' | 'Medium' | 'Low';
+
+/**
+ * Field-level provenance tracking
+ * Allows us to know who/what set a value and whether it should be protected
+ */
+export interface FieldProvenance {
+  /** Who set this value */
+  source: FieldSource;
+  /** Confidence level */
+  confidence: FieldConfidence;
+  /** When this value was last set */
+  updatedAt: string;
+  /** Optional note about the source */
+  note?: string;
+}
+
+// ============================================================================
+// Context Field Types (for context field locking)
+// ============================================================================
+
+/**
+ * Source of a context field value
+ */
+export type ContextFieldSource = 'AI' | 'User' | 'Lab' | 'Imported';
+
+/**
+ * Confidence level for a context field value
+ */
+export type ContextConfidence = 'High' | 'Medium' | 'Low';
+
+/**
+ * Metadata attached to each context field
+ */
+export interface ContextFieldMeta {
+  /** The data source that set this value */
+  source: ContextFieldSource;
+  /** When this value was last updated */
+  lastUpdated: string;
+  /** Confidence level in this value */
+  confidence: ContextConfidence;
+  /** Whether this field needs human review */
+  needsReview: boolean;
+  /** Optional notes about this field's confidence */
+  confidenceNotes?: string;
+}
+
+/**
+ * A context field with provenance metadata
+ */
+export interface ContextField<T> {
+  /** The actual value */
+  value: T;
+  /** Field metadata */
+  meta: ContextFieldMeta;
+}
