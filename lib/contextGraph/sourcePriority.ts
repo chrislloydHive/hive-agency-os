@@ -29,7 +29,8 @@ export type SourceId =
   | 'content_lab'    // Content Lab diagnostic
   | 'demand_lab'     // Demand Lab diagnostic
   | 'ops_lab'        // Ops Lab diagnostic
-  | 'competition_lab' // Competition Lab V3 - competitive intelligence
+  | 'competition_lab' // Competition Lab V3 - competitive intelligence (legacy)
+  | 'competition_v4' // Competition V4 - preferred over V3
   | 'gap_heavy'      // GAP Heavy diagnostic
   | 'gap_full'       // GAP Full diagnostic
   | 'gap_ia'         // GAP IA diagnostic
@@ -339,10 +340,12 @@ export const DOMAIN_PRIORITY_CONFIG: Record<DomainName, DomainPriorityConfig> = 
     ],
   },
 
-  // Competitive domain - Competition Lab is authoritative for competitive intelligence
+  // Competitive domain - Competition V4 is authoritative, V3 is fallback
+  // IMPORTANT: V4 and V3 are mutually exclusive - never mix results
   competitive: {
     priority: [
-      'competition_lab', // Competition Lab V3 - highest priority for competitive data
+      'competition_v4', // Competition V4 - PREFERRED for competitive data
+      'competition_lab', // Competition Lab V3 - fallback if no V4 run exists
       'gap_heavy',
       'gap_full',
       'gap_ia',
@@ -537,7 +540,8 @@ export const SOURCE_DISPLAY_NAMES: Record<string, string> = {
   content_lab: 'Content Lab',
   demand_lab: 'Demand Lab',
   ops_lab: 'Ops Lab',
-  competition_lab: 'Competition Lab',
+  competition_lab: 'Competition Lab V3',
+  competition_v4: 'Competition V4',
   gap_heavy: 'GAP Heavy',
   gap_full: 'GAP Full',
   gap_ia: 'GAP IA',

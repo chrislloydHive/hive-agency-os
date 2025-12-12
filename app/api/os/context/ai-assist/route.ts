@@ -9,7 +9,6 @@ import { getOpenAI } from '@/lib/openai';
 import { getCompanyById } from '@/lib/airtable/companies';
 import {
   getCompanyContext,
-  updateCompanyContext,
   inferCompanyCategoryAndHints,
   getBaselineSignalsForCompany,
   hasEnoughContextSignal,
@@ -17,6 +16,10 @@ import {
   type BaselineSignals,
 } from '@/lib/os/context';
 import type { CompanyContext, ContextSuggestion, ContextAiInput, CompetitionSummary } from '@/lib/types/context';
+import {
+  computeProposalForAI,
+  formatProposalForResponse,
+} from '@/lib/os/writeContract';
 
 // Error code for insufficient signal
 const INSUFFICIENT_SIGNAL_ERROR = 'INSUFFICIENT_SIGNAL';
@@ -241,48 +244,66 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Merge AI suggestions with existing context (only fill missing or improve)
-    const updatedContext: Partial<CompanyContext> = {};
+    // Build candidate context with AI-generated values
+    // Only include fields that are empty or clearly improvable
+    const candidateContext: Partial<CompanyContext> = { ...existingContext };
 
-    // Only update fields that are empty or clearly improvable
     if (parsed.businessModel && (!existingContext?.businessModel || existingContext.businessModel.length < 10)) {
-      updatedContext.businessModel = parsed.businessModel as string;
+      candidateContext.businessModel = parsed.businessModel as string;
     }
     if (parsed.primaryAudience && (!existingContext?.primaryAudience || existingContext.primaryAudience.length < 10)) {
-      updatedContext.primaryAudience = parsed.primaryAudience as string;
+      candidateContext.primaryAudience = parsed.primaryAudience as string;
     }
     if (parsed.secondaryAudience && !existingContext?.secondaryAudience) {
-      updatedContext.secondaryAudience = parsed.secondaryAudience as string;
+      candidateContext.secondaryAudience = parsed.secondaryAudience as string;
     }
     if (parsed.valueProposition && (!existingContext?.valueProposition || existingContext.valueProposition.length < 10)) {
-      updatedContext.valueProposition = parsed.valueProposition as string;
+      candidateContext.valueProposition = parsed.valueProposition as string;
     }
     if (parsed.objectives && Array.isArray(parsed.objectives) && (!existingContext?.objectives || existingContext.objectives.length === 0)) {
-      updatedContext.objectives = parsed.objectives as string[];
+      candidateContext.objectives = parsed.objectives as string[];
     }
     if (parsed.marketSignals && Array.isArray(parsed.marketSignals)) {
-      updatedContext.marketSignals = parsed.marketSignals as string[];
+      candidateContext.marketSignals = parsed.marketSignals as string[];
     }
     // Always update category if detected
     if (parsed.companyCategory || inferred.companyCategory) {
-      updatedContext.companyCategory = (parsed.companyCategory as string) ?? inferred.companyCategory;
+      candidateContext.companyCategory = (parsed.companyCategory as string) ?? inferred.companyCategory;
     }
-    updatedContext.isAiGenerated = true;
+    candidateContext.isAiGenerated = true;
 
-    // Save updated context if there are changes
-    if (Object.keys(updatedContext).length > 1) { // More than just isAiGenerated
-      await updateCompanyContext({
-        companyId,
-        updates: updatedContext,
-        source: 'ai',
-      });
-    }
+    // DOCTRINE: AI Proposes, Humans Decide
+    // Instead of directly writing, we create a proposal for user review
+    // The proposal respects locked/confirmed fields via computeProposalForAI
+    const { proposal, applicableCount, conflictCount } = computeProposalForAI({
+      base: existingContext || {},
+      candidate: candidateContext,
+      meta: {
+        entityType: 'context',
+        lockedPaths: new Map(), // V1 context doesn't have locks - V2/V3 does
+      },
+      baseRevisionId: existingContext?.updatedAt || new Date().toISOString(),
+      companyId,
+      entityId: companyId,
+      createdBy: 'ai:context-assist',
+    });
 
+    // Return proposal for user review - NO DIRECT WRITE
     return NextResponse.json({
       suggestions,
-      updatedContext,
+      // Note: candidateContext is what would be applied if user accepts
+      candidateContext,
+      // Proposal for UI to show accept/reject
+      proposal: formatProposalForResponse(proposal),
+      proposalSummary: {
+        applicableChanges: applicableCount,
+        conflicts: conflictCount,
+        hasChanges: applicableCount > 0,
+      },
       summary: (parsed.summary as string) || 'AI context refinement complete',
       generatedAt: new Date().toISOString(),
+      // IMPORTANT: Flag that this is a proposal, not auto-applied
+      requiresUserApproval: true,
     });
   } catch (error) {
     console.error('[API] context/ai-assist error:', error);

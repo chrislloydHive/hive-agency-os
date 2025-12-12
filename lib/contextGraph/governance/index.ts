@@ -90,3 +90,14 @@ export {
   type RuleExecutionResult,
   type RulePerformance,
 } from './adaptiveRules';
+
+// Governed Lab Writer
+export {
+  governedLabWrite,
+  previewLabWrite,
+  getProtectedFieldsForLab,
+  type LabSource,
+  type LabWriteField,
+  type LabWriteProposal,
+  type GovernedLabWriteResult,
+} from './governedLabWriter';
