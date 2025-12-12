@@ -173,6 +173,57 @@ async function runStep5CompetitiveSummary(
 }
 
 // ============================================================================
+// Category Post-Processing
+// ============================================================================
+
+/**
+ * Enforce marketplace/platform classification when decomposition signals indicate
+ * a multi-provider business model. Subscription describes pricing, not category.
+ */
+function enforceMarketplaceClassification(
+  category: CategoryDefinition,
+  decomposition: BusinessDecompositionResult
+): CategoryDefinition {
+  const isMarketplace = decomposition.economic_model === 'Marketplace' || decomposition.economic_model === 'Platform';
+  const hasDifferentBuyerUser = decomposition.buyer_user_relationship === 'Different';
+
+  // Check if category name incorrectly uses "Subscription" for a marketplace
+  const hasSubscriptionInName = category.category_name.toLowerCase().includes('subscription');
+  const hasMarketplaceInName = category.category_name.toLowerCase().includes('marketplace') ||
+    category.category_name.toLowerCase().includes('platform');
+
+  // If decomposition shows marketplace/platform but category uses subscription, fix it
+  if ((isMarketplace || hasDifferentBuyerUser) && hasSubscriptionInName && !hasMarketplaceInName) {
+    console.log('[competition-v4] Post-process: Converting subscription category to marketplace');
+
+    // Extract the vertical/domain part (e.g., "Fitness" from "Fitness Service Subscription")
+    const vertical = decomposition.primary_vertical || 'Service';
+
+    // Determine if it's a marketplace or platform based on economic model
+    const modelType = decomposition.economic_model === 'Platform' ? 'Platform' : 'Marketplace';
+
+    // Build corrected category
+    const correctedSlug = `${vertical.toLowerCase()}_service_${modelType.toLowerCase()}`;
+    const correctedName = `${vertical} Services ${modelType}`;
+
+    // Update description to mention connecting providers with customers
+    let correctedDescription = category.category_description;
+    if (!correctedDescription.toLowerCase().includes('connect')) {
+      correctedDescription = `A ${modelType.toLowerCase()} that connects ${vertical.toLowerCase()} service providers with customers. ${correctedDescription}`;
+    }
+
+    return {
+      ...category,
+      category_slug: correctedSlug,
+      category_name: correctedName,
+      category_description: correctedDescription,
+    };
+  }
+
+  return category;
+}
+
+// ============================================================================
 // Main Orchestrator
 // ============================================================================
 
@@ -286,6 +337,10 @@ export async function runCompetitionV4(
     }
 
     category = step2Result.data;
+
+    // Post-process: Enforce marketplace/platform classification based on decomposition signals
+    category = enforceMarketplaceClassification(category, decomposition);
+
     stepsCompleted++;
     console.log(`[competition-v4] Category: ${category.category_name} (${category.category_slug})`);
 

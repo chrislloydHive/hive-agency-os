@@ -62,7 +62,23 @@ OUTPUT FORMAT (JSON ONLY)
   ]
 }
 
-RULES
+CRITICAL CLASSIFICATION RULES
+
+1. MARKETPLACE vs SUBSCRIPTION:
+   - If the business connects MULTIPLE independent providers to customers, the category MUST be "Marketplace" or "Platform".
+   - "Subscription" describes a PRICING MODEL, not a business category.
+   - NEVER use "Subscription" as the primary category when multiple providers are involved.
+   - Example: A platform where customers subscribe to access multiple trainers = "Fitness Services Marketplace" (NOT "Fitness Subscription")
+
+2. When economic_model = "Marketplace" or "Platform":
+   - Always include "Marketplace" or "Platform" in category_name
+   - category_description MUST mention connecting providers with customers
+
+3. When buyer_user_relationship = "Different":
+   - This usually indicates a platform/marketplace model
+   - The category should reflect the two-sided nature
+
+GENERAL RULES
 - The category must be specific enough to exclude unrelated businesses.
 - Avoid marketing language.
 - This category will be used as a hard constraint for competitor discovery.
