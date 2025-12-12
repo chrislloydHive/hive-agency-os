@@ -3,11 +3,67 @@
 //
 // Provides a clean, flattened view of the context graph optimized for
 // AI prompt injection. Strips provenance metadata and formats for LLM consumption.
+//
+// DOCTRINE INJECTION (Phase 1):
+// All AI context builders now include OS Global Context (Hive doctrine) by default.
+// This ensures consistent operating principles across all AI interactions.
 
 import type { CompanyContextGraph } from './companyContextGraph';
 import type { WithMetaType, WithMetaArrayType } from './types';
 import { getFieldFreshness, type FreshnessScore } from './freshness';
 import { getNeedsRefreshReport } from './needsRefresh';
+import {
+  getDoctrineVersion,
+  buildOperatingPrinciplesPrompt,
+  buildFullDoctrinePrompt,
+  buildToneRulesPrompt,
+  buildStrategyDoctrinePrompt,
+} from '@/lib/os/globalContext';
+
+// ============================================================================
+// Doctrine Injection Types
+// ============================================================================
+
+/**
+ * Doctrine injection mode for AI context builders
+ * - 'none': No doctrine injected
+ * - 'operatingPrinciples': Inject core operating principles only (default)
+ * - 'full': Inject complete doctrine (principles + tone + forbidden patterns + strategy)
+ */
+export type DoctrineMode = 'none' | 'operatingPrinciples' | 'full';
+
+/**
+ * Options for AI context building
+ */
+export interface AiContextOptions {
+  /** Doctrine injection mode. Default: 'operatingPrinciples' */
+  doctrineMode?: DoctrineMode;
+  /** Include freshness warnings in output. Default: false */
+  includeFreshness?: boolean;
+  /** Log doctrine version for observability. Default: true */
+  logDoctrineVersion?: boolean;
+}
+
+/**
+ * Build the doctrine prompt based on mode
+ * @internal
+ */
+function buildDoctrinePrompt(mode: DoctrineMode): string {
+  if (mode === 'none') return '';
+  if (mode === 'full') return buildFullDoctrinePrompt();
+  // Default: operatingPrinciples
+  return buildOperatingPrinciplesPrompt();
+}
+
+/**
+ * Get doctrine metadata for observability
+ */
+export function getDoctrineMetadata(): { version: string; injected: boolean } {
+  return {
+    version: getDoctrineVersion(),
+    injected: true,
+  };
+}
 
 // ============================================================================
 // AI Context Types
@@ -320,10 +376,17 @@ export interface PromptFormatOptions {
   skipNulls?: boolean;
   /** Maximum string length before truncation */
   maxStringLength?: number;
+  /** Doctrine injection mode. Default: 'operatingPrinciples' */
+  doctrineMode?: DoctrineMode;
+  /** Include freshness warnings. Default: false */
+  includeFreshness?: boolean;
 }
 
 /**
  * Format AI context for prompt injection
+ *
+ * DOCTRINE INJECTION: By default, includes operating principles from OS Global Context.
+ * Set doctrineMode: 'none' to disable, or 'full' for complete doctrine.
  */
 export function formatForPrompt(
   context: AiContextView | Partial<AiContextView>,
@@ -335,6 +398,8 @@ export function formatForPrompt(
     compact = false,
     skipNulls = true,
     maxStringLength = 500,
+    doctrineMode = 'operatingPrinciples', // DEFAULT: inject operating principles
+    includeFreshness = false,
   } = options;
 
   // Remove meta if not included
@@ -349,15 +414,51 @@ export function formatForPrompt(
   // Truncate long strings
   const truncated = truncateStrings(cleaned, maxStringLength);
 
+  // Build the context content
+  let contextContent: string;
   if (compact) {
-    return JSON.stringify(truncated);
+    contextContent = JSON.stringify(truncated);
+  } else if (markdown) {
+    contextContent = formatAsMarkdown(truncated);
+  } else {
+    contextContent = JSON.stringify(truncated, null, 2);
   }
 
-  if (markdown) {
-    return formatAsMarkdown(truncated);
+  // Build doctrine header if enabled
+  const doctrinePrompt = buildDoctrinePrompt(doctrineMode);
+
+  // Add freshness warning if requested and context has meta
+  let freshnessWarning = '';
+  if (includeFreshness && 'meta' in context && context.meta) {
+    const meta = context.meta;
+    if (meta.freshnessStatus === 'urgent_refresh') {
+      freshnessWarning = `\n⚠️ **Context Warning**: ${meta.staleFieldCount} fields need urgent refresh. Data may be stale.\n`;
+    } else if (meta.freshnessStatus === 'needs_refresh') {
+      freshnessWarning = `\nℹ️ **Context Note**: ${meta.staleFieldCount} fields should be refreshed for accuracy.\n`;
+    }
   }
 
-  return JSON.stringify(truncated, null, 2);
+  // Assemble final prompt: Doctrine → Freshness Warning → Context
+  const parts: string[] = [];
+
+  if (doctrinePrompt) {
+    parts.push(doctrinePrompt);
+    parts.push('---'); // Separator between doctrine and context
+  }
+
+  if (freshnessWarning) {
+    parts.push(freshnessWarning);
+  }
+
+  parts.push('# Company Context');
+  parts.push(contextContent);
+
+  // Log doctrine version for observability
+  if (doctrineMode !== 'none') {
+    console.log(`[forAi] Doctrine injected: version=${getDoctrineVersion()}, mode=${doctrineMode}`);
+  }
+
+  return parts.join('\n\n');
 }
 
 /**
@@ -440,8 +541,14 @@ function formatAsMarkdown(obj: unknown, depth: number = 0): string {
 
 /**
  * Build context optimized for media planning prompts
+ *
+ * @param graph - The company context graph
+ * @param options - AI context options (doctrine defaults to 'operatingPrinciples')
  */
-export function buildMediaPlanningContext(graph: CompanyContextGraph): string {
+export function buildMediaPlanningContext(
+  graph: CompanyContextGraph,
+  options: AiContextOptions = {}
+): string {
   const sections = getAiContextSections(graph, [
     'company',
     'objectives',
@@ -449,13 +556,24 @@ export function buildMediaPlanningContext(graph: CompanyContextGraph): string {
     'performance',
   ]);
 
-  return formatForPrompt(sections, { markdown: true, skipNulls: true });
+  return formatForPrompt(sections, {
+    markdown: true,
+    skipNulls: true,
+    doctrineMode: options.doctrineMode ?? 'operatingPrinciples',
+    includeFreshness: options.includeFreshness,
+  });
 }
 
 /**
  * Build context optimized for creative/brand prompts
+ *
+ * @param graph - The company context graph
+ * @param options - AI context options (doctrine defaults to 'operatingPrinciples')
  */
-export function buildCreativeContext(graph: CompanyContextGraph): string {
+export function buildCreativeContext(
+  graph: CompanyContextGraph,
+  options: AiContextOptions = {}
+): string {
   const sections = getAiContextSections(graph, [
     'company',
     'brand',
@@ -463,13 +581,26 @@ export function buildCreativeContext(graph: CompanyContextGraph): string {
     'content',
   ]);
 
-  return formatForPrompt(sections, { markdown: true, skipNulls: true });
+  return formatForPrompt(sections, {
+    markdown: true,
+    skipNulls: true,
+    doctrineMode: options.doctrineMode ?? 'operatingPrinciples',
+    includeFreshness: options.includeFreshness,
+  });
 }
 
 /**
  * Build context optimized for strategy prompts
+ *
+ * NOTE: Strategy prompts use FULL doctrine by default (includes strategy doctrine)
+ *
+ * @param graph - The company context graph
+ * @param options - AI context options (doctrine defaults to 'full' for strategy)
  */
-export function buildStrategyContext(graph: CompanyContextGraph): string {
+export function buildStrategyContext(
+  graph: CompanyContextGraph,
+  options: AiContextOptions = {}
+): string {
   const sections = getAiContextSections(graph, [
     'company',
     'objectives',
@@ -478,11 +609,18 @@ export function buildStrategyContext(graph: CompanyContextGraph): string {
     'performance',
   ]);
 
-  return formatForPrompt(sections, { markdown: true, skipNulls: true });
+  // Strategy prompts get FULL doctrine by default (includes strategy doctrine)
+  return formatForPrompt(sections, {
+    markdown: true,
+    skipNulls: true,
+    doctrineMode: options.doctrineMode ?? 'full',
+    includeFreshness: options.includeFreshness,
+  });
 }
 
 /**
  * Build minimal context summary
+ * NOTE: Summary does NOT inject doctrine (it's for display, not AI prompts)
  */
 export function buildContextSummary(graph: CompanyContextGraph): string {
   const view = buildAiContextView(graph);
@@ -506,4 +644,23 @@ export function buildContextSummary(graph: CompanyContextGraph): string {
   return Object.entries(summary)
     .map(([key, value]) => `${key.charAt(0).toUpperCase() + key.slice(1)}: ${value}`)
     .join('\n');
+}
+
+/**
+ * Build a raw context prompt without doctrine
+ * Use this when you need company context but will inject doctrine separately
+ */
+export function buildRawContextPrompt(
+  graph: CompanyContextGraph,
+  sections?: AiContextSection[]
+): string {
+  const contextSections = sections
+    ? getAiContextSections(graph, sections)
+    : buildAiContextView(graph);
+
+  return formatForPrompt(contextSections, {
+    markdown: true,
+    skipNulls: true,
+    doctrineMode: 'none', // Explicitly no doctrine
+  });
 }
