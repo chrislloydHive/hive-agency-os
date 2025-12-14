@@ -57,6 +57,12 @@ export const AIRTABLE_TABLES = {
   // Competition Lab
   COMPETITION_RUNS: 'Competition Runs', // Competition Lab run results (JSON blobs)
 
+  // Programs
+  PROGRAMS: 'Programs', // Program plans (website, content, media - MVP: website only)
+
+  // Context Proposals (AI-First Context)
+  CONTEXT_PROPOSALS: 'ContextProposals', // AI-generated proposals awaiting confirmation
+
   // Legacy/deprecated (for migration reference)
   // GAP_RUNS_OLD: 'GAP Runs',
   // FULL_REPORTS_OLD: 'Full Reports',
