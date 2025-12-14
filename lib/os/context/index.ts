@@ -62,3 +62,30 @@ export {
   type RelationshipGraph,
   type NodePosition,
 } from './dependencies';
+
+// Required Context Keys Registry
+export {
+  REQUIRED_CONTEXT_KEYS,
+  REQUIRED_KEYS_BY_KEY,
+  REQUIRED_KEYS_BY_ZONE,
+  getRequiredKey,
+  getRequiredKeysForZone,
+  getRequiredKeysByPriority,
+  getRequiredKeysForFeature,
+  isRequiredKey,
+  getCanonicalRequiredKey,
+  getAllKeysForRequirement,
+  type RequiredContextKey,
+} from './requiredContextKeys';
+
+// Context Coverage Auditor
+export {
+  auditContextCoverage,
+  getBlockedByKeys,
+  getBlockedBySummary,
+  isStrategyReadyByAudit,
+  type PresentField,
+  type MissingField,
+  type BlockedByField,
+  type ContextCoverageAudit,
+} from './auditContextCoverage';

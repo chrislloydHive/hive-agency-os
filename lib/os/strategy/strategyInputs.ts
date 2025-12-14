@@ -50,6 +50,8 @@ export type {
 export {
   computeStrategyReadiness,
   getContextDeepLink,
+  getContextDeepLinkForField,
+  getFixLinkForCriticalInput,
   getHiveBrainLink,
 } from './strategyInputsHelpers';
 
