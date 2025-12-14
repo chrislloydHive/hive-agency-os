@@ -20,7 +20,7 @@ export interface StrategyPillar {
   priority: 'low' | 'medium' | 'high';
   status?: 'draft' | 'active' | 'completed';
   order?: number;
-  // V4 Workspace: artifact linkage
+  /** Source artifact ID if this pillar was promoted from an artifact */
   sourceArtifactId?: string;
 }
 
@@ -70,19 +70,30 @@ export interface CompanyStrategy {
   endDate?: string;
   quarterLabel?: string;
 
+  // Version Metadata (for traceability)
+  /** Context revision ID this strategy was generated from */
+  baseContextRevisionId?: string;
+  /** Hive Brain revision ID (hash) used for generation */
+  hiveBrainRevisionId?: string;
+  /** Competition source used: 'v3' | 'v4' | null */
+  competitionSourceUsed?: 'v3' | 'v4' | null;
+  /** Whether this strategy was generated with incomplete SRM fields */
+  generatedWithIncompleteContext?: boolean;
+  /** Missing SRM fields at generation time (for transparency) */
+  missingSrmFields?: string[];
+
+  // Artifact Lineage (for Strategy Workspace V4)
+  /** IDs of artifacts that were promoted to create/update this strategy */
+  sourceArtifactIds?: string[];
+  /** Whether this strategy was created via promotion (vs direct generation) */
+  promotedFromArtifacts?: boolean;
+
   // Metadata
   createdAt: string;
   updatedAt: string;
   createdBy?: string;
   finalizedAt?: string;
   finalizedBy?: string;
-
-  // V4 Workspace: artifact linkage and context tracking
-  sourceArtifactIds?: string[];
-  baseContextRevisionId?: string;
-  competitionSourceUsed?: 'v3' | 'v4' | null;
-  hiveBrainRevisionId?: string;
-  promotedFromArtifacts?: string[];
 }
 
 /**
@@ -94,12 +105,15 @@ export interface CreateStrategyRequest {
   summary?: string;
   objectives?: string[];
   pillars?: Omit<StrategyPillar, 'id'>[];
-  // V4 Workspace: artifact linkage
-  sourceArtifactIds?: string[];
+  // Version metadata (for traceability)
   baseContextRevisionId?: string;
-  competitionSourceUsed?: 'v3' | 'v4' | null;
   hiveBrainRevisionId?: string;
-  promotedFromArtifacts?: string[];
+  competitionSourceUsed?: 'v3' | 'v4' | null;
+  generatedWithIncompleteContext?: boolean;
+  missingSrmFields?: string[];
+  // Artifact lineage (for promotion from workspace)
+  sourceArtifactIds?: string[];
+  promotedFromArtifacts?: boolean;
 }
 
 /**
@@ -132,6 +146,14 @@ export interface AiStrategyProposal {
   pillars: Omit<StrategyPillar, 'id'>[];
   reasoning: string;
   generatedAt: string;
+  /** Missing Inputs section (only present when SRM not ready) */
+  missingInputs?: string;
+  /** Explicit assumptions made due to missing context */
+  assumptions?: string[];
+  /** Whether this proposal was generated with incomplete SRM fields */
+  generatedWithIncompleteContext?: boolean;
+  /** Context fields that were confirmed and used */
+  confirmedFieldsUsed?: string[];
 }
 
 /**

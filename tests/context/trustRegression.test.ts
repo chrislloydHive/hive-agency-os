@@ -11,12 +11,12 @@ import {
   HUMAN_SOURCES,
   getSourcePriorityForDomain,
 } from '@/lib/contextGraph/sourcePriority';
-import type { ProvenanceTag } from '@/lib/contextGraph/types';
+import type { ProvenanceTag, ContextSource } from '@/lib/contextGraph/types';
 
 describe('Trust Regression: Human Override Protection', () => {
   // Helper to create a provenance tag
   function createProvenance(
-    source: string,
+    source: ContextSource,
     confidence: number = 0.9
   ): ProvenanceTag {
     return {
@@ -50,9 +50,9 @@ describe('Trust Regression: Human Override Protection', () => {
   });
 
   describe('AI Cannot Overwrite Human Data', () => {
-    const humanSources = ['user', 'manual', 'qbr', 'strategy'];
-    const aiSources = ['brain', 'inferred', 'fcb'];
-    const labSources = [
+    const humanSources: ContextSource[] = ['user', 'manual', 'qbr', 'strategy'];
+    const aiSources: ContextSource[] = ['brain', 'inferred', 'fcb'];
+    const labSources: ContextSource[] = [
       'website_lab',
       'brand_lab',
       'audience_lab',
@@ -109,7 +109,7 @@ describe('Trust Regression: Human Override Protection', () => {
   });
 
   describe('Human CAN Overwrite Anything', () => {
-    const aiSources = ['brain', 'inferred', 'website_lab', 'competition_v4'];
+    const aiSources: ContextSource[] = ['brain', 'inferred', 'website_lab', 'competition_v4'];
 
     for (const aiSource of aiSources) {
       it(`Human (user) CAN overwrite AI (${aiSource})`, () => {
@@ -234,7 +234,7 @@ describe('Trust Regression: Doctrine Compliance', () => {
       // This is the core trust invariant
       const humanProvenance = [
         {
-          source: 'user',
+          source: 'user' as const,
           confidence: 0.9,
           updatedAt: new Date().toISOString(),
           validForDays: 90,
@@ -242,7 +242,7 @@ describe('Trust Regression: Doctrine Compliance', () => {
       ];
 
       // Try every possible automated source
-      const automatedSources = [
+      const automatedSources: ContextSource[] = [
         'brain',
         'inferred',
         'fcb',

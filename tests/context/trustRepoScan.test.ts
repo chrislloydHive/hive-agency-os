@@ -390,7 +390,7 @@ describe('Trust Repo Scan: Forbidden Pattern Detection', () => {
       expect(content).toContain('computeProposalForAI');
 
       // Check it does NOT contain direct updateCompanyContext with source: 'ai'
-      const hasDirectAiUpdate = /updateCompanyContext\s*\([^)]*source:\s*['"]ai['"]/s.test(content);
+      const hasDirectAiUpdate = /updateCompanyContext[\s\S]*?\([^)]*source:\s*['"]ai['"]/.test(content);
       expect(hasDirectAiUpdate).toBe(false);
     });
   });
