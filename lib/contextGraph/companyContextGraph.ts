@@ -1,5 +1,19 @@
 // lib/contextGraph/companyContextGraph.ts
 // Root Company Context Graph Schema
+//
+// CANONICAL CONTEXT DOCTRINE (see docs/context/reuse-affirmation.md):
+// =======================================================================
+// Context = durable, factual truth about the business.
+// Context MUST NOT contain goals, scores, evaluations, or recommendations.
+//
+// CANONICAL DOMAINS (safe for AI and Strategy to read):
+// - identity, brand, audience, productOffer, operationalConstraints,
+// - competitive (facts only), ops, performanceMedia, creative, capabilities
+//
+// DEPRECATED DOMAINS (read-only, no new writes):
+// - objectives → belongs in Strategy
+// - website, content, seo → scores/evaluations belong in Diagnostics
+// =======================================================================
 
 import { z } from 'zod';
 import { IdentityDomain, createEmptyIdentityDomain } from './domains/identity';
@@ -21,6 +35,7 @@ import { CompetitiveDomain, createEmptyCompetitiveDomain } from './domains/compe
 import { OperationalConstraintsDomain, createEmptyOperationalConstraintsDomain } from './domains/operationalConstraints';
 import { HistoryRefsDomain, createEmptyHistoryRefsDomain } from './domains/historyRefs';
 import { SocialDomain, createEmptySocialDomain } from './domains/social';
+import { CapabilitiesDomain, createEmptyCapabilitiesDomain } from './domains/capabilities';
 
 /**
  * Context Graph Metadata
@@ -92,12 +107,16 @@ export const CompanyContextGraph = z.object({
 
   // Domain Schemas - Social & Local
   social: SocialDomain,
+
+  // Domain Schemas - Agency Capabilities (primarily Hive Brain)
+  capabilities: CapabilitiesDomain,
 });
 
 export type CompanyContextGraph = z.infer<typeof CompanyContextGraph>;
 
 /**
- * Domain names for iteration and coverage tracking
+ * ALL domain names (including deprecated)
+ * Use CANONICAL_DOMAIN_NAMES for new code
  */
 export const DOMAIN_NAMES = [
   'identity',
@@ -119,9 +138,66 @@ export const DOMAIN_NAMES = [
   'storeRisk',
   'historyRefs',
   'social',
+  'capabilities',
 ] as const;
 
 export type DomainName = typeof DOMAIN_NAMES[number];
+
+/**
+ * CANONICAL domain names - these are the only domains that should be
+ * used for new writes. Deprecated domains are read-only.
+ *
+ * Per the canonicalization doctrine:
+ * - objectives → belongs in Strategy (deprecated)
+ * - website, content, seo → scores belong in Diagnostics (deprecated)
+ */
+export const CANONICAL_DOMAIN_NAMES = [
+  'identity',
+  'brand',
+  'audience',
+  'productOffer',
+  'ops',
+  'performanceMedia',
+  'creative',
+  'competitive',  // facts only (competitors, notes)
+  'operationalConstraints',
+  'capabilities',
+  'digitalInfra',
+  'budgetOps',
+  'historical',
+  'storeRisk',
+  'historyRefs',
+  'social',
+] as const;
+
+export type CanonicalDomainName = typeof CANONICAL_DOMAIN_NAMES[number];
+
+/**
+ * DEPRECATED domain names - these should not receive new writes
+ * Existing data is preserved for backward compatibility
+ */
+export const DEPRECATED_DOMAIN_NAMES = [
+  'objectives',  // belongs in Strategy
+  'website',     // scores belong in Diagnostics
+  'content',     // scores belong in Diagnostics
+  'seo',         // scores belong in Diagnostics
+] as const;
+
+export type DeprecatedDomainName = typeof DEPRECATED_DOMAIN_NAMES[number];
+
+/**
+ * Check if a domain is deprecated
+ */
+export function isDeprecatedDomain(domain: string): boolean {
+  return (DEPRECATED_DOMAIN_NAMES as readonly string[]).includes(domain);
+}
+
+/**
+ * Check if a domain is canonical
+ */
+export function isCanonicalDomain(domain: string): boolean {
+  return (CANONICAL_DOMAIN_NAMES as readonly string[]).includes(domain);
+}
 
 /**
  * Create an empty Company Context Graph
@@ -161,14 +237,18 @@ export function createEmptyContextGraph(companyId: string, companyName: string):
     storeRisk: createEmptyStoreRiskDomain(),
     historyRefs: createEmptyHistoryRefsDomain(),
     social: createEmptySocialDomain(),
+    capabilities: createEmptyCapabilitiesDomain(),
   };
 }
 
 /**
  * Calculate completeness score for a context graph
  * Returns a percentage (0-100) based on how many fields have values
+ *
+ * @param graph - The context graph to evaluate
+ * @param canonicalOnly - If true, only count canonical domains (default: true)
  */
-export function calculateCompleteness(graph: CompanyContextGraph): number {
+export function calculateCompleteness(graph: CompanyContextGraph, canonicalOnly = true): number {
   let totalFields = 0;
   let populatedFields = 0;
 
@@ -197,9 +277,12 @@ export function calculateCompleteness(graph: CompanyContextGraph): number {
     }
   }
 
-  // Count fields in each domain
-  for (const domain of DOMAIN_NAMES) {
-    countFields(graph[domain]);
+  // Count fields in selected domains
+  const domainsToCount = canonicalOnly ? CANONICAL_DOMAIN_NAMES : DOMAIN_NAMES;
+  for (const domain of domainsToCount) {
+    if (graph[domain]) {
+      countFields(graph[domain]);
+    }
   }
 
   return totalFields > 0 ? Math.round((populatedFields / totalFields) * 100) : 0;
