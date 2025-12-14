@@ -92,7 +92,8 @@ export type WorkSourceType =
   | 'funnel_insight'
   | 'media_scorecard'
   | 'setup_wizard'
-  | 'creative_lab';
+  | 'creative_lab'
+  | 'program';
 
 /**
  * Analytics metric source - when work is created from an analytics insight
@@ -220,6 +221,18 @@ export interface WorkSourceCreativeLab {
 }
 
 /**
+ * Program source - when work is created from a Program
+ */
+export interface WorkSourceProgram {
+  sourceType: 'program';
+  programId: string;
+  programType: 'website' | 'content';
+  phaseIndex: number;
+  phaseName: string;
+  itemIndex: number;
+}
+
+/**
  * Union of all work source types
  */
 export type WorkSource =
@@ -235,7 +248,8 @@ export type WorkSource =
   | WorkSourceFunnelInsight
   | WorkSourceMediaScorecard
   | WorkSourceSetupWizard
-  | WorkSourceCreativeLab;
+  | WorkSourceCreativeLab
+  | WorkSourceProgram;
 
 // ============================================================================
 // Work Item Types
