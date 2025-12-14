@@ -187,6 +187,7 @@ const DOMAIN_COLORS: Record<DomainName, string> = {
   storeRisk: '#eab308',       // yellow-500
   historyRefs: '#71717a',     // zinc-500
   social: '#10b981',          // emerald-500
+  capabilities: '#3b82f6',    // blue-500
 };
 
 // ============================================================================
