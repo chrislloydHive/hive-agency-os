@@ -70,6 +70,27 @@ export interface CompanyContext {
   budget?: string;
   timeline?: string;
 
+  // Geography & Seasonality (maps to identity domain)
+  geographicScope?: string;         // identity.geographicFootprint
+  serviceArea?: string;             // identity.serviceArea
+  peakSeasons?: string[];           // identity.peakSeasons
+  seasonalityNotes?: string;        // identity.seasonalityNotes
+
+  // Pricing & Unit Economics (maps to budgetOps/productOffer)
+  priceRange?: string;              // productOffer.priceRange
+  avgOrderValue?: number;           // budgetOps.avgOrderValue
+  customerLTV?: number;             // budgetOps.customerLTV
+  grossMargin?: number;             // budgetOps.grossMargin (percentage 0-100)
+
+  // Go-to-Market (maps to identity/objectives)
+  salesChannels?: string[];         // identity.revenueStreams
+  primaryConversionAction?: string; // e.g., "lead", "purchase", "booking", "signup"
+
+  // Compliance & Constraints (maps to operationalConstraints)
+  complianceRequirements?: string[]; // operationalConstraints.complianceRequirements
+  blackoutPeriods?: string[];        // operationalConstraints.blackoutPeriods
+  platformRestrictions?: string;     // operationalConstraints.platformLimitations
+
   // Competitive landscape
   competitorsNotes?: string;     // High-level notes (legacy)
   competitors?: Competitor[];    // Structured competitor objects
@@ -179,6 +200,28 @@ export interface ContextSummary {
 }
 
 /**
+ * Strategy-critical fields (MUST have for quality strategy output)
+ */
+export const STRATEGY_CRITICAL_FIELDS = [
+  'businessModel',
+  'primaryAudience',
+  'objectives',
+  'budget',
+] as const;
+
+/**
+ * Strategy-recommended fields (improve quality significantly)
+ */
+export const STRATEGY_RECOMMENDED_FIELDS = [
+  'geographicScope',
+  'timeline',
+  'avgOrderValue',
+  'companyCategory',
+  'constraints',
+  'primaryConversionAction',
+] as const;
+
+/**
  * Calculate context completeness score
  */
 export function calculateContextCompleteness(context: CompanyContext): number {
@@ -205,6 +248,83 @@ export function calculateContextCompleteness(context: CompanyContext): number {
   }
 
   return Math.round((filled / fields.length) * 100);
+}
+
+/**
+ * Strategy readiness status
+ */
+export type StrategyReadiness = 'ready' | 'needs_info' | 'blocked';
+
+/**
+ * Strategy readiness result with details
+ */
+export interface StrategyReadinessResult {
+  status: StrategyReadiness;
+  missingCritical: string[];
+  missingRecommended: string[];
+  completenessScore: number;
+}
+
+/**
+ * Check if a field has a meaningful value
+ */
+function hasValue(context: CompanyContext, field: string): boolean {
+  const value = context[field as keyof CompanyContext];
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (typeof value === 'number') return !isNaN(value);
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+/**
+ * Calculate strategy readiness based on critical and recommended fields
+ */
+export function calculateStrategyReadiness(context: CompanyContext): StrategyReadinessResult {
+  const missingCritical = STRATEGY_CRITICAL_FIELDS.filter(
+    field => !hasValue(context, field)
+  );
+
+  const missingRecommended = STRATEGY_RECOMMENDED_FIELDS.filter(
+    field => !hasValue(context, field)
+  );
+
+  const completenessScore = calculateContextCompleteness(context);
+
+  let status: StrategyReadiness;
+  if (missingCritical.length > 0) {
+    status = 'blocked';
+  } else if (missingRecommended.length >= 4) {
+    status = 'needs_info';
+  } else {
+    status = 'ready';
+  }
+
+  return {
+    status,
+    missingCritical,
+    missingRecommended,
+    completenessScore,
+  };
+}
+
+/**
+ * Get human-readable label for a field
+ */
+export function getFieldLabel(field: string): string {
+  const labels: Record<string, string> = {
+    businessModel: 'Business model',
+    primaryAudience: 'Target audience',
+    objectives: 'Marketing objectives',
+    budget: 'Marketing budget',
+    geographicScope: 'Geographic scope',
+    timeline: 'Planning timeline',
+    avgOrderValue: 'Average order value',
+    companyCategory: 'Company category',
+    constraints: 'Key constraints',
+    primaryConversionAction: 'Primary conversion action',
+  };
+  return labels[field] || field;
 }
 
 /**
