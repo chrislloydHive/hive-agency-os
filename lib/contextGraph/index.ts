@@ -238,7 +238,16 @@ export {
   buildMediaPlanningContext,
   buildCreativeContext,
   buildStrategyContext,
+  buildEnhancedStrategyContext,
   buildContextSummary,
+  // Hive Brain Composition
+  type HiveBrainOptions,
+  buildContextWithHiveBrain,
+  buildStrategyContextWithHiveBrain,
+  buildCreativeContextWithHiveBrain,
+  buildMediaPlanningContextWithHiveBrain,
+  // Hive Capabilities Formatting
+  formatCapabilitiesForPrompt,
 } from './forAi';
 
 // ============================================================================
@@ -316,3 +325,73 @@ export {
   getLatestSnapshotByType,
   snapshotExists,
 } from './snapshots';
+
+// ============================================================================
+// Strategy-Ready Minimum (SRM)
+// ============================================================================
+export {
+  type MissingSrmField,
+  type StaleSrmField,
+  type StrategyReadinessResult,
+  type RegenRecommendation,
+  type ContextSrmFieldName,
+  SRM_FIELDS,
+  SRM_FIELD_LABELS,
+  CONTEXT_SRM_FIELD_NAMES,
+  isStrategyReady,
+  getReadinessSummary,
+  getSrmFieldsForDomain,
+  isSrmField,
+  getAllSrmFieldPaths,
+  isContextSrmField,
+  checkRegenRecommendation,
+} from './readiness';
+
+// ============================================================================
+// Auto-Fill Readiness
+// ============================================================================
+export {
+  type AutoFillReadiness,
+  type ReadinessCheckResult,
+  type ReadinessMissingItem,
+  getAutoFillReadiness,
+  checkAutoFillReadiness,
+  getRecommendedNavigationPath,
+} from './readiness';
+
+// ============================================================================
+// Hive Brain (Global Context Graph)
+// ============================================================================
+export {
+  HIVE_GLOBAL_ID,
+  HIVE_GLOBAL_NAME,
+  HIVE_BRAIN_DOMAINS,
+  HIVE_BRAIN_VALID_SOURCES,
+  type HiveBrainDomain,
+  type ValueSource,
+  isValidHiveBrainSource,
+  isHiveGlobalGraph,
+  getHiveGlobalContextGraph,
+  updateHiveGlobalContextGraph,
+  hiveBrainExists,
+  mergeWithHiveBrain,
+  getValueSource,
+} from './globalGraph';
+
+// ============================================================================
+// Domain Visibility
+// ============================================================================
+export {
+  type DomainVisibility,
+  DOMAIN_VISIBILITY,
+  DOMAIN_LABELS,
+  DOMAIN_DESCRIPTIONS,
+  getDomainVisibility,
+  isDomainVisible,
+  getDomainsAtLevel,
+  getCoreDomains,
+  getAdvancedDomains,
+  getHiddenDomains,
+  getDomainLabel,
+  getDomainDescription,
+} from './visibility';

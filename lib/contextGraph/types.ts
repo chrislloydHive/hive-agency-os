@@ -26,6 +26,7 @@ export const ContextSource = z.enum([
   'demand_lab',      // Demand Lab diagnostic
   'ops_lab',         // Ops Lab diagnostic
   'competition_lab', // Competition Lab V3 - competitive intelligence
+  'competition_v4',  // Competition V4 - preferred over V3
   'audience_lab',    // Audience Lab - curated audience model
   'audience_personas', // Audience Personas - human-centered personas from segments
   'media_profile',   // Media Profile configuration
@@ -45,6 +46,7 @@ export const ContextSource = z.enum([
   'external_enrichment', // External data enrichment
   'setup_wizard',    // Strategic Setup Mode wizard
   'qbr',             // Quarterly Business Review
+  'strategy',        // Strategy-derived value
 ]);
 
 export type ContextSource = z.infer<typeof ContextSource>;
@@ -194,7 +196,8 @@ export const DEFAULT_VALIDITY_DAYS: Record<ContextSource, number> = {
   creative_lab: 90,       // Creative analysis valid for 3 months
   audience_lab: 120,      // Audience model valid for 4 months
   audience_personas: 120, // Audience personas valid for 4 months
-  competition_lab: 90,    // Competition analysis valid for 3 months
+  competition_lab: 90,    // Competition V3 analysis valid for 3 months
+  competition_v4: 90,     // Competition V4 analysis valid for 3 months
   gap_heavy: 120,         // Heavy analysis valid for 4 months
   gap_full: 90,           // Full GAP valid for 3 months
   gap_ia: 60,             // Initial assessment valid for 2 months
@@ -215,6 +218,7 @@ export const DEFAULT_VALIDITY_DAYS: Record<ContextSource, number> = {
   external_enrichment: 60, // External data valid for 2 months
   setup_wizard: 180,      // Setup wizard data valid for 6 months
   qbr: 90,                // QBR data valid for 3 months
+  strategy: 180,          // Strategy-derived data valid for 6 months
 };
 
 /**

@@ -306,10 +306,13 @@ export async function loadContextGraph(
 ): Promise<CompanyContextGraph | null> {
   try {
     const base = getBase();
+    // CRITICAL: Order by Updated At DESC to get the most recent record
+    // This prevents returning stale data when multiple records exist
     const records = await base(CONTEXT_GRAPHS_TABLE)
       .select({
         filterByFormula: `{Company ID} = "${companyId}"`,
         maxRecords: 1,
+        sort: [{ field: 'Updated At', direction: 'desc' }],
       })
       .firstPage();
 
@@ -319,6 +322,11 @@ export async function loadContextGraph(
     }
 
     const mapped = mapAirtableRecord(records[0]);
+    console.log(`[ContextGraph] Loaded graph for ${companyId}:`, {
+      recordId: records[0].id,
+      updatedAt: records[0].fields['Updated At'],
+      completeness: records[0].fields['Completeness Score'],
+    });
     return mapped?.graph || null;
   } catch (error: any) {
     // Handle case where table doesn't exist yet
@@ -342,10 +350,12 @@ export async function loadContextGraphRecord(
 ): Promise<ContextGraphRecord | null> {
   try {
     const base = getBase();
+    // CRITICAL: Order by Updated At DESC to get the most recent record
     const records = await base(CONTEXT_GRAPHS_TABLE)
       .select({
         filterByFormula: `{Company ID} = "${companyId}"`,
         maxRecords: 1,
+        sort: [{ field: 'Updated At', direction: 'desc' }],
       })
       .firstPage();
 
@@ -385,12 +395,18 @@ export async function saveContextGraph(
     graph.meta.domainCoverage = domainCoverage;
 
     // Check if record already exists
+    // CRITICAL: Order by Updated At DESC to update the most recent record if duplicates exist
     const existingRecords = await base(CONTEXT_GRAPHS_TABLE)
       .select({
         filterByFormula: `{Company ID} = "${graph.companyId}"`,
         maxRecords: 1,
+        sort: [{ field: 'Updated At', direction: 'desc' }],
       })
       .firstPage();
+
+    if (existingRecords.length > 0) {
+      console.log(`[ContextGraph] Found existing record ${existingRecords[0].id} for ${graph.companyId}`);
+    }
 
     // Minify the graph by removing null values and empty arrays to reduce size
     const minifiedGraph = JSON.parse(JSON.stringify(graph, (key, value) => {

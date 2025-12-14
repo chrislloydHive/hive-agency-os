@@ -211,6 +211,11 @@ export const ContextContracts: Record<DomainName, DomainContract> = {
       'social.gbpUrl',
     ],
   },
+
+  capabilities: {
+    required: [],
+    recommended: [],
+  },
 };
 
 // ============================================================================
