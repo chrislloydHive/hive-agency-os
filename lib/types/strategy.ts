@@ -20,6 +20,8 @@ export interface StrategyPillar {
   priority: 'low' | 'medium' | 'high';
   status?: 'draft' | 'active' | 'completed';
   order?: number;
+  // V4 Workspace: artifact linkage
+  sourceArtifactId?: string;
 }
 
 /**
@@ -74,6 +76,13 @@ export interface CompanyStrategy {
   createdBy?: string;
   finalizedAt?: string;
   finalizedBy?: string;
+
+  // V4 Workspace: artifact linkage and context tracking
+  sourceArtifactIds?: string[];
+  baseContextRevisionId?: string;
+  competitionSourceUsed?: 'v3' | 'v4' | null;
+  hiveBrainRevisionId?: string;
+  promotedFromArtifacts?: string[];
 }
 
 /**
@@ -85,6 +94,12 @@ export interface CreateStrategyRequest {
   summary?: string;
   objectives?: string[];
   pillars?: Omit<StrategyPillar, 'id'>[];
+  // V4 Workspace: artifact linkage
+  sourceArtifactIds?: string[];
+  baseContextRevisionId?: string;
+  competitionSourceUsed?: 'v3' | 'v4' | null;
+  hiveBrainRevisionId?: string;
+  promotedFromArtifacts?: string[];
 }
 
 /**
