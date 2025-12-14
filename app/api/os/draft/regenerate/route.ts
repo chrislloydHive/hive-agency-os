@@ -6,9 +6,13 @@
 // If forceCompetition=true, runs fresh Competition V3 before regenerating.
 // When V4 is enabled, always runs V4 to get validated competitors.
 // Used when saved content exists and user wants to regenerate the AI draft.
+//
+// TRUST: Validates baseRevisionId to prevent regenerating against stale data.
+// Returns 409 Conflict if the saved context has been modified since baseRevisionId.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getCompanyById } from '@/lib/airtable/companies';
+import { getCompanyContext } from '@/lib/os/context';
 import {
   buildSignalsBundle,
   generateDraftForResource,
@@ -26,7 +30,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     console.log('[draft/regenerate] Request body:', JSON.stringify(body));
-    const { companyId, kind, forceCompetition = false } = body as DraftRegenerateRequest;
+    const { companyId, kind, forceCompetition = false, baseRevisionId } = body as DraftRegenerateRequest;
 
     // Validate inputs
     if (!companyId) {
@@ -52,7 +56,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('[draft/regenerate] Starting for:', { companyId, kind, companyName: company.name, forceCompetition });
+    // TRUST: Validate baseRevisionId to prevent regenerating against stale data
+    // This is especially important for 'context' kind to ensure we're regenerating
+    // based on the same context version the user was viewing
+    if (baseRevisionId && kind === 'context') {
+      const currentContext = await getCompanyContext(companyId);
+      if (currentContext?.updatedAt && currentContext.updatedAt !== baseRevisionId) {
+        console.log('[draft/regenerate] Revision conflict:', {
+          baseRevisionId,
+          currentRevisionId: currentContext.updatedAt,
+        });
+        return NextResponse.json(
+          {
+            success: false,
+            draft: null,
+            message: 'Context was modified since you last loaded it. Please refresh and try again.',
+            error: 'REVISION_CONFLICT',
+          } as DraftRegenerateResponse,
+          { status: 409 }
+        );
+      }
+    }
+
+    console.log('[draft/regenerate] Starting for:', { companyId, kind, companyName: company.name, forceCompetition, baseRevisionId });
 
     // Build signals - if forceCompetition, use ensurePrereqs to run fresh Competition V3/V4
     // and get fresh signals in one call (avoids Airtable stale reads)

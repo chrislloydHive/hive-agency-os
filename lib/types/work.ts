@@ -92,7 +92,8 @@ export type WorkSourceType =
   | 'funnel_insight'
   | 'media_scorecard'
   | 'setup_wizard'
-  | 'creative_lab';
+  | 'creative_lab'
+  | 'program';
 
 /**
  * Analytics metric source - when work is created from an analytics insight
@@ -220,6 +221,18 @@ export interface WorkSourceCreativeLab {
 }
 
 /**
+ * Program source - from Program → Work conversion
+ */
+export interface WorkSourceProgram {
+  sourceType: 'program';
+  programId: string;
+  programType: 'website' | 'content' | 'media';
+  phaseIndex: number;
+  phaseName: string;
+  itemIndex?: number; // Index within the phase
+}
+
+/**
  * Union of all work source types
  */
 export type WorkSource =
@@ -235,7 +248,8 @@ export type WorkSource =
   | WorkSourceFunnelInsight
   | WorkSourceMediaScorecard
   | WorkSourceSetupWizard
-  | WorkSourceCreativeLab;
+  | WorkSourceCreativeLab
+  | WorkSourceProgram;
 
 // ============================================================================
 // Work Item Types
@@ -408,6 +422,8 @@ export function getSourceLabel(source?: WorkSource): string {
       return 'Strategic Setup';
     case 'creative_lab':
       return `Creative Lab → ${source.itemType.replace('_', ' ')}`;
+    case 'program':
+      return `Program → ${source.phaseName}`;
     default:
       return 'Unknown';
   }

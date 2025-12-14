@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 // app/c/[companyId]/strategy/StrategyWorkspaceV4Client.tsx
 // Strategy Workspace V4.1 Client Component
 //
@@ -53,6 +54,7 @@ import {
   Wand2,
   X,
   ExternalLink,
+  Globe,
 } from 'lucide-react';
 import type { CompanyStrategy } from '@/lib/types/strategy';
 import type {
@@ -70,9 +72,12 @@ import {
 import type { StrategyInputs } from '@/lib/os/strategy/strategyInputsHelpers';
 import {
   computeStrategyReadiness,
+  computeAIStrategySummaryData,
   getContextDeepLink,
   getHiveBrainLink,
   type StrategyReadiness,
+  type AIStrategySummaryData,
+  type AIRecommendedNextStep,
 } from '@/lib/os/strategy/strategyInputsHelpers';
 import { DiffPreview } from '@/components/ui/DiffPreview';
 
@@ -281,12 +286,18 @@ _What do we need to learn?_
 // Types
 // ============================================================================
 
+interface ProgramsInfo {
+  hasWebsiteProgram: boolean;
+  programUpdatedAt: string | null;
+}
+
 interface StrategyWorkspaceV4Props {
   companyId: string;
   companyName: string;
   initialStrategy: CompanyStrategy | null;
   initialArtifacts: StrategyArtifact[];
   strategyInputs: StrategyInputs;
+  programsInfo: ProgramsInfo;
 }
 
 interface ArtifactFormData {
@@ -305,6 +316,7 @@ export function StrategyWorkspaceV4Client({
   initialStrategy,
   initialArtifacts,
   strategyInputs,
+  programsInfo,
 }: StrategyWorkspaceV4Props) {
   const [strategy, setStrategy] = useState<CompanyStrategy | null>(initialStrategy);
   const [artifacts, setArtifacts] = useState<StrategyArtifact[]>(initialArtifacts);
@@ -339,6 +351,55 @@ export function StrategyWorkspaceV4Client({
   // Compute Strategy Readiness
   const strategyReadiness = useMemo(() => {
     return computeStrategyReadiness(strategyInputs);
+  }, [strategyInputs]);
+
+  // Compute AI Summary Data
+  const aiSummaryData = useMemo(() => {
+    const hasCandidates = artifacts.some(a => a.status === 'candidate');
+    return computeAIStrategySummaryData(
+      strategyInputs,
+      artifacts.length,
+      !!strategy,
+      hasCandidates,
+      programsInfo.hasWebsiteProgram,
+      companyId,
+      strategy?.summary || null
+    );
+  }, [strategyInputs, artifacts, strategy, programsInfo.hasWebsiteProgram, companyId]);
+
+  // Compute section completeness scores for indicator dots
+  // Aligned with CRITICAL_INPUTS from strategyInputsHelpers.ts:
+  // - businessReality: primaryOffering + primaryAudience (2 critical inputs)
+  // - constraints: budget (1 critical input)
+  // - competition: (0 critical inputs - informational only)
+  // - executionCapabilities: serviceTaxonomy (1 critical input)
+  const sectionCompleteness = useMemo(() => {
+    const br = strategyInputs.businessReality;
+    const hasPrimaryOffering = !!br.primaryOffering;
+    const hasPrimaryAudience = !!(br.primaryAudience || br.icpDescription);
+    // 2 critical inputs: 0 = 0%, 1 = 50%, 2 = 100%
+    const businessRealityScore = Math.round(((hasPrimaryOffering ? 1 : 0) + (hasPrimaryAudience ? 1 : 0)) / 2 * 100);
+
+    const c = strategyInputs.constraints;
+    // 1 critical input: budget
+    const hasBudget = !!(c.minBudget || c.maxBudget || c.budgetCapsFloors.length > 0);
+    const constraintsScore = hasBudget ? 100 : 0;
+
+    const comp = strategyInputs.competition;
+    // No critical inputs - show green if any data exists, gray if empty
+    const hasCompetitionData = comp.competitors.length > 0 || comp.positioningAxisPrimary || comp.positionSummary;
+    const competitionScore = hasCompetitionData ? 100 : 50; // 50 = amber (optional but nice to have)
+
+    const exec = strategyInputs.executionCapabilities;
+    // 1 critical input: serviceTaxonomy
+    const executionScore = exec.serviceTaxonomy.length > 0 ? 100 : 0;
+
+    return {
+      businessReality: businessRealityScore,
+      constraints: constraintsScore,
+      competition: competitionScore,
+      executionCapabilities: executionScore,
+    };
   }, [strategyInputs]);
 
   // Refresh artifacts
@@ -720,37 +781,38 @@ export function StrategyWorkspaceV4Client({
     hiveBrain: !!strategy?.hiveBrainRevisionId,
   }), [strategy]);
 
+  // Handle AI next step actions
+  const handleNextStepAction = useCallback(() => {
+    const nextStep = aiSummaryData.nextStep;
+    if (nextStep.actionType === 'ai_action') {
+      if (nextStep.type === 'create_first_artifact' || nextStep.type === 'explore_growth_options') {
+        handleAIGenerateOptions();
+      } else if (nextStep.type === 'synthesize_strategy') {
+        handleAISynthesize();
+      }
+    } else if (nextStep.actionType === 'modal') {
+      // Open appropriate modal
+      if (nextStep.type === 'promote_to_canonical') {
+        // Select all candidates
+        const candidateIds = artifacts.filter(a => a.status === 'candidate').map(a => a.id);
+        setSelectedArtifactIds(new Set(candidateIds));
+      }
+    }
+  }, [aiSummaryData.nextStep, artifacts, handleAIGenerateOptions, handleAISynthesize]);
+
   return (
     <GuidanceContext.Provider value={guidance}>
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-white flex items-center gap-2">
-            <Target className="w-5 h-5 text-amber-400" />
-            Strategy Workspace V4
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Build and promote strategy artifacts for {companyName}
-          </p>
-        </div>
-        {/* Guidance Toggle */}
-        <button
-          onClick={guidance.toggleGuidance}
-          className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-300 bg-slate-800/50 border border-slate-700 rounded-lg hover:bg-slate-800 transition-colors"
-          title="Show or hide guidance on how to build a strategy"
-        >
-          {guidance.showGuidance ? (
-            <ToggleRight className="w-4 h-4 text-cyan-400" />
-          ) : (
-            <ToggleLeft className="w-4 h-4" />
-          )}
-          <span className={guidance.showGuidance ? 'text-cyan-400' : ''}>
-            Strategy guidance
-          </span>
-          <HelpCircle className="w-3.5 h-3.5" />
-        </button>
-      </div>
+      {/* AI Strategy Summary - Unified top-level view */}
+      <AIStrategySummary
+        data={aiSummaryData}
+        companyId={companyId}
+        companyName={companyName}
+        onNextStepAction={handleNextStepAction}
+        onToggleGuidance={guidance.toggleGuidance}
+        showGuidance={guidance.showGuidance}
+        loading={!!aiToolLoading}
+      />
 
       {/* Error */}
       {error && (
@@ -782,7 +844,7 @@ export function StrategyWorkspaceV4Client({
           <StrategyInputsMeta
             lastUpdatedAt={strategyInputs.meta.lastUpdatedAt}
             contextRevisionId={strategyInputs.meta.contextRevisionId}
-            completenessScore={strategyInputs.meta.completenessScore}
+            completenessScore={strategyReadiness.completenessPercent}
           />
 
           {/* 1. Business Reality */}
@@ -793,6 +855,7 @@ export function StrategyWorkspaceV4Client({
             fixInContextLink={getContextDeepLink(companyId, 'businessReality')}
             onImproveWithAI={() => handleAIImprove('businessReality')}
             isImproving={aiImprovingSection === 'businessReality'}
+            completeness={sectionCompleteness.businessReality}
           >
             <InputField label="Stage" value={strategyInputs.businessReality.stage} />
             <InputField label="Business Model" value={strategyInputs.businessReality.businessModel} />
@@ -809,6 +872,7 @@ export function StrategyWorkspaceV4Client({
             fixInContextLink={getContextDeepLink(companyId, 'constraints')}
             onImproveWithAI={() => handleAIImprove('constraints')}
             isImproving={aiImprovingSection === 'constraints'}
+            completeness={sectionCompleteness.constraints}
           >
             <InputField
               label="Budget Range"
@@ -849,6 +913,7 @@ export function StrategyWorkspaceV4Client({
             fixInContextLink={getContextDeepLink(companyId, 'competition')}
             onImproveWithAI={() => handleAIImprove('competition')}
             isImproving={aiImprovingSection === 'competition'}
+            completeness={sectionCompleteness.competition}
           >
             <InputField
               label="Competitors"
@@ -874,6 +939,7 @@ export function StrategyWorkspaceV4Client({
             fixInContextLink={getHiveBrainLink()}
             onImproveWithAI={() => handleAIImprove('executionCapabilities')}
             isImproving={aiImprovingSection === 'executionCapabilities'}
+            completeness={sectionCompleteness.executionCapabilities}
           >
             <InputField
               label="Services"
@@ -890,58 +956,21 @@ export function StrategyWorkspaceV4Client({
 
         {/* Center Column: Working Area (Artifacts) */}
         <div className="col-span-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-slate-400 px-1">
-              Strategy Artifacts ({artifacts.length})
-            </h2>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-cyan-400 hover:text-cyan-300"
-            >
-              <Plus className="w-4 h-4" />
-              Custom Artifact
-            </button>
-          </div>
-
-          {/* Empty State Guidance Card */}
-          {artifacts.length === 0 && <EmptyWorkspaceGuidance />}
-
-          {/* Strategy Readiness Banner */}
-          <StrategyReadinessBanner readiness={strategyReadiness} companyId={companyId} />
-
-          {/* Guided Artifact Starters - Always visible */}
-          <div className="space-y-2">
-            <p className="text-xs text-slate-500 px-1">Start with a template (AI prefilled):</p>
-            <div className="grid grid-cols-2 gap-2">
-              {ARTIFACT_STARTERS.map(starter => (
-                <StarterButton
-                  key={starter.type}
-                  starter={starter}
-                  onClick={() => handleStarterCreate(starter)}
-                  disabled={loading || !!prefillLoadingId}
-                  isGenerating={!!prefillLoadingId}
-                />
-              ))}
-            </div>
-            {/* Prefill Error */}
-            {prefillError && (
-              <div className="p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                <p className="text-xs text-amber-400">
-                  AI prefill failed: {prefillError}. Using template instead.
-                </p>
+          {/* AI Tools - Simplified */}
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-purple-400" />
+                <h3 className="text-sm font-medium text-slate-200">AI Actions</h3>
               </div>
-            )}
-          </div>
-
-          {/* AI Tools Toolbar */}
-          <div className="bg-gradient-to-r from-purple-500/10 to-cyan-500/10 border border-purple-500/20 rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="w-4 h-4 text-purple-400" />
-              <h3 className="text-sm font-medium text-slate-200">AI Tools</h3>
-              <span className="text-xs text-slate-500 ml-auto">Creates artifacts only</span>
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="text-xs text-slate-500 hover:text-slate-400"
+              >
+                + Custom
+              </button>
             </div>
             <div className="flex flex-wrap gap-2">
-              {/* Option Generator */}
               <button
                 onClick={handleAIGenerateOptions}
                 disabled={!!aiToolLoading}
@@ -954,13 +983,38 @@ export function StrategyWorkspaceV4Client({
                 )}
                 Generate Options
               </button>
-
-              {/* Assumption Mapper */}
+              <button
+                onClick={handleAISynthesize}
+                disabled={!!aiToolLoading || selectedArtifactIds.size < 2 || !strategyReadiness.canSynthesize}
+                className={`inline-flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
+                  strategyReadiness.canSynthesize && selectedArtifactIds.size >= 2
+                    ? 'text-amber-300 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20'
+                    : 'text-slate-500 bg-slate-800/50 border border-slate-700'
+                } disabled:opacity-50`}
+                title={
+                  !strategyReadiness.canSynthesize
+                    ? strategyReadiness.synthesizeBlockReason || 'Complete inputs first'
+                    : selectedArtifactIds.size < 2
+                    ? 'Select 2+ artifacts'
+                    : undefined
+                }
+              >
+                {aiToolLoading === 'synthesize' ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <GitMerge className="w-3.5 h-3.5" />
+                )}
+                Synthesize
+                {selectedArtifactIds.size >= 2 && (
+                  <span className="px-1.5 py-0.5 text-xs bg-amber-500/20 rounded">
+                    {selectedArtifactIds.size}
+                  </span>
+                )}
+              </button>
               <button
                 onClick={handleAIMapAssumptions}
                 disabled={!!aiToolLoading || selectedArtifactIds.size === 0}
                 className="inline-flex items-center gap-2 px-3 py-2 text-xs font-medium text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 rounded-lg hover:bg-cyan-500/20 disabled:opacity-50 transition-colors"
-                title={selectedArtifactIds.size === 0 ? 'Select artifacts first' : undefined}
               >
                 {aiToolLoading === 'assumptions' ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -974,81 +1028,19 @@ export function StrategyWorkspaceV4Client({
                   </span>
                 )}
               </button>
-
-              {/* Synthesize (with soft gating) */}
-              <div className="relative group">
-                <button
-                  onClick={handleAISynthesize}
-                  disabled={!!aiToolLoading || selectedArtifactIds.size < 2 || !strategyReadiness.canSynthesize}
-                  className={`inline-flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
-                    !strategyReadiness.canSynthesize
-                      ? 'text-slate-500 bg-slate-800/50 border border-slate-700 cursor-not-allowed'
-                      : 'text-amber-300 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 disabled:opacity-50'
-                  }`}
-                  title={
-                    !strategyReadiness.canSynthesize
-                      ? strategyReadiness.synthesizeBlockReason || 'Missing critical inputs'
-                      : selectedArtifactIds.size < 2
-                      ? 'Select at least 2 artifacts'
-                      : undefined
-                  }
-                >
-                  {aiToolLoading === 'synthesize' ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <GitMerge className="w-3.5 h-3.5" />
-                  )}
-                  Synthesize
-                  {selectedArtifactIds.size >= 2 && strategyReadiness.canSynthesize && (
-                    <span className="px-1.5 py-0.5 text-xs bg-amber-500/20 rounded">
-                      {selectedArtifactIds.size}
-                    </span>
-                  )}
-                </button>
-                {/* Tooltip for soft gate */}
-                {!strategyReadiness.canSynthesize && (
-                  <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-56 p-2 bg-slate-800 border border-slate-700 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                    <p className="text-xs text-amber-400 mb-1.5 flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3" />
-                      Critical inputs missing
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      {strategyReadiness.synthesizeBlockReason}
-                    </p>
-                  </div>
-                )}
-              </div>
             </div>
-            <p className="text-xs text-slate-500 mt-2">
-              {selectedArtifactIds.size === 0
-                ? 'Select artifacts below to use Map Assumptions or Synthesize'
-                : `${selectedArtifactIds.size} artifact${selectedArtifactIds.size > 1 ? 's' : ''} selected`}
-            </p>
           </div>
 
-          {/* Artifacts List */}
-          {artifacts.length === 0 ? (
-            <div className="bg-slate-900/30 border border-slate-800/50 border-dashed rounded-xl p-6 text-center">
-              <BookOpen className="w-6 h-6 text-slate-600 mx-auto mb-2" />
-              <p className="text-sm text-slate-500">No artifacts yet</p>
-              <p className="text-xs text-slate-600 mt-1">Choose a template above to get started</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {artifacts.map(artifact => (
-                <ArtifactCard
-                  key={artifact.id}
-                  artifact={artifact}
-                  isSelected={selectedArtifactIds.has(artifact.id)}
-                  isIncludedInStrategy={includedArtifactIds.has(artifact.id)}
-                  onToggleSelect={() => toggleArtifactSelection(artifact.id)}
-                  onEdit={() => setEditingArtifact(artifact)}
-                  onDelete={() => handleDeleteArtifact(artifact.id)}
-                  onStatusChange={(status) => handleUpdateArtifact(artifact.id, { status })}
-                />
-              ))}
-            </div>
-          )}
+          {/* Artifacts List with Progressive Disclosure */}
+          <CollapsibleArtifactsList
+            artifacts={artifacts}
+            selectedArtifactIds={selectedArtifactIds}
+            includedArtifactIds={includedArtifactIds}
+            onToggleSelect={toggleArtifactSelection}
+            onEdit={setEditingArtifact}
+            onDelete={handleDeleteArtifact}
+            onStatusChange={(id, status) => handleUpdateArtifact(id, { status })}
+          />
 
           {/* Promote Button */}
           {promotableArtifacts.length > 0 && (
@@ -1223,6 +1215,172 @@ function EmptyWorkspaceGuidance() {
 }
 
 // ============================================================================
+// AI Strategy Summary Component
+// ============================================================================
+
+function AIStrategySummary({
+  data,
+  companyId,
+  companyName,
+  onNextStepAction,
+  onToggleGuidance,
+  showGuidance,
+  loading,
+}: {
+  data: AIStrategySummaryData;
+  companyId: string;
+  companyName: string;
+  onNextStepAction: () => void;
+  onToggleGuidance: () => void;
+  showGuidance: boolean;
+  loading: boolean;
+}) {
+  const { nextStep, currentState, strategicIntent, keyConstraints, completenessPercent } = data;
+
+  return (
+    <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 border border-slate-700/50 rounded-2xl overflow-hidden">
+      {/* Header Row */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800/50">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-amber-500/10 rounded-lg">
+            <Target className="w-5 h-5 text-amber-400" />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold text-white">Strategy</h1>
+            <p className="text-xs text-slate-500">{companyName}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* Completeness */}
+          <div className="flex items-center gap-2">
+            <div className="w-24 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  completenessPercent >= 75 ? 'bg-emerald-500' :
+                  completenessPercent >= 50 ? 'bg-amber-500' : 'bg-red-500'
+                }`}
+                style={{ width: `${completenessPercent}%` }}
+              />
+            </div>
+            <span className="text-xs text-slate-500">{completenessPercent}%</span>
+          </div>
+          {/* Guidance Toggle */}
+          <button
+            onClick={onToggleGuidance}
+            className="p-2 text-slate-400 hover:text-slate-300 hover:bg-slate-800 rounded-lg transition-colors"
+            title={showGuidance ? 'Hide guidance' : 'Show guidance'}
+          >
+            {showGuidance ? (
+              <ToggleRight className="w-4 h-4 text-cyan-400" />
+            ) : (
+              <ToggleLeft className="w-4 h-4" />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="p-5">
+        <div className="grid grid-cols-12 gap-6">
+          {/* Left: Current State & Intent */}
+          <div className="col-span-7 space-y-4">
+            {/* Current State */}
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                  currentState.label === 'Executing' ? 'bg-emerald-500/20 text-emerald-400' :
+                  currentState.label === 'Strategy Defined' ? 'bg-cyan-500/20 text-cyan-400' :
+                  currentState.label === 'Exploring Options' ? 'bg-amber-500/20 text-amber-400' :
+                  'bg-slate-700 text-slate-400'
+                }`}>
+                  {currentState.label}
+                </span>
+              </div>
+              <p className="text-sm text-slate-300">{currentState.description}</p>
+            </div>
+
+            {/* Strategic Intent (if available) */}
+            {strategicIntent && (
+              <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                <p className="text-xs text-slate-500 mb-1">{strategicIntent.label}</p>
+                <p className="text-sm text-slate-300 line-clamp-2">{strategicIntent.description}</p>
+              </div>
+            )}
+
+            {/* Key Constraints (if any) */}
+            {keyConstraints.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {keyConstraints.map((constraint, idx) => (
+                  <span key={idx} className="px-2 py-1 text-xs text-slate-400 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                    {constraint}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Right: AI Recommended Next Step */}
+          <div className="col-span-5">
+            <div className={`h-full p-4 rounded-xl border ${
+              nextStep.priority === 'high'
+                ? 'bg-gradient-to-br from-amber-500/10 to-orange-500/5 border-amber-500/30'
+                : nextStep.priority === 'medium'
+                ? 'bg-gradient-to-br from-cyan-500/10 to-blue-500/5 border-cyan-500/30'
+                : 'bg-slate-800/50 border-slate-700/50'
+            }`}>
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles className={`w-4 h-4 ${
+                  nextStep.priority === 'high' ? 'text-amber-400' :
+                  nextStep.priority === 'medium' ? 'text-cyan-400' : 'text-slate-400'
+                }`} />
+                <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                  Recommended Next
+                </span>
+              </div>
+              <h3 className="text-base font-medium text-white mb-1">{nextStep.label}</h3>
+              <p className="text-xs text-slate-400 mb-4">{nextStep.description}</p>
+
+              {nextStep.actionType === 'link' && nextStep.actionHref ? (
+                <Link
+                  href={nextStep.actionHref}
+                  className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    nextStep.priority === 'high'
+                      ? 'text-white bg-amber-500 hover:bg-amber-400'
+                      : 'text-cyan-400 bg-cyan-500/20 border border-cyan-500/30 hover:bg-cyan-500/30'
+                  }`}
+                >
+                  {nextStep.actionLabel}
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              ) : (
+                <button
+                  onClick={onNextStepAction}
+                  disabled={loading}
+                  className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 ${
+                    nextStep.priority === 'high'
+                      ? 'text-white bg-amber-500 hover:bg-amber-400'
+                      : nextStep.priority === 'medium'
+                      ? 'text-cyan-400 bg-cyan-500/20 border border-cyan-500/30 hover:bg-cyan-500/30'
+                      : 'text-slate-300 bg-slate-700 hover:bg-slate-600'
+                  }`}
+                >
+                  {loading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Wand2 className="w-4 h-4" />
+                  )}
+                  {nextStep.actionLabel}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // Strategy Readiness Banner
 // ============================================================================
 
@@ -1359,6 +1517,120 @@ function StarterButton({
 }
 
 // ============================================================================
+// Collapsible Artifacts List (Progressive Disclosure)
+// ============================================================================
+
+function CollapsibleArtifactsList({
+  artifacts,
+  selectedArtifactIds,
+  includedArtifactIds,
+  onToggleSelect,
+  onEdit,
+  onDelete,
+  onStatusChange,
+}: {
+  artifacts: StrategyArtifact[];
+  selectedArtifactIds: Set<string>;
+  includedArtifactIds: Set<string>;
+  onToggleSelect: (id: string) => void;
+  onEdit: (artifact: StrategyArtifact) => void;
+  onDelete: (id: string) => void;
+  onStatusChange: (id: string, status: StrategyArtifactStatus) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (artifacts.length === 0) {
+    return (
+      <div className="bg-slate-900/30 border border-slate-800/50 border-dashed rounded-xl p-6 text-center">
+        <BookOpen className="w-6 h-6 text-slate-600 mx-auto mb-2" />
+        <p className="text-sm text-slate-500">No artifacts yet</p>
+        <p className="text-xs text-slate-600 mt-1">Use AI Actions above to get started</p>
+      </div>
+    );
+  }
+
+  // Categorize artifacts
+  const candidateArtifacts = artifacts.filter(a => a.status === 'candidate');
+  const draftArtifacts = artifacts.filter(a => a.status === 'draft' || a.status === 'explored');
+  const discardedArtifacts = artifacts.filter(a => a.status === 'discarded');
+
+  // Show top artifacts (candidates + recent drafts)
+  const topArtifacts = [
+    ...candidateArtifacts,
+    ...draftArtifacts.slice(0, Math.max(2 - candidateArtifacts.length, 1)),
+  ].slice(0, 3);
+
+  const hasMoreArtifacts = artifacts.length > topArtifacts.length;
+
+  return (
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between px-1">
+        <h3 className="text-sm font-medium text-slate-400">
+          Artifacts ({artifacts.length})
+        </h3>
+        {hasMoreArtifacts && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-xs text-slate-500 hover:text-slate-400 flex items-center gap-1"
+          >
+            {expanded ? 'Collapse' : `Show all ${artifacts.length}`}
+            <ChevronDown className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          </button>
+        )}
+      </div>
+
+      {/* Summary chips when collapsed */}
+      {!expanded && hasMoreArtifacts && (
+        <div className="flex flex-wrap gap-2 px-1">
+          {candidateArtifacts.length > 0 && (
+            <span className="px-2 py-1 text-xs bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-lg">
+              {candidateArtifacts.length} candidate{candidateArtifacts.length > 1 ? 's' : ''}
+            </span>
+          )}
+          {draftArtifacts.length > 0 && (
+            <span className="px-2 py-1 text-xs bg-slate-700/50 text-slate-400 border border-slate-600 rounded-lg">
+              {draftArtifacts.length} draft{draftArtifacts.length > 1 ? 's' : ''}
+            </span>
+          )}
+          {discardedArtifacts.length > 0 && (
+            <span className="px-2 py-1 text-xs bg-slate-800/50 text-slate-500 border border-slate-700 rounded-lg">
+              {discardedArtifacts.length} discarded
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Artifact cards */}
+      <div className="space-y-2">
+        {(expanded ? artifacts : topArtifacts).map(artifact => (
+          <ArtifactCard
+            key={artifact.id}
+            artifact={artifact}
+            isSelected={selectedArtifactIds.has(artifact.id)}
+            isIncludedInStrategy={includedArtifactIds.has(artifact.id)}
+            onToggleSelect={() => onToggleSelect(artifact.id)}
+            onEdit={() => onEdit(artifact)}
+            onDelete={() => onDelete(artifact.id)}
+            onStatusChange={(status) => onStatusChange(artifact.id, status)}
+          />
+        ))}
+      </div>
+
+      {/* Expand prompt */}
+      {!expanded && hasMoreArtifacts && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="w-full p-2 text-xs text-slate-500 hover:text-slate-400 bg-slate-900/30 border border-slate-800/50 border-dashed rounded-lg hover:bg-slate-900/50 transition-colors"
+        >
+          + {artifacts.length - topArtifacts.length} more artifact{artifacts.length - topArtifacts.length > 1 ? 's' : ''}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // Strategy Inputs Meta Component (Staleness Guard)
 // ============================================================================
 
@@ -1426,6 +1698,7 @@ function StrategyInputSection({
   fixInContextLink,
   onImproveWithAI,
   isImproving,
+  completeness,
 }: {
   title: string;
   icon: React.ReactNode;
@@ -1436,8 +1709,18 @@ function StrategyInputSection({
   fixInContextLink?: string;
   onImproveWithAI?: () => void;
   isImproving?: boolean;
+  /** 0-100 completeness score for indicator dot */
+  completeness?: number;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+
+  // Determine indicator color based on completeness
+  const getIndicatorColor = (score: number | undefined) => {
+    if (score === undefined) return 'bg-slate-600';
+    if (score >= 75) return 'bg-emerald-500';
+    if (score >= 50) return 'bg-amber-500';
+    return 'bg-red-500';
+  };
 
   return (
     <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
@@ -1452,6 +1735,13 @@ function StrategyInputSection({
           {subtitle && <span className="text-slate-500 font-normal ml-1">({subtitle})</span>}
         </span>
         {badge}
+        {/* Completeness indicator dot - only show when collapsed */}
+        {!expanded && completeness !== undefined && (
+          <span
+            className={`w-2 h-2 rounded-full ${getIndicatorColor(completeness)}`}
+            title={`${completeness}% complete`}
+          />
+        )}
         <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${expanded ? '' : '-rotate-90'}`} />
       </button>
 

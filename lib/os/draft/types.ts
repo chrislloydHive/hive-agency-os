@@ -205,6 +205,13 @@ export interface DraftRegenerateRequest {
   kind: DraftableResourceKind;
   /** If true, force a fresh Competition V3 run before regenerating */
   forceCompetition?: boolean;
+  /**
+   * TRUST: Base revision ID for optimistic locking.
+   * If provided, the server will reject the request (409 Conflict) if the
+   * current saved context has a different updatedAt timestamp.
+   * This prevents regeneration from running against stale data.
+   */
+  baseRevisionId?: string;
 }
 
 /**

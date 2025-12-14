@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { getHeavyGapRunsByCompanyId } from '@/lib/airtable/gapHeavyRuns';
 import { getLatestRunForCompanyAndTool } from '@/lib/os/diagnostics/runs';
+import { getProgramsForCompany } from '@/lib/airtable/programs';
 import { WebsiteNarrativeReport } from '@/components/website/WebsiteNarrativeReport';
 import { buildWebsiteActionPlan } from '@/lib/gap-heavy/modules/websiteActionPlanBuilder';
 import type { DiagnosticModuleResult } from '@/lib/gap-heavy/types';
@@ -17,6 +18,7 @@ import type {
   WebsiteUXAssessmentV4,
   WebsiteUXLabResultV4,
 } from '@/lib/gap-heavy/modules/websiteLab';
+import { ArrowRight, Sparkles } from 'lucide-react';
 
 type PageProps = {
   params: Promise<{ companyId: string }>;
@@ -132,6 +134,10 @@ export default async function WebsiteDetailPage({ params }: PageProps) {
     );
   }
 
+  // Check if Website Program already exists
+  const programs = await getProgramsForCompany(companyId, 'website');
+  const hasWebsiteProgram = programs.some(p => p.status !== 'archived');
+
   // Build action plan from lab result
   const actionPlan = buildWebsiteActionPlan(labResultV4);
   const displayUrl = company.website?.replace(/^https?:\/\//, '') || '';
@@ -167,6 +173,39 @@ export default async function WebsiteDetailPage({ params }: PageProps) {
 
       {/* PRIMARY VIEW: Action Board (Generic, Reusable) */}
       <DiagnosticActionBoard board={actionBoard} />
+
+      {/* CTA: Create Website Program (show only if no program exists) */}
+      {!hasWebsiteProgram && (
+        <div className="border-t border-slate-800 bg-gradient-to-r from-amber-500/5 via-cyan-500/5 to-blue-500/5">
+          <div className="mx-auto max-w-7xl px-6 py-6">
+            <div className="flex items-center justify-between rounded-xl border border-amber-500/30 bg-slate-900/50 p-5">
+              <div className="flex items-center gap-4">
+                <div className="rounded-xl bg-amber-500/20 p-3">
+                  <Sparkles className="h-6 w-6 text-amber-400" />
+                </div>
+                <div>
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-400">
+                      Recommended Next
+                    </span>
+                  </div>
+                  <p className="text-lg font-medium text-white">Create Website Program</p>
+                  <p className="text-sm text-slate-400">
+                    Turn these findings into a prioritized execution plan
+                  </p>
+                </div>
+              </div>
+              <Link
+                href={`/c/${companyId}/programs`}
+                className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-amber-500/20 transition-colors hover:bg-amber-400"
+              >
+                Go to Programs
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* SECONDARY VIEW: Full Narrative Report (Collapsible) */}
       <div className="border-t border-slate-800 bg-slate-900/30">

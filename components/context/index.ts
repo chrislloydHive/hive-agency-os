@@ -15,6 +15,23 @@ export { ContextV2SectionHeader } from './ContextV2SectionHeader';
 export { ContextV2FieldMeta } from './ContextV2FieldMeta';
 export { ContextQualityBanner } from './ContextQualityBanner';
 
+// Strategy Readiness Banners
+export { StrategyReadinessBanner } from './StrategyReadinessBanner';
+export { StrategyInputsReadinessBanner } from './StrategyInputsReadinessBanner';
+
+// Dev Tools
+export { StrategyBindingsDebugPanel } from './StrategyBindingsDebugPanel';
+
+// TRUST: Unsaved Changes Modal (prevents clobbering user edits)
+export { UnsavedChangesModal } from './UnsavedChangesModal';
+export type { UnsavedChangesModalProps } from './UnsavedChangesModal';
+
 // Existing components
 export { CompetitorEditor } from './CompetitorEditor';
 export { DiagnosticsDebugDrawer } from './DiagnosticsDebugDrawer';
+
+// AI Proposal Components (AI-First Context)
+export { ProposalBadge } from './ProposalBadge';
+export { ProposalCard } from './ProposalCard';
+export { ProposalSummaryBanner } from './ProposalSummaryBanner';
+export { ProposalReviewBanner } from './ProposalReviewBanner';

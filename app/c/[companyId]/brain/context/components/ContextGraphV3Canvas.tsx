@@ -40,7 +40,8 @@ type DomainName =
   | 'operationalConstraints'
   | 'storeRisk'
   | 'historyRefs'
-  | 'social';
+  | 'social'
+  | 'capabilities';
 
 type DomainClusterLayout = Record<DomainName, DomainClusterConfig>;
 
@@ -73,6 +74,7 @@ function generateDomainClusterLayout(
     storeRisk: 7 * Math.PI / 8,
     historyRefs: -7 * Math.PI / 8,
     social: Math.PI / 4,
+    capabilities: 11 * Math.PI / 12,
   };
 
   const domainColors: Record<DomainName, string> = {
@@ -95,6 +97,7 @@ function generateDomainClusterLayout(
     storeRisk: '#eab308',
     historyRefs: '#71717a',
     social: '#10b981',
+    capabilities: '#3b82f6',
   };
 
   const domainLabels: Record<DomainName, string> = {
@@ -117,6 +120,7 @@ function generateDomainClusterLayout(
     storeRisk: 'Risk',
     historyRefs: 'History',
     social: 'Social & Local',
+    capabilities: 'Capabilities',
   };
 
   const layout: Partial<DomainClusterLayout> = {};
@@ -187,6 +191,7 @@ const DOMAIN_COLORS: Record<DomainName, string> = {
   storeRisk: '#eab308',       // yellow-500
   historyRefs: '#71717a',     // zinc-500
   social: '#10b981',          // emerald-500
+  capabilities: '#3b82f6',    // blue-500
 };
 
 // ============================================================================

@@ -77,6 +77,7 @@ const DOMAIN_LABELS: Record<DomainName, string> = {
   storeRisk: 'Store Risk',
   historyRefs: 'History References',
   social: 'Social',
+  capabilities: 'Capabilities',
 };
 
 // Critical domains that need attention if incomplete

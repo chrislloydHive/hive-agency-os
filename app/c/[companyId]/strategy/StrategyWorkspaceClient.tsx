@@ -41,6 +41,16 @@ interface StrategyWorkspaceClientProps {
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
+// Version metadata from AI proposal (for traceability)
+interface VersionMetadata {
+  baseContextRevisionId?: string | null;
+  hiveBrainRevisionId?: string | null;
+  competitionSourceUsed?: 'v3' | 'v4' | null;
+  srmReady?: boolean;
+  srmCompleteness?: number;
+  missingSrmFields?: string[];
+}
+
 // ============================================================================
 // Main Component
 // ============================================================================
@@ -65,6 +75,8 @@ export function StrategyWorkspaceClient({
   const [error, setError] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
+  // Version metadata from AI proposal (for traceability when saving new strategy)
+  const [pendingVersionMetadata, setPendingVersionMetadata] = useState<VersionMetadata | null>(null);
 
   const isFinalized = strategy.status === 'finalized';
 
@@ -121,13 +133,28 @@ export function StrategyWorkspaceClient({
         ? '/api/os/strategy/update'
         : '/api/os/strategy/create';
 
+      // For new strategies, include version metadata for traceability
+      const isCreate = !strategy.id;
+      const createPayload = isCreate
+        ? {
+            companyId,
+            ...strategy,
+            // Include version metadata from AI proposal
+            baseContextRevisionId: pendingVersionMetadata?.baseContextRevisionId ?? undefined,
+            hiveBrainRevisionId: pendingVersionMetadata?.hiveBrainRevisionId ?? undefined,
+            competitionSourceUsed: pendingVersionMetadata?.competitionSourceUsed ?? undefined,
+            generatedWithIncompleteContext: pendingVersionMetadata?.srmReady === false,
+            missingSrmFields: pendingVersionMetadata?.missingSrmFields ?? undefined,
+          }
+        : null;
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
           strategy.id
             ? { strategyId: strategy.id, updates: strategy }
-            : { companyId, ...strategy }
+            : createPayload
         ),
       });
 
@@ -139,6 +166,10 @@ export function StrategyWorkspaceClient({
 
       if (data.strategy) {
         setStrategy(data.strategy);
+        // Clear pending metadata after successful create
+        if (isCreate) {
+          setPendingVersionMetadata(null);
+        }
       }
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
@@ -147,7 +178,7 @@ export function StrategyWorkspaceClient({
       setError(err instanceof Error ? err.message : 'Failed to save');
       setSaveStatus('error');
     }
-  }, [companyId, strategy]);
+  }, [companyId, strategy, pendingVersionMetadata]);
 
   // AI propose strategy
   const handleAiPropose = useCallback(async () => {
@@ -179,6 +210,19 @@ export function StrategyWorkspaceClient({
           })) || prev.pillars,
         }));
         setSaveStatus('idle');
+
+        // Capture version metadata for when user saves (for traceability)
+        if (data.versionMetadata) {
+          setPendingVersionMetadata({
+            baseContextRevisionId: data.versionMetadata.baseContextRevisionId,
+            hiveBrainRevisionId: data.versionMetadata.hiveBrainRevisionId,
+            competitionSourceUsed: data.versionMetadata.competitionSourceUsed,
+            srmReady: data.versionMetadata.srmReady,
+            srmCompleteness: data.versionMetadata.srmCompleteness,
+            missingSrmFields: data.versionMetadata.missingSrmFields,
+          });
+          console.log('[StrategyWorkspaceClient] Captured version metadata:', data.versionMetadata);
+        }
       }
     } catch (err) {
       console.error('[StrategyWorkspaceClient] AI propose error:', err);

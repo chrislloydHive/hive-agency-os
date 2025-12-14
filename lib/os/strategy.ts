@@ -101,9 +101,27 @@ export async function getStrategySummary(companyId: string): Promise<StrategySum
 
 /**
  * Create a new draft strategy
+ *
+ * IMPORTANT: This always creates a NEW draft record. Regeneration should
+ * call this function to create new drafts, never mutate existing active strategies.
  */
 export async function createDraftStrategy(request: CreateStrategyRequest): Promise<CompanyStrategy> {
-  const { companyId, title, summary, objectives, pillars } = request;
+  const {
+    companyId,
+    title,
+    summary,
+    objectives,
+    pillars,
+    // Version metadata for traceability
+    baseContextRevisionId,
+    hiveBrainRevisionId,
+    competitionSourceUsed,
+    generatedWithIncompleteContext,
+    missingSrmFields,
+    // Artifact lineage
+    sourceArtifactIds,
+    promotedFromArtifacts,
+  } = request;
 
   try {
     const base = getBase();
@@ -127,7 +145,30 @@ export async function createDraftStrategy(request: CreateStrategyRequest): Promi
       version: 1,
       createdAt: now,
       updatedAt: now,
+      // Version metadata (for traceability)
+      baseContextRevisionId: baseContextRevisionId || undefined,
+      hiveBrainRevisionId: hiveBrainRevisionId || undefined,
+      competitionSourceUsed: competitionSourceUsed ?? undefined,
+      generatedWithIncompleteContext: generatedWithIncompleteContext ?? undefined,
+      missingSrmFields: missingSrmFields && missingSrmFields.length > 0
+        ? JSON.stringify(missingSrmFields)
+        : undefined,
+      // Artifact lineage
+      sourceArtifactIds: sourceArtifactIds && sourceArtifactIds.length > 0
+        ? JSON.stringify(sourceArtifactIds)
+        : undefined,
+      promotedFromArtifacts: promotedFromArtifacts ?? undefined,
     };
+
+    console.log('[createDraftStrategy] Creating with version metadata:', {
+      baseContextRevisionId,
+      hiveBrainRevisionId,
+      competitionSourceUsed,
+      generatedWithIncompleteContext,
+      missingSrmFieldCount: missingSrmFields?.length ?? 0,
+      sourceArtifactCount: sourceArtifactIds?.length ?? 0,
+      promotedFromArtifacts,
+    });
 
     const record = await base(STRATEGY_TABLE).create(fields);
     return mapRecordToStrategy(record);
@@ -194,6 +235,13 @@ export async function updateStrategy(request: UpdateStrategyRequest): Promise<Co
     if (updates.startDate !== undefined) fields.startDate = updates.startDate;
     if (updates.endDate !== undefined) fields.endDate = updates.endDate;
     if (updates.quarterLabel !== undefined) fields.quarterLabel = updates.quarterLabel;
+    // Artifact lineage
+    if (updates.sourceArtifactIds !== undefined) {
+      fields.sourceArtifactIds = JSON.stringify(updates.sourceArtifactIds);
+    }
+    if (updates.promotedFromArtifacts !== undefined) {
+      fields.promotedFromArtifacts = updates.promotedFromArtifacts;
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const results = await (base(STRATEGY_TABLE) as any).update([
@@ -349,6 +397,16 @@ function mapRecordToStrategy(record: {
     startDate: fields.startDate as string | undefined,
     endDate: fields.endDate as string | undefined,
     quarterLabel: fields.quarterLabel as string | undefined,
+    // Version metadata (for traceability)
+    baseContextRevisionId: fields.baseContextRevisionId as string | undefined,
+    hiveBrainRevisionId: fields.hiveBrainRevisionId as string | undefined,
+    competitionSourceUsed: fields.competitionSourceUsed as 'v3' | 'v4' | null | undefined,
+    generatedWithIncompleteContext: fields.generatedWithIncompleteContext as boolean | undefined,
+    missingSrmFields: parseJsonArray(fields.missingSrmFields),
+    // Artifact lineage
+    sourceArtifactIds: parseJsonArray(fields.sourceArtifactIds),
+    promotedFromArtifacts: fields.promotedFromArtifacts as boolean | undefined,
+    // Timestamps
     createdAt: (fields.createdAt as string) || new Date().toISOString(),
     updatedAt: (fields.updatedAt as string) || new Date().toISOString(),
     createdBy: fields.createdBy as string | undefined,

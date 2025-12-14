@@ -367,6 +367,14 @@ export const DOMAIN_PRIORITY_CONFIG: Record<DomainName, DomainPriorityConfig> = 
       'inferred',
     ],
   },
+
+  // Capabilities domain - Human-only (Hive Brain admin)
+  capabilities: {
+    priority: [
+      'brain',
+      'manual',
+    ],
+  },
 };
 
 // ============================================================================

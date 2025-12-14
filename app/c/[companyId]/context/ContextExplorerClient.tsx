@@ -21,6 +21,10 @@ import {
   type SnapshotInfo,
   getContextGraphForSection,
 } from '@/lib/contextGraph/graphView';
+import {
+  getCoreDomains,
+  getAdvancedDomains,
+} from '@/lib/contextGraph/visibility';
 import { ContextGraphPanel } from './ContextGraphPanel';
 
 // ============================================================================
@@ -70,6 +74,11 @@ export function ContextExplorerClient({
   const [showOnlyWithValue, setShowOnlyWithValue] = useState(false);
   const [showGraphPanel, setShowGraphPanel] = useState(true);
   const [highlightedRowPath, setHighlightedRowPath] = useState<string | null>(null);
+  const [showAdvancedDomains, setShowAdvancedDomains] = useState(false);
+
+  // Get visible domains based on visibility configuration
+  const coreDomains = useMemo(() => getCoreDomains(), []);
+  const advancedDomains = useMemo(() => getAdvancedDomains(), []);
 
   // Group fields by domain
   const fieldsByDomain = useMemo(() => {
@@ -172,7 +181,8 @@ export function ContextExplorerClient({
 
         {/* Domain Navigation */}
         <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
-          {DOMAIN_NAMES.map((domainId) => {
+          {/* Core Domains - Always visible */}
+          {coreDomains.map((domainId) => {
             const meta = CONTEXT_DOMAIN_META[domainId];
             const domainFields = fieldsByDomain.get(domainId) ?? [];
             const populatedCount = domainFields.filter((f) => f.value !== null && f.value !== '').length;
@@ -200,6 +210,63 @@ export function ContextExplorerClient({
               </button>
             );
           })}
+
+          {/* Advanced Domains Accordion */}
+          {advancedDomains.length > 0 && (
+            <div className="mt-3 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowAdvancedDomains(!showAdvancedDomains)}
+                className="flex w-full items-center justify-between px-2 py-1.5 text-[10px] uppercase tracking-wide text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                <span>Advanced</span>
+                <svg
+                  className={cn(
+                    'w-3 h-3 transition-transform',
+                    showAdvancedDomains && 'rotate-180'
+                  )}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {showAdvancedDomains && (
+                <div className="space-y-0.5 mt-1">
+                  {advancedDomains.map((domainId) => {
+                    const meta = CONTEXT_DOMAIN_META[domainId];
+                    const domainFields = fieldsByDomain.get(domainId) ?? [];
+                    const populatedCount = domainFields.filter((f) => f.value !== null && f.value !== '').length;
+                    const coverage = domainCoverage[domainId] ?? 0;
+
+                    return (
+                      <button
+                        key={domainId}
+                        type="button"
+                        onClick={() => setSelectedDomain(domainId)}
+                        className={cn(
+                          'flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[11px] transition-colors',
+                          selectedDomain === domainId
+                            ? 'bg-slate-900 text-slate-50'
+                            : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-100'
+                        )}
+                      >
+                        <span className="truncate">{meta.label}</span>
+                        <span className="flex items-center gap-1">
+                          {coverage < 30 && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
+                          <span className="text-[9px] text-slate-500">
+                            {populatedCount}/{domainFields.length}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </nav>
 
         {/* Graph Toggle */}

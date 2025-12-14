@@ -160,6 +160,7 @@ const DOMAIN_DEFAULT_IMPORTANCE: Record<DomainName, number> = {
   storeRisk: 2,
   historyRefs: 1,
   social: 3,
+  capabilities: 3,
 };
 
 /**
@@ -232,6 +233,9 @@ export function generateDomainClusterLayout(
 
     // Social & Local (near digital footprint)
     social: Math.PI / 4,                 // 5 o'clock
+
+    // Capabilities (near ops)
+    capabilities: 11 * Math.PI / 12,     // 9:30 o'clock
   };
 
   // Domain colors (matching existing SECTION_COLORS)
@@ -255,6 +259,7 @@ export function generateDomainClusterLayout(
     storeRisk: '#eab308',       // yellow-500
     historyRefs: '#71717a',     // zinc-500
     social: '#10b981',          // emerald-500
+    capabilities: '#3b82f6',    // blue-500
   };
 
   // Domain labels
@@ -278,6 +283,7 @@ export function generateDomainClusterLayout(
     storeRisk: 'Risk',
     historyRefs: 'History',
     social: 'Social & Local',
+    capabilities: 'Capabilities',
   };
 
   const layout: Partial<DomainClusterLayout> = {};

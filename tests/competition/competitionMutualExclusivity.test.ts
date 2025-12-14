@@ -209,7 +209,7 @@ describe('Competition Trust Invariants', () => {
     const { canSourceOverwrite } = await import('@/lib/contextGraph/sourcePriority');
 
     const v4Provenance = [
-      { source: 'competition_v4', confidence: 0.8, updatedAt: new Date().toISOString(), validForDays: 90 },
+      { source: 'competition_v4' as const, confidence: 0.8, updatedAt: new Date().toISOString(), validForDays: 90 },
     ];
 
     const result = canSourceOverwrite('competitive', v4Provenance, 'competition_lab', 1.0);
@@ -222,7 +222,7 @@ describe('Competition Trust Invariants', () => {
     const { canSourceOverwrite } = await import('@/lib/contextGraph/sourcePriority');
 
     const v3Provenance = [
-      { source: 'competition_lab', confidence: 0.8, updatedAt: new Date().toISOString(), validForDays: 90 },
+      { source: 'competition_lab' as const, confidence: 0.8, updatedAt: new Date().toISOString(), validForDays: 90 },
     ];
 
     const result = canSourceOverwrite('competitive', v3Provenance, 'competition_v4', 0.8);
@@ -234,7 +234,7 @@ describe('Competition Trust Invariants', () => {
     const { canSourceOverwrite } = await import('@/lib/contextGraph/sourcePriority');
 
     const v4Provenance = [
-      { source: 'competition_v4', confidence: 0.9, updatedAt: new Date().toISOString(), validForDays: 90 },
+      { source: 'competition_v4' as const, confidence: 0.9, updatedAt: new Date().toISOString(), validForDays: 90 },
     ];
 
     const result = canSourceOverwrite('competitive', v4Provenance, 'user', 0.5);

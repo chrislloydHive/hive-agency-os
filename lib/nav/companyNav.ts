@@ -15,6 +15,7 @@ export type CompanyTabId =
   | 'overview'
   | 'context'
   | 'strategy'
+  | 'programs'
   | 'work'
   | 'reports'
   | 'documents'
@@ -54,6 +55,13 @@ export const COMPANY_TABS: CompanyTab[] = [
     name: 'Strategy',
     href: (companyId) => `/c/${companyId}/strategy`,
     description: 'Marketing strategy with pillars, objectives, and AI-assisted planning',
+    primary: true,
+  },
+  {
+    id: 'programs',
+    name: 'Programs',
+    href: (companyId) => `/c/${companyId}/programs`,
+    description: 'Domain-level programs (Website, Content, Media) that guide planners',
     primary: true,
   },
   {
@@ -123,6 +131,7 @@ export function getCompanyTabFromPath(pathname: string, companyId: string): Comp
   // New MVP 1.0 routes
   if (pathname.startsWith(`/c/${companyId}/context`)) return 'context';
   if (pathname.startsWith(`/c/${companyId}/strategy`)) return 'strategy';
+  if (pathname.startsWith(`/c/${companyId}/programs`)) return 'programs';
   if (pathname.startsWith(`/c/${companyId}/documents`)) return 'documents';
   // Existing routes
   if (pathname.startsWith(`/c/${companyId}/blueprint`)) return 'blueprint';

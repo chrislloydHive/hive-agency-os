@@ -3,10 +3,13 @@
 //
 // Provides a unified state machine for Context, Strategy, Creative Strategy, and Work Plan
 // resources that support AI-generated drafts.
+//
+// TRUST: This hook enforces dirty-state awareness for regeneration to prevent
+// clobbering unsaved user edits.
 
 'use client';
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import type {
   DraftableResourceKind,
   DraftSource,
@@ -18,6 +21,14 @@ import type {
 // ============================================================================
 // Types
 // ============================================================================
+
+/** Result type for save operations that include revision tracking */
+export interface SaveResult<T> {
+  /** The saved resource */
+  data: T;
+  /** Revision identifier (typically updatedAt timestamp) */
+  revisionId: string;
+}
 
 interface UseDraftableResourceOptions<T> {
   /** Company ID */
@@ -56,16 +67,24 @@ interface UseDraftableResourceReturn<T> {
   isRegenerating: boolean;
   /** Whether the current values are from a draft (unsaved) */
   isDraft: boolean;
+  /** Whether there are unsaved changes (dirty state) */
+  isDirty: boolean;
+  /** Last saved revision ID for optimistic locking */
+  lastSavedRevisionId: string | null;
   /** Error message if any */
   error: string | null;
   /** Handle running diagnostics + generating draft */
   handleGenerate: () => Promise<void>;
-  /** Handle regenerating draft from existing data */
-  handleRegenerate: () => Promise<void>;
-  /** Handle saving the current values */
-  handleSave: (saveContext: (values: T) => Promise<T>) => Promise<void>;
+  /** Handle regenerating draft from existing data (returns false if blocked by dirty state) */
+  handleRegenerate: () => Promise<boolean>;
+  /** Handle saving the current values - returns SaveResult with revisionId */
+  handleSave: (saveContext: (values: T) => Promise<SaveResult<T>>) => Promise<SaveResult<T> | null>;
   /** Clear error */
   clearError: () => void;
+  /** Reset dirty state (call after successful save) */
+  resetDirtyState: () => void;
+  /** Check if regenerate would clobber unsaved changes */
+  wouldClobberChanges: () => boolean;
 }
 
 // ============================================================================
@@ -100,6 +119,39 @@ export function useDraftableResource<T>({
   const [isSaving, setIsSaving] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // TRUST: Track the last saved state to detect dirty changes
+  const savedValuesRef = useRef<T | null>(initialState.saved);
+  const [lastSavedRevisionId, setLastSavedRevisionId] = useState<string | null>(
+    // Initialize from saved context's updatedAt if available
+    initialState.saved && typeof initialState.saved === 'object' && 'updatedAt' in initialState.saved
+      ? (initialState.saved as { updatedAt?: string }).updatedAt ?? null
+      : null
+  );
+
+  // TRUST: Compute dirty state by comparing current values to saved values
+  const isDirty = useMemo(() => {
+    // If no saved state, form is always "dirty" in the sense of having unsaved changes
+    // But we only consider it dirty for regeneration blocking if there's meaningful content
+    if (!savedValuesRef.current) {
+      // Check if formValues has any meaningful content
+      if (typeof formValues === 'object' && formValues !== null) {
+        const values = formValues as Record<string, unknown>;
+        return Object.values(values).some(v => v !== null && v !== undefined && v !== '');
+      }
+      return false;
+    }
+
+    // Deep compare current form values to saved values
+    try {
+      const currentStr = JSON.stringify(formValues);
+      const savedStr = JSON.stringify(savedValuesRef.current);
+      return currentStr !== savedStr;
+    } catch {
+      // If serialization fails, assume dirty to be safe
+      return true;
+    }
+  }, [formValues]);
 
   // Derived state
   const isDraft = source === 'ai_draft';
@@ -164,29 +216,65 @@ export function useDraftableResource<T>({
   }, [companyId, kind, runEndpoint, onDraftGenerated]);
 
   // ============================================================================
-  // Handle Regenerate (runs fresh competition + regenerates draft)
+  // TRUST: Check if regenerate would clobber unsaved changes
   // ============================================================================
-  const handleRegenerate = useCallback(async () => {
+  const wouldClobberChanges = useCallback(() => {
+    return isDirty && hasSaved;
+  }, [isDirty, hasSaved]);
+
+  // ============================================================================
+  // Handle Regenerate (runs fresh competition + regenerates draft)
+  // TRUST: Returns false if blocked by dirty state - caller should show modal
+  // ============================================================================
+  const handleRegenerate = useCallback(async (): Promise<boolean> => {
     console.log('=== [useDraftableResource] handleRegenerate CALLED ===');
     console.log('[useDraftableResource] regenerateEndpoint:', regenerateEndpoint);
+    console.log('[useDraftableResource] isDirty:', isDirty, 'isSaving:', isSaving);
+
+    // TRUST: Block regeneration while save is in-flight to prevent race conditions
+    if (isSaving) {
+      console.log('[useDraftableResource] Blocked: save in progress');
+      setError('Please wait for save to complete before regenerating.');
+      return false;
+    }
+
+    // TRUST: If dirty, don't proceed - caller should show confirmation modal
+    // This check is intentionally done here so the caller can handle the UX
+    if (isDirty && hasSaved) {
+      console.log('[useDraftableResource] Dirty state detected, returning false for modal handling');
+      // Don't set error here - let the caller show a modal instead
+      return false;
+    }
+
     setIsRegenerating(true);
     setError(null);
 
     try {
-      // Always force fresh competition when user clicks "Regenerate from diagnostics"
-      console.log('[useDraftableResource] Calling regenerate with forceCompetition: true');
+      // Include baseRevisionId for optimistic locking on the server
+      console.log('[useDraftableResource] Calling regenerate with forceCompetition: true, baseRevisionId:', lastSavedRevisionId);
       const response = await fetch(regenerateEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId, kind, forceCompetition: true }),
+        body: JSON.stringify({
+          companyId,
+          kind,
+          forceCompetition: true,
+          baseRevisionId: lastSavedRevisionId,
+        }),
       });
 
       const data: DraftRegenerateResponse<T> = await response.json();
 
+      // TRUST: Handle stale revision conflict (409)
+      if (response.status === 409) {
+        setError('Context was modified elsewhere. Please refresh and try again.');
+        return false;
+      }
+
       if (data.error === 'INSUFFICIENT_SIGNAL') {
         // No baseline available - this is expected in some cases
         setError(data.message || 'No baseline data available.');
-        return;
+        return false;
       }
 
       if (!response.ok || !data.success) {
@@ -194,41 +282,62 @@ export function useDraftableResource<T>({
       }
 
       // Update state with regenerated draft
+      // TRUST: This creates a NEW draft, it doesn't replace saved context
       if (data.draft) {
         const draftValue = extractDraftValue<T>(data.draft, kind);
         setFormValues(draftValue);
         setSource('ai_draft');
         onDraftGenerated?.(draftValue);
       }
+
+      return true;
     } catch (err) {
       console.error('[useDraftableResource] Regenerate error:', err);
       setError(err instanceof Error ? err.message : 'Failed to regenerate draft');
+      return false;
     } finally {
       setIsRegenerating(false);
     }
-  }, [companyId, kind, regenerateEndpoint, onDraftGenerated]);
+  }, [companyId, kind, regenerateEndpoint, onDraftGenerated, isDirty, isSaving, hasSaved, lastSavedRevisionId]);
 
   // ============================================================================
   // Handle Save
+  // TRUST: Returns SaveResult with revisionId for tracking
   // ============================================================================
   const handleSave = useCallback(
-    async (saveContext: (values: T) => Promise<T>) => {
+    async (saveContext: (values: T) => Promise<SaveResult<T>>): Promise<SaveResult<T> | null> => {
       setIsSaving(true);
       setError(null);
 
       try {
-        const saved = await saveContext(formValues);
+        const result = await saveContext(formValues);
+
+        // TRUST: Update saved state reference and revision ID
+        savedValuesRef.current = result.data;
+        setLastSavedRevisionId(result.revisionId);
         setSource('user_saved');
-        onSaveComplete?.(saved);
+
+        console.log('[useDraftableResource] Saved successfully, revisionId:', result.revisionId);
+        onSaveComplete?.(result.data);
+
+        return result;
       } catch (err) {
         console.error('[useDraftableResource] Save error:', err);
         setError(err instanceof Error ? err.message : 'Failed to save');
+        return null;
       } finally {
         setIsSaving(false);
       }
     },
     [formValues, onSaveComplete]
   );
+
+  // ============================================================================
+  // TRUST: Reset dirty state (useful after external saves)
+  // ============================================================================
+  const resetDirtyState = useCallback(() => {
+    savedValuesRef.current = formValues;
+  }, [formValues]);
 
   // ============================================================================
   // Clear Error
@@ -247,11 +356,15 @@ export function useDraftableResource<T>({
     isSaving,
     isRegenerating,
     isDraft,
+    isDirty,
+    lastSavedRevisionId,
     error,
     handleGenerate,
     handleRegenerate,
     handleSave,
     clearError,
+    resetDirtyState,
+    wouldClobberChanges,
   };
 }
 

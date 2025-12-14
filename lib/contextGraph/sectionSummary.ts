@@ -62,6 +62,7 @@ const SECTION_LABELS: Record<DomainName, string> = {
   storeRisk: 'Store Risk',
   historyRefs: 'History Refs',
   social: 'Social & Local',
+  capabilities: 'Capabilities',
 };
 
 // ============================================================================

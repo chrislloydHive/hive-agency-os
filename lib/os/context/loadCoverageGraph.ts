@@ -104,6 +104,7 @@ const DOMAIN_LABELS: Record<DomainName, string> = {
   storeRisk: 'Store Risk',
   historyRefs: 'History References',
   social: 'Social',
+  capabilities: 'Capabilities',
 };
 
 // Field importance mappings (default is 3)

@@ -9,6 +9,8 @@
 // MEDIA PROGRAM: Shows Media Lab summary (derived from plans) + operational media status
 // DMA PIPELINE: Shows DMA banner + Full Workup checklist when coming from Pipeline
 
+import { promises as fs } from 'fs';
+import path from 'path';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { companyHasMediaProgram } from '@/lib/companies/media';
 import { getCompanyStrategySnapshot } from '@/lib/os/companies/strategySnapshot';
@@ -30,10 +32,28 @@ import { getCompanyAnalyticsSnapshot } from '@/lib/os/companies/companyAnalytics
 import { getCompanyFindings } from '@/lib/os/findings/companyFindings';
 import { generateCompanyStatusNarrative } from '@/lib/os/contextAi/generateCompanyStatusNarrative';
 import { getDiagnosticFindingsForCompany } from '@/lib/airtable/diagnosticDetails';
-import { CompanyOverviewPage } from '@/components/os/CompanyOverviewPage';
+import { CompanyOverviewPage, type CompanyOverviewPageProps } from '@/components/os/CompanyOverviewPage';
 import { DmaFullGapBanner } from '@/components/os/DmaFullGapBanner';
 import { FullWorkupChecklist } from '@/components/os/FullWorkupChecklist';
 import { StatusSummaryPanel } from '@/components/os/StatusSummaryPanel';
+import type { PrimaryIntent } from '@/components/os/IntentSelector';
+
+// ============================================================================
+// Intent Helper
+// ============================================================================
+
+const DATA_DIR = process.env.CONTEXT_GRAPH_DATA_DIR || './data/context-graphs';
+
+async function loadCompanyIntent(companyId: string): Promise<PrimaryIntent | null> {
+  try {
+    const filePath = path.join(DATA_DIR, companyId, 'intent.json');
+    const content = await fs.readFile(filePath, 'utf-8');
+    const data = JSON.parse(content);
+    return data.intent || null;
+  } catch {
+    return null;
+  }
+}
 
 // ============================================================================
 // Tool Slug Mapping (for report paths)
@@ -85,6 +105,7 @@ export default async function OsOverviewPage({
     analyticsSnapshot,
     topFindings,
     rawAnalyticsFindings,
+    primaryIntent,
   ] = await Promise.all([
     getCompanyById(companyId),
     getCompanyStrategySnapshot(companyId).catch(() => null),
@@ -114,6 +135,8 @@ export default async function OsOverviewPage({
     getCompanyFindings(companyId, { severities: ['high', 'critical'] }).catch(() => []),
     // Fetch analytics-specific findings for Status Panel
     getDiagnosticFindingsForCompany(companyId, { labSlug: 'analytics' }).catch(() => []),
+    // Fetch company intent (for decision entry point)
+    loadCompanyIntent(companyId),
   ]);
 
   // Filter analytics findings for high/medium severity (top 3 for Status Panel)
@@ -235,6 +258,7 @@ export default async function OsOverviewPage({
         mediaLabSummary={mediaLabSummary}
         baselineStatus={baselineStatus}
         qbrSummary={qbrSummary}
+        primaryIntent={primaryIntent}
       />
     </div>
   );

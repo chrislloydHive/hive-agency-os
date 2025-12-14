@@ -4,6 +4,8 @@ import {
   getLatestOsFullReportForCompany,
   parseFullReportToOsResult,
 } from '@/lib/airtable/fullReports';
+import { getActiveStrategy } from '@/lib/os/strategy';
+import { getArtifactsForCompany } from '@/lib/os/strategy/artifacts';
 import CompanyTabs from '@/components/os/CompanyTabs';
 import { AssistantButton } from '@/components/assistant';
 
@@ -16,11 +18,18 @@ export default async function CompanyLayout({
 }) {
   const { companyId } = await params;
   const company = await getCompanyById(companyId);
-  
+
   // Get latest OS Full Report to derive score
   const latestReport = company ? await getLatestOsFullReportForCompany(companyId) : null;
   const osResult = latestReport ? parseFullReportToOsResult(latestReport) : null;
   const overallScore = osResult?.overallScore ? Math.round(osResult.overallScore * 10) : undefined;
+
+  // Check if strategy has content (for Programs tab emphasis)
+  const [strategy, artifacts] = await Promise.all([
+    company ? getActiveStrategy(companyId).catch(() => null) : Promise.resolve(null),
+    company ? getArtifactsForCompany(companyId).catch(() => []) : Promise.resolve([]),
+  ]);
+  const hasStrategyContent = !!(strategy || (artifacts && artifacts.length > 0));
 
   if (!company) {
     return (
@@ -68,7 +77,7 @@ export default async function CompanyLayout({
         </div>
       </div>
 
-      <CompanyTabs companyId={companyId} />
+      <CompanyTabs companyId={companyId} highlightPrograms={hasStrategyContent} />
 
       {children}
 

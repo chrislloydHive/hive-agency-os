@@ -1,0 +1,72 @@
+# CODEOWNERS - Trust-Critical Files
+#
+# These files enforce the "AI Proposes, Humans Decide" doctrine.
+# Changes to these files require review from a designated owner.
+#
+# See: docs/context/trust-regression.md
+# Test: pnpm test:trust
+
+# ============================================================================
+# TRUST ENFORCEMENT - Source Priority & Governance
+# ============================================================================
+# These files control who can overwrite whom. Any change here could
+# break the trust model and allow AI to overwrite human data.
+
+/lib/contextGraph/sourcePriority.ts @chrislloyd
+/lib/contextGraph/governance/ @chrislloyd
+
+# ============================================================================
+# WRITE CONTRACT - Proposal Flow Infrastructure
+# ============================================================================
+# The write contract ensures AI writes go through proposal flow.
+# Modifying these could bypass human approval.
+
+/lib/os/writeContract/ @chrislloyd
+/lib/os/contextV2/writeContractIntegration.ts @chrislloyd
+
+# ============================================================================
+# DOCTRINE - Core Operating Principles
+# ============================================================================
+# The doctrine defines how AI agents should behave. Changes here
+# affect all AI-generated content.
+
+/lib/os/globalContext/hiveDoctrine.ts @chrislloyd
+/lib/contextGraph/forAi.ts @chrislloyd
+
+# ============================================================================
+# TRUST REGRESSION TESTS
+# ============================================================================
+# These tests catch trust violations before they reach production.
+# Do NOT weaken these tests without review.
+
+/tests/context/trustRegression.test.ts @chrislloyd
+/tests/context/trustRepoScan.test.ts @chrislloyd
+/tests/context/aiRouteInvariants.test.ts @chrislloyd
+/tests/competition/competitionMutualExclusivity.test.ts @chrislloyd
+/docs/context/trust-regression.md @chrislloyd
+
+# ============================================================================
+# COMPETITION SOURCE SELECTION
+# ============================================================================
+# V4/V3 mutual exclusivity logic - changes here could cause data mixing
+
+/lib/os/competition/sourceSelection.ts @chrislloyd
+
+# ============================================================================
+# CONTEXT WRITERS - Lab Integration Points
+# ============================================================================
+# Lab writers have direct access to context graph. They must use
+# canSourceOverwrite() and respect source priority.
+
+/lib/contextGraph/importers/ @chrislloyd
+/lib/contextGraph/websiteLabWriter.ts @chrislloyd
+/lib/contextGraph/mediaLabWriter.ts @chrislloyd
+/lib/contextGraph/brandLabWriter.ts @chrislloyd
+
+# ============================================================================
+# AI CONTEXT ENDPOINTS
+# ============================================================================
+# API routes that involve AI writing to context. Must use proposal flow.
+
+/app/api/os/context/ai-assist/ @chrislloyd
+/app/api/os/strategy/ai-propose/ @chrislloyd

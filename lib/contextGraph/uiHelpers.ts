@@ -3,11 +3,19 @@
 //
 // Transforms CompanyContextGraph into UI-friendly structures,
 // provides diff computation, and domain metadata.
+//
+// NOTE: Labels are sourced from the unified registry where possible.
+// The LABEL_OVERRIDES below are kept for backwards compatibility.
 
 import type { CompanyContextGraph, DomainName } from './companyContextGraph';
 import { DOMAIN_NAMES } from './companyContextGraph';
 import type { ProvenanceTag } from './types';
 import { calculateFreshness } from './freshness';
+import {
+  getRegistryEntryByGraphPath,
+  getRegistryEntry,
+  validateGraphPath,
+} from './unifiedRegistry';
 
 // ============================================================================
 // Types
@@ -163,6 +171,11 @@ export const CONTEXT_DOMAIN_META: Record<
     description: 'Social media profiles, Google Business Profile, and local presence.',
     labLink: () => null,
   },
+  capabilities: {
+    label: 'Capabilities',
+    description: 'Hive service capabilities and deliverables.',
+    labLink: () => null,
+  },
 };
 
 // ============================================================================
@@ -257,14 +270,20 @@ const LABEL_OVERRIDES: Record<string, string> = {
 
 /**
  * Convert a path like "brand.positioning" into a human-friendly label
+ * Uses the unified registry as the primary source, falls back to LABEL_OVERRIDES
  */
 function pathToLabel(path: string): string {
+  // 1. Check unified registry first (by graph path or key)
+  const registryEntry = getRegistryEntryByGraphPath(path) || getRegistryEntry(path);
+  if (registryEntry) return registryEntry.label;
+
+  // 2. Fall back to manual overrides
   if (LABEL_OVERRIDES[path]) return LABEL_OVERRIDES[path];
 
+  // 3. Convert camelCase to Title Case with spaces
   const parts = path.split('.');
   const last = parts[parts.length - 1];
 
-  // Convert camelCase to Title Case with spaces
   return last
     .replace(/([A-Z])/g, ' $1')
     .replace(/_/g, ' ')
@@ -322,6 +341,7 @@ function getFreshnessFromProvenance(
 
 /**
  * Flatten all fields in a domain into UI-friendly structures
+ * Includes dev-only validation against the unified registry
  */
 export function flattenDomainToFields(
   domainId: ContextDomainId,
@@ -336,6 +356,11 @@ export function flattenDomainToFields(
       const path = pathParts.join('.');
       const label = pathToLabel(path);
       const provenance = node.provenance ?? [];
+
+      // Dev-only validation: warn if path is not in unified registry
+      if (process.env.NODE_ENV === 'development') {
+        validateGraphPath(path, 'flattenDomainToFields');
+      }
 
       result.push({
         domain: domainId,
