@@ -345,7 +345,7 @@ export {
   getAllSrmFieldPaths,
   isContextSrmField,
   checkRegenRecommendation,
-} from './readiness';
+} from './readiness/strategyReady';
 
 // ============================================================================
 // Auto-Fill Readiness
@@ -357,7 +357,7 @@ export {
   getAutoFillReadiness,
   checkAutoFillReadiness,
   getRecommendedNavigationPath,
-} from './readiness';
+} from './readiness/autoFill';
 
 // ============================================================================
 // Hive Brain (Global Context Graph)

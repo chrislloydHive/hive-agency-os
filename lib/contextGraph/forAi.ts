@@ -39,7 +39,7 @@ import {
   SRM_FIELD_LABELS,
   isStrategyReady,
   type StrategyReadinessResult,
-} from './readiness';
+} from './readiness/strategyReady';
 
 // ============================================================================
 // Doctrine Injection Types
