@@ -92,7 +92,7 @@ export async function promoteArtifactAsStrategy(
       competitionSourceUsed: artifact.linkedCompetitionSource,
       // Mark as promoted from artifacts
       sourceArtifactIds: [artifactId],
-      promotedFromArtifacts: true,
+      promotedFromArtifacts: [artifactId],
     });
 
     // 3. Mark artifact as promoted
@@ -164,12 +164,13 @@ export async function promoteArtifactAsPillar(
 
     // 4. Update strategy with new pillar and artifact lineage
     const currentArtifactIds = existingStrategy?.sourceArtifactIds || [];
+    const currentPromoted = existingStrategy?.promotedFromArtifacts || [];
     const strategy = await updateStrategy({
       strategyId,
       updates: {
         pillars: [...(existingStrategy?.pillars || []), newPillar],
         sourceArtifactIds: [...currentArtifactIds, artifactId],
-        promotedFromArtifacts: true,
+        promotedFromArtifacts: [...currentPromoted, artifactId],
       },
     });
 
@@ -256,7 +257,7 @@ export async function promoteMultipleArtifacts(
       baseContextRevisionId: contextRevisionIds[0], // Use first, or could hash all
       competitionSourceUsed: competitionSources[0] as 'v3' | 'v4' | null,
       sourceArtifactIds: artifactIds,
-      promotedFromArtifacts: true,
+      promotedFromArtifacts: artifactIds,
     });
 
     // 4. Mark all artifacts as promoted
