@@ -59,6 +59,7 @@ const DOMAIN_COLORS: Record<DomainName, string> = {
   storeRisk: '#eab308',
   historyRefs: '#71717a',
   social: '#10b981',
+  capabilities: '#3b82f6',
 };
 
 const DOMAIN_LABELS: Record<DomainName, string> = {
@@ -81,6 +82,7 @@ const DOMAIN_LABELS: Record<DomainName, string> = {
   storeRisk: 'Risk',
   historyRefs: 'History',
   social: 'Social & Local',
+  capabilities: 'Capabilities',
 };
 
 const STATUS_COLORS: Record<ContextNodeStatus, string> = {
@@ -135,6 +137,7 @@ function generateDomainClusterLayout(
     storeRisk: 7 * Math.PI / 8,
     historyRefs: -7 * Math.PI / 8,
     social: Math.PI / 4,
+    capabilities: 11 * Math.PI / 12,
   };
 
   const layout: Partial<Record<DomainName, DomainClusterConfig>> = {};
