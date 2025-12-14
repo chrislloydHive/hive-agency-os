@@ -40,7 +40,8 @@ type DomainName =
   | 'operationalConstraints'
   | 'storeRisk'
   | 'historyRefs'
-  | 'social';
+  | 'social'
+  | 'capabilities';
 
 type DomainClusterLayout = Record<DomainName, DomainClusterConfig>;
 
