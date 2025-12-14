@@ -13,12 +13,33 @@ import type { WithMetaType, WithMetaArrayType } from './types';
 import { getFieldFreshness, type FreshnessScore } from './freshness';
 import { getNeedsRefreshReport } from './needsRefresh';
 import {
+  getHiveGlobalContextGraph,
+  mergeWithHiveBrain,
+  getValueSource,
+  HIVE_BRAIN_DOMAINS,
+} from './globalGraph';
+import {
+  CAPABILITY_CATEGORIES,
+  CAPABILITY_KEYS,
+  CAPABILITY_LABELS,
+  CATEGORY_LABELS,
+  type CapabilitiesDomain,
+  type CapabilityCategory,
+  type Capability,
+} from './domains/capabilities';
+import {
   getDoctrineVersion,
   buildOperatingPrinciplesPrompt,
   buildFullDoctrinePrompt,
   buildToneRulesPrompt,
   buildStrategyDoctrinePrompt,
 } from '@/lib/os/globalContext';
+import {
+  SRM_FIELDS,
+  SRM_FIELD_LABELS,
+  isStrategyReady,
+  type StrategyReadinessResult,
+} from './readiness';
 
 // ============================================================================
 // Doctrine Injection Types
@@ -618,6 +639,228 @@ export function buildStrategyContext(
   });
 }
 
+// ============================================================================
+// Enhanced Strategy Context (with SRM field annotations)
+// ============================================================================
+
+/**
+ * SRM Field annotation for AI context
+ */
+interface SrmFieldAnnotation {
+  /** Field path (domain.field) */
+  path: string;
+  /** Human-readable label */
+  label: string;
+  /** Whether field has a value */
+  hasValue: boolean;
+  /** Source type: user-confirmed, ai-inferred, or unknown */
+  source: 'user-confirmed' | 'ai-inferred' | 'unknown';
+  /** Freshness status */
+  freshness: 'fresh' | 'stale' | 'unknown';
+  /** The actual value (truncated if too long) */
+  value: string | null;
+}
+
+/** Maximum length for field values in prompts */
+const MAX_VALUE_LENGTH = 500;
+
+/**
+ * Truncate a value safely for prompt injection
+ */
+function truncateValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+
+  let str: string;
+  if (typeof value === 'string') {
+    str = value;
+  } else if (Array.isArray(value)) {
+    str = value.slice(0, 5).join(', ') + (value.length > 5 ? ` (+${value.length - 5} more)` : '');
+  } else if (typeof value === 'object') {
+    str = JSON.stringify(value);
+  } else {
+    str = String(value);
+  }
+
+  if (str.length > MAX_VALUE_LENGTH) {
+    return str.slice(0, MAX_VALUE_LENGTH) + '...';
+  }
+  return str;
+}
+
+/**
+ * Determine source type from provenance
+ */
+function getSourceType(field: WithMetaType<unknown> | WithMetaArrayType<unknown> | undefined): SrmFieldAnnotation['source'] {
+  if (!field?.provenance?.length) return 'unknown';
+  const latestProvenance = field.provenance[0];
+  const source = latestProvenance.source?.toLowerCase() ?? '';
+
+  // User-confirmed sources
+  if (source.includes('user') || source.includes('manual') || source.includes('brain') || source.includes('setup_wizard')) {
+    return 'user-confirmed';
+  }
+
+  // AI-inferred sources
+  if (source.includes('ai') || source.includes('inferred') || source.includes('fcb') || source.includes('gap') || source.includes('lab')) {
+    return 'ai-inferred';
+  }
+
+  return 'unknown';
+}
+
+/**
+ * Get freshness status for a field
+ */
+function getFieldFreshnessStatus(field: WithMetaType<unknown> | WithMetaArrayType<unknown> | undefined): 'fresh' | 'stale' | 'unknown' {
+  if (!field?.provenance?.length) return 'unknown';
+  const freshness = getFieldFreshness(field as WithMetaType<unknown>);
+  if (!freshness) return 'unknown';
+  return freshness.score >= 0.5 ? 'fresh' : 'stale';
+}
+
+/**
+ * Get a field from the graph by domain and field name
+ */
+function getGraphField(
+  graph: CompanyContextGraph,
+  domain: string,
+  field: string
+): WithMetaType<unknown> | WithMetaArrayType<unknown> | undefined {
+  const domainObj = graph[domain as keyof CompanyContextGraph];
+  if (!domainObj || typeof domainObj !== 'object') return undefined;
+  return (domainObj as Record<string, unknown>)[field] as WithMetaType<unknown> | WithMetaArrayType<unknown> | undefined;
+}
+
+/**
+ * Build SRM field annotations for strategy context
+ * Uses the SRM_FIELDS definition from readiness module
+ */
+function buildSrmFieldAnnotations(graph: CompanyContextGraph): SrmFieldAnnotation[] {
+  const annotations: SrmFieldAnnotation[] = [];
+
+  for (const srmField of SRM_FIELDS) {
+    const { domain, field, label, isArray } = srmField;
+    const alternatives = 'alternatives' in srmField ? srmField.alternatives : undefined;
+    let fieldObj = getGraphField(graph, domain, field);
+    let usedPath = `${domain}.${field}`;
+
+    // Check alternatives if primary is empty
+    const hasMainValue = isArray
+      ? (fieldObj as WithMetaArrayType<unknown>)?.value?.length > 0
+      : (fieldObj as WithMetaType<unknown>)?.value !== null && (fieldObj as WithMetaType<unknown>)?.value !== undefined;
+
+    if (!hasMainValue && alternatives) {
+      for (const alt of alternatives) {
+        const [altDomain, altField] = alt.includes('.') ? alt.split('.') : [domain, alt];
+        const altFieldObj = getGraphField(graph, altDomain, altField);
+        const altHasValue = (altFieldObj as WithMetaArrayType<unknown>)?.value?.length > 0 ||
+          ((altFieldObj as WithMetaType<unknown>)?.value !== null && (altFieldObj as WithMetaType<unknown>)?.value !== undefined);
+
+        if (altHasValue) {
+          fieldObj = altFieldObj;
+          usedPath = `${altDomain}.${altField}`;
+          break;
+        }
+      }
+    }
+
+    const fieldValue = fieldObj?.value;
+    const hasValue = isArray
+      ? Array.isArray(fieldValue) && fieldValue.length > 0
+      : fieldValue !== null && fieldValue !== undefined;
+
+    annotations.push({
+      path: usedPath,
+      label: SRM_FIELD_LABELS[usedPath] || label,
+      hasValue,
+      source: getSourceType(fieldObj),
+      freshness: getFieldFreshnessStatus(fieldObj),
+      value: hasValue ? truncateValue(fieldValue) : null,
+    });
+  }
+
+  return annotations;
+}
+
+/**
+ * Build enhanced strategy context with SRM field annotations
+ *
+ * This version includes:
+ * - Full doctrine
+ * - SRM fields listed first with source annotations (user-confirmed, AI-inferred, stale)
+ * - Truncated long values to keep prompt bounded
+ * - Strategy readiness summary
+ *
+ * @param graph - The company context graph
+ * @param options - AI context options
+ */
+export function buildEnhancedStrategyContext(
+  graph: CompanyContextGraph,
+  options: AiContextOptions = {}
+): string {
+  const annotations = buildSrmFieldAnnotations(graph);
+  const readiness = isStrategyReady(graph);
+  const baseContext = buildStrategyContext(graph, options);
+
+  // Build SRM section with annotations
+  const srmLines: string[] = [];
+
+  // Strategy readiness summary
+  if (readiness.ready) {
+    srmLines.push('**Status**: Strategy-Ready');
+  } else {
+    srmLines.push(`**Status**: Not Strategy-Ready (${readiness.missing.length} missing)`);
+  }
+
+  srmLines.push('');
+  srmLines.push('**Strategy-Ready Minimum (SRM) Fields:**');
+
+  // List each SRM field with its annotation
+  for (const ann of annotations) {
+    if (!ann.hasValue) {
+      srmLines.push(`- ${ann.label}: ❌ MISSING`);
+    } else {
+      const sourceTag = ann.source === 'user-confirmed'
+        ? '[user-confirmed]'
+        : ann.source === 'ai-inferred'
+        ? '[AI-inferred]'
+        : '';
+      const freshnessTag = ann.freshness === 'stale' ? '[stale]' : '';
+      const tags = [sourceTag, freshnessTag].filter(Boolean).join(' ');
+      const valuePreview = ann.value ? `: ${ann.value.slice(0, 100)}${ann.value.length > 100 ? '...' : ''}` : '';
+      srmLines.push(`- ${ann.label}${tags ? ' ' + tags : ''}${valuePreview}`);
+    }
+  }
+
+  // Add warnings for stale fields
+  const staleFields = annotations.filter(a => a.hasValue && a.freshness === 'stale');
+  if (staleFields.length > 0) {
+    srmLines.push('');
+    srmLines.push(`**Note**: ${staleFields.length} SRM field(s) are stale and may need review.`);
+  }
+
+  // Insert SRM section after doctrine, before context
+  const srmSection = `## Strategy-Ready Context\n${srmLines.join('\n')}\n`;
+
+  // Find where doctrine ends (after the first ---) and insert SRM section
+  const doctrineSeparator = '---';
+  const separatorIndex = baseContext.indexOf(doctrineSeparator);
+
+  if (separatorIndex !== -1) {
+    const afterSeparator = separatorIndex + doctrineSeparator.length;
+    return (
+      baseContext.slice(0, afterSeparator) +
+      '\n\n' +
+      srmSection +
+      '\n' +
+      baseContext.slice(afterSeparator)
+    );
+  }
+
+  // No separator found, prepend SRM section
+  return srmSection + '\n' + baseContext;
+}
+
 /**
  * Build minimal context summary
  * NOTE: Summary does NOT inject doctrine (it's for display, not AI prompts)
@@ -663,4 +906,331 @@ export function buildRawContextPrompt(
     skipNulls: true,
     doctrineMode: 'none', // Explicitly no doctrine
   });
+}
+
+// ============================================================================
+// Hive Brain Composition
+// ============================================================================
+
+/**
+ * Options for Hive Brain composition
+ */
+export interface HiveBrainOptions extends AiContextOptions {
+  /** Include Hive Brain defaults. Default: true */
+  includeHiveBrain?: boolean;
+  /** Show source provenance (company vs hive) in output. Default: false */
+  showSourceProvenance?: boolean;
+}
+
+/**
+ * Build context with Hive Brain defaults merged in
+ *
+ * This loads the Hive Global context graph and merges it with the company graph.
+ * Company values always take precedence over Hive Brain defaults.
+ *
+ * @param companyGraph - The company's context graph
+ * @param options - Options including Hive Brain settings
+ * @returns Merged context prompt string
+ */
+export async function buildContextWithHiveBrain(
+  companyGraph: CompanyContextGraph,
+  options: HiveBrainOptions = {}
+): Promise<string> {
+  const {
+    includeHiveBrain = true,
+    showSourceProvenance = false,
+    doctrineMode = 'operatingPrinciples',
+    includeFreshness = false,
+  } = options;
+
+  let effectiveGraph = companyGraph;
+  let hiveGraph: CompanyContextGraph | null = null;
+
+  // Load and merge Hive Brain if enabled
+  if (includeHiveBrain) {
+    try {
+      hiveGraph = await getHiveGlobalContextGraph();
+      effectiveGraph = mergeWithHiveBrain(companyGraph, hiveGraph);
+      console.log('[forAi] Merged Hive Brain defaults with company context');
+    } catch (error) {
+      console.warn('[forAi] Could not load Hive Brain, using company context only:', error);
+    }
+  }
+
+  // Build the AI context view
+  const contextView = buildAiContextView(effectiveGraph);
+
+  // Format base context
+  let formattedContext = formatForPrompt(contextView, {
+    markdown: true,
+    skipNulls: true,
+    doctrineMode,
+    includeFreshness,
+  });
+
+  // Add source provenance section if requested
+  if (showSourceProvenance && hiveGraph) {
+    const provenanceSection = buildSourceProvenanceSection(companyGraph, hiveGraph);
+    formattedContext = provenanceSection + '\n\n' + formattedContext;
+  }
+
+  return formattedContext;
+}
+
+/**
+ * Build strategy context with Hive Brain defaults
+ *
+ * @param companyGraph - The company's context graph
+ * @param options - Options including Hive Brain settings
+ */
+export async function buildStrategyContextWithHiveBrain(
+  companyGraph: CompanyContextGraph,
+  options: HiveBrainOptions = {}
+): Promise<string> {
+  const {
+    includeHiveBrain = true,
+    showSourceProvenance = true,
+    doctrineMode = 'full',
+    includeFreshness = true,
+  } = options;
+
+  let effectiveGraph = companyGraph;
+  let hiveGraph: CompanyContextGraph | null = null;
+
+  // Load and merge Hive Brain if enabled
+  if (includeHiveBrain) {
+    try {
+      hiveGraph = await getHiveGlobalContextGraph();
+      effectiveGraph = mergeWithHiveBrain(companyGraph, hiveGraph);
+      console.log('[forAi] Merged Hive Brain for strategy context');
+    } catch (error) {
+      console.warn('[forAi] Could not load Hive Brain:', error);
+    }
+  }
+
+  // Build enhanced strategy context with merged graph
+  let context = buildEnhancedStrategyContext(effectiveGraph, {
+    doctrineMode,
+    includeFreshness,
+  });
+
+  // Add source provenance section
+  if (showSourceProvenance && hiveGraph) {
+    const provenanceSection = buildSourceProvenanceSection(companyGraph, hiveGraph);
+    // Insert after doctrine separator
+    const separatorIndex = context.indexOf('---');
+    if (separatorIndex !== -1) {
+      const afterSeparator = separatorIndex + 3;
+      context = (
+        context.slice(0, afterSeparator) +
+        '\n\n' +
+        provenanceSection +
+        context.slice(afterSeparator)
+      );
+    } else {
+      context = provenanceSection + '\n\n' + context;
+    }
+  }
+
+  // Add capabilities section (from merged graph - includes Hive Brain capabilities)
+  const capabilitiesSection = buildCapabilitiesSection(effectiveGraph);
+  if (capabilitiesSection) {
+    context += '\n\n' + capabilitiesSection;
+  }
+
+  return context;
+}
+
+/**
+ * Build creative context with Hive Brain defaults
+ */
+export async function buildCreativeContextWithHiveBrain(
+  companyGraph: CompanyContextGraph,
+  options: HiveBrainOptions = {}
+): Promise<string> {
+  const { includeHiveBrain = true, doctrineMode = 'operatingPrinciples' } = options;
+
+  let effectiveGraph = companyGraph;
+
+  if (includeHiveBrain) {
+    try {
+      const hiveGraph = await getHiveGlobalContextGraph();
+      effectiveGraph = mergeWithHiveBrain(companyGraph, hiveGraph);
+    } catch (error) {
+      console.warn('[forAi] Could not load Hive Brain:', error);
+    }
+  }
+
+  let context = buildCreativeContext(effectiveGraph, { doctrineMode });
+
+  // Add capabilities section (relevant for creative work)
+  const capabilitiesSection = buildCapabilitiesSection(effectiveGraph);
+  if (capabilitiesSection) {
+    context += '\n\n' + capabilitiesSection;
+  }
+
+  return context;
+}
+
+/**
+ * Build media planning context with Hive Brain defaults
+ */
+export async function buildMediaPlanningContextWithHiveBrain(
+  companyGraph: CompanyContextGraph,
+  options: HiveBrainOptions = {}
+): Promise<string> {
+  const { includeHiveBrain = true, doctrineMode = 'operatingPrinciples' } = options;
+
+  let effectiveGraph = companyGraph;
+
+  if (includeHiveBrain) {
+    try {
+      const hiveGraph = await getHiveGlobalContextGraph();
+      effectiveGraph = mergeWithHiveBrain(companyGraph, hiveGraph);
+    } catch (error) {
+      console.warn('[forAi] Could not load Hive Brain:', error);
+    }
+  }
+
+  let context = buildMediaPlanningContext(effectiveGraph, { doctrineMode });
+
+  // Add capabilities section (relevant for media planning)
+  const capabilitiesSection = buildCapabilitiesSection(effectiveGraph);
+  if (capabilitiesSection) {
+    context += '\n\n' + capabilitiesSection;
+  }
+
+  return context;
+}
+
+/**
+ * Build a source provenance section showing which values come from Hive Brain
+ * @internal
+ */
+function buildSourceProvenanceSection(
+  companyGraph: CompanyContextGraph,
+  hiveGraph: CompanyContextGraph
+): string {
+  const lines: string[] = [];
+  lines.push('## Context Sources');
+  lines.push('');
+
+  const hiveFills: string[] = [];
+  const companyConfirmed: string[] = [];
+
+  // Check key fields in Hive Brain domains
+  const fieldsToCheck = [
+    { domain: 'brand', field: 'positioning', label: 'Brand Positioning' },
+    { domain: 'brand', field: 'toneOfVoice', label: 'Tone of Voice' },
+    { domain: 'objectives', field: 'primaryObjective', label: 'Primary Objective' },
+    { domain: 'operationalConstraints', field: 'complianceRequirements', label: 'Compliance Requirements' },
+    { domain: 'ops', field: 'operationalCapacity', label: 'Operational Capacity' },
+    { domain: 'creative', field: 'creativeDirection', label: 'Creative Direction' },
+    { domain: 'performanceMedia', field: 'attributionModel', label: 'Attribution Model' },
+  ];
+
+  for (const { domain, field, label } of fieldsToCheck) {
+    const valueSource = getValueSource(companyGraph, hiveGraph, domain, field);
+
+    if (valueSource.source === 'hive') {
+      hiveFills.push(label);
+    } else if (valueSource.source === 'company' && valueSource.isHumanConfirmed) {
+      companyConfirmed.push(label);
+    }
+  }
+
+  if (companyConfirmed.length > 0) {
+    lines.push(`**Company-confirmed**: ${companyConfirmed.join(', ')}`);
+  }
+
+  if (hiveFills.length > 0) {
+    lines.push(`**Using Hive defaults**: ${hiveFills.join(', ')}`);
+  }
+
+  if (hiveFills.length === 0 && companyConfirmed.length === 0) {
+    lines.push('*No Hive Brain defaults applied - all values are company-specific*');
+  }
+
+  return lines.join('\n');
+}
+
+// ============================================================================
+// Hive Capabilities Formatting
+// ============================================================================
+
+/**
+ * Format Hive Capabilities for prompt injection
+ *
+ * Only includes enabled capabilities with their strength, deliverables, and constraints.
+ * Output is compact and bounded to avoid prompt bloat.
+ *
+ * @param capabilities - The capabilities domain from the context graph
+ * @returns Formatted capabilities section string, or empty string if none enabled
+ */
+export function formatCapabilitiesForPrompt(
+  capabilities: CapabilitiesDomain | undefined
+): string {
+  if (!capabilities) return '';
+
+  const lines: string[] = [];
+  let hasAnyEnabled = false;
+
+  for (const category of CAPABILITY_CATEGORIES) {
+    const categoryCapabilities = capabilities[category];
+    if (!categoryCapabilities) continue;
+
+    const enabledInCategory: string[] = [];
+    const capabilityKeys = CAPABILITY_KEYS[category];
+
+    for (const key of capabilityKeys) {
+      const cap = categoryCapabilities[key as keyof typeof categoryCapabilities] as Capability | undefined;
+      if (!cap) continue;
+
+      const isEnabled = cap.enabled?.value === true;
+      if (!isEnabled) continue;
+
+      hasAnyEnabled = true;
+      const strength = cap.strength?.value || 'basic';
+      const deliverables = cap.deliverables?.value || [];
+      const constraints = cap.constraints?.value || [];
+
+      const label = CAPABILITY_LABELS[key] || key;
+
+      // Build compact capability line
+      let capLine = `- **${label}** (${strength})`;
+
+      // Add deliverables if present (truncate to first 3)
+      if (deliverables.length > 0) {
+        const truncated = deliverables.slice(0, 3);
+        const more = deliverables.length > 3 ? ` +${deliverables.length - 3} more` : '';
+        capLine += `: ${truncated.join(', ')}${more}`;
+      }
+
+      // Add constraints as a note if present (truncate to first 2)
+      if (constraints.length > 0) {
+        const truncated = constraints.slice(0, 2);
+        capLine += ` ⚠️ ${truncated.join('; ')}`;
+      }
+
+      enabledInCategory.push(capLine);
+    }
+
+    if (enabledInCategory.length > 0) {
+      lines.push(`### ${CATEGORY_LABELS[category]}`);
+      lines.push(...enabledInCategory);
+      lines.push('');
+    }
+  }
+
+  if (!hasAnyEnabled) return '';
+
+  return `## Hive Capabilities\n*Services available from Hive for this engagement:*\n\n${lines.join('\n')}`;
+}
+
+/**
+ * Build capabilities section from a merged context graph
+ * @internal
+ */
+function buildCapabilitiesSection(graph: CompanyContextGraph): string {
+  return formatCapabilitiesForPrompt(graph.capabilities);
 }
