@@ -16,7 +16,7 @@ import {
   Line,
   Legend,
 } from 'recharts';
-import type { PipelineKpis } from '@/lib/types/pipeline';
+import type { PipelineKpis, OpportunityItem } from '@/lib/types/pipeline';
 
 interface PipelineDashboardClientProps {
   kpis: PipelineKpis;
@@ -24,6 +24,8 @@ interface PipelineDashboardClientProps {
   avgDealSize: number;
   totalOpportunities: number;
   totalLeads: number;
+  overdueOpportunities?: OpportunityItem[];
+  overdueCount?: number;
 }
 
 // Color palette for charts
@@ -62,12 +64,24 @@ const formatNumber = (num: number) => {
   return new Intl.NumberFormat('en-US').format(num);
 };
 
+// Helper to format relative date for overdue items
+function formatDaysOverdue(dueDate: string): string {
+  const due = new Date(dueDate);
+  const today = new Date(new Date().toDateString());
+  const diffDays = Math.floor((today.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return 'Due today';
+  if (diffDays === 1) return '1 day overdue';
+  return `${diffDays} days overdue`;
+}
+
 export function PipelineDashboardClient({
   kpis,
   winRate,
   avgDealSize,
   totalOpportunities,
   totalLeads,
+  overdueOpportunities = [],
+  overdueCount = 0,
 }: PipelineDashboardClientProps) {
   // Prepare stage data for bar chart
   const stageData = kpis.opportunitiesByStage.map((item) => ({
@@ -137,6 +151,71 @@ export function PipelineDashboardClient({
           <div className="text-xs text-slate-500">Avg Deal Size</div>
         </div>
       </div>
+
+      {/* Overdue Next Steps Widget */}
+      {(overdueCount > 0 || overdueOpportunities.length > 0) && (
+        <div className="bg-slate-900/70 border border-red-500/20 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide flex items-center gap-2">
+              <span className="text-red-400">⚠</span>
+              Overdue Next Steps
+            </h3>
+            {overdueCount > 0 && (
+              <span className="px-2 py-0.5 text-xs bg-red-500/20 text-red-300 border border-red-500/30 rounded">
+                {overdueCount} overdue
+              </span>
+            )}
+          </div>
+
+          {overdueOpportunities.length === 0 ? (
+            <div className="py-6 text-center">
+              <div className="text-emerald-400 text-2xl mb-2">✓</div>
+              <div className="text-sm text-slate-400">All caught up!</div>
+              <div className="text-xs text-slate-500 mt-1">No overdue next steps</div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {overdueOpportunities.map((opp) => (
+                <Link
+                  key={opp.id}
+                  href={`/pipeline/opportunities/${opp.id}`}
+                  className="block p-3 bg-red-500/5 border border-red-500/20 rounded-lg hover:bg-red-500/10 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-200 truncate">
+                        {opp.companyName || opp.deliverableName || 'Unnamed Opportunity'}
+                      </div>
+                      {opp.nextStep && (
+                        <div className="text-xs text-slate-400 mt-1 truncate">
+                          {opp.nextStep}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-xs text-red-400 whitespace-nowrap">
+                      {opp.nextStepDue ? formatDaysOverdue(opp.nextStepDue) : 'Overdue'}
+                    </div>
+                  </div>
+                  {opp.owner && (
+                    <div className="text-xs text-slate-500 mt-2">
+                      Assigned to: {opp.owner}
+                    </div>
+                  )}
+                </Link>
+              ))}
+
+              {overdueCount > overdueOpportunities.length && (
+                <Link
+                  href="/pipeline/opportunities"
+                  className="block text-center py-2 text-xs text-amber-400 hover:text-amber-300"
+                >
+                  +{overdueCount - overdueOpportunities.length} more overdue →
+                </Link>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

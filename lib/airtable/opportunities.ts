@@ -41,6 +41,11 @@ function mapRecordToOpportunity(record: any): OpportunityItem {
     createdAt: fields['Created At'] || fields['Created'] || null,
     notes: fields['Rep Notes'] || fields['Notes'] || null,
 
+    // Workflow fields (Phase 2.8)
+    nextStep: fields['Next Step'] || null,
+    nextStepDue: fields['Next Step Due'] || null,
+    lastActivityAt: fields['Last Activity At'] || null,
+
     // CRM fields if available via lookup
     industry: fields['Industry'] || null,
     companyType: fields['Company Type'] || null,
@@ -232,4 +237,129 @@ function getAirtableStage(stage: PipelineStage): string {
     closed_lost: 'Lost',
   };
   return stageMap[stage] || 'Discovery';
+}
+
+/**
+ * Update an opportunity with partial data
+ * Automatically sets Last Activity At timestamp
+ */
+export async function updateOpportunity(
+  id: string,
+  updates: Partial<{
+    stage: PipelineStage;
+    value: number;
+    probability: number;
+    closeDate: string;
+    owner: string;
+    notes: string;
+    nextStep: string;
+    nextStepDue: string | null;
+  }>
+): Promise<OpportunityItem | null> {
+  try {
+    const base = getBase();
+    const fields: Record<string, unknown> = {
+      // Always update lastActivityAt
+      'Last Activity At': new Date().toISOString(),
+    };
+
+    if (updates.stage !== undefined) {
+      fields['Stage'] = getAirtableStage(updates.stage);
+    }
+    if (updates.value !== undefined) {
+      fields['Value'] = updates.value;
+    }
+    if (updates.probability !== undefined) {
+      fields['Probability'] = updates.probability * 100;
+    }
+    if (updates.closeDate !== undefined) {
+      fields['Close Date'] = updates.closeDate;
+    }
+    if (updates.owner !== undefined) {
+      fields['Owner'] = updates.owner;
+    }
+    if (updates.notes !== undefined) {
+      fields['Rep Notes'] = updates.notes;
+    }
+    if (updates.nextStep !== undefined) {
+      fields['Next Step'] = updates.nextStep;
+    }
+    if (updates.nextStepDue !== undefined) {
+      fields['Next Step Due'] = updates.nextStepDue;
+    }
+
+    const records = await base(OPPORTUNITIES_TABLE).update([
+      { id, fields: fields as any },
+    ]);
+
+    console.log(`[Opportunities] Updated opportunity ${id}`);
+    return records[0] ? mapRecordToOpportunity(records[0]) : null;
+  } catch (error) {
+    console.error(`[Opportunities] Failed to update opportunity ${id}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Get overdue opportunities (next step due date is in the past)
+ * Only returns open opportunities (not closed_won or closed_lost)
+ */
+export async function getOverdueOpportunities(limit = 10): Promise<OpportunityItem[]> {
+  try {
+    const base = getBase();
+    const today = new Date().toISOString().split('T')[0];
+
+    const records = await base(OPPORTUNITIES_TABLE)
+      .select({
+        filterByFormula: `AND(
+          {Next Step Due} != '',
+          {Next Step Due} < '${today}',
+          OR(
+            {Stage} = 'Discovery',
+            {Stage} = 'Qualification',
+            {Stage} = 'Proposal',
+            {Stage} = 'Negotiation'
+          )
+        )`,
+        maxRecords: limit,
+        sort: [{ field: 'Next Step Due', direction: 'asc' }],
+      })
+      .all();
+
+    return records.map(mapRecordToOpportunity);
+  } catch (error) {
+    console.error('[Opportunities] Failed to fetch overdue opportunities:', error);
+    return [];
+  }
+}
+
+/**
+ * Count total overdue opportunities
+ */
+export async function countOverdueOpportunities(): Promise<number> {
+  try {
+    const base = getBase();
+    const today = new Date().toISOString().split('T')[0];
+
+    const records = await base(OPPORTUNITIES_TABLE)
+      .select({
+        filterByFormula: `AND(
+          {Next Step Due} != '',
+          {Next Step Due} < '${today}',
+          OR(
+            {Stage} = 'Discovery',
+            {Stage} = 'Qualification',
+            {Stage} = 'Proposal',
+            {Stage} = 'Negotiation'
+          )
+        )`,
+        fields: ['Next Step Due'], // Only fetch minimal data for count
+      })
+      .all();
+
+    return records.length;
+  } catch (error) {
+    console.error('[Opportunities] Failed to count overdue opportunities:', error);
+    return 0;
+  }
 }

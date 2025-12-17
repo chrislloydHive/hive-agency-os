@@ -23,6 +23,11 @@ export interface OpportunityItem {
   createdAt?: string | null;
   notes?: string | null;
 
+  // Workflow fields (Phase 2.8)
+  nextStep?: string | null; // Free text for next action
+  nextStepDue?: string | null; // ISO date when next step is due
+  lastActivityAt?: string | null; // Auto-updated on any update
+
   // From CRM, if available:
   industry?: string | null;
   companyType?: string | null;

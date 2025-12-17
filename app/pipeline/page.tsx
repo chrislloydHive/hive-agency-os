@@ -1,7 +1,7 @@
 // app/pipeline/page.tsx
 // Pipeline Dashboard - KPIs and charts overview
 
-import { getAllOpportunities } from '@/lib/airtable/opportunities';
+import { getAllOpportunities, getOverdueOpportunities, countOverdueOpportunities } from '@/lib/airtable/opportunities';
 import { getAllInboundLeads } from '@/lib/airtable/inboundLeads';
 import { computePipelineKpis, calculateWinRate, calculateAverageDealSize } from '@/lib/pipeline/kpis';
 import { PipelineDashboardClient } from './PipelineDashboardClient';
@@ -9,9 +9,11 @@ import { PipelineDashboardClient } from './PipelineDashboardClient';
 export const dynamic = 'force-dynamic';
 
 export default async function PipelineDashboardPage() {
-  const [opportunities, leads] = await Promise.all([
+  const [opportunities, leads, overdueOpps, overdueCount] = await Promise.all([
     getAllOpportunities(),
     getAllInboundLeads(),
+    getOverdueOpportunities(5), // Top 5 overdue
+    countOverdueOpportunities(),
   ]);
 
   const kpis = computePipelineKpis(opportunities, leads);
@@ -37,6 +39,8 @@ export default async function PipelineDashboardPage() {
         avgDealSize={avgDealSize}
         totalOpportunities={opportunities.length}
         totalLeads={leads.length}
+        overdueOpportunities={overdueOpps}
+        overdueCount={overdueCount}
       />
     </div>
   );
