@@ -303,30 +303,32 @@ export async function updateOpportunity(
 /**
  * Get overdue opportunities (next step due date is in the past)
  * Only returns open opportunities (not closed_won or closed_lost)
+ * Returns empty array if Next Step Due field doesn't exist in Airtable
  */
 export async function getOverdueOpportunities(limit = 10): Promise<OpportunityItem[]> {
   try {
-    const base = getBase();
+    // First, fetch all open opportunities and filter client-side
+    // This avoids formula errors if 'Next Step Due' field doesn't exist
+    const allOpps = await getAllOpportunities();
     const today = new Date().toISOString().split('T')[0];
 
-    const records = await base(OPPORTUNITIES_TABLE)
-      .select({
-        filterByFormula: `AND(
-          {Next Step Due} != '',
-          {Next Step Due} < '${today}',
-          OR(
-            {Stage} = 'Discovery',
-            {Stage} = 'Qualification',
-            {Stage} = 'Proposal',
-            {Stage} = 'Negotiation'
-          )
-        )`,
-        maxRecords: limit,
-        sort: [{ field: 'Next Step Due', direction: 'asc' }],
+    const overdueOpps = allOpps
+      .filter((opp) => {
+        // Must have a due date
+        if (!opp.nextStepDue) return false;
+        // Due date must be in the past
+        if (opp.nextStepDue >= today) return false;
+        // Must be an open stage
+        const openStages = ['discovery', 'qualification', 'proposal', 'negotiation'];
+        return openStages.includes(opp.stage);
       })
-      .all();
+      .sort((a, b) => {
+        // Sort by due date ascending (most overdue first)
+        return (a.nextStepDue || '').localeCompare(b.nextStepDue || '');
+      })
+      .slice(0, limit);
 
-    return records.map(mapRecordToOpportunity);
+    return overdueOpps;
   } catch (error) {
     console.error('[Opportunities] Failed to fetch overdue opportunities:', error);
     return [];
@@ -335,29 +337,22 @@ export async function getOverdueOpportunities(limit = 10): Promise<OpportunityIt
 
 /**
  * Count total overdue opportunities
+ * Returns 0 if Next Step Due field doesn't exist in Airtable
  */
 export async function countOverdueOpportunities(): Promise<number> {
   try {
-    const base = getBase();
+    // Use client-side filtering to avoid formula errors
+    const allOpps = await getAllOpportunities();
     const today = new Date().toISOString().split('T')[0];
 
-    const records = await base(OPPORTUNITIES_TABLE)
-      .select({
-        filterByFormula: `AND(
-          {Next Step Due} != '',
-          {Next Step Due} < '${today}',
-          OR(
-            {Stage} = 'Discovery',
-            {Stage} = 'Qualification',
-            {Stage} = 'Proposal',
-            {Stage} = 'Negotiation'
-          )
-        )`,
-        fields: ['Next Step Due'], // Only fetch minimal data for count
-      })
-      .all();
+    const overdueCount = allOpps.filter((opp) => {
+      if (!opp.nextStepDue) return false;
+      if (opp.nextStepDue >= today) return false;
+      const openStages = ['discovery', 'qualification', 'proposal', 'negotiation'];
+      return openStages.includes(opp.stage);
+    }).length;
 
-    return records.length;
+    return overdueCount;
   } catch (error) {
     console.error('[Opportunities] Failed to count overdue opportunities:', error);
     return 0;
