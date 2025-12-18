@@ -10,7 +10,7 @@
 // - primaryAudience → audience.primaryAudience
 // - primaryBuyerRoles → audience.primaryBuyerRoles
 // - targetCompanySize/Stage/Industries → audience.companyProfile (object)
-// - icpDescription → identity.icpDescription
+// - icpDescription → audience.icpDescription
 
 import { revalidatePath } from 'next/cache';
 import { loadContextGraph, saveContextGraph } from '@/lib/contextGraph/storage';

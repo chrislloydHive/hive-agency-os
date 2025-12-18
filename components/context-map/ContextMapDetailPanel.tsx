@@ -9,6 +9,8 @@ import type { HydratedContextNode } from '@/lib/contextGraph/nodes';
 import type { WhereUsedRef } from './types';
 import { getShortLabel, formatRelativeTime, SOURCE_LABELS, formatNodeValue, getNodeTier, DOMAIN_TO_ZONE, ZONE_DEFINITIONS } from './constants';
 import { RefinementComparisonPanel, RefinementPrompt } from './RefinementComparisonPanel';
+import { FieldInput, getValuePreview } from './field-renderers';
+import { getSchemaV2Entry } from '@/lib/contextGraph/unifiedRegistry';
 
 /** Mode for the detail panel */
 type PanelMode = 'view' | 'edit';
@@ -63,7 +65,7 @@ export function ContextMapDetailPanel({
   whereUsed = [],
 }: ContextMapDetailPanelProps) {
   const [mode, setMode] = useState<PanelMode>('view');
-  const [editedValue, setEditedValue] = useState('');
+  const [editedValue, setEditedValue] = useState<unknown>('');
   const [showProvenance, setShowProvenance] = useState(false);
   const [showWhereUsed, setShowWhereUsed] = useState(false);
   const [showRawValue, setShowRawValue] = useState(false);
@@ -168,7 +170,7 @@ export function ContextMapDetailPanel({
 
   const handleEditRefinement = useCallback((value: unknown) => {
     // User wants to edit the refined value before saving
-    setEditedValue(typeof value === 'string' ? value : JSON.stringify(value, null, 2));
+    setEditedValue(value);
     setRefinementData(null);
     setMode('edit');
   }, []);
@@ -183,6 +185,9 @@ export function ContextMapDetailPanel({
     setRefinementData(null);
     setShowRefinementPrompt(false);
   }, []);
+
+  // Get Schema V2 field metadata for type-aware editing (must be before early return for hooks consistency)
+  const fieldMeta = useMemo(() => node ? getSchemaV2Entry(node.key) : null, [node?.key]);
 
   if (!isOpen || !node) return null;
 
@@ -274,14 +279,8 @@ export function ContextMapDetailPanel({
     if (!node.pendingProposal || !node.proposalBatchId || !onEditProposal) return;
     setActionLoading('edit');
     try {
-      // Try to parse as JSON, otherwise use as string
-      let parsedValue: unknown;
-      try {
-        parsedValue = JSON.parse(editedValue);
-      } catch {
-        parsedValue = editedValue;
-      }
-      await onEditProposal(node.pendingProposal.id, node.proposalBatchId, parsedValue);
+      // FieldInput returns the correct type directly
+      await onEditProposal(node.pendingProposal.id, node.proposalBatchId, editedValue);
       setNotification({ type: 'success', message: 'Proposal edited and accepted' });
       handleClose();
     } catch (error) {
@@ -296,20 +295,13 @@ export function ContextMapDetailPanel({
     if (!canEdit || !onUpdateNode) return;
     setActionLoading('save');
     try {
-      // Try to parse as JSON, otherwise use as string
-      let parsedValue: unknown;
-      try {
-        parsedValue = JSON.parse(editedValue);
-      } catch {
-        parsedValue = editedValue;
-      }
-      await onUpdateNode(node.key, parsedValue);
+      // FieldInput returns the correct type directly
+      await onUpdateNode(node.key, editedValue);
       setNotification({ type: 'success', message: 'Context updated' });
       setMode('view');
       // Show refinement prompt after successful save (for user-entered values)
-      // Only for string or array values that could benefit from AI refinement
-      const valueToCheck = parsedValue;
-      const isRefinable = typeof valueToCheck === 'string' && valueToCheck.trim().length > 10;
+      // Only for string values that could benefit from AI refinement
+      const isRefinable = typeof editedValue === 'string' && editedValue.trim().length > 10;
       if (isRefinable) {
         setShowRefinementPrompt(true);
       }
@@ -323,12 +315,14 @@ export function ContextMapDetailPanel({
   };
 
   const startEditingProposal = () => {
-    setEditedValue(proposedValue || displayValue);
+    // Use actual value, not formatted display string
+    setEditedValue(node.pendingProposal?.proposedValue ?? node.value);
     setMode('edit');
   };
 
   const startEditingConfirmed = () => {
-    setEditedValue(displayValue);
+    // Use actual value, not formatted display string
+    setEditedValue(node.value);
     setMode('edit');
   };
 
@@ -496,13 +490,14 @@ export function ContextMapDetailPanel({
               )}
             </div>
             {mode === 'edit' && canEdit && !hasProposal ? (
-              <textarea
-                value={editedValue}
-                onChange={(e) => setEditedValue(e.target.value)}
-                className="w-full text-sm text-slate-200 bg-slate-800 border border-cyan-500/30 rounded-lg p-3 min-h-32 focus:outline-none focus:border-cyan-500/50"
-                placeholder="Enter value..."
-                autoFocus
-              />
+              <div className="bg-slate-800 rounded-lg p-3 border border-cyan-500/30">
+                <FieldInput
+                  field={fieldMeta ?? undefined}
+                  value={editedValue}
+                  onChange={setEditedValue}
+                  autoFocus
+                />
+              </div>
             ) : showRawValue ? (
               <pre className="text-xs text-slate-400 whitespace-pre-wrap bg-slate-800/50 rounded-lg p-3 max-h-64 overflow-y-auto font-mono">
                 {rawDisplayValue}
@@ -523,13 +518,14 @@ export function ContextMapDetailPanel({
                   {Math.round((node.pendingProposal?.confidence || 0) * 100)}% confidence
                 </span>
               </div>
-              {editedValue && mode === 'edit' ? (
-                <textarea
-                  value={editedValue}
-                  onChange={(e) => setEditedValue(e.target.value)}
-                  className="w-full text-sm text-slate-200 bg-slate-800 border border-slate-600 rounded-lg p-3 min-h-32 focus:outline-none focus:border-amber-500/50"
-                  placeholder="Enter value..."
-                />
+              {mode === 'edit' ? (
+                <div className="bg-slate-800 rounded-lg p-3 border border-amber-500/30">
+                  <FieldInput
+                    field={fieldMeta ?? undefined}
+                    value={editedValue}
+                    onChange={setEditedValue}
+                  />
+                </div>
               ) : (
                 <div className="text-sm text-amber-200 whitespace-pre-wrap bg-slate-800/50 rounded-lg p-3 max-h-48 overflow-y-auto border-l-2 border-amber-500/50">
                   {proposedValue}

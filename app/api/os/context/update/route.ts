@@ -20,7 +20,7 @@ import { updateCompanyContext } from '@/lib/os/context';
 import { getFieldEntry } from '@/lib/contextMap/fieldRegistry';
 import { loadContextGraph, saveContextGraph, getOrCreateContextGraph } from '@/lib/contextGraph/storage';
 import { getCompanyById } from '@/lib/airtable/companies';
-import { isRemovedField } from '@/lib/contextGraph/unifiedRegistry';
+import { isRemovedField, getRegistryEntry, getSchemaV2Entry } from '@/lib/contextGraph/unifiedRegistry';
 import { isDeprecatedDomain } from '@/lib/contextGraph/companyContextGraph';
 
 // Context graph domains (stored in ContextGraphs table)
@@ -107,23 +107,80 @@ function validateCanonicalWrite(
 /**
  * Resolve a nodeKey to the best graph path for storage
  * Returns: { graphPath, isContextGraph }
+ *
+ * Handles Schema V2 keys like 'offer.productsServices' by looking up
+ * the registry entry's domain and constructing the storage path.
  */
 function resolveGraphPath(nodeKey: string): { graphPath: string; isContextGraph: boolean } {
+  console.log(`[context/update] resolveGraphPath called with nodeKey: "${nodeKey}"`);
+
   // 1. If nodeKey itself is a dotted context graph path, use it directly
   if (isContextGraphField(nodeKey)) {
+    console.log(`[context/update] Step 1: nodeKey is a context graph field`);
     return { graphPath: nodeKey, isContextGraph: true };
   }
 
-  // 2. Look up in registry - maybe it maps to a graph path
+  // 2. Look up in Schema V2 registry (e.g., 'offer.productsServices')
+  const schemaV2Entry = getSchemaV2Entry(nodeKey);
+  console.log(`[context/update] Step 2: getSchemaV2Entry result:`, schemaV2Entry ? {
+    key: schemaV2Entry.key,
+    domain: schemaV2Entry.domain,
+    legacyPath: schemaV2Entry.legacyPath,
+    graphPath: schemaV2Entry.graphPath,
+  } : 'NOT FOUND');
+
+  if (schemaV2Entry) {
+    // Use explicit graphPath if provided
+    if (schemaV2Entry.graphPath && isContextGraphField(schemaV2Entry.graphPath)) {
+      console.log(`[context/update] Using explicit graphPath: "${schemaV2Entry.graphPath}"`);
+      return { graphPath: schemaV2Entry.graphPath, isContextGraph: true };
+    }
+
+    // Construct graphPath from domain + legacyPath
+    // Schema V2 keys like 'offer.productsServices' have domain: 'productOffer', legacyPath: 'primaryProducts'
+    // We need to map to storage path: 'productOffer.primaryProducts'
+    const domain = schemaV2Entry.domain;
+    console.log(`[context/update] Checking domain "${domain}" in CONTEXT_GRAPH_DOMAINS:`, CONTEXT_GRAPH_DOMAINS.has(domain));
+    if (domain && CONTEXT_GRAPH_DOMAINS.has(domain)) {
+      const fieldName = schemaV2Entry.legacyPath || nodeKey.split('.').pop() || '';
+      const graphPath = `${domain}.${fieldName}`;
+      console.log(`[context/update] Resolved Schema V2 key "${nodeKey}" -> "${graphPath}"`);
+      return { graphPath, isContextGraph: true };
+    }
+  }
+
+  // 3. Look up in unified (legacy) registry
+  const unifiedEntry = getRegistryEntry(nodeKey);
+  console.log(`[context/update] Step 3: getRegistryEntry result:`, unifiedEntry ? {
+    key: unifiedEntry.key,
+    domain: unifiedEntry.domain,
+    legacyPath: unifiedEntry.legacyPath,
+  } : 'NOT FOUND');
+
+  if (unifiedEntry) {
+    if (unifiedEntry.graphPath && isContextGraphField(unifiedEntry.graphPath)) {
+      return { graphPath: unifiedEntry.graphPath, isContextGraph: true };
+    }
+    const domain = unifiedEntry.domain;
+    if (domain && CONTEXT_GRAPH_DOMAINS.has(domain)) {
+      const fieldName = unifiedEntry.legacyPath || nodeKey.split('.').pop() || '';
+      const graphPath = `${domain}.${fieldName}`;
+      console.log(`[context/update] Resolved legacy key "${nodeKey}" -> "${graphPath}"`);
+      return { graphPath, isContextGraph: true };
+    }
+  }
+
+  // 4. Legacy field registry lookup (from fieldRegistry.ts)
   const entry = getFieldEntry(nodeKey);
+  console.log(`[context/update] Step 4: getFieldEntry result:`, entry ? entry.key : 'NOT FOUND');
   if (entry) {
-    // The registry key is the canonical graph path (e.g., 'identity.businessModel')
     if (isContextGraphField(entry.key)) {
       return { graphPath: entry.key, isContextGraph: true };
     }
   }
 
-  // 3. Not a context graph field - legacy flat path
+  // 5. Not a context graph field - legacy flat path
+  console.log(`[context/update] Step 5: Falling back to legacy path`);
   return { graphPath: nodeKey, isContextGraph: false };
 }
 

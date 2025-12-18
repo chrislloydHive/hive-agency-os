@@ -1,9 +1,20 @@
 // components/context-map/ContextMapReadinessStrip.tsx
 // Compact top bar showing strategy/program readiness status
+//
+// TWO-LEVEL MESSAGING:
+// 🔴 Context incomplete: [fields] - Hard blockers, blocks Labs/GAP execution
+// 🟡 Context gaps detected: [fields] - Informational gaps, affects AI confidence only
+//
+// Context Map should ONLY block when:
+// - Required factual domains are entirely empty (ICP, Offer, Business Model)
+// Context Map should NOT block for:
+// - Missing positioning (strategic conclusion)
+// - Missing budget (optional context)
+// - Missing competitors (informational)
 
 'use client';
 
-import { AlertTriangle, CheckCircle2, XCircle, ChevronRight } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, XCircle, ChevronRight, Info } from 'lucide-react';
 import type { StrategyReadinessResult } from '@/lib/types/context';
 
 interface ContextMapReadinessStripProps {
@@ -16,6 +27,8 @@ interface ContextMapReadinessStripProps {
   };
   /** Called when "Fix" is clicked */
   onFixClick: (type: 'strategy' | 'program') => void;
+  /** Called when a specific field badge is clicked (for direct edit navigation) */
+  onFieldClick?: (fieldLabel: string, isCritical: boolean) => void;
 }
 
 /**
@@ -64,6 +77,7 @@ export function ContextMapReadinessStrip({
   strategyReadiness,
   programReadiness,
   onFixClick,
+  onFieldClick,
 }: ContextMapReadinessStripProps) {
   const showStrategyFix = strategyReadiness.status !== 'ready';
   const showProgramFix = programReadiness && programReadiness.status !== 'ready';
@@ -149,20 +163,25 @@ export function ContextMapReadinessStrip({
         </div>
       </div>
 
-      {/* Missing fields - show names with fix action */}
+      {/* HARD BLOCKERS - Context incomplete (blocks Labs/GAP) */}
       {strategyReadiness.missingCritical.length > 0 && (
         <>
           <div className="w-px h-4 bg-slate-700" />
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-slate-500">Blocked by:</span>
+            <span className="text-red-400 flex items-center gap-1">
+              <XCircle className="w-3 h-3" />
+              Context incomplete:
+            </span>
             <div className="flex items-center gap-1.5">
               {strategyReadiness.missingCritical.slice(0, 3).map((field) => (
-                <span
+                <button
                   key={field}
-                  className="inline-flex items-center px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded text-[11px]"
+                  onClick={() => onFieldClick?.(field, true)}
+                  className="inline-flex items-center px-1.5 py-0.5 bg-red-500/20 text-red-400 hover:bg-red-500/30 hover:text-red-300 rounded text-[11px] transition-colors cursor-pointer"
+                  title={`Click to edit "${field}"`}
                 >
                   {field}
-                </span>
+                </button>
               ))}
               {strategyReadiness.missingCritical.length > 3 && (
                 <span className="text-slate-500">
@@ -174,20 +193,40 @@ export function ContextMapReadinessStrip({
               onClick={() => onFixClick('strategy')}
               className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium rounded transition-colors"
             >
-              Fix
+              Fix All
               <ChevronRight className="w-3 h-3" />
             </button>
           </div>
         </>
       )}
 
-      {/* Recommended fields count (if any) */}
-      {strategyReadiness.missingRecommended.length > 0 && strategyReadiness.missingCritical.length === 0 && (
+      {/* SOFT GAPS - Context gaps detected (affects AI confidence, never blocks) */}
+      {strategyReadiness.missingRecommended.length > 0 && (
         <>
           <div className="w-px h-4 bg-slate-700" />
-          <span className="text-xs text-amber-400/70">
-            {strategyReadiness.missingRecommended.length} recommended fields
-          </span>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-amber-400 flex items-center gap-1">
+              <Info className="w-3 h-3" />
+              Context gaps:
+            </span>
+            <div className="flex items-center gap-1.5">
+              {strategyReadiness.missingRecommended.slice(0, 2).map((field) => (
+                <button
+                  key={field}
+                  onClick={() => onFieldClick?.(field, false)}
+                  className="inline-flex items-center px-1.5 py-0.5 bg-amber-500/10 text-amber-400/80 hover:bg-amber-500/20 hover:text-amber-300 rounded text-[11px] transition-colors cursor-pointer"
+                  title={`Click to edit "${field}"`}
+                >
+                  {field}
+                </button>
+              ))}
+              {strategyReadiness.missingRecommended.length > 2 && (
+                <span className="text-slate-500">
+                  +{strategyReadiness.missingRecommended.length - 2} more
+                </span>
+              )}
+            </div>
+          </div>
         </>
       )}
     </div>

@@ -120,22 +120,9 @@ export const REQUIRED_CONTEXT_KEYS: RequiredContextKey[] = [
     fieldName: 'businessModel',
   },
   // ============================================================================
-  // Brand Zone - Brand positioning
+  // Brand Zone - REMOVED: Positioning is a strategic conclusion, not raw context
+  // It lives in the Strategic Frame, not Context Map
   // ============================================================================
-  {
-    key: 'brand.positioning',
-    zoneId: 'brand',
-    label: 'Brand Positioning',
-    shortLabel: 'Positioning',
-    description: 'Unique market position and value proposition',
-    type: 'string',
-    requiredFor: ['strategy'],
-    priority: 4,
-    reason: 'Strategy must align with brand positioning',
-    domain: 'brand',
-    fieldName: 'positioning',
-    alternatives: ['brand.valueProps'],
-  },
 
   // ============================================================================
   // Offer Zone - What we sell (value prop + products)
@@ -191,53 +178,14 @@ export const REQUIRED_CONTEXT_KEYS: RequiredContextKey[] = [
   // ============================================================================
 
   // ============================================================================
-  // Constraints Zone - What limits us
+  // Constraints Zone - REMOVED: Budget is optional context, finalized in Strategy Frame
+  // Min/Max budget are not required for strategy generation
   // ============================================================================
-  {
-    key: 'operationalConstraints.minBudget',
-    zoneId: 'constraints',
-    label: 'Minimum Budget',
-    shortLabel: 'Min Budget',
-    description: 'Minimum marketing budget',
-    type: 'number',
-    requiredFor: ['strategy'],
-    priority: 9,
-    reason: 'Strategy must operate within budget realities',
-    domain: 'operationalConstraints',
-    fieldName: 'minBudget',
-    alternatives: ['operationalConstraints.budgetCapsFloors'],
-  },
-  {
-    key: 'operationalConstraints.maxBudget',
-    zoneId: 'constraints',
-    label: 'Maximum Budget',
-    shortLabel: 'Max Budget',
-    description: 'Maximum marketing budget',
-    type: 'number',
-    requiredFor: ['strategy'],
-    priority: 9,
-    reason: 'Strategy must operate within budget realities',
-    domain: 'operationalConstraints',
-    fieldName: 'maxBudget',
-    alternatives: ['operationalConstraints.budgetCapsFloors'],
-  },
 
   // ============================================================================
-  // Competitive Zone - Who we compete with
+  // Competitive Zone - Who we compete with (INFORMATIONAL ONLY - not required)
+  // Competitors are helpful context but don't block strategy generation
   // ============================================================================
-  {
-    key: 'competitive.competitors',
-    zoneId: 'competitive',
-    label: 'Competitors',
-    shortLabel: 'Competitors',
-    description: 'Key competitors in your market',
-    type: 'string[]',
-    requiredFor: ['strategy'],
-    priority: 10,
-    reason: 'Strategy needs competitive context',
-    domain: 'competitive',
-    fieldName: 'competitors',
-  },
 ];
 
 // ============================================================================

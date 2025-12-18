@@ -18,3 +18,12 @@ export { ContextQualityBanner } from './ContextQualityBanner';
 // Existing components
 export { CompetitorEditor } from './CompetitorEditor';
 export { DiagnosticsDebugDrawer } from './DiagnosticsDebugDrawer';
+
+// Canonical Context Fields UI
+export {
+  CanonicalFieldRow,
+  CanonicalFieldsSection,
+  CanonicalFieldsPanel,
+  ConfidenceBadge,
+  ProvenanceBadges,
+} from './canonical';

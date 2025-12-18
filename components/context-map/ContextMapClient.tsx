@@ -16,7 +16,7 @@ import { ContextMapListView } from './ContextMapListView';
 import { ContextMapReadinessStrip } from './ContextMapReadinessStrip';
 import { ProposalReviewBanner } from './ProposalReviewBanner';
 import { ProposalReviewPanel } from './ProposalReviewPanel';
-import { CORE_NODE_KEYS, getShortLabel } from './constants';
+import { CORE_NODE_KEYS, RECOMMENDED_NODE_KEYS, getShortLabel, getZoneForField, getKeyFromShortLabel } from './constants';
 import type { StrategyReadinessResult } from '@/lib/types/context';
 
 interface ContextMapClientProps {
@@ -67,7 +67,12 @@ const DEFAULT_TRANSFORM: Transform = {
 
 /**
  * Calculate strategy readiness from nodes
- * Uses CORE_NODE_KEYS to determine critical fields
+ *
+ * TWO-LEVEL READINESS:
+ * - CORE_NODE_KEYS: Hard blockers - missing these shows "Context incomplete" (red)
+ * - RECOMMENDED_NODE_KEYS: Soft gaps - missing these shows "Context gaps" (amber)
+ *
+ * Context gaps inform AI confidence but do not halt workflow.
  */
 function calculateReadinessFromNodes(nodes: HydratedContextNode[]): StrategyReadinessResult {
   const nodesByKey = new Map(nodes.map(n => [n.key, n]));
@@ -75,6 +80,7 @@ function calculateReadinessFromNodes(nodes: HydratedContextNode[]): StrategyRead
   const missingRecommended: string[] = [];
   let confirmedCount = 0;
 
+  // Check CORE fields (hard blockers)
   for (const key of CORE_NODE_KEYS) {
     const node = nodesByKey.get(key);
     const label = getShortLabel(key);
@@ -82,11 +88,25 @@ function calculateReadinessFromNodes(nodes: HydratedContextNode[]): StrategyRead
     if (!node || node.value === null || node.value === undefined) {
       missingCritical.push(label);
     } else if (node.status === 'proposed' || node.pendingProposal) {
-      // Proposed but not confirmed - still counts as "needs review"
+      // Proposed but not confirmed - still counts as "needs review" but not blocking
       missingRecommended.push(label);
+      confirmedCount++; // Count it towards completeness since it has a value
     } else {
       confirmedCount++;
     }
+  }
+
+  // Check RECOMMENDED fields (soft gaps - never block)
+  for (const key of RECOMMENDED_NODE_KEYS) {
+    const node = nodesByKey.get(key);
+    const label = getShortLabel(key);
+
+    if (!node || node.value === null || node.value === undefined) {
+      // Missing recommended field - soft gap, never blocks
+      missingRecommended.push(label);
+    }
+    // Note: We don't count recommended fields in completeness score
+    // They're informational only
   }
 
   const totalCore = CORE_NODE_KEYS.length;
@@ -98,7 +118,7 @@ function calculateReadinessFromNodes(nodes: HydratedContextNode[]): StrategyRead
   } else if (missingCritical.length > 0) {
     status = 'blocked';
   } else {
-    status = 'needs_info';
+    status = 'needs_info'; // Only soft gaps - doesn't block
   }
 
   return {
@@ -269,13 +289,87 @@ export function ContextMapClient({
     setFilters(newFilters);
   }, []);
 
-  // Handle "Fix" click from readiness strip - could open form or scroll to field
+  // Handle "Fix" click from readiness strip - find missing fields and focus on them
   const handleReadinessFixClick = useCallback((type: 'strategy' | 'program') => {
-    // For now, scroll the first missing field into view or trigger AI assist
-    // In the future, this could open a form modal or navigate to the field
     console.log('[ContextMap] Fix clicked for:', type);
-    // Could trigger onSuggestWithAI for the relevant zone
-  }, []);
+
+    // Get missing fields - first check core (hard blockers), then recommended (soft gaps)
+    const nodesByKey = new Map(nodes.map(n => [n.key, n]));
+    const missingCoreKeys: string[] = [];
+    const missingRecommendedKeys: string[] = [];
+
+    // Check core fields (hard blockers)
+    for (const key of CORE_NODE_KEYS) {
+      const node = nodesByKey.get(key);
+      if (!node || node.value === null || node.value === undefined) {
+        missingCoreKeys.push(key);
+      }
+    }
+
+    // Check recommended fields (soft gaps)
+    for (const key of RECOMMENDED_NODE_KEYS) {
+      const node = nodesByKey.get(key);
+      if (!node || node.value === null || node.value === undefined) {
+        missingRecommendedKeys.push(key);
+      }
+    }
+
+    // Prioritize fixing core fields first, then recommended
+    const missingKeys = missingCoreKeys.length > 0 ? missingCoreKeys : missingRecommendedKeys;
+
+    if (missingKeys.length === 0) {
+      console.log('[ContextMap] No missing fields to fix');
+      return;
+    }
+
+    // Focus on the first missing field by opening its zone's add modal
+    // Use getZoneForField to properly map node keys to zone IDs
+    const firstMissingKey = missingKeys[0];
+    const zoneId = getZoneForField(firstMissingKey); // e.g., "identity.businessModel" → "business-reality"
+
+    console.log(`[ContextMap] Missing core keys:`, missingCoreKeys);
+    console.log(`[ContextMap] Missing recommended keys:`, missingRecommendedKeys);
+    console.log(`[ContextMap] First missing key: ${firstMissingKey} → Zone: ${zoneId}`);
+
+    // Trigger AI suggestion for the zone with missing fields
+    // This opens the AI-assisted add flow for that zone
+    if (onSuggestWithAI) {
+      console.log(`[ContextMap] Triggering AI suggest for zone: ${zoneId}`);
+      onSuggestWithAI(zoneId);
+    } else if (onAddNode) {
+      // Fallback: open manual add modal
+      console.log(`[ContextMap] Opening add modal for zone: ${zoneId}`);
+      onAddNode(zoneId, 'manual');
+    }
+  }, [nodes, onSuggestWithAI, onAddNode]);
+
+  // Handle click on a specific field badge in readiness strip
+  // Navigates directly to the zone containing that field and opens manual edit
+  const handleFieldClick = useCallback((fieldLabel: string, _isCritical: boolean) => {
+    console.log(`[ContextMap] Field badge clicked: "${fieldLabel}"`);
+
+    // Convert label back to field key
+    const fieldKey = getKeyFromShortLabel(fieldLabel);
+    if (!fieldKey) {
+      console.warn(`[ContextMap] Could not find field key for label: "${fieldLabel}"`);
+      return;
+    }
+
+    console.log(`[ContextMap] Resolved field key: ${fieldKey}`);
+
+    // Get the zone for this field
+    const zoneId = getZoneForField(fieldKey);
+    console.log(`[ContextMap] Zone for field: ${zoneId}`);
+
+    // Open manual add/edit modal for this zone
+    // This allows the user to directly fill in the missing field
+    if (onAddNode) {
+      console.log(`[ContextMap] Opening manual edit modal for zone: ${zoneId}`);
+      onAddNode(zoneId, 'manual');
+    } else {
+      console.warn('[ContextMap] onAddNode not provided, cannot open edit modal');
+    }
+  }, [onAddNode]);
 
   // Quick confirm handler - confirms a proposed node with its current value
   const handleQuickConfirm = useCallback(async (node: PositionedNode) => {
@@ -403,6 +497,7 @@ export function ContextMapClient({
       <ContextMapReadinessStrip
         strategyReadiness={strategyReadiness}
         onFixClick={handleReadinessFixClick}
+        onFieldClick={handleFieldClick}
       />
 
       {/* Proposal Review Banner */}
