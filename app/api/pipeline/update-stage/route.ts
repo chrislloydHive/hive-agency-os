@@ -40,10 +40,11 @@ export async function POST(request: NextRequest) {
       leadId,
       stage,
     });
-  } catch (error) {
-    console.error('[Update Stage] Error:', error);
+  } catch (error: any) {
+    const errorMessage = error?.message || error?.error || String(error);
+    console.error('[Update Stage] Error:', errorMessage, error);
     return NextResponse.json(
-      { error: 'Failed to update stage' },
+      { error: errorMessage },
       { status: 500 }
     );
   }

@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getInboundLeadById, linkLeadToCompany, updateLeadStatus } from '@/lib/airtable/inboundLeads';
 import { findOrCreateCompanyByDomain } from '@/lib/airtable/companies';
+import { logCompanyCreatedFromLead } from '@/lib/telemetry/events';
 
 export async function POST(req: NextRequest) {
   try {
@@ -59,6 +60,11 @@ export async function POST(req: NextRequest) {
 
     // Update lead status
     await updateLeadStatus(leadId, 'Qualified');
+
+    // Log telemetry event (only for new companies)
+    if (isNew) {
+      logCompanyCreatedFromLead(companyRecord.id, leadId, companyRecord.name, lead.website);
+    }
 
     console.log(`[ConvertLeadToCompany] Lead ${leadId} → Company ${companyRecord.id} (${isNew ? 'new' : 'existing'})`);
 

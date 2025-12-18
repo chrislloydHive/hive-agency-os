@@ -21,11 +21,6 @@ type ViewMode = 'board' | 'table';
 export function PipelineViewToggle({ leads }: PipelineViewToggleProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('board');
 
-  // Filter to only show DMA Full GAP leads (or all pipeline leads)
-  const pipelineLeads = leads.filter(
-    (lead) => lead.leadSource === 'DMA Full GAP' || lead.pipelineStage
-  );
-
   return (
     <div className="space-y-4">
       {/* View Toggle */}
@@ -71,15 +66,15 @@ export function PipelineViewToggle({ leads }: PipelineViewToggleProps) {
 
         {/* Lead count */}
         <div className="text-sm text-slate-400">
-          {pipelineLeads.length} pipeline lead{pipelineLeads.length !== 1 ? 's' : ''}
+          {leads.length} lead{leads.length !== 1 ? 's' : ''}
         </div>
       </div>
 
       {/* View Content */}
       {viewMode === 'board' ? (
-        <PipelineBoardClient leads={pipelineLeads} />
+        <PipelineBoardClient leads={leads} />
       ) : (
-        <PipelineTableClient leads={pipelineLeads} />
+        <PipelineTableClient leads={leads} />
       )}
     </div>
   );

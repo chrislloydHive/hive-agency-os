@@ -166,9 +166,10 @@ export async function createInboundLead(params: {
   try {
     const base = getBase();
 
-    const fields: Record<string, unknown> = {
-      Status: params.status || 'New',
-    };
+    const fields: Record<string, unknown> = {};
+
+    // Only set Status if provided (field may not exist or have the option)
+    if (params.status) fields['Status'] = params.status;
 
     if (params.name) fields['Name'] = params.name;
     if (params.email) fields['Email'] = params.email;
@@ -323,7 +324,6 @@ export async function updatePipelineLeadStage(
 
     await base(INBOUND_LEADS_TABLE).update(leadId, {
       'Pipeline Stage': stageMap[stage] || stage,
-      'Last Activity At': new Date().toISOString(),
     } as any);
 
     console.log(`[InboundLeads] Updated lead ${leadId} pipeline stage to ${stage}`);

@@ -31,24 +31,20 @@ export default async function OpportunitiesPage() {
   return (
     <div className="p-8">
       <div className="mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-100">
-              Pipeline Opportunities
-            </h1>
-            <p className="text-slate-400 mt-1">
-              Active opportunities in your sales pipeline
-            </p>
-          </div>
-          <button className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors">
-            New Opportunity
-          </button>
+        <div>
+          <h1 className="text-3xl font-bold text-slate-100">
+            Pipeline Opportunities
+          </h1>
+          <p className="text-slate-400 mt-1">
+            Track deal progress from proposal to close
+          </p>
         </div>
       </div>
 
       <OpportunitiesBoardClient
         opportunities={enrichedOpportunities}
         companies={companies}
+        showNewOpportunityButton
       />
     </div>
   );

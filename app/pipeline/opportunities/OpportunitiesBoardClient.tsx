@@ -10,10 +10,12 @@ import {
   getStageLabel,
   getStageColorClass,
 } from '@/lib/types/pipeline';
+import { NewOpportunityModal } from './NewOpportunityModal';
 
 interface OpportunitiesBoardClientProps {
   opportunities: OpportunityItem[];
   companies: CompanyRecord[];
+  showNewOpportunityButton?: boolean;
 }
 
 // Format currency
@@ -83,9 +85,9 @@ function OpportunityCard({
               {opportunity.opportunityScore}
             </span>
             {/* Tooltip */}
-            {showTooltip && opportunity.opportunityScoreExplanation && (
+            {showTooltip && (
               <div className="absolute right-0 top-6 z-50 w-64 p-2 bg-slate-900 border border-slate-700 rounded-lg shadow-lg text-xs text-slate-300">
-                {opportunity.opportunityScoreExplanation}
+                {opportunity.opportunityScoreExplanation || 'AI score based on company engagement and fit signals.'}
               </div>
             )}
           </div>
@@ -133,11 +135,13 @@ function OpportunityCard({
 export function OpportunitiesBoardClient({
   opportunities,
   companies,
+  showNewOpportunityButton = false,
 }: OpportunitiesBoardClientProps) {
   const [viewMode, setViewMode] = useState<'board' | 'table'>('board');
   const [searchQuery, setSearchQuery] = useState('');
   const [ownerFilter, setOwnerFilter] = useState<string>('all');
   const [scoringIds, setScoringIds] = useState<Set<string>>(new Set());
+  const [showNewModal, setShowNewModal] = useState(false);
 
   // Get unique owners
   const owners = useMemo(() => {
@@ -216,8 +220,74 @@ export function OpportunitiesBoardClient({
     }
   };
 
+  // Show empty state if no opportunities at all
+  if (opportunities.length === 0) {
+    return (
+      <div className="space-y-6">
+        {/* New Opportunity Modal (still needed) */}
+        <NewOpportunityModal
+          isOpen={showNewModal}
+          onClose={() => setShowNewModal(false)}
+          companies={companies}
+        />
+
+        <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-12 text-center">
+          <div className="max-w-md mx-auto">
+            <div className="mb-4">
+              <svg
+                className="w-16 h-16 mx-auto text-slate-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                />
+              </svg>
+            </div>
+            <h2 className="text-xl font-semibold text-slate-300 mb-2">No opportunities yet</h2>
+            <p className="text-slate-500 mb-6">
+              Create your first opportunity or convert a qualified lead.
+            </p>
+            <button
+              onClick={() => setShowNewModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              New Opportunity
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {/* New Opportunity Button */}
+      {showNewOpportunityButton && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => setShowNewModal(true)}
+            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors"
+          >
+            New Opportunity
+          </button>
+        </div>
+      )}
+
+      {/* New Opportunity Modal */}
+      <NewOpportunityModal
+        isOpen={showNewModal}
+        onClose={() => setShowNewModal(false)}
+        companies={companies}
+      />
+
       {/* Stats Summary */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">

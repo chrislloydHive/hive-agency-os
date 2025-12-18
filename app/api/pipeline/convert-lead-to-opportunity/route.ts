@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getInboundLeadById, updateLeadStatus } from '@/lib/airtable/inboundLeads';
 import { createOpportunity } from '@/lib/airtable/opportunities';
 import { getCompanyById } from '@/lib/airtable/companies';
+import { logLeadConvertedToOpportunity } from '@/lib/telemetry/events';
 
 export async function POST(req: NextRequest) {
   try {
@@ -63,6 +64,9 @@ export async function POST(req: NextRequest) {
 
     // Update lead status
     await updateLeadStatus(leadId, 'Qualified');
+
+    // Log telemetry event
+    logLeadConvertedToOpportunity(leadId, opportunity.id, lead.companyId, company.name);
 
     console.log(`[ConvertLeadToOpportunity] Lead ${leadId} → Opportunity ${opportunity.id}`);
 
