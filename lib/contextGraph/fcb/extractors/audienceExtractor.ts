@@ -125,10 +125,10 @@ Also include a "confidence" object with 0-1 scores for each field you include.`,
     const confidences = parsed.confidence || {};
 
     // Map extracted fields - note: audience fields typically have lower confidence
-    // ICP Description is CRITICAL - extract to identity.icpDescription (canonical location)
+    // ICP Description is CRITICAL - extract to audience.icpDescription (canonical location)
     if (parsed.icpDescription) {
       fields.push({
-        path: 'identity.icpDescription',
+        path: 'audience.icpDescription',
         value: parsed.icpDescription,
         confidence: confidences.icpDescription ?? 0.7,
         reasoning: 'Synthesized ICP from website messaging and target audience signals',

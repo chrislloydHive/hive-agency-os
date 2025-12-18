@@ -233,10 +233,10 @@ export const CONTEXT_FIELDS: ContextFieldDef[] = [
     primarySources: ['Setup', 'FCB'],
   },
   {
-    path: 'identity.icpDescription',
-    domain: 'identity',
+    path: 'audience.icpDescription',
+    domain: 'audience',
     field: 'icpDescription',
-    section: 'identity',
+    section: 'audience',
     label: 'ICP Description',
     type: 'string',
     description: 'Canonical Ideal Customer Profile description - constrains all Labs',

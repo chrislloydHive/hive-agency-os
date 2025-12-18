@@ -368,6 +368,110 @@ export function getAllSrmFieldPaths(): string[] {
 }
 
 // ============================================================================
+// Competitive Context Validation (For Strategy Blocking)
+// ============================================================================
+
+/**
+ * Competitive context validation result
+ */
+export interface CompetitiveContextValidation {
+  /** Whether competitive context is sufficient for strategy */
+  ready: boolean;
+  /** Missing competitive fields */
+  missing: string[];
+  /** Human-readable blocker message for UI */
+  blockerMessage?: string;
+  /** Count of competitors found */
+  competitorCount: number;
+  /** Data confidence (0-1) if available */
+  dataConfidence?: number;
+}
+
+/**
+ * Validate that competitive context is sufficient for strategy generation.
+ *
+ * Competitive context is REQUIRED for strategy. If missing:
+ * - UI should show explicit "Missing competitive analysis" state
+ * - Strategy generation should be blocked
+ * - User should be prompted to run Competition GAP
+ *
+ * @param graph - The Company Context Graph to validate
+ * @returns Validation result with blocker message if not ready
+ */
+export function validateCompetitiveContext(
+  graph: CompanyContextGraph
+): CompetitiveContextValidation {
+  const missing: string[] = [];
+  let competitorCount = 0;
+  let dataConfidence: number | undefined;
+
+  const competitive = graph.competitive;
+
+  if (!competitive) {
+    return {
+      ready: false,
+      missing: ['competitive.competitors', 'competitive.positionSummary'],
+      blockerMessage: 'Competitive context missing — run Competition GAP',
+      competitorCount: 0,
+    };
+  }
+
+  // Check competitors
+  const competitors = competitive.competitors || competitive.primaryCompetitors;
+  if (!competitors || (Array.isArray(competitors) && competitors.length === 0)) {
+    missing.push('competitive.competitors');
+  } else {
+    // Handle WithMeta wrapper
+    const competitorValue = (competitors as { value?: unknown })?.value ?? competitors;
+    competitorCount = Array.isArray(competitorValue) ? competitorValue.length : 0;
+  }
+
+  // Check position summary
+  const positionSummary = competitive.positionSummary;
+  if (!positionSummary || (typeof positionSummary === 'object' && !(positionSummary as { value?: unknown })?.value)) {
+    missing.push('competitive.positionSummary');
+  }
+
+  // Get data confidence if available
+  const confidence = competitive.dataConfidence;
+  if (confidence) {
+    const confValue = (confidence as { value?: number })?.value ?? confidence;
+    if (typeof confValue === 'number') {
+      dataConfidence = confValue;
+    }
+  }
+
+  if (missing.length > 0) {
+    const fieldList = missing.map(f => f.split('.').pop()).join(', ');
+    return {
+      ready: false,
+      missing,
+      blockerMessage: `Competitive context incomplete (missing: ${fieldList}) — run Competition GAP`,
+      competitorCount,
+      dataConfidence,
+    };
+  }
+
+  return {
+    ready: true,
+    missing: [],
+    competitorCount,
+    dataConfidence,
+  };
+}
+
+/**
+ * Check if strategy is blocked due to missing competitive context.
+ * Returns a blocker message if blocked, null if ok.
+ */
+export function getCompetitiveBlockerMessage(
+  graph: CompanyContextGraph
+): string | null {
+  const validation = validateCompetitiveContext(graph);
+  return validation.blockerMessage ?? null;
+}
+
+// ============================================================================
 // Strategy Regen Recommendation
 // ============================================================================
 

@@ -82,7 +82,7 @@ export function mapDomainToStrategicCluster(domain: DomainName): StrategicCluste
  */
 const FIELD_IMPORTANCE: Record<string, number> = {
   // Critical fields (5) - Core strategic decisions depend on these
-  'identity.icpDescription': 5,
+  'audience.icpDescription': 5,
   'identity.primaryObjective': 5,
   'identity.businessName': 5,
   'identity.industry': 5,
@@ -316,7 +316,7 @@ export function generateDomainClusterLayout(
  */
 const FIELD_DEPENDENCIES: Record<string, Array<{ target: string; weight: number }>> = {
   // Identity dependencies - foundational fields that inform everything
-  'identity.icpDescription': [
+  'audience.icpDescription': [
     { target: 'audience.coreSegments', weight: 0.9 },
     { target: 'audience.primaryAudience', weight: 0.9 },
     { target: 'brand.positioning', weight: 0.8 },

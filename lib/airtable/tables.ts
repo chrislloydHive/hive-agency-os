@@ -63,6 +63,25 @@ export const AIRTABLE_TABLES = {
   // Context Proposals (AI-First Context)
   CONTEXT_PROPOSALS: 'ContextProposals', // AI-generated proposals awaiting confirmation
 
+  // Strategy System Tables
+  COMPANY_STRATEGIES: 'Company Strategies', // Strategy records
+  STRATEGY_DRAFTS: 'StrategyDrafts', // AI-generated strategy field drafts awaiting confirmation
+  STRATEGY_COMPARISONS: 'StrategyComparisons', // Strategy comparison artifacts
+  PROGRAM_HANDOFF_DRAFTS: 'ProgramHandoffDrafts', // AI-generated program drafts from strategy handoff
+
+  // Engagement System Tables
+  COMPANY_ENGAGEMENTS: 'Engagements', // Engagement records (strategy vs project paths)
+
+  // Project System Tables (Project-Scoped Strategy → Brief)
+  PROJECTS: 'Projects', // Project entities within engagements
+  PROJECT_STRATEGIES: 'ProjectStrategies', // Project-scoped strategy (collapses into brief)
+
+  // Canonical Brief System
+  BRIEFS: 'Briefs', // Canonical briefs - single source of truth for all work
+
+  // Legacy (use BRIEFS instead)
+  CREATIVE_BRIEFS: 'CreativeBriefs', // Deprecated - use BRIEFS
+
   // Legacy/deprecated (for migration reference)
   // GAP_RUNS_OLD: 'GAP Runs',
   // FULL_REPORTS_OLD: 'Full Reports',

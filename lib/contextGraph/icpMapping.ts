@@ -22,7 +22,7 @@ import type { CompanyProfile } from './domains/audience';
  * Labs MUST respect this when generating segments/personas.
  */
 export interface CanonicalICPFields {
-  /** Full description of the ideal customer (identity.icpDescription) */
+  /** Full description of the ideal customer (audience.icpDescription) */
   icpDescription?: string;
 
   /** Primary audience description - who we serve (audience.primaryAudience) */
@@ -39,7 +39,7 @@ export interface CanonicalICPFields {
  * Context Graph paths for ICP fields
  */
 export const ICP_CONTEXT_PATHS = {
-  icpDescription: 'identity.icpDescription',
+  icpDescription: 'audience.icpDescription',
   primaryAudience: 'audience.primaryAudience',
   primaryBuyerRoles: 'audience.primaryBuyerRoles',
   companyProfile: 'audience.companyProfile',

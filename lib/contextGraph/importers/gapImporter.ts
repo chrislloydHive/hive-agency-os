@@ -1,12 +1,19 @@
 // lib/contextGraph/importers/gapImporter.ts
 // GAP Importer - imports data from GAP-IA and GAP-Full runs into Context Graph
 //
+// DOMAIN AUTHORITY:
+// - GAP is an orchestrator/synthesis layer
+// - GAP may ONLY write to: identity (until Identity Lab exists), objectives, meta
+// - GAP must NOT write to: brand, seo, content, website, audience, productOffer
+//   (those are Lab domains with their own canonical authorities)
+//
 // Maps GAP diagnostic data to context graph fields:
-// - Identity: businessName, industry, competitiveLandscape
-// - Brand: positioning, toneOfVoice, brandStrengths, brandWeaknesses
-// - Website: websiteScore, websiteSummary
-// - Content: contentSummary, contentScore
-// - SEO: seoScore, seoSummary
+// - Identity: businessName, industry (ALLOWED - no Identity Lab yet)
+// - Objectives: primaryBusinessGoal, kpiLabels (ALLOWED - orchestration)
+// - Meta fields: gapRunId, etc. (ALLOWED)
+//
+// BLOCKED from writing:
+// - Brand, Website, Content, SEO, Audience, ProductOffer (Lab domains)
 
 import type { DomainImporter, ImportResult } from './types';
 import type { CompanyContextGraph } from '../companyContextGraph';
@@ -123,6 +130,9 @@ export const gapImporter: DomainImporter = {
 
 /**
  * Import data from CoreMarketingContext
+ *
+ * DOMAIN AUTHORITY: GAP can only write to identity and objectives
+ * Brand, Website, Content, SEO, Audience, ProductOffer are Lab domains
  */
 function importFromCoreContext(
   graph: CompanyContextGraph,
@@ -132,7 +142,10 @@ function importFromCoreContext(
   const paths: string[] = [];
   let count = 0;
 
-  // Identity domain
+  // =========================================================================
+  // IDENTITY DOMAIN - GAP is allowed (no Identity Lab yet)
+  // =========================================================================
+
   if (core.businessName) {
     setField(graph, 'identity', 'businessName', core.businessName, provenance);
     paths.push('identity.businessName');
@@ -151,94 +164,9 @@ function importFromCoreContext(
     count++;
   }
 
-  // Brand domain
-  if (core.brand) {
-    if (core.brand.perceivedPositioning) {
-      setField(graph, 'brand', 'positioning', core.brand.perceivedPositioning, provenance);
-      paths.push('brand.positioning');
-      count++;
-    }
-
-    if (core.brand.toneOfVoice) {
-      setField(graph, 'brand', 'toneOfVoice', core.brand.toneOfVoice, provenance);
-      paths.push('brand.toneOfVoice');
-      count++;
-    }
-
-    if (core.brand.brandScore !== undefined) {
-      // Store as brand perception narrative
-      const brandNarrative = `Brand score: ${core.brand.brandScore}/100. Visual consistency: ${core.brand.visualConsistency || 'unknown'}.`;
-      setField(graph, 'brand', 'brandPerception', brandNarrative, provenance);
-      paths.push('brand.brandPerception');
-      count++;
-    }
-  }
-
-  // Website domain
-  if (core.website) {
-    if (core.website.websiteScore !== undefined) {
-      setField(graph, 'website', 'websiteScore', core.website.websiteScore, provenance);
-      paths.push('website.websiteScore');
-      count++;
-    }
-
-    if (core.website.clarityOfMessage) {
-      const websiteSummary = `Message clarity: ${core.website.clarityOfMessage}. CTA quality: ${core.website.primaryCtaQuality || 'unknown'}. Friction: ${core.website.perceivedFriction || 'unknown'}.`;
-      setField(graph, 'website', 'websiteSummary', websiteSummary, provenance);
-      paths.push('website.websiteSummary');
-      count++;
-    }
-  }
-
-  // Content domain
-  if (core.content) {
-    if (core.content.contentScore !== undefined) {
-      // Map content score to content domain
-      const contentSummary = `Content score: ${core.content.contentScore}/100. Depth: ${core.content.contentDepth || 'unknown'}. Has blog: ${core.content.hasBlogOrResources ? 'yes' : 'no'}.`;
-      setField(graph, 'content', 'contentSummary', contentSummary, provenance);
-      paths.push('content.contentSummary');
-      count++;
-    }
-  }
-
-  // SEO domain
-  if (core.seo) {
-    if (core.seo.seoScore !== undefined) {
-      setField(graph, 'seo', 'seoScore', core.seo.seoScore, provenance);
-      paths.push('seo.seoScore');
-      count++;
-    }
-
-    const seoNotes: string[] = [];
-    if (core.seo.appearsIndexable !== null) {
-      seoNotes.push(`Indexable: ${core.seo.appearsIndexable ? 'yes' : 'no'}`);
-    }
-    if (core.seo.onPageBasics) {
-      seoNotes.push(`On-page basics: ${core.seo.onPageBasics}`);
-    }
-    if (core.seo.searchIntentFit) {
-      seoNotes.push(`Search intent fit: ${core.seo.searchIntentFit}`);
-    }
-    if (seoNotes.length > 0) {
-      setField(graph, 'seo', 'seoSummary', seoNotes.join('. '), provenance);
-      paths.push('seo.seoSummary');
-      count++;
-    }
-  }
-
-  // Audience domain - primary audience
-  if (core.primaryAudience) {
-    setField(graph, 'audience', 'demographics', core.primaryAudience, provenance);
-    paths.push('audience.demographics');
-    count++;
-  }
-
-  // Product/Offer domain - primary offer
-  if (core.primaryOffer) {
-    setField(graph, 'productOffer', 'pricingNotes', core.primaryOffer, provenance);
-    paths.push('productOffer.pricingNotes');
-    count++;
-  }
+  // =========================================================================
+  // OBJECTIVES DOMAIN - GAP is allowed (orchestration)
+  // =========================================================================
 
   // Quick summary can go into objectives as primary business goal
   if (core.quickSummary) {
@@ -247,88 +175,40 @@ function importFromCoreContext(
     count++;
   }
 
+  // =========================================================================
+  // LAB DOMAINS - GAP BLOCKED (domain authority enforced)
+  // Brand, Website, Content, SEO, Audience, ProductOffer
+  // These fields are intentionally NOT written by GAP
+  // The domain authority gate in mutate.ts will block anyway
+  // =========================================================================
+
+  // NOTE: brand, website, content, seo, audience, productOffer
+  // writes have been removed - these are Lab domains
+
   return { count, paths };
 }
 
 /**
  * Import data from V2 dimensions
+ *
+ * DOMAIN AUTHORITY: GAP dimensions are UI-only, NOT imported to context
+ * All dimension data (brand, content, seo, website) are Lab domains
  */
 function importFromDimensions(
-  graph: CompanyContextGraph,
-  run: GapIaRun,
-  provenance: ReturnType<typeof createProvenance>
+  _graph: CompanyContextGraph,
+  _run: GapIaRun,
+  _provenance: ReturnType<typeof createProvenance>
 ): { count: number; paths: string[] } {
-  const paths: string[] = [];
-  let count = 0;
-  const dimensions = run.dimensions;
-
-  if (!dimensions) return { count, paths };
-
-  // Brand dimension
-  if (dimensions.brand) {
-    if (dimensions.brand.narrative) {
-      setField(graph, 'brand', 'brandPerception', dimensions.brand.narrative, provenance);
-      paths.push('brand.brandPerception');
-      count++;
-    }
-    if (dimensions.brand.issues && dimensions.brand.issues.length > 0) {
-      setDomainFields(graph, 'brand', {
-        brandWeaknesses: dimensions.brand.issues,
-      }, provenance);
-      paths.push('brand.brandWeaknesses');
-      count++;
-    }
-  }
-
-  // Content dimension
-  if (dimensions.content) {
-    if (dimensions.content.narrative) {
-      setField(graph, 'content', 'contentSummary', dimensions.content.narrative, provenance);
-      paths.push('content.contentSummary');
-      count++;
-    }
-  }
-
-  // SEO dimension
-  if (dimensions.seo) {
-    if (dimensions.seo.narrative) {
-      setField(graph, 'seo', 'seoSummary', dimensions.seo.narrative, provenance);
-      paths.push('seo.seoSummary');
-      count++;
-    }
-    if (dimensions.seo.score !== undefined) {
-      setField(graph, 'seo', 'seoScore', dimensions.seo.score, provenance);
-      paths.push('seo.seoScore');
-      count++;
-    }
-  }
-
-  // Website dimension
-  if (dimensions.website) {
-    if (dimensions.website.narrative) {
-      setField(graph, 'website', 'websiteSummary', dimensions.website.narrative, provenance);
-      paths.push('website.websiteSummary');
-      count++;
-    }
-    if (dimensions.website.score !== undefined) {
-      setField(graph, 'website', 'websiteScore', dimensions.website.score, provenance);
-      paths.push('website.websiteScore');
-      count++;
-    }
-    if (dimensions.website.issues && dimensions.website.issues.length > 0) {
-      setDomainFields(graph, 'website', {
-        criticalIssues: dimensions.website.issues,
-      }, provenance);
-      paths.push('website.criticalIssues');
-      count++;
-    }
-  }
-
-  return { count, paths };
+  // DOMAIN AUTHORITY: GAP dimensions should NOT be written to context
+  // Brand, Content, SEO, Website are Lab domains
+  // Dimensions are UI-only for GAP report display
+  return { count: 0, paths: [] };
 }
 
 /**
  * Import data from V2 summary
+ *
+ * DOMAIN AUTHORITY: GAP can write to objectives (orchestration)
  */
 function importFromSummary(
   graph: CompanyContextGraph,
@@ -339,6 +219,7 @@ function importFromSummary(
   let count = 0;
 
   // Top opportunities go to objectives - store as KPI labels as a proxy
+  // ALLOWED: objectives is an orchestration domain
   if (summary.topOpportunities && summary.topOpportunities.length > 0) {
     setDomainFields(graph, 'objectives', {
       kpiLabels: summary.topOpportunities,
@@ -348,6 +229,7 @@ function importFromSummary(
   }
 
   // Headline diagnosis can inform primary business goal
+  // ALLOWED: objectives is an orchestration domain
   if (summary.narrative) {
     setField(graph, 'objectives', 'primaryBusinessGoal', summary.narrative, provenance);
     paths.push('objectives.primaryBusinessGoal');
@@ -359,6 +241,9 @@ function importFromSummary(
 
 /**
  * Import data from legacy insights
+ *
+ * DOMAIN AUTHORITY: GAP can only write to objectives
+ * Brand, Website, Content, SEO insights are Lab domains - NOT written
  */
 function importFromInsights(
   graph: CompanyContextGraph,
@@ -368,45 +253,21 @@ function importFromInsights(
   const paths: string[] = [];
   let count = 0;
 
-  // Brand insights
-  if (insights.brandInsights && insights.brandInsights.length > 0) {
-    // Use first insight as brand perception if not already set
-    if (!graph.brand.brandPerception.value) {
-      setField(graph, 'brand', 'brandPerception', insights.brandInsights.join(' '), provenance);
-      paths.push('brand.brandPerception');
-      count++;
-    }
-  }
+  // =========================================================================
+  // LAB DOMAINS - GAP BLOCKED (domain authority enforced)
+  // Brand, Website, Content, SEO insights are NOT written to context
+  // These are Lab domains with their own canonical authorities
+  // =========================================================================
 
-  // Website insights
-  if (insights.websiteInsights && insights.websiteInsights.length > 0) {
-    setDomainFields(graph, 'website', {
-      recommendations: insights.websiteInsights,
-    }, provenance);
-    paths.push('website.recommendations');
-    count++;
-  }
+  // NOTE: brandInsights, websiteInsights, contentInsights, seoInsights
+  // writes have been removed - these are Lab domains
 
-  // Content insights - store as content gaps
-  if (insights.contentInsights && insights.contentInsights.length > 0) {
-    setDomainFields(graph, 'content', {
-      keyTopics: insights.contentInsights,
-    }, provenance);
-    paths.push('content.keyTopics');
-    count++;
-  }
-
-  // SEO insights
-  if (insights.seoInsights && insights.seoInsights.length > 0) {
-    setDomainFields(graph, 'seo', {
-      seoRecommendations: insights.seoInsights,
-    }, provenance);
-    paths.push('seo.seoRecommendations');
-    count++;
-  }
+  // =========================================================================
+  // OBJECTIVES DOMAIN - GAP is allowed (orchestration)
+  // =========================================================================
 
   // Overall summary goes to objectives
-  if (insights.overallSummary && !graph.objectives.primaryBusinessGoal.value) {
+  if (insights.overallSummary && !graph.objectives?.primaryBusinessGoal?.value) {
     setField(graph, 'objectives', 'primaryBusinessGoal', insights.overallSummary, provenance);
     paths.push('objectives.primaryBusinessGoal');
     count++;

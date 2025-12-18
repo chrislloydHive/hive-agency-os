@@ -59,6 +59,113 @@ function calculateNodeCount(graph: CompanyContextGraph): number {
 }
 
 /**
+ * Check if a value is "empty" (should be stripped from storage)
+ */
+function isEmptyValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (value === '') return true;
+  if (Array.isArray(value) && value.length === 0) return true;
+  if (typeof value === 'object' && Object.keys(value as object).length === 0) return true;
+  return false;
+}
+
+/**
+ * Check if a field object represents a missing/empty field
+ * A field is empty if: value is null/undefined, value is empty array, or the whole object is {}
+ */
+function isEmptyField(field: unknown): boolean {
+  if (!field || typeof field !== 'object') return false;
+
+  const obj = field as Record<string, unknown>;
+
+  // Empty object {} → empty
+  if (Object.keys(obj).length === 0) return true;
+
+  // Has value key
+  if ('value' in obj) {
+    const val = obj.value;
+    // value is null/undefined → empty
+    if (val === null || val === undefined) return true;
+    // value is empty array → empty
+    if (Array.isArray(val) && val.length === 0) return true;
+    // value is empty string → empty
+    if (val === '') return true;
+  }
+
+  return false;
+}
+
+/**
+ * Recursively strip empty fields from an object
+ * Removes:
+ * - null, undefined, '', [] values
+ * - {} empty objects
+ * - Fields with { value: null } or { value: [] }
+ *
+ * This prevents {} pollution in stored JSON.
+ */
+function stripEmptyFields(obj: unknown, depth = 0): unknown {
+  // Prevent infinite recursion
+  if (depth > 20) return obj;
+
+  // Handle non-objects
+  if (obj === null || obj === undefined) return undefined;
+  if (typeof obj !== 'object') return obj;
+
+  // Handle arrays
+  if (Array.isArray(obj)) {
+    const filtered = obj
+      .map(item => stripEmptyFields(item, depth + 1))
+      .filter(item => item !== undefined && !isEmptyValue(item));
+    return filtered.length === 0 ? undefined : filtered;
+  }
+
+  // Handle objects
+  const result: Record<string, unknown> = {};
+  let hasContent = false;
+
+  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+    // Skip meta fields in domains (keep them)
+    if (key === 'meta' && depth === 0) {
+      result[key] = value;
+      hasContent = true;
+      continue;
+    }
+
+    // Skip companyId/companyName at root
+    if ((key === 'companyId' || key === 'companyName') && depth === 0) {
+      result[key] = value;
+      hasContent = true;
+      continue;
+    }
+
+    // Check if this is a "field" object with value/provenance structure
+    if (value && typeof value === 'object' && !Array.isArray(value) && 'value' in value) {
+      // This is a field - check if it's empty
+      if (isEmptyField(value)) {
+        continue; // Skip empty fields entirely
+      }
+      // Keep non-empty fields
+      result[key] = value;
+      hasContent = true;
+      continue;
+    }
+
+    // Recursively process nested objects
+    const stripped = stripEmptyFields(value, depth + 1);
+
+    // Skip if result is undefined or empty
+    if (stripped === undefined) continue;
+    if (isEmptyValue(stripped)) continue;
+
+    result[key] = stripped;
+    hasContent = true;
+  }
+
+  return hasContent ? result : undefined;
+}
+
+/**
  * Compress a graph for storage by removing redundant data
  * - Keeps only the first provenance entry per field
  * - Removes detailed provenance from competitor profiles
@@ -211,30 +318,101 @@ export interface ContextGraphRecord {
 }
 
 /**
+ * Normalize a field to canonical format: { value, provenance }
+ * Converts:
+ * - {} → { value: null, provenance: [] }
+ * - { value: null } → { value: null, provenance: [] }
+ * - undefined → { value: null, provenance: [] }
+ */
+function normalizeField(field: unknown): { value: unknown; provenance: unknown[] } {
+  // Null/undefined → missing field
+  if (field === null || field === undefined) {
+    return { value: null, provenance: [] };
+  }
+
+  // Not an object → wrap as value
+  if (typeof field !== 'object') {
+    return { value: field, provenance: [] };
+  }
+
+  // Empty object {} → missing field
+  if (Object.keys(field as object).length === 0) {
+    return { value: null, provenance: [] };
+  }
+
+  // Already has value/provenance structure
+  const obj = field as Record<string, unknown>;
+  if ('value' in obj) {
+    return {
+      value: obj.value ?? null,
+      provenance: Array.isArray(obj.provenance) ? obj.provenance : [],
+    };
+  }
+
+  // Unknown structure → treat as value
+  return { value: field, provenance: [] };
+}
+
+/**
+ * Recursively normalize all fields in a domain to canonical format
+ */
+function normalizeDomainFields(domain: unknown): Record<string, unknown> {
+  if (!domain || typeof domain !== 'object') {
+    return {};
+  }
+
+  const normalized: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(domain as Record<string, unknown>)) {
+    // Check if this is a WithMeta field (has value and provenance)
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const obj = value as Record<string, unknown>;
+
+      // If it looks like a field (has 'value' key or is empty), normalize it
+      if ('value' in obj || Object.keys(obj).length === 0) {
+        normalized[key] = normalizeField(value);
+      } else {
+        // Nested object - recurse
+        normalized[key] = normalizeDomainFields(value);
+      }
+    } else {
+      // Primitive or array - keep as is
+      normalized[key] = value;
+    }
+  }
+
+  return normalized;
+}
+
+/**
  * Map Airtable record to ContextGraphRecord
  */
 /**
  * Deep merge loaded graph with empty template to ensure all fields exist.
  * This handles schema evolution - new fields added to the schema will be
  * initialized with empty values when loading older graphs.
+ * Also normalizes all fields to canonical format: { value, provenance }
  */
 function mergeWithEmptyGraph(loaded: CompanyContextGraph): CompanyContextGraph {
   const empty = createEmptyContextGraph('', '');
 
-  // Helper to deep merge domain objects
+  // Helper to deep merge domain objects and normalize fields
   const mergeDomain = <T extends object>(emptyDomain: T, loadedDomain: T | undefined): T => {
     if (!loadedDomain) return emptyDomain;
 
+    // First normalize the loaded domain fields
+    const normalizedLoaded = normalizeDomainFields(loadedDomain);
+
     const merged = { ...emptyDomain };
-    for (const key of Object.keys(loadedDomain) as (keyof T)[]) {
+    for (const key of Object.keys(normalizedLoaded) as (keyof T)[]) {
       if (key in emptyDomain) {
-        (merged as any)[key] = loadedDomain[key];
+        (merged as any)[key] = normalizedLoaded[key as string];
       }
     }
     // Also include any extra fields from loaded that aren't in empty
-    for (const key of Object.keys(loadedDomain) as (keyof T)[]) {
+    for (const key of Object.keys(normalizedLoaded) as (keyof T)[]) {
       if (!(key in merged)) {
-        (merged as any)[key] = loadedDomain[key];
+        (merged as any)[key] = normalizedLoaded[key as string];
       }
     }
     return merged;
@@ -261,6 +439,8 @@ function mergeWithEmptyGraph(loaded: CompanyContextGraph): CompanyContextGraph {
     operationalConstraints: mergeDomain(empty.operationalConstraints, loaded.operationalConstraints),
     storeRisk: mergeDomain(empty.storeRisk, loaded.storeRisk),
     historyRefs: mergeDomain(empty.historyRefs, loaded.historyRefs),
+    social: mergeDomain(empty.social, loaded.social),
+    capabilities: mergeDomain(empty.capabilities, loaded.capabilities),
   };
 }
 
@@ -276,7 +456,15 @@ function mapAirtableRecord(record: any): ContextGraphRecord | null {
 
     const loadedGraph = JSON.parse(graphJson) as CompanyContextGraph;
     // Merge with empty graph to ensure all fields exist (handles schema evolution)
-    const graph = mergeWithEmptyGraph(loadedGraph);
+    const mergedGraph = mergeWithEmptyGraph(loadedGraph);
+
+    // STRIP EMPTY FIELDS ON LOAD: Clean up {} and { value: null } pollution
+    // from older stored graphs (migration behavior)
+    const graph = stripEmptyFields(mergedGraph) as CompanyContextGraph;
+
+    // Ensure core identifiers survive stripping
+    if (!graph.companyId) graph.companyId = loadedGraph.companyId;
+    if (!graph.companyName) graph.companyName = loadedGraph.companyName;
 
     return {
       id: record.id,
@@ -408,16 +596,9 @@ export async function saveContextGraph(
       console.log(`[ContextGraph] Found existing record ${existingRecords[0].id} for ${graph.companyId}`);
     }
 
-    // Minify the graph by removing null values and empty arrays to reduce size
-    const minifiedGraph = JSON.parse(JSON.stringify(graph, (key, value) => {
-      // Remove null values
-      if (value === null) return undefined;
-      // Remove empty arrays (but keep arrays with content)
-      if (Array.isArray(value) && value.length === 0) return undefined;
-      // Remove empty strings
-      if (value === '') return undefined;
-      return value;
-    }));
+    // Minify the graph by removing null values, empty arrays, and empty field objects
+    // This prevents {} pollution in the stored JSON
+    const minifiedGraph = stripEmptyFields(JSON.parse(JSON.stringify(graph)));
 
     const graphJson = JSON.stringify(minifiedGraph);
     const jsonSize = graphJson.length;

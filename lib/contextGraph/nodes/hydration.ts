@@ -8,7 +8,8 @@
 // during hydration to prevent them from appearing in the UI.
 
 import type { CompanyContextGraph } from '../companyContextGraph';
-import { isCanonicalKey } from '../canonicalFilter';
+import { isCanonicalKey, getSchemaV2KeyFor } from '../canonicalFilter';
+import { getSchemaV2Entry } from '../unifiedRegistry';
 import type { ProvenanceTag } from '../types';
 
 /**
@@ -112,8 +113,17 @@ export const CONTEXT_FIELD_LABELS: Record<string, string> = {
 
 /**
  * Get a human-readable label for a field path
+ * Uses Schema V2 labels when available, falls back to legacy labels
  */
 export function getFieldLabel(fieldPath: string): string {
+  // Try Schema V2 label first
+  const schemaV2Key = getSchemaV2KeyFor(fieldPath);
+  const schemaEntry = getSchemaV2Entry(schemaV2Key);
+  if (schemaEntry?.label) {
+    return schemaEntry.label;
+  }
+
+  // Fall back to legacy labels
   return CONTEXT_FIELD_LABELS[fieldPath] || fieldPath.split('.').pop() || fieldPath;
 }
 
@@ -133,22 +143,26 @@ export function hydrateFieldToNode<T>(
   const category = fieldPath.split('.')[0] || 'unknown';
   const label = getFieldLabel(fieldPath);
 
-  // If no field or no value, create an empty node
-  if (!field || field.value === undefined) {
+  // If no field or no value, create an empty/missing node
+  // CRITICAL: Empty nodes should have status 'missing', not 'proposed'
+  // to avoid showing "(empty) PROPOSED" in the UI
+  if (!field || field.value === undefined || field.value === null) {
     const emptyNode: HydratedContextNode<T> = {
       key: fieldPath,
       category,
       value: null as unknown as T,
-      status: 'proposed',
+      status: 'missing',
       source: 'import',
       confidence: 0,
       lastUpdated: new Date().toISOString(),
       provenance: [],
     };
 
+    // If there's a pending proposal, the node becomes proposed with the proposal value
     if (pendingProposal) {
       emptyNode.pendingProposal = pendingProposal;
       emptyNode.proposalBatchId = proposalBatchId;
+      // Still missing (no current value), but has a pending proposal
     }
 
     return emptyNode;
@@ -285,11 +299,15 @@ export async function hydrateContextGraph(
   }
 
   // Hydrate each domain
+  // Includes both legacy domains and Schema V2 domains for compatibility
   const domains = [
+    // Legacy domains (for backward compatibility)
     'identity', 'brand', 'objectives', 'audience', 'productOffer',
     'digitalInfra', 'website', 'content', 'seo', 'ops',
     'performanceMedia', 'historical', 'creative', 'competitive',
     'budgetOps', 'operationalConstraints', 'storeRisk', 'historyRefs',
+    // Schema V2 domains
+    'businessReality', 'offer', 'gtm', 'constraints', 'capabilities',
   ] as const;
 
   for (const domain of domains) {

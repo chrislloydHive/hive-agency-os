@@ -267,7 +267,7 @@ async function shouldRunFCB(
 
   // Check if critical fields are missing - if so, run FCB
   const criticalFields = [
-    { domain: 'identity', field: 'icpDescription' },
+    { domain: 'audience', field: 'icpDescription' },
     { domain: 'identity', field: 'industry' },
     { domain: 'identity', field: 'businessModel' },
     { domain: 'audience', field: 'primaryAudience' },

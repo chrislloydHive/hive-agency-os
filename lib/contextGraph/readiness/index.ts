@@ -10,6 +10,7 @@ export {
   type StrategyReadinessResult,
   type RegenRecommendation,
   type ContextSrmFieldName,
+  type CompetitiveContextValidation,
   SRM_FIELDS,
   SRM_FIELD_LABELS,
   CONTEXT_SRM_FIELD_NAMES,
@@ -20,6 +21,8 @@ export {
   getAllSrmFieldPaths,
   isContextSrmField,
   checkRegenRecommendation,
+  validateCompetitiveContext,
+  getCompetitiveBlockerMessage,
 } from './strategyReady';
 
 // ============================================================================

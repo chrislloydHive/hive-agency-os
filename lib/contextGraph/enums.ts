@@ -365,3 +365,122 @@ export const FUNNEL_STAGE_LABELS: Record<FunnelStage, string> = {
   retention: 'Retention',
   advocacy: 'Advocacy',
 };
+
+// ============================================================================
+// Schema V2 Select Enums (for structured context schema)
+// ============================================================================
+
+/**
+ * Market Stage - Where the company is in its lifecycle
+ */
+export const MarketStage = z.enum([
+  'pre-launch',
+  'early',
+  'growth',
+  'mature',
+]);
+
+export type MarketStage = z.infer<typeof MarketStage>;
+
+export const MARKET_STAGE_LABELS: Record<MarketStage, string> = {
+  'pre-launch': 'Pre-launch',
+  'early': 'Early Stage',
+  'growth': 'Growth',
+  'mature': 'Mature',
+};
+
+/**
+ * Sales Motion - How the company sells
+ */
+export const SalesMotion = z.enum([
+  'self-serve',
+  'sales-led',
+  'hybrid',
+  'unknown',
+]);
+
+export type SalesMotion = z.infer<typeof SalesMotion>;
+
+export const SALES_MOTION_LABELS: Record<SalesMotion, string> = {
+  'self-serve': 'Self-Serve',
+  'sales-led': 'Sales-Led',
+  'hybrid': 'Hybrid',
+  'unknown': 'Unknown',
+};
+
+/**
+ * Offer Pricing Model - How the product/service is priced (Schema V2)
+ * Named OfferPricingModel to avoid conflict with competitive.ts PricingModel
+ */
+export const OfferPricingModel = z.enum([
+  'subscription',
+  'one-time',
+  'usage',
+  'tiered',
+  'unknown',
+]);
+
+export type OfferPricingModel = z.infer<typeof OfferPricingModel>;
+
+export const OFFER_PRICING_MODEL_LABELS: Record<OfferPricingModel, string> = {
+  'subscription': 'Subscription',
+  'one-time': 'One-Time',
+  'usage': 'Usage-Based',
+  'tiered': 'Tiered',
+  'unknown': 'Unknown',
+};
+
+/**
+ * Yes/No/Unknown - Generic ternary enum for boolean-like fields with uncertainty
+ */
+export const YesNoUnknown = z.enum([
+  'yes',
+  'no',
+  'unknown',
+]);
+
+export type YesNoUnknown = z.infer<typeof YesNoUnknown>;
+
+export const YES_NO_UNKNOWN_LABELS: Record<YesNoUnknown, string> = {
+  'yes': 'Yes',
+  'no': 'No',
+  'unknown': 'Unknown',
+};
+
+/**
+ * Brand Assets Availability
+ */
+export const BrandAssetsAvailable = z.enum([
+  'yes',
+  'no',
+  'partial',
+  'unknown',
+]);
+
+export type BrandAssetsAvailable = z.infer<typeof BrandAssetsAvailable>;
+
+export const BRAND_ASSETS_LABELS: Record<BrandAssetsAvailable, string> = {
+  'yes': 'Yes',
+  'no': 'No',
+  'partial': 'Partial',
+  'unknown': 'Unknown',
+};
+
+/**
+ * Analytics Instrumentation Quality
+ */
+export const AnalyticsInstrumentation = z.enum([
+  'good',
+  'partial',
+  'poor',
+  'unknown',
+]);
+
+export type AnalyticsInstrumentation = z.infer<typeof AnalyticsInstrumentation>;
+
+export const ANALYTICS_INSTRUMENTATION_LABELS: Record<AnalyticsInstrumentation, string> = {
+  'good': 'Good',
+  'partial': 'Partial',
+  'poor': 'Poor',
+  'unknown': 'Unknown',
+};

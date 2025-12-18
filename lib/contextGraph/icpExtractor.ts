@@ -314,18 +314,18 @@ async function writeICPToGraph(
     validForDays: 180, // 6 months
   });
 
-  // Write icpDescription to identity domain
+  // Write icpDescription to audience domain (canonical location)
   if (icp.icpDescription) {
     setFieldUntyped(
       graph,
-      'identity',
+      'audience',
       'icpDescription',
       icp.icpDescription,
       provenance,
       { debug: true }
     );
     // setFieldUntyped returns the graph, but we track writes by checking provenance
-    fieldsWritten.push('identity.icpDescription');
+    fieldsWritten.push('audience.icpDescription');
   }
 
   // Write primaryAudience to audience domain
@@ -494,7 +494,7 @@ export async function loadCanonicalICP(companyId: string): Promise<{
 
     // Debug: Log what audience fields exist
     console.log('[loadCanonicalICP] Audience domain fields:', {
-      hasIdentityIcpDesc: !!graph.identity?.icpDescription?.value,
+      hasAudienceIcpDesc: !!graph.audience?.icpDescription?.value,
       hasPrimaryAudience: !!graph.audience?.primaryAudience?.value,
       hasPrimaryBuyerRoles: !!graph.audience?.primaryBuyerRoles?.value?.length,
       hasCompanyProfile: !!graph.audience?.companyProfile?.value,
@@ -508,10 +508,10 @@ export async function loadCanonicalICP(companyId: string): Promise<{
     // Extract ICP fields from graph
     const icp: CanonicalICPFields = {};
 
-    // identity.icpDescription
-    if (graph.identity?.icpDescription?.value) {
-      icp.icpDescription = graph.identity.icpDescription.value;
-      const source = graph.identity.icpDescription.provenance?.[0]?.source;
+    // audience.icpDescription (canonical location)
+    if (graph.audience?.icpDescription?.value) {
+      icp.icpDescription = graph.audience.icpDescription.value;
+      const source = graph.audience.icpDescription.provenance?.[0]?.source;
       if (source && !result.sources.includes(source)) {
         result.sources.push(source);
       }

@@ -322,7 +322,13 @@ export async function getCompanyById(
   companyId: string
 ): Promise<CompanyRecord | null> {
   try {
-    const base = getBase();
+    let base;
+    try {
+      base = getBase();
+    } catch (baseError: any) {
+      console.error(`[Airtable] Failed to initialize base for company ${companyId}:`, baseError?.message || baseError);
+      return null;
+    }
     const record = await base(COMPANIES_TABLE).find(companyId);
 
     if (!record) {

@@ -142,14 +142,14 @@ function importSeoModule(
   let count = 0;
 
   // SEO score
-  if (module.score !== undefined && !graph.seo.seoScore.value) {
+  if (module.score !== undefined && !graph.seo?.seoScore?.value) {
     setField(graph, 'seo', 'seoScore', module.score, provenance);
     paths.push('seo.seoScore');
     count++;
   }
 
   // SEO summary
-  if (module.summary && !graph.seo.seoSummary.value) {
+  if (module.summary && !graph.seo?.seoSummary?.value) {
     setField(graph, 'seo', 'seoSummary', module.summary, provenance);
     paths.push('seo.seoSummary');
     count++;
@@ -188,14 +188,14 @@ function importContentModule(
   let count = 0;
 
   // Content score
-  if (module.score !== undefined && !graph.content.contentScore.value) {
+  if (module.score !== undefined && !graph.content?.contentScore?.value) {
     setField(graph, 'content', 'contentScore', module.score, provenance);
     paths.push('content.contentScore');
     count++;
   }
 
   // Content summary
-  if (module.summary && !graph.content.contentSummary.value) {
+  if (module.summary && !graph.content?.contentSummary?.value) {
     setField(graph, 'content', 'contentSummary', module.summary, provenance);
     paths.push('content.contentSummary');
     count++;
@@ -225,14 +225,14 @@ function importWebsiteModule(
   let count = 0;
 
   // Website score
-  if (module.score !== undefined && !graph.website.websiteScore.value) {
+  if (module.score !== undefined && !graph.website?.websiteScore?.value) {
     setField(graph, 'website', 'websiteScore', module.score, provenance);
     paths.push('website.websiteScore');
     count++;
   }
 
   // Website summary
-  if (module.summary && !graph.website.websiteSummary.value) {
+  if (module.summary && !graph.website?.websiteSummary?.value) {
     setField(graph, 'website', 'websiteSummary', module.summary, provenance);
     paths.push('website.websiteSummary');
     count++;
@@ -271,7 +271,7 @@ function importBrandModule(
   let count = 0;
 
   // Brand summary as brand perception
-  if (module.summary && !graph.brand.brandPerception.value) {
+  if (module.summary && !graph.brand?.brandPerception?.value) {
     setField(graph, 'brand', 'brandPerception', module.summary, provenance);
     paths.push('brand.brandPerception');
     count++;
@@ -301,7 +301,7 @@ function importDemandModule(
   let count = 0;
 
   // Demand summary goes to audience media habits
-  if (module.summary && !graph.audience.mediaHabits.value) {
+  if (module.summary && !graph.audience?.mediaHabits?.value) {
     setField(graph, 'audience', 'mediaHabits', module.summary, provenance);
     paths.push('audience.mediaHabits');
     count++;

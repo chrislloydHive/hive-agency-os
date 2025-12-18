@@ -1,7 +1,13 @@
 // lib/contextGraph/mutate.ts
 // Mutation utilities for Company Context Graph
+//
+// DOMAIN AUTHORITY ENFORCEMENT:
+// - Each context domain has a canonical authority (single source of truth)
+// - Only allowed sources may write to a domain
+// - User writes are always allowed (userCanOverride: true)
+// - Empty values are never written
 
-import { CompanyContextGraph, DomainName } from './companyContextGraph';
+import { CompanyContextGraph, DomainName, ensureDomain } from './companyContextGraph';
 import { ProvenanceTag, WithMetaType, WithMetaArrayType } from './types';
 import { saveContextGraph } from './storage';
 import {
@@ -10,6 +16,17 @@ import {
   type PriorityCheckResult,
 } from './sourcePriority';
 import { isValidFieldPath } from './schema';
+import {
+  getDomainForField,
+  isSourceAllowedForDomain,
+  validateWrite,
+  type WriteSource,
+  type DomainKey,
+} from '@/lib/os/context/domainAuthority';
+import {
+  logWriteBlockedAuthority,
+  logWriteBlockedHumanConfirmed,
+} from '@/lib/observability/flowEvents';
 
 // ============================================================================
 // Runtime Validation Configuration
@@ -43,7 +60,8 @@ export type ProvenanceSource =
   | 'media_cockpit'
   | 'media_memory'
   | 'creative_lab'
-  | 'competitor_lab'
+  | 'competition_lab' // CANONICAL: Only authorized source for competitive.* fields
+  | 'competitor_lab'  // DEPRECATED: Use competition_lab
   | 'ux_lab'
   | 'manual'
   | 'inferred'
@@ -105,6 +123,65 @@ export interface SetFieldResult {
   path: string;
 }
 
+// ============================================================================
+// DOMAIN AUTHORITY WRITE GATE
+// ============================================================================
+// CRITICAL: Each domain has a canonical authority (single source of truth)
+// This prevents pollution from competing sources
+
+/**
+ * Check if a source is authorized to write to a field
+ * Uses the domain authority system
+ */
+function isAuthorizedToWrite(
+  domain: string,
+  field: string,
+  source: string
+): { authorized: boolean; reason?: string } {
+  const fieldPath = `${domain}.${field}`;
+  const validation = validateWrite(fieldPath, source as WriteSource);
+
+  return {
+    authorized: validation.allowed,
+    reason: validation.reason,
+  };
+}
+
+/**
+ * Check if value is empty (should not be written)
+ */
+function isEmptyValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (value === '') return true;
+  if (Array.isArray(value) && value.length === 0) return true;
+  if (typeof value === 'object' && Object.keys(value).length === 0) return true;
+  return false;
+}
+
+/**
+ * Strip empty fields from an object
+ */
+function stripEmptyFields<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  const result: Partial<T> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (!isEmptyValue(value)) {
+      result[key as keyof T] = value as T[keyof T];
+    }
+  }
+  return result;
+}
+
+// Legacy function for backwards compatibility
+function isCompetitiveField(domain: string, field: string): boolean {
+  if (domain !== 'competitive') return false;
+  return true;
+}
+
+// Legacy function for backwards compatibility
+function isCompetitiveAuthorizedSource(source: string): boolean {
+  return source === 'competition_lab' || source === 'user';
+}
+
 /**
  * Set a field value with less strict typing
  * Used by diagnostic mappers where field names come from external data
@@ -113,6 +190,9 @@ export interface SetFieldResult {
  * - Human overrides (user, manual, qbr, strategy) can NEVER be stomped by automation
  * - Higher priority sources can overwrite lower priority
  * - Use options.force to bypass priority checks (for migrations, etc.)
+ *
+ * DOMAIN AUTHORITY GATE: Each domain has authorized sources
+ * EMPTY VALUE GATE: Empty values are never written
  */
 export function setFieldUntyped(
   graph: CompanyContextGraph,
@@ -123,6 +203,31 @@ export function setFieldUntyped(
   options?: SetFieldOptions
 ): CompanyContextGraph {
   const path = `${domain}.${field}`;
+
+  // EMPTY VALUE GATE: Never write empty values
+  if (!options?.force && isEmptyValue(value)) {
+    if (options?.debug) {
+      console.log(`[setFieldUntyped] Skipping empty value for ${path}`);
+    }
+    return graph;
+  }
+
+  // DOMAIN AUTHORITY GATE: Check if source is authorized for this domain
+  const authCheck = isAuthorizedToWrite(domain, field, provenance.source);
+  if (!authCheck.authorized) {
+    console.warn(
+      `[setFieldUntyped] BLOCKED: ${path} - ${authCheck.reason}`
+    );
+    // Log flow event for authority block
+    logWriteBlockedAuthority(
+      graph.companyId,
+      domain,
+      field,
+      provenance.source,
+      [] // allowedSources not available from authCheck
+    );
+    return graph;
+  }
 
   // Runtime validation: warn if path is not in schema
   if (WARN_UNKNOWN_PATHS && !isValidFieldPath(path)) {
@@ -142,6 +247,30 @@ export function setFieldUntyped(
   if (!fieldData || typeof fieldData !== 'object') {
     console.warn(`[setFieldUntyped] Field ${domain}.${field} not found`);
     return graph;
+  }
+
+  // HUMAN CONFIRMED GATE: Prevent AI/Lab overwrites of human-confirmed fields
+  if (!options?.force) {
+    const latestProvenance = fieldData.provenance?.[0];
+    if (latestProvenance?.humanConfirmed) {
+      // Only user/manual sources can update human-confirmed fields
+      const isUserSource = provenance.source === 'user' || provenance.source === 'manual';
+      if (!isUserSource) {
+        console.warn(
+          `[setFieldUntyped] BLOCKED (humanConfirmed): ${domain}.${field} - ` +
+          `Field is human-confirmed, source '${provenance.source}' cannot overwrite. ` +
+          `Use force=true or user source to update.`
+        );
+        // Log flow event for humanConfirmed block
+        logWriteBlockedHumanConfirmed(
+          graph.companyId,
+          domain,
+          field,
+          provenance.source
+        );
+        return graph;
+      }
+    }
   }
 
   // Check source priority unless forced
@@ -183,6 +312,9 @@ export function setFieldUntyped(
 /**
  * Set a field value with priority check result returned
  * Use this when you need to know if the write was blocked
+ *
+ * DOMAIN AUTHORITY GATE: Each domain has authorized sources
+ * EMPTY VALUE GATE: Empty values are never written
  */
 export function setFieldUntypedWithResult(
   graph: CompanyContextGraph,
@@ -194,6 +326,34 @@ export function setFieldUntypedWithResult(
 ): { graph: CompanyContextGraph; result: SetFieldResult } {
   const domainObj = graph[domain as DomainName] as Record<string, WithMetaType<unknown>>;
   const path = `${domain}.${field}`;
+
+  // EMPTY VALUE GATE: Never write empty values
+  if (!options?.force && isEmptyValue(value)) {
+    return {
+      graph,
+      result: { updated: false, path, reason: 'empty_value' as PriorityCheckResult['reason'] },
+    };
+  }
+
+  // DOMAIN AUTHORITY GATE: Check if source is authorized for this domain
+  const authCheck = isAuthorizedToWrite(domain, field, provenance.source);
+  if (!authCheck.authorized) {
+    console.warn(
+      `[setFieldUntypedWithResult] BLOCKED: ${path} - ${authCheck.reason}`
+    );
+    // Log flow event for authority block
+    logWriteBlockedAuthority(
+      graph.companyId,
+      domain,
+      field,
+      provenance.source,
+      []
+    );
+    return {
+      graph,
+      result: { updated: false, path, reason: 'blocked_source' },
+    };
+  }
 
   // Runtime validation: warn if path is not in schema
   if (WARN_UNKNOWN_PATHS && !isValidFieldPath(path)) {
@@ -216,6 +376,31 @@ export function setFieldUntypedWithResult(
       graph,
       result: { updated: false, path, reason: 'blocked_source' },
     };
+  }
+
+  // HUMAN CONFIRMED GATE: Prevent AI/Lab overwrites of human-confirmed fields
+  if (!options?.force) {
+    const latestProvenance = fieldData.provenance?.[0];
+    if (latestProvenance?.humanConfirmed) {
+      const isUserSource = provenance.source === 'user' || provenance.source === 'manual';
+      if (!isUserSource) {
+        console.warn(
+          `[setFieldUntypedWithResult] BLOCKED (humanConfirmed): ${path} - ` +
+          `Field is human-confirmed, source '${provenance.source}' cannot overwrite.`
+        );
+        // Log flow event for humanConfirmed block
+        logWriteBlockedHumanConfirmed(
+          graph.companyId,
+          domain,
+          field,
+          provenance.source
+        );
+        return {
+          graph,
+          result: { updated: false, path, reason: 'human_confirmed' as PriorityCheckResult['reason'] },
+        };
+      }
+    }
   }
 
   // Check source priority unless forced
@@ -271,13 +456,18 @@ export function setField<
   provenance: ProvenanceTag,
   options?: SetFieldOptions
 ): CompanyContextGraph {
-  const fieldData = graph[domain][field] as WithMetaType<unknown>;
+  // Ensure domain exists (may have been stripped during storage load)
+  ensureDomain(graph, domain);
+
+  // Handle case where field doesn't exist (stripped during storage load)
+  const fieldData = (graph[domain][field] as WithMetaType<unknown>) || { value: null, provenance: [] };
+  const existingProvenance = fieldData.provenance || [];
 
   // Check source priority unless forced
   if (!options?.force) {
     const priorityCheck = canSourceOverwrite(
       domain,
-      fieldData.provenance || [],
+      existingProvenance,
       provenance.source,
       provenance.confidence
     );
@@ -295,7 +485,7 @@ export function setField<
   // Replace value and add provenance to front of array
   (graph[domain][field] as WithMetaType<unknown>) = {
     value,
-    provenance: [provenance, ...fieldData.provenance.slice(0, 4)], // Keep last 5 provenances
+    provenance: [provenance, ...existingProvenance.slice(0, 4)], // Keep last 5 provenances
   };
 
   // Update graph metadata
@@ -379,6 +569,9 @@ export interface SetDomainFieldsResult {
  * IMPORTANT: Respects source priority rules per field.
  * Fields with human overrides will be skipped unless force=true.
  *
+ * DOMAIN AUTHORITY GATE: Each domain has authorized sources
+ * EMPTY VALUE GATE: Empty values are never written
+ *
  * Usage:
  * ```typescript
  * setDomainFields(graph, 'identity', {
@@ -400,23 +593,49 @@ export function setDomainFields<D extends DomainName>(
   provenance: ProvenanceTag,
   options?: SetFieldOptions
 ): CompanyContextGraph {
-  for (const [key, value] of Object.entries(fields)) {
+  // Ensure domain exists (may have been stripped during storage load)
+  ensureDomain(graph, domain);
+
+  // Strip empty fields unless forced
+  const filteredFields = options?.force ? fields : stripEmptyFields(fields as Record<string, unknown>);
+
+  if (Object.keys(filteredFields).length === 0) {
+    if (options?.debug) {
+      console.log(`[setDomainFields] All fields empty for ${domain}, skipping`);
+    }
+    return graph;
+  }
+
+  for (const [key, value] of Object.entries(filteredFields)) {
     if (value === undefined) continue;
 
-    const fieldKey = key as keyof CompanyContextGraph[D];
-    const fieldData = graph[domain][fieldKey] as WithMetaType<unknown> | WithMetaArrayType<unknown> | undefined;
-
-    // Skip if field doesn't exist in the domain schema
-    if (!fieldData || typeof fieldData !== 'object' || !('provenance' in fieldData)) {
-      console.warn(`[setDomainFields] Skipping unknown field ${domain}.${key}`);
+    // DOMAIN AUTHORITY GATE: Check per-field authorization
+    const authCheck = isAuthorizedToWrite(domain, key, provenance.source);
+    if (!authCheck.authorized) {
+      console.warn(`[setDomainFields] BLOCKED: ${domain}.${key} - ${authCheck.reason}`);
+      // Log flow event for authority block
+      logWriteBlockedAuthority(
+        graph.companyId,
+        domain,
+        key,
+        provenance.source,
+        []
+      );
       continue;
     }
+
+    const fieldKey = key as keyof CompanyContextGraph[D];
+    const rawFieldData = graph[domain][fieldKey] as WithMetaType<unknown> | WithMetaArrayType<unknown> | undefined;
+
+    // Initialize field if it doesn't exist (stripped during storage load)
+    const fieldData = rawFieldData || { value: null, provenance: [] };
+    const existingProvenance = fieldData.provenance || [];
 
     // Check source priority unless forced
     if (!options?.force) {
       const priorityCheck = canSourceOverwrite(
         domain,
-        fieldData.provenance || [],
+        existingProvenance,
         provenance.source,
         provenance.confidence
       );
@@ -431,18 +650,18 @@ export function setDomainFields<D extends DomainName>(
       }
     }
 
-    // Check if this is an array field
-    const isArrayField = Array.isArray(fieldData.value) || (fieldData.value === null && Array.isArray(value));
+    // Check if this is an array field (based on value type)
+    const isArrayField = Array.isArray(fieldData.value) || Array.isArray(value);
 
     if (isArrayField) {
       (graph[domain][fieldKey] as WithMetaArrayType<unknown>) = {
         value: value as unknown[],
-        provenance: [provenance, ...fieldData.provenance.slice(0, 4)],
+        provenance: [provenance, ...existingProvenance.slice(0, 4)],
       };
     } else {
       (graph[domain][fieldKey] as WithMetaType<unknown>) = {
         value,
-        provenance: [provenance, ...fieldData.provenance.slice(0, 4)],
+        provenance: [provenance, ...existingProvenance.slice(0, 4)],
       };
     }
   }
@@ -469,26 +688,54 @@ export function setDomainFieldsWithResult<D extends DomainName>(
   provenance: ProvenanceTag,
   options?: SetFieldOptions
 ): { graph: CompanyContextGraph; result: SetDomainFieldsResult } {
+  // Ensure domain exists (may have been stripped during storage load)
+  ensureDomain(graph, domain);
+
+  // Strip empty fields unless forced
+  const filteredFields = options?.force ? fields : stripEmptyFields(fields as Record<string, unknown>);
+
+  if (Object.keys(filteredFields).length === 0) {
+    return {
+      graph,
+      result: { updated: 0, blocked: 0, blockedPaths: [] },
+    };
+  }
+
   let updated = 0;
   let blocked = 0;
   const blockedPaths: string[] = [];
 
-  for (const [key, value] of Object.entries(fields)) {
+  for (const [key, value] of Object.entries(filteredFields)) {
     if (value === undefined) continue;
 
-    const fieldKey = key as keyof CompanyContextGraph[D];
-    const fieldData = graph[domain][fieldKey] as WithMetaType<unknown> | WithMetaArrayType<unknown> | undefined;
-
-    // Skip if field doesn't exist in the domain schema
-    if (!fieldData || typeof fieldData !== 'object' || !('provenance' in fieldData)) {
+    // DOMAIN AUTHORITY GATE: Check per-field authorization
+    const authCheck = isAuthorizedToWrite(domain, key, provenance.source);
+    if (!authCheck.authorized) {
+      blocked++;
+      blockedPaths.push(`${domain}.${key}`);
+      // Log flow event for authority block
+      logWriteBlockedAuthority(
+        graph.companyId,
+        domain,
+        key,
+        provenance.source,
+        []
+      );
       continue;
     }
+
+    const fieldKey = key as keyof CompanyContextGraph[D];
+    const rawFieldData = graph[domain][fieldKey] as WithMetaType<unknown> | WithMetaArrayType<unknown> | undefined;
+
+    // Initialize field if it doesn't exist (stripped during storage load)
+    const fieldData = rawFieldData || { value: null, provenance: [] };
+    const existingProvenance = fieldData.provenance || [];
 
     // Check source priority unless forced
     if (!options?.force) {
       const priorityCheck = canSourceOverwrite(
         domain,
-        fieldData.provenance || [],
+        existingProvenance,
         provenance.source,
         provenance.confidence
       );
@@ -500,18 +747,18 @@ export function setDomainFieldsWithResult<D extends DomainName>(
       }
     }
 
-    // Check if this is an array field
-    const isArrayField = Array.isArray(fieldData.value) || (fieldData.value === null && Array.isArray(value));
+    // Check if this is an array field (based on value type)
+    const isArrayField = Array.isArray(fieldData.value) || Array.isArray(value);
 
     if (isArrayField) {
       (graph[domain][fieldKey] as WithMetaArrayType<unknown>) = {
         value: value as unknown[],
-        provenance: [provenance, ...fieldData.provenance.slice(0, 4)],
+        provenance: [provenance, ...existingProvenance.slice(0, 4)],
       };
     } else {
       (graph[domain][fieldKey] as WithMetaType<unknown>) = {
         value,
-        provenance: [provenance, ...fieldData.provenance.slice(0, 4)],
+        provenance: [provenance, ...existingProvenance.slice(0, 4)],
       };
     }
 
@@ -696,4 +943,133 @@ export function markFusionComplete(
   graph.meta.lastFusionRunId = runId;
   graph.meta.updatedAt = new Date().toISOString();
   return graph;
+}
+
+// ============================================================================
+// Human Confirmation
+// ============================================================================
+
+/**
+ * Mark a field as human-confirmed
+ *
+ * Human-confirmed fields cannot be overwritten by AI/Lab sources
+ * unless force=true is used. Only 'user' or 'manual' sources can
+ * update confirmed fields.
+ *
+ * @param graph - The context graph
+ * @param domain - Domain name (e.g., 'brand', 'identity')
+ * @param field - Field name within the domain
+ * @param confirmedBy - Optional user ID for audit trail
+ * @returns Updated graph with humanConfirmed flag set
+ */
+export function confirmField(
+  graph: CompanyContextGraph,
+  domain: string,
+  field: string,
+  confirmedBy?: string
+): CompanyContextGraph {
+  const domainObj = graph[domain as DomainName] as Record<string, WithMetaType<unknown>>;
+  if (!domainObj || typeof domainObj !== 'object') {
+    console.warn(`[confirmField] Domain ${domain} not found`);
+    return graph;
+  }
+
+  const fieldData = domainObj[field];
+  if (!fieldData || typeof fieldData !== 'object') {
+    console.warn(`[confirmField] Field ${domain}.${field} not found`);
+    return graph;
+  }
+
+  const latestProvenance = fieldData.provenance?.[0];
+  if (!latestProvenance) {
+    console.warn(`[confirmField] Field ${domain}.${field} has no provenance`);
+    return graph;
+  }
+
+  // Update provenance with humanConfirmed flag
+  const now = new Date().toISOString();
+  domainObj[field] = {
+    ...fieldData,
+    provenance: [
+      {
+        ...latestProvenance,
+        humanConfirmed: true,
+        confirmedAt: now,
+        confirmedBy,
+      },
+      ...fieldData.provenance.slice(1),
+    ],
+  };
+
+  graph.meta.updatedAt = now;
+  return graph;
+}
+
+/**
+ * Remove human-confirmed flag from a field
+ *
+ * @param graph - The context graph
+ * @param domain - Domain name
+ * @param field - Field name
+ * @returns Updated graph with humanConfirmed flag removed
+ */
+export function unconfirmField(
+  graph: CompanyContextGraph,
+  domain: string,
+  field: string
+): CompanyContextGraph {
+  const domainObj = graph[domain as DomainName] as Record<string, WithMetaType<unknown>>;
+  if (!domainObj || typeof domainObj !== 'object') {
+    return graph;
+  }
+
+  const fieldData = domainObj[field];
+  if (!fieldData || typeof fieldData !== 'object') {
+    return graph;
+  }
+
+  const latestProvenance = fieldData.provenance?.[0];
+  if (!latestProvenance) {
+    return graph;
+  }
+
+  // Remove humanConfirmed flag
+  const { humanConfirmed, confirmedAt, confirmedBy, ...restProvenance } = latestProvenance;
+
+  domainObj[field] = {
+    ...fieldData,
+    provenance: [
+      restProvenance,
+      ...fieldData.provenance.slice(1),
+    ],
+  };
+
+  graph.meta.updatedAt = new Date().toISOString();
+  return graph;
+}
+
+/**
+ * Check if a field is human-confirmed
+ *
+ * @param graph - The context graph
+ * @param domain - Domain name
+ * @param field - Field name
+ * @returns true if field is human-confirmed
+ */
+export function isFieldConfirmed(
+  graph: CompanyContextGraph,
+  domain: string,
+  field: string
+): boolean {
+  const domainObj = graph[domain as DomainName] as Record<string, WithMetaType<unknown>>;
+  if (!domainObj || typeof domainObj !== 'object') {
+    return false;
+  }
+
+  const fieldData = domainObj[field];
+  if (!fieldData || typeof fieldData !== 'object') {
+    return false;
+  }
+
+  return fieldData.provenance?.[0]?.humanConfirmed === true;
 }
