@@ -1,18 +1,22 @@
 'use client';
 
 // app/c/[companyId]/strategy/StrategyWorkspaceV4Client.tsx
-// Strategy Workspace V4.1 Client Component
+// Strategy Workspace V4.2 Client Component
 //
-// 3-column layout:
-// - Left: Inputs (Context, Competition, Hive Brain summaries) with usage indicators
-// - Center: Working Area (Strategy Artifacts with guided starters + CRUD)
-// - Right: Canonical Strategy (provenance metadata + history)
+// TWO VIEW MODES:
+// 1. "builder" (default) - AI Strategy Builder - single column, AI-forward
+// 2. "workspace" - Advanced 3-column layout with artifacts
 //
-// V4.1 Features:
-// - Guided artifact starters with templates
-// - Traceability between Context → Artifacts → Canonical
-// - Input influence indicators
-// - Artifact usage badges
+// Builder Mode (default):
+// - Single column, low cognitive load
+// - AI Propose is the primary action
+// - Strategy snapshot visible immediately
+// - Artifacts/tools hidden unless expanded
+//
+// Workspace Mode (advanced):
+// - Left: Inputs (Context, Competition, Hive Brain summaries)
+// - Center: Working Area (Strategy Artifacts with guided starters)
+// - Right: Canonical Strategy (provenance metadata)
 
 import { useState, useCallback, useMemo, useEffect, createContext, useContext } from 'react';
 import {
@@ -53,8 +57,16 @@ import {
   Wand2,
   X,
   ExternalLink,
+  Settings2,
+  Play,
+  Lock,
+  Unlock,
 } from 'lucide-react';
-import type { CompanyStrategy } from '@/lib/types/strategy';
+import type { CompanyStrategy, StrategyObjective, StrategyPlay, StrategyFrame } from '@/lib/types/strategy';
+import { getObjectiveText } from '@/lib/types/strategy';
+import { StrategyBlueprint } from '@/components/os/strategy/StrategyBlueprint';
+import { StrategicFrameEditor } from '@/components/os/strategy/StrategicFrameEditor';
+import { StrategyCommandCenter } from '@/components/os/strategy/StrategyCommandCenter';
 import type {
   StrategyArtifact,
   StrategyArtifactType,
@@ -75,12 +87,29 @@ import {
   type StrategyReadiness,
 } from '@/lib/os/strategy/strategyInputsHelpers';
 import { DiffPreview } from '@/components/ui/DiffPreview';
+import Link from 'next/link';
 
 // ============================================================================
 // Strategy Guidance Context
 // ============================================================================
 
 const GUIDANCE_STORAGE_KEY = 'hive-strategy-guidance-enabled';
+const VIEW_MODE_STORAGE_KEY = 'hive-strategy-view-mode';
+
+// ============================================================================
+// View Mode Types
+// ============================================================================
+
+type StrategyViewMode = 'command' | 'builder' | 'workspace';
+
+interface ViewModeContextValue {
+  viewMode: StrategyViewMode;
+  setViewMode: (mode: StrategyViewMode) => void;
+}
+
+// ============================================================================
+// Guidance Context
+// ============================================================================
 
 interface GuidanceContextValue {
   showGuidance: boolean;
@@ -124,6 +153,51 @@ function useGuidanceState(): GuidanceContextValue {
   }, []);
 
   return { showGuidance, toggleGuidance };
+}
+
+// ============================================================================
+// Strategy Proposal Type (for safe AI updates)
+// ============================================================================
+
+interface StrategyProposal {
+  proposedTitle?: string;
+  proposedSummary?: string;
+  proposedPillars?: Array<{ title: string; services?: string[] }>;
+  assumptions?: string[];
+  unknowns?: string[];
+  dependencies?: string[];
+  generatedAt: string;
+}
+
+// ============================================================================
+// View Mode Hook
+// ============================================================================
+
+function useViewMode(): ViewModeContextValue {
+  const [viewMode, setViewModeState] = useState<StrategyViewMode>('command');
+
+  // Load from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+      if (stored === 'command' || stored === 'builder' || stored === 'workspace') {
+        setViewModeState(stored);
+      }
+    } catch {
+      // localStorage not available
+    }
+  }, []);
+
+  const setViewMode = useCallback((mode: StrategyViewMode) => {
+    setViewModeState(mode);
+    try {
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+    } catch {
+      // localStorage not available
+    }
+  }, []);
+
+  return { viewMode, setViewMode };
 }
 
 // ============================================================================
@@ -287,6 +361,8 @@ interface StrategyWorkspaceV4Props {
   initialStrategy: CompanyStrategy | null;
   initialArtifacts: StrategyArtifact[];
   strategyInputs: StrategyInputs;
+  /** Force advanced/workspace mode (opt-in via ?mode=advanced) */
+  forceAdvanced?: boolean;
 }
 
 interface ArtifactFormData {
@@ -305,6 +381,7 @@ export function StrategyWorkspaceV4Client({
   initialStrategy,
   initialArtifacts,
   strategyInputs,
+  forceAdvanced = false,
 }: StrategyWorkspaceV4Props) {
   const [strategy, setStrategy] = useState<CompanyStrategy | null>(initialStrategy);
   const [artifacts, setArtifacts] = useState<StrategyArtifact[]>(initialArtifacts);
@@ -325,6 +402,32 @@ export function StrategyWorkspaceV4Client({
 
   // Guidance state
   const guidance = useGuidanceState();
+
+  // View mode - uses hook for persistence, but forceAdvanced can override to workspace
+  const { viewMode: storedViewMode, setViewMode } = useViewMode();
+  const viewMode: StrategyViewMode = forceAdvanced ? 'workspace' : storedViewMode;
+
+  // Builder-specific state
+  const [advancedExpanded, setAdvancedExpanded] = useState(false);
+  const [aiProposalLoading, setAiProposalLoading] = useState(false);
+  const [showProposalPreview, setShowProposalPreview] = useState(false);
+
+  // Proposal state (safe-by-default: AI generates proposal, user must apply)
+  const [proposal, setProposal] = useState<StrategyProposal | null>(null);
+
+  // Inline editing state
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState('');
+  const [isEditingSummary, setIsEditingSummary] = useState(false);
+  const [editedSummary, setEditedSummary] = useState('');
+  const [isEditingPriorities, setIsEditingPriorities] = useState(false);
+  const [editedPriorities, setEditedPriorities] = useState<string[]>([]);
+  const [savingField, setSavingField] = useState<'title' | 'summary' | 'priorities' | null>(null);
+  const [savedField, setSavedField] = useState<'title' | 'summary' | 'priorities' | null>(null);
+
+  // Finalize state
+  const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
 
   // Details drawer state
   const [detailsDrawerSection, setDetailsDrawerSection] = useState<
@@ -720,36 +823,1311 @@ export function StrategyWorkspaceV4Client({
     hiveBrain: !!strategy?.hiveBrainRevisionId,
   }), [strategy]);
 
+  // Available inputs for AI Propose
+  const availableInputs = useMemo(() => ({
+    context: strategyReadiness.completenessPercent > 0,
+    competition: !!strategyInputs.competition?.competitors?.length,
+    websiteLab: !!strategyInputs.meta.lastUpdatedAt,
+  }), [strategyReadiness, strategyInputs]);
+
+  // AI Propose Strategy handler (Builder mode primary action)
+  // SAFE-BY-DEFAULT: Generates proposal, does NOT directly overwrite canonical strategy
+  const handleAIImproveStrategy = useCallback(async () => {
+    setAiProposalLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/os/strategy/ai-propose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to generate strategy proposal');
+      }
+      // Store as proposal - DO NOT overwrite canonical strategy
+      if (data.strategy) {
+        setProposal({
+          proposedTitle: data.strategy.title,
+          proposedSummary: data.strategy.summary,
+          proposedPillars: data.strategy.pillars?.slice(0, 3).map((p: { title: string; services?: string[] }) => ({
+            title: p.title,
+            services: p.services?.slice(0, 2) || [],
+          })) || [],
+          assumptions: data.assumptions || [],
+          unknowns: data.unknowns || [],
+          dependencies: data.dependencies || [],
+          generatedAt: new Date().toISOString(),
+        });
+        setShowProposalPreview(true);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate strategy proposal');
+    } finally {
+      setAiProposalLoading(false);
+    }
+  }, [companyId]);
+
+  // Apply proposal to canonical strategy
+  const handleApplyProposal = useCallback(async () => {
+    if (!proposal || !strategy?.id) return;
+    setSavingField('summary');
+    setError(null);
+    try {
+      // Build updates object with all proposed changes
+      const updates: Record<string, unknown> = {};
+      if (proposal.proposedTitle) updates.title = proposal.proposedTitle;
+      if (proposal.proposedSummary) updates.summary = proposal.proposedSummary;
+
+      // Map proposed pillars to canonical pillar structure
+      if (proposal.proposedPillars && proposal.proposedPillars.length > 0) {
+        // Merge with existing pillars or create new ones
+        const updatedPillars = proposal.proposedPillars.map((proposed, idx) => {
+          const existing = strategy.pillars?.[idx];
+          return {
+            ...existing,
+            title: proposed.title,
+            services: proposed.services || existing?.services || [],
+          };
+        });
+        updates.pillars = updatedPillars;
+      }
+
+      const response = await fetch(`/api/os/strategy/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          strategyId: strategy.id,
+          updates,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to apply proposal');
+      }
+      if (data.strategy) {
+        setStrategy(data.strategy);
+      }
+      setProposal(null);
+      setShowProposalPreview(false);
+      setSavedField('summary');
+      setTimeout(() => setSavedField(null), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to apply proposal');
+    } finally {
+      setSavingField(null);
+    }
+  }, [proposal, strategy?.id, strategy?.pillars]);
+
+  // Discard proposal
+  const handleDiscardProposal = useCallback(() => {
+    setProposal(null);
+    setShowProposalPreview(false);
+  }, []);
+
+  // Save title inline edit
+  const handleSaveTitle = useCallback(async () => {
+    if (!strategy?.id) return;
+    setSavingField('title');
+    setError(null);
+    try {
+      const response = await fetch(`/api/os/strategy/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          strategyId: strategy.id,
+          updates: { title: editedTitle },
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to save title');
+      }
+      if (data.strategy) {
+        setStrategy(data.strategy);
+      }
+      setIsEditingTitle(false);
+      setSavedField('title');
+      setTimeout(() => setSavedField(null), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save title');
+    } finally {
+      setSavingField(null);
+    }
+  }, [strategy?.id, editedTitle]);
+
+  // Save summary inline edit
+  const handleSaveSummary = useCallback(async () => {
+    if (!strategy?.id) return;
+    setSavingField('summary');
+    setError(null);
+    try {
+      const response = await fetch(`/api/os/strategy/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          strategyId: strategy.id,
+          updates: { summary: editedSummary },
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to save summary');
+      }
+      if (data.strategy) {
+        setStrategy(data.strategy);
+      }
+      setIsEditingSummary(false);
+      setSavedField('summary');
+      setTimeout(() => setSavedField(null), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save summary');
+    } finally {
+      setSavingField(null);
+    }
+  }, [strategy?.id, editedSummary]);
+
+  // Save priorities inline edit
+  const handleSavePriorities = useCallback(async () => {
+    if (!strategy?.id) return;
+    setSavingField('priorities');
+    setError(null);
+    try {
+      // Map edited priority titles back to pillars structure
+      const updatedPillars = strategy.pillars?.map((pillar, idx) => ({
+        ...pillar,
+        title: idx < editedPriorities.length ? editedPriorities[idx] : pillar.title,
+      })) || [];
+
+      const response = await fetch(`/api/os/strategy/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          strategyId: strategy.id,
+          updates: { pillars: updatedPillars },
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to save priorities');
+      }
+      if (data.strategy) {
+        setStrategy(data.strategy);
+      }
+      setIsEditingPriorities(false);
+      setSavedField('priorities');
+      setTimeout(() => setSavedField(null), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save priorities');
+    } finally {
+      setSavingField(null);
+    }
+  }, [strategy?.id, strategy?.pillars, editedPriorities]);
+
+  // Handle finalize
+  const handleFinalize = useCallback(async () => {
+    if (!strategy?.id) return;
+    setFinalizing(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/os/strategy/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ strategyId: strategy.id }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to finalize strategy');
+      }
+      if (data.strategy) {
+        setStrategy(data.strategy);
+      }
+      setShowFinalizeConfirm(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to finalize strategy');
+    } finally {
+      setFinalizing(false);
+    }
+  }, [strategy?.id]);
+
+  // Generic strategy update handler (for Blueprint: objectives, pillars, plays)
+  const handleUpdateStrategy = useCallback(async (updates: Partial<CompanyStrategy>) => {
+    if (!strategy?.id) return;
+    setError(null);
+    try {
+      const response = await fetch(`/api/os/strategy/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          strategyId: strategy.id,
+          updates,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to update strategy');
+      }
+      if (data.strategy) {
+        setStrategy(data.strategy);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update strategy');
+      throw err; // Re-throw so the editor component can handle it
+    }
+  }, [strategy?.id]);
+
+  // Generate work from plays
+  const handleGenerateWork = useCallback(async (playIds: string[]) => {
+    if (!strategy?.id || playIds.length === 0) return;
+    setError(null);
+    try {
+      const response = await fetch(`/api/os/strategy/generate-work`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          strategyId: strategy.id,
+          playIds,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to generate work');
+      }
+      // Optionally refresh strategy if plays were updated with work counts
+      if (data.strategy) {
+        setStrategy(data.strategy);
+      }
+      // TODO: Show success message or redirect to work page
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate work');
+      throw err;
+    }
+  }, [strategy?.id]);
+
+  // Update strategic frame
+  const handleUpdateFrame = useCallback(async (frame: StrategyFrame) => {
+    if (!strategy?.id) return;
+    await handleUpdateStrategy({ strategyFrame: frame });
+  }, [strategy?.id, handleUpdateStrategy]);
+
+  // AI Fill Frame
+  const handleAiFillFrame = useCallback(async (): Promise<StrategyFrame | null> => {
+    try {
+      const response = await fetch('/api/os/strategy/ai-fill-frame', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to generate frame suggestions');
+      }
+      return data.suggestedFrame;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate frame suggestions');
+      return null;
+    }
+  }, [companyId]);
+
+  // Can finalize check
+  const canFinalize = useMemo(() => {
+    return (
+      strategy?.id &&
+      strategy?.status !== 'finalized' &&
+      !proposal && // No pending proposal
+      strategyReadiness.completenessPercent >= 70 // Inputs threshold
+    );
+  }, [strategy?.id, strategy?.status, proposal, strategyReadiness.completenessPercent]);
+
+  const finalizeDisabledReason = useMemo(() => {
+    if (proposal) return 'Resolve proposal before finalizing';
+    if (strategyReadiness.completenessPercent < 70) return 'Complete inputs (70%+) before finalizing';
+    return null;
+  }, [proposal, strategyReadiness.completenessPercent]);
+
+  // Get top 3 priorities/pillars from strategy
+  const topPriorities = useMemo(() => {
+    if (!strategy?.pillars?.length) return [];
+    return strategy.pillars.slice(0, 3).map(p => ({
+      title: p.title,
+      services: p.services?.slice(0, 2) || [],
+    }));
+  }, [strategy?.pillars]);
+
+  // Get missing inputs for Builder banner (with deep links)
+  const missingInputsWithLinks = useMemo(() => {
+    const missing: Array<{ label: string; href: string }> = [];
+    if (!strategyInputs.businessReality?.primaryOffering) {
+      missing.push({
+        label: 'Primary offering',
+        href: getContextDeepLink(companyId, 'businessReality'),
+      });
+    }
+    if (!strategyInputs.businessReality?.icpDescription) {
+      missing.push({
+        label: 'ICP description',
+        href: getContextDeepLink(companyId, 'businessReality'),
+      });
+    }
+    if (!strategyInputs.businessReality?.valueProposition) {
+      missing.push({
+        label: 'Value proposition',
+        href: getContextDeepLink(companyId, 'businessReality'),
+      });
+    }
+    return missing.slice(0, 3);
+  }, [strategyInputs, companyId]);
+
+  // ============================================================================
+  // Handler for Command Center updates
+  // ============================================================================
+  const handleCommandCenterUpdate = useCallback(async (updates: Partial<CompanyStrategy>) => {
+    if (!strategy?.id) {
+      // Create new strategy if none exists
+      try {
+        setLoading(true);
+        const res = await fetch('/api/os/strategy/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            companyId,
+            ...updates,
+          }),
+        });
+        if (!res.ok) throw new Error('Failed to create strategy');
+        const data = await res.json();
+        setStrategy(data.strategy);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to create strategy');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Update existing strategy
+    try {
+      setLoading(true);
+      const res = await fetch('/api/os/strategy/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          strategyId: strategy.id,
+          updates: {
+            ...updates,
+            lastHumanUpdatedAt: new Date().toISOString(),
+          },
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to update strategy');
+      const data = await res.json();
+      setStrategy(data.strategy);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update strategy');
+    } finally {
+      setLoading(false);
+    }
+  }, [strategy?.id, companyId]);
+
+  // Handler for generating tactics
+  const handleGenerateTactics = useCallback(async () => {
+    // TODO: Implement AI tactic generation
+    console.log('[StrategyWorkspace] Generate tactics requested');
+  }, []);
+
+  // Handler for generating work from plays
+  const handleGenerateWorkFromPlays = useCallback(async (playIds: string[]) => {
+    if (!strategy?.id || playIds.length === 0) return;
+    try {
+      await handleGenerateWork(playIds);
+    } catch (err) {
+      console.error('[StrategyWorkspace] Generate work failed:', err);
+    }
+  }, [strategy?.id, handleGenerateWork]);
+
+  // ============================================================================
+  // COMMAND VIEW (3-column Objectives → Strategy → Tactics)
+  // ============================================================================
+  if (viewMode === 'command') {
+    return (
+      <GuidanceContext.Provider value={guidance}>
+        <div className="space-y-4">
+          {/* Dev marker */}
+          {process.env.NODE_ENV !== 'production' && (
+            <div className="mb-2 inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-purple-400 border border-purple-800 bg-purple-950/50 rounded px-2 py-1">
+              <Compass className="w-3 h-3" />
+              Strategy UI: Command Center V5
+            </div>
+          )}
+
+          {/* View Mode Toggle (subtle, top-right) */}
+          <div className="flex justify-end">
+            <div className="inline-flex items-center gap-1 bg-slate-800/50 rounded-lg p-1">
+              <button
+                onClick={() => setViewMode('command')}
+                className="px-3 py-1.5 text-xs font-medium text-white bg-purple-600 rounded-md"
+                title="Command Center"
+              >
+                <Compass className="w-3 h-3 inline mr-1" />
+                Command
+              </button>
+              <button
+                onClick={() => setViewMode('builder')}
+                className="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-300 rounded-md"
+                title="AI Builder"
+              >
+                <Sparkles className="w-3 h-3 inline mr-1" />
+                AI Builder
+              </button>
+              <button
+                onClick={() => setViewMode('workspace')}
+                className="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-300 rounded-md"
+                title="Artifacts & Deep Work"
+              >
+                <Layers className="w-3 h-3 inline mr-1" />
+                Artifacts
+              </button>
+            </div>
+          </div>
+
+          {/* Error Display */}
+          {error && (
+            <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-400">{error}</p>
+              <button
+                onClick={() => setError(null)}
+                className="ml-auto text-red-400 hover:text-red-300"
+              >
+                <XCircle className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Strategy Command Center */}
+          <StrategyCommandCenter
+            companyId={companyId}
+            strategy={strategy}
+            strategyInputs={strategyInputs}
+            onUpdateStrategy={handleCommandCenterUpdate}
+            onGenerateTactics={handleGenerateTactics}
+            onGenerateWork={handleGenerateWorkFromPlays}
+          />
+        </div>
+      </GuidanceContext.Provider>
+    );
+  }
+
+  // ============================================================================
+  // BUILDER VIEW (single column, AI-forward)
+  // ============================================================================
+  if (viewMode === 'builder') {
+    return (
+      <GuidanceContext.Provider value={guidance}>
+      <div className="space-y-4 max-w-3xl mx-auto">
+        {/* Dev marker for UI identification */}
+        {process.env.NODE_ENV !== 'production' && (
+          <div className="mb-2 inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-emerald-400 border border-emerald-800 bg-emerald-950/50 rounded px-2 py-1">
+            <CheckCircle className="w-3 h-3" />
+            Strategy UI: V4 Builder (Editable)
+          </div>
+        )}
+
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-white flex items-center gap-2">
+              <Target className="w-5 h-5 text-amber-400" />
+              Strategy
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">{companyName}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Status pill */}
+            <span
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full ${
+                strategy?.status === 'finalized'
+                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                  : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+              }`}
+            >
+              {strategy?.status === 'finalized' ? (
+                <Lock className="w-3 h-3" />
+              ) : (
+                <Unlock className="w-3 h-3" />
+              )}
+              {strategy?.status === 'finalized' ? 'Finalized' : 'Draft'}
+            </span>
+            {/* View Mode Toggle */}
+            <div className="inline-flex items-center gap-1 bg-slate-800/50 rounded-lg p-1">
+              <button
+                onClick={() => setViewMode('command')}
+                className="px-2.5 py-1 text-xs font-medium text-slate-400 hover:text-slate-300 rounded-md"
+                title="Command Center"
+              >
+                <Compass className="w-3 h-3" />
+              </button>
+              <button
+                className="px-2.5 py-1 text-xs font-medium text-white bg-purple-600 rounded-md"
+                title="AI Builder (current)"
+              >
+                <Sparkles className="w-3 h-3" />
+              </button>
+              <button
+                onClick={() => setViewMode('workspace')}
+                className="px-2.5 py-1 text-xs font-medium text-slate-400 hover:text-slate-300 rounded-md"
+                title="Artifacts"
+              >
+                <Layers className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-red-400">{error}</p>
+            <button
+              onClick={() => setError(null)}
+              className="ml-auto text-red-400 hover:text-red-300"
+            >
+              <XCircle className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* AI Strategy Assistant Panel */}
+        <div className="bg-gradient-to-br from-purple-950/40 to-slate-900 border border-purple-800/50 rounded-xl p-5">
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-purple-500/20 rounded-lg">
+                <Sparkles className="w-5 h-5 text-purple-400" />
+              </div>
+              <div>
+                <h2 className="text-base font-medium text-white">AI Strategy Assistant</h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Improve your strategy using your latest inputs — nothing is overwritten without review.
+                </p>
+              </div>
+            </div>
+            {strategy?.updatedAt && (
+              <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                Last updated: {new Date(strategy.updatedAt).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+
+          {/* Available Inputs */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            <span className="text-xs text-slate-500">AI will use:</span>
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full ${
+              availableInputs.context
+                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                : 'bg-slate-800 text-slate-500 border border-slate-700'
+            }`}>
+              {availableInputs.context ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+              Context
+            </span>
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full ${
+              availableInputs.competition
+                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                : 'bg-slate-800 text-slate-500 border border-slate-700'
+            }`}>
+              {availableInputs.competition ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+              Competition
+            </span>
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full ${
+              availableInputs.websiteLab
+                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                : 'bg-slate-800 text-slate-500 border border-slate-700'
+            }`}>
+              {availableInputs.websiteLab ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+              Website Lab
+            </span>
+          </div>
+
+          {/* Primary CTA */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleAIImproveStrategy}
+              disabled={aiProposalLoading || !!proposal}
+              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg disabled:opacity-50 disabled:cursor-wait transition-colors"
+            >
+              {aiProposalLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Sparkles className="w-4 h-4" />
+              )}
+              {aiProposalLoading ? 'Generating...' : 'Improve Strategy'}
+            </button>
+            {proposal && (
+              <button
+                onClick={() => setShowProposalPreview(true)}
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-lg transition-colors"
+              >
+                <FileText className="w-4 h-4" />
+                Preview changes
+              </button>
+            )}
+          </div>
+
+          {/* Helper text */}
+          <p className="text-[11px] text-slate-500 mt-3">
+            AI proposes updates as a draft. You can accept, edit, or discard.
+          </p>
+        </div>
+
+        {/* Proposal Preview Section */}
+        {proposal && showProposalPreview && (
+          <div className="bg-slate-900 border border-purple-800/50 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-medium text-white flex items-center gap-2">
+                <GitMerge className="w-4 h-4 text-purple-400" />
+                Proposed Changes
+              </h2>
+              <span className="text-[10px] text-slate-500">
+                Generated {new Date(proposal.generatedAt).toLocaleTimeString()}
+              </span>
+            </div>
+
+            {/* Summary Diff */}
+            {proposal.proposedSummary && (
+              <div className="mb-4">
+                <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Summary</h3>
+                <DiffPreview
+                  original={strategy?.summary || '(No current summary)'}
+                  suggested={proposal.proposedSummary}
+                  maxHeight="200px"
+                />
+              </div>
+            )}
+
+            {/* Pillars Diff */}
+            {proposal.proposedPillars && proposal.proposedPillars.length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Top Priorities</h3>
+                <DiffPreview
+                  original={topPriorities.map(p => `• ${p.title}`).join('\n') || '(No current priorities)'}
+                  suggested={proposal.proposedPillars.map(p => `• ${p.title}`).join('\n')}
+                  maxHeight="150px"
+                />
+              </div>
+            )}
+
+            {/* Apply/Discard buttons */}
+            <div className="flex items-center gap-3 pt-3 border-t border-slate-800">
+              <button
+                onClick={handleApplyProposal}
+                disabled={savingField === 'summary'}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg disabled:opacity-50 transition-colors"
+              >
+                {savingField === 'summary' ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <CheckCircle className="w-4 h-4" />
+                )}
+                Apply Changes
+              </button>
+              <button
+                onClick={handleDiscardProposal}
+                className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-400 hover:text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors"
+              >
+                <XCircle className="w-4 h-4" />
+                Discard
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Inputs Banner (compact) with deep links */}
+        {strategyReadiness.completenessPercent < 100 && (
+          <div className="bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`text-sm font-medium ${
+                strategyReadiness.completenessPercent >= 70
+                  ? 'text-emerald-400'
+                  : strategyReadiness.completenessPercent >= 40
+                    ? 'text-amber-400'
+                    : 'text-red-400'
+              }`}>
+                Inputs {strategyReadiness.completenessPercent}% complete
+              </div>
+              {missingInputsWithLinks.length > 0 && (
+                <span className="text-xs text-slate-500">
+                  Missing:{' '}
+                  {missingInputsWithLinks.map((input, idx) => (
+                    <span key={input.label}>
+                      <a
+                        href={input.href}
+                        className="text-cyan-400 hover:text-cyan-300 hover:underline"
+                      >
+                        {input.label}
+                      </a>
+                      {idx < missingInputsWithLinks.length - 1 ? ', ' : ''}
+                    </span>
+                  ))}
+                </span>
+              )}
+            </div>
+            <a
+              href={`/c/${companyId}/context`}
+              className="text-xs text-cyan-400 hover:text-cyan-300 font-medium"
+            >
+              Fix Inputs →
+            </a>
+          </div>
+        )}
+
+        {/* Strategy Snapshot */}
+        {strategy?.id ? (
+          <div id="strategy-frame" className="bg-slate-900 border border-slate-800 rounded-xl p-5 scroll-mt-20">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-medium text-white flex items-center gap-2">
+                <Target className="w-4 h-4 text-amber-400" />
+                Current Strategy
+                {savedField === 'summary' && (
+                  <span className="text-xs text-emerald-400 flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3" /> Saved
+                  </span>
+                )}
+              </h2>
+              <div className="flex items-center gap-2">
+                {/* Finalize Button */}
+                <div className="relative group">
+                  <button
+                    onClick={() => setShowFinalizeConfirm(true)}
+                    disabled={!canFinalize || strategy.status === 'finalized'}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                      strategy.status === 'finalized'
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 cursor-default'
+                        : canFinalize
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20'
+                          : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                    }`}
+                  >
+                    {strategy.status === 'finalized' ? (
+                      <>
+                        <Lock className="w-3 h-3" />
+                        Finalized
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-3 h-3" />
+                        Finalize
+                      </>
+                    )}
+                  </button>
+                  {/* Disabled tooltip */}
+                  {!canFinalize && strategy.status !== 'finalized' && finalizeDisabledReason && (
+                    <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block z-10">
+                      <div className="bg-slate-800 border border-slate-700 text-xs text-slate-300 px-3 py-2 rounded-lg shadow-lg whitespace-nowrap">
+                        {finalizeDisabledReason}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Title - Inline Editable */}
+            <div className="mb-3">
+              {isEditingTitle ? (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={editedTitle}
+                    onChange={(e) => setEditedTitle(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-lg font-semibold text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+                    placeholder="Strategy title..."
+                    autoFocus
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleSaveTitle}
+                      disabled={savingField === 'title'}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
+                    >
+                      {savingField === 'title' ? (
+                        <>
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-3 h-3" />
+                          Save
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsEditingTitle(false);
+                        setEditedTitle(strategy.title || '');
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-300 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  onClick={() => {
+                    if (strategy.status !== 'finalized') {
+                      setEditedTitle(strategy.title || '');
+                      setIsEditingTitle(true);
+                    }
+                  }}
+                  className={`flex items-center gap-2 ${
+                    strategy.status !== 'finalized' ? 'cursor-pointer hover:bg-slate-800/50 rounded-lg px-2 py-1 -mx-2 -my-1 group' : ''
+                  }`}
+                  title={strategy.status !== 'finalized' ? 'Click to edit title' : undefined}
+                >
+                  <span className="text-lg font-semibold text-white">
+                    {strategy.title || (
+                      <span className="text-slate-500 italic font-normal">Untitled Strategy</span>
+                    )}
+                  </span>
+                  {strategy.status !== 'finalized' && (
+                    <Edit3 className="w-3.5 h-3.5 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  )}
+                  {savedField === 'title' && (
+                    <span className="text-xs text-emerald-400 flex items-center gap-1">
+                      <CheckCircle className="w-3 h-3" /> Saved
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Summary - Inline Editable */}
+            <div className="mb-4">
+              {isEditingSummary ? (
+                <div className="space-y-2">
+                  <textarea
+                    value={editedSummary}
+                    onChange={(e) => setEditedSummary(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 resize-none"
+                    rows={4}
+                    placeholder="Enter strategy summary..."
+                    autoFocus
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleSaveSummary}
+                      disabled={savingField === 'summary'}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
+                    >
+                      {savingField === 'summary' ? (
+                        <>
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-3 h-3" />
+                          Save
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsEditingSummary(false);
+                        setEditedSummary(strategy.summary || '');
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-300 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  onClick={() => {
+                    if (strategy.status !== 'finalized') {
+                      setEditedSummary(strategy.summary || '');
+                      setIsEditingSummary(true);
+                    }
+                  }}
+                  className={`text-sm text-slate-300 leading-relaxed ${
+                    strategy.status !== 'finalized' ? 'cursor-pointer hover:bg-slate-800/50 rounded-lg px-2 py-1 -mx-2 -my-1' : ''
+                  }`}
+                  title={strategy.status !== 'finalized' ? 'Click to edit' : undefined}
+                >
+                  {strategy.summary || (
+                    <span className="text-slate-500 italic">No summary yet. Click to add one.</span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Top Priorities - Inline Editable */}
+            <div id="priorities" className="space-y-2 mb-4 scroll-mt-20">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                  Top Priorities
+                </h3>
+                {savedField === 'priorities' && (
+                  <span className="text-xs text-emerald-400 flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3" /> Saved
+                  </span>
+                )}
+              </div>
+              {isEditingPriorities ? (
+                <div className="space-y-2">
+                  {editedPriorities.map((priority, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <span className="w-5 h-5 flex items-center justify-center bg-amber-500/10 text-amber-400 rounded text-xs font-medium flex-shrink-0">
+                        {idx + 1}
+                      </span>
+                      <input
+                        type="text"
+                        value={priority}
+                        onChange={(e) => {
+                          const updated = [...editedPriorities];
+                          updated[idx] = e.target.value;
+                          setEditedPriorities(updated);
+                        }}
+                        className="flex-1 px-2 py-1 bg-slate-800 border border-slate-600 rounded text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+                      />
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      onClick={handleSavePriorities}
+                      disabled={savingField === 'priorities'}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
+                    >
+                      {savingField === 'priorities' ? (
+                        <>
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-3 h-3" />
+                          Save
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsEditingPriorities(false);
+                        setEditedPriorities(topPriorities.map(p => p.title));
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-300 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : topPriorities.length > 0 ? (
+                <div
+                  onClick={() => {
+                    if (strategy.status !== 'finalized') {
+                      setEditedPriorities(topPriorities.map(p => p.title));
+                      setIsEditingPriorities(true);
+                    }
+                  }}
+                  className={`space-y-2 ${
+                    strategy.status !== 'finalized' ? 'cursor-pointer hover:bg-slate-800/50 rounded-lg px-2 py-1 -mx-2 -my-1' : ''
+                  }`}
+                  title={strategy.status !== 'finalized' ? 'Click to edit' : undefined}
+                >
+                  {topPriorities.map((priority, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      <span className="w-5 h-5 flex items-center justify-center bg-amber-500/10 text-amber-400 rounded text-xs font-medium">
+                        {idx + 1}
+                      </span>
+                      <span className="text-slate-300">{priority.title}</span>
+                      {priority.services.length > 0 && (
+                        <span className="text-xs text-slate-500">
+                          ({priority.services.join(', ')})
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500 italic">
+                  No priorities defined yet.
+                </p>
+              )}
+            </div>
+
+            {/* Next Best Action */}
+            {strategy.objectives?.[0] && (
+              <div className="bg-slate-800/50 rounded-lg px-3 py-2 flex items-center gap-2">
+                <Zap className="w-4 h-4 text-amber-400" />
+                <span className="text-xs text-slate-400">Next:</span>
+                <span className="text-sm text-slate-300">{getObjectiveText(strategy.objectives[0])}</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center">
+            <Target className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+            <h2 className="text-base font-medium text-slate-400 mb-2">No Strategy Yet</h2>
+            <p className="text-sm text-slate-500 mb-4">
+              Use AI Propose above to generate your first strategy
+            </p>
+          </div>
+        )}
+
+        {/* Strategic Frame Editor */}
+        {strategy?.id && (
+          <StrategicFrameEditor
+            frame={strategy.strategyFrame}
+            onUpdate={handleUpdateFrame}
+            onAiFill={handleAiFillFrame}
+            companyId={companyId}
+            isFinalized={strategy.status === 'finalized'}
+          />
+        )}
+
+        {/* Strategy Blueprint (V5) - Objectives, Pillars, Plays */}
+        {strategy?.id && (
+          <div id="objectives" className="scroll-mt-20">
+          <StrategyBlueprint
+            companyId={companyId}
+            strategy={strategy}
+            strategyInputs={strategyInputs}
+            onUpdateStrategy={handleUpdateStrategy}
+            onGenerateWork={handleGenerateWork}
+            isFinalized={strategy.status === 'finalized'}
+          />
+          </div>
+        )}
+
+        {/* Tactics Section Anchor */}
+        <div id="tactics" className="scroll-mt-20" />
+
+        {/* Finalize Confirmation Dialog */}
+        {showFinalizeConfirm && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 flex items-center justify-center bg-emerald-500/10 rounded-lg flex-shrink-0">
+                  <Lock className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-white mb-2">
+                    Finalize Strategy?
+                  </h3>
+                  <p className="text-sm text-slate-400 mb-4">
+                    Once finalized, this strategy will be locked and cannot be edited.
+                    You can still generate new strategy proposals with AI.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleFinalize}
+                      disabled={finalizing}
+                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg disabled:opacity-50 transition-colors"
+                    >
+                      {finalizing ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          Finalizing...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-4 h-4" />
+                          Yes, Finalize
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setShowFinalizeConfirm(false)}
+                      className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-slate-300 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Advanced Section (collapsed) */}
+        <div className="border border-slate-800 rounded-lg">
+          <button
+            onClick={() => setAdvancedExpanded(!advancedExpanded)}
+            className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-400 hover:text-slate-300"
+          >
+            <span className="flex items-center gap-2">
+              <Layers className="w-4 h-4" />
+              Advanced Options
+              <span className="text-xs text-slate-500">
+                ({artifacts.length} artifact{artifacts.length !== 1 ? 's' : ''})
+              </span>
+            </span>
+            {advancedExpanded ? (
+              <ChevronDown className="w-4 h-4" />
+            ) : (
+              <ChevronRight className="w-4 h-4" />
+            )}
+          </button>
+
+          {advancedExpanded && (
+            <div className="border-t border-slate-800 p-4 space-y-3">
+              {/* Artifacts list */}
+              {artifacts.length > 0 ? (
+                <div className="space-y-2">
+                  {artifacts.slice(0, 5).map(artifact => (
+                    <div
+                      key={artifact.id}
+                      className="flex items-center justify-between px-3 py-2 bg-slate-800/50 rounded-lg"
+                    >
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-slate-500" />
+                        <span className="text-sm text-slate-300">{artifact.title}</span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${ARTIFACT_STATUS_COLORS[artifact.status]}`}>
+                          {ARTIFACT_STATUS_LABELS[artifact.status]}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  {artifacts.length > 5 && (
+                    <p className="text-xs text-slate-500 text-center">
+                      +{artifacts.length - 5} more artifacts
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500 text-center py-2">
+                  No artifacts yet
+                </p>
+              )}
+
+              {/* Link to advanced workspace (opt-in) */}
+              <Link
+                href={`/c/${companyId}/strategy?mode=advanced`}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-400 bg-slate-800/30 hover:bg-slate-800/50 border border-slate-700/50 rounded-lg transition-colors"
+              >
+                <Settings2 className="w-4 h-4" />
+                Open Advanced Workspace (Legacy)
+              </Link>
+            </div>
+          )}
+        </div>
+
+      </div>
+      </GuidanceContext.Provider>
+    );
+  }
+
+  // ============================================================================
+  // WORKSPACE VIEW (3-column layout) - Artifacts & Deep Work
+  // Access only via ?mode=advanced or view mode toggle
+  // ============================================================================
   return (
     <GuidanceContext.Provider value={guidance}>
     <div className="space-y-4">
+      {/* View Mode Toggle */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-white flex items-center gap-2">
+          <Layers className="w-5 h-5 text-amber-400" />
+          Artifacts & Deep Work
+        </h1>
+        <div className="inline-flex items-center gap-1 bg-slate-800/50 rounded-lg p-1">
+          <button
+            onClick={() => setViewMode('command')}
+            className="px-2.5 py-1 text-xs font-medium text-slate-400 hover:text-slate-300 rounded-md"
+            title="Command Center"
+          >
+            <Compass className="w-3 h-3" />
+          </button>
+          <button
+            onClick={() => setViewMode('builder')}
+            className="px-2.5 py-1 text-xs font-medium text-slate-400 hover:text-slate-300 rounded-md"
+            title="AI Builder"
+          >
+            <Sparkles className="w-3 h-3" />
+          </button>
+          <button
+            className="px-2.5 py-1 text-xs font-medium text-white bg-amber-600 rounded-md"
+            title="Artifacts (current)"
+          >
+            <Layers className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+
+      {/* Info Banner */}
+      <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Info className="w-5 h-5 text-slate-400" />
+            <div>
+              <p className="text-slate-300 font-medium">Artifacts & Deep Work</p>
+              <p className="text-slate-400 text-sm">
+                Create and manage strategy artifacts, explore growth options, and document assumptions.
+              </p>
+            </div>
+          </div>
+          <Link
+            href={`/c/${companyId}/strategy`}
+            className="px-4 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 rounded-lg text-sm transition-colors"
+          >
+            Back to Builder
+          </Link>
+        </div>
+        <p className="text-amber-200/40 text-xs mt-2">
+          Changes here may not be supported long-term.
+        </p>
+      </div>
+
+      {/* Dev marker for UI identification */}
+      {process.env.NODE_ENV !== 'production' && (
+        <div className="mb-2 inline-flex text-[10px] uppercase tracking-wide text-amber-400 border border-amber-800 bg-amber-950/50 rounded px-2 py-1">
+          Strategy UI: V4 Workspace (Advanced - Deprecated)
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-white flex items-center gap-2">
             <Target className="w-5 h-5 text-amber-400" />
-            Strategy Workspace V4
+            Advanced Strategy Workspace
           </h1>
           <p className="text-sm text-slate-500 mt-1">
             Build and promote strategy artifacts for {companyName}
           </p>
         </div>
-        {/* Guidance Toggle */}
-        <button
-          onClick={guidance.toggleGuidance}
-          className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-300 bg-slate-800/50 border border-slate-700 rounded-lg hover:bg-slate-800 transition-colors"
-          title="Show or hide guidance on how to build a strategy"
-        >
-          {guidance.showGuidance ? (
-            <ToggleRight className="w-4 h-4 text-cyan-400" />
-          ) : (
-            <ToggleLeft className="w-4 h-4" />
-          )}
-          <span className={guidance.showGuidance ? 'text-cyan-400' : ''}>
-            Strategy guidance
-          </span>
-          <HelpCircle className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Back to Builder - navigates to canonical URL */}
+          <Link
+            href={`/c/${companyId}/strategy`}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 rounded-lg hover:bg-cyan-500/20 transition-colors"
+          >
+            <ArrowRight className="w-3.5 h-3.5 rotate-180" />
+            Back to Builder
+          </Link>
+          {/* Guidance Toggle */}
+          <button
+            onClick={guidance.toggleGuidance}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-300 bg-slate-800/50 border border-slate-700 rounded-lg hover:bg-slate-800 transition-colors"
+            title="Show or hide guidance on how to build a strategy"
+          >
+            {guidance.showGuidance ? (
+              <ToggleRight className="w-4 h-4 text-cyan-400" />
+            ) : (
+              <ToggleLeft className="w-4 h-4" />
+            )}
+            <span className={guidance.showGuidance ? 'text-cyan-400' : ''}>
+              Guidance
+            </span>
+            <HelpCircle className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* Error */}
@@ -1480,7 +2858,7 @@ function StrategyInputSection({
                 onClick={(e) => e.stopPropagation()}
               >
                 <ExternalLink className="w-3 h-3" />
-                Fix in Context
+                Update Facts
               </a>
             )}
             {onImproveWithAI && (

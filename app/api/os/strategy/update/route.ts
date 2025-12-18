@@ -9,6 +9,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { strategyId, updates } = body;
 
+    console.log('[API strategy/update] Request:', { strategyId, updates });
+
     if (!strategyId) {
       return NextResponse.json({ error: 'Missing strategyId' }, { status: 400 });
     }
@@ -17,6 +19,8 @@ export async function POST(request: NextRequest) {
       strategyId,
       updates: updates || {},
     });
+
+    console.log('[API strategy/update] Result strategyFrame:', strategy.strategyFrame);
 
     return NextResponse.json({ strategy });
   } catch (error) {

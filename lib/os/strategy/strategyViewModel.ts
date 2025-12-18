@@ -12,6 +12,7 @@
 //   - competitive rationale/tradeoff empty
 
 import type { CompanyStrategy, StrategyPillar } from '@/lib/types/strategy';
+import { getObjectiveText } from '@/lib/types/strategy';
 import type {
   CompanyStrategyV2,
   StrategyPillarV2,
@@ -40,7 +41,11 @@ export interface StrategyPillarViewModel {
   needsReview: boolean;
   /** Services from V1 (for backwards compat display) */
   services?: string[];
-  /** KPIs from V1 (for backwards compat display) */
+  /**
+   * @deprecated KPIs should only exist on Objectives, not Strategic Bets.
+   * This field is kept for backward compatibility with legacy data.
+   * New bets should NOT have KPIs - metrics belong in Objectives only.
+   */
   kpis?: string[];
 }
 
@@ -176,7 +181,7 @@ export function strategyV1ToViewModel(strategy: CompanyStrategy): StrategyViewMo
 
   // Infer strategic choices from V1 data (will be incomplete)
   const strategicChoices: StrategicChoices = {
-    whoWeWinWith: strategy.objectives?.[0] || '',
+    whoWeWinWith: strategy.objectives?.[0] ? getObjectiveText(strategy.objectives[0]) : '',
     whereWeFocus: pillars[0]?.pillarName || '',
     howWeDifferentiate: '',
     whatWeDeprioritize: '',

@@ -225,8 +225,8 @@ export async function getStrategyInputs(companyId: string): Promise<StrategyInpu
     stage: unwrap(graph.identity?.marketMaturity),
     businessModel: unwrap(graph.identity?.businessModel),
     primaryOffering: unwrap(graph.productOffer?.primaryProducts)?.[0] || null,
-    primaryAudience: unwrap(graph.audience?.primaryAudience) || coreSegments[0] || unwrap(graph.identity?.icpDescription),
-    icpDescription: unwrap(graph.identity?.icpDescription),
+    primaryAudience: unwrap(graph.audience?.primaryAudience) || coreSegments[0] || unwrap(graph.audience?.icpDescription),
+    icpDescription: unwrap(graph.audience?.icpDescription),
     goals: buildGoals(graph),
     valueProposition: unwrap(graph.brand?.positioning) || unwrap(graph.brand?.valueProps)?.[0] || null,
     industry: unwrap(graph.identity?.industry),
@@ -254,7 +254,8 @@ export async function getStrategyInputs(companyId: string): Promise<StrategyInpu
   };
 
   // Build competitive landscape
-  const competitors = unwrap(graph.competitive?.competitors) || [];
+  const rawCompetitors = unwrap(graph.competitive?.competitors);
+  const competitors = Array.isArray(rawCompetitors) ? rawCompetitors : [];
   const competition: CompetitiveLandscape = {
     competitors: competitors.slice(0, 10).map((c: CompetitorProfile) => ({
       name: c.name,
@@ -327,8 +328,8 @@ export async function getStrategyInputsWithProvenance(
     stage: unwrap(graph.identity?.marketMaturity),
     businessModel: unwrap(graph.identity?.businessModel),
     primaryOffering: unwrap(graph.productOffer?.primaryProducts)?.[0] || null,
-    primaryAudience: unwrap(graph.audience?.primaryAudience) || coreSegmentsProv[0] || unwrap(graph.identity?.icpDescription),
-    icpDescription: unwrap(graph.identity?.icpDescription),
+    primaryAudience: unwrap(graph.audience?.primaryAudience) || coreSegmentsProv[0] || unwrap(graph.audience?.icpDescription),
+    icpDescription: unwrap(graph.audience?.icpDescription),
     goals: buildGoals(graph),
     valueProposition: unwrap(graph.brand?.positioning) || unwrap(graph.brand?.valueProps)?.[0] || null,
     industry: unwrap(graph.identity?.industry),
@@ -337,8 +338,8 @@ export async function getStrategyInputsWithProvenance(
       stage: getProvenance(graph.identity?.marketMaturity, 'identity.marketMaturity'),
       businessModel: getProvenance(graph.identity?.businessModel, 'identity.businessModel'),
       primaryOffering: getProvenance(graph.productOffer?.primaryProducts, 'productOffer.primaryProducts'),
-      primaryAudience: getProvenance(graph.identity?.icpDescription, 'identity.icpDescription'),
-      icpDescription: getProvenance(graph.identity?.icpDescription, 'identity.icpDescription'),
+      primaryAudience: getProvenance(graph.audience?.icpDescription, 'audience.icpDescription'),
+      icpDescription: getProvenance(graph.audience?.icpDescription, 'audience.icpDescription'),
       goals: getProvenance(graph.objectives?.primaryObjective, 'objectives.primaryObjective'),
       valueProposition: getProvenance(graph.brand?.positioning, 'brand.positioning'),
       industry: getProvenance(graph.identity?.industry, 'identity.industry'),
