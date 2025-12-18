@@ -479,7 +479,7 @@ export function getFixLink(companyId: string, key: string): {
   const field = getRegistryEntry(key);
   return {
     href: getContextDeepLink(companyId, key),
-    label: 'Fix in Context',
+    label: 'Update Facts',
     fieldLabel: field?.shortLabel || field?.label || key,
   };
 }

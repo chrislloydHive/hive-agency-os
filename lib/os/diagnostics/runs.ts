@@ -665,19 +665,20 @@ export async function listDiagnosticRunsForCompany(
       if (!errorText) {
         errorText = statusText || 'No error body returned from Airtable';
       }
+      // Return empty array for common errors (table not found, invalid formula, missing auth, etc.)
+      // This keeps the UI functional even if the Diagnostic Runs table or API credentials are misconfigured.
+      const softFailStatuses = [400, 401, 403, 404, 422];
+      if (softFailStatuses.includes(response.status)) {
+        // Silent soft-fail - table may not exist yet, which is fine
+        return [];
+      }
+      // Only log unexpected errors
       console.error('[DiagnosticRuns] Airtable API error:', {
         status: response.status,
         errorText,
         companyId,
         filterFormula,
       });
-      // Return empty array for common errors (table not found, invalid formula, missing auth, etc.)
-      // This keeps the UI functional even if the Diagnostic Runs table or API credentials are misconfigured.
-      const softFailStatuses = [400, 401, 403, 404, 422];
-      if (softFailStatuses.includes(response.status)) {
-        console.warn(`[DiagnosticRuns] Table query failed (${response.status}), returning empty array`);
-        return [];
-      }
       throw new Error(`Airtable API error (${response.status}): ${errorText}`);
     }
 

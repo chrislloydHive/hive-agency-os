@@ -5,6 +5,7 @@ import {
   createRecord,
   updateRecord,
   getAirtableConfig,
+  fetchWithRetry,
 } from '@/lib/airtable/client';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import type {
@@ -407,7 +408,7 @@ export async function getGapIaRunById(
       config.baseId
     }/${encodeURIComponent(GAP_IA_RUN_TABLE)}/${id}`;
 
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
@@ -512,7 +513,7 @@ export async function listRecentGapIaRuns(limit: number = 20): Promise<GapIaRun[
       GAP_IA_RUN_TABLE
     )}?maxRecords=${limit}&sort[0][field]=Created%20At&sort[0][direction]=desc&filterByFormula=${encodeURIComponent('NOT({Archived})')}`;
 
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
@@ -564,7 +565,7 @@ export async function getGapIaRunByUrl(
       'AND({Status}="completed", NOT({Archived}))'
     )}`;
 
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
@@ -629,7 +630,7 @@ export async function getGapIaRunsForCompany(
       GAP_IA_RUN_TABLE
     )}?maxRecords=100&sort[0][field]=Created%20At&sort[0][direction]=desc&filterByFormula=${encodeURIComponent('NOT({Archived})')}`;
 
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
@@ -679,7 +680,7 @@ export async function getGapIaRunsForCompanyOrDomain(
       GAP_IA_RUN_TABLE
     )}?maxRecords=100&sort[0][field]=Created%20At&sort[0][direction]=desc&filterByFormula=${encodeURIComponent('NOT({Archived})')}`;
 
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${config.apiKey}`,

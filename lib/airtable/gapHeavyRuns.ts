@@ -522,7 +522,7 @@ export async function getHeavyGapRunById(
       HEAVY_TABLE
     )}/${id}`;
 
-    const response = await fetch(url, {
+    const response = await fetchWithRateLimitRetry(url, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
@@ -617,7 +617,7 @@ export async function getHeavyGapRunByGapPlanRunId(
       HEAVY_TABLE
     )}?filterByFormula=${encodeURIComponent(filterFormula)}&maxRecords=1`;
 
-    const response = await fetch(url, {
+    const response = await fetchWithRateLimitRetry(url, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${config.apiKey}`,
@@ -674,7 +674,7 @@ export async function listRecentGapHeavyRuns(limit: number = 20): Promise<HeavyG
       HEAVY_TABLE
     )}?maxRecords=${limit}&sort[0][field]=Created%20At&sort[0][direction]=desc&filterByFormula=${encodeURIComponent('NOT({Archived})')}`;
 
-    const response = await fetch(url, {
+    const response = await fetchWithRateLimitRetry(url, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${config.apiKey}`,

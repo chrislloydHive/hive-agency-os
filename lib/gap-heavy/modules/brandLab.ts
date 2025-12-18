@@ -269,12 +269,62 @@ export const BrandActionPlanSchema = z.object({
 export type BrandActionPlan = z.infer<typeof BrandActionPlanSchema>;
 
 // ============================================================================
+// CANONICAL FINDINGS - Context Graph Population
+// ============================================================================
+
+/**
+ * Brand Lab Canonical Findings
+ * These are the ONLY fields that get written to the Context Graph.
+ * Must be actual content, NOT evaluations or scores.
+ */
+export const BrandLabFindingsSchema = z.object({
+  positioning: z.object({
+    statement: z.string().describe('1 sentence, customer-facing positioning statement'),
+    summary: z.string().describe('2-4 sentences explaining differentiation'),
+    confidence: z.number().min(0).max(1),
+  }),
+  valueProp: z.object({
+    headline: z.string().describe('Short, punchy value proposition headline'),
+    description: z.string().describe('1-3 sentences elaborating the value'),
+    confidence: z.number().min(0).max(1),
+  }),
+  differentiators: z.object({
+    bullets: z.array(z.string()).describe('3-7 specific differentiators'),
+    confidence: z.number().min(0).max(1),
+  }),
+  icp: z.object({
+    primaryAudience: z.string().describe('1-2 sentences: WHO + WHY they buy'),
+    buyerRoles: z.array(z.string()).optional(),
+    confidence: z.number().min(0).max(1),
+  }),
+  messaging: z.object({
+    pillars: z.array(z.object({
+      title: z.string(),
+      support: z.string(),
+    })).describe('3-6 messaging pillars'),
+    proofPoints: z.array(z.string()).optional(),
+    confidence: z.number().min(0).max(1),
+  }),
+  toneOfVoice: z.object({
+    enabled: z.boolean().default(true),
+    descriptor: z.string().optional().describe('e.g. "Professional, technical, direct"'),
+    doList: z.array(z.string()).optional(),
+    dontList: z.array(z.string()).optional(),
+    confidence: z.number().min(0).max(1).optional(),
+  }).optional(),
+});
+
+export type BrandLabFindings = z.infer<typeof BrandLabFindingsSchema>;
+
+// ============================================================================
 // BRAND LAB RESULT - Complete Output
 // ============================================================================
 
 export const BrandLabResultSchema = z.object({
   diagnostic: BrandDiagnosticResultSchema,
   actionPlan: BrandActionPlanSchema,
+  /** Canonical findings for Context Graph population */
+  findings: BrandLabFindingsSchema.optional(),
   // Future: narrativeReport
 });
 

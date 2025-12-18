@@ -58,7 +58,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     // Use fields that actually exist in the context graph schema
     const companyContext = {
       name: company?.name || 'Unknown Company',
-      description: extractValue(contextGraph?.identity?.icpDescription),
+      description: extractValue(contextGraph?.audience?.icpDescription),
       valueProposition: extractValue(contextGraph?.brand?.positioning),
       targetAudience: extractValue(contextGraph?.audience?.primaryAudience),
       industry: extractValue(contextGraph?.identity?.industry),

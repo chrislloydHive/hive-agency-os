@@ -331,6 +331,7 @@ async function loadDiscoveryContext(companyId: string): Promise<DiscoveryContext
     }
 
     const identity = graph.identity;
+    const audience = graph.audience;
     const competitive = graph.competitive;
     const productOffer = graph.productOffer;
     const brand = graph.brand;
@@ -365,7 +366,7 @@ async function loadDiscoveryContext(companyId: string): Promise<DiscoveryContext
       domain: companyDomain,
       industry: identity?.industry?.value || null,
       primaryOffers: productOffer?.productLines?.value || [],
-      icpDescription: identity?.icpDescription?.value || null,
+      icpDescription: audience?.icpDescription?.value || null,
       geographicFootprint: identity?.geographicFootprint?.value || null,
       marketPosition: brand?.positioning?.value || null,
       priceTier,

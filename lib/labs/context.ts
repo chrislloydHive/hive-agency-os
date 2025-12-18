@@ -64,7 +64,7 @@ const LAB_FIELD_SCOPES: Record<RefinementLabId, string[]> = {
     // Identity context (for understanding the business)
     'identity.industry',
     'identity.businessModel',
-    'identity.icpDescription',
+    'audience.icpDescription',
     'identity.description',
     // All audience fields
     'audience.primaryAudience',
@@ -86,7 +86,7 @@ const LAB_FIELD_SCOPES: Record<RefinementLabId, string[]> = {
     // Identity context
     'identity.industry',
     'identity.businessModel',
-    'identity.icpDescription',
+    'audience.icpDescription',
     // All brand fields (except brandGuidelines which is assist mode)
     'brand.positioning',
     'brand.tagline',
@@ -112,7 +112,7 @@ const LAB_FIELD_SCOPES: Record<RefinementLabId, string[]> = {
   creative: [
     // Identity context
     'identity.industry',
-    'identity.icpDescription',
+    'audience.icpDescription',
     // Brand context for messaging alignment
     'brand.positioning',
     'brand.toneOfVoice',
@@ -215,7 +215,7 @@ const LAB_CRITICAL_FIELDS: Record<RefinementLabId, string[]> = {
   ],
   brand: [
     'identity.industry',
-    'identity.icpDescription',
+    'audience.icpDescription',
     'brand.positioning',
   ],
   creative: [

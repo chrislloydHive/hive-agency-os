@@ -901,7 +901,7 @@ export function buildQueryContextFromGraph(graph: any): QueryContext {
   const productOffer = graph.productOffer || {};
   const brand = graph.brand || {};
 
-  const icpDesc = identity.icpDescription?.value || audience.primaryAudience?.value || null;
+  const icpDesc = audience.icpDescription?.value || audience.primaryAudience?.value || null;
   const icpStageRaw = extractIcpStage(icpDesc);
   const aiOrientationRaw = extractAiOrientation(brand, productOffer);
 

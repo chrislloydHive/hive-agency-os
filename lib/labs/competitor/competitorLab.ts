@@ -24,6 +24,7 @@ import {
   mergeCompetitorLists,
   sanitizeCompetitorProfile,
   isValidCompetitorProfile,
+  filterOutAgencies,
   type MergeStats,
 } from './mergeCompetitors';
 import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
@@ -74,6 +75,7 @@ export interface CompetitorLabResult {
 interface ValidationStats {
   competitorsValidated: number;
   competitorsInvalid: number;
+  agenciesFiltered: number;  // Agencies/service providers rejected
   featuresValidated: number;
   pricingModelsValidated: number;
   clustersValidated: number;
@@ -374,12 +376,17 @@ function buildCompetitorLabTaskInput(
 
 /**
  * Validate and sanitize competitors from LLM response
+ * Includes agency/service provider filtering to reject non-competitors
  */
 function validateCompetitors(
   rawCompetitors: unknown[],
   existingCompetitors: CompetitorProfile[],
   source: string
-): { validated: CompetitorProfile[]; stats: { valid: number; invalid: number }; mergeStats: MergeStats } {
+): {
+  validated: CompetitorProfile[];
+  stats: { valid: number; invalid: number; agenciesFiltered: number };
+  mergeStats: MergeStats;
+} {
   const validatedRaw: CompetitorProfile[] = [];
   let invalidCount = 0;
 
@@ -408,8 +415,19 @@ function validateCompetitors(
     }
   }
 
-  // Deduplicate the new competitors first
-  const { competitors: deduped } = dedupeCompetitors(validatedRaw, { source });
+  // AGENCY FILTER: Remove agencies and service providers
+  // These have nav patterns like "Services", "Portfolio", "Clients"
+  const { competitors: nonAgencies, rejectedAgencies } = filterOutAgencies(validatedRaw);
+
+  if (rejectedAgencies.length > 0) {
+    console.log(
+      `[CompetitorLab] Filtered out ${rejectedAgencies.length} agencies/service providers:`,
+      rejectedAgencies.map(r => `${r.competitor.name} (${r.reason})`).join(', ')
+    );
+  }
+
+  // Deduplicate the filtered competitors
+  const { competitors: deduped } = dedupeCompetitors(nonAgencies, { source });
 
   // Merge with existing competitors
   const existingCopy = [...existingCompetitors];
@@ -417,7 +435,11 @@ function validateCompetitors(
 
   return {
     validated: existingCopy,
-    stats: { valid: validatedRaw.length, invalid: invalidCount },
+    stats: {
+      valid: nonAgencies.length,
+      invalid: invalidCount,
+      agenciesFiltered: rejectedAgencies.length,
+    },
     mergeStats,
   };
 }
@@ -557,6 +579,7 @@ export async function runCompetitorLabRefinement(
   const validationStats: ValidationStats = {
     competitorsValidated: 0,
     competitorsInvalid: 0,
+    agenciesFiltered: 0,
     featuresValidated: 0,
     pricingModelsValidated: 0,
     clustersValidated: 0,
@@ -652,18 +675,19 @@ export async function runCompetitorLabRefinement(
 
       validationStats.competitorsValidated = stats.valid;
       validationStats.competitorsInvalid = stats.invalid;
+      validationStats.agenciesFiltered = stats.agenciesFiltered;
       result.mergeStats = mergeStats;
 
       refinements.push({
         path: 'competitive.competitors',
         newValue: validated,
         confidence: 0.8,
-        reason: `Validated ${stats.valid} competitors, merged ${mergeStats.competitorsMerged}, added ${mergeStats.competitorsAdded}`,
+        reason: `Validated ${stats.valid} competitors, merged ${mergeStats.competitorsMerged}, added ${mergeStats.competitorsAdded}${stats.agenciesFiltered > 0 ? `, filtered ${stats.agenciesFiltered} agencies` : ''}`,
       });
 
       result.diagnostics.push({
         code: 'competitors_processed',
-        message: `Processed ${stats.valid} valid competitors (${stats.invalid} invalid). Merged ${mergeStats.competitorsMerged}, added ${mergeStats.competitorsAdded}.`,
+        message: `Processed ${stats.valid} valid competitors (${stats.invalid} invalid${stats.agenciesFiltered > 0 ? `, ${stats.agenciesFiltered} agencies filtered` : ''}). Merged ${mergeStats.competitorsMerged}, added ${mergeStats.competitorsAdded}.`,
         severity: 'info',
         fieldPath: 'competitive.competitors',
       });

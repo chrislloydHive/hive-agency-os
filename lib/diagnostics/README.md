@@ -273,6 +273,157 @@ Testing with `https://stripe.com`:
 
 ---
 
+## Canonical Contract System
+
+All diagnostic Labs must follow the **Canonical Contract** - a set of rules that guarantee consistent, predictable outputs for downstream consumers (Strategy Frame, Context Graph, GAP).
+
+### Core Guarantees
+
+Each Lab must guarantee:
+
+1. **Required fields are present**: Either populated with meaningful content OR explicitly `null`
+2. **No empty pollution**: No `{}`, `[]`, or `{ value: null }` artifacts
+3. **Domain write gating**: Labs only write to their authorized domains
+
+### Using the Canonical Helper
+
+Every Lab builder should call `ensureCanonical()` before returning results:
+
+```typescript
+import { ensureCanonical } from '@/lib/diagnostics/shared';
+
+export async function runBrandLab(params: BrandLabParams): Promise<BrandLabResult> {
+  // ... collect signals, run LLM analysis ...
+
+  // CANONICAL CONTRACT: Ensure all required fields are present
+  const canonicalResult = ensureCanonical({
+    labType: 'brand',
+    canonical: findings,
+    v1Result: diagnostic, // For fallback synthesis
+  });
+
+  if (canonicalResult.synthesizedFields.length > 0) {
+    console.log('[BrandLab] Synthesized fields:', canonicalResult.synthesizedFields);
+  }
+
+  return {
+    ...result,
+    findings: canonicalResult.canonical as BrandLabFindings,
+  };
+}
+```
+
+### Canonical Registry
+
+Each Lab has a spec defining required fields in `lib/diagnostics/shared/canonicalRegistry.ts`:
+
+| Lab | Required Fields |
+|-----|-----------------|
+| **Brand** | `positioning.statement`, `valueProp.headline`, `differentiators.bullets`, `icp.primaryAudience` |
+| **Website** | `uxMaturity`, `primaryCta`, `topIssues` |
+| **SEO** | `maturityStage`, `technicalHealth`, `topIssues` |
+| **Content** | `maturityStage`, `contentTypes`, `topIssues` |
+| **Competition** | `competitors`, `positionSummary` |
+| **Audience** | `primaryAudience` |
+
+### Field Types
+
+```typescript
+type CanonicalFieldType = 'string' | 'array' | 'object' | 'number';
+
+interface CanonicalFieldSpec {
+  path: string;           // Dot-path (e.g., 'positioning.statement')
+  type: CanonicalFieldType;
+  required: boolean;      // Must have value or explicit null
+  minLength?: number;     // For strings
+  minItems?: number;      // For arrays
+}
+```
+
+### Domain Authority
+
+Each domain has a canonical authority - only allowed sources may write:
+
+| Domain | Canonical Source | Also Allowed |
+|--------|-----------------|--------------|
+| `brand` | `brand_lab` | `user`, `import` |
+| `competitive` | `competition_lab` | `user`, `import` |
+| `website` | `website_lab` | `user`, `import` |
+| `seo` | `seo_lab` | `user`, `import` |
+| `content` | `content_lab` | `user`, `import` |
+| `audience` | `audience_lab` | `brand_lab`, `user`, `import` |
+
+Write gating is enforced in `lib/contextGraph/mutate.ts`:
+
+```typescript
+// Blocked automatically - GAP cannot overwrite competition_lab data
+setFieldUntyped(graph, 'competitive', 'competitors', gapCompetitors, gapProvenance);
+// Returns unchanged graph, logs warning
+```
+
+### Synthesis
+
+When LLM output is incomplete, `ensureCanonical()` synthesizes missing fields from v1 data:
+
+```typescript
+const result = ensureCanonical({
+  labType: 'brand',
+  canonical: {},  // Empty LLM output
+  v1Result: { diagnostic: { positioning: { positioningTheme: '...' } } },
+});
+
+// result.synthesizedFields = ['positioning.statement', ...]
+// result.canonical.positioning.statement = '...' (from v1)
+```
+
+### Validation
+
+Validate canonical objects without modification:
+
+```typescript
+import { validateCanonical } from '@/lib/diagnostics/shared';
+
+const validation = validateCanonical('brand', findings);
+if (!validation.valid) {
+  console.error('Invalid canonical:', validation.errors);
+  // Don't write to Context Graph
+}
+```
+
+### Empty Field Rules
+
+| Value | Behavior |
+|-------|----------|
+| `{}` | **Stripped** - never written |
+| `[]` | **Stripped** if required field has `minItems > 0` |
+| `''` | **Stripped** - treated as missing |
+| `null` | **Preserved** - explicit "not available" |
+| `undefined` | **Stripped** - treated as missing |
+
+### Testing
+
+Contract tests ensure each Lab meets its canonical guarantees:
+
+```bash
+npx vitest run tests/diagnostics/canonicalContract.test.ts
+```
+
+Tests verify:
+- All required fields exist or are explicitly null
+- No empty `{}` or `[]` in output
+- Synthesis produces valid fallbacks
+- Field types match spec
+
+### Adding a New Lab
+
+1. Add spec to `lib/diagnostics/shared/canonicalRegistry.ts`
+2. Add synthesis function to `lib/diagnostics/shared/ensureCanonical.ts`
+3. Call `ensureCanonical()` in Lab builder
+4. Add tests to `tests/diagnostics/canonicalContract.test.ts`
+5. Add domain authority to `lib/os/context/domainAuthority.ts`
+
+---
+
 **Status**: ✅ Ready for testing and validation
 **Branch**: `feature/hive-os-v1`
 **Not breaking**: Existing GAP engine at `/api/growth-plan` untouched

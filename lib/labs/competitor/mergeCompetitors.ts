@@ -465,6 +465,262 @@ export function mergeCompetitorLists(
 }
 
 // ============================================================================
+// Self-Competitor Detection
+// ============================================================================
+
+/**
+ * Normalize a domain for comparison
+ */
+function normalizeDomainForComparison(domain: string | null | undefined): string | null {
+  if (!domain) return null;
+  let normalized = domain.toLowerCase().trim();
+  normalized = normalized.replace(/^https?:\/\//, '');
+  normalized = normalized.replace(/^www\./, '');
+  normalized = normalized.replace(/\/$/, '');
+  normalized = normalized.split('/')[0];
+  return normalized || null;
+}
+
+/**
+ * Check if a competitor is likely the same company (self-competitor)
+ * Handles cases like "Crunchbase Pro" being listed as competitor for "Crunchbase"
+ */
+export function isSelfCompetitor(
+  competitorName: string,
+  competitorDomain: string | null | undefined,
+  companyName: string | null,
+  companyDomain: string | null
+): { isSelf: boolean; reason?: string } {
+  const normCompetitorDomain = normalizeDomainForComparison(competitorDomain);
+  const normCompanyDomain = normalizeDomainForComparison(companyDomain);
+
+  // 1. Domain match (exact or subdomain)
+  if (normCompetitorDomain && normCompanyDomain) {
+    // Exact match
+    if (normCompetitorDomain === normCompanyDomain) {
+      return { isSelf: true, reason: 'exact domain match' };
+    }
+    // Subdomain of company (e.g., pro.crunchbase.com for crunchbase.com)
+    if (normCompetitorDomain.endsWith(`.${normCompanyDomain}`)) {
+      return { isSelf: true, reason: 'subdomain of company' };
+    }
+    // Company is subdomain of competitor
+    if (normCompanyDomain.endsWith(`.${normCompetitorDomain}`)) {
+      return { isSelf: true, reason: 'company is subdomain' };
+    }
+  }
+
+  // 2. Name contains company name strongly
+  if (companyName) {
+    const normalizedCompetitorName = competitorName.toLowerCase().trim();
+    const normalizedCompanyName = companyName.toLowerCase().trim();
+
+    // Skip very short company names (avoid false positives)
+    if (normalizedCompanyName.length >= 3) {
+      // Competitor name starts with company name (e.g., "Crunchbase Pro" for "Crunchbase")
+      if (normalizedCompetitorName.startsWith(normalizedCompanyName + ' ') ||
+          normalizedCompetitorName.startsWith(normalizedCompanyName + '-')) {
+        return { isSelf: true, reason: `name starts with company name: "${companyName}"` };
+      }
+
+      // Exact name match
+      if (normalizedCompetitorName === normalizedCompanyName) {
+        return { isSelf: true, reason: 'exact name match' };
+      }
+    }
+  }
+
+  return { isSelf: false };
+}
+
+/**
+ * Filter out self-competitors from a competitor list
+ */
+export function filterOutSelfCompetitors(
+  competitors: CompetitorProfile[],
+  companyName: string | null,
+  companyDomain: string | null
+): {
+  competitors: CompetitorProfile[];
+  rejectedSelf: { competitor: CompetitorProfile; reason: string }[];
+} {
+  const filtered: CompetitorProfile[] = [];
+  const rejectedSelf: { competitor: CompetitorProfile; reason: string }[] = [];
+
+  for (const comp of competitors) {
+    const result = isSelfCompetitor(comp.name, comp.domain || comp.website, companyName, companyDomain);
+    if (result.isSelf) {
+      rejectedSelf.push({
+        competitor: comp,
+        reason: result.reason || 'Matched self patterns',
+      });
+    } else {
+      filtered.push(comp);
+    }
+  }
+
+  return { competitors: filtered, rejectedSelf };
+}
+
+// ============================================================================
+// Agency / Service Provider Filtering
+// ============================================================================
+
+/**
+ * Nav patterns that indicate an agency or service provider (not a true competitor)
+ * These are typically found in the primary navigation or positioning of agencies
+ */
+const AGENCY_NAV_PATTERNS = [
+  // Primary nav patterns
+  /\bservices?\b/i,
+  /\bportfolio\b/i,
+  /\bclient[s]?\b/i,
+  /\bcase stud(y|ies)\b/i,
+  /\bour work\b/i,
+  /\bwork with us\b/i,
+  /\bhire us\b/i,
+  /\bcontact us\b/i,
+  // Agency-specific terms
+  /\bagency\b/i,
+  /\bconsulting\b/i,
+  /\bconsultants?\b/i,
+  /\bfreelance\b/i,
+  /\bwe help (companies|businesses|brands)\b/i,
+  /\byour (partner|agency)\b/i,
+  /\bbespoke\b/i,
+  /\btailored solutions\b/i,
+  /\bcustom (solutions|services)\b/i,
+];
+
+/**
+ * Name patterns that strongly indicate an agency
+ */
+const AGENCY_NAME_PATTERNS = [
+  /agency$/i,
+  /\bagency\b/i,
+  /\bconsulting$/i,
+  /\bconsultants?$/i,
+  /\bmedia group$/i,
+  /\bdigital group$/i,
+  /\bcreative group$/i,
+  /\bcreative studio$/i,
+  /\bdesign studio$/i,
+  /\bstudio$/i,
+  /\bsolutions$/i,
+  /\bservices$/i,
+];
+
+/**
+ * Industry/category patterns that indicate a B2B service provider
+ */
+const SERVICE_PROVIDER_CATEGORIES = [
+  /marketing agency/i,
+  /digital agency/i,
+  /creative agency/i,
+  /web design/i,
+  /seo agency/i,
+  /ppc agency/i,
+  /pr agency/i,
+  /advertising agency/i,
+  /branding agency/i,
+  /consulting firm/i,
+  /professional services/i,
+];
+
+export interface AgencyFilterResult {
+  isAgency: boolean;
+  reason: string | null;
+  signals: string[];
+}
+
+/**
+ * Check if a competitor profile looks like an agency or service provider
+ * rather than a true product/SaaS competitor
+ *
+ * Uses "category fingerprint" pattern matching on:
+ * - Competitor name
+ * - Positioning text
+ * - Unique claims
+ * - Offers
+ *
+ * Agencies typically have:
+ * - "Services" / "Portfolio" / "Clients" in their nav/positioning
+ * - Names ending in "Agency", "Consulting", "Studio", "Solutions"
+ * - Positioning about helping other businesses
+ */
+export function isLikelyAgencyOrServiceProvider(comp: Partial<CompetitorProfile>): AgencyFilterResult {
+  const signals: string[] = [];
+
+  const textToCheck = [
+    comp.name || '',
+    comp.positioning || '',
+    ...(comp.uniqueClaims || []),
+    ...(comp.offers || []),
+    comp.notes || '',
+  ].join(' ');
+
+  // Check name patterns
+  for (const pattern of AGENCY_NAME_PATTERNS) {
+    if (pattern.test(comp.name || '')) {
+      signals.push(`name matches agency pattern: ${pattern.source}`);
+    }
+  }
+
+  // Check nav/positioning patterns
+  for (const pattern of AGENCY_NAV_PATTERNS) {
+    if (pattern.test(textToCheck)) {
+      signals.push(`text matches agency fingerprint: ${pattern.source}`);
+    }
+  }
+
+  // Check service provider categories
+  const category = comp.positioning || '';
+  for (const pattern of SERVICE_PROVIDER_CATEGORIES) {
+    if (pattern.test(category)) {
+      signals.push(`category indicates service provider: ${pattern.source}`);
+    }
+  }
+
+  // Decision: If we have 2+ signals, classify as agency
+  // 1 signal could be a false positive (e.g., a SaaS company mentioning "services" page)
+  const isAgency = signals.length >= 2;
+
+  return {
+    isAgency,
+    reason: isAgency ? `Likely agency/service provider based on ${signals.length} signals` : null,
+    signals,
+  };
+}
+
+/**
+ * Filter out agencies and service providers from a competitor list
+ * Returns both the filtered list and the rejected agencies
+ */
+export function filterOutAgencies(
+  competitors: CompetitorProfile[]
+): {
+  competitors: CompetitorProfile[];
+  rejectedAgencies: { competitor: CompetitorProfile; reason: string }[];
+} {
+  const filtered: CompetitorProfile[] = [];
+  const rejectedAgencies: { competitor: CompetitorProfile; reason: string }[] = [];
+
+  for (const comp of competitors) {
+    const result = isLikelyAgencyOrServiceProvider(comp);
+    if (result.isAgency) {
+      rejectedAgencies.push({
+        competitor: comp,
+        reason: result.reason || 'Matched agency patterns',
+      });
+    } else {
+      filtered.push(comp);
+    }
+  }
+
+  return { competitors: filtered, rejectedAgencies };
+}
+
+// ============================================================================
 // Validation
 // ============================================================================
 

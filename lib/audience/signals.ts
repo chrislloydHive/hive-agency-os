@@ -8,7 +8,7 @@
 // and passes it as a hard constraint to the AI model generation.
 //
 // The canonical ICP is loaded from the new explicit ICP fields:
-// - identity.icpDescription
+// - audience.icpDescription
 // - audience.primaryAudience
 // - audience.primaryBuyerRoles
 // - audience.companyProfile
@@ -203,7 +203,7 @@ export interface AudienceSignals {
 
 /**
  * Extract canonical ICP from Context Graph using the new explicit ICP fields:
- * - identity.icpDescription
+ * - audience.icpDescription
  * - audience.primaryAudience
  * - audience.primaryBuyerRoles
  * - audience.companyProfile

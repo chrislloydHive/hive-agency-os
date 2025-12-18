@@ -178,27 +178,51 @@ async function runDomainWriters(
       case 'brandLab': {
         console.log('[postRunHooks] Running BrandLab domain writer...');
 
-        // Extract the BrandLabSummary from rawJson
+        // Extract the BrandLabResult from rawJson (prefer full result over summary)
         const rawData = run.rawJson as Record<string, unknown>;
-        const brandResult = (rawData.result || rawData) as BrandLabSummary;
+        const brandResult = (rawData.result || rawData) as import('@/lib/diagnostics/brand-lab/types').BrandLabResult;
 
-        // Validate we have some meaningful data
-        if (!brandResult.positioningSummary && !brandResult.valueProps && !brandResult.voiceTone) {
-          console.warn('[postRunHooks] BrandLab rawJson missing expected structure, skipping writer');
-          return;
+        // Check if this is a full BrandLabResult (has findings object)
+        const hasFindings = brandResult.findings &&
+          (brandResult.findings.valueProp || brandResult.findings.differentiators || brandResult.findings.icp);
+
+        if (hasFindings) {
+          // NEW: Use the full BrandLabResult writer that extracts canonical findings
+          const { writeBrandLabResultAndSave } = await import('@/lib/contextGraph/brandLabWriter');
+          const { legacySummary, findingsSummary } = await writeBrandLabResultAndSave(
+            companyId,
+            brandResult,
+            run.id
+          );
+
+          console.log('[postRunHooks] BrandLab domain writer complete (with findings):', {
+            legacyFields: legacySummary.fieldsUpdated,
+            findingsFields: findingsSummary.fieldsUpdated,
+            updatedPaths: [...legacySummary.updatedPaths, ...findingsSummary.updatedPaths].slice(0, 8),
+            skippedPaths: findingsSummary.skippedPaths,
+          });
+        } else {
+          // Fallback: Legacy BrandLabSummary path
+          const legacyResult = brandResult as unknown as BrandLabSummary;
+
+          // Validate we have some meaningful data
+          if (!legacyResult.positioningSummary && !legacyResult.valueProps && !legacyResult.voiceTone) {
+            console.warn('[postRunHooks] BrandLab rawJson missing expected structure, skipping writer');
+            return;
+          }
+
+          const { summary } = await writeBrandLabAndSave(
+            companyId,
+            legacyResult,
+            run.id
+          );
+
+          console.log('[postRunHooks] BrandLab domain writer complete (legacy):', {
+            fieldsUpdated: summary.fieldsUpdated,
+            updatedPaths: summary.updatedPaths.slice(0, 5),
+            errors: summary.errors.length,
+          });
         }
-
-        const { summary } = await writeBrandLabAndSave(
-          companyId,
-          brandResult,
-          run.id
-        );
-
-        console.log('[postRunHooks] BrandLab domain writer complete:', {
-          fieldsUpdated: summary.fieldsUpdated,
-          updatedPaths: summary.updatedPaths.slice(0, 5),
-          errors: summary.errors.length,
-        });
         break;
       }
 

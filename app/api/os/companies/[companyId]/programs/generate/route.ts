@@ -409,7 +409,7 @@ IDENTITY:
 AUDIENCE:
 - Primary Audience: ${contextGraph.audience?.primaryAudience?.value || 'Not specified'}
 - Demographics: ${contextGraph.audience?.demographics?.value || 'Not specified'}
-- ICP Description: ${contextGraph.identity?.icpDescription?.value || 'Not specified'}
+- ICP Description: ${contextGraph.audience?.icpDescription?.value || 'Not specified'}
 
 OBJECTIVES:
 - Primary Objective: ${contextGraph.objectives?.primaryObjective?.value || 'Not specified'}
