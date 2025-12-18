@@ -8,6 +8,15 @@ import type { DomainImporter, ImportResult } from './types';
 import type { CompanyContextGraph } from '../companyContextGraph';
 import type { ContentLabOutput, ContentLabFindings } from '@/lib/diagnostics/contracts/labOutput';
 import { setDomainFields, createProvenance } from '../mutate';
+import { listDiagnosticRunsForCompany } from '@/lib/os/diagnostics/runs';
+
+// Debug logging - enabled via DEBUG_CONTEXT_HYDRATION=1
+const DEBUG = process.env.DEBUG_CONTEXT_HYDRATION === '1';
+function debugLog(message: string, data?: Record<string, unknown>) {
+  if (DEBUG) {
+    console.log(`[contentLabImporter:DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+  }
+}
 
 // ============================================================================
 // Validation Helpers
@@ -127,17 +136,31 @@ export function importContentLabFromContract(
 /**
  * Content Lab Importer
  *
- * Imports historical Content Lab data into the context graph.
- * Note: Requires Content Lab runs to be stored - implement fetching when available.
+ * Imports Content Lab data from DIAGNOSTIC_RUNS into the context graph.
  */
 export const contentLabImporter: DomainImporter = {
   id: 'contentLab',
   label: 'Content Lab',
 
   async supports(companyId: string, domain: string): Promise<boolean> {
-    // TODO: Check if company has Content Lab runs
-    // For now, return false until Content Lab storage is implemented
-    return false;
+    try {
+      // Check Diagnostic Runs table (primary source)
+      const diagnosticRuns = await listDiagnosticRunsForCompany(companyId, {
+        toolId: 'contentLab',
+        limit: 5,
+      });
+      const hasContentLab = diagnosticRuns.some(run =>
+        run.status === 'complete' && run.rawJson
+      );
+      if (hasContentLab) {
+        console.log('[contentLabImporter] Found Content Lab data in Diagnostic Runs');
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.warn('[contentLabImporter] Error checking support:', error);
+      return false;
+    }
   },
 
   async importAll(
@@ -153,12 +176,80 @@ export const contentLabImporter: DomainImporter = {
       sourceRunIds: [],
     };
 
-    // TODO: Implement when Content Lab run storage is available
-    // 1. Fetch most recent Content Lab run for company
-    // 2. Convert to ContentLabOutput format
-    // 3. Call importContentLabFromContract()
+    try {
+      // Fetch from Diagnostic Runs table
+      const diagnosticRuns = await listDiagnosticRunsForCompany(companyId, {
+        toolId: 'contentLab',
+        limit: 5,
+      });
+      const contentRun = diagnosticRuns.find(run =>
+        run.status === 'complete' && run.rawJson
+      );
 
-    result.errors.push('Content Lab import not yet implemented - requires Content Lab run storage');
+      if (!contentRun || !contentRun.rawJson) {
+        result.errors.push('No completed Content Lab runs found in Diagnostic Runs');
+        return result;
+      }
+
+      console.log('[contentLabImporter] Importing from Diagnostic Runs table');
+      result.sourceRunIds.push(contentRun.id);
+
+      // Extract the Content Lab result from rawJson
+      // Structure may be: rawEvidence.labResultV4 OR direct fields
+      const rawData = contentRun.rawJson as Record<string, unknown>;
+      let contentLabData: ContentLabFindings | null = null;
+
+      // Try new format first: rawEvidence.labResultV4
+      const rawEvidence = rawData.rawEvidence as Record<string, unknown> | undefined;
+      let extractionPath = 'unknown';
+      if (rawEvidence?.labResultV4) {
+        const labResult = rawEvidence.labResultV4 as Record<string, unknown>;
+        contentLabData = (labResult.findings || labResult) as ContentLabFindings;
+        extractionPath = 'rawEvidence.labResultV4';
+        console.log('[contentLabImporter] Extracted from rawEvidence.labResultV4');
+      } else if (rawData.findings) {
+        // Legacy: direct findings
+        contentLabData = rawData.findings as ContentLabFindings;
+        extractionPath = 'findings';
+        console.log('[contentLabImporter] Extracted from root findings');
+      } else {
+        // Legacy: root-level fields
+        contentLabData = rawData as unknown as ContentLabFindings;
+        extractionPath = 'root';
+        console.log('[contentLabImporter] Using root-level data');
+      }
+      debugLog('extraction', { source: 'DIAGNOSTIC_RUNS', extractionPath, runId: contentRun.id });
+
+      if (!contentLabData) {
+        result.errors.push('Content Lab rawJson missing expected structure');
+        return result;
+      }
+
+      // Create ContentLabOutput wrapper and import
+      const output: ContentLabOutput = {
+        meta: {
+          labKey: 'content_lab',
+          runId: contentRun.id,
+          version: '1.0',
+          createdAt: contentRun.createdAt,
+          inputsUsed: ['diagnostic_run'],
+        },
+        findings: contentLabData,
+      };
+
+      const importResult = importContentLabFromContract(graph, output);
+      result.fieldsUpdated = importResult.fieldsWritten;
+      result.updatedPaths = importResult.domains.map(d => `${d}.*`);
+      result.success = importResult.fieldsWritten > 0;
+
+      console.log(`[contentLabImporter] Imported ${result.fieldsUpdated} fields from Content Lab run ${contentRun.id}`);
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      result.errors.push(`Import failed: ${errorMsg}`);
+      console.error('[contentLabImporter] Import error:', error);
+    }
+
     return result;
   },
 };

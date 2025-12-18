@@ -54,6 +54,8 @@ const FORCE_ALLOWLIST = [
   // User-initiated competitor marking (explicit user action)
   'app/api/os/companies/[companyId]/competition/mark-invalid/',
   'app/api/os/companies/[companyId]/competition/unmark-invalid/',
+  // User-initiated company creation (force-runs labs for new company onboarding)
+  'app/api/os/companies/create/',
   // Governance infrastructure (can force for emergency fixes)
   'lib/contextGraph/governance/pipeline.ts',
   // Tests

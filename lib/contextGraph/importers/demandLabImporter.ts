@@ -8,6 +8,15 @@ import type { DomainImporter, ImportResult } from './types';
 import type { CompanyContextGraph } from '../companyContextGraph';
 import type { DemandLabOutput, DemandLabFindings } from '@/lib/diagnostics/contracts/labOutput';
 import { setDomainFields, createProvenance } from '../mutate';
+import { listDiagnosticRunsForCompany } from '@/lib/os/diagnostics/runs';
+
+// Debug logging - enabled via DEBUG_CONTEXT_HYDRATION=1
+const DEBUG = process.env.DEBUG_CONTEXT_HYDRATION === '1';
+function debugLog(message: string, data?: Record<string, unknown>) {
+  if (DEBUG) {
+    console.log(`[demandLabImporter:DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+  }
+}
 
 // ============================================================================
 // Validation Helpers
@@ -123,12 +132,34 @@ export function importDemandLabFromContract(
 // Legacy Importer Interface
 // ============================================================================
 
+/**
+ * Demand Lab Importer
+ *
+ * Imports Demand Lab data from DIAGNOSTIC_RUNS into the context graph.
+ */
 export const demandLabImporter: DomainImporter = {
   id: 'demandLab',
   label: 'Demand Lab',
 
   async supports(companyId: string, domain: string): Promise<boolean> {
-    return false; // TODO: Implement when Demand Lab storage is available
+    try {
+      // Check Diagnostic Runs table (primary source)
+      const diagnosticRuns = await listDiagnosticRunsForCompany(companyId, {
+        toolId: 'demandLab',
+        limit: 5,
+      });
+      const hasDemandLab = diagnosticRuns.some(run =>
+        run.status === 'complete' && run.rawJson
+      );
+      if (hasDemandLab) {
+        console.log('[demandLabImporter] Found Demand Lab data in Diagnostic Runs');
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.warn('[demandLabImporter] Error checking support:', error);
+      return false;
+    }
   },
 
   async importAll(
@@ -136,13 +167,89 @@ export const demandLabImporter: DomainImporter = {
     companyId: string,
     domain: string
   ): Promise<ImportResult> {
-    return {
+    const result: ImportResult = {
       success: false,
       fieldsUpdated: 0,
       updatedPaths: [],
-      errors: ['Demand Lab import not yet implemented'],
+      errors: [],
       sourceRunIds: [],
     };
+
+    try {
+      // Fetch from Diagnostic Runs table
+      const diagnosticRuns = await listDiagnosticRunsForCompany(companyId, {
+        toolId: 'demandLab',
+        limit: 5,
+      });
+      const demandRun = diagnosticRuns.find(run =>
+        run.status === 'complete' && run.rawJson
+      );
+
+      if (!demandRun || !demandRun.rawJson) {
+        result.errors.push('No completed Demand Lab runs found in Diagnostic Runs');
+        return result;
+      }
+
+      console.log('[demandLabImporter] Importing from Diagnostic Runs table');
+      result.sourceRunIds.push(demandRun.id);
+
+      // Extract the Demand Lab result from rawJson
+      // Structure may be: rawEvidence.labResultV4 OR direct fields
+      const rawData = demandRun.rawJson as Record<string, unknown>;
+      let demandLabData: DemandLabFindings | null = null;
+
+      // Try new format first: rawEvidence.labResultV4
+      const rawEvidence = rawData.rawEvidence as Record<string, unknown> | undefined;
+      let extractionPath = 'unknown';
+      if (rawEvidence?.labResultV4) {
+        const labResult = rawEvidence.labResultV4 as Record<string, unknown>;
+        demandLabData = (labResult.findings || labResult) as DemandLabFindings;
+        extractionPath = 'rawEvidence.labResultV4';
+        console.log('[demandLabImporter] Extracted from rawEvidence.labResultV4');
+      } else if (rawData.findings) {
+        // Legacy: direct findings
+        demandLabData = rawData.findings as DemandLabFindings;
+        extractionPath = 'findings';
+        console.log('[demandLabImporter] Extracted from root findings');
+      } else {
+        // Legacy: root-level fields
+        demandLabData = rawData as unknown as DemandLabFindings;
+        extractionPath = 'root';
+        console.log('[demandLabImporter] Using root-level data');
+      }
+      debugLog('extraction', { source: 'DIAGNOSTIC_RUNS', extractionPath, runId: demandRun.id });
+
+      if (!demandLabData) {
+        result.errors.push('Demand Lab rawJson missing expected structure');
+        return result;
+      }
+
+      // Create DemandLabOutput wrapper and import
+      const output: DemandLabOutput = {
+        meta: {
+          labKey: 'demand_lab',
+          runId: demandRun.id,
+          version: '1.0',
+          createdAt: demandRun.createdAt,
+          inputsUsed: ['diagnostic_run'],
+        },
+        findings: demandLabData,
+      };
+
+      const importResult = importDemandLabFromContract(graph, output);
+      result.fieldsUpdated = importResult.fieldsWritten;
+      result.updatedPaths = importResult.domains.map(d => `${d}.*`);
+      result.success = importResult.fieldsWritten > 0;
+
+      console.log(`[demandLabImporter] Imported ${result.fieldsUpdated} fields from Demand Lab run ${demandRun.id}`);
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      result.errors.push(`Import failed: ${errorMsg}`);
+      console.error('[demandLabImporter] Import error:', error);
+    }
+
+    return result;
   },
 };
 

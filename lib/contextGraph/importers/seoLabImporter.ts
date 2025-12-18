@@ -8,6 +8,15 @@ import type { DomainImporter, ImportResult } from './types';
 import type { CompanyContextGraph } from '../companyContextGraph';
 import type { SeoLabOutput, SeoLabFindings } from '@/lib/diagnostics/contracts/labOutput';
 import { setDomainFields, createProvenance } from '../mutate';
+import { listDiagnosticRunsForCompany } from '@/lib/os/diagnostics/runs';
+
+// Debug logging - enabled via DEBUG_CONTEXT_HYDRATION=1
+const DEBUG = process.env.DEBUG_CONTEXT_HYDRATION === '1';
+function debugLog(message: string, data?: Record<string, unknown>) {
+  if (DEBUG) {
+    console.log(`[seoLabImporter:DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+  }
+}
 
 // ============================================================================
 // Validation Helpers
@@ -127,17 +136,31 @@ export function importSeoLabFromContract(
 /**
  * SEO Lab Importer
  *
- * Imports historical SEO Lab data into the context graph.
- * Note: Requires SEO Lab runs to be stored - implement fetching when available.
+ * Imports SEO Lab data from DIAGNOSTIC_RUNS into the context graph.
  */
 export const seoLabImporter: DomainImporter = {
   id: 'seoLab',
   label: 'SEO Lab',
 
   async supports(companyId: string, domain: string): Promise<boolean> {
-    // TODO: Check if company has SEO Lab runs
-    // For now, return false until SEO Lab storage is implemented
-    return false;
+    try {
+      // Check Diagnostic Runs table (primary source)
+      const diagnosticRuns = await listDiagnosticRunsForCompany(companyId, {
+        toolId: 'seoLab',
+        limit: 5,
+      });
+      const hasSeoLab = diagnosticRuns.some(run =>
+        run.status === 'complete' && run.rawJson
+      );
+      if (hasSeoLab) {
+        console.log('[seoLabImporter] Found SEO Lab data in Diagnostic Runs');
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.warn('[seoLabImporter] Error checking support:', error);
+      return false;
+    }
   },
 
   async importAll(
@@ -153,12 +176,80 @@ export const seoLabImporter: DomainImporter = {
       sourceRunIds: [],
     };
 
-    // TODO: Implement when SEO Lab run storage is available
-    // 1. Fetch most recent SEO Lab run for company
-    // 2. Convert to SeoLabOutput format
-    // 3. Call importSeoLabFromContract()
+    try {
+      // Fetch from Diagnostic Runs table
+      const diagnosticRuns = await listDiagnosticRunsForCompany(companyId, {
+        toolId: 'seoLab',
+        limit: 5,
+      });
+      const seoRun = diagnosticRuns.find(run =>
+        run.status === 'complete' && run.rawJson
+      );
 
-    result.errors.push('SEO Lab import not yet implemented - requires SEO Lab run storage');
+      if (!seoRun || !seoRun.rawJson) {
+        result.errors.push('No completed SEO Lab runs found in Diagnostic Runs');
+        return result;
+      }
+
+      console.log('[seoLabImporter] Importing from Diagnostic Runs table');
+      result.sourceRunIds.push(seoRun.id);
+
+      // Extract the SEO Lab result from rawJson
+      // Structure may be: rawEvidence.labResultV4 OR direct fields
+      const rawData = seoRun.rawJson as Record<string, unknown>;
+      let seoLabData: SeoLabFindings | null = null;
+
+      // Try new format first: rawEvidence.labResultV4
+      const rawEvidence = rawData.rawEvidence as Record<string, unknown> | undefined;
+      let extractionPath = 'unknown';
+      if (rawEvidence?.labResultV4) {
+        const labResult = rawEvidence.labResultV4 as Record<string, unknown>;
+        seoLabData = (labResult.findings || labResult) as SeoLabFindings;
+        extractionPath = 'rawEvidence.labResultV4';
+        console.log('[seoLabImporter] Extracted from rawEvidence.labResultV4');
+      } else if (rawData.findings) {
+        // Legacy: direct findings
+        seoLabData = rawData.findings as SeoLabFindings;
+        extractionPath = 'findings';
+        console.log('[seoLabImporter] Extracted from root findings');
+      } else {
+        // Legacy: root-level fields
+        seoLabData = rawData as unknown as SeoLabFindings;
+        extractionPath = 'root';
+        console.log('[seoLabImporter] Using root-level data');
+      }
+      debugLog('extraction', { source: 'DIAGNOSTIC_RUNS', extractionPath, runId: seoRun.id });
+
+      if (!seoLabData) {
+        result.errors.push('SEO Lab rawJson missing expected structure');
+        return result;
+      }
+
+      // Create SeoLabOutput wrapper and import
+      const output: SeoLabOutput = {
+        meta: {
+          labKey: 'seo_lab',
+          runId: seoRun.id,
+          version: '1.0',
+          createdAt: seoRun.createdAt,
+          inputsUsed: ['diagnostic_run'],
+        },
+        findings: seoLabData,
+      };
+
+      const importResult = importSeoLabFromContract(graph, output);
+      result.fieldsUpdated = importResult.fieldsWritten;
+      result.updatedPaths = importResult.domains.map(d => `${d}.*`);
+      result.success = importResult.fieldsWritten > 0;
+
+      console.log(`[seoLabImporter] Imported ${result.fieldsUpdated} fields from SEO Lab run ${seoRun.id}`);
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      result.errors.push(`Import failed: ${errorMsg}`);
+      console.error('[seoLabImporter] Import error:', error);
+    }
+
     return result;
   },
 };

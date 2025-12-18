@@ -12,6 +12,14 @@ import { listDiagnosticRunsForCompany, type DiagnosticRun } from '@/lib/os/diagn
 import { setField, setDomainFields, createProvenance } from '../mutate';
 import type { BrandEvidence } from '@/lib/gap-heavy/types';
 
+// Debug logging - enabled via DEBUG_CONTEXT_HYDRATION=1
+const DEBUG = process.env.DEBUG_CONTEXT_HYDRATION === '1';
+function debugLog(message: string, data?: Record<string, unknown>) {
+  if (DEBUG) {
+    console.log(`[brandLabImporter:DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+  }
+}
+
 /**
  * Brand Lab Importer
  *
@@ -85,8 +93,31 @@ export const brandLabImporter: DomainImporter = {
           validForDays: 45,
         });
 
-        const rawJson = diagnosticBrandRun.rawJson as any;
-        const labImport = importFromDiagnosticBrandLab(graph, rawJson, provenance);
+        // Extract data with labResultV4 priority
+        const rawData = diagnosticBrandRun.rawJson as Record<string, unknown>;
+        let brandLabData: any;
+        let extractionPath = 'unknown';
+
+        // Try new format first: rawEvidence.labResultV4
+        const rawEvidence = rawData.rawEvidence as Record<string, unknown> | undefined;
+        if (rawEvidence?.labResultV4) {
+          brandLabData = rawEvidence.labResultV4;
+          extractionPath = 'rawEvidence.labResultV4';
+          console.log('[brandLabImporter] Extracted from rawEvidence.labResultV4');
+        } else if (rawData.result) {
+          // Legacy: result wrapper
+          brandLabData = rawData.result;
+          extractionPath = 'result';
+          console.log('[brandLabImporter] Extracted from result wrapper');
+        } else {
+          // Legacy: root-level fields
+          brandLabData = rawData;
+          extractionPath = 'root';
+          console.log('[brandLabImporter] Using root-level data');
+        }
+        debugLog('extraction', { source: 'DIAGNOSTIC_RUNS', extractionPath, runId: diagnosticBrandRun.id });
+
+        const labImport = importFromDiagnosticBrandLab(graph, brandLabData, provenance);
         result.fieldsUpdated += labImport.count;
         result.updatedPaths.push(...labImport.paths);
 

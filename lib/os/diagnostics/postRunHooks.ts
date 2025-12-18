@@ -208,9 +208,27 @@ async function runDomainWriters(
       case 'brandLab': {
         console.log('[postRunHooks] Running BrandLab domain writer...');
 
-        // Extract the BrandLabResult from rawJson (prefer full result over summary)
+        // Extract the BrandLabResult from rawJson
+        // The rawJson structure may be:
+        // 1. New format: { rawEvidence: { labResultV4: { findings, ... } } }
+        // 2. Wrapped in result: { result: { findings, ... } }
+        // 3. Direct: { findings, ... }
         const rawData = run.rawJson as Record<string, unknown>;
-        const brandResult = (rawData.result || rawData) as import('@/lib/diagnostics/brand-lab/types').BrandLabResult;
+        let brandResult: import('@/lib/diagnostics/brand-lab/types').BrandLabResult;
+
+        // Try new format first: rawEvidence.labResultV4
+        const rawEvidence = rawData.rawEvidence as Record<string, unknown> | undefined;
+        let extractionPath: 'rawEvidence.labResultV4' | 'legacy' = 'legacy';
+        if (rawEvidence?.labResultV4) {
+          brandResult = rawEvidence.labResultV4 as import('@/lib/diagnostics/brand-lab/types').BrandLabResult;
+          extractionPath = 'rawEvidence.labResultV4';
+          console.log('[postRunHooks] Found BrandLab data at rawEvidence.labResultV4');
+        } else {
+          // Fall back to legacy formats
+          brandResult = (rawData.result || rawData) as import('@/lib/diagnostics/brand-lab/types').BrandLabResult;
+          console.log('[postRunHooks] Using legacy BrandLab data format');
+        }
+        debugLog('brandLab_extraction', { extractionPath, runId: run.id });
 
         // Check if this is a full BrandLabResult (has findings object)
         const hasFindings = brandResult.findings &&

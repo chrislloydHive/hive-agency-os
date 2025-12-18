@@ -8,6 +8,15 @@ import type { DomainImporter, ImportResult } from './types';
 import type { CompanyContextGraph } from '../companyContextGraph';
 import type { OpsLabOutput, OpsLabFindings } from '@/lib/diagnostics/contracts/labOutput';
 import { setDomainFields, createProvenance } from '../mutate';
+import { listDiagnosticRunsForCompany } from '@/lib/os/diagnostics/runs';
+
+// Debug logging - enabled via DEBUG_CONTEXT_HYDRATION=1
+const DEBUG = process.env.DEBUG_CONTEXT_HYDRATION === '1';
+function debugLog(message: string, data?: Record<string, unknown>) {
+  if (DEBUG) {
+    console.log(`[opsLabImporter:DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+  }
+}
 
 // ============================================================================
 // Validation Helpers
@@ -117,12 +126,34 @@ export function importOpsLabFromContract(
 // Legacy Importer Interface
 // ============================================================================
 
+/**
+ * Ops Lab Importer
+ *
+ * Imports Ops Lab data from DIAGNOSTIC_RUNS into the context graph.
+ */
 export const opsLabImporter: DomainImporter = {
   id: 'opsLab',
   label: 'Ops Lab',
 
   async supports(companyId: string, domain: string): Promise<boolean> {
-    return false; // TODO: Implement when Ops Lab storage is available
+    try {
+      // Check Diagnostic Runs table (primary source)
+      const diagnosticRuns = await listDiagnosticRunsForCompany(companyId, {
+        toolId: 'opsLab',
+        limit: 5,
+      });
+      const hasOpsLab = diagnosticRuns.some(run =>
+        run.status === 'complete' && run.rawJson
+      );
+      if (hasOpsLab) {
+        console.log('[opsLabImporter] Found Ops Lab data in Diagnostic Runs');
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.warn('[opsLabImporter] Error checking support:', error);
+      return false;
+    }
   },
 
   async importAll(
@@ -130,13 +161,89 @@ export const opsLabImporter: DomainImporter = {
     companyId: string,
     domain: string
   ): Promise<ImportResult> {
-    return {
+    const result: ImportResult = {
       success: false,
       fieldsUpdated: 0,
       updatedPaths: [],
-      errors: ['Ops Lab import not yet implemented'],
+      errors: [],
       sourceRunIds: [],
     };
+
+    try {
+      // Fetch from Diagnostic Runs table
+      const diagnosticRuns = await listDiagnosticRunsForCompany(companyId, {
+        toolId: 'opsLab',
+        limit: 5,
+      });
+      const opsRun = diagnosticRuns.find(run =>
+        run.status === 'complete' && run.rawJson
+      );
+
+      if (!opsRun || !opsRun.rawJson) {
+        result.errors.push('No completed Ops Lab runs found in Diagnostic Runs');
+        return result;
+      }
+
+      console.log('[opsLabImporter] Importing from Diagnostic Runs table');
+      result.sourceRunIds.push(opsRun.id);
+
+      // Extract the Ops Lab result from rawJson
+      // Structure may be: rawEvidence.labResultV4 OR direct fields
+      const rawData = opsRun.rawJson as Record<string, unknown>;
+      let opsLabData: OpsLabFindings | null = null;
+
+      // Try new format first: rawEvidence.labResultV4
+      const rawEvidence = rawData.rawEvidence as Record<string, unknown> | undefined;
+      let extractionPath = 'unknown';
+      if (rawEvidence?.labResultV4) {
+        const labResult = rawEvidence.labResultV4 as Record<string, unknown>;
+        opsLabData = (labResult.findings || labResult) as OpsLabFindings;
+        extractionPath = 'rawEvidence.labResultV4';
+        console.log('[opsLabImporter] Extracted from rawEvidence.labResultV4');
+      } else if (rawData.findings) {
+        // Legacy: direct findings
+        opsLabData = rawData.findings as OpsLabFindings;
+        extractionPath = 'findings';
+        console.log('[opsLabImporter] Extracted from root findings');
+      } else {
+        // Legacy: root-level fields
+        opsLabData = rawData as unknown as OpsLabFindings;
+        extractionPath = 'root';
+        console.log('[opsLabImporter] Using root-level data');
+      }
+      debugLog('extraction', { source: 'DIAGNOSTIC_RUNS', extractionPath, runId: opsRun.id });
+
+      if (!opsLabData) {
+        result.errors.push('Ops Lab rawJson missing expected structure');
+        return result;
+      }
+
+      // Create OpsLabOutput wrapper and import
+      const output: OpsLabOutput = {
+        meta: {
+          labKey: 'ops_lab',
+          runId: opsRun.id,
+          version: '1.0',
+          createdAt: opsRun.createdAt,
+          inputsUsed: ['diagnostic_run'],
+        },
+        findings: opsLabData,
+      };
+
+      const importResult = importOpsLabFromContract(graph, output);
+      result.fieldsUpdated = importResult.fieldsWritten;
+      result.updatedPaths = importResult.domains.map(d => `${d}.*`);
+      result.success = importResult.fieldsWritten > 0;
+
+      console.log(`[opsLabImporter] Imported ${result.fieldsUpdated} fields from Ops Lab run ${opsRun.id}`);
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      result.errors.push(`Import failed: ${errorMsg}`);
+      console.error('[opsLabImporter] Import error:', error);
+    }
+
+    return result;
   },
 };
 
