@@ -1,9 +1,14 @@
 // app/api/inbound/ingest/route.ts
 // API endpoint for automatic prospect ingestion from inbound leads
+//
+// LEAD-FIRST DESIGN:
+// - Leads are created in the Inbound Leads table
+// - Companies are only LINKED if they already exist (never created here)
+// - To create a company from a lead, use the convert-lead-to-company endpoint
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createInboundLead, linkLeadToCompany, updateLeadAssignee, updateLeadStatus } from '@/lib/airtable/inboundLeads';
-import { createOrMatchCompanyFromInboundLead } from '@/lib/pipeline/createOrMatchCompany';
+import { matchCompanyForLead } from '@/lib/pipeline/createOrMatchCompany';
 import { matchLeadToRule, DEFAULT_OWNER } from '@/lib/pipeline/routingConfig';
 import type { InboundLeadItem } from '@/lib/types/pipeline';
 
@@ -19,8 +24,14 @@ interface IngestRequest {
   companyName?: string;
   source?: string;
   notes?: string;
+  // UTM tracking
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmTerm?: string;
+  utmContent?: string;
   // Optional: skip specific steps
-  skipCompanyCreation?: boolean;
+  skipCompanyMatching?: boolean;
   skipRouting?: boolean;
   skipGapSnapshot?: boolean;
 }
@@ -31,7 +42,8 @@ interface IngestResult {
   company: {
     id: string;
     name: string;
-    isNew: boolean;
+    isNew: false; // Companies are never created in lead ingest
+    matchedBy: 'domain' | 'name';
   } | null;
   routing: {
     assignee: string;
@@ -41,12 +53,19 @@ interface IngestResult {
     triggered: boolean;
     runId?: string;
   };
+  // Telemetry
+  telemetry: {
+    lead_created: boolean;
+    lead_updated: boolean;
+    company_linked: boolean;
+    company_created: false; // Always false - leads don't create companies
+  };
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: IngestRequest = await request.json();
-    console.log('[Ingest] Processing inbound lead:', body);
+    console.log('[Ingest] Processing inbound lead (lead-first mode):', body);
 
     const result: IngestResult = {
       success: false,
@@ -54,6 +73,12 @@ export async function POST(request: NextRequest) {
       company: null,
       routing: null,
       gapSnapshot: { triggered: false },
+      telemetry: {
+        lead_created: false,
+        lead_updated: false,
+        company_linked: false,
+        company_created: false, // Always false - lead-first design
+      },
     };
 
     // Step 1: Create or get lead
@@ -76,8 +101,9 @@ export async function POST(request: NextRequest) {
         gapIaRunId: null,
         createdAt: null,
       };
+      result.telemetry.lead_updated = true;
     } else {
-      // Create new lead
+      // Create new lead with all fields including UTM
       lead = await createInboundLead({
         name: body.name,
         email: body.email,
@@ -86,6 +112,12 @@ export async function POST(request: NextRequest) {
         leadSource: body.source || 'Inbound',
         status: 'New',
         notes: body.notes,
+        // UTM tracking
+        utmSource: body.utmSource,
+        utmMedium: body.utmMedium,
+        utmCampaign: body.utmCampaign,
+        utmTerm: body.utmTerm,
+        utmContent: body.utmContent,
       });
 
       if (!lead) {
@@ -94,30 +126,38 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         );
       }
+      result.telemetry.lead_created = true;
     }
 
     result.lead = lead;
-    console.log(`[Ingest] Lead created/loaded: ${lead.id}`);
+    console.log(`[Ingest] Lead created/loaded: ${lead.id} (lead_created=${result.telemetry.lead_created})`);
 
-    // Step 2: Create or match company
-    if (!body.skipCompanyCreation && (lead.website || lead.companyName)) {
+    // Step 2: Match existing company ONLY (no creation)
+    // This is the key change: we NEVER create a company during lead ingest
+    if (!body.skipCompanyMatching && (lead.website || lead.companyName)) {
       try {
-        const { company, isNew, matchedBy } = await createOrMatchCompanyFromInboundLead(lead);
+        const { company, matchedBy } = await matchCompanyForLead(lead);
 
-        result.company = {
-          id: company.id,
-          name: company.name,
-          isNew,
-        };
+        if (company && matchedBy) {
+          // Found existing company - link it
+          result.company = {
+            id: company.id,
+            name: company.name,
+            isNew: false, // Always false - we only match, never create
+            matchedBy,
+          };
 
-        // Link lead to company
-        await linkLeadToCompany(lead.id, company.id);
-        console.log(`[Ingest] Linked lead ${lead.id} to company ${company.id} (${matchedBy})`);
-
-        // Update lead status
-        await updateLeadStatus(lead.id, isNew ? 'New' : 'Contacted');
+          // Link lead to company
+          await linkLeadToCompany(lead.id, company.id);
+          result.telemetry.company_linked = true;
+          console.log(`[Ingest] Linked lead ${lead.id} to existing company ${company.id} (${matchedBy})`);
+        } else {
+          // No matching company found - lead stays unlinked
+          // The lead has all info needed for later conversion
+          console.log(`[Ingest] No existing company found - lead ${lead.id} will remain unlinked until converted`);
+        }
       } catch (error) {
-        console.error('[Ingest] Failed to create/match company:', error);
+        console.error('[Ingest] Failed to match company:', error);
         // Continue without company - not a fatal error
       }
     }
@@ -148,7 +188,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Step 4: Trigger GAP IA if we have a company with website
+    // Step 4: Trigger GAP IA only if we have a LINKED company with website
+    // Note: We only trigger GAP if there's an existing company to attach results to
     if (!body.skipGapSnapshot && result.company && lead.website) {
       try {
         const response = await fetch(
@@ -183,7 +224,8 @@ export async function POST(request: NextRequest) {
     console.log('[Ingest] Completed:', {
       leadId: result.lead?.id,
       companyId: result.company?.id,
-      companyIsNew: result.company?.isNew,
+      companyLinked: result.telemetry.company_linked,
+      companyCreated: result.telemetry.company_created, // Always false
       assignee: result.routing?.assignee,
       gapSnapshotTriggered: result.gapSnapshot.triggered,
     });

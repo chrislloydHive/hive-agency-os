@@ -72,8 +72,8 @@ export const IDENTITY_BINDINGS: SetupFieldBinding[] = [
   {
     setupStepId: 'business-identity',
     setupFieldId: 'icpDescription',
-    contextPath: 'identity.icpDescription',
-    domain: 'identity',
+    contextPath: 'audience.icpDescription',
+    domain: 'audience',
     field: 'icpDescription',
     type: 'string',
     label: 'ICP Description',

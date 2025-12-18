@@ -3,6 +3,33 @@
 
 import { getBase } from '@/lib/airtable';
 
+// ============================================================================
+// Retry Logic for Rate Limits
+// ============================================================================
+
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 1000; // Start with 1 second
+
+/**
+ * Fetch wrapper with exponential backoff for 429 rate limit errors
+ */
+export async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  retries = MAX_RETRIES
+): Promise<Response> {
+  const response = await fetch(url, options);
+
+  if (response.status === 429 && retries > 0) {
+    const delay = BASE_DELAY_MS * Math.pow(2, MAX_RETRIES - retries);
+    console.warn(`[Airtable] Rate limited, retrying in ${delay}ms... (${retries} retries left)`);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    return fetchWithRetry(url, options, retries - 1);
+  }
+
+  return response;
+}
+
 // Lazy initialization to avoid build-time errors when env vars aren't available
 let _base: ReturnType<typeof getBase> | null = null;
 export function getLazyBase() {
@@ -79,7 +106,7 @@ export async function createRecord(
     fields: (tableName === 'GAP-Heavy Run' || tableName === 'Diagnostic Runs') ? fields : undefined, // Log fields for Heavy Run and Diagnostic Runs tables
   });
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
@@ -127,7 +154,7 @@ export async function getRecord(
   const config = getAirtableConfig();
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(tableName)}/${recordId}`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
@@ -174,7 +201,7 @@ export async function updateRecord(
     hasCompanyField: tableName === 'GAP-Heavy Run' ? ('Company' in fields) : undefined,
   });
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
@@ -237,7 +264,7 @@ export async function findRecordByField(
     value,
   });
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
@@ -315,7 +342,7 @@ export async function deleteRecord(
     recordId,
   });
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${config.apiKey}`,

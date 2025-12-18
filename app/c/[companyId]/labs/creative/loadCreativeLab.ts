@@ -265,7 +265,7 @@ export async function loadCreativeLabContext(companyId: string): Promise<Creativ
   if (contextGraph?.identity) {
     identity.companyName = contextGraph.companyName;
     identity.industry = contextGraph.identity.industry?.value || undefined;
-    identity.icpDescription = contextGraph.identity.icpDescription?.value || undefined;
+    identity.icpDescription = contextGraph.audience?.icpDescription?.value || undefined;
     // missionStatement not in schema - skip
     identity.competitorNames = contextGraph.identity.primaryCompetitors?.value || undefined;
   }

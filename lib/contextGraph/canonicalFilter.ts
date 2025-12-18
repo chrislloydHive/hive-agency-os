@@ -15,8 +15,9 @@
 // - Humans confirm, creating user-sourced revisions
 
 import type { HydratedContextNode } from './nodes/hydration';
-import { isRemovedField, REMOVED_FIELDS } from './unifiedRegistry';
+import { isRemovedField, REMOVED_FIELDS, isSchemaV2Key, CONTEXT_SCHEMA_V2_KEYS } from './unifiedRegistry';
 import { isDeprecatedDomain, DEPRECATED_DOMAIN_NAMES, isCanonicalDomain } from './companyContextGraph';
+import { FIELD_KEY_MAPPING } from './migration/v1ToV2';
 
 // ============================================================================
 // Core Filter Functions
@@ -25,26 +26,48 @@ import { isDeprecatedDomain, DEPRECATED_DOMAIN_NAMES, isCanonicalDomain } from '
 /**
  * Check if a node key is canonical (safe to render in UI)
  *
- * A key is canonical if:
- * 1. It's NOT in the REMOVED_FIELDS list
- * 2. Its domain is NOT deprecated
- * 3. Its domain IS in the canonical list (optional, for stricter filtering)
+ * BACKWARD COMPATIBLE: This function is permissive to ensure existing data
+ * continues to display. It only filters out explicitly removed keys and
+ * deprecated domains.
+ *
+ * A key is NON-canonical (filtered out) if:
+ * 1. It's explicitly in REMOVED_FIELDS (legacy blocklist)
+ * 2. Its domain is deprecated (objectives, website, content, seo)
+ *
+ * NOTE: DEPRECATED_FIELDS from migration is NOT checked here because those
+ * fields may still have existing data that needs to be displayed. The migration
+ * deprecation only affects NEW writes, not reading existing data.
+ *
+ * Everything else is allowed for backward compatibility.
  */
 export function isCanonicalKey(key: string): boolean {
-  // Check if explicitly removed
+  // Check if explicitly removed in legacy registry
+  // These are fields that should NEVER be shown (scores, evaluations, objectives)
   if (isRemovedField(key)) {
     return false;
   }
 
-  // Extract domain from key (e.g., 'identity.businessModel' -> 'identity')
+  // Check for deprecated domains
+  // These entire domains are deprecated (objectives, website, content, seo)
   const domain = key.split('.')[0];
-
-  // Check if domain is deprecated
   if (isDeprecatedDomain(domain)) {
     return false;
   }
 
+  // Allow everything else for backward compatibility
+  // This includes:
+  // - Schema V2 keys (businessReality.*, offer.*, etc.)
+  // - Legacy keys (identity.*, productOffer.*, etc.)
+  // - Migration-deprecated fields (brand.toneOfVoice, etc.) - still readable
   return true;
+}
+
+/**
+ * Get the Schema V2 key for a given key (handles migration)
+ * Returns the original key if no mapping exists
+ */
+export function getSchemaV2KeyFor(key: string): string {
+  return FIELD_KEY_MAPPING[key] || key;
 }
 
 /**
@@ -160,81 +183,28 @@ export function logFilterSummary(nodes: HydratedContextNode[], context: string):
 export { REMOVED_FIELDS, DEPRECATED_DOMAIN_NAMES };
 
 // ============================================================================
-// CANONICAL KEYS ALLOWLIST
-// These are the ONLY keys that should exist in Context.
+// CANONICAL KEYS ALLOWLIST (SCHEMA V2)
+// These are the ONLY 47 keys that should exist in Context.
 // Everything else is either deprecated or belongs in Labs/Diagnostics/Strategy.
 // ============================================================================
 
 /**
- * The complete list of canonical Context keys.
+ * The complete list of canonical Context keys (Schema V2).
  * Context stores facts and constraints, NOT outputs or evaluations.
  *
- * ALLOWED: business model, audiences, ICP description, value prop, products/services,
- *          primary conversion action, budgets/constraints, competitors list (facts)
- *
- * NOT ALLOWED: health scores, dimension scores, whitespace opportunities, threat level,
- *              axes positioning, competitor synthesis, execution scores, lab evaluations
+ * SCHEMA V2 defines exactly 47 fields across 8 zones.
+ * See CONTEXT_SCHEMA_V2_KEYS in unifiedRegistry.ts for the authoritative list.
  */
-export const CANONICAL_KEYS = [
-  // Identity domain - core business facts
-  'identity.businessModel',
-  'identity.businessName',
-  'identity.industry',
-  'identity.companyDescription',
-
-  // Audience domain - target market facts
-  'audience.primaryAudience',
-  'audience.secondaryAudience',
-  'audience.icpDescription',
-
-  // Brand domain - positioning facts (NO scores)
-  'brand.positioning',
-  'brand.voiceTone',
-  'brand.coreValues',
-
-  // Product/Offer domain - what they sell
-  'productOffer.valueProposition',
-  'productOffer.productsServices',
-  'productOffer.primaryProducts',
-  'productOffer.primaryConversionAction',
-
-  // Operational Constraints domain - budget/resource facts
-  'operationalConstraints.budgetCapsFloors',
-  'operationalConstraints.minBudget',
-  'operationalConstraints.maxBudget',
-  'operationalConstraints.geographicConstraints',
-  'operationalConstraints.seasonalFactors',
-
-  // Competitive domain - factual competitor list only (NO synthesis)
-  'competitive.competitors',
-  // Note: competitorsNotes is allowed ONLY if user-authored, never AI-written
-
-  // Digital Infrastructure - factual platform info
-  'digitalInfra.primaryPlatform',
-  'digitalInfra.techStack',
-  'digitalInfra.analyticsSetup',
-
-  // Historical - factual past performance
-  'historical.pastCampaigns',
-  'historical.channelPerformance',
-
-  // Creative - factual asset info
-  'creative.brandAssets',
-  'creative.creativeGuidelines',
-
-  // Social - factual presence info
-  'social.activePlatforms',
-  'social.socialHandles',
-] as const;
+export const CANONICAL_KEYS = CONTEXT_SCHEMA_V2_KEYS;
 
 export type CanonicalKey = typeof CANONICAL_KEYS[number];
 
 /**
- * Check if a key is in the explicit canonical allowlist
- * This is stricter than isCanonicalKey() which only checks blocklists
+ * Check if a key is in the explicit canonical allowlist (Schema V2)
+ * This is stricter than isCanonicalKey() which also handles migration
  */
 export function isInCanonicalAllowlist(key: string): boolean {
-  return (CANONICAL_KEYS as readonly string[]).includes(key);
+  return isSchemaV2Key(key);
 }
 
 // ============================================================================

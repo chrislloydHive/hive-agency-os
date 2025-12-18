@@ -119,52 +119,48 @@ export default async function ReportsPage({ params }: PageProps) {
     notFound();
   }
 
-  const domain = company.domain || company.website || '';
-
   // Fetch latest reports for each type
   const [latestAnnual, latestQbr] = await Promise.all([
     getLatestReportByType(companyId, 'annual'),
     getLatestReportByType(companyId, 'qbr'),
   ]);
 
-  // Collect all diagnostic runs
-  const diagnosticRuns: DiagnosticRunSummary[] = [];
-  const seenIds = new Set<string>();
+  const domain = company.domain || company.website || '';
+
+  // Collect all diagnostic runs from multiple sources with deduplication
+  // Use a Map to track by ID and prefer versions with more complete data
+  const runMap = new Map<string, DiagnosticRunSummary>();
 
   // 1. Load from unified Diagnostic Runs table (primary source)
   try {
     const runs = await listDiagnosticRunsForCompany(companyId, { limit: 100 });
     for (const run of runs) {
-      if (!seenIds.has(run.id)) {
-        seenIds.add(run.id);
-        diagnosticRuns.push(diagnosticRunToSummary(run, companyId));
-      }
+      runMap.set(run.id, diagnosticRunToSummary(run, companyId));
     }
   } catch (error) {
     console.error('[ReportsPage] Error loading diagnostic runs:', error);
   }
 
-  // 2. Load GAP Heavy runs (legacy)
+  // 2. Load GAP Heavy runs (legacy) - only add if not already present
   try {
     const heavyRuns = await getHeavyGapRunsByCompanyId(companyId, 50);
     for (const run of heavyRuns) {
-      if (seenIds.has(run.id)) continue;
-      seenIds.add(run.id);
+      if (runMap.has(run.id)) continue;
 
       const modules: string[] = [];
       if (run.evidencePack?.websiteLabV4) modules.push('Website');
       if (run.evidencePack?.brandLab) modules.push('Brand');
       if (run.evidencePack?.modules?.length) {
         const completedModules = run.evidencePack.modules
-          .filter(m => m.status === 'completed')
-          .map(m => m.module);
+          .filter((m: any) => m.status === 'completed')
+          .map((m: any) => m.module);
         if (completedModules.includes('seo')) modules.push('SEO');
         if (completedModules.includes('content')) modules.push('Content');
         if (completedModules.includes('demand')) modules.push('Demand');
         if (completedModules.includes('ops')) modules.push('Ops');
       }
 
-      diagnosticRuns.push({
+      runMap.set(run.id, {
         id: run.id,
         type: 'GAP Heavy',
         label: modules.length > 0
@@ -182,15 +178,14 @@ export default async function ReportsPage({ params }: PageProps) {
     console.error('[ReportsPage] Error loading GAP Heavy runs:', error);
   }
 
-  // 3. Load GAP-IA runs (legacy)
+  // 3. Load GAP-IA runs (legacy) - only add if not already present
   try {
     const iaRuns = await getGapIaRunsForCompanyOrDomain(companyId, domain, 50);
     for (const run of iaRuns) {
-      if (seenIds.has(run.id)) continue;
-      seenIds.add(run.id);
+      if (runMap.has(run.id)) continue;
 
       const isComplete = run.status === 'completed' || run.status === 'complete';
-      diagnosticRuns.push({
+      runMap.set(run.id, {
         id: run.id,
         type: 'GAP IA',
         label: run.core?.quickSummary || 'Quick marketing health check',
@@ -207,12 +202,11 @@ export default async function ReportsPage({ params }: PageProps) {
     console.error('[ReportsPage] Error loading GAP-IA runs:', error);
   }
 
-  // 4. Load GAP Plan runs (Full GAP from onboarding)
+  // 4. Load GAP Plan runs (Full GAP) - only add if not already present
   try {
     const planRuns = await getGapPlanRunsForCompanyOrDomain(companyId, domain, 50);
     for (const run of planRuns) {
-      if (seenIds.has(run.id)) continue;
-      seenIds.add(run.id);
+      if (runMap.has(run.id)) continue;
 
       const isComplete = run.status === 'completed';
       const scores: string[] = [];
@@ -220,7 +214,7 @@ export default async function ReportsPage({ params }: PageProps) {
       if (run.websiteScore) scores.push(`Website: ${run.websiteScore}`);
       if (run.brandScore) scores.push(`Brand: ${run.brandScore}`);
 
-      diagnosticRuns.push({
+      runMap.set(run.id, {
         id: run.id,
         type: 'Full GAP',
         label: run.maturityStage
@@ -238,6 +232,9 @@ export default async function ReportsPage({ params }: PageProps) {
   } catch (error) {
     console.error('[ReportsPage] Error loading GAP Plan runs:', error);
   }
+
+  // Convert map to array
+  const diagnosticRuns = Array.from(runMap.values());
 
   // Sort by date, newest first
   diagnosticRuns.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());

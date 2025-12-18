@@ -125,7 +125,7 @@ export function getAutoFillReadiness(
   // Check ICP hint - from context graph (primaryAudience or icpDescription)
   const hasIcpHint = Boolean(
     isPopulated(getMetaValue(graph?.audience?.primaryAudience)) ||
-    isPopulated(getMetaValue(graph?.identity?.icpDescription))
+    isPopulated(getMetaValue(graph?.audience?.icpDescription))
   );
 
   // Check primary offering - from context graph (heroProducts, productLines, or products)

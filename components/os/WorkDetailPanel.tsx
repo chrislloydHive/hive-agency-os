@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 import Link from 'next/link';
-import type { WorkItem } from '@/lib/types/work';
+import type { WorkItem, WorkSourceUserPrescribed, PrescribedWorkAiBrief } from '@/lib/types/work';
 import {
   WORK_PRIORITY_CONFIG,
   WORK_CATEGORY_CONFIG,
@@ -59,9 +59,50 @@ function getSourceIcon(source: WorkSource | undefined): string {
       return '⚡';
     case 'plan_initiative':
       return '📋';
+    case 'creative_brief':
+      return '📝';
+    case 'strategy_handoff':
+      return '🎯';
+    case 'strategy_play':
+      return '🎲';
+    case 'user_prescribed':
+      return '📋';
     default:
       return '✏️';
   }
+}
+
+/**
+ * Check if source is a creative brief
+ */
+function isCreativeBriefSource(source: WorkSource | undefined): source is {
+  sourceType: 'creative_brief';
+  briefId: string;
+  briefTitle: string;
+  projectId: string;
+  projectType: string;
+} {
+  return source?.sourceType === 'creative_brief';
+}
+
+/**
+ * Check if source is user prescribed
+ */
+function isUserPrescribedSource(source: WorkSource | undefined): source is WorkSourceUserPrescribed {
+  return source?.sourceType === 'user_prescribed';
+}
+
+/**
+ * Get work type label for display
+ */
+function getPrescribedWorkTypeLabel(workType: string): string {
+  const labels: Record<string, string> = {
+    seo_copy: 'SEO Copy Updates',
+    landing_page_copy: 'Landing Page Copy',
+    page_edits: 'Page Edits',
+    other: 'Other Work',
+  };
+  return labels[workType] || workType;
 }
 
 /**
@@ -205,9 +246,48 @@ export function WorkDetailPanel({ item, onClose }: WorkDetailPanelProps) {
                       </Link>
                     </div>
                   )}
+                  {isCreativeBriefSource(item.source) && (
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <p className="text-slate-500">
+                        Generated from brief: {item.source.briefTitle}
+                      </p>
+                      <Link
+                        href={`/c/${item.companyId}/briefs/${item.source.briefId}`}
+                        className="inline-flex items-center gap-1 text-purple-500 hover:text-purple-400 font-medium"
+                      >
+                        View Brief
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </Link>
+                    </div>
+                  )}
+                  {isUserPrescribedSource(item.source) && (
+                    <div className="mt-1.5">
+                      <p className="text-slate-500">
+                        {getPrescribedWorkTypeLabel(item.source.workType)} • {item.source.projectContext}
+                      </p>
+                      {item.source.briefId && (
+                        <Link
+                          href={`/c/${item.companyId}/briefs/${item.source.briefId}`}
+                          className="inline-flex items-center gap-1 text-purple-500 hover:text-purple-400 font-medium mt-1"
+                        >
+                          View Brief
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        </Link>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
+          )}
+
+          {/* AI Brief (for user_prescribed sources) */}
+          {isUserPrescribedSource(item.source) && item.source.aiBrief && (
+            <AiBriefSection brief={item.source.aiBrief} workType={item.source.workType} />
           )}
 
           {/* Metadata Grid */}
@@ -399,6 +479,132 @@ export function WorkDetailPanel({ item, onClose }: WorkDetailPanelProps) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AI Brief Section Component
+// ============================================================================
+
+interface AiBriefSectionProps {
+  brief: PrescribedWorkAiBrief;
+  workType: string;
+}
+
+function AiBriefSection({ brief, workType }: AiBriefSectionProps) {
+  const [isExpanded, setIsExpanded] = useState(true);
+
+  return (
+    <div className="rounded-lg border border-purple-500/30 bg-purple-500/5 overflow-hidden">
+      {/* Header */}
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center justify-between p-3 hover:bg-purple-500/10 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+          </svg>
+          <span className="text-sm font-medium text-purple-300">AI Brief</span>
+        </div>
+        <svg
+          className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Content */}
+      {isExpanded && (
+        <div className="p-3 pt-0 space-y-4">
+          {/* Summary */}
+          {brief.summary && (
+            <div>
+              <p className="text-xs text-slate-500 mb-1">Summary</p>
+              <p className="text-sm text-slate-300">{brief.summary}</p>
+            </div>
+          )}
+
+          {/* Requirements */}
+          {brief.requirements && brief.requirements.length > 0 && (
+            <div>
+              <p className="text-xs text-slate-500 mb-1.5">Requirements</p>
+              <ul className="space-y-1">
+                {brief.requirements.map((req, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
+                    <span className="text-purple-400 mt-0.5">•</span>
+                    <span>{req}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Page Checklist */}
+          {brief.pageChecklist && brief.pageChecklist.length > 0 && (
+            <div>
+              <p className="text-xs text-slate-500 mb-1.5">Page Checklist</p>
+              <ul className="space-y-1">
+                {brief.pageChecklist.map((page, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
+                    <span className="text-slate-500 mt-0.5">☐</span>
+                    <span>{page}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* SEO Checklist (only for seo_copy) */}
+          {workType === 'seo_copy' && brief.seoChecklist && brief.seoChecklist.length > 0 && (
+            <div>
+              <p className="text-xs text-slate-500 mb-1.5">SEO Checklist</p>
+              <ul className="space-y-1">
+                {brief.seoChecklist.map((item, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
+                    <span className="text-emerald-400 mt-0.5">☐</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Acceptance Criteria */}
+          {brief.acceptanceCriteria && brief.acceptanceCriteria.length > 0 && (
+            <div>
+              <p className="text-xs text-slate-500 mb-1.5">Acceptance Criteria</p>
+              <ul className="space-y-1">
+                {brief.acceptanceCriteria.map((criteria, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
+                    <span className="text-amber-400 mt-0.5">✓</span>
+                    <span>{criteria}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Risks / Dependencies */}
+          {brief.risksOrDependencies && brief.risksOrDependencies.length > 0 && (
+            <div>
+              <p className="text-xs text-slate-500 mb-1.5">Risks / Dependencies</p>
+              <ul className="space-y-1">
+                {brief.risksOrDependencies.map((risk, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
+                    <span className="text-red-400 mt-0.5">⚠</span>
+                    <span>{risk}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

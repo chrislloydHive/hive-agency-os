@@ -4,7 +4,9 @@
 'use client';
 
 import type { PositionedNode, NodeVisualTier } from './types';
-import { getShortLabel, truncateValue, formatRelativeTime, SOURCE_LABELS, COLORS, VISUAL_TIERS, LOW_CONFIDENCE_THRESHOLD } from './constants';
+import { getShortLabel, formatRelativeTime, SOURCE_LABELS, COLORS, VISUAL_TIERS, LOW_CONFIDENCE_THRESHOLD } from './constants';
+import { getValuePreview } from './field-renderers';
+import { getSchemaV2Entry } from '@/lib/contextGraph/unifiedRegistry';
 
 interface ContextMapNodeCardProps {
   node: PositionedNode;
@@ -76,7 +78,9 @@ export function ContextMapNodeCard({
   const yOffset = (size.height - scaledHeight) / 2;
 
   const label = getShortLabel(node.key);
-  const valuePreview = truncateValue(value, 50);
+  // Use Schema V2 field metadata for type-aware preview (select labels, list formatting, etc.)
+  const fieldMeta = getSchemaV2Entry(node.key);
+  const valuePreview = getValuePreview(value, fieldMeta, 50);
   const relativeTime = formatRelativeTime(lastUpdated);
   const sourceLabel = SOURCE_LABELS[source] || source;
   const confidencePercent = Math.round(confidence * 100);

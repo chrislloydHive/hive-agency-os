@@ -34,9 +34,9 @@ export default async function LeadsPage() {
       <div className="mb-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-slate-100">Pipeline</h1>
+            <h1 className="text-3xl font-bold text-slate-100">Pipeline Leads</h1>
             <p className="text-slate-400 mt-1">
-              Manage DMA Full GAP leads through the sales pipeline
+              New inbound prospects—review and advance to opportunities
             </p>
           </div>
         </div>

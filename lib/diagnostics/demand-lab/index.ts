@@ -18,6 +18,7 @@ import type {
 import { analyzeDemandInputs } from './analyzer';
 import { scoreDemandLab, ScoringOutput } from './scoring';
 import { generateDemandNarrative } from './narrative';
+import { ensureCanonical } from '@/lib/diagnostics/shared';
 
 // Re-export types for convenience
 export * from './types';
@@ -93,12 +94,36 @@ export async function runDemandLab(
   // 5. Build projects
   const projects = buildDemandProjects(scoring);
 
+  // CANONICAL CONTRACT: Ensure all required fields are present
+  const canonicalInput = {
+    maturityStage: scoring.maturityStage,
+    primaryChannels: analysis.analyticsSnapshot?.topChannels ?? [],
+    hasPaidTraffic: analysis.hasPaidTraffic ? 'yes' : (analysis.analyticsSnapshot?.paidShare ? 'yes' : 'unknown'),
+    topIssues: scoring.issues.slice(0, 5).map((i) => ({
+      title: i.title,
+      severity: i.severity,
+      category: i.category,
+    })),
+    conversionRate: analysis.analyticsSnapshot?.conversionRate,
+  };
+
+  const canonicalResult = ensureCanonical({
+    labType: 'demand',
+    canonical: canonicalInput,
+    v1Result: { ...analysis, ...scoring, analyticsSnapshot: analysis.analyticsSnapshot } as unknown as Record<string, unknown>,
+  });
+
+  if (canonicalResult.synthesizedFields.length > 0) {
+    console.log('[DemandLab V2] Synthesized canonical fields:', canonicalResult.synthesizedFields);
+  }
+
   console.log('[DemandLab V2] Complete:', {
     issues: scoring.issues.length,
     quickWins: quickWins.length,
     projects: projects.length,
     pagesAnalyzed: analysis.findings?.pagesAnalyzed?.length ?? 0,
     ctasFound: analysis.findings?.ctasFound?.length ?? 0,
+    canonicalValid: canonicalResult.valid,
   });
 
   return {

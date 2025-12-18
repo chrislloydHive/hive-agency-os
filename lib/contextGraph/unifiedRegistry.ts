@@ -40,7 +40,39 @@ import type { DomainName } from './companyContextGraph';
 
 export type FieldSource = 'user' | 'ai' | 'lab' | 'strategy' | 'import';
 export type FieldStatus = 'confirmed' | 'proposed';
-export type FieldValueType = 'string' | 'string[]' | 'number' | 'boolean' | 'array' | 'object' | 'competitors';
+
+/**
+ * Field value types for schema V2
+ * - text: Short text input
+ * - select: Single selection from predefined options
+ * - multi-select: Multiple selections from options (with optional custom values)
+ * - list: User-defined list of strings (add/remove)
+ * - number: Numeric value
+ * - url: URL with validation
+ * - string/string[]/array/object/competitors: Legacy types for backward compatibility
+ */
+export type FieldValueType =
+  | 'text'          // Short text input
+  | 'select'        // Single selection from options
+  | 'multi-select'  // Multiple selections (optionally allow custom)
+  | 'list'          // User-defined list items
+  | 'number'        // Numeric value
+  | 'url'           // URL with validation
+  // Legacy types (backward compatibility)
+  | 'string'
+  | 'string[]'
+  | 'boolean'
+  | 'array'
+  | 'object'
+  | 'competitors';
+
+/**
+ * Option for select/multi-select fields
+ */
+export interface SelectOption {
+  value: string;
+  label: string;
+}
 
 /**
  * Strategy Input sections that fields can belong to
@@ -135,6 +167,12 @@ export interface UnifiedFieldEntry {
   showInForm?: boolean;
   /** Whether to show in Map view (default: true) */
   showInMap?: boolean;
+
+  // === Select/Multi-Select Options (Schema V2) ===
+  /** Options for select/multi-select fields */
+  options?: SelectOption[];
+  /** For multi-select: whether custom values beyond options are allowed */
+  allowCustomOptions?: boolean;
 }
 
 // ============================================================================
@@ -142,6 +180,970 @@ export interface UnifiedFieldEntry {
 // ============================================================================
 
 export const DEFAULT_SOURCE_PRIORITY: FieldSource[] = ['user', 'lab', 'ai', 'strategy', 'import'];
+
+// ============================================================================
+// CONTEXT SCHEMA V2 - STRICT PREDEFINED FIELDS
+// ============================================================================
+// The new schema has exactly 47 predefined fields across 8 zones.
+// No arbitrary "Notes" or free-form fields. AI can only populate these keys.
+// ============================================================================
+
+/**
+ * Schema V2 field keys - the ONLY valid context fields
+ * 47 total fields across 8 zones
+ */
+export const CONTEXT_SCHEMA_V2_KEYS = [
+  // Zone A: Business Reality (7 fields)
+  'businessReality.industry',
+  'businessReality.marketStage',
+  'businessReality.businessModel',
+  'businessReality.seasonalityNotes',
+  'businessReality.pricingRange',
+  'businessReality.geoFocus',
+  'businessReality.salesMotion',
+
+  // Zone B: Audience/ICP (8 fields)
+  'audience.primaryAudience',
+  'audience.icpDescription',
+  'audience.secondaryAudiences',
+  'audience.customerPainPoints',
+  'audience.purchaseTriggers',
+  'audience.decisionCriteria',
+  'audience.commonObjections',
+  'audience.mediaHabits',
+
+  // Zone C: Offer (6 fields)
+  'offer.productsServices',
+  'offer.primaryOffer',
+  'offer.pricingModel',
+  'offer.freeTrialOrFreemium',
+  'offer.coreOutcome',
+  'offer.differentiatorsObserved',
+
+  // Zone D: Brand (6 fields) - NO toneOfVoice
+  'brand.brandAttributes',
+  'brand.brandDos',
+  'brand.brandDonts',
+  'brand.approvedMessagingPillars',
+  'brand.existingBrandGuidelines',
+  'brand.brandGuidelinesLink',
+
+  // Zone E: Go-to-Market (5 fields)
+  'gtm.activeChannels',
+  'gtm.salesChannels',
+  'gtm.conversionAction',
+  'gtm.currentFunnelMotion',
+  'gtm.partnerships',
+
+  // Zone F: Competitive Landscape (4 fields)
+  'competitive.competitors',
+  'competitive.categoryAlternatives',
+  'competitive.replacementAlternatives',
+  'competitive.competitiveNotes',
+
+  // Zone G: Constraints (6 fields)
+  'constraints.minBudget',
+  'constraints.maxBudget',
+  'constraints.geoRestrictions',
+  'constraints.complianceLegal',
+  'constraints.timeConstraints',
+  'constraints.techConstraints',
+
+  // Zone H: Execution Capabilities (5 fields)
+  'capabilities.teamCapacity',
+  'capabilities.inHouseSkills',
+  'capabilities.toolsStack',
+  'capabilities.brandAssetsAvailable',
+  'capabilities.analyticsInstrumentation',
+] as const;
+
+export type ContextSchemaV2Key = typeof CONTEXT_SCHEMA_V2_KEYS[number];
+
+/**
+ * Check if a key is a valid Schema V2 key
+ */
+export function isSchemaV2Key(key: string): key is ContextSchemaV2Key {
+  return (CONTEXT_SCHEMA_V2_KEYS as readonly string[]).includes(key);
+}
+
+// ============================================================================
+// SCHEMA V2 SELECT OPTIONS
+// ============================================================================
+
+export const MARKET_STAGE_OPTIONS: SelectOption[] = [
+  { value: 'pre-launch', label: 'Pre-launch' },
+  { value: 'early', label: 'Early Stage' },
+  { value: 'growth', label: 'Growth' },
+  { value: 'mature', label: 'Mature' },
+];
+
+export const BUSINESS_MODEL_OPTIONS: SelectOption[] = [
+  { value: 'subscription', label: 'Subscription' },
+  { value: 'marketplace', label: 'Marketplace' },
+  { value: 'ecommerce', label: 'E-commerce' },
+  { value: 'services', label: 'Services' },
+  { value: 'other', label: 'Other' },
+];
+
+export const SALES_MOTION_OPTIONS: SelectOption[] = [
+  { value: 'self-serve', label: 'Self-serve' },
+  { value: 'sales-led', label: 'Sales-led' },
+  { value: 'hybrid', label: 'Hybrid' },
+  { value: 'unknown', label: 'Unknown' },
+];
+
+export const PRICING_MODEL_OPTIONS: SelectOption[] = [
+  { value: 'subscription', label: 'Subscription' },
+  { value: 'one-time', label: 'One-time' },
+  { value: 'usage', label: 'Usage-based' },
+  { value: 'tiered', label: 'Tiered' },
+  { value: 'unknown', label: 'Unknown' },
+];
+
+export const YES_NO_UNKNOWN_OPTIONS: SelectOption[] = [
+  { value: 'yes', label: 'Yes' },
+  { value: 'no', label: 'No' },
+  { value: 'unknown', label: 'Unknown' },
+];
+
+export const YES_NO_PARTIAL_UNKNOWN_OPTIONS: SelectOption[] = [
+  { value: 'yes', label: 'Yes' },
+  { value: 'no', label: 'No' },
+  { value: 'partial', label: 'Partial' },
+  { value: 'unknown', label: 'Unknown' },
+];
+
+export const ANALYTICS_QUALITY_OPTIONS: SelectOption[] = [
+  { value: 'good', label: 'Good' },
+  { value: 'partial', label: 'Partial' },
+  { value: 'poor', label: 'Poor' },
+  { value: 'unknown', label: 'Unknown' },
+];
+
+export const BRAND_ATTRIBUTE_OPTIONS: SelectOption[] = [
+  { value: 'approachable', label: 'Approachable' },
+  { value: 'premium', label: 'Premium' },
+  { value: 'playful', label: 'Playful' },
+  { value: 'technical', label: 'Technical' },
+  { value: 'authoritative', label: 'Authoritative' },
+  { value: 'minimalist', label: 'Minimalist' },
+  { value: 'bold', label: 'Bold' },
+  { value: 'trustworthy', label: 'Trustworthy' },
+  { value: 'innovative', label: 'Innovative' },
+  { value: 'friendly', label: 'Friendly' },
+];
+
+// ============================================================================
+// SCHEMA V2 REGISTRY - Structured Context Fields
+// ============================================================================
+
+export const CONTEXT_SCHEMA_V2_REGISTRY: UnifiedFieldEntry[] = [
+  // ============================================================================
+  // ZONE A: Business Reality (7 fields)
+  // ============================================================================
+  {
+    key: 'businessReality.industry',
+    label: 'Industry',
+    description: 'Primary industry or market sector',
+    domain: 'identity',
+    zoneId: 'business-reality',
+    category: 'businessReality',
+    strategySection: 'businessReality',
+    valueType: 'text',
+    legacyPath: 'industry',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: true,
+    aiPromptHint: 'Identify the primary industry (e.g., "SaaS", "Healthcare", "E-commerce")',
+  },
+  {
+    key: 'businessReality.marketStage',
+    label: 'Market Stage',
+    shortLabel: 'Stage',
+    description: 'Current market/growth stage',
+    domain: 'identity',
+    zoneId: 'business-reality',
+    category: 'businessReality',
+    strategySection: 'businessReality',
+    valueType: 'select',
+    options: MARKET_STAGE_OPTIONS,
+    legacyPath: 'marketMaturity',
+    defaultStatus: 'proposed',
+    defaultSource: 'ai',
+    requiredFor: [],
+    aiProposable: true,
+    aiPromptHint: 'Select: pre-launch, early, growth, or mature',
+  },
+  {
+    key: 'businessReality.businessModel',
+    label: 'Business Model',
+    shortLabel: 'Model',
+    description: 'Primary business model',
+    domain: 'identity',
+    zoneId: 'business-reality',
+    category: 'businessReality',
+    strategySection: 'businessReality',
+    valueType: 'select',
+    options: BUSINESS_MODEL_OPTIONS,
+    legacyPath: 'businessModel',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: ['strategy'],
+    isCritical: true,
+    aiProposable: true,
+    aiPromptHint: 'Select: subscription, marketplace, ecommerce, services, or other',
+  },
+  {
+    key: 'businessReality.seasonalityNotes',
+    label: 'Seasonality Notes',
+    description: 'Notes on seasonal patterns (factual)',
+    domain: 'identity',
+    zoneId: 'business-reality',
+    category: 'businessReality',
+    strategySection: null,
+    valueType: 'text',
+    legacyPath: 'seasonalityNotes',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: true,
+  },
+  {
+    key: 'businessReality.pricingRange',
+    label: 'Pricing Range',
+    description: 'Factual pricing (e.g., "$49-$199/mo")',
+    domain: 'identity',
+    zoneId: 'business-reality',
+    category: 'businessReality',
+    strategySection: null,
+    valueType: 'text',
+    legacyPath: 'priceRange',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: false, // User-only
+  },
+  {
+    key: 'businessReality.geoFocus',
+    label: 'Geographic Focus',
+    shortLabel: 'Geography',
+    description: 'Target geography (e.g., "US", "Pacific NW")',
+    domain: 'identity',
+    zoneId: 'business-reality',
+    category: 'businessReality',
+    strategySection: 'businessReality',
+    valueType: 'text',
+    legacyPath: 'geographicFootprint',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: true,
+  },
+  {
+    key: 'businessReality.salesMotion',
+    label: 'Sales Motion',
+    description: 'How sales happen',
+    domain: 'identity',
+    zoneId: 'business-reality',
+    category: 'businessReality',
+    strategySection: null,
+    valueType: 'select',
+    options: SALES_MOTION_OPTIONS,
+    legacyPath: 'salesMotion',
+    defaultStatus: 'proposed',
+    defaultSource: 'ai',
+    requiredFor: [],
+    aiProposable: true,
+    aiPromptHint: 'Select: self-serve, sales-led, hybrid, or unknown',
+  },
+
+  // ============================================================================
+  // ZONE B: Audience/ICP (8 fields)
+  // ============================================================================
+  {
+    key: 'audience.primaryAudience',
+    label: 'Primary Audience',
+    shortLabel: 'Audience',
+    description: 'Primary target audience (role + descriptor, no messaging)',
+    domain: 'audience',
+    zoneId: 'audience',
+    category: 'audience',
+    strategySection: 'businessReality',
+    valueType: 'text',
+    legacyPath: 'primaryAudience',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: ['strategy'],
+    isCritical: true,
+    aiProposable: true,
+    aiPromptHint: 'Role + descriptor only (e.g., "SMB marketing managers"). No messaging.',
+  },
+  {
+    key: 'audience.icpDescription',
+    label: 'ICP Description',
+    shortLabel: 'ICP',
+    description: 'Ideal Customer Profile - detailed description of your best-fit customer',
+    domain: 'audience',
+    zoneId: 'audience',
+    category: 'audience',
+    strategySection: 'businessReality',
+    valueType: 'text',
+    legacyPath: 'icpDescription',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: ['strategy'],
+    isCritical: true,
+    aiProposable: true,
+    aiPromptHint: 'Describe your ideal customer in detail - industry, size, characteristics, behaviors.',
+  },
+  {
+    key: 'audience.secondaryAudiences',
+    label: 'Secondary Audiences',
+    description: 'Other target audiences',
+    domain: 'audience',
+    zoneId: 'audience',
+    category: 'audience',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'secondaryAudience',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: true,
+  },
+  {
+    key: 'audience.customerPainPoints',
+    label: 'Customer Pain Points',
+    description: 'Problems customers face (phrased as problems, not solutions)',
+    domain: 'audience',
+    zoneId: 'audience',
+    category: 'audience',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'painPoints',
+    defaultStatus: 'proposed',
+    defaultSource: 'ai',
+    requiredFor: [],
+    aiProposable: true,
+    aiPromptHint: 'Phrase as problems, NOT solutions',
+  },
+  {
+    key: 'audience.purchaseTriggers',
+    label: 'Purchase Triggers',
+    description: 'Events that cause buying',
+    domain: 'audience',
+    zoneId: 'audience',
+    category: 'audience',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'purchaseTriggers',
+    defaultStatus: 'proposed',
+    defaultSource: 'ai',
+    requiredFor: [],
+    aiProposable: true,
+  },
+  {
+    key: 'audience.decisionCriteria',
+    label: 'Decision Criteria',
+    description: 'What customers care about when deciding',
+    domain: 'audience',
+    zoneId: 'audience',
+    category: 'audience',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'decisionCriteria',
+    defaultStatus: 'proposed',
+    defaultSource: 'ai',
+    requiredFor: [],
+    aiProposable: true,
+  },
+  {
+    key: 'audience.commonObjections',
+    label: 'Common Objections',
+    description: 'Typical objections or concerns',
+    domain: 'audience',
+    zoneId: 'audience',
+    category: 'audience',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'commonObjections',
+    defaultStatus: 'proposed',
+    defaultSource: 'ai',
+    requiredFor: [],
+    aiProposable: true,
+  },
+  {
+    key: 'audience.mediaHabits',
+    label: 'Media Habits',
+    description: 'Factual channels/platforms used',
+    domain: 'audience',
+    zoneId: 'audience',
+    category: 'audience',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'mediaHabits',
+    defaultStatus: 'proposed',
+    defaultSource: 'ai',
+    requiredFor: [],
+    aiProposable: true,
+    aiPromptHint: 'Factual channels observed (e.g., "LinkedIn", "Google Search")',
+  },
+
+  // ============================================================================
+  // ZONE C: Offer (6 fields)
+  // ============================================================================
+  {
+    key: 'offer.productsServices',
+    label: 'Products/Services',
+    description: 'Named offerings',
+    domain: 'productOffer',
+    zoneId: 'offer',
+    category: 'offer',
+    strategySection: 'businessReality',
+    valueType: 'list',
+    legacyPath: 'primaryProducts',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: ['strategy', 'websiteProgram'],
+    isCritical: true,
+    aiProposable: true,
+  },
+  {
+    key: 'offer.primaryOffer',
+    label: 'Primary Offer',
+    description: 'Main offering (short text)',
+    domain: 'productOffer',
+    zoneId: 'offer',
+    category: 'offer',
+    strategySection: 'businessReality',
+    valueType: 'text',
+    legacyPath: 'primaryOffer',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: true,
+  },
+  {
+    key: 'offer.pricingModel',
+    label: 'Pricing Model',
+    description: 'How pricing works',
+    domain: 'productOffer',
+    zoneId: 'offer',
+    category: 'offer',
+    strategySection: null,
+    valueType: 'select',
+    options: PRICING_MODEL_OPTIONS,
+    legacyPath: 'pricingModel',
+    defaultStatus: 'proposed',
+    defaultSource: 'ai',
+    requiredFor: [],
+    aiProposable: true,
+    aiPromptHint: 'Select: subscription, one-time, usage, tiered, or unknown',
+  },
+  {
+    key: 'offer.freeTrialOrFreemium',
+    label: 'Free Trial / Freemium',
+    description: 'Whether free trial or freemium is offered',
+    domain: 'productOffer',
+    zoneId: 'offer',
+    category: 'offer',
+    strategySection: null,
+    valueType: 'select',
+    options: YES_NO_UNKNOWN_OPTIONS,
+    legacyPath: 'freeTrialOrFreemium',
+    defaultStatus: 'proposed',
+    defaultSource: 'ai',
+    requiredFor: [],
+    aiProposable: true,
+    aiPromptHint: 'Select: yes, no, or unknown',
+  },
+  {
+    key: 'offer.coreOutcome',
+    label: 'Core Outcome',
+    description: 'What customer gets (not positioning)',
+    domain: 'productOffer',
+    zoneId: 'offer',
+    category: 'offer',
+    strategySection: 'businessReality',
+    valueType: 'text',
+    legacyPath: 'valueProposition',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: ['strategy'],
+    isCritical: true,
+    aiProposable: true,
+    aiPromptHint: 'What customer achieves - factual outcome, not marketing copy',
+  },
+  {
+    key: 'offer.differentiatorsObserved',
+    label: 'Differentiators Observed',
+    description: 'Factual differentiators (features, access, model)',
+    domain: 'productOffer',
+    zoneId: 'offer',
+    category: 'offer',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'differentiators',
+    defaultStatus: 'proposed',
+    defaultSource: 'ai',
+    requiredFor: [],
+    aiProposable: true,
+    aiPromptHint: 'Factual differentiators only, not positioning claims',
+  },
+
+  // ============================================================================
+  // ZONE D: Brand (6 fields) - NO toneOfVoice free-form
+  // ============================================================================
+  {
+    key: 'brand.brandAttributes',
+    label: 'Brand Attributes',
+    description: 'Brand personality traits',
+    domain: 'brand',
+    zoneId: 'brand',
+    category: 'brand',
+    strategySection: null,
+    valueType: 'multi-select',
+    options: BRAND_ATTRIBUTE_OPTIONS,
+    allowCustomOptions: true,
+    legacyPath: 'brandAttributes',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: true,
+    aiPromptHint: 'Select from: approachable, premium, playful, technical, authoritative, minimalist, bold, trustworthy, innovative, friendly. Can add custom.',
+  },
+  {
+    key: 'brand.brandDos',
+    label: 'Brand Dos',
+    description: 'Things to do (e.g., "Use plain language")',
+    domain: 'brand',
+    zoneId: 'brand',
+    category: 'brand',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'brandDos',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: false, // User-only
+  },
+  {
+    key: 'brand.brandDonts',
+    label: 'Brand Don\'ts',
+    description: 'Things to avoid (e.g., "Avoid jargon")',
+    domain: 'brand',
+    zoneId: 'brand',
+    category: 'brand',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'brandDonts',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: false, // User-only
+  },
+  {
+    key: 'brand.approvedMessagingPillars',
+    label: 'Approved Messaging Pillars',
+    description: 'Pre-approved messaging themes (if known)',
+    domain: 'brand',
+    zoneId: 'brand',
+    category: 'brand',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'messagingPillars',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: false, // User-only
+  },
+  {
+    key: 'brand.existingBrandGuidelines',
+    label: 'Existing Brand Guidelines',
+    description: 'Whether brand guidelines exist',
+    domain: 'brand',
+    zoneId: 'brand',
+    category: 'brand',
+    strategySection: null,
+    valueType: 'select',
+    options: YES_NO_UNKNOWN_OPTIONS,
+    legacyPath: 'existingBrandGuidelines',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: true,
+    aiPromptHint: 'Select: yes, no, or unknown',
+  },
+  {
+    key: 'brand.brandGuidelinesLink',
+    label: 'Brand Guidelines Link',
+    description: 'URL to brand guidelines (if available)',
+    domain: 'brand',
+    zoneId: 'brand',
+    category: 'brand',
+    strategySection: null,
+    valueType: 'url',
+    legacyPath: 'brandGuidelinesLink',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: false, // User-only
+  },
+
+  // ============================================================================
+  // ZONE E: Go-to-Market (5 fields)
+  // ============================================================================
+  {
+    key: 'gtm.activeChannels',
+    label: 'Active Channels',
+    description: 'Current marketing channels in use',
+    domain: 'performanceMedia',
+    zoneId: 'go-to-market',
+    category: 'gtm',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'performanceMedia.activeChannels',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: true,
+  },
+  {
+    key: 'gtm.salesChannels',
+    label: 'Sales Channels',
+    description: 'How sales happen (factual)',
+    domain: 'productOffer',
+    zoneId: 'go-to-market',
+    category: 'gtm',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'salesChannels',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: true,
+  },
+  {
+    key: 'gtm.conversionAction',
+    label: 'Conversion Action',
+    description: 'Primary conversion (e.g., "Book a demo", "Subscribe")',
+    domain: 'productOffer',
+    zoneId: 'go-to-market',
+    category: 'gtm',
+    strategySection: null,
+    valueType: 'text',
+    legacyPath: 'primaryConversionAction',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: ['demandProgram'],
+    isRecommended: true,
+    aiProposable: true,
+  },
+  {
+    key: 'gtm.currentFunnelMotion',
+    label: 'Current Funnel Motion',
+    description: 'Factual summary of current funnel (no advice)',
+    domain: 'productOffer',
+    zoneId: 'go-to-market',
+    category: 'gtm',
+    strategySection: null,
+    valueType: 'text',
+    legacyPath: 'currentFunnelMotion',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: true,
+    aiPromptHint: 'Factual summary only, no recommendations',
+  },
+  {
+    key: 'gtm.partnerships',
+    label: 'Partnerships',
+    description: 'Known partnerships (if any)',
+    domain: 'identity',
+    zoneId: 'go-to-market',
+    category: 'gtm',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'partnerships',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: true,
+  },
+
+  // ============================================================================
+  // ZONE F: Competitive Landscape (4 fields) - Facts only
+  // ============================================================================
+  {
+    key: 'competitive.competitors',
+    label: 'Competitors',
+    description: 'Known competitors (names or domains)',
+    domain: 'competitive',
+    zoneId: 'competitive',
+    category: 'competitive',
+    strategySection: 'competition',
+    valueType: 'list',
+    legacyPath: 'competitors',
+    defaultStatus: 'proposed',
+    defaultSource: 'ai',
+    requiredFor: [],
+    isRecommended: true,
+    aiProposable: true,
+    aiPromptHint: 'List competitor names or domains',
+  },
+  {
+    key: 'competitive.categoryAlternatives',
+    label: 'Category Alternatives',
+    description: 'Substitutes in the same category (e.g., "ClassPass", "Thumbtack")',
+    domain: 'competitive',
+    zoneId: 'competitive',
+    category: 'competitive',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'categoryAlternatives',
+    defaultStatus: 'proposed',
+    defaultSource: 'ai',
+    requiredFor: [],
+    aiProposable: true,
+  },
+  {
+    key: 'competitive.replacementAlternatives',
+    label: 'Replacement Alternatives',
+    description: 'Non-direct alternatives (spreadsheets, agencies, DIY)',
+    domain: 'competitive',
+    zoneId: 'competitive',
+    category: 'competitive',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'replacementAlternatives',
+    defaultStatus: 'proposed',
+    defaultSource: 'ai',
+    requiredFor: [],
+    aiProposable: true,
+  },
+  {
+    key: 'competitive.competitiveNotes',
+    label: 'Competitive Notes',
+    description: 'Factual competitive observations (no strategy recs)',
+    domain: 'competitive',
+    zoneId: 'competitive',
+    category: 'competitive',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'competitorsNotes',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: true,
+    aiPromptHint: 'Factual comparisons ONLY - no strategy recommendations',
+  },
+
+  // ============================================================================
+  // ZONE G: Constraints (6 fields) - All user-only (AI cannot propose)
+  // ============================================================================
+  {
+    key: 'constraints.minBudget',
+    label: 'Minimum Budget',
+    shortLabel: 'Min Budget',
+    description: 'Budget floor (factual)',
+    domain: 'operationalConstraints',
+    zoneId: 'constraints',
+    category: 'constraints',
+    strategySection: 'constraints',
+    valueType: 'text',
+    legacyPath: 'minBudget',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: false, // User-only
+  },
+  {
+    key: 'constraints.maxBudget',
+    label: 'Maximum Budget',
+    shortLabel: 'Max Budget',
+    description: 'Budget ceiling (factual)',
+    domain: 'operationalConstraints',
+    zoneId: 'constraints',
+    category: 'constraints',
+    strategySection: 'constraints',
+    valueType: 'text',
+    legacyPath: 'maxBudget',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: false, // User-only
+  },
+  {
+    key: 'constraints.geoRestrictions',
+    label: 'Geographic Restrictions',
+    description: 'Geographic constraints (if any)',
+    domain: 'operationalConstraints',
+    zoneId: 'constraints',
+    category: 'constraints',
+    strategySection: 'constraints',
+    valueType: 'text',
+    legacyPath: 'geoRestrictions',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: false, // User-only
+  },
+  {
+    key: 'constraints.complianceLegal',
+    label: 'Compliance/Legal',
+    description: 'Compliance or legal requirements',
+    domain: 'operationalConstraints',
+    zoneId: 'constraints',
+    category: 'constraints',
+    strategySection: 'constraints',
+    valueType: 'list',
+    legacyPath: 'complianceRequirements',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: false, // User-only
+  },
+  {
+    key: 'constraints.timeConstraints',
+    label: 'Time Constraints',
+    description: 'Timeline or deadline constraints',
+    domain: 'operationalConstraints',
+    zoneId: 'constraints',
+    category: 'constraints',
+    strategySection: 'constraints',
+    valueType: 'text',
+    legacyPath: 'timeline',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: false, // User-only
+  },
+  {
+    key: 'constraints.techConstraints',
+    label: 'Tech Constraints',
+    description: 'Technical constraints (e.g., "Webflow only", "No GTM")',
+    domain: 'operationalConstraints',
+    zoneId: 'constraints',
+    category: 'constraints',
+    strategySection: null,
+    valueType: 'list',
+    legacyPath: 'techConstraints',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: false, // User-only
+  },
+
+  // ============================================================================
+  // ZONE H: Execution Capabilities (5 fields)
+  // ============================================================================
+  {
+    key: 'capabilities.teamCapacity',
+    label: 'Team Capacity',
+    description: 'Who can execute (factual)',
+    domain: 'capabilities',
+    zoneId: 'execution',
+    category: 'capabilities',
+    strategySection: 'executionCapabilities',
+    valueType: 'text',
+    legacyPath: 'teamCapacity',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: false, // User-only
+  },
+  {
+    key: 'capabilities.inHouseSkills',
+    label: 'In-House Skills',
+    description: 'Available in-house skills',
+    domain: 'capabilities',
+    zoneId: 'execution',
+    category: 'capabilities',
+    strategySection: 'executionCapabilities',
+    valueType: 'list',
+    legacyPath: 'inHouseSkills',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: false, // User-only
+  },
+  {
+    key: 'capabilities.toolsStack',
+    label: 'Tools Stack',
+    description: 'Current tools (GA4, HubSpot, Webflow, etc.)',
+    domain: 'capabilities',
+    zoneId: 'execution',
+    category: 'capabilities',
+    strategySection: 'executionCapabilities',
+    valueType: 'list',
+    legacyPath: 'toolsStack',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: true,
+  },
+  {
+    key: 'capabilities.brandAssetsAvailable',
+    label: 'Brand Assets Available',
+    description: 'Whether brand assets are available',
+    domain: 'creative',
+    zoneId: 'execution',
+    category: 'capabilities',
+    strategySection: null,
+    valueType: 'select',
+    options: YES_NO_PARTIAL_UNKNOWN_OPTIONS,
+    legacyPath: 'brandAssetsAvailable',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: true,
+    aiPromptHint: 'Select: yes, no, partial, or unknown',
+  },
+  {
+    key: 'capabilities.analyticsInstrumentation',
+    label: 'Analytics Instrumentation',
+    description: 'Quality of analytics setup',
+    domain: 'capabilities',
+    zoneId: 'execution',
+    category: 'capabilities',
+    strategySection: null,
+    valueType: 'select',
+    options: ANALYTICS_QUALITY_OPTIONS,
+    legacyPath: 'analyticsInstrumentation',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    aiProposable: true,
+    aiPromptHint: 'Select: good, partial, poor, or unknown',
+  },
+];
+
+// Schema V2 lookup maps
+export const SCHEMA_V2_BY_KEY = new Map<string, UnifiedFieldEntry>(
+  CONTEXT_SCHEMA_V2_REGISTRY.map(entry => [entry.key, entry])
+);
+
+/**
+ * Get Schema V2 registry entry by key
+ */
+export function getSchemaV2Entry(key: string): UnifiedFieldEntry | undefined {
+  return SCHEMA_V2_BY_KEY.get(key);
+}
+
+/**
+ * Get all Schema V2 fields for a zone
+ */
+export function getSchemaV2FieldsForZone(zoneId: ZoneId): UnifiedFieldEntry[] {
+  return CONTEXT_SCHEMA_V2_REGISTRY.filter(entry => entry.zoneId === zoneId);
+}
+
+/**
+ * Get all AI-proposable Schema V2 fields
+ */
+export function getSchemaV2AIProposableFields(): UnifiedFieldEntry[] {
+  return CONTEXT_SCHEMA_V2_REGISTRY.filter(entry => entry.aiProposable);
+}
 
 // ============================================================================
 // CANONICAL ZONES (per doctrine)
@@ -273,11 +1275,15 @@ export const UNIFIED_FIELD_REGISTRY: UnifiedFieldEntry[] = [
     aiProposable: true,
   },
   // Brand fields (factual only - value proposition is structured narrative)
+  // NOTE: Positioning is a STRATEGIC conclusion, not raw context.
+  // It should NOT block Context Map - users define positioning in Strategy Frame.
+  // Context can contain differentiators, market alternatives, competitive notes,
+  // but NOT a required "Positioning" statement that blocks workflow.
   {
     key: 'brand.positioning',
     label: 'Brand Positioning',
     shortLabel: 'Positioning',
-    description: 'Unique market position and core value proposition',
+    description: 'Unique market position and core value proposition (strategic - optional in context)',
     domain: 'brand',
     graphPath: 'brand.positioning',
     zoneId: 'business-reality',
@@ -288,9 +1294,9 @@ export const UNIFIED_FIELD_REGISTRY: UnifiedFieldEntry[] = [
     legacyPath: 'positioning',
     defaultStatus: 'confirmed',
     defaultSource: 'user',
-    requiredFor: ['strategy'],
-    isCritical: true,
-    readinessWeight: 0.9,
+    requiredFor: [], // REMOVED from strategy requirements - it's a strategic conclusion
+    isRecommended: true, // Changed from isCritical - informational only
+    readinessWeight: 0.5, // Reduced weight - not critical
     aiProposable: true,
     aiPromptHint: 'Define the unique market position and value proposition',
   },
@@ -478,10 +1484,15 @@ export const UNIFIED_FIELD_REGISTRY: UnifiedFieldEntry[] = [
   // ============================================================================
   // ZONE 3: Constraints (Budget, Timeline, Compliance, Restrictions)
   // ============================================================================
+  // NOTE: Budget is OPTIONAL context, not a hard blocker.
+  // Context Budget = "Known budget constraints" (informational)
+  // Strategy Budget = Strategy-level constraint (defined in Strategic Frame)
+  // Budget can be inferred from context but is finalized in Strategy.
   {
     key: 'operationalConstraints.minBudget',
     label: 'Minimum Budget',
     shortLabel: 'Min Budget',
+    description: 'Known budget floor (optional context, not required)',
     domain: 'operationalConstraints',
     graphPath: 'operationalConstraints.minBudget',
     zoneId: 'constraints',
@@ -492,15 +1503,16 @@ export const UNIFIED_FIELD_REGISTRY: UnifiedFieldEntry[] = [
     legacyPath: 'minBudget',
     defaultStatus: 'confirmed',
     defaultSource: 'user',
-    requiredFor: ['strategy'],
-    isCritical: true,
-    readinessWeight: 0.8,
+    requiredFor: [], // REMOVED - budget is optional context
+    isRecommended: true, // Changed from isCritical - informational only
+    readinessWeight: 0.3, // Reduced weight - optional context
     aiProposable: false,
   },
   {
     key: 'operationalConstraints.maxBudget',
     label: 'Maximum Budget',
     shortLabel: 'Max Budget',
+    description: 'Known budget ceiling (optional context, not required)',
     domain: 'operationalConstraints',
     graphPath: 'operationalConstraints.maxBudget',
     zoneId: 'constraints',
@@ -511,9 +1523,9 @@ export const UNIFIED_FIELD_REGISTRY: UnifiedFieldEntry[] = [
     legacyPath: 'maxBudget',
     defaultStatus: 'confirmed',
     defaultSource: 'user',
-    requiredFor: ['strategy'],
-    isCritical: true,
-    readinessWeight: 0.8,
+    requiredFor: [], // REMOVED - budget is optional context
+    isRecommended: true, // Changed from isCritical - informational only
+    readinessWeight: 0.3, // Reduced weight - optional context
     aiProposable: false,
   },
   {
@@ -637,9 +1649,13 @@ export const UNIFIED_FIELD_REGISTRY: UnifiedFieldEntry[] = [
   // REMOVED: positionSummary, competitiveAdvantages, overallThreatLevel
   // (These are synthesized conclusions - belong in Strategy/Labs)
   // ============================================================================
+  // NOTE: Competitors is INFORMATIONAL context, not a hard blocker.
+  // Having competitor info improves AI confidence but doesn't block workflow.
+  // Context gaps inform AI confidence but do not halt workflow.
   {
     key: 'competitive.competitors',
     label: 'Competitors',
+    description: 'Known competitors in the market (informational, improves AI confidence)',
     domain: 'competitive',
     graphPath: 'competitive.competitors',
     zoneId: 'competitive',
@@ -650,9 +1666,9 @@ export const UNIFIED_FIELD_REGISTRY: UnifiedFieldEntry[] = [
     legacyPath: 'competitors',
     defaultStatus: 'proposed',
     defaultSource: 'ai',
-    requiredFor: ['strategy', 'competition'],
-    isCritical: true,
-    readinessWeight: 0.7,
+    requiredFor: ['competition'], // Only required for Competition Lab, not strategy
+    isRecommended: true, // Changed from isCritical - informational gap, not blocker
+    readinessWeight: 0.5, // Reduced weight - affects confidence, not blocking
     aiProposable: true,
     aiPromptHint: 'Identify key competitors in the market',
   },
@@ -675,15 +1691,36 @@ export const UNIFIED_FIELD_REGISTRY: UnifiedFieldEntry[] = [
   // These are synthesized conclusions that belong in Strategy/Labs, not Context
 
   // ============================================================================
-  // ZONE 5: Go-to-Market (Factual Mechanics ONLY)
+  // ZONE: Offer (What We Sell)
   // ============================================================================
+  {
+    key: 'productOffer.valueProposition',
+    label: 'Value Proposition',
+    shortLabel: 'Value Prop',
+    description: 'Why customers choose this company over alternatives',
+    domain: 'productOffer',
+    graphPath: 'productOffer.valueProposition',
+    zoneId: 'offer',
+    category: 'productOffer',
+    strategySection: 'businessReality',
+    strategyField: 'valueProposition',
+    valueType: 'string',
+    legacyPath: 'valueProposition',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: ['strategy'],
+    isCritical: true,
+    readinessWeight: 1.0,
+    aiProposable: true,
+    aiPromptHint: 'Define the unique value and benefits offered to customers',
+  },
   {
     key: 'productOffer.primaryProducts',
     label: 'Primary Products/Services',
     shortLabel: 'Offering',
     domain: 'productOffer',
     graphPath: 'productOffer.primaryProducts',
-    zoneId: 'go-to-market',
+    zoneId: 'offer',
     category: 'productOffer',
     strategySection: 'businessReality',
     strategyField: 'primaryOffering',
@@ -697,6 +1734,29 @@ export const UNIFIED_FIELD_REGISTRY: UnifiedFieldEntry[] = [
     aiProposable: true,
     aiPromptHint: 'Identify the main products or services offered',
   },
+  {
+    key: 'productOffer.heroProducts',
+    label: 'Hero Products',
+    shortLabel: 'Hero Products',
+    description: 'Flagship or best-selling products',
+    domain: 'productOffer',
+    graphPath: 'productOffer.heroProducts',
+    zoneId: 'offer',
+    category: 'productOffer',
+    strategySection: null,
+    valueType: 'array',
+    legacyPath: 'heroProducts',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: [],
+    isRecommended: true,
+    aiProposable: true,
+    aiPromptHint: 'Identify flagship or best-selling products',
+  },
+
+  // ============================================================================
+  // ZONE: Go-to-Market (How We Sell)
+  // ============================================================================
   {
     key: 'productOffer.primaryConversionAction',
     label: 'Primary Conversion Action',

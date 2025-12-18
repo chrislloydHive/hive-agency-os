@@ -1,10 +1,16 @@
 // app/api/pipeline/convert-lead-to-opportunity/route.ts
 // Convert inbound lead to pipeline opportunity
+//
+// LEAD-FIRST DESIGN:
+// - Lead must be linked to a company before creating an opportunity
+// - Updates lead with linkedOpportunityId and stage
+// - Idempotent: returns existing opportunity if already converted
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getInboundLeadById, updateLeadStatus } from '@/lib/airtable/inboundLeads';
-import { createOpportunity } from '@/lib/airtable/opportunities';
+import { getInboundLeadById, updateLeadStatus, updateLeadLinkedOpportunity, updatePipelineLeadStage } from '@/lib/airtable/inboundLeads';
+import { createOpportunity, getOpportunityById } from '@/lib/airtable/opportunities';
 import { getCompanyById } from '@/lib/airtable/companies';
+import { logLeadConvertedToOpportunity } from '@/lib/telemetry/events';
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,6 +31,22 @@ export async function POST(req: NextRequest) {
         { error: 'Lead not found' },
         { status: 404 }
       );
+    }
+
+    // Idempotent: if already linked to an opportunity, return success with existing
+    if (lead.linkedOpportunityId) {
+      const existingOpportunity = await getOpportunityById(lead.linkedOpportunityId);
+      if (existingOpportunity) {
+        console.log(`[ConvertLeadToOpportunity] Lead ${leadId} already has opportunity ${lead.linkedOpportunityId} (idempotent)`);
+        return NextResponse.json({
+          leadId,
+          opportunityId: existingOpportunity.id,
+          companyId: lead.companyId,
+          companyName: existingOpportunity.companyName,
+          alreadyConverted: true,
+        });
+      }
+      // Opportunity link exists but not found - continue to create
     }
 
     // Need company to create opportunity
@@ -64,6 +86,15 @@ export async function POST(req: NextRequest) {
     // Update lead status
     await updateLeadStatus(leadId, 'Qualified');
 
+    // Link opportunity to lead
+    await updateLeadLinkedOpportunity(leadId, opportunity.id);
+
+    // Update pipeline stage to reflect conversion
+    await updatePipelineLeadStage(leadId, 'qualified');
+
+    // Log telemetry event
+    logLeadConvertedToOpportunity(leadId, opportunity.id, lead.companyId, company.name);
+
     console.log(`[ConvertLeadToOpportunity] Lead ${leadId} → Opportunity ${opportunity.id}`);
 
     return NextResponse.json({
@@ -71,6 +102,7 @@ export async function POST(req: NextRequest) {
       opportunityId: opportunity.id,
       companyId: lead.companyId,
       companyName: company.name,
+      alreadyConverted: false,
     });
   } catch (error) {
     console.error('[ConvertLeadToOpportunity] Error:', error);

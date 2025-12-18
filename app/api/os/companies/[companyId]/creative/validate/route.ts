@@ -95,7 +95,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const strategyContext = {
       primaryObjective: contextGraph.objectives?.primaryObjective?.value,
       kpis: contextGraph.objectives?.kpiLabels?.value,
-      icpDescription: contextGraph.identity?.icpDescription?.value,
+      icpDescription: contextGraph.audience?.icpDescription?.value,
       coreSegments: contextGraph.audience?.coreSegments?.value,
     };
 

@@ -32,11 +32,14 @@ import type {
 // Types
 // ============================================================================
 
+// DEPRECATED: This component uses legacy contextObjectives pattern.
+// In V4+, objectives live exclusively in Strategy, not Context.
+// This is only used via ?mode=legacy for backward compatibility.
 interface StrategyWorkspaceClientProps {
   companyId: string;
   companyName: string;
   initialStrategy: CompanyStrategy | null;
-  contextObjectives: string[];
+  contextObjectives: string[]; // @deprecated - V4+ reads objectives from Strategy
 }
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
@@ -227,6 +230,13 @@ export function StrategyWorkspaceClient({
 
   return (
     <div className="space-y-6">
+      {/* Dev marker for UI identification */}
+      {process.env.NODE_ENV !== 'production' && (
+        <div className="mb-2 inline-flex text-[10px] uppercase tracking-wide text-amber-400 border border-amber-800 bg-amber-950/50 rounded px-2 py-1">
+          Strategy UI: LEGACY (Deprecated)
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

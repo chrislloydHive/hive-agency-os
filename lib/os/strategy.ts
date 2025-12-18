@@ -7,15 +7,23 @@ import { getBase } from '@/lib/airtable';
 import type {
   CompanyStrategy,
   StrategyPillar,
+  StrategyObjective,
+  StrategyPlay,
   CreateStrategyRequest,
   UpdateStrategyRequest,
   FinalizeStrategyRequest,
   StrategySummary,
+  StrategyListItem,
+  StrategyFrame,
+  StrategyEngagementType,
 } from '@/lib/types/strategy';
 import {
   createStrategySummary,
   generateStrategyItemId,
+  toStrategyListItem,
 } from '@/lib/types/strategy';
+import { loadContextForStrategy, mapContextToFrame } from '@/lib/os/strategy/contextLoader';
+import type { CompanyEngagement } from '@/lib/types/engagement';
 
 // ============================================================================
 // Configuration
@@ -173,6 +181,11 @@ function extractAirtableError(error: unknown): string {
 
 /**
  * Update an existing strategy
+ *
+ * NOTE: strategyFrame updates are MERGED with existing frame values.
+ * This ensures partial updates (e.g., { audience: "new value" }) don't
+ * overwrite other frame fields. The strategy frame is the canonical
+ * storage for user-defined strategy decisions.
  */
 export async function updateStrategy(request: UpdateStrategyRequest): Promise<CompanyStrategy> {
   const { strategyId, updates } = request;
@@ -180,6 +193,21 @@ export async function updateStrategy(request: UpdateStrategyRequest): Promise<Co
   try {
     const base = getBase();
     const now = new Date().toISOString();
+
+    // Fetch existing strategy to merge strategyFrame
+    let existingStrategyFrame: Record<string, unknown> = {};
+    if (updates.strategyFrame !== undefined) {
+      const existingRecord = await base(STRATEGY_TABLE).find(strategyId);
+      const existingFrameJson = existingRecord?.fields?.strategyFrame;
+      if (typeof existingFrameJson === 'string') {
+        try {
+          existingStrategyFrame = JSON.parse(existingFrameJson);
+        } catch {
+          // Invalid JSON, start fresh
+          existingStrategyFrame = {};
+        }
+      }
+    }
 
     const fields: Record<string, unknown> = {
       updatedAt: now,
@@ -191,9 +219,19 @@ export async function updateStrategy(request: UpdateStrategyRequest): Promise<Co
     if (updates.status !== undefined) fields.status = updates.status;
     if (updates.objectives !== undefined) fields.objectives = JSON.stringify(updates.objectives);
     if (updates.pillars !== undefined) fields.pillars = JSON.stringify(updates.pillars);
+    if (updates.plays !== undefined) fields.plays = JSON.stringify(updates.plays);
     if (updates.startDate !== undefined) fields.startDate = updates.startDate;
     if (updates.endDate !== undefined) fields.endDate = updates.endDate;
     if (updates.quarterLabel !== undefined) fields.quarterLabel = updates.quarterLabel;
+    // New V5 fields - strategyFrame is MERGED with existing values
+    if (updates.strategyFrame !== undefined) {
+      const mergedFrame = { ...existingStrategyFrame, ...updates.strategyFrame };
+      fields.strategyFrame = JSON.stringify(mergedFrame);
+    }
+    if (updates.tradeoffs !== undefined) fields.tradeoffs = JSON.stringify(updates.tradeoffs);
+    if (updates.lockState !== undefined) fields.lockState = updates.lockState;
+    if (updates.lastAiUpdatedAt !== undefined) fields.lastAiUpdatedAt = updates.lastAiUpdatedAt;
+    if (updates.lastHumanUpdatedAt !== undefined) fields.lastHumanUpdatedAt = updates.lastHumanUpdatedAt;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const results = await (base(STRATEGY_TABLE) as any).update([
@@ -204,7 +242,8 @@ export async function updateStrategy(request: UpdateStrategyRequest): Promise<Co
     return mapRecordToStrategy(record);
   } catch (error) {
     console.error('[updateStrategy] Error:', error);
-    throw new Error(`Failed to update strategy: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    const errorMessage = extractAirtableError(error);
+    throw new Error(`Failed to update strategy: ${errorMessage}`);
   }
 }
 
@@ -227,7 +266,7 @@ export async function finalizeStrategy(request: FinalizeStrategyRequest): Promis
     return mapRecordToStrategy(record);
   } catch (error) {
     console.error('[finalizeStrategy] Error:', error);
-    throw new Error(`Failed to finalize strategy: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    throw new Error(`Failed to finalize strategy: ${extractAirtableError(error)}`);
   }
 }
 
@@ -247,8 +286,162 @@ export async function archiveStrategy(strategyId: string): Promise<CompanyStrate
     return mapRecordToStrategy(record);
   } catch (error) {
     console.error('[archiveStrategy] Error:', error);
-    throw new Error(`Failed to archive strategy: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    throw new Error(`Failed to archive strategy: ${extractAirtableError(error)}`);
   }
+}
+
+// ============================================================================
+// Multi-Strategy Operations
+// ============================================================================
+
+/**
+ * Get strategy list items for multi-strategy selector
+ */
+export async function getStrategyListItems(companyId: string): Promise<StrategyListItem[]> {
+  const strategies = await getStrategiesForCompany(companyId);
+  return strategies.map(toStrategyListItem);
+}
+
+/**
+ * Set a strategy as the active strategy (unsets all others)
+ */
+export async function setActiveStrategy(
+  companyId: string,
+  strategyId: string
+): Promise<CompanyStrategy> {
+  try {
+    const base = getBase();
+    const now = new Date().toISOString();
+
+    // Get all strategies for this company
+    const allStrategies = await getStrategiesForCompany(companyId);
+
+    // Unset isActive on all other strategies
+    const updatePromises = allStrategies
+      .filter(s => s.id !== strategyId && s.isActive)
+      .map(s =>
+        base(STRATEGY_TABLE).update(s.id, {
+          isActive: false,
+          updatedAt: now,
+        })
+      );
+
+    // Set isActive on the target strategy
+    updatePromises.push(
+      base(STRATEGY_TABLE).update(strategyId, {
+        isActive: true,
+        updatedAt: now,
+      })
+    );
+
+    await Promise.all(updatePromises);
+
+    // Return the newly active strategy
+    const activeStrategy = await getStrategyById(strategyId);
+    if (!activeStrategy) {
+      throw new Error('Strategy not found after setting active');
+    }
+
+    return activeStrategy;
+  } catch (error) {
+    console.error('[setActiveStrategy] Error:', error);
+    throw new Error(`Failed to set active strategy: ${extractAirtableError(error)}`);
+  }
+}
+
+/**
+ * Duplicate a strategy (for creating variations or new versions)
+ */
+export async function duplicateStrategy(
+  strategyId: string,
+  options?: {
+    title?: string;
+    setAsActive?: boolean;
+  }
+): Promise<CompanyStrategy> {
+  try {
+    const source = await getStrategyById(strategyId);
+    if (!source) {
+      throw new Error('Source strategy not found');
+    }
+
+    const base = getBase();
+    const now = new Date().toISOString();
+
+    // Generate new IDs for pillars
+    const newPillars: StrategyPillar[] = source.pillars.map((p, index) => ({
+      ...p,
+      id: generateStrategyItemId(),
+      order: index,
+    }));
+
+    // Generate new IDs for plays
+    const newPlays: StrategyPlay[] = (source.plays || []).map(p => ({
+      ...p,
+      id: generateStrategyItemId(),
+    }));
+
+    const fields = {
+      companyId: source.companyId,
+      title: options?.title || `${source.title} (Copy)`,
+      summary: source.summary,
+      description: `Duplicated from "${source.title}"`,
+      objectives: JSON.stringify(source.objectives),
+      pillars: JSON.stringify(newPillars),
+      plays: JSON.stringify(newPlays),
+      strategyFrame: source.strategyFrame ? JSON.stringify(source.strategyFrame) : undefined,
+      tradeoffs: source.tradeoffs ? JSON.stringify(source.tradeoffs) : undefined,
+      status: 'draft',
+      isActive: options?.setAsActive ?? false,
+      duplicatedFromId: strategyId,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    // Remove undefined fields
+    const cleanFields = Object.fromEntries(
+      Object.entries(fields).filter(([_, v]) => v !== undefined)
+    );
+
+    const record = await base(STRATEGY_TABLE).create(cleanFields);
+    const newStrategy = mapRecordToStrategy(record);
+
+    // If setting as active, unset all others
+    if (options?.setAsActive) {
+      await setActiveStrategy(source.companyId, newStrategy.id);
+    }
+
+    return newStrategy;
+  } catch (error) {
+    console.error('[duplicateStrategy] Error:', error);
+    throw new Error(`Failed to duplicate strategy: ${extractAirtableError(error)}`);
+  }
+}
+
+/**
+ * Create a new blank strategy for a company
+ */
+export async function createNewStrategy(
+  companyId: string,
+  options?: {
+    title?: string;
+    setAsActive?: boolean;
+  }
+): Promise<CompanyStrategy> {
+  const strategy = await createDraftStrategy({
+    companyId,
+    title: options?.title || 'New Strategy',
+    summary: '',
+    objectives: [],
+    pillars: [],
+  });
+
+  if (options?.setAsActive) {
+    return setActiveStrategy(companyId, strategy.id);
+  }
+
+  return strategy;
 }
 
 // ============================================================================
@@ -340,21 +533,55 @@ function mapRecordToStrategy(record: {
   return {
     id: record.id,
     companyId: fields.companyId as string,
+    // Engagement scoping (V8+)
+    engagementType: (fields.engagementType as CompanyStrategy['engagementType']) || undefined,
+    engagementId: fields.engagementId as string | undefined,
+    projectType: fields.projectType as string | undefined,
+    projectName: fields.projectName as string | undefined,
     title: (fields.title as string) || 'Untitled Strategy',
     summary: (fields.summary as string) || '',
-    objectives: parseJsonArray(fields.objectives),
+    objectives: parseJsonObjectives(fields.objectives),
     pillars: parseJsonPillars(fields.pillars),
+    plays: parseJsonPlays(fields.plays),
     status: (fields.status as CompanyStrategy['status']) || 'draft',
     version: (fields.version as number) || 1,
+    // Multi-Strategy fields
+    isActive: (fields.isActive as boolean) ?? false,
+    description: fields.description as string | undefined,
+    duplicatedFromId: fields.duplicatedFromId as string | undefined,
+    // Timeline
     startDate: fields.startDate as string | undefined,
     endDate: fields.endDate as string | undefined,
     quarterLabel: fields.quarterLabel as string | undefined,
+    // V5 fields
+    strategyFrame: parseJsonObject(fields.strategyFrame),
+    tradeoffs: parseJsonObject(fields.tradeoffs),
+    lockState: (fields.lockState as CompanyStrategy['lockState']) || undefined,
+    lastAiUpdatedAt: fields.lastAiUpdatedAt as string | undefined,
+    lastHumanUpdatedAt: fields.lastHumanUpdatedAt as string | undefined,
     createdAt: (fields.createdAt as string) || new Date().toISOString(),
     updatedAt: (fields.updatedAt as string) || new Date().toISOString(),
     createdBy: fields.createdBy as string | undefined,
     finalizedAt: fields.finalizedAt as string | undefined,
     finalizedBy: fields.finalizedBy as string | undefined,
   };
+}
+
+/**
+ * Parse JSON object from Airtable field
+ */
+function parseJsonObject<T>(value: unknown): T | undefined {
+  if (!value) return undefined;
+  if (typeof value === 'object' && !Array.isArray(value)) return value as T;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -389,4 +616,169 @@ function parseJsonPillars(value: unknown): StrategyPillar[] {
     }
   }
   return [];
+}
+
+/**
+ * Parse JSON objectives from Airtable field
+ * Supports both legacy string[] and new StrategyObjective[] formats
+ */
+function parseJsonObjectives(value: unknown): string[] | StrategyObjective[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/**
+ * Parse JSON plays from Airtable field
+ */
+function parseJsonPlays(value: unknown): StrategyPlay[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+// ============================================================================
+// Project Strategy Operations
+// ============================================================================
+
+/**
+ * Create a ProjectStrategy from an approved engagement
+ *
+ * This is called when context is approved for a project engagement.
+ * It creates a project-scoped strategy with:
+ * - engagementType: 'project'
+ * - engagementId linking to the source engagement
+ * - strategyFrame populated from approved context
+ * - isActive: true (becomes the active strategy)
+ */
+export async function createProjectStrategy(
+  engagement: CompanyEngagement
+): Promise<CompanyStrategy> {
+  const { companyId, id: engagementId, projectType, projectName } = engagement;
+
+  console.log('[createProjectStrategy] Creating for engagement:', {
+    engagementId,
+    companyId,
+    projectType,
+    projectName,
+  });
+
+  // Load context and map to strategy frame using canonical mapper
+  const contextResult = await loadContextForStrategy(companyId);
+  const { frame: strategyFrame, report } = mapContextToFrame(
+    contextResult.context,
+    companyId
+  );
+
+  console.log('[createProjectStrategy] Extracted frame from context:', {
+    hasAudience: !!strategyFrame.audience,
+    hasValueProp: !!strategyFrame.valueProp,
+    hasPositioning: !!strategyFrame.positioning,
+    hasOffering: !!strategyFrame.offering,
+    missingFields: report.missingFields,
+  });
+
+  // Build title based on project type
+  const projectLabel = projectName ||
+    (projectType ? `${projectType.charAt(0).toUpperCase() + projectType.slice(1).replace('_', ' ')} Project` : 'Project');
+  const title = `${projectLabel} Strategy`;
+
+  try {
+    const base = getBase();
+    const now = new Date().toISOString();
+
+    const fields = {
+      companyId,
+      engagementType: 'project' as StrategyEngagementType,
+      engagementId,
+      projectType: projectType || undefined,
+      projectName: projectName || undefined,
+      title,
+      summary: `Project strategy for ${projectLabel}`,
+      objectives: JSON.stringify([]),
+      pillars: JSON.stringify([]),
+      // Note: 'plays' field removed - doesn't exist in Airtable
+      strategyFrame: JSON.stringify(strategyFrame),
+      status: 'draft',
+      isActive: true, // Set as active immediately
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    // Remove undefined fields
+    const cleanFields = Object.fromEntries(
+      Object.entries(fields).filter(([_, v]) => v !== undefined)
+    );
+
+    console.log('[createProjectStrategy] Creating with fields:', Object.keys(cleanFields));
+    const record = await base(STRATEGY_TABLE).create(cleanFields);
+    const newStrategy = mapRecordToStrategy(record);
+
+    // Unset isActive on other strategies for this company
+    const allStrategies = await getStrategiesForCompany(companyId);
+    const updatePromises = allStrategies
+      .filter(s => s.id !== newStrategy.id && s.isActive)
+      .map(s =>
+        base(STRATEGY_TABLE).update(s.id, {
+          isActive: false,
+          updatedAt: now,
+        })
+      );
+    await Promise.all(updatePromises);
+
+    console.log('[createProjectStrategy] Created strategy:', {
+      strategyId: newStrategy.id,
+      title: newStrategy.title,
+      engagementType: newStrategy.engagementType,
+    });
+
+    return newStrategy;
+  } catch (error) {
+    console.error('[createProjectStrategy] Error:', error);
+    const errorMessage = extractAirtableError(error);
+    throw new Error(`Failed to create project strategy: ${errorMessage}`);
+  }
+}
+
+/**
+ * Get strategy for an engagement (by engagementId)
+ */
+export async function getStrategyByEngagementId(
+  engagementId: string
+): Promise<CompanyStrategy | null> {
+  try {
+    const base = getBase();
+    const records = await base(STRATEGY_TABLE)
+      .select({
+        filterByFormula: `{engagementId} = '${engagementId}'`,
+        maxRecords: 1,
+      })
+      .firstPage();
+
+    if (records.length === 0) {
+      return null;
+    }
+
+    return mapRecordToStrategy(records[0]);
+  } catch (error) {
+    console.error('[getStrategyByEngagementId] Error:', error);
+    return null;
+  }
 }

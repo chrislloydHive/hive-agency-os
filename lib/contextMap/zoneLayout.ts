@@ -1,9 +1,9 @@
 // lib/contextMap/zoneLayout.ts
 // Zone layout calculations for the Context Map
 
-import type { ZoneBounds, ComputedZone, PositionedNode, NodeVisualTier, ZoneId } from '@/components/context-map/types';
+import type { ZoneBounds, ComputedZone, PositionedNode, NodeVisualTier, ZoneId, MissingFieldInfo } from '@/components/context-map/types';
 import type { HydratedContextNode } from '@/lib/contextGraph/nodes';
-import { ALL_ZONES, LAYOUT, getZoneForDomain, MAX_VISIBLE_BEFORE_COLLAPSE, LOW_CONFIDENCE_THRESHOLD, MAX_COMPETITIVE_VISIBLE } from '@/components/context-map/constants';
+import { ALL_ZONES, LAYOUT, getZoneForField, getShortLabel, MAX_VISIBLE_BEFORE_COLLAPSE, LOW_CONFIDENCE_THRESHOLD, MAX_COMPETITIVE_VISIBLE, CORE_NODE_KEYS, RECOMMENDED_NODE_KEYS } from '@/components/context-map/constants';
 import { sortNodesByVisualPriority } from './nodeGrouping';
 
 // ============================================================================
@@ -177,6 +177,41 @@ export interface ComputeZonesOptions {
 }
 
 /**
+ * Get missing fields for a zone based on expected fields and populated nodes
+ */
+function getMissingFieldsForZone(
+  zoneId: string,
+  populatedKeys: Set<string>
+): MissingFieldInfo[] {
+  const missingFields: MissingFieldInfo[] = [];
+
+  // Combine core and recommended fields
+  const allExpectedFields = [...CORE_NODE_KEYS, ...RECOMMENDED_NODE_KEYS];
+
+  for (const fieldKey of allExpectedFields) {
+    // Check if this field belongs to this zone
+    const fieldZoneId = getZoneForField(fieldKey);
+    if (fieldZoneId !== zoneId) continue;
+
+    // Check if field is missing
+    if (!populatedKeys.has(fieldKey)) {
+      missingFields.push({
+        key: fieldKey,
+        label: getShortLabel(fieldKey),
+        isRequired: CORE_NODE_KEYS.includes(fieldKey),
+      });
+    }
+  }
+
+  // Sort: required fields first
+  return missingFields.sort((a, b) => {
+    if (a.isRequired && !b.isRequired) return -1;
+    if (!a.isRequired && b.isRequired) return 1;
+    return 0;
+  });
+}
+
+/**
  * Compute all zones with positioned nodes
  */
 export function computeZonesWithNodes(
@@ -186,6 +221,14 @@ export function computeZonesWithNodes(
   const { canvasWidth, canvasHeight, layoutOptions } = options;
   const boundsMap = computeZoneBounds(canvasWidth, canvasHeight);
 
+  // Build set of populated node keys (nodes with non-null values)
+  const populatedKeys = new Set<string>();
+  for (const node of nodes) {
+    if (node.value !== null && node.value !== undefined && node.value !== '') {
+      populatedKeys.add(node.key);
+    }
+  }
+
   // Group nodes by zone
   const nodesByZone = new Map<string, HydratedContextNode[]>();
   for (const zone of ALL_ZONES) {
@@ -193,8 +236,8 @@ export function computeZonesWithNodes(
   }
 
   for (const node of nodes) {
-    const domain = node.category;
-    const zoneId = getZoneForDomain(domain);
+    // Use field-level zone mapping (FIELD_TO_ZONE) first, then fall back to domain
+    const zoneId = getZoneForField(node.key);
     const zoneNodes = nodesByZone.get(zoneId) || [];
     zoneNodes.push(node);
     nodesByZone.set(zoneId, zoneNodes);
@@ -212,6 +255,10 @@ export function computeZonesWithNodes(
 
     const layoutResult = layoutNodesInZone(zoneNodes, bounds, zone.id, zoneLayoutOptions);
 
+    // Calculate missing fields for this zone
+    const missingFields = getMissingFieldsForZone(zone.id, populatedKeys);
+    const isMissingRequired = missingFields.some(f => f.isRequired);
+
     return {
       ...zone,
       bounds,
@@ -220,6 +267,8 @@ export function computeZonesWithNodes(
       visibleNodes: layoutResult.positioned.length,
       collapsedNodes: layoutResult.collapsed,
       lowConfidenceCollapsed: layoutResult.lowConfidenceCollapsed,
+      missingFields,
+      isMissingRequired,
     };
   });
 }

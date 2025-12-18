@@ -148,6 +148,7 @@ async function loadTargetContext(companyId: string): Promise<TargetCompanyContex
     }
 
     const identity = graph.identity;
+    const audience = graph.audience;
     const competitive = graph.competitive;
     const productOffer = graph.productOffer;
 
@@ -168,7 +169,7 @@ async function loadTargetContext(companyId: string): Promise<TargetCompanyContex
       businessName: identity?.businessName?.value || graph.companyName || 'Unknown',
       domain: null, // Domain not stored directly in context graph
       industry: identity?.industry?.value || null,
-      icpDescription: identity?.icpDescription?.value || null,
+      icpDescription: audience?.icpDescription?.value || null,
       serviceArea: identity?.serviceArea?.value || null,
       geographicFootprint: identity?.geographicFootprint?.value || null,
       revenueModel: identity?.revenueModel?.value || null,

@@ -18,6 +18,9 @@ export const FEATURE_FLAGS = {
   /** Automation system - triggers, rules, activity panel */
   AUTOMATION_ENABLED: process.env.NEXT_PUBLIC_FEATURE_AUTOMATION === 'true',
 
+  /** Flow system debug UI - internal admin panel for flow diagnostics */
+  FLOW_SYSTEM_DEBUG_UI: process.env.FLOW_SYSTEM_DEBUG_UI === 'true',
+
   // ============================================================================
   // ENABLED BY DEFAULT (core features)
   // ============================================================================

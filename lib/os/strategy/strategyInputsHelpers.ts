@@ -348,7 +348,7 @@ export function getFixLinkForCriticalInput(companyId: string, input: CriticalInp
 
   return {
     href: getContextDeepLinkForField(companyId, input.registryKey),
-    label: 'Fix in Context',
+    label: 'Update Facts',
     fieldLabel: input.label,
   };
 }
@@ -361,7 +361,7 @@ export function getHiveBrainLink(): string {
 }
 
 /**
- * Get Context page deep link for multiple blocked keys (Fix button)
+ * Get Context page deep link for multiple blocked keys (Update Facts button)
  * This navigates to the Context page and highlights all blocked fields
  *
  * @param companyId - Company ID

@@ -16,6 +16,14 @@ import { runStrategicOrchestrator } from '@/lib/gap-heavy/strategicOrchestrator'
 import type { GapHeavyResult } from '@/lib/gap-heavy/strategicTypes';
 import { runInitialAssessment, runFullGap, runFullGapV4, type GapModelCaller } from '@/lib/gap/core';
 import type { DiagnosticToolId } from './runs';
+// Import lab refinement runners for missing labs
+import {
+  runAudienceLabRefinement,
+  runCreativeLabRefinement,
+  runCompetitorLabRefinementGeneric,
+  runWebsiteLabRefinementGeneric,
+} from '@/lib/labs/refinementRunner';
+import { runCompetitorLabRefinement } from '@/lib/labs/competitor/competitorLab';
 import type {
   SeoLabReport,
   SeoLabSubscore,
@@ -1169,6 +1177,259 @@ export async function runOpsLabEngine(input: EngineInput): Promise<EngineResult>
     };
   } catch (error) {
     console.error('[Ops Lab Engine] Error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+// ============================================================================
+// Audience Lab Engine
+// ============================================================================
+
+/**
+ * Run Audience Lab diagnostic
+ * Audience segmentation, ICP, personas, and demand state analysis
+ */
+export async function runAudienceLabEngine(input: EngineInput): Promise<EngineResult> {
+  console.log('[Audience Lab Engine] Starting for:', input.companyId);
+
+  try {
+    const result = await runAudienceLabRefinement(input.companyId, { forceRun: true });
+
+    // Extract score from refinement result
+    // Audience completeness can be derived from number of refinements applied
+    const refinementsApplied = result.refinement.refinedContext.length;
+    const score = Math.min(100, 50 + refinementsApplied * 5); // Base score + refinements
+
+    const summary = result.refinement.summary ||
+      `Audience analysis complete - ${refinementsApplied} fields refined`;
+
+    console.log('[Audience Lab Engine] ✓ Complete:', {
+      score,
+      refinementsApplied,
+      durationMs: result.durationMs,
+    });
+
+    return {
+      success: true,
+      score,
+      summary,
+      data: {
+        refinement: result.refinement,
+        applyResult: result.applyResult,
+        durationMs: result.durationMs,
+      },
+    };
+  } catch (error) {
+    console.error('[Audience Lab Engine] Error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+// ============================================================================
+// Creative Lab Engine
+// ============================================================================
+
+/**
+ * Run Creative Lab diagnostic
+ * Messaging architecture, proof points, and creative strategy analysis
+ */
+export async function runCreativeLabEngine(input: EngineInput): Promise<EngineResult> {
+  console.log('[Creative Lab Engine] Starting for:', input.companyId);
+
+  try {
+    const result = await runCreativeLabRefinement(input.companyId, { forceRun: true });
+
+    // Extract score from refinement result
+    const refinementsApplied = result.refinement.refinedContext.length;
+    const score = Math.min(100, 50 + refinementsApplied * 5);
+
+    const summary = result.refinement.summary ||
+      `Creative analysis complete - ${refinementsApplied} fields refined`;
+
+    console.log('[Creative Lab Engine] ✓ Complete:', {
+      score,
+      refinementsApplied,
+      durationMs: result.durationMs,
+    });
+
+    return {
+      success: true,
+      score,
+      summary,
+      data: {
+        refinement: result.refinement,
+        applyResult: result.applyResult,
+        durationMs: result.durationMs,
+      },
+    };
+  } catch (error) {
+    console.error('[Creative Lab Engine] Error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+// ============================================================================
+// Media Lab Engine
+// ============================================================================
+
+/**
+ * Run Media Lab diagnostic
+ * Media planning, channel mix, and campaign analysis
+ *
+ * Note: Media Lab uses the Heavy Worker with demand module as a proxy
+ * since media-specific analysis is integrated into demand gen analysis
+ */
+export async function runMediaLabEngine(input: EngineInput): Promise<EngineResult> {
+  console.log('[Media Lab Engine] Starting for:', input.companyId);
+
+  try {
+    // Media analysis is integrated into demand module
+    const result = await runHeavyWorkerV4({
+      companyId: input.companyId,
+      websiteUrl: input.websiteUrl,
+      requestedModules: ['demand'],
+    });
+
+    const demandModule = result.evidencePack.modules?.find(m => m.module === 'demand');
+    const score = demandModule?.score ?? 50;
+    const summary = demandModule?.summary || 'Media/demand analysis complete';
+
+    console.log('[Media Lab Engine] ✓ Complete:', { score });
+
+    return {
+      success: true,
+      score,
+      summary,
+      data: {
+        moduleResult: demandModule,
+        heavyRunId: result.runId,
+      },
+    };
+  } catch (error) {
+    console.error('[Media Lab Engine] Error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+// ============================================================================
+// UX Lab Engine
+// ============================================================================
+
+/**
+ * Run UX Lab diagnostic
+ * User experience, conversion optimization, and usability analysis
+ *
+ * Note: UX Lab leverages the Website Lab V4 engine since UX analysis
+ * is part of comprehensive website evaluation
+ */
+export async function runUxLabEngine(input: EngineInput): Promise<EngineResult> {
+  console.log('[UX Lab Engine] Starting for:', input.companyId);
+
+  try {
+    // UX analysis uses website lab + website refinement
+    const emptyEvidencePack = {
+      runId: `ux-lab-${Date.now()}`,
+      companyId: input.companyId,
+      websiteUrl: input.websiteUrl,
+      createdAt: new Date().toISOString(),
+      status: 'running' as const,
+      modules: [],
+    };
+
+    const websiteResult = await runWebsiteLabV4({
+      company: input.company,
+      websiteUrl: input.websiteUrl,
+      evidence: emptyEvidencePack,
+    });
+
+    // Also run website refinement for deeper UX insights
+    const refinementResult = await runWebsiteLabRefinementGeneric(input.companyId, { forceRun: true });
+
+    const score = websiteResult.score ?? 50;
+    const summary = websiteResult.summary || 'UX analysis complete';
+
+    console.log('[UX Lab Engine] ✓ Complete:', {
+      score,
+      refinementsApplied: refinementResult.refinement.refinedContext.length,
+    });
+
+    return {
+      success: true,
+      score,
+      summary,
+      data: {
+        websiteResult,
+        refinement: refinementResult.refinement,
+      },
+    };
+  } catch (error) {
+    console.error('[UX Lab Engine] Error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+// ============================================================================
+// Competitor Lab Engine
+// ============================================================================
+
+/**
+ * Run Competitor Lab diagnostic
+ * Competitive landscape, positioning, feature matrix, and threat analysis
+ */
+export async function runCompetitorLabEngine(input: EngineInput): Promise<EngineResult> {
+  console.log('[Competitor Lab Engine] Starting for:', input.companyId);
+
+  try {
+    // Use the comprehensive Competitor Lab refinement runner
+    const result = await runCompetitorLabRefinement({
+      companyId: input.companyId,
+      forceRun: true,
+    });
+
+    // Calculate score from results
+    const refinementsApplied = result.refinedContext?.length ?? 0;
+    const score = result.success ? Math.min(100, 60 + refinementsApplied * 2) : 0;
+
+    const summary = result.summary ||
+      `Competitive analysis complete - ${refinementsApplied} insights gathered`;
+
+    console.log('[Competitor Lab Engine] ✓ Complete:', {
+      success: result.success,
+      score,
+      refinementsApplied,
+      durationMs: result.durationMs,
+    });
+
+    return {
+      success: result.success,
+      score,
+      summary,
+      data: {
+        refinedContext: result.refinedContext,
+        diagnostics: result.diagnostics,
+        applyResult: result.applyResult,
+        mergeStats: result.mergeStats,
+        validationStats: result.validationStats,
+        durationMs: result.durationMs,
+      },
+    };
+  } catch (error) {
+    console.error('[Competitor Lab Engine] Error:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),

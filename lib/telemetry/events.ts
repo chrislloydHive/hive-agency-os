@@ -38,7 +38,19 @@ export type HiveEventType =
   | 'context_graph_error'
   // Page views / navigation
   | 'page_view'
-  | 'feature_used';
+  | 'feature_used'
+  // Flow system events (see lib/observability/flowEvents.ts)
+  | 'flow_blocked_missing_domains'
+  | 'flow_proceeded_missing_domains'
+  | 'write_blocked_authority'
+  | 'write_blocked_human_confirmed'
+  | 'write_forced_override'
+  | 'lab_import_completed'
+  | 'lab_import_failed'
+  // Pipeline events
+  | 'lead_converted_to_opportunity'
+  | 'company_created_from_lead'
+  | 'opportunity_created_from_company';
 
 /**
  * Hive event structure
@@ -436,5 +448,57 @@ export function logDiagnosticFailed(
     companyId,
     userId,
     metadata: { toolId, errorMessage },
+  });
+}
+
+// ============================================================================
+// Pipeline Events
+// ============================================================================
+
+/**
+ * Log lead converted to opportunity event
+ */
+export function logLeadConvertedToOpportunity(
+  leadId: string,
+  opportunityId: string,
+  companyId?: string,
+  companyName?: string
+) {
+  return logHiveEventImmediate({
+    type: 'lead_converted_to_opportunity',
+    companyId,
+    metadata: { leadId, opportunityId, companyName },
+  });
+}
+
+/**
+ * Log company created from lead event
+ */
+export function logCompanyCreatedFromLead(
+  companyId: string,
+  leadId: string,
+  companyName: string,
+  domain?: string
+) {
+  return logHiveEventImmediate({
+    type: 'company_created_from_lead',
+    companyId,
+    metadata: { leadId, companyName, domain },
+  });
+}
+
+/**
+ * Log opportunity created from company event
+ */
+export function logOpportunityCreatedFromCompany(
+  opportunityId: string,
+  companyId: string,
+  companyName?: string,
+  deliverableName?: string
+) {
+  return logHiveEventImmediate({
+    type: 'opportunity_created_from_company',
+    companyId,
+    metadata: { opportunityId, companyName, deliverableName },
   });
 }

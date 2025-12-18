@@ -34,6 +34,13 @@ export interface ZoneBounds {
   height: number;
 }
 
+/** Info about a missing field for UI display */
+export interface MissingFieldInfo {
+  key: string;
+  label: string;
+  isRequired: boolean;
+}
+
 export interface ComputedZone extends ZoneDefinition {
   bounds: ZoneBounds;
   nodes: PositionedNode[];
@@ -45,6 +52,8 @@ export interface ComputedZone extends ZoneDefinition {
   lowConfidenceCollapsed?: PositionedNode[];
   /** Whether this zone is missing required context fields */
   isMissingRequired?: boolean;
+  /** Specific fields that are missing in this zone */
+  missingFields?: MissingFieldInfo[];
 }
 
 /**

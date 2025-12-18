@@ -69,6 +69,10 @@ function mapRecordToLead(record: any): InboundLeadItem {
     seoLabReviewed: fields['SEO Lab Reviewed'] === true,
     competitionLabReviewed: fields['Competition Lab Reviewed'] === true,
     workPlanDrafted: fields['Work Plan Drafted'] === true,
+
+    // Conversion fields
+    linkedOpportunityId: fields['Linked Opportunity'] as string | null || null,
+    convertedAt: fields['Converted At'] as string | null || null,
   };
 }
 
@@ -166,9 +170,10 @@ export async function createInboundLead(params: {
   try {
     const base = getBase();
 
-    const fields: Record<string, unknown> = {
-      Status: params.status || 'New',
-    };
+    const fields: Record<string, unknown> = {};
+
+    // Only set Status if provided (field may not exist or have the option)
+    if (params.status) fields['Status'] = params.status;
 
     if (params.name) fields['Name'] = params.name;
     if (params.email) fields['Email'] = params.email;
@@ -215,6 +220,39 @@ export async function linkLeadToCompany(leadId: string, companyId: string): Prom
     console.log(`[InboundLeads] Linked lead ${leadId} to company ${companyId}`);
   } catch (error) {
     console.error(`[InboundLeads] Failed to link lead ${leadId} to company:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Update lead convertedAt timestamp (for Lead → Company conversion)
+ */
+export async function updateLeadConvertedAt(leadId: string): Promise<void> {
+  try {
+    const base = getBase();
+    await base(INBOUND_LEADS_TABLE).update(leadId, {
+      'Converted At': new Date().toISOString(),
+    } as any);
+    console.log(`[InboundLeads] Set convertedAt for lead ${leadId}`);
+  } catch (error) {
+    console.error(`[InboundLeads] Failed to update convertedAt for ${leadId}:`, error);
+    // Non-critical - don't throw
+  }
+}
+
+/**
+ * Update lead linkedOpportunityId (for Lead → Opportunity conversion)
+ */
+export async function updateLeadLinkedOpportunity(leadId: string, opportunityId: string): Promise<void> {
+  try {
+    const base = getBase();
+    await base(INBOUND_LEADS_TABLE).update(leadId, {
+      'Linked Opportunity': opportunityId,
+      'Last Activity At': new Date().toISOString(),
+    } as any);
+    console.log(`[InboundLeads] Linked lead ${leadId} to opportunity ${opportunityId}`);
+  } catch (error) {
+    console.error(`[InboundLeads] Failed to update linkedOpportunity for ${leadId}:`, error);
     throw error;
   }
 }
@@ -323,7 +361,6 @@ export async function updatePipelineLeadStage(
 
     await base(INBOUND_LEADS_TABLE).update(leadId, {
       'Pipeline Stage': stageMap[stage] || stage,
-      'Last Activity At': new Date().toISOString(),
     } as any);
 
     console.log(`[InboundLeads] Updated lead ${leadId} pipeline stage to ${stage}`);
@@ -422,4 +459,145 @@ export async function getDmaFullGapLeads(): Promise<InboundLeadItem[]> {
     console.error('[InboundLeads] Failed to fetch DMA Full GAP leads:', error);
     return [];
   }
+}
+
+// ============================================================================
+// Lead-First DMA Lead Creation (V2)
+// ============================================================================
+
+/**
+ * Create or update a pipeline lead from DMA Full GAP (V2 - Lead-First)
+ *
+ * Key differences from V1:
+ * - linkedCompanyId is optional (leads can exist without companies)
+ * - Deduplication by (email + website domain + source) instead of requiring companyId
+ * - Never creates companies - caller handles company matching
+ *
+ * @returns Lead and whether it was newly created
+ */
+export async function createOrUpdatePipelineLeadFromDmaV2(params: {
+  contactEmail: string;
+  contactName?: string;
+  companyName?: string;
+  website?: string;
+  linkedCompanyId?: string | null; // Now optional
+  gapPlanRunId: string;
+  gapOverallScore?: number;
+  gapMaturityStage?: string;
+  contactMessage?: string;
+}): Promise<{ lead: InboundLeadItem | null; isNew: boolean }> {
+  try {
+    const base = getBase();
+    const now = new Date().toISOString();
+
+    // Normalize domain for deduplication
+    const domain = params.website ? normalizeDomainForLead(params.website) : null;
+
+    // Build deduplication filter
+    // Dedupe key: email + domain (if available) + source="DMA Full GAP"
+    let filterParts = [
+      `{Email} = '${params.contactEmail.replace(/'/g, "\\'")}'`,
+      `{Lead Source} = 'DMA Full GAP'`,
+    ];
+
+    if (domain) {
+      filterParts.push(`{Normalized Domain} = '${domain}'`);
+    }
+
+    const filterFormula = `AND(${filterParts.join(', ')})`;
+
+    const existingRecords = await base(INBOUND_LEADS_TABLE)
+      .select({
+        filterByFormula: filterFormula,
+        maxRecords: 1,
+      })
+      .firstPage();
+
+    if (existingRecords.length > 0) {
+      // Update existing lead
+      const existingId = existingRecords[0].id;
+      const updateFields: Record<string, unknown> = {
+        'Last Activity At': now,
+      };
+
+      if (params.gapPlanRunId) updateFields['GAP Plan Run ID'] = params.gapPlanRunId;
+      if (params.gapOverallScore !== undefined) updateFields['GAP Overall Score'] = params.gapOverallScore;
+      if (params.gapMaturityStage) updateFields['GAP Maturity Stage'] = params.gapMaturityStage;
+      if (params.contactMessage) updateFields['Contact Message'] = params.contactMessage;
+      if (params.contactName) updateFields['Name'] = params.contactName;
+
+      // Update company link if now available
+      if (params.linkedCompanyId) {
+        updateFields['Company'] = [params.linkedCompanyId];
+      }
+
+      await base(INBOUND_LEADS_TABLE).update(existingId, updateFields as any);
+      console.log(`[InboundLeads] Updated existing DMA lead: ${existingId} (company_created=false)`);
+
+      const updated = await base(INBOUND_LEADS_TABLE).find(existingId);
+      return { lead: mapRecordToLead(updated), isNew: false };
+    }
+
+    // Create new lead
+    const fields: Record<string, unknown> = {
+      'Email': params.contactEmail,
+      'Lead Source': 'DMA Full GAP',
+      'Status': 'New',
+      'Pipeline Stage': 'New',
+      'Created At': now,
+      'Last Activity At': now,
+    };
+
+    if (params.contactName) fields['Name'] = params.contactName;
+    if (params.companyName) fields['Company Name'] = params.companyName;
+    if (params.website) fields['Website'] = params.website;
+    if (domain) fields['Normalized Domain'] = domain;
+    if (params.gapPlanRunId) fields['GAP Plan Run ID'] = params.gapPlanRunId;
+    if (params.gapOverallScore !== undefined) fields['GAP Overall Score'] = params.gapOverallScore;
+    if (params.gapMaturityStage) fields['GAP Maturity Stage'] = params.gapMaturityStage;
+    if (params.contactMessage) fields['Contact Message'] = params.contactMessage;
+
+    // Link to company if available (but don't require it)
+    if (params.linkedCompanyId) {
+      fields['Company'] = [params.linkedCompanyId];
+    }
+
+    const records = await base(INBOUND_LEADS_TABLE).create([{ fields: fields as any }]);
+    const createdRecord = records[0];
+
+    console.log(`[InboundLeads] Created DMA Full GAP lead: ${createdRecord.id} (company_created=false, company_linked=${!!params.linkedCompanyId})`);
+    return { lead: mapRecordToLead(createdRecord), isNew: true };
+  } catch (error) {
+    console.error('[InboundLeads] Failed to create/update DMA lead (V2):', error);
+    return { lead: null, isNew: false };
+  }
+}
+
+/**
+ * Normalize domain from URL for lead deduplication
+ */
+function normalizeDomainForLead(urlOrDomain: string): string {
+  if (!urlOrDomain) return '';
+
+  let domain = urlOrDomain.trim().toLowerCase();
+
+  // Remove protocol
+  domain = domain.replace(/^https?:\/\//, '');
+
+  // Remove www. prefix
+  domain = domain.replace(/^www\./, '');
+
+  // Remove trailing slash
+  domain = domain.replace(/\/$/, '');
+
+  // Remove query params
+  domain = domain.split('?')[0];
+
+  // Remove port
+  domain = domain.split(':')[0];
+
+  // Extract just the domain (remove path)
+  domain = domain.split('/')[0];
+
+  return domain;
 }

@@ -271,27 +271,42 @@ export const MAX_COMPETITIVE_VISIBLE = 3;
 // ============================================================================
 
 /**
- * Core nodes are the most important for strategy/program readiness.
- * These should always be visible and prominently displayed.
- * CANONICALIZATION: Only canonical fields (no objectives, no scores)
+ * Core nodes are HARD BLOCKERS for strategy/program readiness.
+ * Missing these blocks Labs/GAP execution.
+ *
+ * BLOCKING RULES (per Context Map Doctrine):
+ * - Context Map should ONLY block when required factual domains are entirely empty
+ * - Example legitimate blockers: No ICP/Audience, No Offer/Product, No Business Model
+ *
+ * EXPLICITLY NOT BLOCKERS:
+ * - Positioning (strategic conclusion, not raw context)
+ * - Budget (optional context, finalized in Strategy Frame)
+ * - Competitors (informational gap, affects AI confidence only)
+ *
+ * CANONICALIZATION: Only canonical factual fields (no objectives, no scores, no strategic conclusions)
  */
 export const CORE_NODE_KEYS: string[] = [
-  // Business Reality zone
+  // Business Reality zone - What type of business
   'identity.businessModel',
-  // Brand zone
-  'brand.positioning',
-  // Offer zone
+  // Offer zone - What we sell and why
   'productOffer.valueProposition',
   'productOffer.primaryProducts',
-  // Go-to-Market zone
-  'productOffer.primaryConversionAction',
-  // Constraints zone
-  'operationalConstraints.minBudget',
-  'operationalConstraints.maxBudget',
-  // Audience zone
+  // Audience zone - Who we serve
   'audience.primaryAudience',
   'audience.icpDescription',
-  // Competitive zone (facts only)
+];
+
+/**
+ * Recommended nodes improve AI confidence but DON'T block workflow.
+ * These show as "Context gaps" (amber) not "Context incomplete" (red).
+ *
+ * NOTE: Positioning and Budget are NOT included here because they are
+ * STRATEGY fields, not Context fields. They live in the Strategic Frame.
+ */
+export const RECOMMENDED_NODE_KEYS: string[] = [
+  // Go-to-Market zone
+  'productOffer.primaryConversionAction',
+  // Competitive zone - Informational gaps
   'competitive.competitors',
 ];
 
@@ -401,6 +416,38 @@ export function getShortLabel(fieldPath: string): string {
     .replace(/([A-Z])/g, ' $1')
     .replace(/^./, (str) => str.toUpperCase())
     .trim();
+}
+
+// Build inverse mapping for label → key lookups (for blocker click navigation)
+const SHORT_LABEL_TO_KEY: Record<string, string> = Object.fromEntries(
+  Object.entries(FIELD_LABEL_SHORT).map(([key, label]) => [label, key])
+);
+
+/**
+ * Get field key from short label (inverse of getShortLabel)
+ * Used for blocker click navigation
+ */
+export function getKeyFromShortLabel(label: string): string | null {
+  // First check direct mapping
+  if (SHORT_LABEL_TO_KEY[label]) {
+    return SHORT_LABEL_TO_KEY[label];
+  }
+
+  // Try to find in CORE_NODE_KEYS by generating labels
+  for (const key of CORE_NODE_KEYS) {
+    if (getShortLabel(key) === label) {
+      return key;
+    }
+  }
+
+  // Try to find in RECOMMENDED_NODE_KEYS
+  for (const key of RECOMMENDED_NODE_KEYS) {
+    if (getShortLabel(key) === label) {
+      return key;
+    }
+  }
+
+  return null;
 }
 
 /**

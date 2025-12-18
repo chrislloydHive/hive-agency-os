@@ -61,11 +61,25 @@ export function FunnelTimeSeriesChart({
   // Transform data for Recharts
   const chartData = useMemo(() => {
     return timeSeries.map((point) => {
+      // Handle both YYYYMMDD (GA4 format) and YYYY-MM-DD formats
+      let dateObj: Date;
+      if (point.date.length === 8 && !point.date.includes('-')) {
+        // GA4 format: YYYYMMDD
+        const year = point.date.slice(0, 4);
+        const month = point.date.slice(4, 6);
+        const day = point.date.slice(6, 8);
+        dateObj = new Date(`${year}-${month}-${day}`);
+      } else {
+        dateObj = new Date(point.date);
+      }
+
       const data: Record<string, any> = {
-        date: new Date(point.date).toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-        }),
+        date: isNaN(dateObj.getTime())
+          ? point.date // Fallback to raw string if parsing fails
+          : dateObj.toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+            }),
       };
 
       // Add visible stage values with readable labels

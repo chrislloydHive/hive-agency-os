@@ -8,6 +8,8 @@ import type {
   DomainImporter,
   ImporterRegistryEntry,
   HydrationResult,
+  HydrationTelemetry,
+  DomainTelemetry,
   ImportResult,
 } from './types';
 import type { CompanyContextGraph } from '../companyContextGraph';
@@ -17,6 +19,7 @@ import { getCompanyById } from '@/lib/airtable/companies';
 
 // Import all domain importers
 import { gapImporter } from './gapImporter';
+import { gapPlanImporter } from './gapPlanImporter';
 import { websiteLabImporter } from './websiteLabImporter';
 import { brandLabImporter } from './brandLabImporter';
 import { mediaLabImporter } from './mediaLabImporter';
@@ -72,6 +75,11 @@ const IMPORTER_REGISTRY: ImporterRegistryEntry[] = [
   {
     importer: competitionLabImporter,
     priority: 35, // Competition Lab runs after brand (enriches competitive data)
+    enabled: true,
+  },
+  {
+    importer: gapPlanImporter,
+    priority: 95, // GAP Plan runs late - secondary source, fills gaps only (confidence: 0.6)
     enabled: true,
   },
   // Add more importers here as they are implemented:
@@ -260,6 +268,14 @@ export async function hydrateContextFromHistory(
     const duration = Date.now() - startTime;
     console.log(`[hydrateContextFromHistory] Complete in ${duration}ms: ${result.totalFieldsUpdated} fields, ${result.totalErrors} errors`);
 
+    // Calculate telemetry
+    result.telemetry = calculateHydrationTelemetry(
+      initialCompleteness,
+      finalCompleteness,
+      result.importerResults,
+      duration
+    );
+
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error('[hydrateContextFromHistory] Fatal error:', error);
@@ -327,5 +343,75 @@ export async function runSingleImporter(
   return result;
 }
 
+// ============================================================================
+// Telemetry Helpers
+// ============================================================================
+
+/**
+ * Extract domain from a field path (e.g., 'identity.businessName' -> 'identity')
+ */
+function extractDomainFromPath(path: string): string {
+  return path.split('.')[0] || 'other';
+}
+
+/**
+ * Map domain string to DomainTelemetry key
+ */
+function mapDomainToTelemetryKey(domain: string): keyof DomainTelemetry {
+  const mapping: Record<string, keyof DomainTelemetry> = {
+    brand: 'brand',
+    audience: 'audience',
+    identity: 'identity',
+    productOffer: 'productOffer',
+    competitive: 'competitive',
+    objectives: 'objectives',
+    website: 'website',
+    content: 'content',
+    seo: 'seo',
+  };
+  return mapping[domain] || 'other';
+}
+
+/**
+ * Calculate hydration telemetry from importer results
+ */
+function calculateHydrationTelemetry(
+  completenessBefore: number,
+  completenessAfter: number,
+  importerResults: HydrationResult['importerResults'],
+  durationMs: number
+): HydrationTelemetry {
+  // Initialize domain counts
+  const fieldsWrittenByDomain: DomainTelemetry = {
+    brand: 0,
+    audience: 0,
+    identity: 0,
+    productOffer: 0,
+    competitive: 0,
+    objectives: 0,
+    website: 0,
+    content: 0,
+    seo: 0,
+    other: 0,
+  };
+
+  // Count fields written per domain from all importer results
+  for (const ir of importerResults) {
+    for (const path of ir.result.updatedPaths) {
+      const domain = extractDomainFromPath(path);
+      const key = mapDomainToTelemetryKey(domain);
+      fieldsWrittenByDomain[key]++;
+    }
+  }
+
+  return {
+    completenessBefore,
+    completenessAfter,
+    completenessChange: completenessAfter - completenessBefore,
+    fieldsWrittenByDomain,
+    durationMs,
+  };
+}
+
 // Export types for consumers
-export type { DomainImporter, ImporterRegistryEntry, HydrationResult, ImportResult };
+export type { DomainImporter, ImporterRegistryEntry, HydrationResult, HydrationTelemetry, DomainTelemetry, ImportResult };

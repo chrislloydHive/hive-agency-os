@@ -93,7 +93,11 @@ export type WorkSourceType =
   | 'media_scorecard'
   | 'setup_wizard'
   | 'creative_lab'
-  | 'program';
+  | 'program'
+  | 'strategy_play'
+  | 'strategy_handoff'
+  | 'creative_brief'
+  | 'user_prescribed';
 
 /**
  * Analytics metric source - when work is created from an analytics insight
@@ -233,6 +237,102 @@ export interface WorkSourceProgram {
 }
 
 /**
+ * Strategy Play source - when work is created from a Strategy Play
+ */
+export interface WorkSourceStrategyPlay {
+  sourceType: 'strategy_play';
+  strategyId: string;
+  playId: string;
+  playTitle: string;
+  objectiveId?: string;
+  pillarTitle?: string;
+}
+
+/**
+ * Strategy Handoff source - when work is created from Strategy → Programs → Work handoff
+ * WHY: Tracks full provenance chain from Strategy to executable Work items
+ */
+export interface WorkSourceStrategyHandoff {
+  sourceType: 'strategy_handoff';
+  /** Strategy ID this work came from */
+  strategyId: string;
+  /** Strategy title for display */
+  strategyTitle: string;
+  /** Program ID if created through program */
+  programId?: string;
+  /** Program type (website, content, seo, etc.) */
+  programType?: string;
+  /** Initiative title */
+  initiativeTitle?: string;
+  /** Initiative key for deduplication */
+  initiativeKey?: string;
+  /** Linked objective IDs */
+  linkedObjectiveIds: string[];
+  /** Linked priority IDs */
+  linkedPriorityIds: string[];
+  /** Linked tactic IDs */
+  linkedTacticIds: string[];
+  /** Handoff timestamp */
+  handoffAt: string;
+}
+
+/**
+ * Creative Brief source - when work is created from a Creative Brief
+ */
+export interface WorkSourceCreativeBrief {
+  sourceType: 'creative_brief';
+  /** Brief ID */
+  briefId: string;
+  /** Brief title */
+  briefTitle: string;
+  /** Project ID */
+  projectId: string;
+  /** Project type (print_ad, website, etc.) */
+  projectType: string;
+}
+
+/**
+ * AI-generated brief for prescribed work items
+ * Provides structured guidance without writing actual copy
+ */
+export interface PrescribedWorkAiBrief {
+  /** High-level summary of what needs to be done */
+  summary: string;
+  /** Specific requirements/tasks */
+  requirements: string[];
+  /** Pages/sections checklist to review or modify */
+  pageChecklist: string[];
+  /** SEO-specific checklist (only for seo_copy work type) */
+  seoChecklist?: string[];
+  /** Criteria for considering the work complete */
+  acceptanceCriteria: string[];
+  /** Potential risks or dependencies to be aware of */
+  risksOrDependencies?: string[];
+}
+
+/**
+ * User Prescribed source - when work is directly prescribed by user without AI discovery
+ * Used in flows like Website Optimization when user knows exactly what needs to be done
+ */
+export interface WorkSourceUserPrescribed {
+  sourceType: 'user_prescribed';
+  /** Project context (e.g., 'website_optimization') */
+  projectContext: string;
+  /** Work type selected by user */
+  workType: 'seo_copy' | 'landing_page_copy' | 'page_edits' | 'other';
+  /** User-provided scope description */
+  scope: string;
+  /** User-provided goal */
+  goal: string;
+  /** Optional notes/constraints */
+  notes?: string;
+  /** Link to the canonical Brief record (if AI assist was enabled) */
+  briefId?: string;
+  /** AI-generated brief (if AI assist was enabled) - DEPRECATED, use briefId instead */
+  aiBrief?: PrescribedWorkAiBrief;
+}
+
+/**
  * Union of all work source types
  */
 export type WorkSource =
@@ -249,7 +349,11 @@ export type WorkSource =
   | WorkSourceMediaScorecard
   | WorkSourceSetupWizard
   | WorkSourceCreativeLab
-  | WorkSourceProgram;
+  | WorkSourceProgram
+  | WorkSourceStrategyPlay
+  | WorkSourceStrategyHandoff
+  | WorkSourceCreativeBrief
+  | WorkSourceUserPrescribed;
 
 // ============================================================================
 // Work Item Types
@@ -422,6 +526,14 @@ export function getSourceLabel(source?: WorkSource): string {
       return 'Strategic Setup';
     case 'creative_lab':
       return `Creative Lab → ${source.itemType.replace('_', ' ')}`;
+    case 'strategy_play':
+      return `Strategy Play → ${source.playTitle}`;
+    case 'strategy_handoff':
+      return `Strategy Handoff → ${source.initiativeTitle || source.strategyTitle}`;
+    case 'creative_brief':
+      return `Creative Brief → ${source.briefTitle}`;
+    case 'user_prescribed':
+      return `User Prescribed → ${source.workType.replace('_', ' ')}`;
     default:
       return 'Unknown';
   }

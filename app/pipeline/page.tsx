@@ -48,7 +48,7 @@ export default async function PipelineDashboardPage() {
           <div>
             <h1 className="text-3xl font-bold text-slate-100">Pipeline Dashboard</h1>
             <p className="text-slate-400 mt-1">
-              Overview of opportunities, leads, and pipeline health
+              At-a-glance health check for your pipeline
             </p>
           </div>
         </div>

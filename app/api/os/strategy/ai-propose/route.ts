@@ -7,8 +7,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getOpenAI } from '@/lib/openai';
 import { getCompanyContext } from '@/lib/os/context';
+import { getActiveStrategy } from '@/lib/os/strategy';
 import { getCompanyById } from '@/lib/airtable/companies';
-import type { StrategyPillar, StrategyService } from '@/lib/types/strategy';
+import type { StrategyPillar, StrategyService, StrategyFrame } from '@/lib/types/strategy';
+import { normalizeFrame } from '@/lib/types/strategy';
 import type { CompanyContext, Competitor } from '@/lib/types/context';
 
 export const maxDuration = 120;
@@ -73,19 +75,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing companyId' }, { status: 400 });
     }
 
-    // Fetch company and context
-    const [company, context] = await Promise.all([
+    // Fetch company, context, and current strategy (for frame)
+    const [company, context, currentStrategy] = await Promise.all([
       getCompanyById(companyId),
       getCompanyContext(companyId),
+      getActiveStrategy(companyId),
     ]);
 
     if (!company) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
+    // Get the normalized frame from current strategy
+    const frame = normalizeFrame(currentStrategy?.strategyFrame);
+
     const openai = getOpenAI();
 
-    const prompt = buildStrategyPrompt(company, context, contextOverride);
+    const prompt = buildStrategyPrompt(company, context, contextOverride, frame);
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -151,7 +157,8 @@ export async function POST(request: NextRequest) {
 function buildStrategyPrompt(
   company: { name: string; website?: string; industry?: string },
   context: CompanyContext | null,
-  override?: Record<string, string>
+  override?: Record<string, string>,
+  frame?: StrategyFrame
 ): string {
   // Build competitor summary by type
   const competitors = context?.competitors || [];
@@ -161,6 +168,22 @@ function buildStrategyPrompt(
 
   const competitorSummary = buildCompetitorSummary(directCompetitors, indirectCompetitors, adjacentCompetitors);
 
+  // Build frame section if frame exists
+  const hasFrame = frame && (frame.audience || frame.offering || frame.valueProp || frame.positioning);
+  const frameSection = hasFrame ? `
+================================
+STRATEGIC FRAME${frame.isLocked ? ' (LOCKED - DO NOT MODIFY)' : ''}
+================================
+${frame.audience ? `- Target Audience: ${frame.audience}` : ''}
+${frame.offering ? `- Offering: ${frame.offering}` : ''}
+${frame.valueProp ? `- Value Proposition: ${frame.valueProp}` : ''}
+${frame.positioning ? `- Positioning: ${frame.positioning}` : ''}
+${frame.constraints ? `- Constraints: ${frame.constraints}` : ''}
+${frame.successMetrics?.length ? `- Success Metrics: ${frame.successMetrics.join(', ')}` : ''}
+${frame.nonGoals?.length ? `- Non-Goals: ${frame.nonGoals.join(', ')}` : ''}
+${frame.isLocked ? '\n⚠️ The strategic frame is LOCKED. Your strategy must align with these values without proposing changes to them.' : ''}
+` : '';
+
   return `
 Propose a marketing strategy for ${company.name}.
 
@@ -169,7 +192,7 @@ COMPANY INFO
 ================================
 - Website: ${company.website || 'Not specified'}
 - Industry: ${company.industry || 'Not specified'}
-
+${frameSection}
 ================================
 COMPETITIVE CATEGORY
 ================================
@@ -189,11 +212,11 @@ ${context?.competitorsNotes || 'No competitive notes available'}
 BUSINESS CONTEXT
 ================================
 - Business Model: ${override?.businessModel || context?.businessModel || 'Not specified'}
-- Value Proposition: ${override?.valueProposition || context?.valueProposition || 'Not specified'}
-- Primary Audience: ${override?.primaryAudience || context?.primaryAudience || 'Not specified'}
+- Value Proposition: ${override?.valueProposition || context?.valueProposition || frame?.valueProp || 'Not specified'}
+- Primary Audience: ${override?.primaryAudience || context?.primaryAudience || frame?.audience || 'Not specified'}
 - Secondary Audience: ${context?.secondaryAudience || 'Not specified'}
 - Objectives: ${context?.objectives?.join(', ') || 'Grow business'}
-- Constraints: ${context?.constraints || 'Standard budget and timeline'}
+- Constraints: ${context?.constraints || frame?.constraints || 'Standard budget and timeline'}
 
 ================================
 INSTRUCTIONS
@@ -202,6 +225,8 @@ Create a 3-5 pillar strategy that:
 1. Is grounded in the competitive category above
 2. Addresses specific competitive dynamics
 3. Differentiates this company in its market
+${hasFrame && frame?.isLocked ? '4. MUST align with the locked strategic frame values' : ''}
+${hasFrame && frame?.nonGoals?.length ? `5. Explicitly AVOID these non-goals: ${frame.nonGoals.join(', ')}` : ''}
 
 Reference competitor TYPES (direct, indirect, adjacent) not brand names.
 `.trim();

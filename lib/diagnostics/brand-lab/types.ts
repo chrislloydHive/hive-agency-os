@@ -157,8 +157,8 @@ export interface BrandLabFindings {
   /** Messaging system analysis */
   messagingSystem?: any;
 
-  /** Positioning analysis */
-  positioning?: any;
+  /** V1 positioning analysis (raw analysis, not canonical output) */
+  positioningAnalysis?: any;
 
   /** Audience fit analysis */
   audienceFit?: any;
@@ -183,6 +183,62 @@ export interface BrandLabFindings {
 
   /** Competitive landscape (if available) */
   competitiveLandscape?: any;
+
+  // ========== CANONICAL FINDINGS (NEW) ==========
+  // These are the customer-facing outputs for Strategy Frame
+  // RULES:
+  // - NO competitor mentions (no "vs", no competitor names)
+  // - NO comparative claims ("differentiated vs", "unique compared to", "competitive advantage")
+  // - NO evaluative statements as outputs ("Positioning is clear/vague/generic")
+
+  /** Positioning statement and summary */
+  positioning?: {
+    /** Customer-facing positioning statement (1-2 sentences) */
+    statement: string;
+    /** Rationale/summary referencing on-site signals only (2-4 sentences) */
+    summary: string;
+    confidence: number;
+  };
+
+  /** Value proposition (headline + description) */
+  valueProp?: {
+    /** Short value prop headline */
+    headline: string;
+    /** Extended description (1-2 sentences) */
+    description: string;
+    confidence: number;
+  };
+
+  /** Key differentiators (3-7 bullets) */
+  differentiators?: {
+    bullets: string[];
+    confidence: number;
+  };
+
+  /** Ideal customer profile / target audience */
+  icp?: {
+    /** Primary audience description (1-2 sentences) */
+    primaryAudience: string;
+    /** Buyer roles (optional) */
+    buyerRoles?: string[];
+    confidence: number;
+  };
+
+  /** Brand tone of voice */
+  toneOfVoice?: {
+    enabled: boolean;
+    descriptor?: string;
+    doList?: string[];
+    dontList?: string[];
+    confidence?: number;
+  };
+
+  /** Messaging pillars (3-6 pillars) */
+  messaging?: {
+    pillars: Array<{ title: string; support: string }>;
+    proofPoints?: string[];
+    confidence: number;
+  };
 }
 
 // ============================================================================
@@ -284,6 +340,190 @@ export const BRAND_LAB_FAILED_CONFIDENCE: BrandDataConfidence = {
 // ============================================================================
 // Helper Functions
 // ============================================================================
+
+// ============================================================================
+// FINDINGS VALIDATION (No Competitive Claims Rule)
+// ============================================================================
+
+/**
+ * Banned phrases that indicate competitive claims (not allowed in Brand Lab outputs)
+ */
+const COMPETITIVE_CLAIM_PATTERNS = [
+  /\bvs\.?\b/i,
+  /\bversus\b/i,
+  /\bcompared to\b/i,
+  /\bcompetitor[s]?\b/i,
+  /\bcompetitive advantage\b/i,
+  /\bdifferentiated from\b/i,
+  /\bunique vs\b/i,
+  /\bmarket leader\b/i,
+  /\bbeat[s]?\b/i,
+  /\boutperform[s]?\b/i,
+];
+
+/**
+ * Evaluative patterns that should not appear in customer-facing outputs
+ */
+const EVALUATIVE_PATTERNS = [
+  /^positioning is\b/i,
+  /^value prop is\b/i,
+  /^differentiation is\b/i,
+  /\bis (clear|vague|generic|strong|weak)\b/i,
+  /\bcould be (sharper|clearer|stronger|better)\b/i,
+  /\bneeds (work|improvement)\b/i,
+  /\bis present but\b/i,
+  /\bpartially defined\b/i,
+  /\bserviceable but\b/i,
+];
+
+/**
+ * Check if text contains competitive claims
+ */
+function containsCompetitiveClaims(text: string): boolean {
+  return COMPETITIVE_CLAIM_PATTERNS.some(pattern => pattern.test(text));
+}
+
+/**
+ * Check if text is evaluative (meta-comment about quality)
+ */
+function isEvaluativeStatement(text: string): boolean {
+  return EVALUATIVE_PATTERNS.some(pattern => pattern.test(text));
+}
+
+/**
+ * Check if a string is valid for Brand Lab findings
+ * Returns false if empty, competitive, or evaluative
+ */
+function isValidFindingText(text: string | undefined | null): boolean {
+  if (!text) return false;
+  const trimmed = text.trim();
+  if (trimmed.length < 10) return false;
+  if (containsCompetitiveClaims(trimmed)) return false;
+  if (isEvaluativeStatement(trimmed)) return false;
+  return true;
+}
+
+/**
+ * Validation result for findings
+ */
+export interface FindingsValidationResult {
+  valid: boolean;
+  strippedFields: string[];
+  errors: string[];
+}
+
+/**
+ * Validate and sanitize Brand Lab findings.
+ * Strips fields that contain competitive claims or evaluative statements.
+ *
+ * RULES:
+ * - NO competitor mentions (no "vs", no competitor names)
+ * - NO comparative claims ("differentiated vs", "unique compared to", "competitive advantage")
+ * - NO evaluative statements as outputs ("Positioning is clear/vague/generic")
+ *
+ * @param findings - The findings to validate
+ * @returns Sanitized findings with invalid fields stripped
+ */
+export function validateAndSanitizeBrandFindings(
+  findings: BrandLabFindings
+): { sanitized: BrandLabFindings; validation: FindingsValidationResult } {
+  const strippedFields: string[] = [];
+  const errors: string[] = [];
+  const sanitized = { ...findings };
+
+  // Validate positioning
+  if (sanitized.positioning) {
+    if (!isValidFindingText(sanitized.positioning.statement)) {
+      strippedFields.push('positioning.statement');
+      sanitized.positioning = undefined;
+    } else if (!isValidFindingText(sanitized.positioning.summary)) {
+      // Keep statement if valid, just clear summary
+      sanitized.positioning = {
+        ...sanitized.positioning,
+        summary: '',
+      };
+      strippedFields.push('positioning.summary');
+    }
+  }
+
+  // Validate valueProp
+  if (sanitized.valueProp) {
+    if (!isValidFindingText(sanitized.valueProp.headline)) {
+      strippedFields.push('valueProp.headline');
+      sanitized.valueProp = undefined;
+    } else if (!isValidFindingText(sanitized.valueProp.description)) {
+      sanitized.valueProp = {
+        ...sanitized.valueProp,
+        description: '',
+      };
+      strippedFields.push('valueProp.description');
+    }
+  }
+
+  // Validate differentiators
+  if (sanitized.differentiators?.bullets) {
+    const validBullets = sanitized.differentiators.bullets.filter(b => {
+      if (!b || b.trim().length < 5) return false;
+      if (containsCompetitiveClaims(b)) {
+        strippedFields.push(`differentiators.bullet: "${b.slice(0, 30)}..."`);
+        return false;
+      }
+      if (isEvaluativeStatement(b)) {
+        strippedFields.push(`differentiators.bullet (evaluative): "${b.slice(0, 30)}..."`);
+        return false;
+      }
+      return true;
+    });
+
+    if (validBullets.length === 0) {
+      sanitized.differentiators = undefined;
+      strippedFields.push('differentiators (all invalid)');
+    } else {
+      sanitized.differentiators = {
+        ...sanitized.differentiators,
+        bullets: validBullets,
+      };
+    }
+  }
+
+  // Validate ICP
+  if (sanitized.icp) {
+    if (!isValidFindingText(sanitized.icp.primaryAudience)) {
+      strippedFields.push('icp.primaryAudience');
+      sanitized.icp = undefined;
+    }
+  }
+
+  // Validate messaging pillars
+  if (sanitized.messaging?.pillars) {
+    const validPillars = sanitized.messaging.pillars.filter(p => {
+      if (!p.title || p.title.trim().length < 3) return false;
+      if (containsCompetitiveClaims(p.title) || containsCompetitiveClaims(p.support || '')) {
+        strippedFields.push(`messaging.pillar: "${p.title}"`);
+        return false;
+      }
+      return true;
+    });
+
+    if (validPillars.length === 0) {
+      sanitized.messaging = undefined;
+    } else {
+      sanitized.messaging = {
+        ...sanitized.messaging,
+        pillars: validPillars,
+      };
+    }
+  }
+
+  return {
+    sanitized,
+    validation: {
+      valid: strippedFields.length === 0,
+      strippedFields,
+      errors,
+    },
+  };
+}
 
 /**
  * Get status from score

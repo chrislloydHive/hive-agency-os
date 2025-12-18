@@ -246,7 +246,7 @@ export default async function BrandDiagnosticPage({ params }: PageProps) {
           brandPillars: [],
           identitySystem: brandLabResult.findings?.identitySystem || {},
           messagingSystem: brandLabResult.findings?.messagingSystem || {},
-          positioning: brandLabResult.findings?.positioning || {},
+          positioning: brandLabResult.findings?.positioningAnalysis || {}, // Use V1 analysis data
           audienceFit: brandLabResult.findings?.audienceFit || {},
           trustAndProof: brandLabResult.findings?.trustAndProof || {},
           visualSystem: brandLabResult.findings?.visualSystem || {},

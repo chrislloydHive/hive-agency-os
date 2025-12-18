@@ -10,33 +10,10 @@
 
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { base } from '@/lib/airtable/client';
+import { getOpportunityById } from '@/lib/airtable/opportunities';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { getGapIaRunsForCompany } from '@/lib/airtable/gapIaRuns';
 import { QuickDiagnosticsPanel } from '@/components/os/QuickDiagnosticsPanel';
-
-// Fetch opportunity by ID
-async function getOpportunity(id: string) {
-  try {
-    const record = await base('Opportunities').find(id);
-    return {
-      id: record.id,
-      name: (record.fields['Name'] as string) || 'Unnamed Opportunity',
-      companyId: (record.fields['Company'] as string[])?.[0],
-      stage: (record.fields['Stage'] as string) || 'Discovery',
-      value: record.fields['Value'] as number,
-      probability: record.fields['Probability'] as number,
-      closeDate: record.fields['Close Date'] as string,
-      owner: record.fields['Owner'] as string,
-      notes: record.fields['Notes'] as string,
-      nextSteps: record.fields['Next Steps'] as string,
-      createdAt: record.fields['Created At'] as string,
-    };
-  } catch (error) {
-    console.error('[Opportunity] Failed to fetch:', error);
-    return null;
-  }
-}
 
 // Helper to format dates
 const formatDate = (dateStr?: string | null) => {
@@ -71,7 +48,7 @@ export default async function OpportunityDetailPage({
   const { id } = await params;
 
   // Fetch opportunity
-  const opportunity = await getOpportunity(id);
+  const opportunity = await getOpportunityById(id);
 
   if (!opportunity) {
     notFound();
@@ -101,23 +78,23 @@ export default async function OpportunityDetailPage({
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-3xl font-bold text-slate-100">
-              {opportunity.name}
+              {opportunity.deliverableName || opportunity.companyName}
             </h1>
             <div className="flex items-center gap-3 mt-2">
               <span
                 className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                  opportunity.stage === 'Won'
+                  opportunity.stage === 'closed_won'
                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                    : opportunity.stage === 'Lost'
+                    : opportunity.stage === 'closed_lost'
                     ? 'bg-red-500/10 text-red-400 border border-red-500/30'
-                    : opportunity.stage === 'Contract'
+                    : opportunity.stage === 'negotiation'
                     ? 'bg-purple-500/10 text-purple-400 border border-purple-500/30'
-                    : opportunity.stage === 'Proposal'
+                    : opportunity.stage === 'proposal'
                     ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
                     : 'bg-blue-500/10 text-blue-400 border border-blue-500/30'
                 }`}
               >
-                {opportunity.stage}
+                {opportunity.stage === 'closed_won' ? 'Won' : opportunity.stage === 'closed_lost' ? 'Lost' : opportunity.stage.charAt(0).toUpperCase() + opportunity.stage.slice(1)}
               </span>
               {opportunity.value && (
                 <span className="text-lg font-semibold text-amber-500">
@@ -135,7 +112,7 @@ export default async function OpportunityDetailPage({
                 Run GAP for Prospect
               </Link>
             )}
-            {opportunity.stage !== 'Won' && opportunity.stage !== 'Lost' && (
+            {opportunity.stage !== 'closed_won' && opportunity.stage !== 'closed_lost' && (
               <button className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-medium rounded-lg transition-colors text-sm">
                 Convert to Client
               </button>
@@ -211,7 +188,7 @@ export default async function OpportunityDetailPage({
             <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
               Notes & Next Steps
             </h2>
-            {opportunity.notes || opportunity.nextSteps ? (
+            {opportunity.notes || opportunity.nextStep ? (
               <div className="space-y-4">
                 {opportunity.notes && (
                   <div>
@@ -221,12 +198,17 @@ export default async function OpportunityDetailPage({
                     </p>
                   </div>
                 )}
-                {opportunity.nextSteps && (
+                {opportunity.nextStep && (
                   <div>
-                    <h3 className="text-xs text-slate-500 mb-1">Next Steps</h3>
+                    <h3 className="text-xs text-slate-500 mb-1">Next Step</h3>
                     <p className="text-sm text-slate-300 whitespace-pre-wrap">
-                      {opportunity.nextSteps}
+                      {opportunity.nextStep}
                     </p>
+                    {opportunity.nextStepDue && (
+                      <p className="text-xs text-slate-500 mt-1">
+                        Due: {formatDate(opportunity.nextStepDue)}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -336,7 +318,7 @@ export default async function OpportunityDetailPage({
                   Run GAP Assessment
                 </Link>
               )}
-              {opportunity.stage !== 'Won' && opportunity.stage !== 'Lost' && (
+              {opportunity.stage !== 'closed_won' && opportunity.stage !== 'closed_lost' && (
                 <button className="w-full px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-medium rounded-lg transition-colors text-sm border border-emerald-500/30">
                   Convert to Client
                 </button>

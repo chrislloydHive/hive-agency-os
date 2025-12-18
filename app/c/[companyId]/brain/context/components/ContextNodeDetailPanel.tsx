@@ -34,7 +34,7 @@ interface FieldExplanation {
 // ============================================================================
 
 const FIELD_DEPENDENCIES: Record<string, Array<{ target: string; weight: number }>> = {
-  'identity.icpDescription': [
+  'audience.icpDescription': [
     { target: 'audience.coreSegments', weight: 0.9 },
     { target: 'audience.primaryAudience', weight: 0.9 },
     { target: 'brand.positioning', weight: 0.8 },

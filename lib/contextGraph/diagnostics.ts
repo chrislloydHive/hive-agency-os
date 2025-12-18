@@ -604,7 +604,7 @@ export type FlowId =
  */
 export const CRITICAL_FIELDS_BY_FLOW: Record<FlowId, string[]> = {
   AudienceLab: [
-    'identity.icpDescription',
+    'audience.icpDescription',
     'identity.industry',
     'audience.primaryAudience',
   ],
@@ -618,7 +618,7 @@ export const CRITICAL_FIELDS_BY_FLOW: Record<FlowId, string[]> = {
     'brand.positioning',
     'brand.valueProps',
     'audience.primaryAudience',
-    'identity.icpDescription',
+    'audience.icpDescription',
     'audience.coreSegments',
   ],
   BrandLab: [
@@ -631,7 +631,7 @@ export const CRITICAL_FIELDS_BY_FLOW: Record<FlowId, string[]> = {
   StrategicPlan: [
     'identity.businessName',
     'identity.industry',
-    'identity.icpDescription',
+    'audience.icpDescription',
     'objectives.primaryObjective',
     'audience.primaryAudience',
     'audience.coreSegments',
@@ -741,7 +741,7 @@ export async function checkCriticalFieldsForFlow(
   if (missingFields.length > 0) {
     // Hard gate if more than 50% missing or specific critical fields missing
     const hardGateThreshold = 0.5;
-    const hardGateFields = ['identity.icpDescription', 'identity.businessName'];
+    const hardGateFields = ['audience.icpDescription', 'identity.businessName'];
 
     const hasHardGateField = missingFields.some(f => hardGateFields.includes(f.path));
     const missingRatio = missingFields.length / requiredFields.length;

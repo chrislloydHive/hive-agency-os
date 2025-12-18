@@ -81,6 +81,38 @@ export interface ImporterRegistryEntry {
 }
 
 /**
+ * Domain-level telemetry for hydration
+ */
+export interface DomainTelemetry {
+  brand: number;
+  audience: number;
+  identity: number;
+  productOffer: number;
+  competitive: number;
+  objectives: number;
+  website: number;
+  content: number;
+  seo: number;
+  other: number;
+}
+
+/**
+ * Hydration telemetry for debugging and dashboards
+ */
+export interface HydrationTelemetry {
+  /** Completeness percentage before hydration (0-100) */
+  completenessBefore: number;
+  /** Completeness percentage after hydration (0-100) */
+  completenessAfter: number;
+  /** Change in completeness (positive = improvement) */
+  completenessChange: number;
+  /** Fields written per domain by all importers */
+  fieldsWrittenByDomain: DomainTelemetry;
+  /** Duration of hydration in milliseconds */
+  durationMs: number;
+}
+
+/**
  * Hydration Result - returned by hydrateContextFromHistory()
  */
 export interface HydrationResult {
@@ -98,4 +130,6 @@ export interface HydrationResult {
   totalErrors: number;
   /** The updated context graph */
   graph: CompanyContextGraph;
+  /** Telemetry for debugging and dashboards */
+  telemetry?: HydrationTelemetry;
 }

@@ -16,6 +16,11 @@ export {
   addPillarToStrategy,
   updatePillarInStrategy,
   removePillarFromStrategy,
+  // Multi-Strategy operations
+  getStrategyListItems,
+  setActiveStrategy,
+  duplicateStrategy,
+  createNewStrategy,
 } from '../strategy';
 
 // Artifact operations

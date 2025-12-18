@@ -12,6 +12,7 @@
 // - Explicit tradeoff (what we deprioritize)
 
 import type { CompanyStrategy, StrategyPillar, StrategyStatus } from './strategy';
+import { getObjectiveText } from './strategy';
 
 // ============================================================================
 // Field-Level Provenance Types
@@ -430,7 +431,7 @@ export function strategyV1ToV2(v1: CompanyStrategy): CompanyStrategyV2 {
 
   // Infer strategic choices from V1 data
   const strategicChoices: StrategicChoices = {
-    whoWeWinWith: v1.objectives?.[0] || 'Needs definition',
+    whoWeWinWith: v1.objectives?.[0] ? getObjectiveText(v1.objectives[0]) : 'Needs definition',
     whereWeFocus: v2Pillars[0]?.pillarName || 'Needs definition',
     howWeDifferentiate: 'Needs definition',
     whatWeDeprioritize: 'Needs definition',

@@ -1,5 +1,10 @@
 // lib/pipeline/createOrMatchCompany.ts
 // Smart company creation/matching for inbound lead ingestion
+//
+// IMPORTANT: Lead-first design
+// - matchCompanyForLead(): Find-only, never creates (for inbound leads)
+// - createOrMatchCompanyFromInboundLead(): Legacy, creates if not found (deprecated)
+// - Leads should live in Inbound Leads table until explicitly converted
 
 import type { InboundLeadItem } from '@/lib/types/pipeline';
 import type { CompanyRecord } from '@/lib/airtable/companies';
@@ -16,8 +21,87 @@ export interface CreateOrMatchResult {
   matchedBy: 'domain' | 'name' | 'created';
 }
 
+export interface MatchResult {
+  company: CompanyRecord | null;
+  matchedBy: 'domain' | 'name' | null;
+}
+
+/**
+ * Match an existing company from lead data (FIND ONLY - NO CREATE)
+ *
+ * This is the preferred function for lead-first flows.
+ * It will NEVER create a company - only match existing ones.
+ *
+ * Flow:
+ * 1. Extract domain from lead's website
+ * 2. Try to find existing company by domain
+ * 3. If not found, try to find by company name (fuzzy match)
+ * 4. Return null if no match (caller decides what to do)
+ *
+ * @param lead - The inbound lead to match
+ * @returns Matched company or null, plus how it was matched
+ */
+export async function matchCompanyForLead(
+  lead: Pick<InboundLeadItem, 'website' | 'companyName' | 'name'>
+): Promise<MatchResult> {
+  console.log(`[MatchCompany] Finding existing company for lead: ${lead.companyName || lead.website || lead.name}`);
+
+  // Step 1: Extract domain from website
+  const domain = lead.website ? extractDomain(lead.website) : null;
+  console.log(`[MatchCompany] Extracted domain: ${domain || '(none)'}`);
+
+  // Step 2: Try to find by domain first (most reliable)
+  if (domain) {
+    const companyByDomain = await findCompanyByDomain(domain);
+    if (companyByDomain) {
+      console.log(`[MatchCompany] ✅ Found existing company by domain: ${companyByDomain.name} (${companyByDomain.id})`);
+      return {
+        company: companyByDomain,
+        matchedBy: 'domain',
+      };
+    }
+  }
+
+  // Step 3: Try to find by company name (if provided)
+  if (lead.companyName) {
+    // First try exact match
+    let companyByName = await findCompanyByName(lead.companyName, false);
+
+    // If no exact match, try fuzzy match
+    if (!companyByName) {
+      companyByName = await findCompanyByName(lead.companyName, true);
+    }
+
+    if (companyByName) {
+      // Verify it's a reasonable match (normalize and compare)
+      const normalized1 = normalizeCompanyName(lead.companyName);
+      const normalized2 = normalizeCompanyName(companyByName.name);
+
+      if (companyNamesMatch(normalized1, normalized2)) {
+        console.log(`[MatchCompany] ✅ Found existing company by name: ${companyByName.name} (${companyByName.id})`);
+        return {
+          company: companyByName,
+          matchedBy: 'name',
+        };
+      }
+    }
+  }
+
+  // Step 4: No match found - return null (DO NOT CREATE)
+  console.log(`[MatchCompany] No existing company found for lead (company_created=false)`);
+  return {
+    company: null,
+    matchedBy: null,
+  };
+}
+
 /**
  * Create or match a company from an inbound lead
+ *
+ * @deprecated Use matchCompanyForLead() for lead-first flows.
+ * This function creates a company when no match is found, which violates
+ * the lead-first principle. Leads should live in the Leads table until
+ * explicitly converted via Lead → Company conversion.
  *
  * Flow:
  * 1. Extract domain from lead's website

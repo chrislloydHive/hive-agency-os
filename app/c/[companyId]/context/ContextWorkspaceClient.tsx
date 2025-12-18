@@ -19,14 +19,16 @@
 
 import { useCallback, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { BookOpen, Map, FileText, Loader2, Play, Trash2 } from 'lucide-react';
+import { BookOpen, Map, FileText, Loader2, Play, Trash2, ListChecks, Database, RefreshCw } from 'lucide-react';
 import type { CompanyContext } from '@/lib/types/context';
 import type { DraftableState } from '@/lib/os/draft/types';
 import type { DiagnosticsDebugInfo } from '@/lib/os/diagnostics/debugInfo';
 import type { HydratedContextNode } from '@/lib/contextGraph/nodes/hydration';
+import type { BaselineSignals } from '@/lib/os/context';
 import { useDraftableResource } from '@/hooks/useDraftableResource';
-import { DiagnosticsDebugDrawer } from '@/components/context';
+import { DiagnosticsDebugDrawer, CanonicalFieldsPanel } from '@/components/context';
 import { ContextMapClient, AddNodeModal } from '@/components/context-map';
+import { useCanonicalFields } from '@/hooks/useCanonicalFields';
 import type { ZoneId } from '@/components/context-map/types';
 import { useProposals } from '@/hooks/useProposals';
 
@@ -34,7 +36,7 @@ import { useProposals } from '@/hooks/useProposals';
 // Types
 // ============================================================================
 
-type ViewMode = 'map' | 'table';
+type ViewMode = 'map' | 'table' | 'fields';
 
 interface ContextWorkspaceClientProps {
   companyId: string;
@@ -42,6 +44,7 @@ interface ContextWorkspaceClientProps {
   initialState: DraftableState<CompanyContext>;
   debugInfo?: DiagnosticsDebugInfo;
   hydratedNodes?: HydratedContextNode[];
+  baselineSignals?: BaselineSignals;
 }
 
 // ============================================================================
@@ -54,6 +57,7 @@ export function ContextWorkspaceClient({
   initialState,
   debugInfo,
   hydratedNodes = [],
+  baselineSignals,
 }: ContextWorkspaceClientProps) {
   // Deep link URL parameters
   const searchParams = useSearchParams();
@@ -94,84 +98,37 @@ export function ContextWorkspaceClient({
     loadProposals: refreshProposals,
   } = useProposals({ companyId });
 
+  // Canonical Fields (Strategy Frame fields)
+  const {
+    fields: canonicalFields,
+    isLoading: isLoadingCanonicalFields,
+    refresh: refreshCanonicalFields,
+  } = useCanonicalFields(companyId);
+
   // Note: Form view has been deprecated - Context editing now happens through ContextMapClient
-
-  // ============================================================================
-  // Render: No Prerequisites - Show Run Diagnostics button
-  // ============================================================================
-
-  if (shouldShowGenerateButton) {
-    return (
-      <div className="space-y-6">
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-8 text-center">
-          <h1 className="text-xl font-semibold text-white mb-2">
-            Context for {companyName}
-          </h1>
-          <p className="text-sm text-slate-400 max-w-md mx-auto mb-6">
-            Run diagnostics to analyze your digital footprint, competitors, and auto-generate context.
-          </p>
-
-          {error && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-left max-w-md mx-auto">
-              <p className="text-sm text-red-400">{error}</p>
-            </div>
-          )}
-
-          <button
-            onClick={handleGenerate}
-            disabled={isGenerating}
-            className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-cyan-500 text-slate-900 rounded-lg hover:bg-cyan-400 transition-colors disabled:opacity-50 disabled:cursor-wait"
-          >
-            {isGenerating ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Running Diagnostics...
-              </>
-            ) : (
-              <>
-                <Play className="w-4 h-4" />
-                Run Diagnostics
-              </>
-            )}
-          </button>
-
-          {isGenerating && (
-            <p className="text-xs text-slate-500 mt-3">
-              This may take 1-2 minutes...
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ============================================================================
-  // Render: Loading state (auto-generating or regenerating without content)
-  // ============================================================================
-
-  if ((isRegenerating || isGenerating) && !context.businessModel && !context.primaryAudience) {
-    return (
-      <div className="space-y-6">
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-8 text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-cyan-400 mx-auto mb-4" />
-          <h1 className="text-xl font-semibold text-white mb-2">
-            Generating Context...
-          </h1>
-          <p className="text-sm text-slate-400">
-            Analyzing baseline data and building your context draft.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // ============================================================================
-  // Context Map Handlers
-  // ============================================================================
 
   // Node state - allows updating nodes after edits
   // Ensure we always have an array even if hydratedNodes is undefined
+  // IMPORTANT: This must be defined before any early returns to maintain hook order
   const [nodes, setNodes] = useState<HydratedContextNode[]>(hydratedNodes || []);
+
+  // AI suggestion state
+  const [aiSuggestionLoading, setAiSuggestionLoading] = useState<string | null>(null);
+  const [aiSuggestionError, setAiSuggestionError] = useState<string | null>(null);
+
+  // Dev-only hard cleanup state
+  const [isCleaningUp, setIsCleaningUp] = useState(false);
+
+  // Manual add node modal state
+  const [addNodeModalOpen, setAddNodeModalOpen] = useState(false);
+  const [addNodeZoneId, setAddNodeZoneId] = useState<ZoneId | null>(null);
+
+  // ============================================================================
+  // Context Map Handlers (all useCallback hooks must be before early returns)
+  // ============================================================================
+
+  // Get existing node keys for the modal (to filter out already-populated fields)
+  const existingNodeKeys = new Set(nodes.filter(n => n.value !== null && n.value !== undefined).map(n => n.key));
 
   // Map view handlers for proposal actions
   const handleMapAcceptProposal = useCallback(async (proposalId: string, batchId: string) => {
@@ -380,13 +337,6 @@ export function ContextWorkspaceClient({
     console.log(`[Context Map] Deleted node value: ${nodeKey}`);
   }, [companyId]);
 
-  // AI suggestion state
-  const [aiSuggestionLoading, setAiSuggestionLoading] = useState<string | null>(null);
-  const [aiSuggestionError, setAiSuggestionError] = useState<string | null>(null);
-
-  // Dev-only hard cleanup state
-  const [isCleaningUp, setIsCleaningUp] = useState(false);
-
   /**
    * DEV ONLY: Hard cleanup of non-canonical fields
    * Calls the canonicalize API with mode=hard to delete deprecated fields from storage
@@ -423,13 +373,6 @@ export function ContextWorkspaceClient({
       setIsCleaningUp(false);
     }
   }, [companyId, router]);
-
-  // Manual add node modal state
-  const [addNodeModalOpen, setAddNodeModalOpen] = useState(false);
-  const [addNodeZoneId, setAddNodeZoneId] = useState<ZoneId | null>(null);
-
-  // Get existing node keys for the modal (to filter out already-populated fields)
-  const existingNodeKeys = new Set(nodes.filter(n => n.value !== null && n.value !== undefined).map(n => n.key));
 
   /**
    * Handle AI suggestion for a zone
@@ -487,13 +430,37 @@ export function ContextWorkspaceClient({
           proposalBatchId: data.batch?.id,
         }));
 
-        // Add new nodes to state (filter out duplicates by key)
+        // Add new nodes or update existing ones with proposals
         setNodes((prevNodes) => {
           const existingKeys = new Set(prevNodes.map((n) => n.key));
+          const newNodeKeys = new Set(newNodes.map((n) => n.key));
+
+          // Update existing nodes that have new proposals
+          const updatedPrevNodes = prevNodes.map((existingNode) => {
+            const newProposal = newNodes.find((n) => n.key === existingNode.key);
+            if (newProposal) {
+              // Update existing node with the proposal
+              return {
+                ...existingNode,
+                value: newProposal.value,
+                status: 'proposed' as const,
+                source: 'ai' as const,
+                confidence: newProposal.confidence,
+                lastUpdated: newProposal.lastUpdated,
+                pendingProposal: newProposal.pendingProposal,
+                proposalBatchId: newProposal.proposalBatchId,
+              };
+            }
+            return existingNode;
+          });
+
+          // Add truly new nodes (keys that didn't exist before)
           const uniqueNewNodes = newNodes.filter((n) => !existingKeys.has(n.key));
-          console.log(`[AI Suggest] Prev nodes: ${prevNodes.length}, New unique: ${uniqueNewNodes.length}`);
-          console.log('[AI Suggest] New nodes:', uniqueNewNodes);
-          return [...prevNodes, ...uniqueNewNodes];
+
+          console.log(`[AI Suggest] Prev nodes: ${prevNodes.length}, Updated: ${newNodeKeys.size - uniqueNewNodes.length}, New: ${uniqueNewNodes.length}`);
+          console.log('[AI Suggest] New/updated nodes:', newNodes.map(n => n.key));
+
+          return [...updatedPrevNodes, ...uniqueNewNodes];
         });
 
         console.log(`[AI Suggest] Added ${newNodes.length} proposed nodes for zone ${zoneId}`);
@@ -530,7 +497,7 @@ export function ContextWorkspaceClient({
    * Handle manual node creation submission
    * Creates a proposed node with source=user
    */
-  const handleManualNodeSubmit = useCallback(async (fieldKey: string, value: string) => {
+  const handleManualNodeSubmit = useCallback(async (fieldKey: string, value: unknown) => {
     // Call the update API to create a proposed node
     const response = await fetch('/api/os/context/update', {
       method: 'POST',
@@ -582,6 +549,201 @@ export function ContextWorkspaceClient({
   }, [companyId]);
 
   // ============================================================================
+  // Render: No Context Graph - Check if existing data available
+  // ============================================================================
+
+  // Determine if we have existing data that could be used to build context
+  const hasExistingData = baselineSignals && (
+    baselineSignals.hasLabRuns ||
+    baselineSignals.hasFullGap ||
+    baselineSignals.hasCompetition ||
+    baselineSignals.hasWebsiteMetadata
+  );
+
+  // Build a summary of what data is available
+  const existingDataSummary = baselineSignals?.signalSources?.join(', ') || '';
+
+  if (shouldShowGenerateButton) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-8 text-center">
+          <h1 className="text-xl font-semibold text-white mb-2">
+            Context for {companyName}
+          </h1>
+
+          {error && (
+            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-left max-w-md mx-auto">
+              <p className="text-sm text-red-400">{error}</p>
+            </div>
+          )}
+
+          {hasExistingData ? (
+            // Show two options when existing data is available
+            <>
+              <p className="text-sm text-slate-400 max-w-lg mx-auto mb-6">
+                Existing data found: <span className="text-slate-300">{existingDataSummary}</span>
+              </p>
+
+              <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
+                <button
+                  onClick={handleGenerate}
+                  disabled={isGenerating}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-cyan-500 text-slate-900 rounded-lg hover:bg-cyan-400 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Building Context...
+                    </>
+                  ) : (
+                    <>
+                      <Database className="w-4 h-4" />
+                      Build from Existing Data
+                    </>
+                  )}
+                </button>
+
+                <span className="text-slate-500 text-sm">or</span>
+
+                <button
+                  onClick={handleGenerate}
+                  disabled={isGenerating}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-slate-700 text-slate-200 rounded-lg hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Re-run Diagnostics
+                </button>
+              </div>
+
+              {isGenerating && (
+                <p className="text-xs text-slate-500 mt-3">
+                  Building context from existing data...
+                </p>
+              )}
+            </>
+          ) : (
+            // No existing data - show single Run Diagnostics button
+            <>
+              <p className="text-sm text-slate-400 max-w-md mx-auto mb-6">
+                Run diagnostics to analyze your digital footprint, competitors, and auto-generate context.
+              </p>
+
+              <button
+                onClick={handleGenerate}
+                disabled={isGenerating}
+                className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-cyan-500 text-slate-900 rounded-lg hover:bg-cyan-400 transition-colors disabled:opacity-50 disabled:cursor-wait"
+              >
+                {isGenerating ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Running Diagnostics...
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4" />
+                    Run Diagnostics
+                  </>
+                )}
+              </button>
+
+              {isGenerating && (
+                <p className="text-xs text-slate-500 mt-3">
+                  This may take 1-2 minutes...
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================================
+  // Render: Loading state (auto-generating or regenerating without content)
+  // ============================================================================
+
+  if ((isRegenerating || isGenerating) && !context.businessModel && !context.primaryAudience) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-8 text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-cyan-400 mx-auto mb-4" />
+          <h1 className="text-xl font-semibold text-white mb-2">
+            Generating Context...
+          </h1>
+          <p className="text-sm text-slate-400">
+            Analyzing baseline data and building your context draft.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================================
+  // Render: Fields View (Canonical Context Fields)
+  // ============================================================================
+
+  if (viewMode === 'fields') {
+    return (
+      <div className="space-y-4">
+        {/* Header with View Toggle */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-white flex items-center gap-2">
+              <ListChecks className="w-5 h-5 text-cyan-400" />
+              Context Fields
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">
+              Canonical fields for {companyName} (Strategy Frame)
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {/* View Mode Toggle - Fields is active in this view */}
+            <div className="flex items-center gap-1 p-0.5 bg-slate-800 rounded-lg">
+              <button
+                onClick={() => setViewMode('map')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-slate-400 hover:text-slate-300"
+              >
+                <Map className="w-3.5 h-3.5" />
+                Map
+              </button>
+              <button
+                onClick={() => setViewMode('table')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-slate-400 hover:text-slate-300"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                Table
+              </button>
+              <button
+                onClick={() => setViewMode('fields')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors bg-slate-700 text-white"
+              >
+                <ListChecks className="w-3.5 h-3.5" />
+                Fields
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Canonical Fields Panel */}
+        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6">
+          {isLoadingCanonicalFields ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-cyan-400" />
+              <span className="ml-3 text-slate-400">Loading fields...</span>
+            </div>
+          ) : (
+            <CanonicalFieldsPanel
+              companyId={companyId}
+              records={canonicalFields}
+              onRefresh={refreshCanonicalFields}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================================
   // Render: Map View
   // ============================================================================
 
@@ -631,6 +793,13 @@ export function ContextWorkspaceClient({
               >
                 <FileText className="w-3.5 h-3.5" />
                 Table
+              </button>
+              <button
+                onClick={() => setViewMode('fields')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-slate-400 hover:text-slate-300"
+              >
+                <ListChecks className="w-3.5 h-3.5" />
+                Fields
               </button>
             </div>
           </div>
@@ -736,6 +905,13 @@ export function ContextWorkspaceClient({
             >
               <FileText className="w-3.5 h-3.5" />
               Table
+            </button>
+            <button
+              onClick={() => setViewMode('fields')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-slate-400 hover:text-slate-300"
+            >
+              <ListChecks className="w-3.5 h-3.5" />
+              Fields
             </button>
           </div>
         </div>

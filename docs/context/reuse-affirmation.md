@@ -173,3 +173,4 @@ interface ProposalConflict {
 - [ ] Lock conflicts are displayed with `message` explanation
 - [ ] Section components reuse `ContextSection` pattern
 - [ ] Field components reuse `ContextField` pattern
+

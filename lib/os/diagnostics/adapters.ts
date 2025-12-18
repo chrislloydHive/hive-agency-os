@@ -516,8 +516,8 @@ function extractGapPlanData(rawJson: any): ToolReportData {
   // OS V3 raw format: strategicPriorities
   else if (plan.strategicPriorities && Array.isArray(plan.strategicPriorities)) {
     sections.push({
-      id: 'priorities',
-      title: 'Strategic Priorities',
+      id: 'bets',
+      title: 'Strategic Bets',
       icon: 'Rocket',
       body: createStrategicPrioritiesSection(plan.strategicPriorities),
     });
@@ -525,8 +525,8 @@ function extractGapPlanData(rawJson: any): ToolReportData {
   // V3 API mapped format: strategicPrioritiesSummary
   else if (plan.strategicPrioritiesSummary && Array.isArray(plan.strategicPrioritiesSummary)) {
     sections.push({
-      id: 'priorities',
-      title: 'Strategic Priorities',
+      id: 'bets',
+      title: 'Strategic Bets',
       icon: 'Rocket',
       body: createStrategicPrioritiesSummarySection(plan.strategicPrioritiesSummary),
     });

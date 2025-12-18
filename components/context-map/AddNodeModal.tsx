@@ -1,12 +1,14 @@
 // components/context-map/AddNodeModal.tsx
 // Modal for manually adding a new context node
+// Updated for Schema V2 with type-specific field inputs
 
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { X, Plus, Sparkles } from 'lucide-react';
-import { ZONE_DEFINITIONS, DOMAIN_TO_ZONE } from './constants';
-import { getFieldsForZone } from '@/lib/contextGraph/unifiedRegistry';
+import { ZONE_DEFINITIONS } from './constants';
+import { getSchemaV2FieldsForZone } from '@/lib/contextGraph/unifiedRegistry';
+import { FieldInput } from './field-renderers';
 import type { ZoneId } from './types';
 
 interface AddNodeModalProps {
@@ -14,7 +16,7 @@ interface AddNodeModalProps {
   zoneId: ZoneId;
   existingNodeKeys: Set<string>;
   onClose: () => void;
-  onSubmit: (fieldKey: string, value: string) => Promise<void>;
+  onSubmit: (fieldKey: string, value: unknown) => Promise<void>;
 }
 
 export function AddNodeModal({
@@ -25,7 +27,7 @@ export function AddNodeModal({
   onSubmit,
 }: AddNodeModalProps) {
   const [selectedField, setSelectedField] = useState<string>('');
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState<unknown>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,8 +35,9 @@ export function AddNodeModal({
   const zone = ZONE_DEFINITIONS.find(z => z.id === zoneId);
 
   // Get available fields for this zone that don't already have values
+  // Uses Schema V2 registry for strict field set
   const availableFields = useMemo(() => {
-    const zoneFields = getFieldsForZone(zoneId);
+    const zoneFields = getSchemaV2FieldsForZone(zoneId);
     return zoneFields.filter(field => !existingNodeKeys.has(field.key));
   }, [zoneId, existingNodeKeys]);
 
@@ -43,8 +46,35 @@ export function AddNodeModal({
     return availableFields.find(f => f.key === selectedField);
   }, [availableFields, selectedField]);
 
+  // Reset value when field selection changes (different field types need different defaults)
+  useEffect(() => {
+    if (!selectedFieldMeta) {
+      setValue('');
+      return;
+    }
+    // Set appropriate default based on field type
+    switch (selectedFieldMeta.valueType) {
+      case 'list':
+      case 'string[]':
+      case 'array':
+      case 'multi-select':
+        setValue([]);
+        break;
+      default:
+        setValue('');
+    }
+  }, [selectedField, selectedFieldMeta]);
+
+  // Check if value is "empty" based on type
+  const isValueEmpty = (val: unknown): boolean => {
+    if (val === null || val === undefined || val === '') return true;
+    if (Array.isArray(val) && val.length === 0) return true;
+    if (typeof val === 'string' && !val.trim()) return true;
+    return false;
+  };
+
   const handleSubmit = async () => {
-    if (!selectedField || !value.trim()) {
+    if (!selectedField || isValueEmpty(value)) {
       setError('Please select a field and enter a value');
       return;
     }
@@ -53,7 +83,9 @@ export function AddNodeModal({
     setError(null);
 
     try {
-      await onSubmit(selectedField, value.trim());
+      // Trim string values, pass others as-is
+      const finalValue = typeof value === 'string' ? value.trim() : value;
+      await onSubmit(selectedField, finalValue);
       // Reset and close
       setSelectedField('');
       setValue('');
@@ -71,12 +103,12 @@ export function AddNodeModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/50"
+        className="absolute inset-0 bg-black/80 backdrop-blur-sm"
         onClick={onClose}
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-lg mx-4 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl">
+      <div className="relative z-10 w-full max-w-lg mx-4 bg-slate-900/95 backdrop-blur-md border border-slate-600 rounded-xl shadow-2xl ring-1 ring-white/10">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
           <div className="flex items-center gap-3">
@@ -142,20 +174,19 @@ export function AddNodeModal({
             </div>
           )}
 
-          {/* Value Input */}
-          {selectedField && (
+          {/* Value Input - Type-specific based on field schema */}
+          {selectedField && selectedFieldMeta && (
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-2">
                 Value
               </label>
-              <textarea
+              <FieldInput
+                field={selectedFieldMeta}
                 value={value}
-                onChange={(e) => setValue(e.target.value)}
-                placeholder="Enter the value..."
-                className="w-full px-3 py-2.5 text-sm bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 min-h-[100px] resize-y"
+                onChange={setValue}
                 autoFocus
               />
-              {selectedFieldMeta?.aiPromptHint && (
+              {selectedFieldMeta.aiPromptHint && (
                 <p className="mt-1.5 text-[10px] text-slate-500 flex items-center gap-1">
                   <Sparkles className="w-3 h-3" />
                   Hint: {selectedFieldMeta.aiPromptHint}
@@ -182,7 +213,7 @@ export function AddNodeModal({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={!selectedField || !value.trim() || isSubmitting}
+            disabled={!selectedField || isValueEmpty(value) || isSubmitting}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-cyan-500 text-slate-900 rounded-lg hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {isSubmitting ? (

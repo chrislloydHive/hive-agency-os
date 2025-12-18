@@ -99,10 +99,10 @@ export async function runBrandLab(input: BrandLabInput): Promise<BrandLabResult>
   }
 
   // Step 3: Run LLM diagnostic (with competitive layer if available)
-  let diagnostic: BrandDiagnosticResult | BrandDiagnosticResultWithCompetitive;
+  let llmResponse: BrandLabLLMResponse;
 
   if (competitorExtracts.length > 0) {
-    diagnostic = await runBrandDiagnosticWithCompetitiveLLM({
+    llmResponse = await runBrandDiagnosticWithCompetitiveLLM({
       siteContent,
       company,
       gapData: existingGapData,
@@ -112,21 +112,24 @@ export async function runBrandLab(input: BrandLabInput): Promise<BrandLabResult>
 
     // Dev logging
     if (process.env.NODE_ENV !== 'production') {
+      const competitive = (llmResponse.diagnostic as BrandDiagnosticResultWithCompetitive).competitiveLandscape;
       console.log('[DEBUG BRAND DIAGNOSTIC (COMPETITIVE LAYER INCLUDED)]:', {
         competitorCount: competitorExtracts.length,
-        differentiationScore: (diagnostic as BrandDiagnosticResultWithCompetitive).competitiveLandscape?.differentiationScore,
-        clicheDensityScore: (diagnostic as BrandDiagnosticResultWithCompetitive).competitiveLandscape?.clicheDensityScore,
+        differentiationScore: competitive?.differentiationScore,
+        clicheDensityScore: competitive?.clicheDensityScore,
         contextIntegrity,
       });
     }
   } else {
-    diagnostic = await runBrandDiagnosticLLM({
+    llmResponse = await runBrandDiagnosticLLM({
       siteContent,
       company,
       gapData: existingGapData,
       brainContext,
     });
   }
+
+  const { diagnostic, canonicalFindings } = llmResponse;
 
   // Step 4: Build action plan from diagnostic
   const actionPlan = buildBrandActionPlan(diagnostic);
@@ -137,13 +140,28 @@ export async function runBrandLab(input: BrandLabInput): Promise<BrandLabResult>
   console.log(`  - ${actionPlan.next.length} items in NEXT bucket`);
   console.log(`  - ${actionPlan.later.length} items in LATER bucket`);
   if ('competitiveLandscape' in diagnostic && diagnostic.competitiveLandscape) {
-    console.log(`  - Competitive layer: ${diagnostic.competitiveLandscape.primaryCompetitors.length} competitors analyzed`);
-    console.log(`  - Differentiation: ${diagnostic.competitiveLandscape.differentiationScore}/100`);
+    const landscape = diagnostic.competitiveLandscape as { primaryCompetitors?: unknown[]; differentiationScore?: number };
+    console.log(`  - Competitive layer: ${landscape.primaryCompetitors?.length || 0} competitors analyzed`);
+    console.log(`  - Differentiation: ${landscape.differentiationScore || 'N/A'}/100`);
   }
+  if (canonicalFindings) {
+    console.log(`  - Canonical findings: positioning=${!!canonicalFindings.positioning?.statement}, valueProp=${!!canonicalFindings.valueProp?.headline}, icp=${!!canonicalFindings.icp?.primaryAudience}`);
+  }
+
+  // Step 5: Convert canonicalFindings to findings format for BrandLabResult
+  const findings = canonicalFindings ? {
+    positioning: canonicalFindings.positioning,
+    valueProp: canonicalFindings.valueProp,
+    differentiators: canonicalFindings.differentiators,
+    icp: canonicalFindings.icp,
+    messaging: canonicalFindings.messaging,
+    toneOfVoice: canonicalFindings.toneOfVoice,
+  } : undefined;
 
   return {
     diagnostic,
     actionPlan,
+    findings,
   };
 }
 
@@ -266,11 +284,25 @@ interface BrandDiagnosticLLMInput {
   brainContext?: string;
 }
 
+/** Combined response from LLM including both diagnostic and canonical findings */
+interface BrandLabLLMResponse {
+  diagnostic: BrandDiagnosticResult;
+  canonicalFindings?: {
+    positioning: { statement: string; summary: string; confidence: number };
+    valueProp: { headline: string; description: string; confidence: number };
+    differentiators: { bullets: string[]; confidence: number };
+    icp: { primaryAudience: string; buyerRoles?: string[]; confidence: number };
+    messaging: { pillars: Array<{ title: string; support: string }>; proofPoints?: string[]; confidence: number };
+    toneOfVoice?: { enabled: boolean; descriptor?: string; doList?: string[]; dontList?: string[]; confidence?: number };
+  };
+}
+
 /**
  * Run LLM-powered brand diagnostic
  * Uses structured output to ensure consistent JSON format
+ * Returns both diagnostic AND canonical findings for Context Graph
  */
-async function runBrandDiagnosticLLM(input: BrandDiagnosticLLMInput): Promise<BrandDiagnosticResult> {
+async function runBrandDiagnosticLLM(input: BrandDiagnosticLLMInput): Promise<BrandLabLLMResponse> {
   const { siteContent, company, gapData, brainContext } = input;
 
   console.log('[Brand Lab] Running LLM diagnostic...');
@@ -304,7 +336,31 @@ ${siteContent.bodySnippets.slice(0, 5).map((s, i) => `${i + 1}. ${s}`).join('\n\
 
   const systemPrompt = `You are a senior brand strategist and messaging consultant with expertise in brand clarity, positioning, and coherence.
 
-Your task is to analyze a company's website and provide a structured brand diagnostic.
+Your task is to analyze a company's website and provide TWO things:
+1. A structured brand DIAGNOSTIC (scores, evaluation, issues)
+2. CANONICAL FINDINGS for the Context Graph (actual positioning copy, value prop copy, etc.)
+
+CRITICAL: The DIAGNOSTIC is for internal evaluation. The CANONICAL FINDINGS are customer-facing copy that gets stored in the Context Graph.
+
+QUALITY RULES FOR CANONICAL FINDINGS:
+1. positioning.statement MUST be a complete sentence (8+ words) describing WHO they serve, WHAT they offer, and HOW they're different
+   - GOOD: "The affordable CRM for B2B SaaS startups who need pipeline visibility without enterprise complexity"
+   - BAD: "Innovation and Customer-Centricity" (buzzwords only)
+   - BAD: "Solutions provider with a focus on innovation" (too vague)
+
+2. icp.primaryAudience MUST include at least ONE of: industry (SaaS, fintech, retail), company size (50-500 employees, $1M-10M revenue), job title (CMO, founder, marketing director), or specific pain point
+   - GOOD: "Series A-C B2B SaaS founders struggling with inconsistent pipeline and no marketing leadership"
+   - BAD: "Tech-savvy organizations seeking innovative solutions" (no specifics)
+
+3. differentiators.bullets MUST be specific claims, NOT generic buzzwords
+   - GOOD: ["Only platform with native Salesforce bi-directional sync", "3-day implementation vs industry-standard 3 months"]
+   - BAD: ["Focus on innovation", "Customer-centric approach"]
+
+4. valueProp.headline MUST be a specific benefit statement, not vague marketing speak
+   - GOOD: "Cut your sales cycle by 40% with AI-powered lead scoring"
+   - BAD: "Transform your business" (meaningless)
+
+5. If insufficient evidence exists, synthesize a DRAFT based on what you CAN infer, set confidence LOW (0.3-0.5), but still provide usable copy. Never output empty strings or "Website does not specify".
 
 You MUST respond with ONLY a valid JSON object matching this structure (no markdown, no code blocks, pure JSON):
 
@@ -333,7 +389,7 @@ You MUST respond with ONLY a valid JSON object matching this structure (no markd
     "clarityIssues": ["..."]
   },
   "positioning": {
-    "positioningTheme": "...",
+    "positioningTheme": "MUST be a complete positioning statement (5+ words) with WHO/WHAT/WHY - NOT buzzwords",
     "positioningClarityScore": 0-100,
     "competitiveAngle": "...",
     "isClearWhoThisIsFor": true/false,
@@ -345,6 +401,43 @@ You MUST respond with ONLY a valid JSON object matching this structure (no markd
     "alignmentScore": 0-100,
     "misalignmentNotes": ["..."]
   },
+
+  // ========== CANONICAL FINDINGS (for Context Graph) ==========
+  "canonicalFindings": {
+    "positioning": {
+      "statement": "1 sentence positioning: WHO you serve + WHAT you offer + HOW you're different (8+ words, no buzzwords)",
+      "summary": "2-4 sentences explaining the differentiation angle and market position",
+      "confidence": 0.0-1.0
+    },
+    "valueProp": {
+      "headline": "Short punchy value prop headline (specific benefit, not vague)",
+      "description": "1-3 sentences elaborating the core value delivered",
+      "confidence": 0.0-1.0
+    },
+    "differentiators": {
+      "bullets": ["3-7 specific differentiators with proof/specificity"],
+      "confidence": 0.0-1.0
+    },
+    "icp": {
+      "primaryAudience": "1-2 sentences: WHO buys (industry, size, role) + WHY they buy (pain/need)",
+      "buyerRoles": ["optional array of buyer role titles"],
+      "confidence": 0.0-1.0
+    },
+    "messaging": {
+      "pillars": [{"title": "Pillar name", "support": "Supporting statement"}],
+      "proofPoints": ["optional proof points"],
+      "confidence": 0.0-1.0
+    },
+    "toneOfVoice": {
+      "enabled": true,
+      "descriptor": "e.g. Professional, technical, direct",
+      "doList": ["tone dos"],
+      "dontList": ["tone donts"],
+      "confidence": 0.0-1.0
+    }
+  },
+  // ========== END CANONICAL FINDINGS ==========
+
   "trustAndProof": {
     "trustArchetype": "...",
     "trustSignalsScore": 0-100,
@@ -406,7 +499,7 @@ Provide a comprehensive brand diagnostic in valid JSON format.`;
         { role: 'user', content: userPrompt },
       ],
       temperature: 0.7,
-      max_tokens: 4000,
+      max_tokens: 5000,
       response_format: { type: 'json_object' },
     });
 
@@ -418,17 +511,37 @@ Provide a comprehensive brand diagnostic in valid JSON format.`;
     console.log('[Brand Lab] LLM response received, parsing...');
 
     const parsed = JSON.parse(content);
+
+    // Extract canonicalFindings BEFORE validating diagnostic (they're siblings in JSON)
+    const canonicalFindings = parsed.canonicalFindings;
+
+    // Validate the diagnostic portion
     const validated = BrandDiagnosticResultSchema.parse(parsed);
 
     console.log('[Brand Lab] ✓ Brand diagnostic validated');
-    return validated;
+    if (canonicalFindings) {
+      console.log('[Brand Lab] ✓ Canonical findings extracted:', {
+        hasPositioning: !!canonicalFindings.positioning?.statement,
+        hasValueProp: !!canonicalFindings.valueProp?.headline,
+        hasDifferentiators: canonicalFindings.differentiators?.bullets?.length || 0,
+        hasICP: !!canonicalFindings.icp?.primaryAudience,
+      });
+    }
+
+    return {
+      diagnostic: validated,
+      canonicalFindings,
+    };
 
   } catch (error) {
     console.error('[Brand Lab] Error in LLM diagnostic:', error);
 
     // Return fallback diagnostic
     console.log('[Brand Lab] Using fallback diagnostic');
-    return getFallbackDiagnostic(siteContent, company);
+    return {
+      diagnostic: getFallbackDiagnostic(siteContent, company),
+      canonicalFindings: undefined,
+    };
   }
 }
 
@@ -652,10 +765,11 @@ interface BrandDiagnosticWithCompetitiveLLMInput {
  * - Cliché detection
  * - Differentiation scoring
  * - White space opportunities
+ * Also returns canonical findings for Context Graph
  */
 async function runBrandDiagnosticWithCompetitiveLLM(
   input: BrandDiagnosticWithCompetitiveLLMInput
-): Promise<BrandDiagnosticResultWithCompetitive> {
+): Promise<BrandLabLLMResponse> {
   const { siteContent, company, gapData, competitorExtracts, brainContext } = input;
 
   console.log('[Brand Lab] Running LLM diagnostic with competitive layer...');
@@ -703,6 +817,22 @@ Headlines: ${c.headlines.slice(0, 5).join(' | ')}
 
 Your task is to provide both a brand diagnostic AND a competitive layer analysis.
 
+CRITICAL QUALITY RULES FOR OUTPUT:
+1. positioningTheme MUST be a complete sentence (5+ words) describing WHO they serve, WHAT they offer, and HOW they're different
+   - GOOD: "The affordable CRM for B2B SaaS startups who need pipeline visibility without enterprise complexity"
+   - BAD: "Innovation and Customer-Centricity" (buzzwords only)
+   - BAD: "Quality solutions" (too vague)
+
+2. primaryICPDescription MUST include at least ONE of: industry (SaaS, fintech, retail), company size (50-500 employees, $1M-10M revenue), job title (CMO, founder, marketing director), or specific pain point
+   - GOOD: "Series A-C B2B SaaS founders struggling with inconsistent pipeline and no marketing leadership"
+   - BAD: "Tech-savvy organizations seeking innovative solutions" (no specifics)
+
+3. differentiators MUST be specific claims, NOT generic buzzwords
+   - GOOD: "Only platform with native Salesforce bi-directional sync"
+   - BAD: "Focus on innovation" (generic)
+
+4. If you cannot determine specifics from the website, leave fields as empty strings or descriptive notes like "Website does not specify target company size"
+
 IMPORTANT: For the competitive analysis:
 1. Identify category language patterns (phrases everyone uses)
 2. Detect clichés in the main brand's messaging
@@ -722,8 +852,8 @@ The JSON must include ALL brand diagnostic fields PLUS a "competitiveLandscape" 
   "brandPillars": [...],
   "identitySystem": {...},
   "messagingSystem": {...},
-  "positioning": {...},
-  "audienceFit": {...},
+  "positioning": { "positioningTheme": "MUST be complete positioning statement with WHO/WHAT/WHY", ... },
+  "audienceFit": { "primaryICPDescription": "MUST include industry, company size, role, OR pain point", ... },
   "trustAndProof": {...},
   "visualSystem": {...},
   "brandAssets": {...},
@@ -774,7 +904,7 @@ Provide a comprehensive brand diagnostic WITH competitive layer analysis in vali
         { role: 'user', content: userPrompt },
       ],
       temperature: 0.7,
-      max_tokens: 5000,
+      max_tokens: 6000,
       response_format: { type: 'json_object' },
     });
 
@@ -786,25 +916,41 @@ Provide a comprehensive brand diagnostic WITH competitive layer analysis in vali
     console.log('[Brand Lab] LLM response with competitive layer received, parsing...');
 
     const parsed = JSON.parse(content);
+
+    // Extract canonicalFindings BEFORE validating diagnostic
+    const canonicalFindings = parsed.canonicalFindings;
+
     const validated = BrandDiagnosticResultWithCompetitiveSchema.parse(parsed);
 
     console.log('[Brand Lab] Brand diagnostic with competitive layer validated');
-    return validated;
+    if (canonicalFindings) {
+      console.log('[Brand Lab] ✓ Canonical findings extracted:', {
+        hasPositioning: !!canonicalFindings.positioning?.statement,
+        hasValueProp: !!canonicalFindings.valueProp?.headline,
+        hasDifferentiators: canonicalFindings.differentiators?.bullets?.length || 0,
+        hasICP: !!canonicalFindings.icp?.primaryAudience,
+      });
+    }
+
+    return {
+      diagnostic: validated,
+      canonicalFindings,
+    };
 
   } catch (error) {
     console.error('[Brand Lab] Error in LLM diagnostic with competitive:', error);
 
     // Fall back to base diagnostic without competitive layer
     console.log('[Brand Lab] Falling back to base diagnostic');
-    const baseDiagnostic = await runBrandDiagnosticLLM({
+    const baseResponse = await runBrandDiagnosticLLM({
       siteContent,
       company,
       gapData,
     });
 
-    // Add empty competitive landscape
-    return {
-      ...baseDiagnostic,
+    // Add empty competitive landscape to diagnostic
+    const diagnosticWithCompetitive: BrandDiagnosticResultWithCompetitive = {
+      ...baseResponse.diagnostic,
       competitiveLandscape: {
         primaryCompetitors: competitorExtracts.map(c => ({
           name: c.name,
@@ -819,6 +965,11 @@ Provide a comprehensive brand diagnostic WITH competitive layer analysis in vali
         whiteSpaceOpportunities: [],
         similarityNotes: ['Competitive analysis incomplete'],
       },
+    };
+
+    return {
+      diagnostic: diagnosticWithCompetitive,
+      canonicalFindings: baseResponse.canonicalFindings,
     };
   }
 }

@@ -67,7 +67,7 @@ export interface PriorityCheckResult {
   /** Whether the new source can overwrite the existing value */
   canOverwrite: boolean;
   /** Reason for the decision */
-  reason: 'human_override' | 'higher_priority' | 'same_priority_newer' | 'lower_priority' | 'blocked_source' | 'low_confidence';
+  reason: 'human_override' | 'higher_priority' | 'same_priority_newer' | 'lower_priority' | 'blocked_source' | 'low_confidence' | 'human_confirmed';
   /** Score difference (positive = new wins, negative = existing wins) */
   scoreDelta: number;
 }
@@ -614,4 +614,116 @@ export function getFieldSourceSummary(
     canBeOverwritten: !isHuman, // Only human overrides are protected
     authoritativeSources: getAuthoritativeSourcesForDomain(domain),
   };
+}
+
+// ============================================================================
+// Confidence-Aware Upgrade Rules
+// ============================================================================
+
+/**
+ * GAP Plan sources that can be upgraded by higher-confidence sources
+ */
+export const GAP_PLAN_SOURCES: Set<string> = new Set([
+  'gap_full',
+  'gap_ia',
+]);
+
+/**
+ * Standard confidence levels by source type
+ */
+export const SOURCE_CONFIDENCE_LEVELS: Record<string, number> = {
+  // Human sources - highest
+  user: 1.0,
+  manual: 1.0,
+  qbr: 0.95,
+  strategy: 0.95,
+
+  // Lab sources - high
+  brand_lab: 0.85,
+  audience_lab: 0.85,
+  media_lab: 0.85,
+  website_lab: 0.85,
+  seo_lab: 0.85,
+  content_lab: 0.85,
+  demand_lab: 0.85,
+  ops_lab: 0.85,
+  competition_v4: 0.85,
+  competition_lab: 0.85,
+
+  // GAP sources - varies
+  gap_heavy: 0.8,
+  gap_full: 0.6, // GAP Plan secondary source
+  gap_ia: 0.7,
+
+  // Inference sources - lowest
+  fcb: 0.65,
+  brain: 0.5,
+  inferred: 0.4,
+};
+
+/**
+ * Check if a field can be upgraded from GAP Plan to a higher-confidence source
+ *
+ * Rules:
+ * 1. GAP Plan can NEVER overwrite GAP Plan (no self-upgrade)
+ * 2. Human sources can NEVER be overwritten
+ * 3. Labs (confidence >= 0.85) CAN upgrade GAP Plan fields (confidence <= 0.6)
+ * 4. GAP Plan can only fill EMPTY fields
+ *
+ * @param existingProvenance - Current field provenance
+ * @param newSource - Source attempting to write
+ * @param newConfidence - Confidence of new source (defaults to SOURCE_CONFIDENCE_LEVELS)
+ * @returns Whether the upgrade is allowed
+ */
+export function canUpgradeFromGapPlan(
+  existingProvenance: ProvenanceTag[],
+  newSource: string,
+  newConfidence?: number
+): { canUpgrade: boolean; reason: string } {
+  // No existing provenance = allow write (not an upgrade scenario)
+  if (existingProvenance.length === 0) {
+    return { canUpgrade: true, reason: 'empty_field' };
+  }
+
+  const existingSource = existingProvenance[0]?.source;
+  const existingConfidence = existingProvenance[0]?.confidence ?? 0.5;
+
+  // Rule 1: Human sources can NEVER be overwritten
+  if (isHumanSource(existingSource)) {
+    return { canUpgrade: false, reason: 'human_confirmed' };
+  }
+
+  // Rule 2: GAP Plan cannot overwrite itself (no self-upgrade)
+  if (GAP_PLAN_SOURCES.has(existingSource) && GAP_PLAN_SOURCES.has(newSource)) {
+    return { canUpgrade: false, reason: 'gap_plan_no_self_overwrite' };
+  }
+
+  // Rule 3: Higher-confidence Labs can upgrade GAP Plan fields
+  if (GAP_PLAN_SOURCES.has(existingSource)) {
+    const effectiveNewConfidence = newConfidence ?? SOURCE_CONFIDENCE_LEVELS[newSource] ?? 0.5;
+    const gapPlanThreshold = 0.6;
+
+    // Lab must have higher confidence than GAP Plan threshold
+    if (effectiveNewConfidence > gapPlanThreshold && existingConfidence <= gapPlanThreshold) {
+      return {
+        canUpgrade: true,
+        reason: `lab_upgrade_gap_plan (${existingConfidence} → ${effectiveNewConfidence})`,
+      };
+    }
+
+    return {
+      canUpgrade: false,
+      reason: `confidence_not_higher (${existingConfidence} vs ${effectiveNewConfidence})`,
+    };
+  }
+
+  // Rule 4: Non-GAP-Plan fields follow standard priority rules
+  return { canUpgrade: false, reason: 'use_standard_priority' };
+}
+
+/**
+ * Check if a source is a GAP Plan source
+ */
+export function isGapPlanSource(source: string): boolean {
+  return GAP_PLAN_SOURCES.has(source);
 }

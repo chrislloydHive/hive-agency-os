@@ -23,10 +23,174 @@ import { generateBrandNarrative } from './narrative';
 import { detectBrandLabFailure } from './validation';
 import { runBrandLab as runBrandLabV1 } from '@/lib/gap-heavy/modules/brandLabImpl';
 import type { CompanyRecord } from '@/lib/airtable/companies';
+import { ensureCanonical } from '@/lib/diagnostics/shared';
 
 // Re-export types for convenience
 export * from './types';
 export { detectBrandLabFailure } from './validation';
+
+// ============================================================================
+// CANONICAL FINDINGS SYNTHESIS (Fallback when LLM doesn't return canonical)
+// ============================================================================
+
+/**
+ * Synthesize positioning from V1 diagnostic
+ * Extracts from positioning theme, identity, or messaging
+ */
+function synthesizePositioning(diagnostic: any): BrandLabFindings['positioning'] | undefined {
+  // Try positioningTheme first
+  const positioningTheme = diagnostic.positioning?.positioningTheme;
+  if (positioningTheme && positioningTheme.length > 15 && !isGenericText(positioningTheme)) {
+    return {
+      statement: positioningTheme,
+      summary: `${positioningTheme} Targeting ${diagnostic.audienceFit?.primaryICPDescription || 'their core audience'} with a ${diagnostic.positioning?.competitiveAngle || 'unique'} approach.`,
+      confidence: 0.7,
+    };
+  }
+
+  // Try tagline + core promise
+  const tagline = diagnostic.identitySystem?.tagline;
+  const corePromise = diagnostic.identitySystem?.corePromise;
+  if ((tagline && tagline.length > 10) || (corePromise && corePromise.length > 15)) {
+    const statement = tagline || corePromise;
+    if (!isGenericText(statement)) {
+      return {
+        statement: statement!,
+        summary: corePromise || tagline || statement,
+        confidence: 0.6,
+      };
+    }
+  }
+
+  // Try first value prop
+  const valueProps = diagnostic.messagingSystem?.valueProps;
+  if (valueProps && valueProps.length > 0 && valueProps[0].statement) {
+    const firstVP = valueProps[0].statement;
+    if (!isGenericText(firstVP)) {
+      return {
+        statement: firstVP,
+        summary: firstVP,
+        confidence: 0.5,
+      };
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Synthesize value prop from V1 diagnostic
+ */
+function synthesizeValueProp(diagnostic: any): BrandLabFindings['valueProp'] | undefined {
+  const valueProps = diagnostic.messagingSystem?.valueProps;
+  if (!valueProps || valueProps.length === 0) return undefined;
+
+  // Take best value prop (highest clarity score)
+  const sorted = [...valueProps].sort((a, b) => (b.clarityScore || 0) - (a.clarityScore || 0));
+  const best = sorted[0];
+
+  if (!best.statement || best.statement.length < 15) return undefined;
+  if (isGenericText(best.statement)) return undefined;
+
+  // Split statement into headline and description if possible
+  const parts = best.statement.split(/[.!?:—–-]\s+/);
+  if (parts.length >= 2) {
+    return {
+      headline: parts[0].trim(),
+      description: parts.slice(1).join(' ').trim(),
+      confidence: Math.min(0.9, (best.clarityScore || 50) / 100),
+    };
+  }
+
+  return {
+    headline: best.statement,
+    description: best.notes || '',
+    confidence: Math.min(0.8, (best.clarityScore || 50) / 100),
+  };
+}
+
+/**
+ * Synthesize differentiators from V1 diagnostic
+ */
+function synthesizeDifferentiators(diagnostic: any): BrandLabFindings['differentiators'] | undefined {
+  const diffs = diagnostic.messagingSystem?.differentiators;
+  if (!diffs || diffs.length === 0) return undefined;
+
+  // Filter out generic/short bullets
+  const validBullets = diffs.filter((d: string) =>
+    d && d.length > 10 && !isGenericText(d)
+  );
+
+  if (validBullets.length === 0) return undefined;
+
+  return {
+    bullets: validBullets.slice(0, 7), // Max 7 bullets
+    confidence: 0.7,
+  };
+}
+
+/**
+ * Synthesize ICP from V1 diagnostic
+ */
+function synthesizeICP(diagnostic: any): BrandLabFindings['icp'] | undefined {
+  const primaryICP = diagnostic.audienceFit?.primaryICPDescription;
+  if (!primaryICP || primaryICP.length < 15) return undefined;
+  if (isGenericText(primaryICP)) return undefined;
+
+  return {
+    primaryAudience: primaryICP,
+    buyerRoles: [],
+    confidence: 0.7,
+  };
+}
+
+/**
+ * Check if text is generic/placeholder
+ */
+function isGenericText(text: string): boolean {
+  if (!text) return true;
+  const lower = text.toLowerCase();
+
+  // Generic phrases
+  const genericPhrases = [
+    'the company',
+    'this company',
+    'various',
+    'multiple',
+    'comprehensive',
+    'innovative solutions',
+    'high-quality',
+    'best-in-class',
+    'industry-leading',
+    'cutting-edge',
+    'not specified',
+    'not available',
+    'n/a',
+    'tbd',
+    'unknown',
+    'to be determined',
+  ];
+
+  // Evaluative phrases (assessments, not facts)
+  const evaluativePhrases = [
+    'is vague',
+    'is unclear',
+    'could be',
+    'needs work',
+    'needs improvement',
+    'is present but',
+    'is partially',
+    'serviceable but',
+    'positioning is',
+    'value prop is',
+  ];
+
+  for (const phrase of [...genericPhrases, ...evaluativePhrases]) {
+    if (lower.includes(phrase)) return true;
+  }
+
+  return false;
+}
 
 // ============================================================================
 // Main Run Function
@@ -175,12 +339,15 @@ export async function buildBrandLabResultFromV1(
   const projects = buildBrandProjects(actionPlan, diagnostic, maturityStage);
 
   // 7. Carry forward rich findings (preserves V1 detail)
+  // IMPORTANT: Also merge canonical findings from V1 result if present
+  const v1CanonicalFindings = v1Result.findings;
+
   const findings: BrandLabFindings = {
     diagnosticV1: v1Result,
     brandPillars: diagnostic.brandPillars,
     identitySystem: diagnostic.identitySystem,
     messagingSystem: diagnostic.messagingSystem,
-    positioning: diagnostic.positioning,
+    positioningAnalysis: diagnostic.positioning, // V1 analysis data (scores, angles, etc.)
     audienceFit: diagnostic.audienceFit,
     trustAndProof: diagnostic.trustAndProof,
     visualSystem: diagnostic.visualSystem,
@@ -189,12 +356,43 @@ export async function buildBrandLabResultFromV1(
     opportunities: diagnostic.opportunities,
     risks: diagnostic.risks,
     competitiveLandscape: 'competitiveLandscape' in diagnostic ? diagnostic.competitiveLandscape : undefined,
+    // CANONICAL FINDINGS: Merge from V1 result OR synthesize from diagnostic
+    positioning: v1CanonicalFindings?.positioning ?? synthesizePositioning(diagnostic),
+    valueProp: v1CanonicalFindings?.valueProp ?? synthesizeValueProp(diagnostic),
+    differentiators: v1CanonicalFindings?.differentiators ?? synthesizeDifferentiators(diagnostic),
+    icp: v1CanonicalFindings?.icp ?? synthesizeICP(diagnostic),
+    messaging: v1CanonicalFindings?.messaging,
+    toneOfVoice: v1CanonicalFindings?.toneOfVoice,
+  };
+
+  // CANONICAL CONTRACT: Ensure all required fields are present
+  // This validates the findings object and fills any missing fields from diagnostic
+  const canonicalResult = ensureCanonical({
+    labType: 'brand',
+    canonical: findings as unknown as Record<string, unknown>,
+    v1Result: { diagnostic } as unknown as Record<string, unknown>,
+  });
+
+  if (canonicalResult.synthesizedFields.length > 0) {
+    console.log('[Brand Lab V2] Synthesized canonical fields:', canonicalResult.synthesizedFields);
+  }
+
+  if (!canonicalResult.valid) {
+    console.warn('[Brand Lab V2] Canonical validation warnings:', canonicalResult.errors);
+  }
+
+  // Use the ensured findings (merge with original to preserve diagnosticV1)
+  const ensuredFindings: BrandLabFindings = {
+    ...findings,
+    ...(canonicalResult.canonical as unknown as Partial<BrandLabFindings>),
   };
 
   console.log('[Brand Lab V2] Complete:', {
     issues: issues.length,
     quickWins: quickWins.length,
     projects: projects.length,
+    canonicalValid: canonicalResult.valid,
+    synthesizedFields: canonicalResult.synthesizedFields.length,
   });
 
   return {
@@ -206,7 +404,7 @@ export async function buildBrandLabResultFromV1(
     issues,
     quickWins,
     projects,
-    findings,
+    findings: ensuredFindings,
     generatedAt: new Date().toISOString(),
     url: websiteUrl,
     companyId: companyId ?? company.id,

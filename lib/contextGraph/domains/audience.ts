@@ -54,6 +54,10 @@ export const AudienceDomain = z.object({
   // Primary audience description (who we serve)
   primaryAudience: WithMeta(z.string()),
 
+  // ICP Description - Full description of the ideal customer profile
+  // This is the canonical location for ICP (moved from identity domain)
+  icpDescription: WithMeta(z.string()),
+
   // Primary buyer roles (decision makers, influencers)
   primaryBuyerRoles: WithMetaArray(z.string()),
 
@@ -127,6 +131,7 @@ export function createEmptyAudienceDomain(): AudienceDomain {
   return {
     // Canonical ICP fields
     primaryAudience: { value: null, provenance: [] },
+    icpDescription: { value: null, provenance: [] },
     primaryBuyerRoles: { value: [], provenance: [] },
     companyProfile: { value: null, provenance: [] },
 

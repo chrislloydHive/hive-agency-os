@@ -856,6 +856,143 @@ export async function updateWorkItemAiAdditionalInfo(
 }
 
 /**
+ * Update a Work Item's Source JSON to add AI brief
+ *
+ * @param workItemId - Work item record ID
+ * @param aiBrief - AI-generated brief to attach
+ * @returns Updated work item record
+ */
+export async function updateWorkItemSourceWithAiBrief(
+  workItemId: string,
+  aiBrief: import('@/lib/types/work').PrescribedWorkAiBrief
+): Promise<WorkItemRecord> {
+  console.log('[Work Items] Updating work item with AI brief:', {
+    workItemId,
+    hasSummary: !!aiBrief.summary,
+    requirementsCount: aiBrief.requirements?.length ?? 0,
+  });
+
+  try {
+    // First fetch the existing work item to get current source
+    const existingRecord = await base('Work Items').find(workItemId);
+    if (!existingRecord) {
+      throw new Error('Work item not found');
+    }
+
+    const fields = existingRecord.fields as WorkItemFields;
+    const existingSourceJson = fields['Source JSON'];
+
+    let source: WorkSource | undefined;
+    if (existingSourceJson) {
+      try {
+        source = JSON.parse(existingSourceJson) as WorkSource;
+      } catch {
+        console.warn('[Work Items] Failed to parse existing source JSON');
+      }
+    }
+
+    // Only add aiBrief to user_prescribed source type
+    if (source && source.sourceType === 'user_prescribed') {
+      (source as import('@/lib/types/work').WorkSourceUserPrescribed).aiBrief = aiBrief;
+    }
+
+    // Update the record
+    const records = await base('Work Items').update([
+      {
+        id: workItemId,
+        fields: {
+          [WORK_ITEMS_FIELDS.SOURCE_JSON]: JSON.stringify(source),
+        },
+      },
+    ]);
+
+    if (!records || records.length === 0) {
+      throw new Error('No record returned from Airtable update');
+    }
+
+    const record = records[0];
+
+    console.log('[Work Items] Work item AI brief updated successfully:', {
+      workItemId: record.id,
+    });
+
+    return mapWorkItemRecord(record);
+  } catch (error) {
+    console.error('[Work Items] Error updating work item AI brief:', error);
+    throw error;
+  }
+}
+
+/**
+ * Update work item source with a canonical Brief ID
+ * Links a user-prescribed work item to a Brief record
+ *
+ * @param workItemId - Work item record ID
+ * @param briefId - Brief record ID to link
+ * @returns Updated work item record
+ */
+export async function updateWorkItemSourceWithBriefId(
+  workItemId: string,
+  briefId: string
+): Promise<WorkItemRecord> {
+  console.log('[Work Items] Linking work item to brief:', {
+    workItemId,
+    briefId,
+  });
+
+  try {
+    // First fetch the existing work item to get current source
+    const existingRecord = await base('Work Items').find(workItemId);
+    if (!existingRecord) {
+      throw new Error('Work item not found');
+    }
+
+    const fields = existingRecord.fields as WorkItemFields;
+    const existingSourceJson = fields['Source JSON'];
+
+    let source: WorkSource | undefined;
+    if (existingSourceJson) {
+      try {
+        source = JSON.parse(existingSourceJson) as WorkSource;
+      } catch {
+        console.warn('[Work Items] Failed to parse existing source JSON');
+      }
+    }
+
+    // Add briefId to user_prescribed source type
+    if (source && source.sourceType === 'user_prescribed') {
+      (source as import('@/lib/types/work').WorkSourceUserPrescribed).briefId = briefId;
+    }
+
+    // Update the record
+    const records = await base('Work Items').update([
+      {
+        id: workItemId,
+        fields: {
+          [WORK_ITEMS_FIELDS.SOURCE_JSON]: JSON.stringify(source),
+        },
+      },
+    ]);
+
+    if (!records || records.length === 0) {
+      throw new Error('No record returned from Airtable update');
+    }
+
+    const record = records[0];
+
+    console.log('[Work Items] Work item linked to brief successfully:', {
+      workItemId: record.id,
+      briefId,
+    });
+
+    return mapWorkItemRecord(record);
+  } catch (error) {
+    console.error('[Work Items] Error linking work item to brief:', error);
+    throw error;
+  }
+}
+
+/**
  * Map metric group to Work Item area
  */
 function mapMetricGroupToWorkItemArea(metricGroup: string): WorkItemArea {
@@ -935,7 +1072,9 @@ import type {
   WorkCategory,
   WorkPriority,
   WorkSourceToolRun,
+  WorkSourceStrategyPlay,
 } from '@/lib/types/work';
+import type { StrategyPlay } from '@/lib/types/strategy';
 
 /**
  * Input for creating work items from a tool run
@@ -1093,6 +1232,204 @@ export async function countWorkItemsForRun(runId: string): Promise<number> {
       return 0;
     }
     console.error('[Work Items] Error counting work items for run:', errorMessage);
+    return 0;
+  }
+}
+
+// ============================================================================
+// Strategy Play Work Item Creation
+// ============================================================================
+
+/**
+ * Create Work Items from Strategy Plays
+ *
+ * @param input - Configuration for creating work items from plays
+ * @returns Array of created work item records
+ */
+export async function createWorkItemsFromStrategyPlays(input: {
+  companyId: string;
+  strategyId: string;
+  plays: StrategyPlay[];
+}): Promise<WorkItemRecord[]> {
+  const { companyId, strategyId, plays } = input;
+
+  if (plays.length === 0) {
+    return [];
+  }
+
+  console.log('[Work Items] Creating work items from strategy plays:', {
+    companyId,
+    strategyId,
+    playCount: plays.length,
+  });
+
+  // Build records for batch creation
+  const recordsToCreate = plays.map((play) => {
+    // Build source metadata
+    const source: WorkSourceStrategyPlay = {
+      sourceType: 'strategy_play',
+      strategyId,
+      playId: play.id,
+      playTitle: play.title,
+      objectiveId: play.objectiveId,
+      pillarTitle: play.pillarTitle,
+    };
+
+    // Build notes from play description and metadata
+    const notesParts: string[] = [];
+    notesParts.push(`Created from Strategy Play: ${play.title}`);
+    if (play.description) notesParts.push(play.description);
+    if (play.successMetric) notesParts.push(`Success Metric: ${play.successMetric}`);
+    if (play.timeframe) notesParts.push(`Timeframe: ${play.timeframe}`);
+    if (play.pillarTitle) notesParts.push(`Strategic Pillar: ${play.pillarTitle}`);
+
+    const notes = notesParts.join('\n\n') || undefined;
+
+    const fields: Record<string, any> = {
+      [WORK_ITEMS_FIELDS.TITLE]: play.title,
+      [WORK_ITEMS_FIELDS.COMPANY]: [companyId],
+      [WORK_ITEMS_FIELDS.AREA]: 'Strategy',
+      [WORK_ITEMS_FIELDS.STATUS]: 'Backlog',
+      [WORK_ITEMS_FIELDS.SEVERITY]: 'Medium',
+      [WORK_ITEMS_FIELDS.SOURCE_JSON]: JSON.stringify(source),
+    };
+
+    if (notes) {
+      fields[WORK_ITEMS_FIELDS.NOTES] = notes;
+    }
+
+    return { fields };
+  });
+
+  try {
+    // Airtable batch create supports up to 10 records at a time
+    const createdRecords: WorkItemRecord[] = [];
+    const batchSize = 10;
+
+    for (let i = 0; i < recordsToCreate.length; i += batchSize) {
+      const batch = recordsToCreate.slice(i, i + batchSize);
+      const records = await base('Work Items').create(batch);
+
+      if (records && records.length > 0) {
+        createdRecords.push(...records.map(mapWorkItemRecord));
+      }
+    }
+
+    console.log('[Work Items] Work items created successfully from strategy plays:', {
+      companyId,
+      strategyId,
+      createdCount: createdRecords.length,
+    });
+
+    return createdRecords;
+  } catch (error) {
+    console.error('[Work Items] Error creating work items from strategy plays:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get work items created from a specific brief
+ *
+ * @param briefId - The brief ID
+ * @returns Array of work items linked to this brief
+ */
+export async function getWorkItemsByBriefId(briefId: string): Promise<WorkItemRecord[]> {
+  try {
+    console.log('[Work Items] Fetching work items for brief:', briefId);
+
+    // Fetch all work items that have Source JSON
+    const records = await base('Work Items')
+      .select({
+        filterByFormula: `NOT({${WORK_ITEMS_FIELDS.SOURCE_JSON}} = '')`,
+      })
+      .all();
+
+    // Filter those that match the briefId in Source JSON
+    const matchingRecords: WorkItemRecord[] = [];
+    for (const record of records) {
+      const fields = record.fields as WorkItemFields;
+      const sourceJson = fields['Source JSON'];
+      if (sourceJson) {
+        try {
+          const source = JSON.parse(sourceJson) as WorkSource;
+          if (source.sourceType === 'creative_brief' && source.briefId === briefId) {
+            matchingRecords.push(mapWorkItemRecord(record));
+          }
+        } catch {
+          // Skip invalid JSON
+        }
+      }
+    }
+
+    console.log('[Work Items] Found', matchingRecords.length, 'work items for brief:', briefId);
+    return matchingRecords;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('NOT_FOUND') || errorMessage.includes('UNKNOWN_FIELD_NAME')) {
+      console.log('[Work Items] Table or field not found, returning empty array');
+      return [];
+    }
+    console.error('[Work Items] Error fetching work items for brief:', errorMessage);
+    return [];
+  }
+}
+
+/**
+ * Count work items created from a specific brief
+ *
+ * @param briefId - The brief ID
+ * @returns Count of work items linked to this brief
+ */
+export async function countWorkItemsForBrief(briefId: string): Promise<number> {
+  const items = await getWorkItemsByBriefId(briefId);
+  return items.length;
+}
+
+/**
+ * Count work items created from a specific strategy play
+ *
+ * @param playId - The strategy play ID
+ * @returns Count of work items linked to this play
+ */
+export async function countWorkItemsForStrategyPlay(playId: string): Promise<number> {
+  try {
+    console.log('[Work Items] Counting work items for strategy play:', playId);
+
+    // Fetch all work items that might have Source JSON
+    const records = await base('Work Items')
+      .select({
+        fields: [WORK_ITEMS_FIELDS.SOURCE_JSON],
+        filterByFormula: `NOT({${WORK_ITEMS_FIELDS.SOURCE_JSON}} = '')`,
+      })
+      .all();
+
+    // Count those that match the playId in Source JSON
+    let count = 0;
+    for (const record of records) {
+      const fields = record.fields as WorkItemFields;
+      const sourceJson = fields['Source JSON'];
+      if (sourceJson) {
+        try {
+          const source = JSON.parse(sourceJson) as WorkSource;
+          if (source.sourceType === 'strategy_play' && source.playId === playId) {
+            count++;
+          }
+        } catch {
+          // Skip invalid JSON
+        }
+      }
+    }
+
+    console.log('[Work Items] Found', count, 'work items for strategy play:', playId);
+    return count;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('NOT_FOUND') || errorMessage.includes('UNKNOWN_FIELD_NAME')) {
+      console.log('[Work Items] Table or field not found, returning 0');
+      return 0;
+    }
+    console.error('[Work Items] Error counting work items for play:', errorMessage);
     return 0;
   }
 }

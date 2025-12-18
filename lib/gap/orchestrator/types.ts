@@ -72,6 +72,9 @@ export interface LabRefinementOutput {
 
   /** Duration in ms */
   durationMs: number;
+
+  /** Raw engine data for canonical field extraction */
+  rawEngineData?: unknown;
 }
 
 /**
@@ -94,6 +97,9 @@ export interface LabInsightUnit {
 /**
  * Structured output from the GAP Core Engine
  * This is machine-readable, NOT the lead magnet narrative
+ *
+ * GAP Plan runs MUST populate this structure to enable Context Graph hydration.
+ * Empty arrays + unknowns[] are acceptable when data is missing.
  */
 export interface GAPStructuredOutput {
   /** Scores by dimension */
@@ -108,7 +114,7 @@ export interface GAPStructuredOutput {
   };
 
   /** Maturity assessment */
-  maturityStage: string;
+  maturityStage: 'emerging' | 'growth' | 'mature' | 'enterprise' | 'unknown' | string;
 
   /** Per-dimension diagnostics */
   dimensionDiagnostics: Array<{
@@ -146,6 +152,58 @@ export interface GAPStructuredOutput {
     targetValue?: string;
     dimension: string;
   }>;
+
+  // =========================================================================
+  // Extended Fields for Context Graph Completeness (v2)
+  // These fields are REQUIRED for GAP Plan to meaningfully populate Context Graph
+  // =========================================================================
+
+  /**
+   * Primary product/service offerings
+   * Maps to: productOffer.primaryProducts, productOffer.valueProposition
+   */
+  primaryOffers?: Array<{
+    name: string;
+    description?: string;
+    targetAudience?: string;
+    priceTier?: 'low' | 'mid' | 'high' | 'unknown';
+  }>;
+
+  /**
+   * Known competitors
+   * Maps to: competitive.competitors, identity.primaryCompetitors
+   */
+  competitors?: Array<{
+    name: string;
+    domain?: string;
+    positioningNote?: string;
+  }>;
+
+  /**
+   * Audience/ICP summary
+   * Maps to: audience.icpDescription, audience.painPoints
+   */
+  audienceSummary?: {
+    icpDescription: string;
+    keyPainPoints: string[];
+    buyingTriggers?: string[];
+  };
+
+  /**
+   * Brand identity notes (inferred from website/content)
+   * Maps to: brand.toneOfVoice, brand.brandPersonality, brand.differentiators
+   */
+  brandIdentityNotes?: {
+    tone?: string[];
+    personality?: string[];
+    differentiationSummary?: string;
+  };
+
+  /**
+   * Items that could not be determined (for transparency)
+   * Used for debugging and to guide follow-up Lab runs
+   */
+  unknowns?: string[];
 }
 
 // ============================================================================

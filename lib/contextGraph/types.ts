@@ -70,6 +70,16 @@ export const ProvenanceTag = z.object({
   notes: z.string().optional(),
   /** How many days this value is expected to remain valid (P2: freshness decay) */
   validForDays: z.number().optional(),
+  /**
+   * Human-confirmed flag - prevents AI/Lab overwrites without force=true
+   * When true, only 'user' or 'manual' sources can update this field
+   * unless the caller explicitly sets force=true
+   */
+  humanConfirmed: z.boolean().optional(),
+  /** ISO timestamp when humanConfirmed was set */
+  confirmedAt: z.string().optional(),
+  /** User ID who confirmed the value (for audit trail) */
+  confirmedBy: z.string().optional(),
 });
 
 export type ProvenanceTag = z.infer<typeof ProvenanceTag>;

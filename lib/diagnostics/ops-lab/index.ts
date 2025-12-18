@@ -18,6 +18,7 @@ import type {
 import { analyzeOpsInputs, type OpsAnalyzerOutput } from './analyzer';
 import { scoreOpsLab, type OpsScoringOutput } from './scoring';
 import { generateOpsNarrative } from './narrative';
+import { ensureCanonical } from '@/lib/diagnostics/shared';
 
 // Re-export types for convenience
 export * from './types';
@@ -101,10 +102,34 @@ export async function runOpsLab(params: RunOpsLabParams): Promise<OpsLabResult> 
   // 5. Build projects
   const projects = buildOpsProjects(scoring, analysis);
 
+  // CANONICAL CONTRACT: Ensure all required fields are present
+  const canonicalInput = {
+    maturityStage: scoring.maturityStage,
+    trackingStack: analysis.analyticsSnapshot?.trackingStack ?? [],
+    hasAnalytics: analysis.hasGa4 ? 'yes' : (analysis.analyticsSnapshot?.trackingStack?.length ? 'partial' : 'no'),
+    topIssues: scoring.issues.slice(0, 5).map((i) => ({
+      title: i.title,
+      severity: i.severity,
+      category: i.category,
+    })),
+    crmStatus: analysis.hasCrm ? 'connected' : 'none',
+  };
+
+  const canonicalResult = ensureCanonical({
+    labType: 'ops',
+    canonical: canonicalInput,
+    v1Result: { ...analysis, ...scoring, analyticsSnapshot: analysis.analyticsSnapshot } as unknown as Record<string, unknown>,
+  });
+
+  if (canonicalResult.synthesizedFields.length > 0) {
+    console.log('[OpsLab V1] Synthesized canonical fields:', canonicalResult.synthesizedFields);
+  }
+
   console.log('[OpsLab V1] Complete:', {
     issues: scoring.issues.length,
     quickWins: quickWins.length,
     projects: projects.length,
+    canonicalValid: canonicalResult.valid,
   });
 
   return {

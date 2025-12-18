@@ -13,6 +13,11 @@ import type { CompetitorProfile, ThreatScore, PriceTier } from '../domains/compe
 import { getLatestCompetitionRun, type ScoredCompetitor } from '@/lib/competition';
 import { setFieldUntyped, createProvenance } from '../mutate';
 import { getCompanyById } from '@/lib/airtable/companies';
+import {
+  getCompanyCategoryFingerprint,
+  filterCompetitorsByCategory,
+} from '@/lib/gap/orchestrator/competitionGap';
+import { filterOutAgencies } from '@/lib/labs/competitor/mergeCompetitors';
 
 // ============================================================================
 // Domain Normalization Helpers
@@ -39,6 +44,57 @@ function isSameDomain(domain1: string | null | undefined, domain2: string | null
   const norm2 = normalizeDomain(domain2);
   if (!norm1 || !norm2) return false;
   return norm1 === norm2;
+}
+
+/**
+ * Check if a competitor is likely the same company (self-competitor)
+ * Handles cases like "Crunchbase Pro" being listed as competitor for "Crunchbase"
+ */
+function isSelfCompetitor(
+  competitorName: string,
+  competitorDomain: string | null | undefined,
+  companyName: string | null,
+  companyDomain: string | null
+): { isSelf: boolean; reason?: string } {
+  // 1. Domain match (exact or subdomain)
+  const normCompetitorDomain = normalizeDomain(competitorDomain);
+  if (normCompetitorDomain && companyDomain) {
+    // Exact match
+    if (normCompetitorDomain === companyDomain) {
+      return { isSelf: true, reason: 'exact domain match' };
+    }
+    // Subdomain of company (e.g., pro.crunchbase.com for crunchbase.com)
+    if (normCompetitorDomain.endsWith(`.${companyDomain}`)) {
+      return { isSelf: true, reason: 'subdomain of company' };
+    }
+    // Company is subdomain of competitor (e.g., crunchbase.com matches pro.crunchbase.com)
+    if (companyDomain.endsWith(`.${normCompetitorDomain}`)) {
+      return { isSelf: true, reason: 'company is subdomain' };
+    }
+  }
+
+  // 2. Name contains company name strongly
+  if (companyName) {
+    const normalizedCompetitorName = competitorName.toLowerCase().trim();
+    const normalizedCompanyName = companyName.toLowerCase().trim();
+
+    // Competitor name starts with company name (e.g., "Crunchbase Pro" for "Crunchbase")
+    if (normalizedCompetitorName.startsWith(normalizedCompanyName)) {
+      return { isSelf: true, reason: `name starts with company name: "${companyName}"` };
+    }
+
+    // Company name is the same with minor suffix
+    if (normalizedCompanyName.startsWith(normalizedCompetitorName) && normalizedCompanyName.length <= normalizedCompetitorName.length + 15) {
+      return { isSelf: true, reason: `company name variant: "${companyName}"` };
+    }
+
+    // Fuzzy match: competitor name equals company name
+    if (normalizedCompetitorName === normalizedCompanyName) {
+      return { isSelf: true, reason: 'exact name match' };
+    }
+  }
+
+  return { isSelf: false };
 }
 
 /**
@@ -157,7 +213,8 @@ export const competitionLabImporter: DomainImporter = {
       result.sourceRunIds.push(run.id);
 
       // Create provenance for competition lab source
-      const provenance = createProvenance('competitor_lab', {
+      // CANONICAL SOURCE: competition_lab is the ONLY authorized writer for competitive.* fields
+      const provenance = createProvenance('competition_lab', {
         confidence: 0.9,
         runId: run.id,
         validForDays: 30,
@@ -170,26 +227,30 @@ export const competitionLabImporter: DomainImporter = {
       // The company should NEVER appear as its own competitor
       let companyDomain: string | null = null;
       let companyNameForFilter: string | null = null;
+      let companyIndustry: string | null = null;
+      let companyBusinessModel: string | null = null;
       try {
         const company = await getCompanyById(companyId);
         companyDomain = normalizeDomain(company?.domain || company?.website);
         companyNameForFilter = company?.name?.toLowerCase().trim() || null;
+        companyIndustry = company?.industry || null;
+        companyBusinessModel = company?.companyType || null;
       } catch (e) {
         console.warn('[competitionLabImporter] Could not fetch company for self-filtering:', e);
       }
 
-      // Filter out self-competitors by domain and name
+      // FILTER 1: Remove self-competitors (same company, subdomains, name variants)
       if (companyDomain || companyNameForFilter) {
         const beforeCount = activeCompetitors.length;
         activeCompetitors = activeCompetitors.filter((c) => {
-          // Filter by domain match
-          if (companyDomain && isSameDomain(c.competitorDomain, companyDomain)) {
-            console.log(`[competitionLabImporter] Filtered out self-competitor: ${c.competitorName} (${c.competitorDomain})`);
-            return false;
-          }
-          // Filter by name match
-          if (companyNameForFilter && c.competitorName?.toLowerCase().trim() === companyNameForFilter) {
-            console.log(`[competitionLabImporter] Filtered out self-competitor by name: ${c.competitorName}`);
+          const selfCheck = isSelfCompetitor(
+            c.competitorName,
+            c.competitorDomain,
+            companyNameForFilter,
+            companyDomain
+          );
+          if (selfCheck.isSelf) {
+            console.log(`[competitionLabImporter] Filtered out self-competitor: ${c.competitorName} (${c.competitorDomain}) - ${selfCheck.reason}`);
             return false;
           }
           return true;
@@ -199,13 +260,63 @@ export const competitionLabImporter: DomainImporter = {
         }
       }
 
+      // NEW: Apply category guardrails to filter cross-industry competitors
+      // This prevents agencies/services from appearing as competitors for platform companies
+      const categoryFingerprint = getCompanyCategoryFingerprint({
+        industry: companyIndustry || undefined,
+        businessModel: companyBusinessModel || undefined,
+        domain: companyDomain || undefined,
+      });
+
+      // Build a minimal array for category filtering to avoid type issues
+      const competitorsForCategoryFilter = activeCompetitors.map(c => ({
+        name: c.competitorName,
+        competitorName: c.competitorName,
+        domain: c.competitorDomain ?? undefined,
+        competitorDomain: c.competitorDomain ?? undefined,
+        category: c.role,
+        positioning: c.enrichedData?.positioning ?? undefined,
+      }));
+
+      const { valid: validCompetitorMetas, rejected: categoryRejected } = filterCompetitorsByCategory(
+        competitorsForCategoryFilter,
+        categoryFingerprint
+      );
+
+      if (categoryRejected.length > 0) {
+        console.log(`[competitionLabImporter] Rejected ${categoryRejected.length} competitors by category guardrails:`);
+        for (const { competitor, reason } of categoryRejected.slice(0, 5)) {
+          console.log(`  - ${competitor.name || competitor.competitorName}: ${reason}`);
+        }
+      }
+
+      // Filter original activeCompetitors to only include those that passed category filter
+      const validNames = new Set(validCompetitorMetas.map(c => c.name));
+      activeCompetitors = activeCompetitors.filter(c => validNames.has(c.competitorName));
+
       if (activeCompetitors.length === 0) {
         result.errors.push('No active competitors in the run');
         return result;
       }
 
       // Map competitors to CompetitorProfile
-      const competitorProfiles = activeCompetitors.map(mapToCompetitorProfile);
+      let competitorProfiles = activeCompetitors.map(mapToCompetitorProfile);
+
+      // FILTER 3: Remove agencies and service providers
+      // This is the final filtering step before persistence
+      const { competitors: nonAgencyProfiles, rejectedAgencies } = filterOutAgencies(competitorProfiles);
+      if (rejectedAgencies.length > 0) {
+        console.log(`[competitionLabImporter] Filtered out ${rejectedAgencies.length} agencies/service providers:`);
+        for (const { competitor, reason } of rejectedAgencies.slice(0, 5)) {
+          console.log(`  - ${competitor.name}: ${reason}`);
+        }
+      }
+      competitorProfiles = nonAgencyProfiles;
+
+      if (competitorProfiles.length === 0) {
+        result.errors.push('No competitors remaining after agency filtering');
+        return result;
+      }
 
       // Import competitors array
       setFieldUntyped(graph, 'competitive', 'competitors', competitorProfiles, provenance);

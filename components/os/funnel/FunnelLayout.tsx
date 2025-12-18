@@ -18,6 +18,8 @@ export interface FunnelLayoutProps {
   aiPanel?: React.ReactNode;
   /** Which stages to show in time series chart */
   timeSeriesStages?: FunnelStageId[];
+  /** Limit time series chart to last N days (default: show all) */
+  timeSeriesDays?: number;
   /** Show campaign table */
   showCampaigns?: boolean;
   /** Show channel chart alongside table */
@@ -34,6 +36,7 @@ export function FunnelLayout({
   headerProps,
   aiPanel,
   timeSeriesStages = ['audits_started', 'audits_completed'],
+  timeSeriesDays,
   showCampaigns = true,
   showChannelChart = true,
   customSection,
@@ -41,6 +44,23 @@ export function FunnelLayout({
   error = null,
   onRetry,
 }: FunnelLayoutProps) {
+  // Filter time series to last N calendar days if specified
+  const filteredTimeSeries = (() => {
+    if (!timeSeriesDays) return dataset.timeSeries;
+
+    // Calculate the cutoff date (N days ago from today)
+    const today = new Date();
+    const cutoffDate = new Date(today);
+    cutoffDate.setDate(today.getDate() - timeSeriesDays);
+    const cutoffStr = cutoffDate.toISOString().split('T')[0].replace(/-/g, ''); // YYYYMMDD format
+
+    // Filter to only include dates >= cutoff
+    return dataset.timeSeries.filter(point => {
+      // Handle both YYYYMMDD and YYYY-MM-DD formats
+      const dateStr = point.date.replace(/-/g, '');
+      return dateStr >= cutoffStr;
+    });
+  })();
   // Error state
   if (error) {
     return (
@@ -73,14 +93,17 @@ export function FunnelLayout({
           {/* Stage KPI Cards */}
           <FunnelStageCards stages={dataset.stages} isLoading={isLoading} />
 
-          {/* Time Series Chart */}
-          {dataset.timeSeries.length > 0 && (
-            <FunnelTimeSeriesChart
-              timeSeries={dataset.timeSeries}
-              visibleStages={timeSeriesStages}
-              isLoading={isLoading}
-            />
-          )}
+          {/* Time Series Chart - always show, even if empty */}
+          <FunnelTimeSeriesChart
+            timeSeries={filteredTimeSeries}
+            visibleStages={timeSeriesStages}
+            title={
+              timeSeriesDays
+                ? `Daily Funnel Performance (Last ${timeSeriesDays} Days)`
+                : undefined
+            }
+            isLoading={isLoading}
+          />
 
           {/* Channel Performance */}
           {dataset.channels.length > 0 && (

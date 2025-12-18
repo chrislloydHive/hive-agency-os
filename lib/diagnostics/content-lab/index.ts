@@ -19,6 +19,7 @@ import type {
 import { analyzeContentInputs } from './analyzer';
 import { scoreContentLab, ScoringOutput } from './scoring';
 import { generateContentNarrative } from './narrative';
+import { ensureCanonical } from '@/lib/diagnostics/shared';
 
 // Re-export types for convenience
 export * from './types';
@@ -114,11 +115,33 @@ export async function runContentLab(
     contentTypes: [],
   };
 
+  // CANONICAL CONTRACT: Ensure all required fields are present
+  const canonicalInput = {
+    maturityStage: scoring.maturityStage,
+    contentTypes: analysis.hasBlog ? ['blog'] : [],
+    topTopics: analysis.extractedTopics.slice(0, 10),
+    topIssues: scoring.issues.slice(0, 5).map((i) => ({
+      title: i.title,
+      severity: i.severity,
+    })),
+  };
+
+  const canonicalResult = ensureCanonical({
+    labType: 'content',
+    canonical: canonicalInput,
+    v1Result: { ...analysis, ...scoring } as Record<string, unknown>,
+  });
+
+  if (canonicalResult.synthesizedFields.length > 0) {
+    console.log('[ContentLab V1] Synthesized canonical fields:', canonicalResult.synthesizedFields);
+  }
+
   console.log('[ContentLab V1] Complete:', {
     issues: scoring.issues.length,
     quickWins: quickWins.length,
     projects: projects.length,
     topics: analysis.extractedTopics.slice(0, 5),
+    canonicalValid: canonicalResult.valid,
   });
 
   return {

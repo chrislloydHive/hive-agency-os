@@ -38,6 +38,74 @@ import type {
 } from './types';
 import { assessContextHealth } from './contextHealth';
 import { determineLabsNeededForMissingFields, getFieldsForLab } from './labPlan';
+import { runCompetitionGap, validateCompetitiveContextForStrategy } from './competitionGap';
+
+// Import canonical context extraction
+import {
+  extractCanonicalFields,
+  extractFromFullGap,
+  mergeExtractionResults,
+  type ExtractionResult,
+  type ExtractionContext,
+} from '@/lib/os/context/extractors';
+import { upsertContextFields } from '@/lib/os/context/upsertContextFields';
+import { canonicalizeFindings, getFieldsForGapToPropose } from '@/lib/os/context/canonicalizer';
+import { GAP_ALLOWED_FIELDS } from '@/lib/os/context/schema';
+import type { ContextFinding } from '@/lib/types/contextField';
+
+// ============================================================================
+// Helper: Build Extraction Context
+// ============================================================================
+
+/**
+ * Build ExtractionContext based on company state and context health.
+ *
+ * - New companies (low completeness, no confirmed fields) get baseline mode with lenient filtering
+ * - Existing companies get refinement mode with strict filtering
+ * - B2C/local businesses get lenient filtering for category-level content
+ */
+function buildExtractionContext(
+  healthBefore: ContextHealthAssessment,
+  contextGraph: CompanyContextGraph
+): ExtractionContext {
+  // Determine company stage based on completeness
+  // If completeness is below 10% or we're missing 5+ critical fields, it's a new company
+  const isNewCompany = healthBefore.completeness < 0.1 ||
+    healthBefore.missingCriticalFields.length >= 5;
+
+  // Determine business model from context graph
+  // Look for business_model field or infer from industry
+  const businessModelValue = contextGraph.identity?.businessModel?.value ||
+    contextGraph.identity?.industry?.value;
+
+  let businessModel: 'b2b' | 'b2c' | 'local' | undefined;
+  if (typeof businessModelValue === 'string') {
+    const lowerValue = businessModelValue.toLowerCase();
+    if (lowerValue.includes('b2b') || lowerValue.includes('enterprise') || lowerValue.includes('saas')) {
+      businessModel = 'b2b';
+    } else if (lowerValue.includes('b2c') || lowerValue.includes('consumer') || lowerValue.includes('retail')) {
+      businessModel = 'b2c';
+    } else if (lowerValue.includes('local') || lowerValue.includes('service') || lowerValue.includes('small business')) {
+      businessModel = 'local';
+    }
+  }
+
+  // If no business model detected and it's a new company, default to B2C/local (lenient)
+  // This ensures new companies without explicit business model get baseline context
+  if (!businessModel && isNewCompany) {
+    businessModel = 'b2c';
+  }
+
+  const extractionContext: ExtractionContext = {
+    companyStage: isNewCompany ? 'new' : 'existing',
+    businessModel,
+    runPurpose: isNewCompany ? 'baseline' : 'refinement',
+  };
+
+  console.log('[GAP Orchestrator] Extraction context:', extractionContext);
+
+  return extractionContext;
+}
 
 // Import diagnostic engines
 import {
@@ -47,8 +115,44 @@ import {
   runContentLabEngine,
   runDemandLabEngine,
   runOpsLabEngine,
+  runAudienceLabEngine,
+  runCreativeLabEngine,
+  runMediaLabEngine,
+  runUxLabEngine,
+  runCompetitorLabEngine,
+  runGapPlanEngine,
   type EngineInput,
 } from '@/lib/os/diagnostics/engines';
+
+import {
+  createDiagnosticRun,
+  updateDiagnosticRun,
+  type DiagnosticToolId,
+} from '@/lib/os/diagnostics/runs';
+
+// ============================================================================
+// Helper: Map LabId to DiagnosticToolId
+// ============================================================================
+
+/**
+ * Map a LabId to the corresponding DiagnosticToolId for run recording.
+ */
+function labIdToToolId(labId: LabId): DiagnosticToolId {
+  const mapping: Record<LabId, DiagnosticToolId> = {
+    brand: 'brandLab',
+    website: 'websiteLab',
+    seo: 'seoLab',
+    content: 'contentLab',
+    demand: 'demandLab',
+    ops: 'opsLab',
+    audience: 'audienceLab',
+    creative: 'creativeLab',
+    media: 'mediaLab',
+    ux: 'websiteLab', // UX maps to websiteLab
+    competitor: 'competitorLab',
+  };
+  return mapping[labId] || 'brandLab';
+}
 
 // ============================================================================
 // Main Orchestrator
@@ -92,6 +196,56 @@ export async function runFullGAPOrchestrator(
       missingCritical: healthBefore.missingCriticalFields.length,
       stale: healthBefore.staleFields.length,
     });
+
+    // ========================================================================
+    // Step 1.5: Run Competition GAP (ALWAYS - Prerequisite for Strategy)
+    // ========================================================================
+    // Competition GAP runs BEFORE all other labs to ensure competitive context
+    // is always available. It's the ONLY source for competitive fields.
+    console.log('[GAP Orchestrator] Step 1.5: Running Competition GAP...');
+
+    let competitionGapResult;
+    if (!input.dryRun) {
+      try {
+        competitionGapResult = await runCompetitionGap({
+          companyId: input.companyId,
+          forceRun: input.forceLabs?.includes('competitor'),
+        });
+
+        console.log('[GAP Orchestrator] Competition GAP result:', {
+          success: competitionGapResult.success,
+          cached: competitionGapResult.cached,
+          competitors: competitionGapResult.competitors,
+          durationMs: competitionGapResult.durationMs,
+        });
+
+        // Reload context graph after Competition GAP updates
+        if (competitionGapResult.success && !competitionGapResult.cached) {
+          const updatedGraph = await loadContextGraph(input.companyId);
+          if (updatedGraph) {
+            Object.assign(contextBefore, updatedGraph);
+          }
+        }
+      } catch (error) {
+        // Competition GAP failure is logged but doesn't block orchestrator
+        // However, strategy generation will be blocked downstream
+        console.error('[GAP Orchestrator] Competition GAP failed (continuing):', error);
+        competitionGapResult = {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+          cached: false,
+          fieldsUpdated: 0,
+          competitors: 0,
+          durationMs: 0,
+        };
+      }
+
+      // Validate competitive context for strategy
+      const competitiveValidation = validateCompetitiveContextForStrategy(contextBefore);
+      if (!competitiveValidation.ready) {
+        console.warn('[GAP Orchestrator] Competitive context incomplete:', competitiveValidation.message);
+      }
+    }
 
     // ========================================================================
     // Step 2: Determine Which Labs to Run
@@ -182,18 +336,201 @@ export async function runFullGAPOrchestrator(
       await saveContextGraph(contextAfter, 'gap_orchestrator');
     }
 
+    // ========================================================================
+    // Step 4.5: Extract Canonical Context TEXT Fields
+    // ========================================================================
+    console.log('[GAP Orchestrator] Step 4.5: Extracting canonical text fields...');
+
+    // Build extraction context for filtering decisions
+    const extractionCtx = buildExtractionContext(healthBefore, contextBefore);
+
+    if (!input.dryRun) {
+      try {
+        // Extract canonical fields from each lab's raw data
+        const extractionResults: ExtractionResult[] = [];
+
+        for (const labOutput of labOutputs) {
+          if (labOutput.success) {
+            // Get the raw lab data (stored in diagnostics or passed through)
+            // The engine result is stored in labOutput and we need to access the raw data
+            const labData = (labOutput as any).rawEngineData || labOutput.diagnostics;
+
+            if (labData) {
+              const extraction = extractCanonicalFields(
+                labOutput.labId,
+                labData,
+                labOutput.runId,
+                extractionCtx
+              );
+
+              if (extraction.fields.length > 0) {
+                extractionResults.push(extraction);
+                console.log(`[GAP Orchestrator] Extracted ${extraction.fields.length} canonical fields from ${labOutput.labName}`);
+              }
+            }
+          }
+        }
+
+        // Merge all extraction results (confidence arbitration)
+        const mergedFields = mergeExtractionResults(extractionResults);
+
+        // Upsert canonical fields to context graph
+        if (mergedFields.length > 0) {
+          const upsertResult = await upsertContextFields(
+            input.companyId,
+            company.name,
+            mergedFields,
+            { source: 'gap_full' }
+          );
+
+          console.log('[GAP Orchestrator] Canonical fields upsert:', {
+            upserted: upsertResult.fieldsUpserted,
+            skipped: upsertResult.fieldsSkipped,
+            paths: upsertResult.updatedPaths,
+          });
+
+          // Reload context graph to include canonical field updates
+          const updatedGraph = await loadContextGraph(input.companyId);
+          if (updatedGraph) {
+            contextAfter = updatedGraph;
+          }
+        }
+      } catch (extractError) {
+        // Don't fail orchestrator if extraction fails
+        console.error('[GAP Orchestrator] Canonical field extraction error (continuing):', extractError);
+      }
+    }
+
     const healthAfter = assessContextHealth(contextAfter);
 
     // ========================================================================
-    // Step 5: Run GAP Core Engine (Structured Output)
+    // Step 5: Run Full GAP Plan Engine
     // ========================================================================
-    console.log('[GAP Orchestrator] Step 5: Running GAP core engine...');
+    console.log('[GAP Orchestrator] Step 5: Running Full GAP Plan engine...');
 
-    const gapStructured = buildGAPStructuredOutput(
-      healthAfter,
-      labOutputs,
-      input.gapIaRun
-    );
+    let gapStructured: GAPStructuredOutput;
+    let gapPlanResult: any = null;
+
+    if (!input.dryRun && company.website) {
+      try {
+        // Run the Full GAP Plan V4 multi-pass pipeline
+        const gapEngineInput = {
+          companyId: input.companyId,
+          company,
+          websiteUrl: company.website,
+        };
+
+        gapPlanResult = await runGapPlanEngine(gapEngineInput);
+
+        if (gapPlanResult.success && gapPlanResult.data?.growthPlan) {
+          console.log('[GAP Orchestrator] Full GAP Plan complete:', {
+            score: gapPlanResult.score,
+            hasRefinedMarkdown: !!gapPlanResult.data.refinedMarkdown,
+          });
+
+          // Build structured output from GAP Plan result
+          const growthPlan = gapPlanResult.data.growthPlan;
+          gapStructured = {
+            scores: {
+              overall: growthPlan.scorecard?.overall ?? healthAfter.completeness,
+              brand: growthPlan.scorecard?.brand ?? labOutputs.find(l => l.labId === 'brand')?.diagnostics.score ?? 0,
+              content: growthPlan.scorecard?.content ?? labOutputs.find(l => l.labId === 'content')?.diagnostics.score ?? 0,
+              seo: growthPlan.scorecard?.seo ?? labOutputs.find(l => l.labId === 'seo')?.diagnostics.score ?? 0,
+              website: growthPlan.scorecard?.website ?? labOutputs.find(l => l.labId === 'website')?.diagnostics.score ?? 0,
+              authority: growthPlan.scorecard?.authority ?? 0,
+              digitalFootprint: growthPlan.scorecard?.digitalFootprint ?? 0,
+            },
+            maturityStage: growthPlan.executiveSummary?.maturityStage ?? 'Unknown',
+            dimensionDiagnostics: growthPlan.dimensionDiagnostics ?? [],
+            keyFindings: growthPlan.keyFindings ?? [],
+            recommendedNextSteps: growthPlan.roadmap?.initiatives?.map((i: any) => ({
+              title: i.title,
+              description: i.description,
+              priority: i.priority ?? 1,
+              effort: i.effort ?? 'medium',
+              impact: i.impact ?? 'medium',
+              dimension: i.dimension ?? 'general',
+            })) ?? [],
+            kpisToWatch: growthPlan.kpis ?? [],
+          };
+        } else {
+          console.warn('[GAP Orchestrator] GAP Plan engine failed, falling back to lab synthesis');
+          gapStructured = buildGAPStructuredOutput(healthAfter, labOutputs, input.gapIaRun);
+        }
+      } catch (gapError) {
+        console.error('[GAP Orchestrator] GAP Plan engine error, falling back to lab synthesis:', gapError);
+        gapStructured = buildGAPStructuredOutput(healthAfter, labOutputs, input.gapIaRun);
+      }
+    } else {
+      // Dry run or no website - just synthesize lab outputs
+      gapStructured = buildGAPStructuredOutput(healthAfter, labOutputs, input.gapIaRun);
+    }
+
+    // ========================================================================
+    // Step 5.5: Extract Canonical Fields from GAP Result (RESTRICTED)
+    // ========================================================================
+    // GAP Full may ONLY propose values for:
+    // - Fields in GAP_ALLOWED_FIELDS
+    // - Fields that are currently MISSING
+    // - GAP MUST NOT overwrite confirmed values
+    if (!input.dryRun && gapPlanResult?.success && gapPlanResult?.data) {
+      try {
+        console.log('[GAP Orchestrator] Step 5.5: Extracting canonical fields from GAP result...');
+
+        // Get fields GAP is allowed to propose (missing + in GAP_ALLOWED_FIELDS)
+        const allowedFields = await getFieldsForGapToPropose(input.companyId);
+        console.log(`[GAP Orchestrator] GAP allowed to propose ${allowedFields.length} fields:`, allowedFields);
+
+        const gapExtraction = extractFromFullGap(gapPlanResult.data, generateUUID(), extractionCtx);
+
+        if (gapExtraction.fields.length > 0) {
+          // Filter to only allowed fields
+          const filteredFields = gapExtraction.fields.filter(f =>
+            allowedFields.includes(f.key as any)
+          );
+
+          console.log(`[GAP Orchestrator] Filtered from ${gapExtraction.fields.length} to ${filteredFields.length} allowed fields`);
+
+          // Convert to ContextFinding format for canonicalizer
+          const findings: ContextFinding[] = filteredFields.map(f => ({
+            fieldKey: f.key,
+            value: typeof f.value === 'string' ? f.value : JSON.stringify(f.value),
+            confidence: f.confidence,
+            source: 'gap_full' as const,
+            sourceRunId: generateUUID(),
+            evidence: f.sources[0]?.evidence,
+          }));
+
+          // Use canonicalizer for quality validation
+          if (findings.length > 0) {
+            const canonResult = await canonicalizeFindings(
+              input.companyId,
+              findings,
+              {
+                source: 'gap_full',
+                sourceRunId: generateUUID(),
+              }
+            );
+
+            console.log('[GAP Orchestrator] GAP canonical fields via canonicalizer:', {
+              written: canonResult.written.length,
+              rejected: canonResult.rejected.length,
+              skipped: canonResult.skipped.length,
+            });
+
+            // Log rejections for debugging
+            if (canonResult.rejected.length > 0) {
+              console.log('[GAP Orchestrator] Rejected fields:');
+              for (const r of canonResult.rejected) {
+                console.log(`  - ${r.key}: ${r.reason}`);
+              }
+            }
+          }
+        }
+      } catch (gapExtractError) {
+        console.error('[GAP Orchestrator] GAP canonical extraction error (continuing):', gapExtractError);
+      }
+    }
 
     // ========================================================================
     // Step 6: Extract Normalized Insights
@@ -369,6 +706,26 @@ async function runLabInRefinementMode(
 ): Promise<LabRefinementOutput> {
   const startTime = Date.now();
   const runId = generateUUID();
+  const toolId = labIdToToolId(labId);
+
+  // Create a diagnostic run record to track this lab execution
+  let diagnosticRunRecord: any = null;
+  try {
+    diagnosticRunRecord = await createDiagnosticRun({
+      companyId,
+      toolId,
+      status: 'running',
+      metadata: {
+        source: 'gap_orchestrator',
+        labId,
+        runId,
+      },
+    });
+    console.log(`[GAP Orchestrator] Created diagnostic run record for ${labId}:`, diagnosticRunRecord?.id);
+  } catch (err) {
+    // Don't fail the lab run if we can't create the record
+    console.warn(`[GAP Orchestrator] Failed to create diagnostic run record for ${labId}:`, err);
+  }
 
   const input: EngineInput = {
     companyId,
@@ -405,11 +762,62 @@ async function runLabInRefinementMode(
       labName = 'Ops Lab';
       engineResult = await runOpsLabEngine(input);
       break;
+    case 'audience':
+      labName = 'Audience Lab';
+      engineResult = await runAudienceLabEngine(input);
+      break;
+    case 'creative':
+      labName = 'Creative Lab';
+      engineResult = await runCreativeLabEngine(input);
+      break;
+    case 'media':
+      labName = 'Media Lab';
+      engineResult = await runMediaLabEngine(input);
+      break;
+    case 'ux':
+      labName = 'UX Lab';
+      engineResult = await runUxLabEngine(input);
+      break;
+    case 'competitor':
+      labName = 'Competitor Lab';
+      engineResult = await runCompetitorLabEngine(input);
+      break;
     default:
-      throw new Error(`Unknown lab: ${labId}`);
+      // Skip truly unknown labs gracefully
+      console.log(`[GAP Orchestrator] Skipping unknown lab: ${labId}`);
+      return {
+        labId,
+        labName: `${labId} Lab`,
+        success: true,
+        error: undefined,
+        refinedContext: [],
+        diagnostics: {
+          labId,
+          score: null,
+          summary: `Lab ${labId} is not recognized`,
+          issues: [],
+          recommendations: [],
+          runId,
+        },
+        insights: [],
+        runId,
+        durationMs: 0,
+      };
   }
 
   if (!engineResult.success) {
+    // Update diagnostic run record as failed
+    if (diagnosticRunRecord?.id) {
+      try {
+        await updateDiagnosticRun(diagnosticRunRecord.id, {
+          status: 'failed',
+          summary: engineResult.error || 'Lab execution failed',
+        });
+      } catch (err) {
+        console.warn(`[GAP Orchestrator] Failed to update diagnostic run record for ${labId}:`, err);
+      }
+    }
+
     return {
       labId,
       labName,
@@ -439,6 +847,23 @@ async function runLabInRefinementMode(
   // Extract insights
   const insights = extractInsightsFromEngine(labId, engineResult);
 
+  const durationMs = Date.now() - startTime;
+
+  // Update diagnostic run record as complete
+  if (diagnosticRunRecord?.id) {
+    try {
+      await updateDiagnosticRun(diagnosticRunRecord.id, {
+        status: 'complete',
+        score: diagnostics.score,
+        summary: diagnostics.summary || `${labName} completed successfully`,
+        rawJson: engineResult.data,
+      });
+      console.log(`[GAP Orchestrator] Updated diagnostic run record for ${labId} as complete`);
+    } catch (err) {
+      console.warn(`[GAP Orchestrator] Failed to update diagnostic run record for ${labId}:`, err);
+    }
+  }
+
   return {
     labId,
     labName,
@@ -447,7 +872,9 @@ async function runLabInRefinementMode(
     diagnostics,
     insights,
     runId,
-    durationMs: Date.now() - startTime,
+    durationMs,
+    // Store raw engine data for canonical field extraction
+    rawEngineData: engineResult.data,
   };
 }
 
