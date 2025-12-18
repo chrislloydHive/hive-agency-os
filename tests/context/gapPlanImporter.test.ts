@@ -315,7 +315,7 @@ describe('GAP Plan Importer', () => {
       // Simulate existing GAP Plan provenance
       const existingProvenance = [
         {
-          source: 'gap_full',
+          source: 'gap_full' as const,
           confidence: 0.6,
           updatedAt: new Date().toISOString(),
         },
@@ -332,7 +332,7 @@ describe('GAP Plan Importer', () => {
 
       const existingProvenance = [
         {
-          source: 'gap_full',
+          source: 'gap_full' as const,
           confidence: 0.6,
           updatedAt: new Date().toISOString(),
         },
@@ -349,7 +349,7 @@ describe('GAP Plan Importer', () => {
 
       const existingProvenance = [
         {
-          source: 'user',
+          source: 'user' as const,
           confidence: 1.0,
           updatedAt: new Date().toISOString(),
         },
@@ -368,11 +368,8 @@ describe('GAP Plan Importer', () => {
 
   describe('Hydration Telemetry', () => {
     it('should define telemetry interface with required fields', async () => {
-      const { HydrationTelemetry, DomainTelemetry } = await import(
-        '@/lib/contextGraph/importers/types'
-      );
-
-      // Type check - these should be defined
+      // Type check - HydrationTelemetry and DomainTelemetry are TypeScript interfaces
+      // We verify them via type annotation (compile-time check)
       const telemetry: import('@/lib/contextGraph/importers/types').HydrationTelemetry = {
         completenessBefore: 20,
         completenessAfter: 55,

@@ -42,13 +42,14 @@ async function main() {
   const contextGraph = await loadContextGraph(companyId);
   if (contextGraph) {
     console.log('✓ Context Graph exists');
-    console.log('  Version:', contextGraph.version);
-    console.log('  Updated:', contextGraph.updatedAt);
 
-    // Count fields with values
+    // Count fields with values across all domains
     let fieldsWithValues = 0;
     let totalFields = 0;
-    for (const [domainName, domainData] of Object.entries(contextGraph.domains || {})) {
+    // The context graph has domain properties directly on it (identity, brand, etc.)
+    const domainNames = ['identity', 'brand', 'objectives', 'audience', 'productOffer', 'digitalInfra', 'website', 'content', 'seo', 'ops', 'performanceMedia', 'historical', 'creative', 'competitive'] as const;
+    for (const domainName of domainNames) {
+      const domainData = contextGraph[domainName];
       if (domainData && typeof domainData === 'object') {
         for (const [fieldName, fieldData] of Object.entries(domainData)) {
           if (fieldName === '_meta') continue;
