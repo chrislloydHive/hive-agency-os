@@ -198,8 +198,17 @@ async function fetchCompanyGscSummary(
       clicks: totalClicks,
       impressions: totalImpressions,
     };
-  } catch (error) {
-    console.error('[CompanyPerformancePulse] GSC error:', error);
+  } catch (error: unknown) {
+    // Handle permission errors silently - they're expected for companies without GSC access
+    const isPermissionError = error instanceof Error && (
+      error.message?.includes('permission') ||
+      error.message?.includes('403') ||
+      (error as any)?.code === 403
+    );
+
+    if (!isPermissionError) {
+      console.error('[CompanyPerformancePulse] GSC error:', error);
+    }
     return null;
   }
 }

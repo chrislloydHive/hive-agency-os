@@ -242,6 +242,41 @@ describe('Regeneration Guardrails', () => {
     expect(shouldCreateNewDraftOnRegenerate(null)).toBe(true);
   });
 
+  it('CRITICAL: shouldCreateNewDraftOnRegenerate must ALWAYS return true for ALL states', () => {
+    // This test ensures AI regeneration NEVER overwrites existing strategy
+    // All possible states must return true
+
+    // No existing strategy
+    expect(shouldCreateNewDraftOnRegenerate(null)).toBe(true);
+
+    // Draft
+    expect(shouldCreateNewDraftOnRegenerate(createTestStrategy({ status: 'draft' }))).toBe(true);
+
+    // Finalized
+    expect(shouldCreateNewDraftOnRegenerate(createTestStrategy({ status: 'finalized' }))).toBe(true);
+
+    // Archived
+    expect(shouldCreateNewDraftOnRegenerate(createTestStrategy({ status: 'archived' }))).toBe(true);
+
+    // Promoted from artifacts
+    expect(
+      shouldCreateNewDraftOnRegenerate(
+        createTestStrategy({ status: 'draft', promotedFromArtifacts: true })
+      )
+    ).toBe(true);
+
+    // Canonical with all flags
+    expect(
+      shouldCreateNewDraftOnRegenerate(
+        createTestStrategy({
+          status: 'finalized',
+          promotedFromArtifacts: true,
+          sourceArtifactIds: ['art_1', 'art_2'],
+        })
+      )
+    ).toBe(true);
+  });
+
   it('should recommend create_first when no strategy exists', () => {
     expect(getRegenerationAction(null)).toBe('create_first');
   });

@@ -11,6 +11,9 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:trust": "vitest run tests/context/trustRegression.test.ts tests/context/trustRepoScan.test.ts tests/context/aiRouteInvariants.test.ts tests/competition/competitionMutualExclusivity.test.ts",
+    "test:labs": "vitest run tests/labs/extractorReplay.test.ts",
+    "fixtures:capture": "npx tsx scripts/fixtures/captureLabOutput.ts",
+    "fixtures:list": "npx tsx scripts/fixtures/listScenarios.ts",
     "purge:hive": "npx ts-node scripts/purgeHiveCompanies.ts",
     "gap:check": "npx tsx scripts/gapBaselineCheck.ts"
   },

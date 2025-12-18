@@ -12,6 +12,7 @@ import {
   refreshAnalyticsFindingsScheduled,
   refreshAnalyticsFindingsManual,
 } from '@/lib/inngest/functions/refresh-analytics-findings';
+import { engagementContextGathering } from '@/lib/inngest/functions/engagement-context-gathering';
 
 // Serve all functions
 export const { GET, POST, PUT } = serve({
@@ -19,6 +20,8 @@ export const { GET, POST, PUT } = serve({
   functions: [
     // GAP generation
     generateFullGap,
+    // Engagement context gathering
+    engagementContextGathering,
     // Website Lab
     websiteDiagnostic,
     websiteDiagnosticErrorHandler,

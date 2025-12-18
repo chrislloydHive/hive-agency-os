@@ -81,7 +81,7 @@ function buildQueryContext(
     businessModel: graph?.identity?.businessModel?.value || null,
     businessModelCategory: graph?.identity?.businessModelCategory?.value || null,
     icpDescription:
-      graph?.identity?.icpDescription?.value ||
+      graph?.audience?.icpDescription?.value ||
       graph?.audience?.primaryAudience?.value ||
       null,
     icpStage: null,

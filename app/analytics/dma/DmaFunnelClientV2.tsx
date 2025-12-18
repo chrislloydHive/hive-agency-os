@@ -238,6 +238,7 @@ export default function DmaFunnelClientV2({
         dateRange,
         onDateRangeChange: handleDateRangeChange,
       }}
+      timeSeriesDays={7}
       aiPanel={aiPanel}
       timeSeriesStages={['audits_started', 'audits_completed']}
       showCampaigns={true}

@@ -17,7 +17,7 @@ export const revalidate = 0;
 
 export default async function DmaFunnelPage() {
   try {
-    // Default to last 30 days
+    // Default to last 30 days for overall metrics
     const today = new Date();
     const thirtyDaysAgo = new Date(today);
     thirtyDaysAgo.setDate(today.getDate() - 29);
