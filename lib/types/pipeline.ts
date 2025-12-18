@@ -99,6 +99,12 @@ export interface InboundLeadItem {
   competitionLabReviewed?: boolean | null;
   /** Whether work plan has been drafted */
   workPlanDrafted?: boolean | null;
+
+  // Conversion fields (Lead-first flow)
+  /** Linked opportunity ID (if converted to opportunity) */
+  linkedOpportunityId?: string | null;
+  /** Timestamp when lead was converted to company/opportunity */
+  convertedAt?: string | null;
 }
 
 /**

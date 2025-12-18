@@ -1,9 +1,14 @@
 // app/api/pipeline/convert-lead-to-company/route.ts
 // Convert inbound lead to CRM company
+//
+// LEAD-FIRST DESIGN:
+// - This is the ONLY place where a lead should create a company
+// - Inbound/DMA endpoints create leads WITHOUT companies
+// - This endpoint explicitly converts a lead to a company
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getInboundLeadById, linkLeadToCompany, updateLeadStatus } from '@/lib/airtable/inboundLeads';
-import { findOrCreateCompanyByDomain } from '@/lib/airtable/companies';
+import { getInboundLeadById, linkLeadToCompany, updateLeadStatus, updateLeadConvertedAt } from '@/lib/airtable/inboundLeads';
+import { findOrCreateCompanyByDomain, getCompanyById } from '@/lib/airtable/companies';
 import { logCompanyCreatedFromLead } from '@/lib/telemetry/events';
 
 export async function POST(req: NextRequest) {
@@ -27,12 +32,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if already linked to a company
+    // Idempotent: if already linked to a company, return success with existing company
     if (lead.companyId) {
-      return NextResponse.json(
-        { error: 'Lead already linked to a company' },
-        { status: 400 }
-      );
+      const existingCompany = await getCompanyById(lead.companyId);
+      if (existingCompany) {
+        console.log(`[ConvertLeadToCompany] Lead ${leadId} already linked to company ${lead.companyId} (idempotent)`);
+        return NextResponse.json({
+          leadId,
+          companyId: existingCompany.id,
+          companyName: existingCompany.name,
+          isNew: false,
+          alreadyConverted: true,
+        });
+      }
+      // Company link exists but company not found - continue to create
     }
 
     // Need website to create company
@@ -43,7 +56,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Find or create company
+    // Find or create company (THIS is the correct place to create companies from leads)
     const { companyId, companyRecord, isNew } = await findOrCreateCompanyByDomain(
       lead.website,
       {
@@ -61,6 +74,9 @@ export async function POST(req: NextRequest) {
     // Update lead status
     await updateLeadStatus(leadId, 'Qualified');
 
+    // Set convertedAt timestamp
+    await updateLeadConvertedAt(leadId);
+
     // Log telemetry event (only for new companies)
     if (isNew) {
       logCompanyCreatedFromLead(companyRecord.id, leadId, companyRecord.name, lead.website);
@@ -73,6 +89,7 @@ export async function POST(req: NextRequest) {
       companyId: companyRecord.id,
       companyName: companyRecord.name,
       isNew,
+      alreadyConverted: false,
     });
   } catch (error) {
     console.error('[ConvertLeadToCompany] Error:', error);
