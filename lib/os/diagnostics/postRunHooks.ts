@@ -22,12 +22,21 @@ import { extractFindingsForLab, getWorstSeverity } from './findingsExtractors';
 import { saveDiagnosticFindings, deleteUnconvertedFindingsForCompanyLab, type CreateDiagnosticFindingInput } from '@/lib/airtable/diagnosticDetails';
 import type { WebsiteUXLabResultV4 } from '@/lib/gap-heavy/modules/websiteLab';
 import type { BrandLabSummary } from '@/lib/media/diagnosticsInputs';
+
 import {
   createSocialLocalWorkItemsFromSnapshot,
   suggestionsToCreateInputs,
 } from '@/lib/gap/socialWorkItems';
 import { createWorkItem } from '@/lib/work/workItems';
 import type { SocialFootprintSnapshot } from '@/lib/gap/socialDetection';
+
+// Debug logging - enabled via DEBUG_CONTEXT_HYDRATION=1
+const DEBUG = process.env.DEBUG_CONTEXT_HYDRATION === '1';
+function debugLog(message: string, data?: Record<string, unknown>) {
+  if (DEBUG) {
+    console.log(`[postRunHooks:DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+  }
+}
 
 /**
  * Process a completed diagnostic run
@@ -151,13 +160,34 @@ async function runDomainWriters(
         console.log('[postRunHooks] Running WebsiteLab domain writer...');
 
         // Extract the WebsiteUXLabResultV4 from rawJson
-        // The rawJson structure may have the result nested under a 'result' key
+        // The rawJson structure may be:
+        // 1. Direct: { siteAssessment, siteGraph, ... }
+        // 2. Wrapped in result: { result: { siteAssessment, ... } }
+        // 3. New format: { rawEvidence: { labResultV4: { siteAssessment, ... } } }
         const rawData = run.rawJson as Record<string, unknown>;
-        const websiteResult = (rawData.result || rawData) as WebsiteUXLabResultV4;
+        let websiteResult: WebsiteUXLabResultV4;
+
+        // Try new format first: rawEvidence.labResultV4
+        const rawEvidence = rawData.rawEvidence as Record<string, unknown> | undefined;
+        let extractionPath: 'rawEvidence.labResultV4' | 'legacy' = 'legacy';
+        if (rawEvidence?.labResultV4) {
+          websiteResult = rawEvidence.labResultV4 as WebsiteUXLabResultV4;
+          extractionPath = 'rawEvidence.labResultV4';
+          console.log('[postRunHooks] Found WebsiteLab data at rawEvidence.labResultV4');
+        } else {
+          // Fall back to legacy formats
+          websiteResult = (rawData.result || rawData) as WebsiteUXLabResultV4;
+          console.log('[postRunHooks] Using legacy WebsiteLab data format');
+        }
+        debugLog('websiteLab_extraction', { extractionPath, runId: run.id });
 
         // Validate we have the expected structure
         if (!websiteResult.siteAssessment && !websiteResult.siteGraph) {
           console.warn('[postRunHooks] WebsiteLab rawJson missing expected structure, skipping writer');
+          console.warn('[postRunHooks] rawJson keys:', Object.keys(rawData));
+          if (rawEvidence) {
+            console.warn('[postRunHooks] rawEvidence keys:', Object.keys(rawEvidence));
+          }
           return;
         }
 

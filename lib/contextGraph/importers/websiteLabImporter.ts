@@ -10,10 +10,19 @@
 import type { DomainImporter, ImportResult } from './types';
 import type { CompanyContextGraph } from '../companyContextGraph';
 import { getHeavyGapRunsByCompanyId } from '@/lib/airtable/gapHeavyRuns';
+import { listDiagnosticRunsForCompany, type DiagnosticRun } from '@/lib/os/diagnostics/runs';
 import { writeWebsiteLabToGraph } from '../websiteLabWriter';
 import type { WebsiteUXLabResultV4 } from '@/lib/gap-heavy/modules/websiteLab';
 import type { WebsiteLabOutput, WebsiteLabFindings } from '@/lib/diagnostics/contracts/labOutput';
 import { setDomainFields, createProvenance } from '../mutate';
+
+// Debug logging - enabled via DEBUG_CONTEXT_HYDRATION=1
+const DEBUG = process.env.DEBUG_CONTEXT_HYDRATION === '1';
+function debugLog(message: string, data?: Record<string, unknown>) {
+  if (DEBUG) {
+    console.log(`[websiteLabImporter:DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+  }
+}
 
 // ============================================================================
 // Contract-based Import (New)
@@ -144,9 +153,21 @@ export const websiteLabImporter: DomainImporter = {
 
   async supports(companyId: string, domain: string): Promise<boolean> {
     try {
-      const runs = await getHeavyGapRunsByCompanyId(companyId, 5);
+      // Check Diagnostic Runs table first (primary source - where labs write)
+      const diagnosticRuns = await listDiagnosticRunsForCompany(companyId, {
+        toolId: 'websiteLab',
+        limit: 5,
+      });
+      const hasDiagnosticWebsiteLab = diagnosticRuns.some(run =>
+        run.status === 'complete' && run.rawJson
+      );
+      if (hasDiagnosticWebsiteLab) {
+        console.log('[websiteLabImporter] Found Website Lab data in Diagnostic Runs');
+        return true;
+      }
 
-      // Check if any run has websiteLabV4 data
+      // Fall back to Heavy GAP Runs (legacy)
+      const runs = await getHeavyGapRunsByCompanyId(companyId, 5);
       const hasWebsiteLab = runs.some(run => {
         const status = run.status;
         const hasLab = run.evidencePack?.websiteLabV4;
@@ -174,7 +195,67 @@ export const websiteLabImporter: DomainImporter = {
     };
 
     try {
-      // Fetch the most recent heavy runs for this company
+      // 1. Try Diagnostic Runs table first (primary source - where labs write)
+      const diagnosticRuns = await listDiagnosticRunsForCompany(companyId, {
+        toolId: 'websiteLab',
+        limit: 5,
+      });
+      const diagnosticWebsiteRun = diagnosticRuns.find(run =>
+        run.status === 'complete' && run.rawJson
+      );
+
+      if (diagnosticWebsiteRun && diagnosticWebsiteRun.rawJson) {
+        console.log('[websiteLabImporter] Importing from Diagnostic Runs table');
+        result.sourceRunIds.push(diagnosticWebsiteRun.id);
+
+        // Extract the WebsiteUXLabResultV4 from rawJson
+        // The rawJson structure may be:
+        // 1. New format: { rawEvidence: { labResultV4: { siteAssessment, ... } } }
+        // 2. Wrapped in result: { result: { siteAssessment, ... } }
+        // 3. Direct: { siteAssessment, siteGraph, ... }
+        const rawData = diagnosticWebsiteRun.rawJson as Record<string, unknown>;
+        let websiteLabData: WebsiteUXLabResultV4;
+
+        // Try new format first: rawEvidence.labResultV4
+        const rawEvidence = rawData.rawEvidence as Record<string, unknown> | undefined;
+        let extractionPath: 'rawEvidence.labResultV4' | 'legacy' = 'legacy';
+        if (rawEvidence?.labResultV4) {
+          websiteLabData = rawEvidence.labResultV4 as WebsiteUXLabResultV4;
+          extractionPath = 'rawEvidence.labResultV4';
+          console.log('[websiteLabImporter] Extracted from rawEvidence.labResultV4');
+        } else {
+          // Fall back to legacy formats
+          websiteLabData = (rawData.result || rawData) as WebsiteUXLabResultV4;
+          console.log('[websiteLabImporter] Using legacy extraction path');
+        }
+        debugLog('extraction', { source: 'DIAGNOSTIC_RUNS', extractionPath, runId: diagnosticWebsiteRun.id });
+
+        // Validate we have expected structure
+        if (!websiteLabData.siteAssessment && !websiteLabData.siteGraph) {
+          console.warn('[websiteLabImporter] rawJson missing expected structure');
+          console.warn('[websiteLabImporter] rawJson keys:', Object.keys(rawData));
+          if (rawEvidence) {
+            console.warn('[websiteLabImporter] rawEvidence keys:', Object.keys(rawEvidence));
+          }
+          result.errors.push('WebsiteLab rawJson missing siteAssessment or siteGraph');
+          return result;
+        }
+
+        // Use the existing WebsiteLabWriter to map the data
+        const writerResult = writeWebsiteLabToGraph(graph, websiteLabData, diagnosticWebsiteRun.id);
+
+        result.fieldsUpdated = writerResult.fieldsUpdated;
+        result.updatedPaths = writerResult.updatedPaths;
+        result.errors.push(...writerResult.errors);
+        result.success = writerResult.fieldsUpdated > 0;
+
+        console.log(`[websiteLabImporter] Imported ${result.fieldsUpdated} fields from Diagnostic Run ${diagnosticWebsiteRun.id}`);
+        return result;
+      }
+
+      // 2. Fall back to Heavy GAP Runs (legacy)
+      console.log('[websiteLabImporter] Falling back to Heavy GAP Runs');
+      debugLog('fallback', { source: 'GAP_HEAVY_RUNS', reason: 'no_diagnostic_runs' });
       const runs = await getHeavyGapRunsByCompanyId(companyId, 10);
 
       // Find the most recent run with websiteLabV4 data
@@ -185,7 +266,7 @@ export const websiteLabImporter: DomainImporter = {
       });
 
       if (!runWithLab || !runWithLab.evidencePack?.websiteLabV4) {
-        result.errors.push('No completed Website Lab runs found with data');
+        result.errors.push('No completed Website Lab runs found in Diagnostic Runs or Heavy GAP Runs');
         return result;
       }
 
@@ -200,7 +281,7 @@ export const websiteLabImporter: DomainImporter = {
       result.errors.push(...writerResult.errors);
 
       result.success = writerResult.fieldsUpdated > 0;
-      console.log(`[websiteLabImporter] Imported ${result.fieldsUpdated} fields from Website Lab run ${runWithLab.id}`);
+      console.log(`[websiteLabImporter] Imported ${result.fieldsUpdated} fields from Heavy GAP Run ${runWithLab.id}`);
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
