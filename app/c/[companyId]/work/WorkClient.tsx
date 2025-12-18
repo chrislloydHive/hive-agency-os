@@ -359,15 +359,15 @@ function TasksSection({
     <div className="space-y-6">
       {/* Suggested Actions Panel */}
       {!loadingSuggestions && displaySuggestions.length > 0 && (
-        <div className="bg-slate-900/70 border border-amber-500/20 rounded-xl p-5">
+        <div className="bg-slate-900/70 border border-purple-500/20 rounded-xl p-5">
           <div className="flex items-start justify-between mb-4">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-amber-500/15 flex items-center justify-center">
-                <Lightbulb className="w-4 h-4 text-amber-400" />
+              <div className="w-9 h-9 rounded-lg bg-purple-500/15 flex items-center justify-center">
+                <Lightbulb className="w-4 h-4 text-purple-400" />
               </div>
               <div>
                 <h3 className="text-sm font-semibold text-white">Suggested Actions</h3>
-                <p className="text-xs text-slate-500 mt-0.5">From your latest diagnostics</p>
+                <p className="text-xs text-slate-500 mt-0.5">AI-recommended opportunities (not yet scheduled)</p>
               </div>
             </div>
             <Link
@@ -387,7 +387,11 @@ function TasksSection({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
+                    {/* Type indicator row */}
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/10 text-purple-300 border border-purple-500/30">
+                        Suggested Action
+                      </span>
                       {action.isQuickWin && (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                           <Zap className="w-3 h-3" />
@@ -395,47 +399,68 @@ function TasksSection({
                         </span>
                       )}
                       {action.theme && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-700/50 text-slate-300">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-700/50 text-slate-400 border border-slate-600/50">
                           {action.theme}
                         </span>
                       )}
                     </div>
-                    <h4 className="text-sm font-medium text-slate-100 leading-tight">
+
+                    {/* Title (action) */}
+                    <h4 className="text-sm font-medium text-slate-100 leading-snug mb-1">
                       {action.action}
                     </h4>
+
+                    {/* Reason (why) */}
                     {action.reason && (
-                      <p className="text-xs text-slate-400 mt-1 line-clamp-2">
+                      <p className="text-xs text-slate-400 line-clamp-1 mb-2">
                         {action.reason}
                       </p>
                     )}
-                    <div className="flex items-center gap-3 mt-2 text-[10px] text-slate-500">
+
+                    {/* Impact & Effort Chips */}
+                    <div className="flex items-center gap-2 text-[10px]">
                       {action.expectedImpact && (
-                        <span className="flex items-center gap-1">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">
                           <Target className="w-3 h-3" />
-                          {action.expectedImpact.length > 30
-                            ? action.expectedImpact.slice(0, 27) + '...'
+                          {action.expectedImpact.length > 25
+                            ? action.expectedImpact.slice(0, 22) + '...'
                             : action.expectedImpact}
                         </span>
                       )}
-                      {action.estimatedHours && (
-                        <span className="flex items-center gap-1">
+                      {action.effort && (
+                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${
+                          action.effort === 'quick-win'
+                            ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+                            : action.effort === 'moderate'
+                            ? 'bg-blue-500/10 text-blue-300 border-blue-500/20'
+                            : 'bg-slate-700/50 text-slate-400 border-slate-600/50'
+                        }`}>
+                          <Clock className="w-3 h-3" />
+                          {action.effort === 'quick-win' ? 'Quick' : action.effort === 'moderate' ? 'Moderate' : 'Significant'}
+                          {action.estimatedHours && ` (~${action.estimatedHours}h)`}
+                        </span>
+                      )}
+                      {!action.effort && action.estimatedHours && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-700/50 text-slate-400 border border-slate-600/50">
                           <Clock className="w-3 h-3" />
                           ~{action.estimatedHours}h
                         </span>
                       )}
                     </div>
                   </div>
+
+                  {/* Schedule Task Button */}
                   <button
                     onClick={() => handleAddSuggestionToWork(action)}
                     disabled={addingActionId === action.id}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 transition-colors disabled:opacity-50 flex-shrink-0"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 transition-colors disabled:opacity-50 flex-shrink-0"
                   >
                     {addingActionId === action.id ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : (
-                      <Plus className="w-3 h-3" />
+                      <Plus className="w-3.5 h-3.5" />
                     )}
-                    Add to Work
+                    Schedule Task
                   </button>
                 </div>
               </div>
@@ -590,6 +615,7 @@ function TasksSection({
                         <WorkItemCardWithStatus
                           key={item.id}
                           item={item}
+                          companyId={companyId}
                           isSelected={selectedWorkItem?.id === item.id}
                           onClick={() => onSelectWorkItem(item)}
                         />

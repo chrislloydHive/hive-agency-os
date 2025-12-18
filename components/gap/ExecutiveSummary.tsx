@@ -77,10 +77,10 @@ export const ExecutiveSummaryCard: React.FC<Props> = ({ plan }) => {
           )}
         </div>
 
-        {/* Strategic Priorities */}
+        {/* Strategic Bets */}
         <div>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-yellow-400">
-            Strategic Priorities
+            Strategic Bets
           </h3>
           {es.strategicPriorities && es.strategicPriorities.length > 0 ? (
             <ul className="space-y-1.5">

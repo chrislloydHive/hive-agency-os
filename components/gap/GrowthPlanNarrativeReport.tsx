@@ -155,11 +155,11 @@ export function GrowthPlanNarrativeReport({ plan }: Props) {
               </div>
             )}
 
-            {/* Strategic Priorities */}
+            {/* Strategic Bets */}
             {plan.executiveSummary?.strategicPriorities && plan.executiveSummary.strategicPriorities.length > 0 && (
               <div>
                 <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
-                  Strategic Priorities
+                  Strategic Bets
                 </h3>
                 <ul className="space-y-1 text-sm text-slate-300">
                   {plan.executiveSummary.strategicPriorities.map((priority, idx) => (
@@ -330,7 +330,7 @@ export function GrowthPlanNarrativeReport({ plan }: Props) {
                   ▶
                 </span>
                 <h2 className="text-xl font-bold text-slate-100">
-                  Strategic Priorities
+                  Strategic Bets
                 </h2>
               </div>
             </summary>

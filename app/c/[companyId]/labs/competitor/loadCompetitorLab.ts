@@ -390,7 +390,7 @@ export async function loadCompetitorLabContext(
     industry: identity?.industry?.value || null,
     businessModel: identity?.businessModel?.value || null,
     businessModelCategory: (identity as any)?.businessModelCategory?.value || null,
-    icpDescription: identity?.icpDescription?.value || graph?.audience?.primaryAudience?.value || null,
+    icpDescription: graph?.audience?.icpDescription?.value || graph?.audience?.primaryAudience?.value || null,
     icpStage: null,
     targetIndustries: graph?.audience?.segmentDetails?.value?.map((s: any) => s.industry).filter(Boolean) || [],
     primaryOffers: graph?.productOffer?.productLines?.value || [],
