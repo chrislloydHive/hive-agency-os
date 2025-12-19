@@ -6,19 +6,24 @@ import { NextResponse } from "next/server";
  *
  * Creates or attaches Opportunities by Gmail Thread ID.
  * Links Activities to Opportunities.
+ *
+ * Uses existing Hive OS table mappings:
+ * - Opportunities: "A-Lead Tracker" (AIRTABLE_OPPORTUNITIES_TABLE)
+ * - Activities: "Activities" (AIRTABLE_ACTIVITIES_TABLE)
+ * - Companies: "Companies"
  */
 
 // ============================================================================
-// Config
+// Config - Aligned with existing lib/airtable mappings
 // ============================================================================
 
 const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY!;
 const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID!;
 const HIVE_INBOUND_EMAIL_SECRET = process.env.HIVE_INBOUND_EMAIL_SECRET!;
 
-// Table names - align with existing lib/airtable mappings
-const TABLE_COMPANIES = process.env.AIRTABLE_TABLE_COMPANIES || "Companies";
-const TABLE_ACTIVITIES = process.env.AIRTABLE_TABLE_ACTIVITIES || "Activities";
+// Table names - must match existing lib/airtable mappings
+const TABLE_COMPANIES = "Companies";
+const TABLE_ACTIVITIES = process.env.AIRTABLE_ACTIVITIES_TABLE || "Activities";
 const TABLE_OPPORTUNITIES = process.env.AIRTABLE_OPPORTUNITIES_TABLE || "A-Lead Tracker";
 
 // Personal email domains to block
@@ -77,7 +82,7 @@ async function airtableRequest<T>(
   path: string = "",
   body?: Record<string, unknown>
 ): Promise<T> {
-  const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${table}${path}`;
+  const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(table)}${path}`;
 
   const response = await fetch(url, {
     method,
@@ -203,10 +208,11 @@ export async function POST(request: Request) {
 
     // -------------------------------------------------------------------------
     // Dedupe: Check if Activity already exists for this message
+    // Field name: "External Message ID" (from lib/airtable/activities.ts)
     // -------------------------------------------------------------------------
     const existingActivity = await findRecord(
       TABLE_ACTIVITIES,
-      `{Gmail Message ID} = "${gmailMessageId}"`
+      `AND({Source} = "gmail-addon", {External Message ID} = "${gmailMessageId}")`
     );
 
     if (existingActivity) {
@@ -245,51 +251,79 @@ export async function POST(request: Request) {
     }
 
     // -------------------------------------------------------------------------
-    // Opportunity: Find by Gmail Thread ID or create new
+    // Opportunity: Find by External Thread ID or create new
+    // Check if any Activity in this thread is linked to an Opportunity
     // -------------------------------------------------------------------------
-    let opportunity = await findRecord(
-      TABLE_OPPORTUNITIES,
-      `{Gmail Thread ID} = "${gmailThreadId}"`
+    let opportunity: AirtableRecord | null = null;
+    let isNewOpportunity = false;
+
+    // First, find existing activity in this thread that has an Opportunity link
+    const threadActivity = await findRecord(
+      TABLE_ACTIVITIES,
+      `AND({Source} = "gmail-addon", {External Thread ID} = "${gmailThreadId}")`
     );
 
-    const isNewOpportunity = !opportunity;
+    if (threadActivity) {
+      // Get the linked opportunity ID from the activity
+      const oppLinks = threadActivity.fields["Opportunity"] as string[] | undefined;
+      if (oppLinks?.[0]) {
+        // Fetch the opportunity record
+        const oppResult = await airtableRequest<AirtableRecord>(
+          "GET",
+          TABLE_OPPORTUNITIES,
+          `/${oppLinks[0]}`
+        );
+        opportunity = oppResult;
+      }
+    }
 
+    // If no opportunity found via thread, create a new one
     if (!opportunity) {
+      isNewOpportunity = true;
       const oppName = subject?.trim() || "Email Opportunity";
 
       opportunity = await createRecord(TABLE_OPPORTUNITIES, {
         "Deliverable Name": oppName,
         Stage: "Discovery",
         Company: [company.id],
-        "Gmail Thread ID": gmailThreadId,
         "Rep Notes": `Created from Gmail\nFrom: ${from.email}\nThread: ${gmailThreadId}`,
       });
     }
 
     // -------------------------------------------------------------------------
     // Activity: Create linked to Company and Opportunity
+    // Field names from lib/airtable/activities.ts mapping
     // -------------------------------------------------------------------------
-    const fromDisplay = from.name
-      ? `${from.name} <${from.email}>`
-      : from.email;
-
     const activity = await createRecord(TABLE_ACTIVITIES, {
+      // Core fields
       Type: "email",
       Direction: direction,
+      Title: subject || "Inbound email",
+      Source: "gmail-addon",
+
+      // Links
+      Opportunity: [opportunity.id],
+      Company: [company.id],
+
+      // Email content fields
       Subject: subject,
       "From Name": from.name || "",
       "From Email": from.email,
       To: to.join(", "),
       CC: cc.join(", "),
       Snippet: snippet,
-      "Body Text": bodyText,
+      "Body Text": bodyText ? bodyText.slice(0, 10000) : "",
+
+      // External IDs (correct field names from mapping)
+      "External Message ID": gmailMessageId,
+      "External Thread ID": gmailThreadId,
+      "External URL": gmailUrl,
+
+      // Timestamp
       "Received At": receivedAt,
-      Source: "gmail-addon",
-      "Gmail Message ID": gmailMessageId,
-      "Gmail Thread ID": gmailThreadId,
-      "Gmail URL": gmailUrl,
-      Company: [company.id],
-      Opportunity: [opportunity.id],
+
+      // Debug payload
+      "Raw Payload (JSON)": JSON.stringify(payload),
     });
 
     // -------------------------------------------------------------------------
@@ -299,7 +333,7 @@ export async function POST(request: Request) {
       status: isNewOpportunity ? "success" : "attached",
       company: {
         id: company.id,
-        name: company.fields?.Name || null,
+        name: company.fields?.Name || domainToCompanyName(domain),
         domain: company.fields?.Domain || domain,
         isNew: !company.fields?.Name,
       },
