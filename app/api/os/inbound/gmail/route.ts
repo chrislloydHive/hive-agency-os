@@ -275,11 +275,6 @@ export async function POST(request: Request) {
     const activity = await createRecord(TABLE_ACTIVITIES, {
       Type: "email",
       Direction: direction,
-      From: fromDisplay,
-      To: to.join(", "),
-      Subject: subject,
-      Snippet: snippet,
-      Body: bodyText,
       "Gmail Message ID": gmailMessageId,
       "Gmail Thread ID": gmailThreadId,
       "Gmail URL": gmailUrl,
