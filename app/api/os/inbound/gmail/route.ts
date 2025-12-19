@@ -16,10 +16,10 @@ const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY!;
 const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID!;
 const HIVE_INBOUND_EMAIL_SECRET = process.env.HIVE_INBOUND_EMAIL_SECRET!;
 
-// Table IDs from env vars
-const TABLE_COMPANIES = process.env.AIRTABLE_TABLE_COMPANIES || "tblDL6TrblDbBPWZW";
-const TABLE_ACTIVITIES = process.env.AIRTABLE_TABLE_ACTIVITIES || "tblQvW54mmO58m41x";
-const TABLE_OPPORTUNITIES = process.env.AIRTABLE_TABLE_OPPORTUNITIES || "tbl9qkD27ANCt82im";
+// Table names - align with existing lib/airtable mappings
+const TABLE_COMPANIES = process.env.AIRTABLE_TABLE_COMPANIES || "Companies";
+const TABLE_ACTIVITIES = process.env.AIRTABLE_TABLE_ACTIVITIES || "Activities";
+const TABLE_OPPORTUNITIES = process.env.AIRTABLE_OPPORTUNITIES_TABLE || "A-Lead Tracker";
 
 // Personal email domains to block
 const PERSONAL_DOMAINS = new Set([
@@ -258,10 +258,11 @@ export async function POST(request: Request) {
       const oppName = subject?.trim() || "Email Opportunity";
 
       opportunity = await createRecord(TABLE_OPPORTUNITIES, {
-        Name: oppName,
-        Stage: "Lead",
+        "Deliverable Name": oppName,
+        Stage: "Discovery",
         Company: [company.id],
         "Gmail Thread ID": gmailThreadId,
+        "Rep Notes": `Created from Gmail\nFrom: ${from.email}\nThread: ${gmailThreadId}`,
       });
     }
 
@@ -300,12 +301,12 @@ export async function POST(request: Request) {
         id: company.id,
         name: company.fields?.Name || null,
         domain: company.fields?.Domain || domain,
-        isNew: !company.fields?.Name, // If we just created it, fields might not have Name yet
+        isNew: !company.fields?.Name,
       },
       opportunity: {
         id: opportunity.id,
-        name: opportunity.fields?.Name || subject || "Email Opportunity",
-        stage: opportunity.fields?.Stage || "Lead",
+        name: opportunity.fields?.["Deliverable Name"] || subject || "Email Opportunity",
+        stage: opportunity.fields?.Stage || "Discovery",
       },
       activity: {
         id: activity.id,
