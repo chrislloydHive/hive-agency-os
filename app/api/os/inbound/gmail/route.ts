@@ -216,9 +216,32 @@ export async function POST(request: Request) {
     );
 
     if (existingActivity) {
+      // Check if this activity has a linked Opportunity
+      const oppLinks = existingActivity.fields["Opportunity"] as string[] | undefined;
+
+      if (oppLinks?.[0]) {
+        // Fetch the linked Opportunity record
+        const oppRecord = await airtableRequest<AirtableRecord>(
+          "GET",
+          TABLE_OPPORTUNITIES,
+          `/${oppLinks[0]}`
+        );
+
+        return NextResponse.json({
+          status: "duplicate",
+          opportunity: {
+            id: oppRecord.id,
+            name: oppRecord.fields?.["Deliverable Name"] || "Email Opportunity",
+            stage: oppRecord.fields?.Stage || "Discovery",
+            url: null,
+          },
+          activity: { id: existingActivity.id },
+        });
+      }
+
+      // No linked opportunity - return activity only
       return NextResponse.json({
         status: "duplicate",
-        message: "This email has already been logged.",
         activity: { id: existingActivity.id },
       });
     }
