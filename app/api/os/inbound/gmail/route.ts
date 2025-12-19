@@ -102,7 +102,7 @@ async function airtableRequest<T>(
     throw new Error(errorMessage);
   }
 
-  return text ? JSON.parse(text) : null;
+  return (text ? JSON.parse(text) : null) as T;
 }
 
 async function findRecord(
