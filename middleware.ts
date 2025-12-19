@@ -30,12 +30,14 @@ export const config = {
      * - api/gap-ia (GAP-IA run endpoint for DMA)
      * - api/gap-plan (GAP Plan generation for DMA)
      * - api/gap-worker (GAP Worker endpoint for DMA)
+     * - api/os/inbound (Gmail add-on webhook - uses X-Hive-Secret auth)
+     * - api/inbound (Inbound lead ingestion webhook)
      * - auth (sign-in and error pages)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public folder files
      */
-    '/((?!api/auth|api/inngest|api/gap-ia|api/gap-plan|api/gap-worker|auth|_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.svg$|.*\\.jpg$|.*\\.ico$).*)',
+    '/((?!api/auth|api/inngest|api/gap-ia|api/gap-plan|api/gap-worker|api/os/inbound|api/inbound|auth|_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.svg$|.*\\.jpg$|.*\\.ico$).*)',
   ],
 };
