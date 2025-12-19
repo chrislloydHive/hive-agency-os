@@ -1,402 +1,325 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 
 /**
- * ✅ Gmail Inbound Endpoint
+ * Gmail Inbound Endpoint
  * POST /api/os/inbound/gmail
  *
- * Auth:
- * - Header: X-Hive-Secret must match process.env.HIVE_INBOUND_EMAIL_SECRET
- *
- * Storage:
- * - Airtable REST API (no internal libs required)
- *
- * Contract returned to add-on:
- * - { status: "success", opportunity, company, activity }
- * - { status: "duplicate", opportunity?, activity? }
- * - { status: "attached", opportunity, activity }
- * - { status: "personal_email", message }
- * - { status: "error", message, debugId?, details? }
+ * Creates or attaches Opportunities by Gmail Thread ID.
+ * Links Activities to Opportunities.
  */
 
-/* -------------------------------------------------------------------------- */
-/* Env + Config                                                               */
-/* -------------------------------------------------------------------------- */
+// ============================================================================
+// Config
+// ============================================================================
 
-const ENV = z
-  .object({
-    HIVE_INBOUND_EMAIL_SECRET: z.string().min(1),
-    AIRTABLE_API_KEY: z.string().min(1),
-    AIRTABLE_BASE_ID: z.string().min(1),
+const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY!;
+const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID!;
+const HIVE_INBOUND_EMAIL_SECRET = process.env.HIVE_INBOUND_EMAIL_SECRET!;
 
-    // Optional overrides
-    AIRTABLE_TABLE_COMPANIES: z.string().optional(),
-    AIRTABLE_TABLE_OPPORTUNITIES: z.string().optional(),
-    AIRTABLE_TABLE_ACTIVITIES: z.string().optional(),
+// Table IDs from env vars
+const TABLE_COMPANIES = process.env.AIRTABLE_TABLE_COMPANIES || "tblDL6TrblDbBPWZW";
+const TABLE_ACTIVITIES = process.env.AIRTABLE_TABLE_ACTIVITIES || "tblQvW54mmO58m41x";
+const TABLE_OPPORTUNITIES = process.env.AIRTABLE_TABLE_OPPORTUNITIES || "tbl9qkD27ANCt82im";
 
-    // Airtable field names (optional overrides)
-    AIRTABLE_FIELD_COMPANY_NAME: z.string().optional(),
-    AIRTABLE_FIELD_COMPANY_DOMAIN: z.string().optional(),
-
-    AIRTABLE_FIELD_OPP_NAME: z.string().optional(),
-    AIRTABLE_FIELD_OPP_STAGE: z.string().optional(),
-    AIRTABLE_FIELD_OPP_COMPANY: z.string().optional(),
-    AIRTABLE_FIELD_OPP_THREAD_ID: z.string().optional(),
-
-    AIRTABLE_FIELD_ACTIVITY_OPP: z.string().optional(),
-    AIRTABLE_FIELD_ACTIVITY_TYPE: z.string().optional(),
-    AIRTABLE_FIELD_ACTIVITY_DIRECTION: z.string().optional(),
-    AIRTABLE_FIELD_ACTIVITY_FROM: z.string().optional(),
-    AIRTABLE_FIELD_ACTIVITY_TO: z.string().optional(),
-    AIRTABLE_FIELD_ACTIVITY_SUBJECT: z.string().optional(),
-    AIRTABLE_FIELD_ACTIVITY_SNIPPET: z.string().optional(),
-    AIRTABLE_FIELD_ACTIVITY_BODY: z.string().optional(),
-    AIRTABLE_FIELD_ACTIVITY_GMAIL_MESSAGE_ID: z.string().optional(),
-    AIRTABLE_FIELD_ACTIVITY_GMAIL_THREAD_ID: z.string().optional(),
-    AIRTABLE_FIELD_ACTIVITY_GMAIL_URL: z.string().optional(),
-    AIRTABLE_FIELD_ACTIVITY_RECEIVED_AT: z.string().optional(),
-  })
-  .parse(process.env);
-
-const TABLES = {
-  companies: ENV.AIRTABLE_TABLE_COMPANIES || "Companies",
-  opportunities: ENV.AIRTABLE_TABLE_OPPORTUNITIES || "Opportunities",
-  activities: ENV.AIRTABLE_TABLE_ACTIVITIES || "Activities",
-};
-
-const FIELDS = {
-  company: {
-    name: ENV.AIRTABLE_FIELD_COMPANY_NAME || "Name",
-    domain: ENV.AIRTABLE_FIELD_COMPANY_DOMAIN || "Domain",
-  },
-  opp: {
-    name: ENV.AIRTABLE_FIELD_OPP_NAME || "Name",
-    stage: ENV.AIRTABLE_FIELD_OPP_STAGE || "Stage",
-    company: ENV.AIRTABLE_FIELD_OPP_COMPANY || "Company", // linked record
-    threadId: ENV.AIRTABLE_FIELD_OPP_THREAD_ID || "Gmail Thread ID",
-  },
-  activity: {
-    opp: ENV.AIRTABLE_FIELD_ACTIVITY_OPP || "Opportunity", // linked record
-    type: ENV.AIRTABLE_FIELD_ACTIVITY_TYPE || "Type",
-    direction: ENV.AIRTABLE_FIELD_ACTIVITY_DIRECTION || "Direction",
-    from: ENV.AIRTABLE_FIELD_ACTIVITY_FROM || "From",
-    to: ENV.AIRTABLE_FIELD_ACTIVITY_TO || "To",
-    subject: ENV.AIRTABLE_FIELD_ACTIVITY_SUBJECT || "Subject",
-    snippet: ENV.AIRTABLE_FIELD_ACTIVITY_SNIPPET || "Snippet",
-    body: ENV.AIRTABLE_FIELD_ACTIVITY_BODY || "Body",
-    gmailMessageId:
-      ENV.AIRTABLE_FIELD_ACTIVITY_GMAIL_MESSAGE_ID || "Gmail Message ID",
-    gmailThreadId:
-      ENV.AIRTABLE_FIELD_ACTIVITY_GMAIL_THREAD_ID || "Gmail Thread ID",
-    gmailUrl: ENV.AIRTABLE_FIELD_ACTIVITY_GMAIL_URL || "Gmail URL",
-    receivedAt: ENV.AIRTABLE_FIELD_ACTIVITY_RECEIVED_AT || "Received At",
-  },
-};
-
-// Domains you consider "personal" (block creating opportunities from)
-const PERSONAL_EMAIL_DOMAINS = new Set([
+// Personal email domains to block
+const PERSONAL_DOMAINS = new Set([
   "gmail.com",
   "yahoo.com",
-  "outlook.com",
+  "yahoo.co.uk",
   "hotmail.com",
+  "hotmail.co.uk",
+  "outlook.com",
+  "live.com",
+  "msn.com",
   "icloud.com",
+  "me.com",
+  "mac.com",
   "aol.com",
   "proton.me",
   "protonmail.com",
+  "zoho.com",
+  "yandex.com",
+  "mail.com",
+  "gmx.com",
+  "fastmail.com",
 ]);
 
-/* -------------------------------------------------------------------------- */
-/* Schema                                                                     */
-/* -------------------------------------------------------------------------- */
+// ============================================================================
+// Types
+// ============================================================================
 
-const PayloadSchema = z.object({
-  mode: z.enum(["create_or_attach", "log_only"]).default("create_or_attach"),
-
-  gmailMessageId: z.string().min(1),
-  gmailThreadId: z.string().min(1),
-
-  from: z.object({
-    email: z.string().min(1),
-    name: z.string().nullable().optional(),
-  }),
-
-  to: z.array(z.string()).default([]),
-  cc: z.array(z.string()).default([]),
-
-  subject: z.string().default(""),
-  snippet: z.string().default(""),
-  bodyText: z.string().default(""),
-
-  receivedAt: z.string().min(1), // ISO string
-  gmailUrl: z.string().min(1),
-
-  direction: z.enum(["inbound", "outbound"]).default("inbound"),
-});
-
-/* -------------------------------------------------------------------------- */
-/* Airtable REST helpers                                                      */
-/* -------------------------------------------------------------------------- */
-
-type AirtableRecord<TFields extends Record<string, unknown>> = {
-  id: string;
-  createdTime?: string;
-  fields: TFields;
-};
-
-function airtableUrl(tableName: string, query?: string) {
-  const base = `https://api.airtable.com/v0/${ENV.AIRTABLE_BASE_ID}/${encodeURIComponent(
-    tableName
-  )}`;
-  return query ? `${base}?${query}` : base;
+interface GmailPayload {
+  gmailMessageId: string;
+  gmailThreadId: string;
+  from: { email: string; name?: string | null };
+  to?: string[];
+  cc?: string[];
+  subject?: string;
+  snippet?: string;
+  bodyText?: string;
+  gmailUrl?: string;
+  receivedAt: string;
+  direction?: "inbound" | "outbound";
 }
 
-async function airtableFetch<T>(
-  url: string,
-  init?: RequestInit
+interface AirtableRecord {
+  id: string;
+  fields: Record<string, unknown>;
+}
+
+// ============================================================================
+// Airtable REST Helpers
+// ============================================================================
+
+async function airtableRequest<T>(
+  method: string,
+  table: string,
+  path: string = "",
+  body?: Record<string, unknown>
 ): Promise<T> {
-  const resp = await fetch(url, {
-    ...init,
+  const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${table}${path}`;
+
+  const response = await fetch(url, {
+    method,
     headers: {
-      Authorization: `Bearer ${ENV.AIRTABLE_API_KEY}`,
+      Authorization: `Bearer ${AIRTABLE_API_KEY}`,
       "Content-Type": "application/json",
-      ...(init?.headers || {}),
     },
+    body: body ? JSON.stringify(body) : undefined,
     cache: "no-store",
   });
 
-  const text = await resp.text();
-  let json: unknown = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    // not JSON
+  const text = await response.text();
+
+  if (!response.ok) {
+    let errorMessage = `Airtable ${response.status}`;
+    try {
+      const errorJson = JSON.parse(text);
+      errorMessage = errorJson?.error?.message || errorMessage;
+    } catch {
+      errorMessage = text || errorMessage;
+    }
+    throw new Error(errorMessage);
   }
 
-  if (!resp.ok) {
-    const errorJson = json as { error?: { message?: string } } | null;
-    throw new Error(
-      `Airtable error ${resp.status}: ${
-        errorJson?.error?.message || text || "Unknown"
-      }`
-    );
-  }
-
-  return json as T;
+  return text ? JSON.parse(text) : null;
 }
 
-async function findFirstByFormula<TFields extends Record<string, unknown>>(
+async function findRecord(
   table: string,
   formula: string
-): Promise<AirtableRecord<TFields> | null> {
-  const query = new URLSearchParams({
+): Promise<AirtableRecord | null> {
+  const params = new URLSearchParams({
     maxRecords: "1",
     filterByFormula: formula,
-  }).toString();
+  });
 
-  const data = await airtableFetch<{ records: AirtableRecord<TFields>[] }>(
-    airtableUrl(table, query)
+  const result = await airtableRequest<{ records: AirtableRecord[] }>(
+    "GET",
+    table,
+    `?${params.toString()}`
   );
 
-  return data.records?.[0] || null;
+  return result.records?.[0] || null;
 }
 
-async function createRecord<TFields extends Record<string, unknown>>(
+async function createRecord(
   table: string,
-  fields: TFields
-): Promise<AirtableRecord<TFields>> {
-  const data = await airtableFetch<AirtableRecord<TFields>>(airtableUrl(table), {
-    method: "POST",
-    body: JSON.stringify({ fields }),
-  });
-  return data;
+  fields: Record<string, unknown>
+): Promise<AirtableRecord> {
+  return airtableRequest<AirtableRecord>("POST", table, "", { fields });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Business logic                                                             */
-/* -------------------------------------------------------------------------- */
+// ============================================================================
+// Helpers
+// ============================================================================
 
-function getDomain(email: string): string {
-  const parts = (email || "").toLowerCase().split("@");
-  return parts.length === 2 ? parts[1].trim() : "";
+function extractDomain(email: string): string {
+  const parts = email.toLowerCase().trim().split("@");
+  return parts.length === 2 ? parts[1] : "";
 }
 
-function companyNameFromDomain(domain: string): string {
+function domainToCompanyName(domain: string): string {
   if (!domain) return "Unknown Company";
-  const root = domain.split(".")[0] || domain;
-  return root.charAt(0).toUpperCase() + root.slice(1);
+  const name = domain.split(".")[0];
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
-function safeJsonError(err: unknown) {
-  if (err instanceof Error) {
-    return { message: err.message, stack: err.stack };
-  }
-  return { message: String(err) };
+function generateDebugId(): string {
+  return `dbg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Route                                                                      */
-/* -------------------------------------------------------------------------- */
+// ============================================================================
+// Route Handler
+// ============================================================================
 
-export async function POST(req: Request) {
-  const debugId = `dbg_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+export async function POST(request: Request) {
+  const debugId = generateDebugId();
 
   try {
-    // --- Auth ---
-    const secret = req.headers.get("x-hive-secret") || req.headers.get("X-Hive-Secret");
-    if (!secret || secret !== ENV.HIVE_INBOUND_EMAIL_SECRET) {
+    // -------------------------------------------------------------------------
+    // Auth
+    // -------------------------------------------------------------------------
+    const secret =
+      request.headers.get("x-hive-secret") ||
+      request.headers.get("X-Hive-Secret");
+
+    if (!secret || secret !== HIVE_INBOUND_EMAIL_SECRET) {
       return NextResponse.json(
         { status: "error", message: "Unauthorized", debugId },
         { status: 401 }
       );
     }
 
-    const raw = await req.json();
-    const payload = PayloadSchema.parse(raw);
+    // -------------------------------------------------------------------------
+    // Parse payload
+    // -------------------------------------------------------------------------
+    const payload: GmailPayload = await request.json();
 
-    const fromDomain = getDomain(payload.from.email);
+    const {
+      gmailMessageId,
+      gmailThreadId,
+      from,
+      to = [],
+      cc = [],
+      subject = "",
+      snippet = "",
+      bodyText = "",
+      gmailUrl = "",
+      receivedAt,
+      direction = "inbound",
+    } = payload;
 
-    // --- Personal email guard ---
-    if (PERSONAL_EMAIL_DOMAINS.has(fromDomain)) {
+    if (!gmailMessageId || !gmailThreadId || !from?.email) {
       return NextResponse.json(
         {
-          status: "personal_email",
-          message: `Blocked personal email domain: ${fromDomain}`,
+          status: "error",
+          message: "Missing required fields: gmailMessageId, gmailThreadId, from.email",
+          debugId,
         },
-        { status: 200 }
+        { status: 400 }
       );
     }
 
-    // --- Idempotency: duplicate message check ---
-    const existingActivity = await findFirstByFormula<Record<string, unknown>>(
-      TABLES.activities,
-      `({${FIELDS.activity.gmailMessageId}} = "${payload.gmailMessageId}")`
+    // -------------------------------------------------------------------------
+    // Dedupe: Check if Activity already exists for this message
+    // -------------------------------------------------------------------------
+    const existingActivity = await findRecord(
+      TABLE_ACTIVITIES,
+      `{Gmail Message ID} = "${gmailMessageId}"`
     );
 
     if (existingActivity) {
-      // If we can also find the linked opp, include it.
-      return NextResponse.json(
-        {
-          status: "duplicate",
-          message: "This Gmail message has already been logged.",
-          activity: {
-            id: existingActivity.id,
-          },
-        },
-        { status: 200 }
-      );
-    }
-
-    // --- Company: find or create by domain ---
-    const company =
-      (await findFirstByFormula<Record<string, unknown>>(
-        TABLES.companies,
-        `LOWER({${FIELDS.company.domain}}) = "${fromDomain.toLowerCase()}"`
-      )) ||
-      (await createRecord<Record<string, unknown>>(TABLES.companies, {
-        [FIELDS.company.name]: companyNameFromDomain(fromDomain),
-        [FIELDS.company.domain]: fromDomain,
-      }));
-
-    // --- Opportunity: attach by thread id if exists ---
-    let opportunity =
-      await findFirstByFormula<Record<string, unknown>>(
-        TABLES.opportunities,
-        `({${FIELDS.opp.threadId}} = "${payload.gmailThreadId}")`
-      );
-
-    const shouldCreateOpp = payload.mode === "create_or_attach" && !opportunity;
-
-    if (shouldCreateOpp) {
-      const oppName =
-        payload.subject?.trim()
-          ? payload.subject.trim()
-          : `Opportunity – ${companyNameFromDomain(fromDomain)}`;
-
-      opportunity = await createRecord<Record<string, unknown>>(TABLES.opportunities, {
-        [FIELDS.opp.name]: oppName,
-        [FIELDS.opp.stage]: "qualification",
-        [FIELDS.opp.company]: [company.id], // linked record
-        [FIELDS.opp.threadId]: payload.gmailThreadId,
+      return NextResponse.json({
+        status: "duplicate",
+        message: "This email has already been logged.",
+        activity: { id: existingActivity.id },
       });
     }
 
-    // If log_only and no opp exists, you can either:
-    // - create a "Thread-only" opp, OR
-    // - return an error saying there's nothing to attach to
-    // Here: we create a lightweight opp for log_only too (safer UX).
-    if (!opportunity) {
-      const oppName =
-        payload.subject?.trim()
-          ? payload.subject.trim()
-          : `Thread – ${companyNameFromDomain(fromDomain)}`;
+    // -------------------------------------------------------------------------
+    // Personal email guard
+    // -------------------------------------------------------------------------
+    const domain = extractDomain(from.email);
 
-      opportunity = await createRecord<Record<string, unknown>>(TABLES.opportunities, {
-        [FIELDS.opp.name]: oppName,
-        [FIELDS.opp.stage]: "qualification",
-        [FIELDS.opp.company]: [company.id],
-        [FIELDS.opp.threadId]: payload.gmailThreadId,
+    if (!domain || PERSONAL_DOMAINS.has(domain)) {
+      return NextResponse.json({
+        status: "personal_email",
+        message: `Cannot create opportunity from personal email: ${domain || "unknown"}`,
       });
     }
 
-    // --- Activity: create ---
-    const activity = await createRecord<Record<string, unknown>>(TABLES.activities, {
-      [FIELDS.activity.opp]: [opportunity.id],
-      [FIELDS.activity.type]: "email",
-      [FIELDS.activity.direction]: payload.direction,
-      [FIELDS.activity.from]:
-        payload.from.name
-          ? `${payload.from.name} <${payload.from.email}>`
-          : payload.from.email,
-      [FIELDS.activity.to]: (payload.to || []).join(", "),
-      [FIELDS.activity.subject]: payload.subject || "",
-      [FIELDS.activity.snippet]: payload.snippet || "",
-      [FIELDS.activity.body]: payload.bodyText || "",
-      [FIELDS.activity.gmailMessageId]: payload.gmailMessageId,
-      [FIELDS.activity.gmailThreadId]: payload.gmailThreadId,
-      [FIELDS.activity.gmailUrl]: payload.gmailUrl,
-      [FIELDS.activity.receivedAt]: payload.receivedAt,
-    });
-
-    // --- Contract ---
-    const wasAttached = !shouldCreateOpp;
-
-    return NextResponse.json(
-      {
-        status: wasAttached ? "attached" : "success",
-        company: {
-          id: company.id,
-          name: company.fields?.[FIELDS.company.name] || null,
-          domain: company.fields?.[FIELDS.company.domain] || null,
-        },
-        opportunity: {
-          id: opportunity.id,
-          name: opportunity.fields?.[FIELDS.opp.name] || null,
-          stage: opportunity.fields?.[FIELDS.opp.stage] || null,
-          url: null, // optional: set if you have a Hive OS URL pattern
-        },
-        activity: {
-          id: activity.id,
-        },
-      },
-      { status: 200 }
+    // -------------------------------------------------------------------------
+    // Company: Find or create by domain
+    // -------------------------------------------------------------------------
+    let company = await findRecord(
+      TABLE_COMPANIES,
+      `LOWER({Domain}) = "${domain.toLowerCase()}"`
     );
-  } catch (err) {
-    // ✅ Log full error in Vercel
-    console.error("[INBOUND_GMAIL_ERROR]", {
-      debugId,
-      error: safeJsonError(err),
+
+    if (!company) {
+      company = await createRecord(TABLE_COMPANIES, {
+        Name: domainToCompanyName(domain),
+        Domain: domain,
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // Opportunity: Find by Gmail Thread ID or create new
+    // -------------------------------------------------------------------------
+    let opportunity = await findRecord(
+      TABLE_OPPORTUNITIES,
+      `{Gmail Thread ID} = "${gmailThreadId}"`
+    );
+
+    const isNewOpportunity = !opportunity;
+
+    if (!opportunity) {
+      const oppName = subject?.trim() || "Email Opportunity";
+
+      opportunity = await createRecord(TABLE_OPPORTUNITIES, {
+        Name: oppName,
+        Stage: "Lead",
+        Company: [company.id],
+        "Gmail Thread ID": gmailThreadId,
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // Activity: Create linked to Company and Opportunity
+    // -------------------------------------------------------------------------
+    const fromDisplay = from.name
+      ? `${from.name} <${from.email}>`
+      : from.email;
+
+    const activity = await createRecord(TABLE_ACTIVITIES, {
+      Type: "email",
+      Direction: direction,
+      From: fromDisplay,
+      To: to.join(", "),
+      Subject: subject,
+      Snippet: snippet,
+      Body: bodyText,
+      "Gmail Message ID": gmailMessageId,
+      "Gmail Thread ID": gmailThreadId,
+      "Gmail URL": gmailUrl,
+      "Received At": receivedAt,
+      Company: [company.id],
+      Opportunity: [opportunity.id],
     });
 
-    // ✅ Return real error message (temporarily) so you can debug fast
-    const details = safeJsonError(err);
+    // -------------------------------------------------------------------------
+    // Response
+    // -------------------------------------------------------------------------
+    return NextResponse.json({
+      status: isNewOpportunity ? "success" : "attached",
+      company: {
+        id: company.id,
+        name: company.fields?.Name || null,
+        domain: company.fields?.Domain || domain,
+        isNew: !company.fields?.Name, // If we just created it, fields might not have Name yet
+      },
+      opportunity: {
+        id: opportunity.id,
+        name: opportunity.fields?.Name || subject || "Email Opportunity",
+        stage: opportunity.fields?.Stage || "Lead",
+      },
+      activity: {
+        id: activity.id,
+      },
+    });
+  } catch (err) {
+    console.error("[GMAIL_INBOUND_ERROR]", {
+      debugId,
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
 
     return NextResponse.json(
       {
         status: "error",
-        message: details.message || "Failed to create opportunity",
+        message: err instanceof Error ? err.message : "Internal server error",
         debugId,
-        // NOTE: You can remove `details` once stable.
-        details,
       },
       { status: 500 }
     );
