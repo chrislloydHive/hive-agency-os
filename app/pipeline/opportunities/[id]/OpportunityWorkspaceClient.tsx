@@ -185,10 +185,21 @@ function getHealthExplanation(params: {
 // Budget confidence options for dropdown
 const BUDGET_CONFIDENCE_OPTIONS = [
   { value: '', label: '—' },
-  { value: 'confirmed', label: 'Confirmed' },
-  { value: 'likely', label: 'Likely' },
-  { value: 'unknown', label: 'Unknown' },
-  { value: 'no_budget', label: 'No Budget' },
+  { value: 'High', label: 'High' },
+  { value: 'Medium', label: 'Medium' },
+  { value: 'Low', label: 'Low' },
+  
+];
+
+// Opportunity type options (common types)
+const OPPORTUNITY_TYPE_OPTIONS = [
+  { value: '', label: '—' },
+  { value: 'New Business', label: 'New Business' },
+  { value: 'Expansion', label: 'Expansion' },
+  { value: 'Renewal', label: 'Renewal' },
+  { value: 'RFP Response', label: 'RFP Response' },
+  { value: 'Inbound Interest', label: 'Inbound Interest' },
+  { value: 'Referral', label: 'Referral' },
 ];
 
 export function OpportunityWorkspaceClient({
@@ -211,6 +222,8 @@ export function OpportunityWorkspaceClient({
   const [owner, setOwner] = useState(opportunity.owner || '');
   const [source, setSource] = useState(opportunity.source || '');
   const [notes, setNotes] = useState(opportunity.notes || '');
+  const [deliverableName, setDeliverableName] = useState(opportunity.deliverableName || '');
+  const [isEditingName, setIsEditingName] = useState(false);
 
   // Buying process fields
   const [decisionOwner, setDecisionOwner] = useState(opportunity.decisionOwner || '');
@@ -222,6 +235,10 @@ export function OpportunityWorkspaceClient({
   const [rfpDueDate, setRfpDueDate] = useState(formatDateForInput(opportunity.rfpDueDate));
   const [rfpDecisionDate, setRfpDecisionDate] = useState(formatDateForInput(opportunity.rfpDecisionDate));
   const [rfpLink, setRfpLink] = useState(opportunity.rfpLink || '');
+
+  // Deal Context fields
+  const [opportunityType, setOpportunityType] = useState(opportunity.opportunityType || '');
+  const [dealContextExpanded, setDealContextExpanded] = useState(false);
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
@@ -255,6 +272,7 @@ export function OpportunityWorkspaceClient({
     if (owner !== (opportunity.owner || '')) return true;
     if (source !== (opportunity.source || '')) return true;
     if (notes !== (opportunity.notes || '')) return true;
+    if (deliverableName !== (opportunity.deliverableName || '')) return true;
 
     // Buying process fields
     if (decisionOwner !== (opportunity.decisionOwner || '')) return true;
@@ -267,11 +285,14 @@ export function OpportunityWorkspaceClient({
     if (rfpDecisionDate !== formatDateForInput(opportunity.rfpDecisionDate)) return true;
     if (rfpLink !== (opportunity.rfpLink || '')) return true;
 
+    // Deal Context fields
+    if (opportunityType !== (opportunity.opportunityType || '')) return true;
+
     return false;
   }, [
-    nextStep, nextStepDue, stage, value, closeDate, owner, source, notes,
+    nextStep, nextStepDue, stage, value, closeDate, owner, source, notes, deliverableName,
     decisionOwner, decisionDate, budgetConfidence, knownCompetitors,
-    rfpDueDate, rfpDecisionDate, rfpLink,
+    rfpDueDate, rfpDecisionDate, rfpLink, opportunityType,
     opportunity,
   ]);
 
@@ -318,6 +339,7 @@ export function OpportunityWorkspaceClient({
           owner: owner.trim() || null,
           source: source.trim() || null,
           notes: notes.trim() || null,
+          deliverableName: deliverableName.trim() || null,
 
           // Buying process fields
           decisionOwner: decisionOwner.trim() || null,
@@ -329,6 +351,9 @@ export function OpportunityWorkspaceClient({
           rfpDueDate: rfpDueDate || null,
           rfpDecisionDate: rfpDecisionDate || null,
           rfpLink: rfpLink.trim() || null,
+
+          // Deal Context fields
+          opportunityType: opportunityType.trim() || null,
         }),
       });
 
@@ -342,6 +367,7 @@ export function OpportunityWorkspaceClient({
         setOpportunity(data.opportunity);
         // Also update local state to match saved values
         setStage(data.opportunity.stage);
+        setOpportunityType(data.opportunity.opportunityType || '');
       }
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
@@ -353,9 +379,9 @@ export function OpportunityWorkspaceClient({
     }
   }, [
     opportunity.id, isSaving, hasChanges,
-    nextStep, nextStepDue, stage, value, closeDate, owner, source, notes,
+    nextStep, nextStepDue, stage, value, closeDate, owner, source, notes, deliverableName,
     decisionOwner, decisionDate, budgetConfidence, knownCompetitors,
-    rfpDueDate, rfpDecisionDate, rfpLink,
+    rfpDueDate, rfpDecisionDate, rfpLink, opportunityType,
   ]);
 
   // Dismiss error banner
@@ -458,9 +484,31 @@ export function OpportunityWorkspaceClient({
           >
             ← Opportunities
           </Link>
-          <h1 className="text-2xl font-bold text-slate-100 truncate">
-            {opportunity.deliverableName || opportunity.companyName}
-          </h1>
+          {isEditingName ? (
+            <input
+              type="text"
+              value={deliverableName}
+              onChange={(e) => setDeliverableName(e.target.value)}
+              onBlur={() => setIsEditingName(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') setIsEditingName(false);
+                if (e.key === 'Escape') {
+                  setDeliverableName(opportunity.deliverableName || '');
+                  setIsEditingName(false);
+                }
+              }}
+              autoFocus
+              className="text-2xl font-bold text-slate-100 bg-slate-800 border border-amber-500 rounded px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+          ) : (
+            <h1
+              className="text-2xl font-bold text-slate-100 truncate cursor-pointer hover:text-amber-400 transition-colors"
+              onClick={() => setIsEditingName(true)}
+              title="Click to edit"
+            >
+              {deliverableName || opportunity.companyName}
+            </h1>
+          )}
           {companyName && companyId && (
             <Link
               href={`/c/${companyId}`}

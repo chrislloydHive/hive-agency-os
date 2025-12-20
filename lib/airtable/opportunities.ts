@@ -533,6 +533,7 @@ export async function updateOpportunity(
     rfpDueDate: string | null;
     rfpDecisionDate: string | null;
     rfpLink: string | null;
+    opportunityType: string | null;
   }>
 ): Promise<OpportunityItem | null> {
   // Inner function to attempt update, with option to skip activity timestamp
@@ -598,6 +599,10 @@ export async function updateOpportunity(
     }
     if (updates.rfpLink !== undefined) {
       fields['RFP Link'] = toAirtable(updates.rfpLink);
+    }
+    // Deal Context field
+    if (updates.opportunityType !== undefined) {
+      fields['Opportunity Type'] = toAirtable(updates.opportunityType);
     }
 
     console.log(`[Opportunities] Updating ${id} with fields:`, JSON.stringify(fields, null, 2));
