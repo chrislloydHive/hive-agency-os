@@ -556,7 +556,8 @@ export async function updateOpportunity(
       fields['Value'] = updates.value;
     }
     if (updates.deliverableName !== undefined) {
-      fields['Deliverable Name'] = toAirtable(updates.deliverableName);
+      // Primary field is 'Name' in Airtable (not 'Deliverable Name')
+      fields['Name'] = toAirtable(updates.deliverableName);
     }
     if (updates.closeDate !== undefined) {
       fields['Close Date'] = toAirtable(updates.closeDate);
