@@ -233,7 +233,7 @@ export async function createOpportunity(params: {
       fields['Company'] = [params.companyId];
     }
     if (params.value !== undefined) {
-      fields['Value'] = params.value;
+      fields['Value (USD)'] = params.value;
     }
     if (params.closeDate) {
       fields['Close Date'] = params.closeDate;
