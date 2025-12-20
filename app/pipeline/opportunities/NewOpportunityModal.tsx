@@ -23,9 +23,10 @@ export function NewOpportunityModal({
   const [companyId, setCompanyId] = useState('');
   const [stage, setStage] = useState('Discovery');
   const [value, setValue] = useState('');
-  const [probability, setProbability] = useState('50');
   const [closeDate, setCloseDate] = useState('');
   const [owner, setOwner] = useState('');
+  const [nextStep, setNextStep] = useState('');
+  const [nextStepDue, setNextStepDue] = useState('');
   const [notes, setNotes] = useState('');
 
   const resetForm = useCallback(() => {
@@ -33,9 +34,10 @@ export function NewOpportunityModal({
     setCompanyId('');
     setStage('Discovery');
     setValue('');
-    setProbability('50');
     setCloseDate('');
     setOwner('');
+    setNextStep('');
+    setNextStepDue('');
     setNotes('');
     setError(null);
   }, []);
@@ -59,9 +61,10 @@ export function NewOpportunityModal({
           companyId: companyId || undefined,
           stage: stage.toLowerCase().replace(' ', '_'),
           value: value ? parseFloat(value) : undefined,
-          probability: probability ? parseFloat(probability) : undefined,
           closeDate: closeDate || undefined,
           owner: owner || undefined,
+          nextStep: nextStep || undefined,
+          nextStepDue: nextStepDue || undefined,
           notes: notes || undefined,
         }),
       });
@@ -151,26 +154,24 @@ export function NewOpportunityModal({
             </select>
           </div>
 
-          {/* Stage */}
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">
-              Stage
-            </label>
-            <select
-              value={stage}
-              onChange={(e) => setStage(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
-            >
-              {OPPORTUNITY_STAGES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Value & Probability */}
+          {/* Stage & Value */}
           <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-1">
+                Stage
+              </label>
+              <select
+                value={stage}
+                onChange={(e) => setStage(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+              >
+                {OPPORTUNITY_STAGES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-1">
                 Value ($)
@@ -185,24 +186,35 @@ export function NewOpportunityModal({
                 className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">
-                Probability (%)
-              </label>
-              <input
-                type="number"
-                value={probability}
-                onChange={(e) => setProbability(e.target.value)}
-                placeholder="50"
-                min="0"
-                max="100"
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
-              />
-            </div>
           </div>
 
-          {/* Close Date & Owner */}
+          {/* Next Step */}
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">
+              Next Step
+            </label>
+            <input
+              type="text"
+              value={nextStep}
+              onChange={(e) => setNextStep(e.target.value)}
+              placeholder="e.g., Send proposal, Schedule discovery call"
+              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            />
+          </div>
+
+          {/* Next Step Due & Close Date */}
           <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-1">
+                Next Step Due
+              </label>
+              <input
+                type="date"
+                value={nextStepDue}
+                onChange={(e) => setNextStepDue(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+              />
+            </div>
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-1">
                 Expected Close Date
@@ -214,18 +226,20 @@ export function NewOpportunityModal({
                 className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">
-                Owner
-              </label>
-              <input
-                type="text"
-                value={owner}
-                onChange={(e) => setOwner(e.target.value)}
-                placeholder="e.g., John Smith"
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
-              />
-            </div>
+          </div>
+
+          {/* Owner */}
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">
+              Owner
+            </label>
+            <input
+              type="text"
+              value={owner}
+              onChange={(e) => setOwner(e.target.value)}
+              placeholder="e.g., John Smith"
+              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            />
           </div>
 
           {/* Notes */}

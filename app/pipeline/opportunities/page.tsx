@@ -1,9 +1,9 @@
 // app/pipeline/opportunities/page.tsx
-// Pipeline Opportunities Board View
+// Pipeline Opportunities Board View with Forecast Filtering
 
 import { getAllOpportunities } from '@/lib/airtable/opportunities';
 import { getAllCompanies, type CompanyRecord } from '@/lib/airtable/companies';
-import { OpportunitiesBoardClient } from './OpportunitiesBoardClient';
+import { OpportunitiesPageClient } from './OpportunitiesPageClient';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,10 +41,9 @@ export default async function OpportunitiesPage() {
         </div>
       </div>
 
-      <OpportunitiesBoardClient
+      <OpportunitiesPageClient
         opportunities={enrichedOpportunities}
         companies={companies}
-        showNewOpportunityButton
       />
     </div>
   );

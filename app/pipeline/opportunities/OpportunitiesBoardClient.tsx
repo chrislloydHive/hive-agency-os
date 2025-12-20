@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import type { CompanyRecord } from '@/lib/airtable/companies';
 import type { OpportunityItem, PipelineStage } from '@/lib/types/pipeline';
@@ -9,6 +9,9 @@ import {
   ACTIVE_STAGES,
   getStageLabel,
   getStageColorClass,
+  getDealHealthLabel,
+  getDealHealthColorClasses,
+  isNextStepOverdue,
 } from '@/lib/types/pipeline';
 import { NewOpportunityModal } from './NewOpportunityModal';
 
@@ -16,6 +19,12 @@ interface OpportunitiesBoardClientProps {
   opportunities: OpportunityItem[];
   companies: CompanyRecord[];
   showNewOpportunityButton?: boolean;
+}
+
+// Drag state type
+interface DragState {
+  opportunityId: string;
+  fromStage: PipelineStage | 'other';
 }
 
 // Format currency
@@ -43,87 +52,86 @@ const formatDate = (dateStr?: string | null) => {
 };
 
 // Opportunity Card Component
-function OpportunityCard({
-  opportunity,
-  onRefreshScore,
-  isScoring,
-}: {
+interface OpportunityCardProps {
   opportunity: OpportunityItem;
-  onRefreshScore: (id: string) => void;
-  isScoring: boolean;
-}) {
-  const [showTooltip, setShowTooltip] = useState(false);
+  onDragStart?: (e: React.DragEvent, opportunity: OpportunityItem) => void;
+  onDragEnd?: () => void;
+  isDragging?: boolean;
+}
+
+function OpportunityCard({ opportunity, onDragStart, onDragEnd, isDragging }: OpportunityCardProps) {
+  const isOverdue = isNextStepOverdue(opportunity.nextStepDue);
 
   return (
-    <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-3 hover:bg-slate-800 transition-colors">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-medium text-slate-200 truncate">
-            {opportunity.deliverableName || opportunity.companyName}
-          </h4>
-          {opportunity.deliverableName && (
-            <p className="text-xs text-slate-500 truncate">{opportunity.companyName}</p>
-          )}
-        </div>
-        {/* AI Score Badge */}
-        {opportunity.opportunityScore != null && (
-          <div
-            className="relative"
-            onMouseEnter={() => setShowTooltip(true)}
-            onMouseLeave={() => setShowTooltip(false)}
-          >
-            <span
-              className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold ${
-                (opportunity.opportunityScore ?? 0) >= 70
-                  ? 'bg-emerald-500/20 text-emerald-400'
-                  : (opportunity.opportunityScore ?? 0) >= 40
-                  ? 'bg-amber-500/20 text-amber-400'
-                  : 'bg-red-500/20 text-red-400'
-              }`}
-            >
-              {opportunity.opportunityScore}
-            </span>
-            {/* Tooltip */}
-            {showTooltip && (
-              <div className="absolute right-0 top-6 z-50 w-64 p-2 bg-slate-900 border border-slate-700 rounded-lg shadow-lg text-xs text-slate-300">
-                {opportunity.opportunityScoreExplanation || 'AI score based on company engagement and fit signals.'}
-              </div>
+    <div
+      draggable
+      onDragStart={(e) => onDragStart?.(e, opportunity)}
+      onDragEnd={onDragEnd}
+      className={`bg-slate-800/50 border border-slate-700 rounded-lg p-3 hover:bg-slate-800 transition-all cursor-grab active:cursor-grabbing ${
+        isDragging ? 'opacity-50 scale-95 ring-2 ring-amber-500/50' : ''
+      }`}
+    >
+      {/* Drag Handle Indicator */}
+      <div className="flex items-center gap-2 mb-2">
+        <svg className="w-4 h-4 text-slate-600 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M8 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM8 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM8 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM14 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM14 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM14 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z" />
+        </svg>
+        {/* Header */}
+        <div className="flex items-start justify-between gap-2 flex-1 min-w-0">
+          <div className="flex-1 min-w-0">
+            <h4 className="text-sm font-medium text-slate-200 truncate">
+              {opportunity.deliverableName || opportunity.companyName}
+            </h4>
+            {opportunity.deliverableName && (
+              <p className="text-xs text-slate-500 truncate">{opportunity.companyName}</p>
             )}
           </div>
-        )}
+          {/* Deal Health Badge */}
+          {opportunity.dealHealth && (
+            <span
+              className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium border ${getDealHealthColorClasses(
+                opportunity.dealHealth
+              )}`}
+            >
+              {getDealHealthLabel(opportunity.dealHealth)}
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Value & Date */}
+      {/* Next Step - Primary Indicator */}
+      {opportunity.nextStep && (
+        <div className="mb-2 p-2 bg-slate-900/50 rounded border border-slate-700/50">
+          <div className="text-xs text-slate-400 mb-0.5">Next Step</div>
+          <div className="text-sm text-slate-200 line-clamp-2">{opportunity.nextStep}</div>
+          {opportunity.nextStepDue && (
+            <div
+              className={`text-xs mt-1 ${
+                isOverdue ? 'text-red-400 font-medium' : 'text-slate-500'
+              }`}
+            >
+              {isOverdue ? '⚠️ Overdue: ' : 'Due: '}
+              {formatDate(opportunity.nextStepDue)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Value & Close Date */}
       <div className="flex items-center justify-between text-xs mb-2">
         <span className="text-emerald-400 font-medium">
           {formatCurrency(opportunity.value)}
         </span>
-        {opportunity.probability && (
-          <span className="text-slate-500">
-            {Math.round((opportunity.probability > 1 ? opportunity.probability : opportunity.probability * 100))}%
-          </span>
-        )}
+        <span className="text-slate-500">Close: {formatDate(opportunity.closeDate)}</span>
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between text-xs text-slate-500">
+      <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-700">
         <span>{opportunity.owner || 'Unassigned'}</span>
-        <span>Close: {formatDate(opportunity.closeDate)}</span>
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-700">
-        <button
-          onClick={() => onRefreshScore(opportunity.id)}
-          disabled={isScoring}
-          className="text-xs text-blue-400 hover:text-blue-300 disabled:text-slate-600 disabled:cursor-not-allowed"
-        >
-          {isScoring ? 'Scoring...' : 'Refresh Score'}
-        </button>
         <Link
           href={`/pipeline/opportunities/${opportunity.id}`}
-          className="text-xs text-amber-400 hover:text-amber-300"
+          className="text-amber-400 hover:text-amber-300"
+          onClick={(e) => e.stopPropagation()}
         >
           View →
         </Link>
@@ -133,15 +141,98 @@ function OpportunityCard({
 }
 
 export function OpportunitiesBoardClient({
-  opportunities,
+  opportunities: initialOpportunities,
   companies,
   showNewOpportunityButton = false,
 }: OpportunitiesBoardClientProps) {
+  const [opportunities, setOpportunities] = useState(initialOpportunities);
   const [viewMode, setViewMode] = useState<'board' | 'table'>('board');
   const [searchQuery, setSearchQuery] = useState('');
   const [ownerFilter, setOwnerFilter] = useState<string>('all');
-  const [scoringIds, setScoringIds] = useState<Set<string>>(new Set());
+  const [healthFilter, setHealthFilter] = useState<string>('all');
   const [showNewModal, setShowNewModal] = useState(false);
+
+  // Drag and drop state
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const [dropTargetStage, setDropTargetStage] = useState<PipelineStage | 'other' | null>(null);
+  const [isUpdating, setIsUpdating] = useState<string | null>(null);
+
+  // Drag handlers
+  const handleDragStart = useCallback((e: React.DragEvent, opportunity: OpportunityItem) => {
+    setDragState({
+      opportunityId: opportunity.id,
+      fromStage: opportunity.stage,
+    });
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', opportunity.id);
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    setDragState(null);
+    setDropTargetStage(null);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent, stage: PipelineStage | 'other') => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDropTargetStage(stage);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setDropTargetStage(null);
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent, targetStage: PipelineStage | 'other') => {
+    e.preventDefault();
+    setDropTargetStage(null);
+
+    if (!dragState || dragState.fromStage === targetStage || targetStage === 'other') {
+      setDragState(null);
+      return;
+    }
+
+    const opportunityId = dragState.opportunityId;
+    const originalStage = dragState.fromStage;
+    setDragState(null);
+
+    // Optimistically update UI
+    setOpportunities((prev) =>
+      prev.map((opp) =>
+        opp.id === opportunityId ? { ...opp, stage: targetStage } : opp
+      )
+    );
+    setIsUpdating(opportunityId);
+
+    try {
+      const response = await fetch(`/api/pipeline/opportunities/${opportunityId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage: targetStage }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update stage');
+      }
+
+      if (data.opportunity) {
+        setOpportunities((prev) =>
+          prev.map((opp) => (opp.id === opportunityId ? data.opportunity : opp))
+        );
+      }
+    } catch (error) {
+      console.error('Failed to update opportunity stage:', error);
+      // Revert on error
+      setOpportunities((prev) =>
+        prev.map((opp) =>
+          opp.id === opportunityId ? { ...opp, stage: originalStage } : opp
+        )
+      );
+    } finally {
+      setIsUpdating(null);
+    }
+  }, [dragState]);
 
   // Get unique owners
   const owners = useMemo(() => {
@@ -160,7 +251,8 @@ export function OpportunitiesBoardClient({
         const query = searchQuery.toLowerCase();
         const nameMatch = opp.companyName.toLowerCase().includes(query);
         const deliverableMatch = opp.deliverableName?.toLowerCase().includes(query);
-        if (!nameMatch && !deliverableMatch) return false;
+        const nextStepMatch = opp.nextStep?.toLowerCase().includes(query);
+        if (!nameMatch && !deliverableMatch && !nextStepMatch) return false;
       }
 
       // Owner filter
@@ -168,9 +260,18 @@ export function OpportunitiesBoardClient({
         return false;
       }
 
+      // Health filter
+      if (healthFilter !== 'all') {
+        if (healthFilter === 'overdue') {
+          if (!isNextStepOverdue(opp.nextStepDue)) return false;
+        } else if (opp.dealHealth !== healthFilter) {
+          return false;
+        }
+      }
+
       return true;
     });
-  }, [opportunities, searchQuery, ownerFilter]);
+  }, [opportunities, searchQuery, ownerFilter, healthFilter]);
 
   // Group opportunities by stage
   const opportunitiesByStage = useMemo(() => {
@@ -187,44 +288,15 @@ export function OpportunitiesBoardClient({
       ACTIVE_STAGES.includes(o.stage as PipelineStage)
     );
     const totalValue = active.reduce((sum, o) => sum + (o.value ?? 0), 0);
-    const weightedValue = active.reduce((sum, o) => {
-      const prob = o.probability ?? 0.5;
-      const normalizedProb = prob > 1 ? prob / 100 : prob;
-      return sum + (o.value ?? 0) * normalizedProb;
-    }, 0);
-    return { count: active.length, totalValue, weightedValue };
+    const overdueCount = active.filter((o) => isNextStepOverdue(o.nextStepDue)).length;
+    const atRiskCount = active.filter((o) => o.dealHealth === 'at_risk' || o.dealHealth === 'stalled').length;
+    return { count: active.length, totalValue, overdueCount, atRiskCount };
   }, [filteredOpportunities]);
-
-  // Handle AI score refresh
-  const handleRefreshScore = async (id: string) => {
-    setScoringIds((prev) => new Set(prev).add(id));
-    try {
-      const response = await fetch('/api/pipeline/opportunity-score', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ opportunityId: id }),
-      });
-
-      if (response.ok) {
-        // Reload the page to show updated score
-        window.location.reload();
-      }
-    } catch (error) {
-      console.error('Failed to refresh score:', error);
-    } finally {
-      setScoringIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    }
-  };
 
   // Show empty state if no opportunities at all
   if (opportunities.length === 0) {
     return (
       <div className="space-y-6">
-        {/* New Opportunity Modal (still needed) */}
         <NewOpportunityModal
           isOpen={showNewModal}
           onClose={() => setShowNewModal(false)}
@@ -289,7 +361,7 @@ export function OpportunitiesBoardClient({
       />
 
       {/* Stats Summary */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
           <div className="text-2xl font-bold text-slate-100">{stats.count}</div>
           <div className="text-xs text-slate-500">Active Opportunities</div>
@@ -301,10 +373,16 @@ export function OpportunitiesBoardClient({
           <div className="text-xs text-slate-500">Total Pipeline</div>
         </div>
         <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
-          <div className="text-2xl font-bold text-purple-400">
-            {formatCurrency(stats.weightedValue)}
+          <div className={`text-2xl font-bold ${stats.overdueCount > 0 ? 'text-red-400' : 'text-slate-400'}`}>
+            {stats.overdueCount}
           </div>
-          <div className="text-xs text-slate-500">Weighted Pipeline</div>
+          <div className="text-xs text-slate-500">Overdue Next Steps</div>
+        </div>
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+          <div className={`text-2xl font-bold ${stats.atRiskCount > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
+            {stats.atRiskCount}
+          </div>
+          <div className="text-xs text-slate-500">At Risk / Stalled</div>
         </div>
       </div>
 
@@ -341,6 +419,24 @@ export function OpportunitiesBoardClient({
                   {owner}
                 </option>
               ))}
+            </select>
+          </div>
+
+          {/* Health Filter */}
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">
+              Health
+            </label>
+            <select
+              value={healthFilter}
+              onChange={(e) => setHealthFilter(e.target.value)}
+              className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            >
+              <option value="all">All</option>
+              <option value="overdue">Overdue</option>
+              <option value="on_track">On Track</option>
+              <option value="at_risk">At Risk</option>
+              <option value="stalled">Stalled</option>
             </select>
           </div>
 
@@ -381,11 +477,19 @@ export function OpportunitiesBoardClient({
           {ALL_STAGES.filter((stage) => stage !== 'other').map((stage) => {
             const stageOpps = opportunitiesByStage[stage] || [];
             const stageValue = stageOpps.reduce((sum, o) => sum + (o.value ?? 0), 0);
+            const isDropTarget = dropTargetStage === stage && dragState?.fromStage !== stage;
 
             return (
               <div
                 key={stage}
-                className="flex-shrink-0 w-72 bg-slate-900/50 border border-slate-800 rounded-xl"
+                onDragOver={(e) => handleDragOver(e, stage)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, stage)}
+                className={`flex-shrink-0 w-72 bg-slate-900/50 border rounded-xl transition-all ${
+                  isDropTarget
+                    ? 'border-amber-500 bg-amber-500/5 ring-2 ring-amber-500/20'
+                    : 'border-slate-800'
+                }`}
               >
                 {/* Column Header */}
                 <div className="p-3 border-b border-slate-800">
@@ -405,19 +509,33 @@ export function OpportunitiesBoardClient({
                 </div>
 
                 {/* Cards */}
-                <div className="p-2 space-y-2 max-h-[600px] overflow-y-auto">
+                <div className={`p-2 space-y-2 max-h-[600px] overflow-y-auto min-h-[100px] ${
+                  isDropTarget ? 'bg-amber-500/5' : ''
+                }`}>
                   {stageOpps.length === 0 ? (
-                    <div className="text-xs text-slate-600 text-center py-4">
-                      No opportunities
+                    <div className={`text-xs text-center py-4 rounded-lg border-2 border-dashed transition-colors ${
+                      isDropTarget ? 'border-amber-500/50 text-amber-400' : 'border-transparent text-slate-600'
+                    }`}>
+                      {isDropTarget ? 'Drop here' : 'No opportunities'}
                     </div>
                   ) : (
                     stageOpps.map((opp) => (
-                      <OpportunityCard
-                        key={opp.id}
-                        opportunity={opp}
-                        onRefreshScore={handleRefreshScore}
-                        isScoring={scoringIds.has(opp.id)}
-                      />
+                      <div key={opp.id} className="relative">
+                        <OpportunityCard
+                          opportunity={opp}
+                          onDragStart={handleDragStart}
+                          onDragEnd={handleDragEnd}
+                          isDragging={dragState?.opportunityId === opp.id}
+                        />
+                        {isUpdating === opp.id && (
+                          <div className="absolute inset-0 bg-slate-900/70 rounded-lg flex items-center justify-center">
+                            <svg className="w-5 h-5 animate-spin text-amber-500" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                          </div>
+                        )}
+                      </div>
                     ))
                   )}
                 </div>
@@ -440,11 +558,14 @@ export function OpportunitiesBoardClient({
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
                     Stage
                   </th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                    Health
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                    Next Step
+                  </th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
                     Value
-                  </th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                    AI Score
                   </th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
                     Close Date
@@ -458,77 +579,88 @@ export function OpportunitiesBoardClient({
                 </tr>
               </thead>
               <tbody>
-                {filteredOpportunities.map((opp) => (
-                  <tr
-                    key={opp.id}
-                    className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
-                  >
-                    <td className="px-4 py-3">
-                      <div>
-                        <div className="text-slate-200 font-medium">
-                          {opp.deliverableName || opp.companyName}
+                {filteredOpportunities.map((opp) => {
+                  const isOverdue = isNextStepOverdue(opp.nextStepDue);
+                  return (
+                    <tr
+                      key={opp.id}
+                      className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
+                    >
+                      <td className="px-4 py-3">
+                        <div>
+                          <div className="text-slate-200 font-medium">
+                            {opp.deliverableName || opp.companyName}
+                          </div>
+                          {opp.deliverableName && (
+                            <div className="text-xs text-slate-500">{opp.companyName}</div>
+                          )}
                         </div>
-                        {opp.deliverableName && (
-                          <div className="text-xs text-slate-500">{opp.companyName}</div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getStageColorClass(
-                          opp.stage
-                        )}`}
-                      >
-                        {getStageLabel(opp.stage)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="text-emerald-400 font-medium">
-                        {formatCurrency(opp.value)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {opp.opportunityScore != null ? (
+                      </td>
+                      <td className="px-4 py-3">
                         <span
-                          className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold ${
-                            (opp.opportunityScore ?? 0) >= 70
-                              ? 'bg-emerald-500/20 text-emerald-400'
-                              : (opp.opportunityScore ?? 0) >= 40
-                              ? 'bg-amber-500/20 text-amber-400'
-                              : 'bg-red-500/20 text-red-400'
-                          }`}
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getStageColorClass(
+                            opp.stage
+                          )}`}
                         >
-                          {opp.opportunityScore}
+                          {getStageLabel(opp.stage)}
                         </span>
-                      ) : (
-                        <span className="text-slate-600">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-slate-400 text-xs">
-                      {formatDate(opp.closeDate)}
-                    </td>
-                    <td className="px-4 py-3 text-slate-400 text-xs">
-                      {opp.owner || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleRefreshScore(opp.id)}
-                          disabled={scoringIds.has(opp.id)}
-                          className="text-xs text-blue-400 hover:text-blue-300 disabled:text-slate-600"
-                        >
-                          {scoringIds.has(opp.id) ? 'Scoring...' : 'Score'}
-                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        {opp.dealHealth ? (
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getDealHealthColorClasses(
+                              opp.dealHealth
+                            )}`}
+                          >
+                            {getDealHealthLabel(opp.dealHealth)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="max-w-[200px]">
+                          {opp.nextStep ? (
+                            <>
+                              <div className="text-slate-300 text-xs truncate">{opp.nextStep}</div>
+                              {opp.nextStepDue && (
+                                <div
+                                  className={`text-xs ${
+                                    isOverdue ? 'text-red-400 font-medium' : 'text-slate-500'
+                                  }`}
+                                >
+                                  {isOverdue ? '⚠️ ' : ''}
+                                  {formatDate(opp.nextStepDue)}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-slate-600 text-xs">No next step</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className="text-emerald-400 font-medium">
+                          {formatCurrency(opp.value)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-400 text-xs">
+                        {formatDate(opp.closeDate)}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400 text-xs">
+                        {opp.owner || '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
                         <Link
                           href={`/pipeline/opportunities/${opp.id}`}
                           className="text-xs text-amber-400 hover:text-amber-300"
                         >
                           View →
                         </Link>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

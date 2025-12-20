@@ -9,21 +9,18 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  PieChart,
-  Pie,
   Cell,
   LineChart,
   Line,
-  Legend,
 } from 'recharts';
 import type { PipelineKpis, OpportunityItem } from '@/lib/types/pipeline';
+import { ForecastSection } from '@/components/pipeline/ForecastSection';
 
 interface PipelineDashboardClientProps {
   kpis: PipelineKpis;
   winRate: number;
   avgDealSize: number;
   totalOpportunities: number;
-  totalLeads: number;
   overdueOpportunities?: OpportunityItem[];
   overdueCount?: number;
 }
@@ -38,15 +35,6 @@ const STAGE_COLORS: Record<string, string> = {
   Lost: '#ef4444', // red
   Other: '#6b7280', // gray
 };
-
-const STATUS_COLORS = [
-  '#3b82f6', // blue
-  '#f59e0b', // amber
-  '#8b5cf6', // purple
-  '#10b981', // emerald
-  '#ef4444', // red
-  '#6b7280', // gray
-];
 
 // Format currency
 const formatCurrency = (num: number) => {
@@ -79,7 +67,6 @@ export function PipelineDashboardClient({
   winRate,
   avgDealSize,
   totalOpportunities,
-  totalLeads,
   overdueOpportunities = [],
   overdueCount = 0,
 }: PipelineDashboardClientProps) {
@@ -89,13 +76,6 @@ export function PipelineDashboardClient({
     count: item.count,
     value: item.value,
     fill: STAGE_COLORS[item.stage] || STAGE_COLORS.Other,
-  }));
-
-  // Prepare leads status data for pie chart
-  const leadsStatusData = kpis.leadsByStatus.map((item, index) => ({
-    name: item.status,
-    value: item.count,
-    fill: STATUS_COLORS[index % STATUS_COLORS.length],
   }));
 
   // Custom tooltip for bar chart
@@ -119,18 +99,12 @@ export function PipelineDashboardClient({
   return (
     <div className="space-y-6">
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
           <div className="text-2xl font-bold text-amber-500">
             {formatCurrency(kpis.totalPipelineValue)}
           </div>
           <div className="text-xs text-slate-500">Total Pipeline</div>
-        </div>
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
-          <div className="text-2xl font-bold text-purple-400">
-            {formatCurrency(kpis.weightedPipelineValue)}
-          </div>
-          <div className="text-xs text-slate-500">Weighted Pipeline</div>
         </div>
         <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
           <div className="text-2xl font-bold text-slate-100">
@@ -151,6 +125,9 @@ export function PipelineDashboardClient({
           <div className="text-xs text-slate-500">Avg Deal Size</div>
         </div>
       </div>
+
+      {/* Pipeline Forecast */}
+      <ForecastSection />
 
       {/* Overdue Next Steps Widget */}
       {(overdueCount > 0 || overdueOpportunities.length > 0) && (
@@ -217,82 +194,36 @@ export function PipelineDashboardClient({
         </div>
       )}
 
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Stage Breakdown Bar Chart */}
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
-          <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
-            Pipeline by Stage
-          </h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={stageData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis
-                  type="number"
-                  tickFormatter={(val) => formatCurrency(val)}
-                  stroke="#64748b"
-                  fontSize={12}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  stroke="#64748b"
-                  fontSize={12}
-                  width={100}
-                />
-                <Tooltip content={<CustomBarTooltip />} />
-                <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                  {stageData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.fill} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Leads by Status Pie Chart */}
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
-          <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
-            Leads by Status ({totalLeads} total)
-          </h3>
-          <div className="h-64">
-            {leadsStatusData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={leadsStatusData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }: any) =>
-                      `${name || ''} (${((percent ?? 0) * 100).toFixed(0)}%)`
-                    }
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {leadsStatusData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#1e293b',
-                      border: '1px solid #334155',
-                      borderRadius: '8px',
-                    }}
-                    labelStyle={{ color: '#e2e8f0' }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-slate-500">
-                No leads data available
-              </div>
-            )}
-          </div>
+      {/* Pipeline by Stage Chart */}
+      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
+        <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
+          Pipeline by Stage
+        </h3>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={stageData} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis
+                type="number"
+                tickFormatter={(val) => formatCurrency(val)}
+                stroke="#64748b"
+                fontSize={12}
+              />
+              <YAxis
+                type="category"
+                dataKey="name"
+                stroke="#64748b"
+                fontSize={12}
+                width={100}
+              />
+              <Tooltip content={<CustomBarTooltip />} />
+              <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                {stageData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.fill} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
@@ -371,66 +302,35 @@ export function PipelineDashboardClient({
         </div>
       )}
 
-      {/* Quick Links */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Link
-          href="/pipeline/opportunities"
-          className="bg-slate-900/70 border border-slate-800 rounded-xl p-6 hover:bg-slate-800/50 transition-colors group"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-slate-100 group-hover:text-amber-400 transition-colors">
-                View Opportunities
-              </h3>
-              <p className="text-sm text-slate-500 mt-1">
-                {totalOpportunities} total opportunities in pipeline
-              </p>
-            </div>
-            <svg
-              className="w-6 h-6 text-slate-600 group-hover:text-amber-400 transition-colors"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 5l7 7-7 7"
-              />
-            </svg>
+      {/* Quick Link */}
+      <Link
+        href="/pipeline/opportunities"
+        className="block bg-slate-900/70 border border-slate-800 rounded-xl p-6 hover:bg-slate-800/50 transition-colors group"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-100 group-hover:text-amber-400 transition-colors">
+              View Opportunities
+            </h3>
+            <p className="text-sm text-slate-500 mt-1">
+              {totalOpportunities} total opportunities in pipeline
+            </p>
           </div>
-        </Link>
-
-        <Link
-          href="/pipeline/leads"
-          className="bg-slate-900/70 border border-slate-800 rounded-xl p-6 hover:bg-slate-800/50 transition-colors group"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-slate-100 group-hover:text-amber-400 transition-colors">
-                View Leads
-              </h3>
-              <p className="text-sm text-slate-500 mt-1">
-                {totalLeads} inbound leads to process
-              </p>
-            </div>
-            <svg
-              className="w-6 h-6 text-slate-600 group-hover:text-amber-400 transition-colors"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 5l7 7-7 7"
-              />
-            </svg>
-          </div>
-        </Link>
-      </div>
+          <svg
+            className="w-6 h-6 text-slate-600 group-hover:text-amber-400 transition-colors"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 5l7 7-7 7"
+            />
+          </svg>
+        </div>
+      </Link>
     </div>
   );
 }

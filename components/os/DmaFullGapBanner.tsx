@@ -21,7 +21,7 @@ export function DmaFullGapBanner({ lead, gapRunId, companyId }: DmaFullGapBanner
         {/* Left: Back to Pipeline + Lead Info */}
         <div className="flex items-start gap-3">
           <Link
-            href="/pipeline/leads"
+            href="/pipeline/opportunities"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 text-xs font-medium transition-colors"
           >
             <ArrowLeft className="w-3.5 h-3.5" />

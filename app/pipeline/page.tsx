@@ -2,7 +2,6 @@
 // Pipeline Dashboard - KPIs and charts overview
 
 import { getAllOpportunities } from '@/lib/airtable/opportunities';
-import { getAllInboundLeads } from '@/lib/airtable/inboundLeads';
 import { computePipelineKpis, calculateWinRate, calculateAverageDealSize } from '@/lib/pipeline/kpis';
 import { PipelineDashboardClient } from './PipelineDashboardClient';
 import type { OpportunityItem } from '@/lib/types/pipeline';
@@ -12,7 +11,7 @@ export const dynamic = 'force-dynamic';
 // Helper to filter overdue opportunities client-side
 function filterOverdueOpportunities(opportunities: OpportunityItem[], limit = 5) {
   const today = new Date().toISOString().split('T')[0];
-  const openStages = ['discovery', 'qualification', 'proposal', 'negotiation'];
+  const openStages = ['interest_confirmed', 'discovery_clarification', 'solution_shaping', 'proposal_submitted', 'decision'];
 
   const overdue = opportunities
     .filter((opp) => {
@@ -29,15 +28,12 @@ function filterOverdueOpportunities(opportunities: OpportunityItem[], limit = 5)
 }
 
 export default async function PipelineDashboardPage() {
-  const [opportunities, leads] = await Promise.all([
-    getAllOpportunities(),
-    getAllInboundLeads(),
-  ]);
+  const opportunities = await getAllOpportunities();
 
   // Filter overdue from already-fetched opportunities (avoids extra API calls)
   const { overdueOpps, overdueCount } = filterOverdueOpportunities(opportunities);
 
-  const kpis = computePipelineKpis(opportunities, leads);
+  const kpis = computePipelineKpis(opportunities, []);
   const winRate = calculateWinRate(opportunities);
   const avgDealSize = calculateAverageDealSize(opportunities);
 
@@ -59,7 +55,6 @@ export default async function PipelineDashboardPage() {
         winRate={winRate}
         avgDealSize={avgDealSize}
         totalOpportunities={opportunities.length}
-        totalLeads={leads.length}
         overdueOpportunities={overdueOpps}
         overdueCount={overdueCount}
       />

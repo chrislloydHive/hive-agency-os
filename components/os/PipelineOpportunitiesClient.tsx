@@ -9,6 +9,9 @@ import {
   ACTIVE_OPPORTUNITY_STAGES,
   getStageColorClasses,
   getStageLabel,
+  getDealHealthLabel,
+  getDealHealthColorClasses,
+  isNextStepOverdue,
 } from '@/lib/types/pipeline';
 
 // Extended opportunity with enriched company data
@@ -57,6 +60,7 @@ export function PipelineOpportunitiesClient({
   const [stageFilter, setStageFilter] = useState<string>('Active');
   const [searchQuery, setSearchQuery] = useState('');
   const [companyFilter, setCompanyFilter] = useState<string>('all');
+  const [healthFilter, setHealthFilter] = useState<string>('all');
 
   // Filter opportunities
   const filteredOpportunities = useMemo(() => {
@@ -67,7 +71,8 @@ export function PipelineOpportunitiesClient({
         const nameMatch = opp.companyName.toLowerCase().includes(query);
         const deliverableMatch = opp.deliverableName?.toLowerCase().includes(query);
         const notesMatch = opp.notes?.toLowerCase().includes(query);
-        if (!nameMatch && !deliverableMatch && !notesMatch) return false;
+        const nextStepMatch = opp.nextStep?.toLowerCase().includes(query);
+        if (!nameMatch && !deliverableMatch && !notesMatch && !nextStepMatch) return false;
       }
 
       // Stage filter
@@ -83,9 +88,18 @@ export function PipelineOpportunitiesClient({
         return false;
       }
 
+      // Health filter
+      if (healthFilter !== 'all') {
+        if (healthFilter === 'overdue') {
+          if (!isNextStepOverdue(opp.nextStepDue)) return false;
+        } else if (opp.dealHealth !== healthFilter) {
+          return false;
+        }
+      }
+
       return true;
     });
-  }, [opportunities, stageFilter, searchQuery, companyFilter]);
+  }, [opportunities, stageFilter, searchQuery, companyFilter, healthFilter]);
 
   // Stats
   const stats = useMemo(() => {
@@ -93,10 +107,8 @@ export function PipelineOpportunitiesClient({
       ACTIVE_STAGES.includes(getStageLabel(o.stage) as typeof ACTIVE_STAGES[number])
     );
     const activeValue = active.reduce((sum, o) => sum + (o.value || 0), 0);
-    const weightedValue = active.reduce(
-      (sum, o) => sum + (o.value || 0) * ((o.probability || 50) / 100),
-      0
-    );
+    const overdueCount = active.filter((o) => isNextStepOverdue(o.nextStepDue)).length;
+    const atRiskCount = active.filter((o) => o.dealHealth === 'at_risk' || o.dealHealth === 'stalled').length;
 
     const byStage: Record<string, { count: number; value: number }> = {};
     for (const stage of STAGES) {
@@ -110,7 +122,8 @@ export function PipelineOpportunitiesClient({
     return {
       active: active.length,
       activeValue,
-      weightedValue,
+      overdueCount,
+      atRiskCount,
       byStage,
       won: byStage['Won']?.count || 0,
       wonValue: byStage['Won']?.value || 0,
@@ -148,9 +161,9 @@ export function PipelineOpportunitiesClient({
               <strong>To set up opportunities:</strong>
             </p>
             <ul className="mt-2 space-y-1 text-sm text-blue-300">
-              <li>• Create an "Opportunities" table in Airtable</li>
-              <li>• Fields: Name, Company (linked), Stage, Value, Close Date</li>
-              <li>• Stages: Discovery, Proposal, Contract, Won, Lost</li>
+              <li>Create an Opportunities table in Airtable</li>
+              <li>Fields: Name, Company (linked), Stage, Value, Close Date, Deal Health, Next Step, Next Step Due</li>
+              <li>Stages: Interest Confirmed, Discovery / Clarification, Solution Shaping, Proposal / RFP Submitted, Decision, Won, Lost, Dormant</li>
             </ul>
           </div>
         </div>
@@ -173,10 +186,10 @@ export function PipelineOpportunitiesClient({
           <div className="text-xs text-slate-500">Pipeline Value</div>
         </div>
         <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
-          <div className="text-2xl font-bold text-purple-400">
-            {formatCurrency(stats.weightedValue)}
+          <div className={`text-2xl font-bold ${stats.overdueCount > 0 ? 'text-red-400' : 'text-slate-400'}`}>
+            {stats.overdueCount}
           </div>
-          <div className="text-xs text-slate-500">Weighted Value</div>
+          <div className="text-xs text-slate-500">Overdue Next Steps</div>
         </div>
         <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
           <div className="text-2xl font-bold text-emerald-400">
@@ -269,6 +282,24 @@ export function PipelineOpportunitiesClient({
             </select>
           </div>
 
+          {/* Health Filter */}
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">
+              Health
+            </label>
+            <select
+              value={healthFilter}
+              onChange={(e) => setHealthFilter(e.target.value)}
+              className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            >
+              <option value="all">All</option>
+              <option value="overdue">Overdue</option>
+              <option value="on_track">On Track</option>
+              <option value="at_risk">At Risk</option>
+              <option value="stalled">Stalled</option>
+            </select>
+          </div>
+
           {/* Company Filter */}
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1">
@@ -310,14 +341,17 @@ export function PipelineOpportunitiesClient({
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
                   Stage
                 </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                  Health
+                </th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                  Next Step
+                </th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
                   Value
                 </th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
                   Close Date
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
-                  Owner
                 </th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
                   Actions
@@ -325,78 +359,105 @@ export function PipelineOpportunitiesClient({
               </tr>
             </thead>
             <tbody>
-              {filteredOpportunities.map((opp) => (
-                <tr
-                  key={opp.id}
-                  className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
-                >
-                  <td className="px-4 py-3">
-                    <div className="text-slate-200 font-medium">
-                      {opp.deliverableName || opp.companyName}
-                    </div>
-                    {opp.deliverableName && (
-                      <div className="text-xs text-slate-500 mt-0.5">
-                        {opp.companyName}
+              {filteredOpportunities.map((opp) => {
+                const isOverdue = isNextStepOverdue(opp.nextStepDue);
+                return (
+                  <tr
+                    key={opp.id}
+                    className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
+                  >
+                    <td className="px-4 py-3">
+                      <div className="text-slate-200 font-medium">
+                        {opp.deliverableName || opp.companyName}
                       </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {opp.companyId ? (
-                      <Link
-                        href={`/c/${opp.companyId}`}
-                        className="text-amber-500 hover:text-amber-400 text-xs"
-                      >
-                        {opp.companyName || 'View Company'}
-                      </Link>
-                    ) : (
-                      <span className="text-slate-400 text-xs">{opp.companyName}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getStageColorClasses(opp.stage)}`}
-                    >
-                      {opp.stage}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <span className="text-slate-200 font-medium">
-                      {formatCurrency(opp.value)}
-                    </span>
-                    {opp.probability && (
-                      <span className="text-xs text-slate-500 ml-1">
-                        ({opp.probability}%)
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400 text-xs">
-                    {formatDate(opp.closeDate)}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400 text-xs">
-                    {opp.owner || '—'}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      {opp.companyDomain && (
-                        <Link
-                          href={`/snapshot?url=${encodeURIComponent(
-                            opp.companyDomain
-                          )}`}
-                          className="text-xs text-blue-500 hover:text-blue-400 font-medium"
-                        >
-                          Run GAP
-                        </Link>
+                      {opp.deliverableName && (
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          {opp.companyName}
+                        </div>
                       )}
-                      <Link
-                        href={`/pipeline/opportunities/${opp.id}`}
-                        className="text-xs text-amber-500 hover:text-amber-400 font-medium"
+                    </td>
+                    <td className="px-4 py-3">
+                      {opp.companyId ? (
+                        <Link
+                          href={`/c/${opp.companyId}`}
+                          className="text-amber-500 hover:text-amber-400 text-xs"
+                        >
+                          {opp.companyName || 'View Company'}
+                        </Link>
+                      ) : (
+                        <span className="text-slate-400 text-xs">{opp.companyName}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getStageColorClasses(opp.stage)}`}
                       >
-                        View →
-                      </Link>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        {getStageLabel(opp.stage)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {opp.dealHealth ? (
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getDealHealthColorClasses(opp.dealHealth)}`}
+                        >
+                          {getDealHealthLabel(opp.dealHealth)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-600 text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="max-w-[180px]">
+                        {opp.nextStep ? (
+                          <>
+                            <div className="text-slate-300 text-xs truncate">{opp.nextStep}</div>
+                            {opp.nextStepDue && (
+                              <div
+                                className={`text-xs ${
+                                  isOverdue ? 'text-red-400 font-medium' : 'text-slate-500'
+                                }`}
+                              >
+                                {isOverdue ? '⚠️ ' : ''}
+                                {formatDate(opp.nextStepDue)}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-slate-600 text-xs">No next step</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="text-slate-200 font-medium">
+                        {formatCurrency(opp.value)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-400 text-xs">
+                      {formatDate(opp.closeDate)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {opp.companyDomain && (
+                          <Link
+                            href={`/snapshot?url=${encodeURIComponent(
+                              opp.companyDomain
+                            )}`}
+                            className="text-xs text-blue-500 hover:text-blue-400 font-medium"
+                          >
+                            Run GAP
+                          </Link>
+                        )}
+                        <Link
+                          href={`/pipeline/opportunities/${opp.id}`}
+                          className="text-xs text-amber-500 hover:text-amber-400 font-medium"
+                        >
+                          View →
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -112,7 +112,6 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
       submenu: [
         { name: 'Dashboard', href: '/pipeline' },
         { name: 'Opportunities', href: '/pipeline/opportunities' },
-        { name: 'Leads', href: '/pipeline/leads' },
       ],
     },
     {

@@ -13,7 +13,6 @@ export function computePipelineKpis(
   leads: InboundLeadItem[]
 ): PipelineKpis {
   let totalPipelineValue = 0;
-  let weightedPipelineValue = 0;
   const stageMap: Record<string, { count: number; value: number }> = {};
   const ownerMap: Record<string, { count: number; value: number }> = {};
   const leadsStatusMap: Record<string, number> = {};
@@ -22,14 +21,10 @@ export function computePipelineKpis(
   // Process opportunities
   for (const opp of opportunities) {
     const val = opp.value ?? 0;
-    const prob = opp.probability ?? 0;
 
     // Only count active opportunities for pipeline value
     if (ACTIVE_STAGES.includes(opp.stage as any)) {
       totalPipelineValue += val;
-      // Probability might be 0-1 or 0-100, normalize
-      const normalizedProb = prob > 1 ? prob / 100 : prob;
-      weightedPipelineValue += val * normalizedProb;
     }
 
     // Stage breakdown - use display label
@@ -99,7 +94,6 @@ export function computePipelineKpis(
 
   return {
     totalPipelineValue,
-    weightedPipelineValue,
     openOpportunitiesCount: opportunities.filter(o =>
       ACTIVE_STAGES.includes(o.stage as any)
     ).length,
@@ -128,11 +122,11 @@ function formatMonthLabel(monthKey: string): string {
  */
 export function calculateWinRate(opportunities: OpportunityItem[]): number {
   const closed = opportunities.filter(
-    o => o.stage === 'closed_won' || o.stage === 'closed_lost'
+    o => o.stage === 'won' || o.stage === 'lost'
   );
   if (closed.length === 0) return 0;
 
-  const won = opportunities.filter(o => o.stage === 'closed_won').length;
+  const won = opportunities.filter(o => o.stage === 'won').length;
   return (won / closed.length) * 100;
 }
 

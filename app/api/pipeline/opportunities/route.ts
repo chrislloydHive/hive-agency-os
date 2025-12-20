@@ -22,10 +22,11 @@ export async function POST(request: NextRequest) {
       name,
       stage,
       value,
-      probability,
       closeDate,
       owner,
       notes,
+      nextStep,
+      nextStepDue,
     } = body;
 
     // Validate required field
@@ -42,10 +43,11 @@ export async function POST(request: NextRequest) {
       name: name.trim(),
       stage: (stage as PipelineStage) || 'discovery',
       value: value ? Number(value) : undefined,
-      probability: probability ? Number(probability) / 100 : undefined, // Convert from percentage
       closeDate: closeDate || undefined,
       owner: owner || undefined,
       notes: notes || undefined,
+      nextStep: nextStep || undefined,
+      nextStepDue: nextStepDue || undefined,
     });
 
     if (!opportunity) {

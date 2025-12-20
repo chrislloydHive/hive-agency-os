@@ -2,12 +2,14 @@
 // Shared types for the Pipeline subsystem
 
 export type PipelineStage =
-  | 'discovery'
-  | 'qualification'
-  | 'proposal'
-  | 'negotiation'
-  | 'closed_won'
-  | 'closed_lost';
+  | 'interest_confirmed'
+  | 'discovery_clarification'
+  | 'solution_shaping'
+  | 'proposal_submitted'
+  | 'decision'
+  | 'won'
+  | 'lost'
+  | 'dormant';
 
 export interface OpportunityItem {
   id: string;
@@ -18,26 +20,44 @@ export interface OpportunityItem {
   leadStatus?: string | null;
   owner?: string | null;
   value?: number | null;
-  probability?: number | null; // 0-1 or 0-100 normalized in code
-  closeDate?: string | null; // ISO date
+  closeDate?: string | null; // ISO date - Expected Close Date
   createdAt?: string | null;
   notes?: string | null;
+  source?: string | null; // Lead source / how opportunity was acquired
 
-  // Workflow fields (Phase 2.8)
+  // Workflow fields - primary indicators
   nextStep?: string | null; // Free text for next action
   nextStepDue?: string | null; // ISO date when next step is due
   lastActivityAt?: string | null; // Auto-updated on any update
+  stageEnteredAt?: string | null; // ISO datetime when current stage was entered (used for Won date baseline)
+
+  // Deal Health (from Airtable, not computed)
+  dealHealth?: 'on_track' | 'at_risk' | 'stalled' | null;
+
+  // Airtable-managed linked records
+  engagements?: string[] | null; // Linked Engagement record IDs (populated by Airtable automation)
+  opportunityType?: string | null; // Single select: e.g., "New Business", "Expansion", "Renewal", "RFP Response"
+
+  // Buying Process fields
+  decisionOwner?: string | null; // Name/role of primary decision maker
+  decisionDate?: string | null; // ISO date - when decision will be made
+  budgetConfidence?: 'confirmed' | 'likely' | 'unknown' | 'no_budget' | null;
+  knownCompetitors?: string | null; // Free text list of competitors in deal
+
+  // RFP-specific fields (only relevant when opportunityType === "RFP Response")
+  rfpDueDate?: string | null; // ISO date - RFP submission deadline
+  rfpDecisionDate?: string | null; // ISO date - when RFP decision will be announced
+  rfpLink?: string | null; // URL to RFP document or portal
 
   // From CRM, if available:
   industry?: string | null;
   companyType?: string | null;
   sizeBand?: string | null;
-  icpFitScore?: number | null;
-  leadScore?: number | null;
 
-  // AI scoring:
-  opportunityScore?: number | null; // 0–100 AI-derived
-  opportunityScoreExplanation?: string | null;
+  // Activity thread fields (from Airtable rollups, if available)
+  activitiesCount?: number | null;
+  externalThreadUrl?: string | null; // Primary thread URL (e.g., Slack, Notion)
+  gmailThreadId?: string | null; // Gmail thread ID for "Open in Gmail" link
 }
 
 export interface InboundLeadItem {
@@ -200,7 +220,6 @@ export type InboundLeadAnalysisStatus = 'none' | 'pending' | 'has_analysis';
 
 export interface PipelineKpis {
   totalPipelineValue: number;
-  weightedPipelineValue: number;
   openOpportunitiesCount: number;
   opportunitiesByStage: { stage: string; count: number; value: number }[];
   opportunitiesByOwner: { owner: string; count: number; value: number }[];
@@ -210,17 +229,70 @@ export interface PipelineKpis {
 }
 
 /**
- * Normalize raw stage string to PipelineStage
+ * Deal Health type for Airtable-first pipeline
+ */
+export type DealHealth = 'on_track' | 'at_risk' | 'stalled';
+
+/**
+ * Get display label for deal health
+ */
+export function getDealHealthLabel(health: DealHealth | null | undefined): string {
+  const labels: Record<DealHealth, string> = {
+    on_track: 'On Track',
+    at_risk: 'At Risk',
+    stalled: 'Stalled',
+  };
+  return health ? labels[health] || 'Unknown' : '—';
+}
+
+/**
+ * Get color classes for deal health
+ */
+export function getDealHealthColorClasses(health: DealHealth | null | undefined): string {
+  const colors: Record<DealHealth, string> = {
+    on_track: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    at_risk: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    stalled: 'bg-red-500/10 text-red-400 border-red-500/30',
+  };
+  return health ? colors[health] || 'bg-slate-500/10 text-slate-400 border-slate-500/30' : 'bg-slate-500/10 text-slate-400 border-slate-500/30';
+}
+
+/**
+ * Check if a next step is overdue
+ */
+export function isNextStepOverdue(nextStepDue: string | null | undefined): boolean {
+  if (!nextStepDue) return false;
+  const today = new Date().toISOString().split('T')[0];
+  return nextStepDue < today;
+}
+
+/**
+ * Normalize raw stage string from Airtable to PipelineStage
  */
 export function normalizeStage(raw?: string | null): PipelineStage | 'other' {
   if (!raw) return 'other';
-  const r = raw.toLowerCase();
-  if (r.includes('discover')) return 'discovery';
-  if (r.includes('qual')) return 'qualification';
-  if (r.includes('proposal') || r.includes('quote')) return 'proposal';
-  if (r.includes('negotiation') || r.includes('contract')) return 'negotiation';
-  if (r.includes('won') || r.includes('closed won')) return 'closed_won';
-  if (r.includes('lost') || r.includes('closed lost')) return 'closed_lost';
+  const r = raw.toLowerCase().trim();
+
+  // Exact matches for Airtable stages
+  if (r === 'interest confirmed') return 'interest_confirmed';
+  if (r === 'discovery / clarification' || r === 'discovery/clarification') return 'discovery_clarification';
+  if (r === 'solution shaping') return 'solution_shaping';
+  if (r === 'proposal / rfp submitted' || r === 'proposal/rfp submitted') return 'proposal_submitted';
+  if (r === 'decision') return 'decision';
+  if (r === 'won') return 'won';
+  if (r === 'lost') return 'lost';
+  if (r === 'dormant') return 'dormant';
+
+  // Fuzzy fallbacks for legacy data
+  if (r.includes('interest')) return 'interest_confirmed';
+  if (r.includes('discover') || r.includes('clarif')) return 'discovery_clarification';
+  if (r.includes('solution') || r.includes('shaping')) return 'solution_shaping';
+  if (r.includes('proposal') || r.includes('rfp')) return 'proposal_submitted';
+  if (r.includes('decision') || r.includes('negotiat')) return 'decision';
+  if (r.includes('won')) return 'won';
+  if (r.includes('lost')) return 'lost';
+  if (r.includes('dormant') || r.includes('stalled')) return 'dormant';
+
   return 'other';
 }
 
@@ -229,12 +301,14 @@ export function normalizeStage(raw?: string | null): PipelineStage | 'other' {
  */
 export function getStageLabel(stage: PipelineStage | 'other'): string {
   const labels: Record<PipelineStage | 'other', string> = {
-    discovery: 'Discovery',
-    qualification: 'Qualification',
-    proposal: 'Proposal',
-    negotiation: 'Negotiation',
-    closed_won: 'Won',
-    closed_lost: 'Lost',
+    interest_confirmed: 'Interest Confirmed',
+    discovery_clarification: 'Discovery / Clarification',
+    solution_shaping: 'Solution Shaping',
+    proposal_submitted: 'Proposal / RFP Submitted',
+    decision: 'Decision',
+    won: 'Won',
+    lost: 'Lost',
+    dormant: 'Dormant',
     other: 'Other',
   };
   return labels[stage] || 'Other';
@@ -245,12 +319,14 @@ export function getStageLabel(stage: PipelineStage | 'other'): string {
  */
 export function getStageColorClass(stage: PipelineStage | 'other'): string {
   const colors: Record<PipelineStage | 'other', string> = {
-    discovery: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
-    qualification: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
-    proposal: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
-    negotiation: 'bg-orange-500/10 text-orange-400 border-orange-500/30',
-    closed_won: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-    closed_lost: 'bg-red-500/10 text-red-400 border-red-500/30',
+    interest_confirmed: 'bg-sky-500/10 text-sky-400 border-sky-500/30',
+    discovery_clarification: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
+    solution_shaping: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
+    proposal_submitted: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    decision: 'bg-orange-500/10 text-orange-400 border-orange-500/30',
+    won: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    lost: 'bg-red-500/10 text-red-400 border-red-500/30',
+    dormant: 'bg-slate-500/10 text-slate-400 border-slate-500/30',
     other: 'bg-slate-500/10 text-slate-400 border-slate-500/30',
   };
   return colors[stage] || colors.other;
@@ -260,22 +336,25 @@ export function getStageColorClass(stage: PipelineStage | 'other'): string {
  * Active pipeline stages (not closed)
  */
 export const ACTIVE_STAGES: PipelineStage[] = [
-  'discovery',
-  'qualification',
-  'proposal',
-  'negotiation',
+  'interest_confirmed',
+  'discovery_clarification',
+  'solution_shaping',
+  'proposal_submitted',
+  'decision',
 ];
 
 /**
  * All pipeline stages in order
  */
 export const ALL_STAGES: (PipelineStage | 'other')[] = [
-  'discovery',
-  'qualification',
-  'proposal',
-  'negotiation',
-  'closed_won',
-  'closed_lost',
+  'interest_confirmed',
+  'discovery_clarification',
+  'solution_shaping',
+  'proposal_submitted',
+  'decision',
+  'won',
+  'lost',
+  'dormant',
   'other',
 ];
 
@@ -325,22 +404,25 @@ export function getLeadStatusColorClasses(status?: string | null): string {
  * Opportunity stages using display labels for UI compatibility
  */
 export const OPPORTUNITY_STAGES = [
-  'Discovery',
-  'Qualification',
-  'Proposal',
-  'Negotiation',
+  'Interest Confirmed',
+  'Discovery / Clarification',
+  'Solution Shaping',
+  'Proposal / RFP Submitted',
+  'Decision',
   'Won',
   'Lost',
+  'Dormant',
 ] as const;
 
 /**
  * Active opportunity stages (not closed)
  */
 export const ACTIVE_OPPORTUNITY_STAGES = [
-  'Discovery',
-  'Qualification',
-  'Proposal',
-  'Negotiation',
+  'Interest Confirmed',
+  'Discovery / Clarification',
+  'Solution Shaping',
+  'Proposal / RFP Submitted',
+  'Decision',
 ] as const;
 
 /**
@@ -348,13 +430,119 @@ export const ACTIVE_OPPORTUNITY_STAGES = [
  */
 export function getStageColorClasses(stage?: string | null): string {
   const colors: Record<string, string> = {
-    Discovery: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
-    Qualification: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
-    Proposal: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
-    Negotiation: 'bg-orange-500/10 text-orange-400 border-orange-500/30',
-    Won: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-    Lost: 'bg-red-500/10 text-red-400 border-red-500/30',
-    Other: 'bg-slate-500/10 text-slate-400 border-slate-500/30',
+    'Interest Confirmed': 'bg-sky-500/10 text-sky-400 border-sky-500/30',
+    'Discovery / Clarification': 'bg-blue-500/10 text-blue-400 border-blue-500/30',
+    'Solution Shaping': 'bg-purple-500/10 text-purple-400 border-purple-500/30',
+    'Proposal / RFP Submitted': 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    'Decision': 'bg-orange-500/10 text-orange-400 border-orange-500/30',
+    'Won': 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    'Lost': 'bg-red-500/10 text-red-400 border-red-500/30',
+    'Dormant': 'bg-slate-500/10 text-slate-400 border-slate-500/30',
+    'Other': 'bg-slate-500/10 text-slate-400 border-slate-500/30',
   };
   return colors[stage || ''] || colors.Other;
+}
+
+// ============================================================================
+// Forecast Types
+// ============================================================================
+
+/**
+ * Forecast bucket categories based on deal health and stage
+ */
+export type ForecastBucket = 'likely' | 'possible' | 'unlikely' | 'dormant';
+
+/**
+ * Time windows for forecast based on expected close date
+ */
+export type ForecastTimeWindow = 'next30' | 'days31to90' | 'days91plus' | 'noCloseDate';
+
+/**
+ * Single forecast bucket summary
+ */
+export interface ForecastBucketSummary {
+  bucket: ForecastBucket;
+  count: number;
+  totalValue: number;
+  opportunityIds: string[];
+}
+
+/**
+ * Time window breakdown within a bucket
+ */
+export interface ForecastTimeWindowBreakdown {
+  timeWindow: ForecastTimeWindow;
+  count: number;
+  totalValue: number;
+}
+
+/**
+ * Stage breakdown within the forecast
+ */
+export interface ForecastStageBreakdown {
+  stage: PipelineStage | 'other';
+  bucket: ForecastBucket;
+  count: number;
+  totalValue: number;
+}
+
+/**
+ * Complete forecast data returned by API
+ */
+export interface PipelineForecastData {
+  /** Total value of all open pipeline (excluding won/lost) */
+  totalOpenValue: number;
+  /** Total count of open opportunities */
+  totalOpenCount: number;
+  /** Summary by forecast bucket */
+  buckets: ForecastBucketSummary[];
+  /** Breakdown by time window */
+  byTimeWindow: ForecastTimeWindowBreakdown[];
+  /** Breakdown by stage and bucket */
+  byStage: ForecastStageBreakdown[];
+  /** Dormant opportunities (separate from open pipeline) */
+  dormant: {
+    count: number;
+    totalValue: number;
+    opportunityIds: string[];
+  };
+}
+
+/**
+ * Get display label for forecast bucket
+ */
+export function getForecastBucketLabel(bucket: ForecastBucket): string {
+  const labels: Record<ForecastBucket, string> = {
+    likely: 'Likely',
+    possible: 'Possible',
+    unlikely: 'Unlikely',
+    dormant: 'Dormant',
+  };
+  return labels[bucket];
+}
+
+/**
+ * Get color classes for forecast bucket
+ */
+export function getForecastBucketColorClasses(bucket: ForecastBucket): string {
+  const colors: Record<ForecastBucket, string> = {
+    likely: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    possible: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    unlikely: 'bg-red-500/10 text-red-400 border-red-500/30',
+    dormant: 'bg-slate-500/10 text-slate-400 border-slate-500/30',
+  };
+  return colors[bucket];
+}
+
+/**
+ * Get display label for time window
+ */
+export function getTimeWindowLabel(window: ForecastTimeWindow): string {
+  const labels: Record<ForecastTimeWindow, string> = {
+    next30: 'Next 30 Days',
+    days31to90: '31-90 Days',
+    days91plus: '91+ Days',
+    noCloseDate: 'No Close Date',
+  };
+  return labels[window];
 }
