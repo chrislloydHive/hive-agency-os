@@ -736,6 +736,7 @@ export interface CreateWorkItemInput {
   status?: WorkItemStatus;
   source?: WorkSource;
   aiAdditionalInfo?: string;
+  dueDate?: string; // ISO date string
 }
 
 /**
@@ -756,6 +757,7 @@ export async function createWorkItem(
     status = 'Backlog',
     source,
     aiAdditionalInfo,
+    dueDate,
   } = input;
 
   console.log('[Work Items] Creating generic work item:', {
@@ -786,6 +788,10 @@ export async function createWorkItem(
 
   if (aiAdditionalInfo) {
     fields[WORK_ITEMS_FIELDS.AI_ADDITIONAL_INFO] = aiAdditionalInfo;
+  }
+
+  if (dueDate) {
+    fields[WORK_ITEMS_FIELDS.DUE_DATE] = dueDate;
   }
 
   try {

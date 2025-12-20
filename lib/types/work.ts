@@ -97,7 +97,8 @@ export type WorkSourceType =
   | 'strategy_play'
   | 'strategy_handoff'
   | 'creative_brief'
-  | 'user_prescribed';
+  | 'user_prescribed'
+  | 'postwon_onboarding';
 
 /**
  * Analytics metric source - when work is created from an analytics insight
@@ -333,6 +334,24 @@ export interface WorkSourceUserPrescribed {
 }
 
 /**
+ * Post-Won Onboarding source - when work is created from Won opportunity onboarding
+ * Used to seed initial work items when an Engagement is linked to a Won opportunity
+ */
+export interface WorkSourcePostWonOnboarding {
+  sourceType: 'postwon_onboarding';
+  /** Engagement ID - used as idempotency key */
+  engagementId: string;
+  /** Opportunity ID that was won */
+  opportunityId: string;
+  /** Company ID for the engagement */
+  companyId: string;
+  /** Template key identifying which onboarding item this is */
+  templateKey: string;
+  /** When this was seeded */
+  seededAt: string;
+}
+
+/**
  * Union of all work source types
  */
 export type WorkSource =
@@ -353,7 +372,8 @@ export type WorkSource =
   | WorkSourceStrategyPlay
   | WorkSourceStrategyHandoff
   | WorkSourceCreativeBrief
-  | WorkSourceUserPrescribed;
+  | WorkSourceUserPrescribed
+  | WorkSourcePostWonOnboarding;
 
 // ============================================================================
 // Work Item Types
@@ -534,6 +554,8 @@ export function getSourceLabel(source?: WorkSource): string {
       return `Creative Brief → ${source.briefTitle}`;
     case 'user_prescribed':
       return `User Prescribed → ${source.workType.replace('_', ' ')}`;
+    case 'postwon_onboarding':
+      return 'Post-Won Onboarding';
     default:
       return 'Unknown';
   }
