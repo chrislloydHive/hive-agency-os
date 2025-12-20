@@ -390,9 +390,8 @@ export async function POST(request: Request) {
         filterKnownFields(
           {
             Name: oppName,  // Primary field is 'Name' (not 'Deliverable Name')
-            Stage: "Discovery",
+            Stage: "Interest Confirmed",  // Valid Airtable stage (not "Discovery")
             Company: [company.id],
-            // Note: 'Rep Notes' field may not exist - Gmail context is in Activity instead
           },
           KNOWN_OPPORTUNITY_FIELDS
         )
@@ -458,7 +457,7 @@ export async function POST(request: Request) {
       opportunity: {
         id: opportunity.id,
         name: opportunity.fields?.Name || opportunity.fields?.["Deliverable Name"] || subject || "Email Opportunity",
-        stage: opportunity.fields?.Stage || "Discovery",
+        stage: opportunity.fields?.Stage || "Interest Confirmed",
       },
       activity: {
         id: activity.id,
