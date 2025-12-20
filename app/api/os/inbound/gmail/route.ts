@@ -71,8 +71,7 @@ const KNOWN_OPPORTUNITY_FIELDS = new Set([
   'Name',              // Primary field (NOT 'Deliverable Name')
   'Stage',
   'Company',
-  'Rep Notes',
-  'Notes',
+  // Note: 'Rep Notes' and 'Notes' may not exist - omit to avoid errors
   'Value',
   'Value (USD)',
   'Close Date',
@@ -393,7 +392,7 @@ export async function POST(request: Request) {
             Name: oppName,  // Primary field is 'Name' (not 'Deliverable Name')
             Stage: "Discovery",
             Company: [company.id],
-            "Rep Notes": `Created from Gmail\nFrom: ${from.email}\nThread: ${gmailThreadId}`,
+            // Note: 'Rep Notes' field may not exist - Gmail context is in Activity instead
           },
           KNOWN_OPPORTUNITY_FIELDS
         )
