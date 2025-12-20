@@ -225,7 +225,7 @@ export async function createOpportunity(params: {
     const base = getBase();
 
     const fields: Record<string, unknown> = {
-      'Name': params.name,  // Primary field
+      'Deliverable Name': params.name,
       Stage: params.stage ? getAirtableStage(params.stage) : 'Interest Confirmed',
     };
 
@@ -242,7 +242,7 @@ export async function createOpportunity(params: {
       fields['Opportunity Owner'] = params.owner;
     }
     if (params.notes) {
-      fields['Rep Notes'] = params.notes;
+      fields['Notes'] = params.notes;
     }
     if (params.nextStep) {
       fields['Next Step'] = params.nextStep;
@@ -556,8 +556,7 @@ export async function updateOpportunity(
       fields['Value (USD)'] = updates.value;
     }
     if (updates.deliverableName !== undefined) {
-      // Primary field is 'Name' in Airtable (not 'Deliverable Name')
-      fields['Name'] = toAirtable(updates.deliverableName);
+      fields['Deliverable Name'] = toAirtable(updates.deliverableName);
     }
     if (updates.closeDate !== undefined) {
       fields['Expected Close Date'] = toAirtable(updates.closeDate);
@@ -566,7 +565,7 @@ export async function updateOpportunity(
       fields['Opportunity Owner'] = toAirtable(updates.owner);
     }
     if (updates.notes !== undefined) {
-      fields['Rep Notes'] = toAirtable(updates.notes);
+      fields['Notes'] = toAirtable(updates.notes);
     }
     if (updates.source !== undefined) {
       fields['Opportunity Source'] = toAirtable(updates.source);

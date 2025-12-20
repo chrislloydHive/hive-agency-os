@@ -68,18 +68,13 @@ const KNOWN_ACTIVITY_FIELDS = new Set([
 ]);
 
 const KNOWN_OPPORTUNITY_FIELDS = new Set([
-  'Name',              // Primary field (NOT 'Deliverable Name')
+  'Deliverable Name',
   'Stage',
   'Company',
-  // Note: 'Rep Notes' and 'Notes' may not exist - omit to avoid errors
-  'Value',
   'Value (USD)',
-  'Close Date',
   'Expected Close Date',
-  'Owner',
-  'Rep',
+  'Opportunity Owner',
   'Opportunity Source',
-  'Lead Source',
 ]);
 
 /**
@@ -405,7 +400,7 @@ export async function POST(request: Request) {
         TABLE_OPPORTUNITIES,
         filterKnownFields(
           {
-            Name: oppName,  // Primary field is 'Name' (not 'Deliverable Name')
+            'Deliverable Name': oppName,
             Stage: "Interest Confirmed",  // Valid Airtable stage (not "Discovery")
             Company: [company.id],
           },
