@@ -1,14 +1,20 @@
 // app/api/pipeline/dma-contact/route.ts
 // API endpoint for DMA Full GAP "Contact Us" form submissions
 //
-// LEAD-FIRST DESIGN:
-// - Creates or updates a pipeline lead from DMA
-// - Company is optional - if provided or matched, we link; if not, lead stays unlinked
-// - Never creates a company - leads can be converted later
+// AUTO-CONVERT PIPELINE (OS-First Model):
+// 1. Creates or updates Inbound Lead from DMA (Status="New", NO Pipeline Stage)
+// 2. Upserts Company by domain (idempotent - never duplicates)
+// 3. Upserts Opportunity for company (idempotent - never duplicates)
+// 4. Links Lead → Opportunity
+//
+// Idempotency: Uses getOrCreateDmaOpportunityForLead which searches by:
+//   Company + Opportunity Type="Inbound Interest" + Source="DMA Full GAP" + Open Stage
+// This prevents duplicates WITHOUT needing a "Converted Opportunity" field.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createOrUpdatePipelineLeadFromDmaV2 } from '@/lib/airtable/inboundLeads';
-import { getCompanyById, findCompanyByDomain, normalizeDomain } from '@/lib/airtable/companies';
+import { createOrUpdatePipelineLeadFromDmaV2, updateLeadLinkedOpportunity, linkLeadToCompany } from '@/lib/airtable/inboundLeads';
+import { getCompanyById, findCompanyByDomain, normalizeDomain, upsertCompanyByDomain } from '@/lib/airtable/companies';
+import { getOrCreateDmaOpportunityForLead } from '@/lib/airtable/opportunities';
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,7 +42,9 @@ export async function POST(request: NextRequest) {
       lead_created: false,
       lead_updated: false,
       company_linked: false,
-      company_created: false, // Always false - lead-first design
+      company_created: false,
+      opportunity_created: false,
+      opportunity_linked: false,
     };
 
     // Try to find/link company (optional)
@@ -97,14 +105,81 @@ export async function POST(request: NextRequest) {
     telemetry.lead_created = result.isNew;
     telemetry.lead_updated = !result.isNew;
 
+    // AUTO-CONVERT: Upsert Company and Opportunity if we have a website
+    let opportunityId: string | null = null;
+    let opportunityReused = false;
+    const normalizedDomain = website ? normalizeDomain(website) : null;
+
+    if (normalizedDomain) {
+      try {
+        // Step 1: Upsert Company by domain (idempotent)
+        const companyResult = await upsertCompanyByDomain(
+          normalizedDomain,
+          companyName || undefined,
+          website || undefined,
+          'DMA' // source
+        );
+
+        telemetry.company_created = companyResult.isNew;
+        telemetry.company_linked = true;
+
+        const companyForOpportunity = companyResult.company;
+        console.log(`[DMA Contact] Company upsert: ${companyForOpportunity.id} (${companyForOpportunity.name}), isNew=${companyResult.isNew}`);
+
+        // Step 2: Link lead to company if not already linked
+        if (!linkedCompanyId || linkedCompanyId !== companyForOpportunity.id) {
+          await linkLeadToCompany(result.lead.id, companyForOpportunity.id);
+          console.log(`[DMA Contact] Linked lead ${result.lead.id} to company ${companyForOpportunity.id}`);
+        }
+
+        // Step 3: Upsert Opportunity (idempotent - won't duplicate)
+        // Search criteria: Company + Type="Inbound Interest" + Source="DMA Full GAP" + Open Stage
+        const opportunityResult = await getOrCreateDmaOpportunityForLead({
+          companyId: companyForOpportunity.id,
+          inboundLeadId: result.lead.id,
+          normalizedDomain,
+        });
+
+        opportunityId = opportunityResult.opportunity.id;
+        opportunityReused = opportunityResult.reused;
+        telemetry.opportunity_created = opportunityResult.isNew;
+        telemetry.opportunity_linked = true;
+
+        console.log(`[DMA Contact] Opportunity upsert: ${opportunityId}, isNew=${opportunityResult.isNew}, reused=${opportunityResult.reused}`);
+
+        // Step 4: Link lead to opportunity
+        await updateLeadLinkedOpportunity(result.lead.id, opportunityId);
+        console.log(`[DMA Contact] Linked lead ${result.lead.id} to opportunity ${opportunityId}`);
+
+      } catch (conversionError) {
+        // Non-fatal - lead was still created, just log the error
+        console.error('[DMA Contact] Auto-convert failed (lead still created):', conversionError);
+      }
+    } else {
+      console.log('[DMA Contact] No website provided - skipping auto-convert');
+    }
+
+    // Build response
+    const converted = opportunityId !== null;
+    const companyId = telemetry.company_linked ? (linkedCompanyId || null) : null;
+
     console.log('[DMA Contact] Completed:', {
       leadId: result.lead.id,
       isNew: result.isNew,
-      companyLinked: telemetry.company_linked,
-      companyCreated: telemetry.company_created, // Always false
+      opportunityId,
+      converted,
+      reused: opportunityReused,
+      ...telemetry,
     });
 
     return NextResponse.json({
+      ok: true,
+      inboundLeadId: result.lead.id,
+      companyId,
+      opportunityId,
+      converted,
+      reused: opportunityReused,
+      // Legacy fields for backwards compatibility
       success: true,
       leadId: result.lead.id,
       isNew: result.isNew,

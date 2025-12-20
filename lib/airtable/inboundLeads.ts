@@ -310,11 +310,12 @@ export async function createOrUpdatePipelineLeadFromDma(params: {
     }
 
     // Create new lead
+    // OS-First Pipeline: Do NOT write Pipeline Stage - that's an Opportunity concern
     const fields: Record<string, unknown> = {
       'Email': params.contactEmail,
       'Lead Source': 'DMA Full GAP',
       'Status': 'New',
-      'Pipeline Stage': 'New',
+      // Note: Pipeline Stage intentionally NOT set - opportunities handle stages
       'Created At': now,
       'Last Activity At': now,
       'Company': [params.companyId],
@@ -539,11 +540,13 @@ export async function createOrUpdatePipelineLeadFromDmaV2(params: {
     }
 
     // Create new lead
+    // OS-First Pipeline: Do NOT write Pipeline Stage - that's an Opportunity concern
+    // Status="New" is used for basic triage only
     const fields: Record<string, unknown> = {
       'Email': params.contactEmail,
       'Lead Source': 'DMA Full GAP',
       'Status': 'New',
-      'Pipeline Stage': 'New',
+      // Note: Pipeline Stage intentionally NOT set - opportunities handle stages
       'Created At': now,
       'Last Activity At': now,
     };

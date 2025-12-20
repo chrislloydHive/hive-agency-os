@@ -66,14 +66,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create opportunity
+    // Create opportunity with OS-First Pipeline fields
+    // - Stage: interest_confirmed (default for inbound leads)
+    // - Opportunity Type: "Inbound Interest" for DMA/GAP-IA leads
+    // - Source Lead: link to the Inbound Lead record
+    // - Source: attribution from lead source
+    // - Never create Engagement on conversion
     const opportunity = await createOpportunity({
       companyId: lead.companyId,
       name: `${company.name} - New Opportunity`,
-      stage: stage || 'discovery',
+      stage: stage || 'interest_confirmed',
       value: value || undefined,
       owner: lead.assignee || undefined,
       notes: lead.notes || undefined,
+      // OS-First Pipeline: Set Opportunity Type based on lead source
+      opportunityType: 'Inbound Interest',
+      // OS-First Pipeline: Link Source Lead
+      sourceLeadId: leadId,
+      // Attribution: Carry over lead source
+      source: lead.leadSource || 'DMA',
     });
 
     if (!opportunity) {
