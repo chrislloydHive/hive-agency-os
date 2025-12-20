@@ -225,7 +225,7 @@ export async function createOpportunity(params: {
     const base = getBase();
 
     const fields: Record<string, unknown> = {
-      'Deliverable Name': params.name,
+      'Name': params.name,  // Primary field
       Stage: params.stage ? getAirtableStage(params.stage) : 'Interest Confirmed',
     };
 
@@ -236,7 +236,7 @@ export async function createOpportunity(params: {
       fields['Value (USD)'] = params.value;
     }
     if (params.closeDate) {
-      fields['Close Date'] = params.closeDate;
+      fields['Expected Close Date'] = params.closeDate;
     }
     if (params.owner) {
       fields['Owner'] = params.owner;
@@ -248,7 +248,7 @@ export async function createOpportunity(params: {
       fields['Next Step'] = params.nextStep;
     }
     if (params.nextStepDue) {
-      fields['Next Step Due'] = params.nextStepDue;
+      fields['Due Date'] = params.nextStepDue;
     }
     if (params.source) {
       fields['Opportunity Source'] = params.source;
@@ -560,7 +560,7 @@ export async function updateOpportunity(
       fields['Name'] = toAirtable(updates.deliverableName);
     }
     if (updates.closeDate !== undefined) {
-      fields['Close Date'] = toAirtable(updates.closeDate);
+      fields['Expected Close Date'] = toAirtable(updates.closeDate);
     }
     if (updates.owner !== undefined) {
       fields['Owner'] = toAirtable(updates.owner);
@@ -575,7 +575,7 @@ export async function updateOpportunity(
       fields['Next Step'] = toAirtable(updates.nextStep);
     }
     if (updates.nextStepDue !== undefined) {
-      fields['Next Step Due'] = toAirtable(updates.nextStepDue);
+      fields['Due Date'] = toAirtable(updates.nextStepDue);
     }
     // Buying Process fields
     if (updates.decisionOwner !== undefined) {
