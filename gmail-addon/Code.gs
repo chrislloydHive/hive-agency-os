@@ -120,6 +120,35 @@ function onLogActivityOnly(e) {
 }
 
 /**
+ * Handle the "Create Company Only" button click
+ * Creates a company without creating an opportunity
+ * @param {Object} e - Action event object
+ * @returns {Card} Result card
+ */
+function onCreateCompanyOnly(e) {
+  try {
+    // Parse the message data from the action parameters
+    var messageData = JSON.parse(e.parameters.messageData);
+
+    // Call the Hive API company endpoint
+    var result = callHiveCompanyApi(messageData);
+
+    if (result.status === 'created') {
+      return buildCompanyCreatedCard(result);
+    } else if (result.status === 'existing') {
+      return buildCompanyExistsCard(result);
+    } else if (result.status === 'personal_email') {
+      return buildPersonalEmailCard(messageData);
+    } else {
+      return buildErrorCard(result.message || 'Unknown error');
+    }
+  } catch (error) {
+    Logger.log('Error creating company: ' + error.message);
+    return buildErrorCard('Failed to create company: ' + error.message);
+  }
+}
+
+/**
  * Parse the From header into name and email
  * @param {string} from - From header string
  * @returns {Object} Object with email and name properties

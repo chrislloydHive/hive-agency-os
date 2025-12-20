@@ -73,6 +73,60 @@ function callHiveApi(payload) {
 }
 
 /**
+ * Call the Hive OS company-only API
+ * @param {Object} payload - Email data to send
+ * @returns {Object} API response
+ */
+function callHiveCompanyApi(payload) {
+  var config = getConfig();
+
+  if (!config.apiUrl || !config.secret) {
+    throw new Error('Hive OS configuration not set. Please configure Script Properties.');
+  }
+
+  var url = config.apiUrl.replace(/\/$/, '') + '/api/os/inbound/gmail/company';
+
+  Logger.log('Calling Hive Company API: ' + url);
+
+  var options = {
+    method: 'POST',
+    contentType: 'application/json',
+    headers: {
+      'X-Hive-Secret': config.secret
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    var responseCode = response.getResponseCode();
+    var responseText = response.getContentText();
+
+    Logger.log('Company API Response (' + responseCode + '): ' + responseText);
+
+    if (responseCode === 401) {
+      throw new Error('Authentication failed. Please check your HIVE_INBOUND_EMAIL_SECRET.');
+    }
+
+    if (responseCode >= 400) {
+      var errorData = JSON.parse(responseText);
+      throw new Error(errorData.message || 'API error: ' + responseCode);
+    }
+
+    return JSON.parse(responseText);
+  } catch (error) {
+    Logger.log('Company API Error: ' + error.message);
+
+    if (error.message.indexOf('fetch') !== -1 || error.message.indexOf('connect') !== -1) {
+      throw new Error('Could not connect to Hive OS. Please check your HIVE_API_URL.');
+    }
+
+    throw error;
+  }
+}
+
+/**
  * Test the API configuration (for debugging)
  * @returns {Object} Test result
  */

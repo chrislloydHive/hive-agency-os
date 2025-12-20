@@ -7,10 +7,12 @@
 // Shows company identity, key metrics, and AI-generated insight.
 //
 // Structure:
-// 1. Company name + lifecycle badge + stage
+// 1. Company name (editable) + lifecycle badge + stage
 // 2. Quick metrics row (sessions, conversions, GAP score, alerts)
 // 3. AI insight (1-2 sentences on situation + implied next step)
 
+import { useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Building2,
   Sparkles,
@@ -24,6 +26,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Minus,
+  Pencil,
 } from 'lucide-react';
 
 // ============================================================================
@@ -77,6 +80,7 @@ export function CompanySnapshotHeader({
   stage,
   metrics,
 }: CompanySnapshotHeaderProps) {
+  const router = useRouter();
   const lifecycleConfig = getLifecycleConfig(lifecycle);
   const hasMetrics = metrics && (
     metrics.sessions !== undefined ||
@@ -84,6 +88,52 @@ export function CompanySnapshotHeader({
     metrics.gapScore !== undefined ||
     metrics.alertCount !== undefined
   );
+
+  // Inline name editing state
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState(companyName);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleNameSave = useCallback(async () => {
+    if (!editedName.trim() || editedName.trim() === companyName) {
+      setIsEditingName(false);
+      setEditedName(companyName);
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const response = await fetch(`/api/os/companies/${companyId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editedName.trim() }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to update name');
+      }
+
+      setIsEditingName(false);
+      // Refresh the page to show updated name everywhere
+      router.refresh();
+    } catch (error) {
+      console.error('Failed to update company name:', error);
+      setEditedName(companyName);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [companyId, companyName, editedName, router]);
+
+  const handleNameKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleNameSave();
+    } else if (e.key === 'Escape') {
+      setIsEditingName(false);
+      setEditedName(companyName);
+    }
+  }, [handleNameSave, companyName]);
 
   return (
     <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
@@ -96,9 +146,27 @@ export function CompanySnapshotHeader({
             </div>
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <h1 className="text-xl font-semibold text-white">
-                  {companyName}
-                </h1>
+                {isEditingName ? (
+                  <input
+                    type="text"
+                    value={editedName}
+                    onChange={(e) => setEditedName(e.target.value)}
+                    onBlur={handleNameSave}
+                    onKeyDown={handleNameKeyDown}
+                    autoFocus
+                    disabled={isSaving}
+                    className="text-xl font-semibold text-white bg-slate-800 border border-amber-500 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-amber-500 min-w-[200px]"
+                  />
+                ) : (
+                  <h1
+                    className="text-xl font-semibold text-white cursor-pointer hover:text-amber-400 transition-colors group flex items-center gap-2"
+                    onClick={() => setIsEditingName(true)}
+                    title="Click to edit"
+                  >
+                    {companyName}
+                    <Pencil className="w-4 h-4 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </h1>
+                )}
                 <span className={`
                   inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border
                   ${lifecycleConfig.className}
