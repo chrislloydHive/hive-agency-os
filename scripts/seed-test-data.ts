@@ -95,19 +95,19 @@ async function seedTestData() {
   const opportunities = [
     {
       name: 'Website Redesign',
-      stage: 'proposal' as const,
+      stage: 'proposal_submitted' as const,
     },
     {
       name: 'SEO Campaign',
-      stage: 'discovery' as const,
+      stage: 'discovery_clarification' as const,
     },
     {
       name: 'E-commerce Optimization',
-      stage: 'negotiation' as const,
+      stage: 'decision' as const,
     },
     {
       name: 'Brand Strategy Project',
-      stage: 'qualification' as const,
+      stage: 'solution_shaping' as const,
     },
   ];
 
