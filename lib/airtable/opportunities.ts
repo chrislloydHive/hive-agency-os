@@ -48,21 +48,21 @@ function mapRecordToOpportunity(record: any): OpportunityItem {
     id: record.id,
     companyId,
     companyName,
-    deliverableName: fields['Name'] || fields['Deliverable Name'] || null,
+    deliverableName: fields['Name'] || null,
     stage: normalizeStage(fields['Stage']),
     leadStatus: fields['Lead Status'] || null,
-    owner: fields['Opportunity Owner'] || fields['Owner'] || fields['Rep'] || null,
-    value: typeof fields['Value (USD)'] === 'number' ? fields['Value (USD)'] : (typeof fields['Value'] === 'number' ? fields['Value'] : null),
-    closeDate: fields['Expected Close Date'] || fields['Close Date'] || null,
-    createdAt: fields['Created At'] || fields['Created'] || null,
-    notes: fields['Rep Notes'] || fields['Notes'] || null,
-    source: fields['Opportunity Source'] || fields['Source'] || fields['Lead Source'] || null,
+    owner: fields['Opportunity Owner'] || null,
+    value: typeof fields['Value (USD)'] === 'number' ? fields['Value (USD)'] : null,
+    closeDate: fields['Expected Close Date'] || null,
+    createdAt: fields['Created At'] || null,
+    notes: fields['Notes'] || null,
+    source: fields['Opportunity Source'] || null,
 
     // Workflow fields - primary indicators
     nextStep: fields['Next Step'] || null,
-    nextStepDue: fields['Due Date'] || fields['Next Step Due'] || null,
-    lastActivityAt: fields['Last Meaningful Activity At'] || fields['Last Activity At'] || null,
-    stageEnteredAt: fields['Stage Entered At'] || fields['Won At'] || null,
+    nextStepDue: fields['Next Step Due Date'] || null,
+    lastActivityAt: fields['Last Meaningful Activity At'] || null,
+    stageEnteredAt: fields['Stage Entered At'] || null,
 
     // Deal Health from Airtable
     dealHealth,
@@ -78,7 +78,7 @@ function mapRecordToOpportunity(record: any): OpportunityItem {
     knownCompetitors: fields['Known Competitors'] || null,
 
     // RFP-specific fields
-    rfpDueDate: fields['RFP Due Date'] || null,
+    rfpDueDate: fields['Due Date'] || null,
     rfpDecisionDate: fields['RFP Decision Date'] || null,
     rfpLink: fields['RFP Link'] || null,
 
@@ -225,7 +225,7 @@ export async function createOpportunity(params: {
     const base = getBase();
 
     const fields: Record<string, unknown> = {
-      'Deliverable Name': params.name,
+      'Name': params.name,
       Stage: params.stage ? getAirtableStage(params.stage) : 'Interest Confirmed',
     };
 
@@ -248,7 +248,7 @@ export async function createOpportunity(params: {
       fields['Next Step'] = params.nextStep;
     }
     if (params.nextStepDue) {
-      fields['Due Date'] = params.nextStepDue;
+      fields['Next Step Due Date'] = params.nextStepDue;
     }
     if (params.source) {
       fields['Opportunity Source'] = params.source;
@@ -556,7 +556,7 @@ export async function updateOpportunity(
       fields['Value (USD)'] = updates.value;
     }
     if (updates.deliverableName !== undefined) {
-      fields['Deliverable Name'] = toAirtable(updates.deliverableName);
+      fields['Name'] = toAirtable(updates.deliverableName);
     }
     if (updates.closeDate !== undefined) {
       fields['Expected Close Date'] = toAirtable(updates.closeDate);
@@ -574,7 +574,7 @@ export async function updateOpportunity(
       fields['Next Step'] = toAirtable(updates.nextStep);
     }
     if (updates.nextStepDue !== undefined) {
-      fields['Due Date'] = toAirtable(updates.nextStepDue);
+      fields['Next Step Due Date'] = toAirtable(updates.nextStepDue);
     }
     // Buying Process fields
     if (updates.decisionOwner !== undefined) {
@@ -591,7 +591,7 @@ export async function updateOpportunity(
     }
     // RFP fields
     if (updates.rfpDueDate !== undefined) {
-      fields['RFP Due Date'] = toAirtable(updates.rfpDueDate);
+      fields['Due Date'] = toAirtable(updates.rfpDueDate);
     }
     if (updates.rfpDecisionDate !== undefined) {
       fields['RFP Decision Date'] = toAirtable(updates.rfpDecisionDate);

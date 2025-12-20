@@ -68,13 +68,16 @@ const KNOWN_ACTIVITY_FIELDS = new Set([
 ]);
 
 const KNOWN_OPPORTUNITY_FIELDS = new Set([
-  'Deliverable Name',
+  'Name',
   'Stage',
   'Company',
   'Value (USD)',
   'Expected Close Date',
   'Opportunity Owner',
   'Opportunity Source',
+  'Notes',
+  'Next Step',
+  'Next Step Due Date',
 ]);
 
 /**
@@ -400,7 +403,7 @@ export async function POST(request: Request) {
         TABLE_OPPORTUNITIES,
         filterKnownFields(
           {
-            'Deliverable Name': oppName,
+            'Name': oppName,
             Stage: "Interest Confirmed",  // Valid Airtable stage (not "Discovery")
             Company: [company.id],
           },
