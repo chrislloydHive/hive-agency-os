@@ -27,6 +27,74 @@ const TABLE_COMPANIES = "Companies";
 const TABLE_ACTIVITIES = getActivitiesTableName();
 const TABLE_OPPORTUNITIES = getOpportunitiesTableName();
 
+// ============================================================================
+// Known Airtable Fields (defensive - strip unknown keys before write)
+// ============================================================================
+
+const KNOWN_COMPANY_FIELDS = new Set([
+  'Company Name',
+  'Domain',
+  'Website',
+  'Industry',
+  'Company Type',
+  'Stage',
+  'Owner',
+  'Notes',
+  'Primary Contact Name',
+  'Primary Contact Email',
+  'Source',
+  'Company ID',
+]);
+
+const KNOWN_ACTIVITY_FIELDS = new Set([
+  'Title',
+  'Type',
+  'Direction',
+  'Source',
+  'Subject',
+  'From Name',
+  'From Email',
+  'To',
+  'CC',
+  'Snippet',
+  'Body Text',
+  'Received At',
+  'External Message ID',
+  'External Thread ID',
+  'External URL',
+  'Raw Payload (JSON)',
+  'Opportunities',
+  'Company',
+]);
+
+const KNOWN_OPPORTUNITY_FIELDS = new Set([
+  'Deliverable Name',
+  'Stage',
+  'Company',
+  'Rep Notes',
+  'Value',
+  'Close Date',
+  'Owner',
+]);
+
+/**
+ * Filter fields to only include known Airtable fields
+ */
+function filterKnownFields(
+  fields: Record<string, unknown>,
+  knownFields: Set<string>
+): Record<string, unknown> {
+  const filtered: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (knownFields.has(key)) {
+      filtered[key] = value;
+    } else {
+      console.warn(`[GMAIL_INBOUND] Stripping unknown field: ${key}`);
+    }
+  }
+  return filtered;
+}
+
 // Personal email domains to block
 const PERSONAL_DOMAINS = new Set([
   "gmail.com",
@@ -268,10 +336,16 @@ export async function POST(request: Request) {
     );
 
     if (!company) {
-      company = await createRecord(TABLE_COMPANIES, {
-        Name: domainToCompanyName(domain),
-        Domain: domain,
-      });
+      company = await createRecord(
+        TABLE_COMPANIES,
+        filterKnownFields(
+          {
+            'Company Name': domainToCompanyName(domain),
+            Domain: domain,
+          },
+          KNOWN_COMPANY_FIELDS
+        )
+      );
     }
 
     // -------------------------------------------------------------------------
@@ -306,49 +380,64 @@ export async function POST(request: Request) {
       isNewOpportunity = true;
       const oppName = subject?.trim() || "Email Opportunity";
 
-      opportunity = await createRecord(TABLE_OPPORTUNITIES, {
-        "Deliverable Name": oppName,
-        Stage: "Discovery",
-        Company: [company.id],
-        "Rep Notes": `Created from Gmail\nFrom: ${from.email}\nThread: ${gmailThreadId}`,
-      });
+      opportunity = await createRecord(
+        TABLE_OPPORTUNITIES,
+        filterKnownFields(
+          {
+            "Deliverable Name": oppName,
+            Stage: "Discovery",
+            Company: [company.id],
+            "Rep Notes": `Created from Gmail\nFrom: ${from.email}\nThread: ${gmailThreadId}`,
+          },
+          KNOWN_OPPORTUNITY_FIELDS
+        )
+      );
     }
 
     // -------------------------------------------------------------------------
     // Activity: Create linked to Company and Opportunity
     // Field names from lib/airtable/activities.ts mapping
+    // Primary field is "Title" (NOT "Name")
     // -------------------------------------------------------------------------
-    const activity = await createRecord(TABLE_ACTIVITIES, {
-      // Core fields
-      Type: "email",
-      Direction: direction,
-      Title: subject || "Inbound email",
-      Source: "gmail-addon",
+    const activityTitle = subject?.trim() || snippet?.slice(0, 50) || "Inbound email";
 
-      // Links
-      Opportunities: [opportunity.id],
-      Company: [company.id],
+    const activity = await createRecord(
+      TABLE_ACTIVITIES,
+      filterKnownFields(
+        {
+          // Core fields - Title is primary field
+          Title: `Email: ${activityTitle}`,
+          Type: "email",
+          Direction: direction,
+          Source: "gmail-addon",
 
-      // Email content fields
-      Subject: subject,
-      "From Name": from.name || "",
-      "From Email": from.email,
-      To: to.join(", "),
-      CC: cc.join(", "),
-      Snippet: snippet,
-      "Body Text": bodyText ? bodyText.slice(0, 10000) : "",
+          // Links
+          Opportunities: [opportunity.id],
+          Company: [company.id],
 
-      // External IDs (correct field names from mapping)
-      "External Message ID": gmailMessageId,
-      "External Thread ID": gmailThreadId,
-      "External URL": gmailUrl,
+          // Email content fields
+          Subject: subject || "",
+          "From Name": from.name || "",
+          "From Email": from.email,
+          To: to.join(", "),
+          CC: cc.join(", "),
+          Snippet: snippet || "",
+          "Body Text": bodyText ? bodyText.slice(0, 10000) : "",
 
-      // Timestamp
-      "Received At": receivedAt,
+          // External IDs (correct field names from mapping)
+          "External Message ID": gmailMessageId,
+          "External Thread ID": gmailThreadId,
+          "External URL": gmailUrl,
 
-      // Debug payload
-      "Raw Payload (JSON)": JSON.stringify(payload),
-    });
+          // Timestamp
+          "Received At": receivedAt,
+
+          // Debug payload
+          "Raw Payload (JSON)": JSON.stringify(payload),
+        },
+        KNOWN_ACTIVITY_FIELDS
+      )
+    );
 
     // -------------------------------------------------------------------------
     // Response
@@ -357,9 +446,9 @@ export async function POST(request: Request) {
       status: isNewOpportunity ? "success" : "attached",
       company: {
         id: company.id,
-        name: company.fields?.Name || domainToCompanyName(domain),
+        name: company.fields?.['Company Name'] || company.fields?.Name || domainToCompanyName(domain),
         domain: company.fields?.Domain || domain,
-        isNew: !company.fields?.Name,
+        isNew: !company.fields?.['Company Name'] && !company.fields?.Name,
       },
       opportunity: {
         id: opportunity.id,
