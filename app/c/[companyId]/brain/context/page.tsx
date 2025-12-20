@@ -41,6 +41,13 @@ import { ContextHealthHeader } from './ContextHealthHeader';
 import { ContextPageClient } from './ContextPageClient';
 
 // ============================================================================
+// Dynamic Rendering
+// ============================================================================
+
+// Force dynamic rendering to ensure fresh data after promotion
+export const dynamic = 'force-dynamic';
+
+// ============================================================================
 // Types
 // ============================================================================
 

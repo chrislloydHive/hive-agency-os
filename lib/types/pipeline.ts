@@ -546,3 +546,54 @@ export function getTimeWindowLabel(window: ForecastTimeWindow): string {
   };
   return labels[window];
 }
+
+// ============================================================================
+// Pipeline Alerts
+// ============================================================================
+
+/**
+ * Alert types for pipeline notifications
+ */
+export type PipelineAlertType = 'overdueNextSteps' | 'stalledDeals' | 'rfpDueSoon';
+
+/**
+ * Single alert category summary
+ */
+export interface PipelineAlertSummary {
+  count: number;
+  totalValue: number;
+  opportunityIds: string[];
+}
+
+/**
+ * Complete alerts response from API
+ */
+export interface PipelineAlertsData {
+  overdueNextSteps: PipelineAlertSummary;
+  stalledDeals: PipelineAlertSummary;
+  rfpDueSoon: PipelineAlertSummary;
+}
+
+/**
+ * Get display label for alert type
+ */
+export function getAlertLabel(alertType: PipelineAlertType): string {
+  const labels: Record<PipelineAlertType, string> = {
+    overdueNextSteps: 'Overdue Next Steps',
+    stalledDeals: 'Stalled Deals',
+    rfpDueSoon: 'RFP Due Soon',
+  };
+  return labels[alertType];
+}
+
+/**
+ * Get color classes for alert type
+ */
+export function getAlertColorClasses(alertType: PipelineAlertType): string {
+  const colors: Record<PipelineAlertType, string> = {
+    overdueNextSteps: 'bg-red-500/10 text-red-400 border-red-500/30',
+    stalledDeals: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    rfpDueSoon: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
+  };
+  return colors[alertType];
+}

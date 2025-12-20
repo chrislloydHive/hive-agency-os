@@ -18,6 +18,13 @@ import { queryInsights } from '@/lib/insights/engine';
 import { StrategicMapClient } from '../map/StrategicMapClient';
 
 // ============================================================================
+// Dynamic Rendering
+// ============================================================================
+
+// Force dynamic rendering to ensure fresh data after promotion
+export const dynamic = 'force-dynamic';
+
+// ============================================================================
 // Types
 // ============================================================================
 

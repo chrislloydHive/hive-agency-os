@@ -33,15 +33,24 @@ const BUCKET_ICONS: Record<ForecastBucket, string> = {
 };
 
 interface ForecastSectionProps {
+  /** Currently selected bucket (controlled mode) */
+  selectedBucket?: ForecastBucket | null;
   /** Optional callback when a bucket is clicked */
   onBucketClick?: (bucket: ForecastBucket, opportunityIds: string[]) => void;
 }
 
-export function ForecastSection({ onBucketClick }: ForecastSectionProps) {
+export function ForecastSection({
+  selectedBucket: controlledSelectedBucket,
+  onBucketClick,
+}: ForecastSectionProps) {
   const [forecast, setForecast] = useState<PipelineForecastData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedBucket, setSelectedBucket] = useState<ForecastBucket | null>(null);
+  // Internal selection state (used if not controlled)
+  const [internalSelectedBucket, setInternalSelectedBucket] = useState<ForecastBucket | null>(null);
+
+  // Use controlled or internal selection
+  const selectedBucket = controlledSelectedBucket !== undefined ? controlledSelectedBucket : internalSelectedBucket;
 
   // Fetch forecast data
   useEffect(() => {
@@ -70,10 +79,13 @@ export function ForecastSection({ onBucketClick }: ForecastSectionProps) {
   // Handle bucket click
   const handleBucketClick = useCallback(
     (bucket: ForecastBucket, opportunityIds: string[]) => {
-      setSelectedBucket(selectedBucket === bucket ? null : bucket);
+      // Toggle internal state if not controlled
+      if (controlledSelectedBucket === undefined) {
+        setInternalSelectedBucket(internalSelectedBucket === bucket ? null : bucket);
+      }
       onBucketClick?.(bucket, opportunityIds);
     },
-    [selectedBucket, onBucketClick]
+    [controlledSelectedBucket, internalSelectedBucket, onBucketClick]
   );
 
   if (loading) {

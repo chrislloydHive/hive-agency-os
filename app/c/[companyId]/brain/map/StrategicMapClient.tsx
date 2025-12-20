@@ -316,6 +316,371 @@ function EmptySelectionHint() {
 }
 
 // ============================================================================
+// Promotion Result Types
+// ============================================================================
+
+interface PromotionImporterResult {
+  importerId: string;
+  importerLabel: string;
+  fieldsUpdated: number;
+  updatedPaths: string[];
+  errors: string[];
+}
+
+interface PromotionResultData {
+  success: boolean;
+  totalFieldsUpdated: number;
+  completenessBefore: number;
+  completenessAfter: number;
+  importerResults: PromotionImporterResult[];
+  promotedAt: string;
+}
+
+// ============================================================================
+// Recently Promoted Panel Component
+// ============================================================================
+
+function RecentlyPromotedPanel({
+  result,
+  companyId,
+}: {
+  result: PromotionResultData;
+  companyId: string;
+}) {
+  const [isExpanded, setIsExpanded] = useState(true);
+
+  return (
+    <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-emerald-500/5 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
+            <Sparkles className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="text-left">
+            <p className="text-emerald-300 font-medium text-sm">Recently Promoted</p>
+            <p className="text-emerald-400/70 text-xs">
+              {result.totalFieldsUpdated} fields written
+            </p>
+          </div>
+        </div>
+        {isExpanded ? (
+          <ChevronUp className="w-4 h-4 text-emerald-400" />
+        ) : (
+          <ChevronDown className="w-4 h-4 text-emerald-400" />
+        )}
+      </button>
+
+      {isExpanded && (
+        <div className="px-4 pb-4 space-y-3">
+          {/* Importer breakdown */}
+          <div className="space-y-2">
+            {result.importerResults
+              .filter(ir => ir.fieldsUpdated > 0)
+              .map(ir => (
+                <div key={ir.importerId} className="bg-slate-900/50 rounded-lg p-2.5">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-medium text-slate-300">{ir.importerLabel}</span>
+                    <span className="text-xs text-emerald-400">{ir.fieldsUpdated} fields</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {ir.updatedPaths.slice(0, 8).map(path => (
+                      <Link
+                        key={path}
+                        href={`/c/${companyId}/brain/context?field=${encodeURIComponent(path)}`}
+                        className="text-[10px] px-1.5 py-0.5 bg-slate-800 text-slate-400 rounded hover:bg-slate-700 hover:text-slate-300 transition-colors"
+                      >
+                        {path}
+                      </Link>
+                    ))}
+                    {ir.updatedPaths.length > 8 && (
+                      <span className="text-[10px] px-1.5 py-0.5 text-slate-500">
+                        +{ir.updatedPaths.length - 8} more
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+          </div>
+
+          {/* Completeness change */}
+          {result.completenessAfter !== result.completenessBefore && (
+            <div className="flex items-center justify-between text-xs bg-slate-900/50 rounded-lg px-3 py-2">
+              <span className="text-slate-400">Completeness</span>
+              <span className="text-emerald-400">
+                {result.completenessBefore}% → {result.completenessAfter}%
+                <span className="text-emerald-300 ml-1">
+                  (+{result.completenessAfter - result.completenessBefore}%)
+                </span>
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Gated Debug Hook
+// ============================================================================
+
+function useDebugMode() {
+  const [isDebug, setIsDebug] = useState(false);
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      setIsDebug(params.get('debug') === '1');
+    }
+  }, []);
+  return isDebug;
+}
+
+// ============================================================================
+// Truth-First Fallback Component
+// ============================================================================
+
+function TruthFirstFallback({
+  companyId,
+  healthScore,
+}: {
+  companyId: string;
+  healthScore: ContextHealthScore;
+}) {
+  const router = useRouter();
+  const isDebugMode = useDebugMode();
+  const [inspectorData, setInspectorData] = useState<{
+    hasRawData: boolean;
+    diagnosticRunsCount: number;
+    gapRunsCount: number;
+    promotionOpportunity: boolean;
+  } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isPromoting, setIsPromoting] = useState(false);
+  const [promotionResult, setPromotionResult] = useState<PromotionResultData | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Fetch inspector data to check for raw data availability
+  useEffect(() => {
+    async function fetchInspectorData() {
+      try {
+        const response = await fetch(`/api/os/companies/${companyId}/context/inspector`, {
+          cache: 'no-store',
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setInspectorData({
+            hasRawData: data.health?.hasRawData ?? false,
+            diagnosticRunsCount: data.diagnosticRuns?.length ?? 0,
+            gapRunsCount: data.gapRuns?.length ?? 0,
+            promotionOpportunity: data.health?.promotionOpportunity ?? false,
+          });
+        }
+      } catch (error) {
+        console.error('[TruthFirstFallback] Failed to fetch inspector data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchInspectorData();
+  }, [companyId]);
+
+  // Handle promotion
+  const handlePromote = async () => {
+    setIsPromoting(true);
+    try {
+      const response = await fetch(`/api/os/companies/${companyId}/context/promote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+      });
+      if (response.ok) {
+        const result = await response.json();
+        const promotionData: PromotionResultData = {
+          success: result.success,
+          totalFieldsUpdated: result.totalFieldsUpdated,
+          completenessBefore: result.completenessBefore,
+          completenessAfter: result.completenessAfter,
+          importerResults: result.importerResults || [],
+          promotedAt: new Date().toISOString(),
+        };
+        setPromotionResult(promotionData);
+
+        // If promotion was successful, trigger a proper refresh
+        if (result.success && result.totalFieldsUpdated > 0) {
+          setIsRefreshing(true);
+
+          // Fetch fresh inspector data to verify UI will update
+          const freshResponse = await fetch(
+            `/api/os/companies/${companyId}/context/inspector?t=${Date.now()}`,
+            { cache: 'no-store' }
+          );
+
+          if (freshResponse.ok && isDebugMode) {
+            const freshData = await freshResponse.json();
+            console.log('[Promotion] Fresh data:', {
+              fieldCount: freshData.fieldCount,
+              completeness: freshData.health?.completeness,
+            });
+          }
+
+          // Use Next.js router.refresh() to revalidate server components
+          router.refresh();
+
+          setTimeout(() => {
+            setIsRefreshing(false);
+          }, 1000);
+        }
+      }
+    } catch (error) {
+      console.error('[TruthFirstFallback] Promotion failed:', error);
+      setPromotionResult({
+        success: false,
+        totalFieldsUpdated: 0,
+        completenessBefore: 0,
+        completenessAfter: 0,
+        importerResults: [],
+        promotedAt: new Date().toISOString(),
+      });
+    } finally {
+      setIsPromoting(false);
+    }
+  };
+
+  // Show promotion success state with detailed results
+  if (promotionResult?.success && promotionResult.totalFieldsUpdated > 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 px-4 max-w-2xl mx-auto">
+        <div className="p-4 bg-emerald-500/20 rounded-full mb-6">
+          <Sparkles className="w-12 h-12 text-emerald-400" />
+        </div>
+        <h2 className="text-xl font-semibold text-slate-200 mb-2">
+          Context Promoted Successfully!
+        </h2>
+        <p className="text-slate-400 text-center max-w-md mb-6">
+          {promotionResult.totalFieldsUpdated} fields have been promoted to the context graph.
+          {isRefreshing && ' Refreshing view...'}
+        </p>
+
+        {/* Recently Promoted Panel */}
+        <div className="w-full max-w-lg mb-6">
+          <RecentlyPromotedPanel result={promotionResult} companyId={companyId} />
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex gap-3">
+          <button
+            onClick={() => router.refresh()}
+            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg transition-colors text-sm font-medium flex items-center gap-2"
+          >
+            {isRefreshing ? (
+              <>
+                <span className="w-4 h-4 border-2 border-slate-950/30 border-t-slate-950 rounded-full animate-spin" />
+                Refreshing...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                View Map
+              </>
+            )}
+          </button>
+          <Link
+            href={`/c/${companyId}/brain/context`}
+            className="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors text-sm font-medium"
+          >
+            View All Fields
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Show truth-first fallback with raw data detection
+  return (
+    <div className="flex flex-col items-center justify-center py-16 px-4">
+      <div className="p-4 bg-slate-800/50 rounded-full mb-6">
+        <Map className="w-12 h-12 text-slate-500" />
+      </div>
+      <h2 className="text-xl font-semibold text-slate-200 mb-2">
+        Not enough context to render Strategic Map
+      </h2>
+
+      {isLoading ? (
+        <p className="text-slate-400 text-center max-w-md mb-6">
+          Checking for available data sources...
+        </p>
+      ) : inspectorData?.hasRawData ? (
+        <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-4 mb-6 max-w-lg">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-full bg-cyan-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <Sparkles className="w-4 h-4 text-cyan-400" />
+            </div>
+            <div>
+              <p className="text-cyan-300 font-medium mb-1">Raw Data Available</p>
+              <p className="text-sm text-cyan-400/80 mb-3">
+                Found {inspectorData.diagnosticRunsCount} diagnostic run{inspectorData.diagnosticRunsCount !== 1 ? 's' : ''} and{' '}
+                {inspectorData.gapRunsCount} GAP run{inspectorData.gapRunsCount !== 1 ? 's' : ''}.
+                You can promote this data to populate the context graph.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={handlePromote}
+                  disabled={isPromoting}
+                  className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 disabled:bg-cyan-500/50 text-slate-950 rounded-lg transition-colors text-sm font-medium flex items-center gap-2"
+                >
+                  {isPromoting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-slate-950/30 border-t-slate-950 rounded-full animate-spin" />
+                      Promoting...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      Promote Now
+                    </>
+                  )}
+                </button>
+                <Link
+                  href={`/c/${companyId}/admin/context-inspector`}
+                  className="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors text-sm font-medium"
+                >
+                  Inspect Data
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <p className="text-slate-400 text-center max-w-md mb-6">
+          We need more data to create a useful visualization. Try auto-filling your company context or running key diagnostics.
+        </p>
+      )}
+
+      {/* Standard actions */}
+      {!inspectorData?.hasRawData && (
+        <div className="flex gap-3">
+          <Link
+            href={`/c/${companyId}/brain/context`}
+            className="px-4 py-2 bg-amber-500/20 text-amber-400 rounded-lg hover:bg-amber-500/30 transition-colors text-sm font-medium"
+          >
+            Go to Context
+          </Link>
+          <Link
+            href={`/c/${companyId}/brain/setup`}
+            className="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors text-sm font-medium"
+          >
+            Run Setup Wizard
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // Inner Component (uses context)
 // ============================================================================
 
@@ -559,7 +924,41 @@ function StrategicMapInner({
               style={{ width: `${healthScore.overallScore}%` }}
             />
           </div>
-          <div className="flex items-center justify-between mt-2 text-[10px] text-slate-500">
+
+          {/* Truth Banner Stats */}
+          <div className="mt-3 pt-3 border-t border-slate-800/50 space-y-2">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-500">Populated Fields</span>
+              <span className="text-slate-300 font-medium">
+                {healthScore.stats?.populatedFields ?? 0}/{healthScore.stats?.totalFields ?? 0}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-500">Source</span>
+              <div className="flex items-center gap-2">
+                {mapGraph.stats.humanNodes > 0 && (
+                  <span className="flex items-center gap-1 text-emerald-400">
+                    <Circle className="w-2 h-2 fill-current" />
+                    {mapGraph.stats.humanNodes}
+                  </span>
+                )}
+                {mapGraph.stats.aiNodes > 0 && (
+                  <span className="flex items-center gap-1 text-violet-400">
+                    <Sparkles className="w-2 h-2" />
+                    {mapGraph.stats.aiNodes}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-500">Active Domains</span>
+              <span className="text-slate-300 font-medium">
+                {getActiveDomains(mapGraph.nodes).length}/11
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-800/50 text-[10px] text-slate-500">
             <span>{mapGraph.stats.completeNodes} complete</span>
             <span>{mapGraph.stats.partialNodes} partial</span>
             <span>{mapGraph.stats.emptyNodes} empty</span>
@@ -830,35 +1229,9 @@ export function StrategicMapClient({
   // Check if graph has enough data
   const hasData = hasEnoughData(mapGraph.nodes);
 
-  // Empty state
+  // Empty state - use TruthFirstFallback with promotion support
   if (isNewGraph || !hasData) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 px-4">
-        <div className="p-4 bg-slate-800/50 rounded-full mb-6">
-          <Map className="w-12 h-12 text-slate-500" />
-        </div>
-        <h2 className="text-xl font-semibold text-slate-200 mb-2">
-          Not enough context to render Strategic Map
-        </h2>
-        <p className="text-slate-400 text-center max-w-md mb-6">
-          We need more data to create a useful visualization. Try auto-filling your company context or running key diagnostics.
-        </p>
-        <div className="flex gap-3">
-          <Link
-            href={`/c/${companyId}/brain/context`}
-            className="px-4 py-2 bg-amber-500/20 text-amber-400 rounded-lg hover:bg-amber-500/30 transition-colors text-sm font-medium"
-          >
-            Go to Context
-          </Link>
-          <Link
-            href={`/c/${companyId}/brain/setup`}
-            className="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors text-sm font-medium"
-          >
-            Run Setup Wizard
-          </Link>
-        </div>
-      </div>
-    );
+    return <TruthFirstFallback companyId={companyId} healthScore={healthScore} />;
   }
 
   return (

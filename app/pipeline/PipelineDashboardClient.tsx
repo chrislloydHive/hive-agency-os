@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
   BarChart,
@@ -13,8 +14,18 @@ import {
   LineChart,
   Line,
 } from 'recharts';
-import type { PipelineKpis, OpportunityItem } from '@/lib/types/pipeline';
+import type {
+  PipelineKpis,
+  OpportunityItem,
+  ForecastBucket,
+  PipelineAlertType,
+} from '@/lib/types/pipeline';
+import {
+  getForecastBucketLabel,
+  getAlertLabel,
+} from '@/lib/types/pipeline';
 import { ForecastSection } from '@/components/pipeline/ForecastSection';
+import { PipelineAlertsSection } from '@/components/pipeline/PipelineAlertsSection';
 
 interface PipelineDashboardClientProps {
   kpis: PipelineKpis;
@@ -70,6 +81,71 @@ export function PipelineDashboardClient({
   overdueOpportunities = [],
   overdueCount = 0,
 }: PipelineDashboardClientProps) {
+  // Filter state
+  const [selectedForecastBucket, setSelectedForecastBucket] = useState<ForecastBucket | null>(null);
+  const [forecastFilterIds, setForecastFilterIds] = useState<string[] | null>(null);
+  const [selectedAlert, setSelectedAlert] = useState<PipelineAlertType | null>(null);
+  const [alertFilterIds, setAlertFilterIds] = useState<string[] | null>(null);
+
+  // Handle forecast bucket click
+  const handleForecastBucketClick = useCallback(
+    (bucket: ForecastBucket, opportunityIds: string[]) => {
+      if (selectedForecastBucket === bucket) {
+        // Toggle off
+        setSelectedForecastBucket(null);
+        setForecastFilterIds(null);
+      } else {
+        setSelectedForecastBucket(bucket);
+        setForecastFilterIds(opportunityIds);
+      }
+    },
+    [selectedForecastBucket]
+  );
+
+  // Handle alert click
+  const handleAlertClick = useCallback(
+    (alertType: PipelineAlertType, opportunityIds: string[]) => {
+      if (selectedAlert === alertType) {
+        // Toggle off
+        setSelectedAlert(null);
+        setAlertFilterIds(null);
+      } else {
+        setSelectedAlert(alertType);
+        setAlertFilterIds(opportunityIds);
+      }
+    },
+    [selectedAlert]
+  );
+
+  // Clear all filters
+  const handleClearFilters = useCallback(() => {
+    setSelectedForecastBucket(null);
+    setForecastFilterIds(null);
+    setSelectedAlert(null);
+    setAlertFilterIds(null);
+  }, []);
+
+  // Check if any filter is active
+  const hasActiveFilter = selectedForecastBucket !== null || selectedAlert !== null;
+
+  // Build filter description for link
+  const getFilterDescription = () => {
+    const parts: string[] = [];
+    if (selectedForecastBucket) parts.push(getForecastBucketLabel(selectedForecastBucket));
+    if (selectedAlert) parts.push(getAlertLabel(selectedAlert));
+    return parts.join(' + ');
+  };
+
+  // Calculate effective filter count (intersection if both set)
+  const getFilteredCount = () => {
+    if (!forecastFilterIds && !alertFilterIds) return null;
+    if (forecastFilterIds && alertFilterIds) {
+      const forecastSet = new Set(forecastFilterIds);
+      return alertFilterIds.filter((id) => forecastSet.has(id)).length;
+    }
+    return (forecastFilterIds || alertFilterIds)?.length || 0;
+  };
+
   // Prepare stage data for bar chart
   const stageData = kpis.opportunitiesByStage.map((item) => ({
     name: item.stage,
@@ -126,8 +202,46 @@ export function PipelineDashboardClient({
         </div>
       </div>
 
+      {/* Pipeline Alerts */}
+      <PipelineAlertsSection
+        selectedAlert={selectedAlert}
+        onAlertClick={handleAlertClick}
+      />
+
       {/* Pipeline Forecast */}
-      <ForecastSection />
+      <ForecastSection
+        selectedBucket={selectedForecastBucket}
+        onBucketClick={handleForecastBucketClick}
+      />
+
+      {/* Active Filter Bar */}
+      {hasActiveFilter && (
+        <div className="flex items-center justify-between bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-2">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-amber-400">Filter:</span>
+            <span className="font-medium text-slate-200">
+              {getFilterDescription()}
+            </span>
+            <span className="text-slate-500">
+              ({getFilteredCount()} opportunities)
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/pipeline/opportunities"
+              className="text-xs px-3 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 transition-colors"
+            >
+              View filtered &rarr;
+            </Link>
+            <button
+              onClick={handleClearFilters}
+              className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Overdue Next Steps Widget */}
       {(overdueCount > 0 || overdueOpportunities.length > 0) && (
