@@ -6,12 +6,16 @@ import { getAllCompanies, type CompanyRecord } from '@/lib/airtable/companies';
 import { OpportunitiesPageClient } from './OpportunitiesPageClient';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default async function OpportunitiesPage() {
   const [opportunities, companies] = await Promise.all([
     getAllOpportunities(),
     getAllCompanies(),
   ]);
+
+  // Debug: log what we're rendering
+  console.log(`[OpportunitiesPage] Rendering ${opportunities.length} opportunities`);
 
   // Build company lookup for enrichment
   const companyLookup = new Map<string, CompanyRecord>();
