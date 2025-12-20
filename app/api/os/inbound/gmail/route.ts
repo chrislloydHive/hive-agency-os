@@ -68,13 +68,19 @@ const KNOWN_ACTIVITY_FIELDS = new Set([
 ]);
 
 const KNOWN_OPPORTUNITY_FIELDS = new Set([
-  'Deliverable Name',
+  'Name',              // Primary field (NOT 'Deliverable Name')
   'Stage',
   'Company',
   'Rep Notes',
+  'Notes',
   'Value',
+  'Value (USD)',
   'Close Date',
+  'Expected Close Date',
   'Owner',
+  'Rep',
+  'Opportunity Source',
+  'Lead Source',
 ]);
 
 /**
@@ -384,7 +390,7 @@ export async function POST(request: Request) {
         TABLE_OPPORTUNITIES,
         filterKnownFields(
           {
-            "Deliverable Name": oppName,
+            Name: oppName,  // Primary field is 'Name' (not 'Deliverable Name')
             Stage: "Discovery",
             Company: [company.id],
             "Rep Notes": `Created from Gmail\nFrom: ${from.email}\nThread: ${gmailThreadId}`,
@@ -452,7 +458,7 @@ export async function POST(request: Request) {
       },
       opportunity: {
         id: opportunity.id,
-        name: opportunity.fields?.["Deliverable Name"] || subject || "Email Opportunity",
+        name: opportunity.fields?.Name || opportunity.fields?.["Deliverable Name"] || subject || "Email Opportunity",
         stage: opportunity.fields?.Stage || "Discovery",
       },
       activity: {
