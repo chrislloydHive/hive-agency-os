@@ -110,8 +110,18 @@ export async function getAllOpportunities(): Promise<OpportunityItem[]> {
       })
       .all();
 
+    console.log(`[Opportunities] Fetched ${records.length} records from ${tableName}`);
+
     // Sort client-side by created date (most recent first)
     const opportunities = records.map(mapRecordToOpportunity);
+
+    // Debug: log stages to verify normalization
+    const stageCounts = opportunities.reduce((acc, o) => {
+      acc[o.stage] = (acc[o.stage] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    console.log(`[Opportunities] Stage distribution:`, stageCounts);
+
     return opportunities.sort((a, b) => {
       const dateA = a.closeDate || a.createdAt || '';
       const dateB = b.closeDate || b.createdAt || '';
