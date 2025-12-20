@@ -51,7 +51,7 @@ function mapRecordToOpportunity(record: any): OpportunityItem {
     deliverableName: fields['Name'] || fields['Deliverable Name'] || null,
     stage: normalizeStage(fields['Stage']),
     leadStatus: fields['Lead Status'] || null,
-    owner: fields['Owner'] || fields['Rep'] || null,
+    owner: fields['Opportunity Owner'] || fields['Owner'] || fields['Rep'] || null,
     value: typeof fields['Value (USD)'] === 'number' ? fields['Value (USD)'] : (typeof fields['Value'] === 'number' ? fields['Value'] : null),
     closeDate: fields['Expected Close Date'] || fields['Close Date'] || null,
     createdAt: fields['Created At'] || fields['Created'] || null,
@@ -239,7 +239,7 @@ export async function createOpportunity(params: {
       fields['Expected Close Date'] = params.closeDate;
     }
     if (params.owner) {
-      fields['Rep'] = params.owner;
+      fields['Opportunity Owner'] = params.owner;
     }
     if (params.notes) {
       fields['Rep Notes'] = params.notes;
@@ -563,7 +563,7 @@ export async function updateOpportunity(
       fields['Expected Close Date'] = toAirtable(updates.closeDate);
     }
     if (updates.owner !== undefined) {
-      fields['Rep'] = toAirtable(updates.owner);
+      fields['Opportunity Owner'] = toAirtable(updates.owner);
     }
     if (updates.notes !== undefined) {
       fields['Rep Notes'] = toAirtable(updates.notes);
