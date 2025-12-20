@@ -519,6 +519,7 @@ export async function updateOpportunity(
   updates: Partial<{
     stage: PipelineStage;
     value: number;
+    deliverableName: string | null;
     closeDate: string | null;
     owner: string | null;
     notes: string | null;
@@ -553,6 +554,9 @@ export async function updateOpportunity(
     }
     if (updates.value !== undefined) {
       fields['Value'] = updates.value;
+    }
+    if (updates.deliverableName !== undefined) {
+      fields['Deliverable Name'] = toAirtable(updates.deliverableName);
     }
     if (updates.closeDate !== undefined) {
       fields['Close Date'] = toAirtable(updates.closeDate);

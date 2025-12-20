@@ -57,19 +57,37 @@ interface OpportunityCardProps {
   onDragStart?: (e: React.DragEvent, opportunity: OpportunityItem) => void;
   onDragEnd?: () => void;
   isDragging?: boolean;
+  isEditing?: boolean;
+  editValue?: string;
+  onEditStart?: (id: string, currentName: string) => void;
+  onEditChange?: (value: string) => void;
+  onEditSave?: () => void;
+  onEditCancel?: () => void;
 }
 
-function OpportunityCard({ opportunity, onDragStart, onDragEnd, isDragging }: OpportunityCardProps) {
+function OpportunityCard({
+  opportunity,
+  onDragStart,
+  onDragEnd,
+  isDragging,
+  isEditing,
+  editValue,
+  onEditStart,
+  onEditChange,
+  onEditSave,
+  onEditCancel,
+}: OpportunityCardProps) {
   const isOverdue = isNextStepOverdue(opportunity.nextStepDue);
+  const displayName = opportunity.deliverableName || opportunity.companyName;
 
   return (
     <div
-      draggable
-      onDragStart={(e) => onDragStart?.(e, opportunity)}
+      draggable={!isEditing}
+      onDragStart={(e) => !isEditing && onDragStart?.(e, opportunity)}
       onDragEnd={onDragEnd}
-      className={`bg-slate-800/50 border border-slate-700 rounded-lg p-3 hover:bg-slate-800 transition-all cursor-grab active:cursor-grabbing ${
-        isDragging ? 'opacity-50 scale-95 ring-2 ring-amber-500/50' : ''
-      }`}
+      className={`bg-slate-800/50 border border-slate-700 rounded-lg p-3 hover:bg-slate-800 transition-all ${
+        isEditing ? '' : 'cursor-grab active:cursor-grabbing'
+      } ${isDragging ? 'opacity-50 scale-95 ring-2 ring-amber-500/50' : ''}`}
     >
       {/* Drag Handle Indicator */}
       <div className="flex items-center gap-2 mb-2">
@@ -79,10 +97,33 @@ function OpportunityCard({ opportunity, onDragStart, onDragEnd, isDragging }: Op
         {/* Header */}
         <div className="flex items-start justify-between gap-2 flex-1 min-w-0">
           <div className="flex-1 min-w-0">
-            <h4 className="text-sm font-medium text-slate-200 truncate">
-              {opportunity.deliverableName || opportunity.companyName}
-            </h4>
-            {opportunity.deliverableName && (
+            {isEditing ? (
+              <input
+                type="text"
+                value={editValue}
+                onChange={(e) => onEditChange?.(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') onEditSave?.();
+                  if (e.key === 'Escape') onEditCancel?.();
+                }}
+                onBlur={onEditSave}
+                autoFocus
+                className="w-full px-1.5 py-0.5 bg-slate-700 border border-amber-500 rounded text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <h4
+                className="text-sm font-medium text-slate-200 truncate cursor-pointer hover:text-amber-400"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditStart?.(opportunity.id, displayName);
+                }}
+                title="Click to edit"
+              >
+                {displayName}
+              </h4>
+            )}
+            {opportunity.deliverableName && !isEditing && (
               <p className="text-xs text-slate-500 truncate">{opportunity.companyName}</p>
             )}
           </div>
@@ -157,6 +198,10 @@ export function OpportunitiesBoardClient({
   const [dropTargetStage, setDropTargetStage] = useState<PipelineStage | 'other' | null>(null);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
 
+  // Inline editing state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+
   // Drag handlers
   const handleDragStart = useCallback((e: React.DragEvent, opportunity: OpportunityItem) => {
     setDragState({
@@ -181,6 +226,73 @@ export function OpportunitiesBoardClient({
   const handleDragLeave = useCallback(() => {
     setDropTargetStage(null);
   }, []);
+
+  // Inline editing handlers
+  const handleEditStart = useCallback((id: string, currentName: string) => {
+    setEditingId(id);
+    setEditValue(currentName);
+  }, []);
+
+  const handleEditCancel = useCallback(() => {
+    setEditingId(null);
+    setEditValue('');
+  }, []);
+
+  const handleEditSave = useCallback(async () => {
+    if (!editingId || !editValue.trim()) {
+      handleEditCancel();
+      return;
+    }
+
+    const originalOpp = opportunities.find((o) => o.id === editingId);
+    const originalName = originalOpp?.deliverableName || originalOpp?.companyName || '';
+
+    // Skip if no change
+    if (editValue.trim() === originalName) {
+      handleEditCancel();
+      return;
+    }
+
+    // Optimistically update UI
+    setOpportunities((prev) =>
+      prev.map((opp) =>
+        opp.id === editingId ? { ...opp, deliverableName: editValue.trim() } : opp
+      )
+    );
+    setIsUpdating(editingId);
+    const savedEditingId = editingId;
+    handleEditCancel();
+
+    try {
+      const response = await fetch(`/api/pipeline/opportunities/${savedEditingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deliverableName: editValue.trim() }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update name');
+      }
+
+      if (data.opportunity) {
+        setOpportunities((prev) =>
+          prev.map((opp) => (opp.id === savedEditingId ? data.opportunity : opp))
+        );
+      }
+    } catch (error) {
+      console.error('Failed to update opportunity name:', error);
+      // Revert on error
+      setOpportunities((prev) =>
+        prev.map((opp) =>
+          opp.id === savedEditingId ? { ...opp, deliverableName: originalName } : opp
+        )
+      );
+    } finally {
+      setIsUpdating(null);
+    }
+  }, [editingId, editValue, opportunities, handleEditCancel]);
 
   const handleDrop = useCallback(async (e: React.DragEvent, targetStage: PipelineStage | 'other') => {
     e.preventDefault();
@@ -526,6 +638,12 @@ export function OpportunitiesBoardClient({
                           onDragStart={handleDragStart}
                           onDragEnd={handleDragEnd}
                           isDragging={dragState?.opportunityId === opp.id}
+                          isEditing={editingId === opp.id}
+                          editValue={editingId === opp.id ? editValue : ''}
+                          onEditStart={handleEditStart}
+                          onEditChange={setEditValue}
+                          onEditSave={handleEditSave}
+                          onEditCancel={handleEditCancel}
                         />
                         {isUpdating === opp.id && (
                           <div className="absolute inset-0 bg-slate-900/70 rounded-lg flex items-center justify-center">
@@ -587,12 +705,41 @@ export function OpportunitiesBoardClient({
                       className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
                     >
                       <td className="px-4 py-3">
-                        <div>
-                          <div className="text-slate-200 font-medium">
-                            {opp.deliverableName || opp.companyName}
-                          </div>
-                          {opp.deliverableName && (
-                            <div className="text-xs text-slate-500">{opp.companyName}</div>
+                        <div className="relative">
+                          {editingId === opp.id ? (
+                            <input
+                              type="text"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleEditSave();
+                                if (e.key === 'Escape') handleEditCancel();
+                              }}
+                              onBlur={handleEditSave}
+                              autoFocus
+                              className="w-full px-2 py-1 bg-slate-700 border border-amber-500 rounded text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            />
+                          ) : (
+                            <>
+                              <div
+                                className="text-slate-200 font-medium cursor-pointer hover:text-amber-400"
+                                onClick={() => handleEditStart(opp.id, opp.deliverableName || opp.companyName)}
+                                title="Click to edit"
+                              >
+                                {opp.deliverableName || opp.companyName}
+                              </div>
+                              {opp.deliverableName && (
+                                <div className="text-xs text-slate-500">{opp.companyName}</div>
+                              )}
+                            </>
+                          )}
+                          {isUpdating === opp.id && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-slate-800/50 rounded">
+                              <svg className="w-4 h-4 animate-spin text-amber-500" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                              </svg>
+                            </div>
                           )}
                         </div>
                       </td>

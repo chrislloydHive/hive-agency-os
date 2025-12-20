@@ -221,7 +221,19 @@ function extractDomain(email: string): string {
 function domainToCompanyName(domain: string): string {
   if (!domain) return "Unknown Company";
   const name = domain.split(".")[0];
-  return name.charAt(0).toUpperCase() + name.slice(1);
+
+  // Split on hyphens, underscores, and camelCase boundaries
+  const words = name
+    .replace(/[-_]/g, ' ')                           // hyphens/underscores → spaces
+    .replace(/([a-z])([A-Z])/g, '$1 $2')             // camelCase → spaces
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')       // ABCDef → ABC Def
+    .split(/\s+/)
+    .filter(Boolean);
+
+  // Capitalize each word
+  return words
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
 }
 
 function generateDebugId(): string {
@@ -383,7 +395,8 @@ export async function POST(request: Request) {
     // If no opportunity found via thread, create a new one
     if (!opportunity) {
       isNewOpportunity = true;
-      const oppName = subject?.trim() || "Email Opportunity";
+      const companyName = company.fields?.['Company Name'] || domainToCompanyName(domain);
+      const oppName = `${companyName} - Inbound`;
 
       opportunity = await createRecord(
         TABLE_OPPORTUNITIES,

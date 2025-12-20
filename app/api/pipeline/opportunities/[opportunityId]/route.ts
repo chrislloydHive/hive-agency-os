@@ -77,6 +77,7 @@ export async function PATCH(
     const updates: Partial<{
       stage: PipelineStage;
       value: number;
+      deliverableName: string | null;
       closeDate: string | null;
       owner: string | null;
       notes: string | null;
@@ -103,6 +104,9 @@ export async function PATCH(
     }
     if (body.value !== undefined) {
       updates.value = Number(body.value);
+    }
+    if (body.deliverableName !== undefined) {
+      updates.deliverableName = normalize(body.deliverableName);
     }
     if (body.closeDate !== undefined) {
       updates.closeDate = normalize(body.closeDate);
