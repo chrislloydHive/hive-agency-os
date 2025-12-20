@@ -553,7 +553,7 @@ export async function updateOpportunity(
       fields['Stage'] = getAirtableStage(updates.stage);
     }
     if (updates.value !== undefined) {
-      fields['Value'] = updates.value;
+      fields['Value (USD)'] = updates.value;
     }
     if (updates.deliverableName !== undefined) {
       // Primary field is 'Name' in Airtable (not 'Deliverable Name')

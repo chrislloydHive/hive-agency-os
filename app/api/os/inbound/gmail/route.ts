@@ -395,7 +395,10 @@ export async function POST(request: Request) {
     // If no opportunity found via thread, create a new one
     if (!opportunity) {
       isNewOpportunity = true;
-      const companyName = company.fields?.['Company Name'] || domainToCompanyName(domain);
+      // Try multiple field names for company name (Airtable tables vary)
+      const companyName = company.fields?.['Company Name']
+        || company.fields?.['Name']
+        || domainToCompanyName(domain);
       const oppName = `${companyName} - Inbound`;
 
       opportunity = await createRecord(
