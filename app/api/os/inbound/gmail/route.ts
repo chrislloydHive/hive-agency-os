@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getOpportunitiesTableName, getActivitiesTableName, validateAirtableConfig } from "@/lib/airtable/config";
 
 /**
  * Gmail Inbound Endpoint
@@ -8,8 +9,8 @@ import { NextResponse } from "next/server";
  * Links Activities to Opportunities.
  *
  * Uses existing Hive OS table mappings:
- * - Opportunities: "A-Lead Tracker" (AIRTABLE_OPPORTUNITIES_TABLE)
- * - Activities: "Activities" (AIRTABLE_ACTIVITIES_TABLE)
+ * - Opportunities: AIRTABLE_OPPORTUNITIES_TABLE (default: "Opportunities")
+ * - Activities: AIRTABLE_ACTIVITIES_TABLE (default: "Activities")
  * - Companies: "Companies"
  */
 
@@ -21,10 +22,10 @@ const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY!;
 const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID!;
 const HIVE_INBOUND_EMAIL_SECRET = process.env.HIVE_INBOUND_EMAIL_SECRET!;
 
-// Table names - must match existing lib/airtable mappings
+// Table names - use centralized config helpers
 const TABLE_COMPANIES = "Companies";
-const TABLE_ACTIVITIES = process.env.AIRTABLE_ACTIVITIES_TABLE || "Activities";
-const TABLE_OPPORTUNITIES = process.env.AIRTABLE_OPPORTUNITIES_TABLE || "A-Lead Tracker";
+const TABLE_ACTIVITIES = getActivitiesTableName();
+const TABLE_OPPORTUNITIES = getOpportunitiesTableName();
 
 // Personal email domains to block
 const PERSONAL_DOMAINS = new Set([
@@ -216,8 +217,8 @@ export async function POST(request: Request) {
     );
 
     if (existingActivity) {
-      // Check if this activity has a linked Opportunity
-      const oppLinks = existingActivity.fields["Opportunity"] as string[] | undefined;
+      // Check if this activity has a linked Opportunities
+      const oppLinks = existingActivity.fields["Opportunities"] as string[] | undefined;
 
       if (oppLinks?.[0]) {
         // Fetch the linked Opportunity record
@@ -288,7 +289,7 @@ export async function POST(request: Request) {
 
     if (threadActivity) {
       // Get the linked opportunity ID from the activity
-      const oppLinks = threadActivity.fields["Opportunity"] as string[] | undefined;
+      const oppLinks = threadActivity.fields["Opportunities"] as string[] | undefined;
       if (oppLinks?.[0]) {
         // Fetch the opportunity record
         const oppResult = await airtableRequest<AirtableRecord>(
@@ -325,7 +326,7 @@ export async function POST(request: Request) {
       Source: "gmail-addon",
 
       // Links
-      Opportunity: [opportunity.id],
+      Opportunities: [opportunity.id],
       Company: [company.id],
 
       // Email content fields

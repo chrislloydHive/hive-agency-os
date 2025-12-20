@@ -779,6 +779,50 @@ export async function updateCompany(
 }
 
 /**
+ * Upsert company by domain - finds existing or creates new
+ *
+ * Idempotency key: normalized domain
+ *
+ * @param domain - Domain or URL to normalize
+ * @param name - Optional company name (uses domainToCompanyName if not provided)
+ * @param website - Optional full website URL
+ * @param source - Optional source tracking (e.g., "DMA")
+ * @returns Company record (existing or newly created)
+ */
+export async function upsertCompanyByDomain(
+  domain: string,
+  name?: string,
+  website?: string,
+  source?: CompanyRecord['source']
+): Promise<{ company: CompanyRecord; isNew: boolean }> {
+  const normalizedDomain = normalizeDomain(domain);
+
+  // Try to find existing company
+  const existing = await findCompanyByDomain(normalizedDomain);
+  if (existing) {
+    console.log(`[Companies] Found existing company for domain ${normalizedDomain}: ${existing.id}`);
+    return { company: existing, isNew: false };
+  }
+
+  // Create new company
+  const companyName = name || domainToCompanyName(normalizedDomain);
+  const newCompany = await createCompany({
+    name: companyName,
+    domain: normalizedDomain,
+    website: website || `https://${normalizedDomain}`,
+    source: source,
+    stage: 'Prospect',
+  });
+
+  if (!newCompany) {
+    throw new Error(`Failed to create company for domain ${normalizedDomain}`);
+  }
+
+  console.log(`[Companies] Created new company for domain ${normalizedDomain}: ${newCompany.id}`);
+  return { company: newCompany, isNew: true };
+}
+
+/**
  * Get company by canonical companyId (UUID)
  *
  * This is different from getCompanyById which takes Airtable record ID.

@@ -5,8 +5,15 @@
 // Supports deduplication by external message ID for email integrations.
 
 import { getBase } from '@/lib/airtable';
+import { getActivitiesTableName, isAirtableAuthError, formatAirtableError } from './config';
 
-const ACTIVITIES_TABLE = process.env.AIRTABLE_ACTIVITIES_TABLE || 'Activities';
+/**
+ * Get the configured Activities table name.
+ * Uses AIRTABLE_getTableName() env var, defaults to "Activities".
+ */
+function getTableName(): string {
+  return getActivitiesTableName();
+}
 
 // ============================================================================
 // Types
@@ -76,8 +83,8 @@ export interface CreateActivityParams {
 function mapRecordToActivity(record: any): ActivityRecord {
   const fields = record.fields;
 
-  // Opportunity and Company are linked record fields
-  const opportunityLinks = fields['Opportunity'] as string[] | undefined;
+  // Opportunities and Company are linked record fields
+  const opportunityLinks = fields['Opportunities'] as string[] | undefined;
   const companyLinks = fields['Company'] as string[] | undefined;
 
   return {
@@ -124,7 +131,7 @@ export async function findActivityByExternalMessageId(
   try {
     const base = getBase();
 
-    const records = await base(ACTIVITIES_TABLE)
+    const records = await base(getTableName())
       .select({
         filterByFormula: `AND({Source} = "${source}", {External Message ID} = "${externalMessageId}")`,
         maxRecords: 1,
@@ -165,7 +172,7 @@ export async function findActivitiesByExternalThreadId(
   try {
     const base = getBase();
 
-    const records = await base(ACTIVITIES_TABLE)
+    const records = await base(getTableName())
       .select({
         filterByFormula: `AND({Source} = "${source}", {External Thread ID} = "${externalThreadId}")`,
         sort: [{ field: 'Received At', direction: 'desc' }],
@@ -194,7 +201,7 @@ export async function findActivityByExternalThreadId(
     const base = getBase();
 
     // Sort by Received At descending to get most recent
-    const records = await base(ACTIVITIES_TABLE)
+    const records = await base(getTableName())
       .select({
         filterByFormula: `{External Thread ID} = "${externalThreadId}"`,
         sort: [{ field: 'Received At', direction: 'desc' }],
@@ -254,7 +261,7 @@ export async function createActivity(
 
     // Link to opportunity if provided (optional for standalone activities)
     if (params.opportunityId) {
-      fields['Opportunity'] = [params.opportunityId];
+      fields['Opportunities'] = [params.opportunityId];
     }
 
     // Link to company if provided
@@ -291,7 +298,7 @@ export async function createActivity(
     // Note: Do NOT set 'Created At' - Airtable auto-generates
     // Note: Do NOT set 'Confidence' or 'AI Summary' - leave blank
 
-    const records = await base(ACTIVITIES_TABLE).create([{ fields: fields as any }]);
+    const records = await base(getTableName()).create([{ fields: fields as any }]);
     const createdRecord = records[0];
 
     console.log(`[Activities] Created activity: ${createdRecord.id} (${params.title})`);
@@ -320,16 +327,34 @@ export async function getActivitiesForOpportunity(
   try {
     const base = getBase();
 
-    // Use FIND to match linked records
-    const records = await base(ACTIVITIES_TABLE)
-      .select({
-        filterByFormula: `FIND("${opportunityId}", ARRAYJOIN({Opportunity}))`,
-        sort: [{ field: 'Received At', direction: 'desc' }],
-        maxRecords: limit,
-      })
-      .all();
+    // Strategy: Fetch the Opportunity record first to get linked Activity IDs,
+    // then fetch those activities directly. This is more reliable than
+    // ARRAYJOIN formulas which can be inconsistent with linked record fields.
+    const opportunitiesTable = process.env.AIRTABLE_OPPORTUNITIES_TABLE || 'Opportunities';
+    const oppRecord = await base(opportunitiesTable).find(opportunityId);
+    const activityIds = (oppRecord.fields['Activities'] as string[] | undefined) || [];
 
-    return records.map(mapRecordToActivity);
+    if (activityIds.length === 0) {
+      return [];
+    }
+
+    // Fetch activities by ID (up to limit)
+    const idsToFetch = activityIds.slice(0, limit);
+    const records = await Promise.all(
+      idsToFetch.map((id) => base(getTableName()).find(id).catch(() => null))
+    );
+
+    // Filter out nulls (failed fetches), map to ActivityRecord, sort by date
+    const activities = records
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+      .map(mapRecordToActivity)
+      .sort((a, b) => {
+        const dateA = a.receivedAt || '';
+        const dateB = b.receivedAt || '';
+        return dateB.localeCompare(dateA); // Descending
+      });
+
+    return activities;
   } catch (error) {
     console.error(`[Activities] Failed to get activities for opportunity ${opportunityId}:`, error);
     return [];
@@ -350,7 +375,8 @@ export async function getActivitiesForCompany(
   try {
     const base = getBase();
 
-    const records = await base(ACTIVITIES_TABLE)
+    // Use FIND with ARRAYJOIN to match company ID in linked records.
+    const records = await base(getTableName())
       .select({
         filterByFormula: `FIND("${companyId}", ARRAYJOIN({Company}))`,
         sort: [{ field: 'Received At', direction: 'desc' }],
