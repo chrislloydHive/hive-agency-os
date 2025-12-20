@@ -168,7 +168,7 @@ export async function POST(request: NextRequest) {
         await createOpportunity({
           companyId: company.id,
           name: `${company.name} - Initial Opportunity`,
-          stage: 'discovery',
+          stage: 'interest_confirmed',
           owner: body.owner || undefined,
           notes: body.notes || undefined,
         });
