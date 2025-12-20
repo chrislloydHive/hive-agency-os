@@ -239,7 +239,7 @@ export async function createOpportunity(params: {
       fields['Expected Close Date'] = params.closeDate;
     }
     if (params.owner) {
-      fields['Owner'] = params.owner;
+      fields['Rep'] = params.owner;
     }
     if (params.notes) {
       fields['Rep Notes'] = params.notes;
@@ -563,7 +563,7 @@ export async function updateOpportunity(
       fields['Expected Close Date'] = toAirtable(updates.closeDate);
     }
     if (updates.owner !== undefined) {
-      fields['Owner'] = toAirtable(updates.owner);
+      fields['Rep'] = toAirtable(updates.owner);
     }
     if (updates.notes !== undefined) {
       fields['Rep Notes'] = toAirtable(updates.notes);
