@@ -540,6 +540,9 @@ export interface GapPlanRun {
   benchmarkCohort?: string | null;
   companyType?: string | null;
   tier?: string | null;
+
+  // V4 Context ingestion: parsed Data JSON for V4 proposal flow
+  dataJson?: unknown;
 }
 
 // ============================================================================

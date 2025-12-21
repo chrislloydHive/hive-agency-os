@@ -1,18 +1,108 @@
 // app/c/[companyId]/diagnostics/page.tsx
-// Redirects to /blueprint - the canonical Diagnostics hub
+// Diagnostics Control Center
 //
-// The Diagnostics tab (formerly "Blueprint") is at /blueprint for URL stability.
-// This route provides a semantic alias.
+// Clean dashboard for running GAP and Lab diagnostics.
+// Shows lab grid, recent runs, and links to Review Queue.
 
-import { redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
+import { getCompanyById } from '@/lib/airtable/companies';
+import { getCompanyStrategySnapshot } from '@/lib/os/companies/strategySnapshot';
+import { getRecentRunsWithToolCoverage, getToolLabel, type DiagnosticRun } from '@/lib/os/diagnostics/runs';
+import { DiagnosticsControlCenter } from '@/components/os/DiagnosticsControlCenter';
 
 type PageProps = {
   params: Promise<{ companyId: string }>;
 };
 
-export default async function DiagnosticsHubPage({ params }: PageProps) {
+export const dynamic = 'force-dynamic';
+
+export async function generateMetadata({ params }: PageProps) {
+  const { companyId } = await params;
+  const company = await getCompanyById(companyId);
+
+  if (!company) {
+    return { title: 'Company Not Found | Hive OS' };
+  }
+
+  return {
+    title: `Diagnostics | ${company.name} | Hive OS`,
+    description: `Run labs and assessments to uncover issues and opportunities for ${company.name}`,
+  };
+}
+
+// Tool slug mapping for report paths
+const toolIdToSlug: Record<string, string> = {
+  gapSnapshot: 'gap-ia',
+  gapPlan: 'gap-plan',
+  gapHeavy: 'gap-heavy',
+  websiteLab: 'website-lab',
+  brandLab: 'brand-lab',
+  contentLab: 'content-lab',
+  seoLab: 'seo-lab',
+  demandLab: 'demand-lab',
+  opsLab: 'ops-lab',
+  audienceLab: 'audience',
+  competitionLab: 'competition',
+};
+
+export default async function DiagnosticsPage({ params }: PageProps) {
   const { companyId } = await params;
 
-  // Redirect to the Diagnostics hub (at /blueprint path for URL stability)
-  redirect(`/c/${companyId}/blueprint`);
+  // Fetch data in parallel
+  const [company, strategySnapshot, recentRuns] = await Promise.all([
+    getCompanyById(companyId),
+    getCompanyStrategySnapshot(companyId).catch(() => null),
+    getRecentRunsWithToolCoverage(companyId, 10).catch(() => []),
+  ]);
+
+  if (!company) {
+    notFound();
+  }
+
+  // Transform recent runs for display
+  const recentDiagnostics = recentRuns.map((run: DiagnosticRun) => {
+    const slug = toolIdToSlug[run.toolId] || run.toolId;
+    const isComplete = run.status === 'complete' || (run.status as string) === 'completed';
+
+    // Extract error from metadata if run failed
+    let error: string | null = null;
+    if (run.status === 'failed' && run.metadata) {
+      error = (run.metadata as { error?: string }).error || null;
+    }
+
+    return {
+      id: run.id,
+      toolId: run.toolId,
+      toolLabel: getToolLabel(run.toolId),
+      status: (isComplete ? 'complete' : run.status) as 'complete' | 'running' | 'failed' | 'pending',
+      score: run.score,
+      completedAt: isComplete ? run.updatedAt : null,
+      reportPath: isComplete ? `/c/${companyId}/diagnostics/${slug}/${run.id}` : null,
+      createdAt: run.createdAt,
+      error,
+    };
+  });
+
+  // Try to get open findings count (optional)
+  let openFindingsCount = 0;
+  try {
+    const { getCompanyFindingsCount } = await import('@/lib/os/findings/companyFindings');
+    openFindingsCount = await getCompanyFindingsCount(companyId);
+  } catch {
+    // Findings count not critical
+  }
+
+  return (
+    <DiagnosticsControlCenter
+      company={{
+        id: company.id,
+        name: company.name,
+        website: company.website,
+        domain: company.domain,
+      }}
+      strategySnapshot={strategySnapshot}
+      recentDiagnostics={recentDiagnostics}
+      openFindingsCount={openFindingsCount}
+    />
+  );
 }

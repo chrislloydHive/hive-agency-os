@@ -37,21 +37,38 @@ export interface BulkInsightInput {
   toolSlug?: string;
 }
 
+export interface BulkInsightResult {
+  created: ClientInsight[];
+  failed: { title: string; error: string }[];
+  skipped: string[];
+}
+
 // ============================================================================
 // Create Insights
 // ============================================================================
 
 /**
  * Create multiple insights from extracted InsightUnits
+ * Returns structured result with created/failed/skipped counts for resilient ingestion.
  */
 export async function createInsightsFromUnits(
   params: BulkInsightInput
-): Promise<ClientInsight[]> {
+): Promise<BulkInsightResult> {
   const { units, companyId, sourceType, sourceRunId, toolSlug } = params;
 
-  const created: ClientInsight[] = [];
+  const result: BulkInsightResult = {
+    created: [],
+    failed: [],
+    skipped: [],
+  };
 
   for (const unit of units) {
+    // Skip units with no title
+    if (!unit.title?.trim()) {
+      result.skipped.push('(empty title)');
+      continue;
+    }
+
     try {
       // Build the body with summary + recommendation
       const bodyParts = [unit.summary];
@@ -86,51 +103,78 @@ export async function createInsightsFromUnits(
       };
 
       const insight = await createClientInsight(companyId, input);
-      created.push(insight);
+      result.created.push(insight);
     } catch (error) {
-      console.error('[InsightRepo] Failed to create insight:', unit.title, error);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('[InsightRepo] Failed to create insight:', unit.title, errorMsg);
+      result.failed.push({ title: unit.title, error: errorMsg });
+      // Continue with next insight - don't break the batch
     }
   }
 
-  console.log(`[InsightRepo] Created ${created.length}/${units.length} insights for ${companyId}`);
-  return created;
+  console.log(`[InsightRepo] Insights: ${result.created.length} created, ${result.failed.length} failed, ${result.skipped.length} skipped for ${companyId}`);
+  return result;
 }
 
 /**
  * Map extracted category to ClientInsight category
  * Note: Airtable Category field has limited options - map to closest match
  *
- * Known Airtable categories (based on successful creates):
- * - brand, website, content, seo, audience, other
+ * Actual Airtable categories (from Airtable UI):
+ * brand, content, seo, website, analytics, demand, ops, competitive, structural, product, other
  *
- * Categories that DON'T exist in Airtable:
- * - media, conversion, kpi_risk, growth_opportunity, competitive, ops, demand, creative
+ * Note: Final coercion happens in clientBrain.ts via coerceInsightCategory()
+ * This pre-mapping helps align AI outputs to valid categories.
  */
 function mapExtractedCategory(category: string): InsightCategory {
+  // Normalize input
+  const normalized = category?.toLowerCase().trim() || 'other';
+
   // Map all categories to Airtable-compatible ones
   const airtableMappings: Record<string, InsightCategory> = {
     // Direct matches (these exist in Airtable)
     brand: 'brand',
-    website: 'website',
     content: 'content',
     seo: 'seo',
-    audience: 'audience',
+    website: 'website',
+    analytics: 'analytics',
+    demand: 'demand',
+    ops: 'ops',
+    competitive: 'competitive',
+    structural: 'structural',
+    product: 'product',
     other: 'other',
 
-    // Map to closest Airtable category
+    // Map common AI outputs to valid categories
+    audience: 'brand',          // No 'audience' - map to brand (ICP/targeting)
+    strategy: 'structural',     // No 'strategy' - map to structural
+    media: 'demand',            // Media relates to demand gen
+    conversion: 'demand',       // Conversion relates to demand
+    funnel: 'demand',
+    leads: 'demand',
+    pipeline: 'demand',
+    creative: 'brand',          // Creative relates to brand
+    messaging: 'brand',
+    positioning: 'brand',
+    trust: 'brand',
+    visual: 'brand',
+    identity: 'brand',
     seo_content: 'seo',
-    media: 'other',           // No media category in Airtable
-    conversion: 'website',    // Conversion relates to website
-    kpi_risk: 'other',        // No kpi_risk in Airtable
-    growth_opportunity: 'other',
-    competitive: 'other',
-    ops: 'other',
-    demand: 'other',
-    creative: 'brand',        // Creative relates to brand
-    digitalFootprint: 'other',
+    technical: 'website',
+    performance: 'website',
+    ux: 'website',
+    kpi_risk: 'analytics',
+    metrics: 'analytics',
+    tracking: 'analytics',
+    growth_opportunity: 'demand',
+    digitalFootprint: 'website',
+    operations: 'ops',
+    process: 'ops',
+    competition: 'competitive',
+    competitors: 'competitive',
   };
 
-  return airtableMappings[category] || 'other';
+  return airtableMappings[normalized] || 'other';
 }
 
 // ============================================================================
@@ -275,11 +319,11 @@ export async function findSimilarInsight(
  */
 export async function deduplicateAndCreate(
   params: BulkInsightInput
-): Promise<{ created: ClientInsight[]; skipped: number }> {
+): Promise<{ created: ClientInsight[]; skipped: number; failed: number }> {
   const { units, companyId } = params;
 
   const toCreate: InsightUnit[] = [];
-  let skipped = 0;
+  let skippedDupes = 0;
 
   for (const unit of units) {
     const existing = await findSimilarInsight(
@@ -290,18 +334,22 @@ export async function deduplicateAndCreate(
 
     if (existing) {
       console.log(`[InsightRepo] Skipping duplicate: "${unit.title}"`);
-      skipped++;
+      skippedDupes++;
     } else {
       toCreate.push(unit);
     }
   }
 
-  const created = await createInsightsFromUnits({
+  const result = await createInsightsFromUnits({
     ...params,
     units: toCreate,
   });
 
-  return { created, skipped };
+  return {
+    created: result.created,
+    skipped: skippedDupes + result.skipped.length,
+    failed: result.failed.length,
+  };
 }
 
 // ============================================================================

@@ -48,6 +48,7 @@ import {
   type ExtractionResult,
   type ExtractionContext,
 } from '@/lib/os/context/extractors';
+import { tryNormalizeWebsiteUrl } from '@/lib/utils/urls';
 import { upsertContextFields } from '@/lib/os/context/upsertContextFields';
 import { canonicalizeFindings, getFieldsForGapToPropose } from '@/lib/os/context/canonicalizer';
 import { GAP_ALLOWED_FIELDS } from '@/lib/os/context/schema';
@@ -181,6 +182,17 @@ export async function runFullGAPOrchestrator(
     const company = await getCompanyById(input.companyId);
     if (!company) {
       throw new Error(`Company not found: ${input.companyId}`);
+    }
+
+    // Normalize the website URL once for all downstream uses
+    const rawWebsiteUrl = company.website || company.domain || '';
+    const urlNormResult = tryNormalizeWebsiteUrl(rawWebsiteUrl);
+    const normalizedWebsiteUrl = urlNormResult.ok ? urlNormResult.url : '';
+
+    if (!urlNormResult.ok) {
+      console.warn('[GAP Orchestrator] URL normalization failed:', urlNormResult.error);
+    } else if (rawWebsiteUrl !== normalizedWebsiteUrl) {
+      console.log('[GAP Orchestrator] URL normalized:', rawWebsiteUrl, '->', normalizedWebsiteUrl);
     }
 
     const contextBefore = await getOrCreateContextGraph(
@@ -411,13 +423,13 @@ export async function runFullGAPOrchestrator(
     let gapStructured: GAPStructuredOutput;
     let gapPlanResult: any = null;
 
-    if (!input.dryRun && company.website) {
+    if (!input.dryRun && normalizedWebsiteUrl) {
       try {
         // Run the Full GAP Plan V4 multi-pass pipeline
         const gapEngineInput = {
           companyId: input.companyId,
           company,
-          websiteUrl: company.website,
+          websiteUrl: normalizedWebsiteUrl,
         };
 
         gapPlanResult = await runGapPlanEngine(gapEngineInput);
@@ -576,7 +588,7 @@ export async function runFullGAPOrchestrator(
     try {
       await logGapPlanRunToAirtable({
         planId: snapshotId,
-        url: company.website || company.domain || '',
+        url: normalizedWebsiteUrl || rawWebsiteUrl,
         maturityStage: gapStructured.maturityStage as 'Early' | 'Emerging' | 'Scaling' | 'Leading' | undefined,
         scores: {
           overall: gapStructured.scores.overall,
@@ -727,10 +739,15 @@ async function runLabInRefinementMode(
     console.warn(`[GAP Orchestrator] Failed to create diagnostic run record for ${labId}:`, err);
   }
 
+  // Normalize the URL before passing to engines
+  const rawUrl = company.website || company.domain || '';
+  const urlResult = tryNormalizeWebsiteUrl(rawUrl);
+  const websiteUrl = urlResult.ok ? urlResult.url : rawUrl;
+
   const input: EngineInput = {
     companyId,
     company,
-    websiteUrl: company.website || '',
+    websiteUrl,
   };
 
   let engineResult: any;

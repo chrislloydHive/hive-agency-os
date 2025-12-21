@@ -15,14 +15,16 @@ import { createEmptyContextGraph } from '@/lib/contextGraph/companyContextGraph'
 import { computeContextHealthScore } from '@/lib/contextGraph/health';
 import { buildStrategicMapGraph } from '@/lib/contextGraph/strategicMap';
 import { queryInsights } from '@/lib/insights/engine';
-import { StrategicMapClient } from '../map/StrategicMapClient';
+import { ExplorerClientWrapper } from './ExplorerClientWrapper';
 
 // ============================================================================
-// Dynamic Rendering
+// Caching Strategy
 // ============================================================================
 
-// Force dynamic rendering to ensure fresh data after promotion
-export const dynamic = 'force-dynamic';
+// Use ISR with 60-second revalidation for better performance
+// The client-side cache provides instant rendering on navigation back
+// Server data revalidates in the background
+export const revalidate = 60;
 
 // ============================================================================
 // Types
@@ -71,7 +73,7 @@ export default async function ExplorerPage({ params, searchParams }: PageProps) 
   const mapGraph = buildStrategicMapGraph(contextGraph, healthScore, globalInsights);
 
   return (
-    <StrategicMapClient
+    <ExplorerClientWrapper
       companyId={companyId}
       companyName={company.name}
       mapGraph={mapGraph}

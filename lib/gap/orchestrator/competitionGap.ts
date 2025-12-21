@@ -17,6 +17,7 @@ import { competitionLabImporter } from '@/lib/contextGraph/importers/competition
 import { runCompetitorLabEngine, type EngineInput } from '@/lib/os/diagnostics/engines';
 import { getCompanyById } from '@/lib/airtable/companies';
 import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
+import { tryNormalizeWebsiteUrl } from '@/lib/utils/urls';
 
 // ============================================================================
 // Types
@@ -217,10 +218,15 @@ export async function runCompetitionGap(
     // Run full Competition Lab Engine
     console.log('[Competition GAP] Running Competition Lab Engine...');
 
+    // Normalize the URL before passing to engine
+    const rawUrl = company.website || company.domain || '';
+    const urlResult = tryNormalizeWebsiteUrl(rawUrl);
+    const websiteUrl = urlResult.ok ? urlResult.url : rawUrl;
+
     const engineInput: EngineInput = {
       companyId,
       company,
-      websiteUrl: company.website || company.domain || '',
+      websiteUrl,
     };
 
     const engineResult = await runCompetitorLabEngine(engineInput);

@@ -49,6 +49,13 @@ import type {
   AIProgramDraft,
   GenerateProgramResponse,
 } from '@/lib/types/program';
+import { useContextV4Health } from '@/hooks/useContextV4Health';
+import type { V4HealthResponse } from '@/lib/types/contextV4Health';
+import {
+  ContextV4HealthGate,
+  ContextV4HealthInlineWarning,
+  ContextV4HealthReadyIndicator,
+} from '@/components/context-v4/ContextV4HealthGate';
 
 // ============================================================================
 // Types
@@ -291,6 +298,12 @@ export function ProgramsClient({
   const [contentLabStatus, setContentLabStatus] = useState<LabRunStatus | null>(null);
   const [loadingLabStatus, setLoadingLabStatus] = useState(true);
 
+  // Context V4 Health (using unified hook)
+  const {
+    health: v4Health,
+    loading: loadingV4Health,
+  } = useContextV4Health(companyId);
+
   // Derived state
   const hasChanges = !!(selectedProgram && editedPlan &&
     JSON.stringify(selectedProgram.plan) !== JSON.stringify(editedPlan));
@@ -383,6 +396,8 @@ export function ProgramsClient({
 
     fetchLabStatus();
   }, [companyId]);
+
+  // V4 Health is fetched via useContextV4Health hook above
 
   // ============================================================================
   // Check for existing work items when program changes
@@ -1105,6 +1120,8 @@ export function ProgramsClient({
               loading={loading}
               readiness={programReadiness}
               programTypeLabel={programTypeLabel}
+              v4Health={v4Health}
+              companyId={companyId}
             />
           )}
 
@@ -1191,13 +1208,21 @@ function EmptyState({
   loading,
   readiness,
   programTypeLabel,
+  v4Health,
+  companyId,
 }: {
   onGenerate: () => void;
   loading: boolean;
   readiness: ProgramReadiness;
   programTypeLabel: string;
+  v4Health: V4HealthResponse | null;
+  companyId: string;
 }) {
   const labName = programTypeLabel === 'Content' ? 'content lab' : 'website lab';
+
+  // Show health gate only when readiness is met (so we don't double-warn)
+  const showHealthGate = readiness.isReady && v4Health && v4Health.status !== 'GREEN';
+
   return (
     <div className="flex flex-col items-center justify-center h-96 text-center">
       <div className="p-4 bg-blue-900/30 rounded-full mb-4">
@@ -1242,22 +1267,48 @@ function EmptyState({
         </div>
       )}
 
-      <button
-        onClick={onGenerate}
-        disabled={loading || !readiness.isReady}
-        title={!readiness.isReady ? 'Complete prerequisites first' : undefined}
-        className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {loading ? (
-          <Loader2 className="w-4 h-4 animate-spin" />
-        ) : (
-          <Sparkles className="w-4 h-4" />
-        )}
-        Generate {programTypeLabel} Program (AI)
-      </button>
-      <p className="text-xs text-slate-600 mt-4">
-        You&apos;ll review and approve before anything is saved
-      </p>
+      {/* Context V4 Health Gate - soft warning when baseline has issues */}
+      {showHealthGate && (
+        <ContextV4HealthGate
+          health={v4Health}
+          companyId={companyId}
+          onContinue={onGenerate}
+          showContinueButton={true}
+        />
+      )}
+
+      {/* Optional: Show subtle ready indicator when GREEN */}
+      {readiness.isReady && v4Health?.status === 'GREEN' && (
+        <ContextV4HealthReadyIndicator health={v4Health} />
+      )}
+
+      {/* Generate Button - only show when health gate is not displayed (or GREEN) */}
+      {(!showHealthGate) && (
+        <>
+          <button
+            onClick={onGenerate}
+            disabled={loading || !readiness.isReady}
+            title={!readiness.isReady ? 'Complete prerequisites first' : undefined}
+            className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Sparkles className="w-4 h-4" />
+            )}
+            Generate {programTypeLabel} Program (AI)
+          </button>
+
+          {/* Inline warning under button if health is not GREEN but gate isn't shown */}
+          {v4Health && v4Health.status !== 'GREEN' && !readiness.isReady && (
+            <ContextV4HealthInlineWarning health={v4Health} />
+          )}
+
+          <p className="text-xs text-slate-600 mt-4">
+            You&apos;ll review and approve before anything is saved
+          </p>
+        </>
+      )}
     </div>
   );
 }

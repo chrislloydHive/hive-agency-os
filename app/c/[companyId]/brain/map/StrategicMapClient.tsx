@@ -29,6 +29,8 @@ import {
   ChevronUp,
   Circle,
 } from 'lucide-react';
+import { ReviewV4Banner } from '@/components/context-v4/ReviewV4Banner';
+import { useStrategicMapCache } from '@/components/providers/StrategicMapCacheProvider';
 import type {
   StrategicMapGraph,
   StrategicMapNode,
@@ -965,6 +967,9 @@ function StrategicMapInner({
           </div>
         </div>
 
+        {/* V4 Review Queue CTA */}
+        <ReviewV4Banner companyId={companyId} />
+
         {/* Filter Panel */}
         <FilterPanel />
 
@@ -1220,6 +1225,21 @@ export function StrategicMapClient({
   focusNodeId,
   globalInsights = [],
 }: StrategicMapClientProps) {
+  // Cache the graph data for persistence across navigation
+  const { setCache } = useStrategicMapCache();
+
+  // Cache data on mount and when props change
+  useEffect(() => {
+    if (mapGraph && healthScore && !isNewGraph) {
+      setCache(companyId, {
+        mapGraph,
+        healthScore,
+        globalInsights,
+        companyName,
+      });
+    }
+  }, [companyId, mapGraph, healthScore, globalInsights, companyName, isNewGraph, setCache]);
+
   // Generate ghost nodes based on current graph state
   const ghostNodes = useMemo(
     () => generateGhostNodes(mapGraph, healthScore),
