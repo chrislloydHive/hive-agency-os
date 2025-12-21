@@ -131,7 +131,7 @@ async function main() {
   for (const opp of opportunityData) {
     try {
       // Create with minimal select fields that have existing values
-      const fields: Record<string, unknown> = {
+      const fields: Airtable.FieldSet = {
         'Name': opp.name,
         'Company': [companyId],
         'Stage': opp.stage,
@@ -146,9 +146,9 @@ async function main() {
         fields['Deal Health'] = 'Stalled';
       }
 
-      const record = await base(OPPORTUNITIES_TABLE).create(fields);
-      opportunityRecords.push(record);
-      console.log(`  ✓ Created: "${opp.name}" (${record.id})`);
+      const records = await base(OPPORTUNITIES_TABLE).create([{ fields }]);
+      opportunityRecords.push(records[0]);
+      console.log(`  ✓ Created: "${opp.name}" (${records[0].id})`);
       console.log(`      Value: $${opp.value.toLocaleString()}, Stage: ${opp.stage}`);
       if (opp.stage !== opp.targetStage) {
         console.log(`      → Change Stage to "${opp.targetStage}" in Airtable`);
@@ -191,7 +191,7 @@ async function main() {
   for (const act of activityData) {
     const oppRecord = opportunityRecords[act.oppIndex];
 
-    const fields: Record<string, unknown> = {
+    const fields: Airtable.FieldSet = {
       'Title': act.subject,
       'Type': act.type,
       'Direction': act.direction,
@@ -209,7 +209,7 @@ async function main() {
     }
 
     try {
-      await base(ACTIVITIES_TABLE).create(fields);
+      await base(ACTIVITIES_TABLE).create([{ fields }]);
       activitiesCreated++;
       if (oppRecord) activitiesLinkedToOpp++;
       console.log(`  ✓ Created: "${act.subject.slice(0, 40)}..." → Opp ${act.oppIndex + 1}`);
@@ -218,7 +218,7 @@ async function main() {
         console.log(`  ⚠️  Opportunities link failed, trying without...`);
         delete fields['Opportunities'];
         try {
-          await base(ACTIVITIES_TABLE).create(fields);
+          await base(ACTIVITIES_TABLE).create([{ fields }]);
           activitiesCreated++;
           console.log(`  ✓ Created (no opp link): "${act.subject.slice(0, 40)}..."`);
         } catch (err2: any) {
