@@ -80,6 +80,8 @@ export const ProvenanceTag = z.object({
   confirmedAt: z.string().optional(),
   /** User ID who confirmed the value (for audit trail) */
   confirmedBy: z.string().optional(),
+  /** True if the human modified the proposed value (not just accepted as-is) */
+  humanEdited: z.boolean().optional(),
 });
 
 export type ProvenanceTag = z.infer<typeof ProvenanceTag>;

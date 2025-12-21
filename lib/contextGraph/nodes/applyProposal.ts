@@ -21,19 +21,29 @@ interface ContextField<T = unknown> {
 // ============================================================================
 
 /**
+ * Options for applying a proposal to the context graph
+ */
+export interface ApplyProposalOptions {
+  /** True if the human modified the proposed value (not just accepted as-is) */
+  isEdited?: boolean;
+}
+
+/**
  * Apply a proposal value to the context graph
  *
  * @param graph - The current context graph
  * @param fieldPath - The field path (e.g., 'identity.businessModel')
  * @param value - The value to set
  * @param source - Who confirmed this value ('user' for confirmed values)
+ * @param options - Additional options (isEdited flag)
  * @returns Updated context graph
  */
 export async function applyProposalToContextGraph(
   graph: CompanyContextGraph,
   fieldPath: string,
   value: unknown,
-  source: string
+  source: string,
+  options?: ApplyProposalOptions
 ): Promise<CompanyContextGraph> {
   const parts = fieldPath.split('.');
   if (parts.length < 2) {
@@ -56,7 +66,7 @@ export async function applyProposalToContextGraph(
   // Handle nested paths (e.g., 'competitive.topCompetitors.0.name')
   if (rest.length > 0) {
     const nestedPath = [fieldName, ...rest].join('.');
-    setNestedValue(domainObj, nestedPath, value, source);
+    setNestedValue(domainObj, nestedPath, value, source, options?.isEdited ?? false);
   } else {
     // Direct field access
     const field = domainObj[fieldName];
@@ -65,11 +75,16 @@ export async function applyProposalToContextGraph(
       (field as ContextField<unknown>).value = value;
 
       // Create new provenance entry for user confirmation
+      const isEdited = options?.isEdited ?? false;
+      const now = new Date().toISOString();
       const newProvenance: ProvenanceTag = {
         source: source as ContextSource,
         confidence: 1, // User-confirmed = full confidence
-        updatedAt: new Date().toISOString(),
-        notes: 'Confirmed from AI proposal',
+        updatedAt: now,
+        notes: isEdited ? 'Edited from AI proposal' : 'Confirmed from AI proposal',
+        humanConfirmed: true,
+        confirmedAt: now,
+        humanEdited: isEdited,
       };
 
       // Prepend new provenance (most recent first)
@@ -82,7 +97,7 @@ export async function applyProposalToContextGraph(
       ];
     } else {
       // Field doesn't exist yet - create it
-      domainObj[fieldName] = createContextField(value, source);
+      domainObj[fieldName] = createContextField(value, source, options?.isEdited ?? false);
     }
   }
 
@@ -99,7 +114,8 @@ function setNestedValue(
   obj: Record<string, unknown>,
   path: string,
   value: unknown,
-  source: string
+  source: string,
+  isEdited: boolean
 ): void {
   const parts = path.split('.');
   let current: any = obj;
@@ -141,11 +157,15 @@ function setNestedValue(
   if (current[lastKey] && typeof current[lastKey] === 'object' && 'value' in current[lastKey]) {
     (current[lastKey] as ContextField<unknown>).value = value;
 
+    const now = new Date().toISOString();
     const newProvenance: ProvenanceTag = {
       source: source as ContextSource,
       confidence: 1,
-      updatedAt: new Date().toISOString(),
-      notes: 'Confirmed from AI proposal',
+      updatedAt: now,
+      notes: isEdited ? 'Edited from AI proposal' : 'Confirmed from AI proposal',
+      humanConfirmed: true,
+      confirmedAt: now,
+      humanEdited: isEdited,
     };
 
     (current[lastKey] as ContextField<unknown>).provenance = [
@@ -161,15 +181,19 @@ function setNestedValue(
 /**
  * Create a new ContextField with initial provenance
  */
-function createContextField<T>(value: T, source: string): ContextField<T> {
+function createContextField<T>(value: T, source: string, isEdited: boolean): ContextField<T> {
+  const now = new Date().toISOString();
   return {
     value,
     provenance: [
       {
         source: source as ContextSource,
         confidence: 1,
-        updatedAt: new Date().toISOString(),
-        notes: 'Confirmed from AI proposal',
+        updatedAt: now,
+        notes: isEdited ? 'Edited from AI proposal' : 'Confirmed from AI proposal',
+        humanConfirmed: true,
+        confirmedAt: now,
+        humanEdited: isEdited,
       },
     ],
   };
@@ -188,6 +212,7 @@ export async function applyMultipleProposals(
     fieldPath: string;
     value: unknown;
     source: string;
+    isEdited?: boolean;
   }>
 ): Promise<CompanyContextGraph> {
   let updatedGraph = graph;
@@ -197,7 +222,8 @@ export async function applyMultipleProposals(
       updatedGraph,
       proposal.fieldPath,
       proposal.value,
-      proposal.source
+      proposal.source,
+      { isEdited: proposal.isEdited }
     );
   }
 

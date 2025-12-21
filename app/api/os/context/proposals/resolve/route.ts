@@ -93,7 +93,8 @@ export async function POST(request: NextRequest) {
           providedCompanyId,
           fieldPath,
           proposedValue,
-          'user'
+          'user',
+          false // Local-only accept - not edited
         );
 
         console.log(`[API] context/proposals/resolve: Applied to context graph: ${appliedToContext}`);
@@ -310,7 +311,8 @@ async function applyAcceptedProposal(
     companyId,
     proposal.fieldPath,
     proposal.proposedValue,
-    'user' // Accepted by user = confirmed
+    'user', // Accepted by user = confirmed
+    false   // Not edited - accepted as-is
   );
 }
 
@@ -329,7 +331,8 @@ async function applyEditedProposal(
     companyId,
     proposal.fieldPath,
     editedValue,
-    'user' // Edited by user = confirmed
+    'user', // Edited by user = confirmed
+    true    // Human edited the value
   );
 }
 
@@ -345,7 +348,8 @@ async function applyAllProposals(
         companyId,
         proposal.fieldPath,
         proposal.proposedValue,
-        'user'
+        'user',
+        false // Batch accept - not individually edited
       );
     }
   }
@@ -357,7 +361,8 @@ async function applyProposalValueToContext(
   companyId: string,
   fieldPath: string,
   value: unknown,
-  source: string
+  source: string,
+  isEdited: boolean = false
 ): Promise<boolean> {
   try {
     const graph = await loadContextGraph(companyId);
@@ -367,12 +372,12 @@ async function applyProposalValueToContext(
     }
 
     // Apply the value using the dedicated function
-    const updatedGraph = await applyProposalToContextGraph(graph, fieldPath, value, source);
+    const updatedGraph = await applyProposalToContextGraph(graph, fieldPath, value, source, { isEdited });
 
     // Save the updated graph
     await saveContextGraph(updatedGraph, source);
 
-    console.log(`[applyProposalValueToContext] Applied ${fieldPath} = ${JSON.stringify(value).slice(0, 50)}...`);
+    console.log(`[applyProposalValueToContext] Applied ${fieldPath} = ${JSON.stringify(value).slice(0, 50)}... (edited: ${isEdited})`);
     return true;
   } catch (error) {
     console.error(`[applyProposalValueToContext] Failed to apply ${fieldPath}:`, error);

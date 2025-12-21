@@ -36,6 +36,8 @@ export interface HydratedContextNode<T = unknown> extends ContextNode<T> {
   pendingProposal?: ContextProposal;
   /** The batch ID containing the pending proposal */
   proposalBatchId?: string;
+  /** True if the human modified the value (not just accepted AI proposal as-is) */
+  humanEdited?: boolean;
 }
 
 /**
@@ -176,6 +178,8 @@ export function hydrateFieldToNode<T>(
   const confidence = field.provenance?.[0]?.confidence ?? 1;
   const lastUpdated = field.provenance?.[0]?.updatedAt || new Date().toISOString();
 
+  const latestProvenance = field.provenance?.[0];
+
   const node: HydratedContextNode<T> = {
     key: fieldPath,
     category,
@@ -185,12 +189,13 @@ export function hydrateFieldToNode<T>(
     confidence,
     lastUpdated,
     provenance: field.provenance || [],
+    humanEdited: latestProvenance?.humanEdited ?? false,
   };
 
   // If confirmed, add confirmation details
-  if (status === 'confirmed' && field.provenance?.[0]) {
-    node.confirmedBy = field.provenance[0].source;
-    node.confirmedAt = field.provenance[0].updatedAt;
+  if (status === 'confirmed' && latestProvenance) {
+    node.confirmedBy = latestProvenance.source;
+    node.confirmedAt = latestProvenance.updatedAt;
   }
 
   // Attach pending proposal if exists

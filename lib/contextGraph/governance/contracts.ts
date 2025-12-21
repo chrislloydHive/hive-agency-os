@@ -11,6 +11,21 @@ import type { DomainName } from '../companyContextGraph';
 // Types
 // ============================================================================
 
+/**
+ * Validation rule for a single field value
+ * Used to enforce quality standards on context values
+ */
+export interface FieldValidationRule {
+  /** Type of validation check */
+  type: 'minLength' | 'maxLength' | 'pattern' | 'mustInclude' | 'mustNotInclude' | 'custom';
+  /** Value for the check (length, pattern, keywords, etc.) */
+  value?: number | string | string[];
+  /** Human-readable error message */
+  message: string;
+  /** Custom validation function for 'custom' type */
+  validate?: (value: unknown) => boolean;
+}
+
 export interface DomainContract {
   required: string[];      // Fields that MUST be populated
   recommended: string[];   // Fields that SHOULD be populated
@@ -18,6 +33,8 @@ export interface DomainContract {
     if: string;            // If this field exists
     then: string[];        // Then these fields are required
   }>;
+  /** Validation rules per field path - enforced on confirmation */
+  validationRules?: Record<string, FieldValidationRule[]>;
 }
 
 export interface ContractViolation {
@@ -75,6 +92,25 @@ export const ContextContracts: Record<DomainName, DomainContract> = {
       'brand.brandPersonality',
       'brand.messagingPillars',
     ],
+    validationRules: {
+      'brand.positioning': [
+        {
+          type: 'minLength',
+          value: 20,
+          message: 'Positioning should be at least 1-2 sentences (20+ characters)',
+        },
+        {
+          type: 'maxLength',
+          value: 500,
+          message: 'Positioning should be concise (under 500 characters)',
+        },
+        {
+          type: 'mustNotInclude',
+          value: ['score', 'rating', 'recommend', 'diagnostic'],
+          message: 'Positioning should not include scores, ratings, or diagnostic language',
+        },
+      ],
+    },
   },
 
   objectives: {
@@ -97,23 +133,75 @@ export const ContextContracts: Record<DomainName, DomainContract> = {
   audience: {
     required: [
       'audience.coreSegments',
+      'audience.icpDescription',
     ],
     recommended: [
+      'audience.primaryAudience',
       'audience.demandStates',
       'audience.behavioralDrivers',
       'audience.mediaHabits',
       'audience.painPoints',
       'audience.motivations',
     ],
+    validationRules: {
+      'audience.icpDescription': [
+        {
+          type: 'minLength',
+          value: 50,
+          message: 'ICP description should be detailed (50+ characters)',
+        },
+        {
+          type: 'mustNotInclude',
+          value: ['we ', 'our ', 'us '],
+          message: 'ICP description should describe the audience, not use "we/our/us" language',
+        },
+      ],
+      'audience.primaryAudience': [
+        {
+          type: 'minLength',
+          value: 10,
+          message: 'Primary audience should be clearly defined',
+        },
+        {
+          type: 'mustNotInclude',
+          value: ['channel', 'tactic', 'campaign'],
+          message: 'Primary audience should describe who, not how to reach them',
+        },
+      ],
+      'audience.coreSegments': [
+        {
+          type: 'custom',
+          message: 'Should have at least 1 segment defined',
+          validate: (v) => Array.isArray(v) && v.length >= 1,
+        },
+      ],
+    },
   },
 
   productOffer: {
-    required: [],
+    required: [
+      'productOffer.valueProposition',
+    ],
     recommended: [
       'productOffer.heroProducts',
       'productOffer.pricingNotes',
       'productOffer.conversionOffers',
+      'productOffer.primaryProducts',
     ],
+    validationRules: {
+      'productOffer.valueProposition': [
+        {
+          type: 'minLength',
+          value: 30,
+          message: 'Value proposition should be compelling (30+ characters)',
+        },
+        {
+          type: 'mustNotInclude',
+          value: ['feature list', 'click here', 'buy now', 'sign up'],
+          message: 'Value proposition should focus on outcomes, not CTAs or feature lists',
+        },
+      ],
+    },
   },
 
   digitalInfra: {
