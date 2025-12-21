@@ -42,6 +42,7 @@ export const AIRTABLE_TABLES = {
   // Context Graph
   CONTEXT_GRAPHS: 'ContextGraphs', // Company Context Graph storage (JSON blobs)
   CONTEXT_GRAPH_VERSIONS: 'ContextGraphVersions', // Version history of context graphs
+  CONTEXT_FIELDS_V4: 'ContextFieldsV4', // V4: First-class field records with status
 
   // Company Context (Draftable Resource)
   COMPANY_CONTEXT: 'Company Context', // Saved company context

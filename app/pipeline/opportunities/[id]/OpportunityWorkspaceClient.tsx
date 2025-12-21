@@ -85,6 +85,149 @@ const getBudgetConfidenceLabel = (confidence?: string | null) => {
   return labels[confidence || ''] || '—';
 };
 
+// ============================================================================
+// Stage Change Validation (Soft Prerequisites)
+// ============================================================================
+
+type StageCheckIssueId =
+  | 'missing_next_step'
+  | 'missing_next_step_due'
+  | 'missing_value'
+  | 'missing_close_date'
+  | 'missing_decision_owner';
+
+type StageCheckFixAction = 'focus_next_step' | 'suggest_close_date';
+
+interface StageCheckIssue {
+  id: StageCheckIssueId;
+  label: string;
+  severity: 'WARN';
+  fixAction?: StageCheckFixAction;
+}
+
+/**
+ * Stage prerequisite rules (soft validation).
+ * Maps stage -> array of issue checks in priority order.
+ */
+const STAGE_PREREQUISITES: Record<
+  string,
+  Array<{
+    id: StageCheckIssueId;
+    label: string;
+    check: (state: OpportunityDraft) => boolean; // returns true if MISSING
+    fixAction?: StageCheckFixAction;
+  }>
+> = {
+  // Discovery / Clarification
+  discovery_clarification: [
+    {
+      id: 'missing_next_step',
+      label: 'Next Step is required',
+      check: (s) => !s.nextStep?.trim(),
+      fixAction: 'focus_next_step',
+    },
+    {
+      id: 'missing_next_step_due',
+      label: 'Next Step Due Date is recommended',
+      check: (s) => !s.nextStepDue,
+    },
+  ],
+  // Solution Shaping
+  solution_shaping: [
+    {
+      id: 'missing_next_step',
+      label: 'Next Step is required',
+      check: (s) => !s.nextStep?.trim(),
+      fixAction: 'focus_next_step',
+    },
+    {
+      id: 'missing_next_step_due',
+      label: 'Next Step Due Date is recommended',
+      check: (s) => !s.nextStepDue,
+    },
+  ],
+  // Proposal Submitted
+  proposal_submitted: [
+    {
+      id: 'missing_value',
+      label: 'Deal Value (USD) should be set',
+      check: (s) => !s.value,
+    },
+    {
+      id: 'missing_close_date',
+      label: 'Expected Close Date should be set',
+      check: (s) => !s.closeDate,
+      fixAction: 'suggest_close_date',
+    },
+    {
+      id: 'missing_decision_owner',
+      label: 'Decision Owner should be identified',
+      check: (s) => !s.decisionOwner?.trim(),
+    },
+  ],
+  // Decision / Negotiation
+  decision: [
+    {
+      id: 'missing_close_date',
+      label: 'Expected Close Date should be set',
+      check: (s) => !s.closeDate,
+      fixAction: 'suggest_close_date',
+    },
+    {
+      id: 'missing_next_step',
+      label: 'Next Step is required',
+      check: (s) => !s.nextStep?.trim(),
+      fixAction: 'focus_next_step',
+    },
+    {
+      id: 'missing_value',
+      label: 'Deal Value (USD) should be set',
+      check: (s) => !s.value,
+    },
+  ],
+  // Won
+  won: [
+    {
+      id: 'missing_value',
+      label: 'Deal Value (USD) should be set',
+      check: (s) => !s.value,
+    },
+  ],
+};
+
+interface OpportunityDraft {
+  nextStep: string;
+  nextStepDue: string;
+  value: string;
+  closeDate: string;
+  decisionOwner: string;
+}
+
+/**
+ * Compute stage prerequisite issues for a given target stage.
+ * Returns issues ordered by importance.
+ */
+function computeStageIssues(
+  draft: OpportunityDraft,
+  targetStage: PipelineStage | 'other'
+): StageCheckIssue[] {
+  const rules = STAGE_PREREQUISITES[targetStage];
+  if (!rules) return [];
+
+  const issues: StageCheckIssue[] = [];
+  for (const rule of rules) {
+    if (rule.check(draft)) {
+      issues.push({
+        id: rule.id,
+        label: rule.label,
+        severity: 'WARN',
+        fixAction: rule.fixAction,
+      });
+    }
+  }
+  return issues;
+}
+
 /**
  * Derive a health explanation based on opportunity data.
  * This is READ-ONLY - never writes to Airtable or modifies deal health.
@@ -244,6 +387,15 @@ export function OpportunityWorkspaceClient({
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Stage check panel state (soft validation)
+  const [pendingStage, setPendingStage] = useState<PipelineStage | 'other' | null>(null);
+  const [stageCheckIssues, setStageCheckIssues] = useState<StageCheckIssue[]>([]);
+  const [showStageCheck, setShowStageCheck] = useState(false);
+  const [closeDateSuggested, setCloseDateSuggested] = useState(false);
+
+  // Ref for quick-fix focus action
+  const nextStepRef = useRef<HTMLTextAreaElement>(null);
+
   // Onboarding seeding state
   const [isSeeding, setIsSeeding] = useState(false);
   const [seedResult, setSeedResult] = useState<{ created: number; skipped: number } | null>(null);
@@ -254,7 +406,7 @@ export function OpportunityWorkspaceClient({
   const [expandedActivities, setExpandedActivities] = useState<Set<string>>(new Set());
 
   const daysSinceActivity = daysSince(opportunity.lastActivityAt);
-  const isRfp = opportunity.opportunityType?.toLowerCase().includes('rfp');
+  const isRfp = opportunityType?.toLowerCase().includes('rfp');
   const isWon = opportunity.stage === 'won';
   const isClosed = ['won', 'lost', 'dormant'].includes(opportunity.stage);
   const isOpen = !isClosed;
@@ -370,6 +522,7 @@ export function OpportunityWorkspaceClient({
         setOpportunityType(data.opportunity.opportunityType || '');
       }
       setSaveStatus('saved');
+      setCloseDateSuggested(false); // Clear suggestion flag after save
       setTimeout(() => setSaveStatus('idle'), 2000);
     } catch (err) {
       setSaveStatus('error');
@@ -389,6 +542,90 @@ export function OpportunityWorkspaceClient({
     setErrorMessage(null);
     setSaveStatus('idle');
   }, []);
+
+  // Build opportunity draft for stage validation
+  const opportunityDraft: OpportunityDraft = useMemo(() => ({
+    nextStep,
+    nextStepDue,
+    value,
+    closeDate,
+    decisionOwner,
+  }), [nextStep, nextStepDue, value, closeDate, decisionOwner]);
+
+  // Guarded stage change handler (soft validation with nudges)
+  const handleStageChange = useCallback((newStage: PipelineStage | 'other') => {
+    const issues = computeStageIssues(opportunityDraft, newStage);
+
+    if (issues.length === 0) {
+      // No issues - apply stage change directly
+      setStage(newStage);
+      setPendingStage(null);
+      setStageCheckIssues([]);
+      setShowStageCheck(false);
+    } else {
+      // Issues found - show soft validation panel
+      setPendingStage(newStage);
+      setStageCheckIssues(issues);
+      setShowStageCheck(true);
+    }
+  }, [opportunityDraft]);
+
+  // Apply pending stage change (user chose "Continue anyway")
+  const applyPendingStage = useCallback(() => {
+    if (pendingStage) {
+      setStage(pendingStage);
+    }
+    setPendingStage(null);
+    setStageCheckIssues([]);
+    setShowStageCheck(false);
+  }, [pendingStage]);
+
+  // Cancel pending stage change
+  const cancelStageChange = useCallback(() => {
+    setPendingStage(null);
+    setStageCheckIssues([]);
+    setShowStageCheck(false);
+  }, []);
+
+  // Execute quick-fix action with auto-resolve
+  const executeQuickFix = useCallback((action: StageCheckFixAction) => {
+    switch (action) {
+      case 'focus_next_step':
+        // Focus the Next Step textarea - doesn't auto-resolve since user needs to type
+        nextStepRef.current?.focus();
+        nextStepRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        break;
+      case 'suggest_close_date': {
+        // Set close date to 30 days from now
+        const suggestedDate = new Date();
+        suggestedDate.setDate(suggestedDate.getDate() + 30);
+        const newCloseDate = suggestedDate.toISOString().split('T')[0];
+        setCloseDate(newCloseDate);
+        setCloseDateSuggested(true);
+
+        // Auto-resolve: recompute issues with updated draft
+        if (pendingStage) {
+          const updatedDraft: OpportunityDraft = {
+            ...opportunityDraft,
+            closeDate: newCloseDate,
+          };
+          const remainingIssues = computeStageIssues(updatedDraft, pendingStage);
+
+          if (remainingIssues.length === 0) {
+            // All issues resolved - auto-apply stage change
+            setStage(pendingStage);
+            setPendingStage(null);
+            setStageCheckIssues([]);
+            setShowStageCheck(false);
+          } else {
+            // Update issues list in-place
+            setStageCheckIssues(remainingIssues);
+          }
+        }
+        break;
+      }
+    }
+  }, [opportunityDraft, pendingStage]);
 
   // Toggle activity snippet expansion
   const toggleActivityExpand = useCallback((activityId: string) => {
@@ -526,7 +763,7 @@ export function OpportunityWorkspaceClient({
             <div className="relative">
               <select
                 value={stage}
-                onChange={(e) => setStage(e.target.value as PipelineStage | 'other')}
+                onChange={(e) => handleStageChange(e.target.value as PipelineStage | 'other')}
                 className={`appearance-none px-3 py-1 pr-8 rounded-lg text-sm font-medium border cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500/50 ${getStageColorClass(
                   stage
                 )}`}
@@ -571,6 +808,71 @@ export function OpportunityWorkspaceClient({
           )}
         </div>
       </div>
+
+      {/* Stage Check Panel (soft validation) */}
+      {showStageCheck && pendingStage && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            {/* Warning Icon */}
+            <div className="flex-shrink-0 mt-0.5">
+              <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 min-w-0">
+              <h4 className="text-sm font-medium text-amber-300">
+                Stage Change Check
+              </h4>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Moving to <span className="text-amber-400 font-medium">{getStageLabel(pendingStage)}</span> — consider addressing these items:
+              </p>
+
+              {/* Issues List */}
+              <ul className="mt-2 space-y-1">
+                {stageCheckIssues.map((issue) => (
+                  <li key={issue.id} className="flex items-center gap-2 text-xs">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400/70" />
+                    <span className="text-slate-300">{issue.label}</span>
+                    {issue.fixAction && (
+                      <button
+                        onClick={() => executeQuickFix(issue.fixAction!)}
+                        className="text-amber-400 hover:text-amber-300 underline underline-offset-2"
+                      >
+                        {issue.fixAction === 'focus_next_step' ? 'Add now' : 'Set +30 days'}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+
+              {/* Save reminder for suggested close date */}
+              {closeDateSuggested && hasChanges && (
+                <p className="mt-2 text-xs text-slate-500 italic">
+                  Close Date updated — save to persist
+                </p>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-3 mt-3">
+                <button
+                  onClick={applyPendingStage}
+                  className="px-3 py-1.5 text-xs font-medium bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-lg border border-amber-500/30 transition-colors"
+                >
+                  Continue anyway
+                </button>
+                <button
+                  onClick={cancelStageChange}
+                  className="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-300 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Key Metrics Bar */}
       <div className="flex items-center gap-6 py-3 px-4 bg-slate-900/50 border border-slate-800 rounded-xl">
@@ -656,6 +958,7 @@ export function OpportunityWorkspaceClient({
                   )}
                 </div>
                 <textarea
+                  ref={nextStepRef}
                   value={nextStep}
                   onChange={(e) => setNextStep(e.target.value)}
                   placeholder="What needs to happen next to move this deal forward?"
@@ -806,31 +1109,167 @@ export function OpportunityWorkspaceClient({
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                 />
               </div>
-              <div>
-                <div className="text-xs text-slate-500 mb-1">Opportunity Type</div>
-                <div className="text-sm text-slate-200 py-2">{opportunity.opportunityType || '—'}</div>
-              </div>
-              <div>
-                <label className="text-xs text-slate-500 mb-1 block">Owner</label>
-                <input
-                  type="text"
-                  value={owner}
-                  onChange={(e) => setOwner(e.target.value)}
-                  placeholder="Owner name"
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
-                />
-              </div>
-              <div className="col-span-2">
-                <label className="text-xs text-slate-500 mb-1 block">Source</label>
-                <input
-                  type="text"
-                  value={source}
-                  onChange={(e) => setSource(e.target.value)}
-                  placeholder="Referral, inbound, outreach, etc."
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
-                />
-              </div>
             </div>
+          </div>
+
+          {/* Deal Context Card (Collapsible) */}
+          <div className="bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden">
+            <button
+              onClick={() => setDealContextExpanded(!dealContextExpanded)}
+              aria-expanded={dealContextExpanded}
+              className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors"
+            >
+              <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
+                Deal Context
+              </h2>
+              <div className="flex items-center gap-2">
+                {!dealContextExpanded && (
+                  <span className="text-xs text-slate-500 hidden sm:inline">
+                    Owner: {owner || '—'} • Source: {source || '—'} • Type: {opportunityType || '—'} • Budget: {getBudgetConfidenceLabel(budgetConfidence)}
+                  </span>
+                )}
+                <span className="text-xs text-slate-400">
+                  {dealContextExpanded ? 'Hide' : 'Show'}
+                </span>
+                <svg
+                  className={`w-4 h-4 text-slate-400 transition-transform ${dealContextExpanded ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </button>
+            {dealContextExpanded && (
+              <div className="px-6 pb-6 pt-2 border-t border-slate-800">
+                <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Opportunity Type</label>
+                    <div className="relative">
+                      <select
+                        value={opportunityType}
+                        onChange={(e) => setOpportunityType(e.target.value)}
+                        className="appearance-none w-full px-3 py-2 pr-8 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50 cursor-pointer"
+                      >
+                        {OPPORTUNITY_TYPE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                      <svg
+                        className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none text-slate-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Opportunity Source</label>
+                    <input
+                      type="text"
+                      value={source}
+                      onChange={(e) => setSource(e.target.value)}
+                      placeholder="Referral, inbound, outreach, etc."
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Opportunity Owner</label>
+                    <input
+                      type="text"
+                      value={owner}
+                      onChange={(e) => setOwner(e.target.value)}
+                      placeholder="Owner name"
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Decision Owner</label>
+                    <input
+                      type="text"
+                      value={decisionOwner}
+                      onChange={(e) => setDecisionOwner(e.target.value)}
+                      placeholder="Name of decision maker"
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Budget Confidence</label>
+                    <div className="relative">
+                      <select
+                        value={budgetConfidence}
+                        onChange={(e) => setBudgetConfidence(e.target.value)}
+                        className="appearance-none w-full px-3 py-2 pr-8 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50 cursor-pointer"
+                      >
+                        {BUDGET_CONFIDENCE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                      <svg
+                        className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none text-slate-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Known Competitors</label>
+                    <input
+                      type="text"
+                      value={knownCompetitors}
+                      onChange={(e) => setKnownCompetitors(e.target.value)}
+                      placeholder="Competitors in this deal"
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                    />
+                  </div>
+                  <div className="col-span-2 flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-500">Is RFP:</span>
+                      <span className={`text-xs font-medium ${isRfp ? 'text-purple-400' : 'text-slate-400'}`}>
+                        {isRfp ? 'Yes' : 'No'}
+                      </span>
+                      <span className="text-xs text-slate-600">(based on Opportunity Type)</span>
+                    </div>
+                  </div>
+                  {isRfp && (
+                    <div className="col-span-2">
+                      <label className="text-xs text-slate-500 mb-1 block">RFP Link</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="url"
+                          value={rfpLink}
+                          onChange={(e) => setRfpLink(e.target.value)}
+                          placeholder="https://..."
+                          className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                        />
+                        {rfpLink && (
+                          <a
+                            href={rfpLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-300 hover:bg-slate-600 transition-colors flex items-center"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Buying Process Card */}
@@ -918,9 +1357,9 @@ export function OpportunityWorkspaceClient({
               Actions
             </h2>
             <div className="space-y-2">
-              {companyDomain && (
+              {companyId && (
                 <Link
-                  href={`/snapshot?url=${encodeURIComponent(companyDomain)}`}
+                  href={`/c/${companyId}/blueprint`}
                   className="w-full px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
                 >
                   Run GAP Assessment

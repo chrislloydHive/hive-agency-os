@@ -19,12 +19,29 @@ import {
   Loader2,
   AlertCircle,
   RefreshCw,
+  Sparkles,
+  CheckCircle,
+  XCircle,
 } from 'lucide-react';
 import {
   useUnifiedStrategyViewModel,
 } from '@/hooks/useUnifiedStrategyViewModel';
 import { StrategySwitcher } from './StrategySwitcher';
 import { StrategyStatusBanner } from '@/components/strategy/StalenessBanner';
+import { useContextV4Health } from '@/hooks/useContextV4Health';
+import {
+  ContextV4HealthGate,
+  ContextV4HealthReadyIndicator,
+} from '@/components/context-v4/ContextV4HealthGate';
+import {
+  FlowReadinessInlineWarningMulti,
+} from '@/components/context-v4/FlowReadinessBanner';
+import {
+  resolveFlowReadiness,
+  contextV4HealthToSignal,
+  strategyPresenceToSignal,
+} from '@/lib/flowReadiness';
+import type { FlowReadinessResolved } from '@/lib/types/flowReadiness';
 
 // Views
 import { StrategyWorkspace } from './StrategyWorkspace';
@@ -178,6 +195,59 @@ function ValidationChips({ frame, context }: ValidationChipsProps) {
 }
 
 // ============================================================================
+// Inputs Used Indicator
+// ============================================================================
+
+interface InputsUsedIndicatorProps {
+  inputs: {
+    context: boolean;
+    websiteLab: boolean;
+    strategy: boolean;
+  };
+}
+
+function InputsUsedIndicator({ inputs }: InputsUsedIndicatorProps) {
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-slate-500">
+      <span>Inputs:</span>
+      <span
+        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded ${
+          inputs.context
+            ? 'bg-emerald-500/10 text-emerald-400'
+            : 'bg-slate-700/50 text-slate-500'
+        }`}
+        title={inputs.context ? 'Context V4 data available' : 'No Context V4 data'}
+      >
+        {inputs.context ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+        Context
+      </span>
+      <span
+        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded ${
+          inputs.websiteLab
+            ? 'bg-emerald-500/10 text-emerald-400'
+            : 'bg-slate-700/50 text-slate-500'
+        }`}
+        title={inputs.websiteLab ? 'WebsiteLab run completed' : 'No WebsiteLab run'}
+      >
+        {inputs.websiteLab ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+        WebsiteLab
+      </span>
+      <span
+        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded ${
+          inputs.strategy
+            ? 'bg-emerald-500/10 text-emerald-400'
+            : 'bg-slate-700/50 text-slate-500'
+        }`}
+        title={inputs.strategy ? 'Existing strategy data' : 'No existing strategy'}
+      >
+        {inputs.strategy ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+        Strategy
+      </span>
+    </div>
+  );
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -215,6 +285,12 @@ export function StrategySurface({
   const [localObjectives, setLocalObjectives] = useState<StrategyObjective[]>([]);
   const [localBets, setLocalBets] = useState<StrategicBet[]>([]);
   const [localTactics, setLocalTactics] = useState<Tactic[]>([]);
+
+  // Context V4 Health (using unified hook)
+  const {
+    health: v4Health,
+    refresh: refreshV4Health,
+  } = useContextV4Health(companyId);
 
   // Sync local state from server data
   useEffect(() => {
@@ -429,8 +505,10 @@ export function StrategySurface({
 
   if (!data || !helpers) return null;
 
-  // No strategy exists - show creation prompt
+  // No strategy exists - show creation prompt with health gate
   if (!data.strategy.id) {
+    const showHealthGate = v4Health && v4Health.status !== 'GREEN';
+
     return (
       <div className="space-y-4">
         {/* Header with Strategy Switcher for creation */}
@@ -452,7 +530,23 @@ export function StrategySurface({
             Create your first strategy to define objectives, strategic bets, and tactics.
             Click the dropdown above to create a new strategy.
           </p>
-          <p className="text-xs text-slate-500">
+
+          {/* Context V4 Health Gate */}
+          <div className="flex flex-col items-center">
+            {showHealthGate && (
+              <ContextV4HealthGate
+                health={v4Health}
+                companyId={companyId}
+                showContinueButton={false}
+              />
+            )}
+
+            {v4Health?.status === 'GREEN' && (
+              <ContextV4HealthReadyIndicator health={v4Health} />
+            )}
+          </div>
+
+          <p className="text-xs text-slate-500 mt-4">
             Strategy is a first-class object. Create one explicitly to get started.
           </p>
         </div>
@@ -477,6 +571,56 @@ export function StrategySurface({
     isApplying: false,
   };
 
+  // Handle Regenerate with latest context
+  const handleRegenerateStrategy = useCallback(async () => {
+    setIsGenerating(true);
+    try {
+      // Regenerate all layers: objectives, strategy, tactics
+      await proposeObjectives?.();
+      await proposeStrategy?.();
+      await proposeTactics?.();
+      await refresh();
+      await refreshV4Health();
+    } catch (error) {
+      console.error('Strategy regeneration failed:', error);
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [proposeObjectives, proposeStrategy, proposeTactics, refresh, refreshV4Health]);
+
+  // Compute inputs used indicator
+  const inputsUsed = useMemo(() => ({
+    context: (v4Health?.store.total ?? 0) > 0,
+    websiteLab: v4Health?.websiteLab.hasRun ?? false,
+    strategy: !!data?.strategy.id && (localObjectives.length > 0 || localBets.length > 0),
+  }), [v4Health, data?.strategy.id, localObjectives.length, localBets.length]);
+
+  // ============================================================================
+  // Multi-Signal Flow Readiness (Composed)
+  // ============================================================================
+  // Composes multiple readiness signals into a single resolved status.
+  // This proves the multi-signal model works before expanding to other surfaces.
+  const composedReadiness: FlowReadinessResolved | null = useMemo(() => {
+    // Need at least v4Health to compose
+    if (!v4Health) return null;
+
+    const signals = [];
+
+    // Signal 1: Context V4 Health
+    signals.push(contextV4HealthToSignal(v4Health));
+
+    // Signal 2: Strategy Presence
+    const strategyPresenceInfo = {
+      hasStrategy: !!data?.strategy?.id,
+      hasObjectives: localObjectives.length > 0,
+      hasBets: localBets.length > 0,
+      companyId,
+    };
+    signals.push(strategyPresenceToSignal(strategyPresenceInfo));
+
+    return resolveFlowReadiness(signals);
+  }, [v4Health, data?.strategy?.id, localObjectives.length, localBets.length, companyId]);
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -487,8 +631,26 @@ export function StrategySurface({
           <ViewTabs currentView={currentView} onViewChange={handleViewChange} />
         </div>
 
-        {/* Right: Strategy Switcher + Compare + Readiness */}
+        {/* Right: Actions Cluster */}
         <div className="flex items-center gap-4">
+          {/* Inputs Used Indicator */}
+          <InputsUsedIndicator inputs={inputsUsed} />
+
+          {/* Regenerate Button */}
+          <button
+            onClick={handleRegenerateStrategy}
+            disabled={isGenerating || isProposing}
+            className="px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5 transition-colors text-purple-400 hover:text-purple-300 hover:bg-purple-900/30 bg-purple-900/20 border border-purple-700/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Regenerate strategy using latest context and inputs"
+          >
+            {(isGenerating || isProposing) ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <RefreshCw className="w-3 h-3" />
+            )}
+            Regenerate with latest context
+          </button>
+
           {/* Strategy Switcher - Always show for explicit strategy creation */}
           <StrategySwitcher
             companyId={companyId}
@@ -513,6 +675,14 @@ export function StrategySurface({
           />
         </div>
       </div>
+
+      {/* Multi-Signal Flow Readiness Inline Warning */}
+      {/* Uses composed readiness (Context V4 Health + Strategy Presence) */}
+      {composedReadiness && composedReadiness.status !== 'GREEN' && (
+        <div className="flex items-center gap-2">
+          <FlowReadinessInlineWarningMulti readiness={composedReadiness} />
+        </div>
+      )}
 
       {/* Staleness/Status Banners */}
       {data.staleness && (

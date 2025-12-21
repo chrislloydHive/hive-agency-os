@@ -56,6 +56,8 @@ interface RecentDiagnostic {
   completedAt?: string | null;
   reportPath?: string | null;
   createdAt: string;
+  /** Error message if the run failed */
+  error?: string | null;
 }
 
 interface LabDefinition {
@@ -67,6 +69,8 @@ interface LabDefinition {
   runApiPath?: string;
   viewPath?: string;
   category: 'core' | 'specialized';
+  /** If true, this lab feeds into Context V4 and shows Review Queue link */
+  feedsContext?: boolean;
 }
 
 export interface DiagnosticsControlCenterProps {
@@ -102,7 +106,7 @@ const LABS: LabDefinition[] = [
     description: 'Quick marketing health check',
     icon: 'zap',
     color: 'amber',
-    runApiPath: '/api/gap-ia/run',
+    runApiPath: '/api/os/diagnostics/run/gap-snapshot',
     category: 'core',
   },
   {
@@ -111,7 +115,7 @@ const LABS: LabDefinition[] = [
     description: 'Comprehensive diagnostic',
     icon: 'barChart',
     color: 'purple',
-    runApiPath: '/api/gap-plan/run',
+    runApiPath: '/api/os/diagnostics/run/gap-plan',
     category: 'core',
   },
   {
@@ -120,8 +124,9 @@ const LABS: LabDefinition[] = [
     description: 'UX, conversion, technical audit',
     icon: 'globe',
     color: 'blue',
-    runApiPath: '/api/tools/website-lab/run',
+    runApiPath: '/api/os/diagnostics/run/website-lab',
     category: 'core',
+    feedsContext: true,
   },
   {
     id: 'brandLab',
@@ -129,8 +134,9 @@ const LABS: LabDefinition[] = [
     description: 'Positioning & differentiation',
     icon: 'sparkles',
     color: 'pink',
-    runApiPath: '/api/tools/brand-lab/run',
+    runApiPath: '/api/os/diagnostics/run/brand-lab',
     category: 'core',
+    feedsContext: true,
   },
   {
     id: 'seoLab',
@@ -138,7 +144,7 @@ const LABS: LabDefinition[] = [
     description: 'Search visibility & rankings',
     icon: 'search',
     color: 'cyan',
-    runApiPath: '/api/tools/seo-lab/run',
+    runApiPath: '/api/os/diagnostics/run/seo-lab',
     category: 'core',
   },
   {
@@ -147,7 +153,7 @@ const LABS: LabDefinition[] = [
     description: 'Content strategy & quality',
     icon: 'fileText',
     color: 'emerald',
-    runApiPath: '/api/tools/content-lab/run',
+    runApiPath: '/api/os/diagnostics/run/content-lab',
     category: 'core',
   },
   // Specialized Labs
@@ -157,7 +163,7 @@ const LABS: LabDefinition[] = [
     description: 'Lead gen & funnel analysis',
     icon: 'trendingUp',
     color: 'orange',
-    runApiPath: '/api/tools/demand-lab/run',
+    runApiPath: '/api/os/diagnostics/run/demand-lab',
     category: 'specialized',
   },
   {
@@ -166,7 +172,7 @@ const LABS: LabDefinition[] = [
     description: 'Marketing operations',
     icon: 'settings',
     color: 'slate',
-    runApiPath: '/api/tools/ops-lab/run',
+    runApiPath: '/api/os/diagnostics/run/ops-lab',
     category: 'specialized',
   },
   {
@@ -264,7 +270,7 @@ function LabCard({
       </div>
 
       {/* Last run status */}
-      <div className="text-xs text-slate-500 mb-3">
+      <div className="text-xs mb-3">
         {lastRun ? (
           lastRun.status === 'running' ? (
             <span className="flex items-center gap-1 text-blue-400">
@@ -272,14 +278,21 @@ function LabCard({
               Running...
             </span>
           ) : lastRun.status === 'complete' ? (
-            <span>Last run {formatRelativeTime(lastRun.completedAt)}</span>
+            <span className="text-slate-500">Last run {formatRelativeTime(lastRun.completedAt)}</span>
           ) : lastRun.status === 'failed' ? (
-            <span className="text-red-400">Last run failed</span>
+            <div className="space-y-1">
+              <span className="text-red-400 font-medium">Failed</span>
+              {lastRun.error && (
+                <p className="text-red-400/80 line-clamp-2" title={lastRun.error}>
+                  {lastRun.error}
+                </p>
+              )}
+            </div>
           ) : (
-            <span>Not run yet</span>
+            <span className="text-slate-500">Not run yet</span>
           )
         ) : (
-          <span>Not run yet</span>
+          <span className="text-slate-500">Not run yet</span>
         )}
       </div>
 
@@ -316,6 +329,16 @@ function LabCard({
             <ChevronRight className="w-3.5 h-3.5" />
           </Link>
         ) : null}
+
+        {/* Review Queue link for labs that feed context */}
+        {lab.feedsContext && hasReport && (
+          <Link
+            href={`/c/${companyId}/context?view=review`}
+            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 transition-colors"
+          >
+            Review
+          </Link>
+        )}
 
         {hasReport && (
           <Link
@@ -392,7 +415,7 @@ export function DiagnosticsControlCenter({
 
         const data = await response.json();
 
-        if (response.ok && data.run) {
+        if (response.ok && (data.run || data.runId || data.success)) {
           setToast({ message: `${lab.name} started`, type: 'success' });
           // Poll for completion or let user see running state
           setTimeout(() => {
@@ -400,7 +423,11 @@ export function DiagnosticsControlCenter({
             router.refresh();
           }, 3000);
         } else {
-          setToast({ message: data.error || `Failed to run ${lab.name}`, type: 'error' });
+          const errorMsg = data.error || data.message || `Failed to run ${lab.name}`;
+          setToast({ message: errorMsg, type: 'error' });
+          if (process.env.NODE_ENV === 'development') {
+            console.error(`[DiagnosticsCC] ${lab.name} error:`, errorMsg);
+          }
           setRunningLabs(prev => {
             const next = new Set(prev);
             next.delete(lab.id);
@@ -408,8 +435,11 @@ export function DiagnosticsControlCenter({
           });
         }
       } catch (error) {
-        console.error(`[DiagnosticsCC] Error running ${lab.name}:`, error);
-        setToast({ message: `Failed to run ${lab.name}`, type: 'error' });
+        const errorMsg = error instanceof Error ? error.message : `Failed to run ${lab.name}`;
+        if (process.env.NODE_ENV === 'development') {
+          console.error(`[DiagnosticsCC] ${lab.name} exception:`, error);
+        }
+        setToast({ message: errorMsg, type: 'error' });
         setRunningLabs(prev => {
           const next = new Set(prev);
           next.delete(lab.id);
@@ -639,42 +669,50 @@ export function DiagnosticsControlCenter({
             {recentRuns.map(run => (
               <div
                 key={run.id}
-                className="flex items-center justify-between px-4 py-3 hover:bg-slate-800/30 transition-colors"
+                className="px-4 py-3 hover:bg-slate-800/30 transition-colors"
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div
-                    className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                      run.status === 'complete'
-                        ? 'bg-emerald-400'
-                        : run.status === 'running'
-                        ? 'bg-blue-400 animate-pulse'
-                        : run.status === 'failed'
-                        ? 'bg-red-400'
-                        : 'bg-slate-500'
-                    }`}
-                  />
-                  <div className="min-w-0">
-                    <p className="text-sm text-slate-200 truncate">{run.toolLabel}</p>
-                    <p className="text-xs text-slate-500">
-                      {formatRelativeTime(run.completedAt || run.createdAt)}
-                    </p>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                        run.status === 'complete'
+                          ? 'bg-emerald-400'
+                          : run.status === 'running'
+                          ? 'bg-blue-400 animate-pulse'
+                          : run.status === 'failed'
+                          ? 'bg-red-400'
+                          : 'bg-slate-500'
+                      }`}
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm text-slate-200 truncate">{run.toolLabel}</p>
+                      <p className="text-xs text-slate-500">
+                        {formatRelativeTime(run.completedAt || run.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {run.score != null && (
+                      <span className={`text-sm font-semibold tabular-nums ${getScoreColor(run.score)}`}>
+                        {run.score}
+                      </span>
+                    )}
+                    {run.status === 'complete' && run.reportPath && (
+                      <Link
+                        href={run.reportPath}
+                        className="text-xs text-slate-400 hover:text-slate-300 transition-colors"
+                      >
+                        View
+                      </Link>
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  {run.score != null && (
-                    <span className={`text-sm font-semibold tabular-nums ${getScoreColor(run.score)}`}>
-                      {run.score}
-                    </span>
-                  )}
-                  {run.status === 'complete' && run.reportPath && (
-                    <Link
-                      href={run.reportPath}
-                      className="text-xs text-slate-400 hover:text-slate-300 transition-colors"
-                    >
-                      View
-                    </Link>
-                  )}
-                </div>
+                {/* Show error message for failed runs */}
+                {run.status === 'failed' && run.error && (
+                  <p className="text-xs text-red-400/80 mt-1 pl-5 line-clamp-1" title={run.error}>
+                    {run.error}
+                  </p>
+                )}
               </div>
             ))}
           </div>

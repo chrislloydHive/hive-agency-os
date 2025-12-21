@@ -14,7 +14,8 @@ const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY }).base(
 const TABLES = [
   process.env.AIRTABLE_COMPANIES_TABLE || 'Companies',
   process.env.AIRTABLE_INBOUND_LEADS_TABLE || 'Inbound Leads',
-  process.env.AIRTABLE_OPPORTUNITIES_TABLE || 'A-Lead Tracker',
+  process.env.AIRTABLE_OPPORTUNITIES_TABLE || 'Opportunities',
+  process.env.AIRTABLE_ACTIVITIES_TABLE || 'Activities',
 ];
 
 async function listFields() {

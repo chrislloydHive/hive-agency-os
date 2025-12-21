@@ -14,7 +14,9 @@
 export type CompanyTabId =
   | 'overview'
   | 'context'
+  | 'diagnostics'
   | 'strategy'
+  | 'readiness'
   | 'work'
   | 'reports'
   | 'documents'
@@ -50,10 +52,24 @@ export const COMPANY_TABS: CompanyTab[] = [
     primary: true,
   },
   {
+    id: 'diagnostics',
+    name: 'Diagnostics',
+    href: (companyId) => `/c/${companyId}/diagnostics`,
+    description: 'Run labs and GAP assessments to uncover issues and opportunities',
+    primary: true,
+  },
+  {
     id: 'strategy',
     name: 'Strategy',
     href: (companyId) => `/c/${companyId}/strategy`,
     description: 'Marketing strategy with pillars, objectives, and AI-assisted planning',
+    primary: true,
+  },
+  {
+    id: 'readiness',
+    name: 'Readiness',
+    href: (companyId) => `/c/${companyId}/readiness`,
+    description: 'Flow readiness: what is ready and what needs attention',
     primary: true,
   },
   {
@@ -122,21 +138,101 @@ export function getCompanyTabFromPath(pathname: string, companyId: string): Comp
   // Check for specific tab routes (order matters - check more specific routes first)
   // New MVP 1.0 routes
   if (pathname.startsWith(`/c/${companyId}/context`)) return 'context';
+  if (pathname.startsWith(`/c/${companyId}/diagnostics`)) return 'diagnostics';
   if (pathname.startsWith(`/c/${companyId}/strategy`)) return 'strategy';
+  if (pathname.startsWith(`/c/${companyId}/readiness`)) return 'readiness';
   if (pathname.startsWith(`/c/${companyId}/documents`)) return 'documents';
   // Existing routes
-  if (pathname.startsWith(`/c/${companyId}/blueprint`)) return 'blueprint';
+  if (pathname.startsWith(`/c/${companyId}/blueprint`)) return 'diagnostics'; // Blueprint now maps to diagnostics
   if (pathname.startsWith(`/c/${companyId}/brain`)) return 'brain';
   if (pathname.startsWith(`/c/${companyId}/findings`)) return 'findings';
   if (pathname.startsWith(`/c/${companyId}/work`)) return 'work';
   if (pathname.startsWith(`/c/${companyId}/reports`)) return 'reports';
   // Legacy routes
   if (pathname.startsWith(`/c/${companyId}/qbr`)) return 'reports';
-  if (pathname.startsWith(`/c/${companyId}/diagnostics`)) return 'blueprint';
-  if (pathname.startsWith(`/c/${companyId}/labs`)) return 'blueprint';
+  if (pathname.startsWith(`/c/${companyId}/labs`)) return 'diagnostics';
 
   // Default to overview for exact match or unknown routes
   return 'overview';
+}
+
+// ============================================================================
+// Context V4 Sub-Navigation
+// ============================================================================
+// Context V4 is the modern fact-review workspace:
+// - Fact Sheet: Confirmed facts organized by domain (read view)
+// - Review: Proposed facts awaiting confirmation (triage view)
+// - Fields: All fields in a searchable table (data view)
+
+export type ContextV4TabId = 'facts' | 'review' | 'fields';
+
+export interface ContextV4Tab {
+  id: ContextV4TabId;
+  name: string;
+  /** Short action label shown below tab name */
+  subLabel: string;
+  href: (companyId: string) => string;
+  tooltip: {
+    title: string;
+    description: string;
+  };
+  /** Badge count key from API response (optional) */
+  badgeKey?: 'proposed' | 'confirmed';
+}
+
+export const CONTEXT_V4_TABS: ContextV4Tab[] = [
+  {
+    id: 'facts',
+    name: 'Fact Sheet',
+    subLabel: 'Confirmed',
+    href: (companyId) => `/context-v4/${companyId}`,
+    tooltip: {
+      title: 'Confirmed Facts',
+      description: 'View all confirmed context facts organized by domain. The source of truth for strategy generation.',
+    },
+    badgeKey: 'confirmed',
+  },
+  {
+    id: 'review',
+    name: 'Review',
+    subLabel: 'Triage',
+    href: (companyId) => `/context-v4/${companyId}/review`,
+    tooltip: {
+      title: 'Review Queue',
+      description: 'Triage proposed facts from Labs and AI. Confirm or reject each proposal before it becomes permanent.',
+    },
+    badgeKey: 'proposed',
+  },
+  {
+    id: 'fields',
+    name: 'Fields',
+    subLabel: 'All Data',
+    href: (companyId) => `/context-v4/${companyId}/fields`,
+    tooltip: {
+      title: 'All Fields',
+      description: 'Searchable table of all context fields with status, source, and confidence. Export and bulk edit.',
+    },
+  },
+];
+
+/**
+ * Determine which Context V4 tab is active based on pathname
+ */
+export function getContextV4TabFromPath(pathname: string): ContextV4TabId | null {
+  // Match context-v4 routes
+  if (!pathname.includes('/context-v4/')) return null;
+
+  // Extract the part after /context-v4/{companyId}
+  const match = pathname.match(/\/context-v4\/[^/]+(.*)$/);
+  if (!match) return null;
+
+  const subPath = match[1];
+
+  if (subPath === '' || subPath === '/') return 'facts';
+  if (subPath.startsWith('/review')) return 'review';
+  if (subPath.startsWith('/fields')) return 'fields';
+
+  return 'facts'; // Default to facts
 }
 
 // ============================================================================

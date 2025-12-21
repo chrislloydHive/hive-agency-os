@@ -457,6 +457,18 @@ export async function listRecentGapPlanRuns(limit: number = 20): Promise<GapPlan
 
     return records.map((record: any) => {
       const fields = record.fields || {};
+
+      // Parse Data JSON if present
+      let dataJson: unknown;
+      const dataJsonStr = fields['Data JSON'] as string | undefined;
+      if (dataJsonStr) {
+        try {
+          dataJson = JSON.parse(dataJsonStr);
+        } catch {
+          // Ignore parse errors
+        }
+      }
+
       return {
         id: record.id,
         companyId: Array.isArray(fields['Company']) ? fields['Company'][0] : undefined,
@@ -473,6 +485,7 @@ export async function listRecentGapPlanRuns(limit: number = 20): Promise<GapPlan
         createdAt: fields['Created At'] || new Date().toISOString(),
         completedAt: fields['Completed At'] as string | undefined,
         errorMessage: fields['Error Message'] as string | undefined,
+        dataJson,
       } as GapPlanRun;
     });
   } catch (error) {
@@ -517,6 +530,18 @@ export async function getGapPlanRunsForCompany(
 
     return records.map((record: any) => {
       const fields = record.fields || {};
+
+      // Parse Data JSON if present
+      let dataJson: unknown;
+      const dataJsonStr = fields['Data JSON'] as string | undefined;
+      if (dataJsonStr) {
+        try {
+          dataJson = JSON.parse(dataJsonStr);
+        } catch {
+          // Ignore parse errors
+        }
+      }
+
       return {
         id: record.id,
         companyId: Array.isArray(fields['Company']) ? fields['Company'][0] : undefined,
@@ -533,6 +558,7 @@ export async function getGapPlanRunsForCompany(
         createdAt: fields['Created At'] || new Date().toISOString(),
         completedAt: fields['Completed At'] as string | undefined,
         errorMessage: fields['Error Message'] as string | undefined,
+        dataJson,
       } as GapPlanRun;
     });
   } catch (error) {

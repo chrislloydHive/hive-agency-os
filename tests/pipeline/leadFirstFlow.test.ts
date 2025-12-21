@@ -93,8 +93,9 @@ describe('Lead-First Flow', () => {
         'utf-8'
       );
 
-      // Should import V2 function
-      expect(fileContent).toContain("import { createOrUpdatePipelineLeadFromDmaV2 }");
+      // Should import V2 function (may have other imports on same line)
+      expect(fileContent).toContain('createOrUpdatePipelineLeadFromDmaV2');
+      expect(fileContent).not.toContain('createOrUpdatePipelineLeadFromDma,');
     });
 
     it('should NOT require companyId', () => {

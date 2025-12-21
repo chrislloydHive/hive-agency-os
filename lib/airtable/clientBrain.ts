@@ -19,6 +19,12 @@ import type {
   InsightStatus,
   DocumentType,
 } from '@/lib/types/clientBrain';
+import {
+  coerceInsightCategory,
+  coerceInsightSeverity,
+  coerceInsightSourceType,
+  logCoercionIfChanged,
+} from './selectCoercion';
 
 // ============================================================================
 // Client Insights CRUD
@@ -50,16 +56,24 @@ export async function createClientInsight(
     body += `\n\n**Metrics:** ${JSON.stringify(input.metrics)}`;
   }
 
+  // Coerce single-select values to Airtable allowlist
+  const coercedCategory = coerceInsightCategory(input.category);
+  const coercedSourceType = coerceInsightSourceType(input.source.type);
+  logCoercionIfChanged('Category', input.category, coercedCategory);
+  logCoercionIfChanged('Source Type', input.source.type, coercedSourceType);
+
   const fields: Record<string, unknown> = {
     Title: input.title,
     Body: body,
-    Category: input.category,
+    Category: coercedCategory,
     'Company ID': companyId,
-    'Source Type': input.source.type,
+    'Source Type': coercedSourceType,
   };
 
   if (input.severity) {
-    fields['Severity'] = input.severity;
+    const coercedSeverity = coerceInsightSeverity(input.severity);
+    logCoercionIfChanged('Severity', input.severity, coercedSeverity);
+    fields['Severity'] = coercedSeverity;
   }
 
   // Add source-specific fields
@@ -219,16 +233,24 @@ export async function createInsightsBatch(
 
   for (const batch of batches) {
     const records = batch.map((input) => {
+      // Coerce single-select values to Airtable allowlist
+      const coercedCategory = coerceInsightCategory(input.category);
+      const coercedSourceType = coerceInsightSourceType(input.source.type);
+      logCoercionIfChanged('Category', input.category, coercedCategory);
+      logCoercionIfChanged('Source Type', input.source.type, coercedSourceType);
+
       const fields: Record<string, unknown> = {
         Title: input.title,
         Body: input.body,
-        Category: input.category,
+        Category: coercedCategory,
         'Company ID': companyId,
-        'Source Type': input.source.type,
+        'Source Type': coercedSourceType,
       };
 
       if (input.severity) {
-        fields['Severity'] = input.severity;
+        const coercedSeverity = coerceInsightSeverity(input.severity);
+        logCoercionIfChanged('Severity', input.severity, coercedSeverity);
+        fields['Severity'] = coercedSeverity;
       }
 
       if (input.source.type === 'tool_run') {

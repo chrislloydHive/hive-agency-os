@@ -338,20 +338,17 @@ export async function getCompanyById(
     return mapFieldsToCompanyRecord(record);
   } catch (error: any) {
     // Airtable SDK errors have statusCode, error, and message properties
-    // but they may not be enumerable (so JSON.stringify returns {})
-    const errorDetails = {
-      message: error?.message || error?.error || 'Unknown error',
-      statusCode: error?.statusCode,
-      name: error?.name,
-      // Airtable-specific properties
-      airtableError: error?.error,
-      // Fallback: try to get all own properties
-      raw: Object.getOwnPropertyNames(error || {}).reduce((acc: any, key) => {
-        try { acc[key] = error[key]; } catch {}
-        return acc;
-      }, {}),
-    };
-    console.error(`[Airtable] Failed to fetch company ${companyId}:`, errorDetails);
+    // Common errors: 404 (not found), 401 (auth), 403 (forbidden)
+    const statusCode = error?.statusCode;
+    const message = error?.message || error?.error || 'Unknown error';
+
+    // Silent return for expected errors (not found, auth issues)
+    if (statusCode === 404 || statusCode === 401 || statusCode === 403) {
+      return null;
+    }
+
+    // Only log unexpected errors
+    console.warn(`[Airtable] Failed to fetch company ${companyId}: ${message} (status: ${statusCode || 'unknown'})`);
     return null;
   }
 }

@@ -91,6 +91,7 @@ export async function PATCH(
       rfpDueDate: string | null;
       rfpDecisionDate: string | null;
       rfpLink: string | null;
+      opportunityType: string | null;
     }> = {};
 
     // Helper: normalize empty string to null for clearable fields
@@ -148,6 +149,10 @@ export async function PATCH(
     }
     if (body.rfpLink !== undefined) {
       updates.rfpLink = normalize(body.rfpLink);
+    }
+    // Deal Context field
+    if (body.opportunityType !== undefined) {
+      updates.opportunityType = normalize(body.opportunityType);
     }
 
     if (Object.keys(updates).length === 0) {

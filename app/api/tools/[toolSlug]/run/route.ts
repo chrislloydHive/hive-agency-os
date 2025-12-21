@@ -29,6 +29,7 @@ import { getToolConfig } from '@/lib/os/diagnostics/tools';
 import { aiForCompany, addCompanyMemoryEntry } from '@/lib/ai-gateway';
 import type { GapModelCaller } from '@/lib/gap/core';
 import { processDiagnosticRunCompletionAsync } from '@/lib/os/diagnostics/postRunHooks';
+import { tryNormalizeWebsiteUrl, extractHostname } from '@/lib/utils/urls';
 
 export const maxDuration = 300; // 5 minutes timeout (longest for GAP Plan)
 
@@ -101,15 +102,46 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     // Determine the URL to use (from request, or company default)
-    const targetUrl = url || company.website;
-    if (!targetUrl) {
+    const inputUrl = url || company.website;
+    if (!inputUrl) {
       return NextResponse.json(
         { error: 'Company has no website URL and no URL provided' },
         { status: 400 }
       );
     }
 
+    // Normalize the URL (add https scheme if missing, validate format)
+    const normResult = tryNormalizeWebsiteUrl(inputUrl);
+    if (!normResult.ok) {
+      console.error(`[API] URL normalization failed for "${inputUrl}":`, normResult.error);
+
+      // Create a failed run record to track the error
+      const failedRun = await createDiagnosticRun({
+        companyId,
+        toolId,
+        status: 'failed',
+        metadata: {
+          inputUrl,
+          error: `INVALID_URL: ${normResult.error}`,
+        },
+      });
+
+      return NextResponse.json(
+        {
+          error: `Invalid URL: ${normResult.error}`,
+          code: 'INVALID_URL',
+          inputUrl,
+          runId: failedRun.id,
+        },
+        { status: 400 }
+      );
+    }
+
+    const normalizedUrl = normResult.url;
+    const resolvedDomain = domain || extractHostname(normalizedUrl) || '';
+
     console.log(`[API] Running ${toolConfig.label} for: ${company.name}`);
+    console.log(`[API] URL normalization: "${inputUrl}" → "${normalizedUrl}"`);
 
     // Create run record with "running" status
     const run = await createDiagnosticRun({
@@ -117,16 +149,18 @@ export async function POST(request: NextRequest, context: RouteContext) {
       toolId,
       status: 'running',
       metadata: {
-        url: targetUrl,
-        domain: domain || new URL(targetUrl).hostname,
+        inputUrl,
+        normalizedUrl,
+        url: normalizedUrl, // Backward compatibility
+        domain: resolvedDomain,
       },
     });
 
-    // Build base input for engines
+    // Build base input for engines (use normalized URL)
     const engineInput: EngineInput = {
       companyId,
       company,
-      websiteUrl: targetUrl,
+      websiteUrl: normalizedUrl,
     };
 
     // Run the appropriate engine
@@ -209,8 +243,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
         summary: result.summary ?? null,
         rawJson: result.data,
         metadata: {
-          url: targetUrl,
-          domain: domain || new URL(targetUrl).hostname,
+          inputUrl,
+          normalizedUrl,
+          url: normalizedUrl, // Backward compatibility
+          domain: resolvedDomain,
           ...(result.error ? { error: result.error } : {}),
         },
       });
