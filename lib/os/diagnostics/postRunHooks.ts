@@ -22,6 +22,10 @@ import { extractFindingsForLab, getWorstSeverity } from './findingsExtractors';
 import { saveDiagnosticFindings, deleteUnconvertedFindingsForCompanyLab, type CreateDiagnosticFindingInput } from '@/lib/airtable/diagnosticDetails';
 import type { WebsiteUXLabResultV4 } from '@/lib/gap-heavy/modules/websiteLab';
 import type { BrandLabSummary } from '@/lib/media/diagnosticsInputs';
+import { isContextV4IngestWebsiteLabEnabled, isContextV4IngestBrandLabEnabled } from '@/lib/types/contextField';
+import { buildWebsiteLabCandidates, proposeFromLabResult } from '@/lib/contextGraph/v4';
+import { buildBrandLabCandidates } from '@/lib/contextGraph/v4/brandLabCandidates';
+import { autoProposeBaselineIfNeeded } from '@/lib/contextGraph/v4/autoProposeBaseline';
 
 import {
   createSocialLocalWorkItemsFromSnapshot,
@@ -38,6 +42,69 @@ function debugLog(message: string, data?: Record<string, unknown>) {
   }
 }
 
+// ============================================================================
+// URL Extraction from ModuleResult
+// ============================================================================
+
+/**
+ * URL provenance extracted from a run's rawJson (ModuleResult format)
+ */
+interface UrlProvenance {
+  inputUrl: string | null;
+  normalizedUrl: string | null;
+  moduleStatus: string | null;
+}
+
+/**
+ * Extract URL provenance from a diagnostic run's rawJson
+ *
+ * The rawJson may be:
+ * 1. A ModuleResult with inputUrl/normalizedUrl at top level
+ * 2. Legacy format without URL provenance
+ * 3. Nested in rawEvidence.labResultV4 (older format)
+ *
+ * Falls back to metadata if not found in rawJson.
+ */
+function extractUrlProvenance(run: DiagnosticRun): UrlProvenance {
+  const result: UrlProvenance = {
+    inputUrl: null,
+    normalizedUrl: null,
+    moduleStatus: null,
+  };
+
+  // Try to extract from rawJson (ModuleResult format)
+  if (run.rawJson && typeof run.rawJson === 'object') {
+    const rawData = run.rawJson as Record<string, unknown>;
+
+    // Check for ModuleResult format (has inputUrl at top level)
+    if ('inputUrl' in rawData) {
+      result.inputUrl = rawData.inputUrl as string | null;
+      result.normalizedUrl = rawData.normalizedUrl as string | null;
+      result.moduleStatus = rawData.status as string | null;
+      return result;
+    }
+
+    // Check for rawEvidence wrapper (older moduleResult format)
+    if (rawData.rawEvidence && typeof rawData.rawEvidence === 'object') {
+      const evidence = rawData.rawEvidence as Record<string, unknown>;
+      if ('inputUrl' in evidence) {
+        result.inputUrl = evidence.inputUrl as string | null;
+        result.normalizedUrl = evidence.normalizedUrl as string | null;
+      }
+    }
+  }
+
+  // Fall back to metadata if available
+  if (run.metadata && typeof run.metadata === 'object') {
+    const meta = run.metadata as Record<string, unknown>;
+    result.inputUrl = result.inputUrl ?? (meta.inputUrl as string | null);
+    result.normalizedUrl = result.normalizedUrl ?? (meta.normalizedUrl as string | null);
+    result.moduleStatus = result.moduleStatus ?? (meta.moduleStatus as string | null);
+  }
+
+  return result;
+}
+
 /**
  * Process a completed diagnostic run
  *
@@ -52,11 +119,17 @@ export async function processDiagnosticRunCompletion(
   companyId: string,
   run: DiagnosticRun
 ): Promise<void> {
+  // Extract URL provenance from run
+  const urlProvenance = extractUrlProvenance(run);
+
   console.log('[postRunHooks] Processing completed run:', {
     companyId,
     runId: run.id,
     toolId: run.toolId,
     score: run.score,
+    inputUrl: urlProvenance.inputUrl,
+    normalizedUrl: urlProvenance.normalizedUrl,
+    moduleStatus: urlProvenance.moduleStatus,
   });
 
   // Skip if run failed
@@ -157,7 +230,64 @@ async function runDomainWriters(
   try {
     switch (run.toolId) {
       case 'websiteLab': {
-        console.log('[postRunHooks] Running WebsiteLab domain writer...');
+        // Check if V4 ingestion is enabled for WebsiteLab
+        if (isContextV4IngestWebsiteLabEnabled()) {
+          console.log('[postRunHooks] Running WebsiteLab V4 proposal flow...');
+
+          // Build candidates from rawJson
+          const candidateResult = buildWebsiteLabCandidates(run.rawJson);
+
+          if (candidateResult.candidates.length === 0) {
+            console.warn('[postRunHooks] No WebsiteLab candidates for V4 proposal');
+            console.warn('[postRunHooks] Extraction path:', candidateResult.extractionPath);
+            console.warn('[postRunHooks] Skipped:', candidateResult.skipped);
+            return;
+          }
+
+          // Propose fields to V4 Review Queue
+          const proposalResult = await proposeFromLabResult({
+            companyId,
+            importerId: 'websiteLab',
+            source: 'lab',
+            sourceId: run.id,
+            extractionPath: candidateResult.extractionPath,
+            candidates: candidateResult.candidates,
+          });
+
+          console.log('[postRunHooks] WebsiteLab V4 proposal complete:', {
+            proposed: proposalResult.proposed,
+            blocked: proposalResult.blocked,
+            replaced: proposalResult.replaced,
+            errors: proposalResult.errors.length,
+            skippedWrongDomain: candidateResult.skipped.wrongDomain,
+          });
+
+          // Log skipped wrong-domain keys for debugging (these are cross-domain observations)
+          if (candidateResult.skippedWrongDomainKeys.length > 0) {
+            debugLog('websiteLab_v4_skipped_domains', {
+              skippedKeys: candidateResult.skippedWrongDomainKeys.slice(0, 10),
+            });
+          }
+
+          // Auto-propose baseline for required strategy fields (if enabled)
+          // This runs after lab proposals so required fields show as Proposed immediately
+          try {
+            await autoProposeBaselineIfNeeded({
+              companyId,
+              triggeredBy: 'websiteLab',
+              runId: run.id,
+            });
+          } catch (autoError) {
+            // Non-blocking: log but don't fail the lab run
+            console.error('[postRunHooks] Auto-propose baseline failed:', autoError);
+          }
+
+          // DO NOT call legacy writer - V4 proposal is the only path
+          break;
+        }
+
+        // LEGACY PATH: Direct graph write (when V4 ingestion is disabled)
+        console.log('[postRunHooks] Running WebsiteLab domain writer (legacy)...');
 
         // Extract the WebsiteUXLabResultV4 from rawJson
         // The rawJson structure may be:
@@ -206,6 +336,63 @@ async function runDomainWriters(
       }
 
       case 'brandLab': {
+        console.log('[postRunHooks] Running BrandLab hooks...');
+
+        // ====================================================================
+        // V4 PROPOSAL PATH (when V4 ingestion is enabled)
+        // ====================================================================
+        if (isContextV4IngestBrandLabEnabled()) {
+          console.log('[postRunHooks] Running BrandLab V4 proposal flow...');
+
+          // Build candidates from rawJson
+          const candidateResult = buildBrandLabCandidates(run.rawJson);
+
+          if (candidateResult.candidates.length === 0) {
+            console.warn('[postRunHooks] No BrandLab candidates for V4 proposal', {
+              extractionPath: candidateResult.extractionPath,
+              rawKeysFound: candidateResult.rawKeysFound,
+              debug: candidateResult.debug,
+            });
+          } else {
+            // Propose fields to V4 Review Queue
+            try {
+              const proposalResult = await proposeFromLabResult({
+                companyId,
+                importerId: 'brandLab',
+                source: 'lab',
+                sourceId: run.id,
+                extractionPath: candidateResult.extractionPath,
+                candidates: candidateResult.candidates,
+              });
+
+              console.log('[postRunHooks] BrandLab V4 proposal complete:', {
+                proposed: proposalResult.proposed,
+                blocked: proposalResult.blocked,
+                errors: proposalResult.errors.length,
+                proposedKeys: proposalResult.proposedKeys,
+              });
+
+              // Auto-propose baseline if first proposal
+              if (proposalResult.proposed > 0) {
+                try {
+                  await autoProposeBaselineIfNeeded({
+                    companyId,
+                    triggeredBy: 'brandLab',
+                    runId: run.id,
+                  });
+                } catch (baselineErr) {
+                  console.warn('[postRunHooks] BrandLab auto-propose baseline failed:', baselineErr);
+                }
+              }
+            } catch (proposeErr) {
+              console.error('[postRunHooks] BrandLab V4 proposal failed:', proposeErr);
+            }
+          }
+        }
+
+        // ====================================================================
+        // LEGACY DOMAIN WRITER PATH (runs regardless of V4 flag)
+        // ====================================================================
         console.log('[postRunHooks] Running BrandLab domain writer...');
 
         // Extract the BrandLabResult from rawJson
@@ -235,7 +422,7 @@ async function runDomainWriters(
           (brandResult.findings.valueProp || brandResult.findings.differentiators || brandResult.findings.icp);
 
         if (hasFindings) {
-          // NEW: Use the full BrandLabResult writer that extracts canonical findings
+          // Use the full BrandLabResult writer that extracts canonical findings
           const { writeBrandLabResultAndSave } = await import('@/lib/contextGraph/brandLabWriter');
           const { legacySummary, findingsSummary } = await writeBrandLabResultAndSave(
             companyId,

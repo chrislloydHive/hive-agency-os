@@ -207,6 +207,8 @@ export const gapPlanImporter: DomainImporter = {
     companyId: string,
     _domain: string
   ): Promise<ImportResult> {
+    const proofMode = process.env.DEBUG_CONTEXT_PROOF === '1';
+
     const result: ImportResult = {
       success: false,
       fieldsUpdated: 0,
@@ -214,6 +216,25 @@ export const gapPlanImporter: DomainImporter = {
       errors: [],
       sourceRunIds: [],
     };
+
+    // Initialize proof structure in proof mode
+    if (proofMode) {
+      result.proof = {
+        extractionPath: null,
+        rawKeysFound: 0,
+        candidateWrites: [],
+        droppedByReason: {
+          emptyValue: 0,
+          domainAuthority: 0,
+          wrongDomainForField: 0,
+          sourcePriority: 0,
+          humanConfirmed: 0,
+          notCanonical: 0,
+          other: 0,
+        },
+        persistedWrites: [],
+      };
+    }
 
     try {
       // Fetch GAP Plan runs with Data JSON
@@ -233,6 +254,26 @@ export const gapPlanImporter: DomainImporter = {
       const latestRun = completedRuns[0];
       result.sourceRunIds.push(latestRun.id);
 
+      // Populate proof extraction data
+      if (proofMode && result.proof) {
+        result.proof.extractionPath = `GAP_PLAN_RUN:dataJson.gapStructured`;
+        // Count raw keys in the structured data
+        const structured = latestRun.dataJson?.gapStructured;
+        if (structured) {
+          let rawKeyCount = 0;
+          if (structured.scores) rawKeyCount += Object.keys(structured.scores).length;
+          if (structured.maturityStage) rawKeyCount++;
+          if (structured.kpisToWatch?.length) rawKeyCount++;
+          if (structured.keyFindings?.length) rawKeyCount++;
+          if (structured.recommendedNextSteps?.length) rawKeyCount++;
+          if (structured.primaryOffers?.length) rawKeyCount++;
+          if (structured.competitors?.length) rawKeyCount++;
+          if (structured.audienceSummary) rawKeyCount++;
+          if (structured.brandIdentityNotes) rawKeyCount++;
+          result.proof.rawKeysFound = rawKeyCount;
+        }
+      }
+
       // Create provenance for GAP Plan source (lower confidence than Labs)
       const provenance = createProvenance('gap_full', {
         confidence: 0.6, // Lower than Labs (0.85) - this is gap-filling data
@@ -249,6 +290,11 @@ export const gapPlanImporter: DomainImporter = {
 
       result.success = result.fieldsUpdated > 0;
       console.log(`[gapPlanImporter] Imported ${result.fieldsUpdated} fields from GAP Plan run ${latestRun.id}`);
+
+      // Populate persisted writes for proof
+      if (proofMode && result.proof) {
+        result.proof.persistedWrites = result.updatedPaths;
+      }
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);

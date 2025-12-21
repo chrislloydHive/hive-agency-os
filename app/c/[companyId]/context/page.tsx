@@ -24,6 +24,7 @@ import { hydrateContextGraph, type HydratedContextNode } from '@/lib/contextGrap
 import type { CompanyContext } from '@/lib/types/context';
 import type { DraftableState, DraftSource } from '@/lib/os/draft/types';
 import { ContextWorkspaceClient } from './ContextWorkspaceClient';
+import { isContextV4Enabled } from '@/lib/types/contextField';
 
 export const dynamic = 'force-dynamic';
 
@@ -99,6 +100,9 @@ export default async function ContextPage({ params }: PageProps) {
     prereqsReady: !!hasBaseline || hasContextGraph || !!engagementIndicatesLabsRan,
   };
 
+  // Check V4 feature flag on server side and pass to client
+  const v4Enabled = isContextV4Enabled();
+
   return (
     <div className="space-y-6">
       <ContextWorkspaceClient
@@ -108,6 +112,7 @@ export default async function ContextPage({ params }: PageProps) {
         debugInfo={debugInfo}
         hydratedNodes={hydratedNodes}
         baselineSignals={baselineSignals}
+        v4Enabled={v4Enabled}
       />
     </div>
   );

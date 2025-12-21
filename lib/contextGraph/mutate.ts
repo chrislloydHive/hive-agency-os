@@ -324,7 +324,6 @@ export function setFieldUntypedWithResult(
   provenance: ProvenanceTag,
   options?: SetFieldOptions
 ): { graph: CompanyContextGraph; result: SetFieldResult } {
-  const domainObj = graph[domain as DomainName] as Record<string, WithMetaType<unknown>>;
   const path = `${domain}.${field}`;
 
   // EMPTY VALUE GATE: Never write empty values
@@ -363,20 +362,21 @@ export function setFieldUntypedWithResult(
     );
   }
 
+  // Ensure domain exists (may have been stripped during storage load)
+  ensureDomain(graph, domain as DomainName);
+
+  const domainObj = graph[domain as DomainName] as Record<string, WithMetaType<unknown>>;
   if (!domainObj || typeof domainObj !== 'object') {
+    // This should never happen after ensureDomain, but defensive check
+    console.error(`[setFieldUntypedWithResult] Domain '${domain}' could not be initialized`);
     return {
       graph,
       result: { updated: false, path, reason: 'blocked_source' },
     };
   }
 
-  const fieldData = domainObj[field];
-  if (!fieldData || typeof fieldData !== 'object') {
-    return {
-      graph,
-      result: { updated: false, path, reason: 'blocked_source' },
-    };
-  }
+  // Initialize field if it doesn't exist (stripped during storage load)
+  const fieldData = domainObj[field] || { value: null, provenance: [] };
 
   // HUMAN CONFIRMED GATE: Prevent AI/Lab overwrites of human-confirmed fields
   if (!options?.force) {

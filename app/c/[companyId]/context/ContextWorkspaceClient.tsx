@@ -13,13 +13,14 @@
 // - For admin form editing, see /brain/context/components/ContextFormView.tsx
 //
 // Deep links supported:
+// - ?view=map|table|fields|review - Switch to specific view
 // - ?focusKey=identity.businessModel - Focus on specific node
 // - ?zone=identity - Focus on specific zone
 // - ?filterStatus=proposed - Switch to Table view filtered to proposals
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { BookOpen, Map, FileText, Loader2, Play, Trash2, ListChecks, Database, RefreshCw } from 'lucide-react';
+import { BookOpen, Map, FileText, Loader2, Play, Trash2, ListChecks, Database, RefreshCw, ClipboardCheck } from 'lucide-react';
 import type { CompanyContext } from '@/lib/types/context';
 import type { DraftableState } from '@/lib/os/draft/types';
 import type { DiagnosticsDebugInfo } from '@/lib/os/diagnostics/debugInfo';
@@ -31,12 +32,15 @@ import { ContextMapClient, AddNodeModal } from '@/components/context-map';
 import { useCanonicalFields } from '@/hooks/useCanonicalFields';
 import type { ZoneId } from '@/components/context-map/types';
 import { useProposals } from '@/hooks/useProposals';
+import { ReviewQueueClient } from '@/components/context-v4/ReviewQueueClient';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type ViewMode = 'map' | 'table' | 'fields';
+type ViewMode = 'map' | 'table' | 'fields' | 'review';
+
+const VALID_VIEW_MODES: ViewMode[] = ['map', 'table', 'fields', 'review'];
 
 interface ContextWorkspaceClientProps {
   companyId: string;
@@ -45,6 +49,58 @@ interface ContextWorkspaceClientProps {
   debugInfo?: DiagnosticsDebugInfo;
   hydratedNodes?: HydratedContextNode[];
   baselineSignals?: BaselineSignals;
+  /** V4 feature enabled (passed from server to avoid client-side env issues) */
+  v4Enabled?: boolean;
+}
+
+// ============================================================================
+// View Mode Toggle Component (shared across all views)
+// ============================================================================
+
+interface ViewModeToggleProps {
+  currentView: ViewMode;
+  onViewChange: (view: ViewMode) => void;
+  v4Enabled: boolean;
+  v4ProposalCount: number;
+}
+
+function ViewModeToggle({ currentView, onViewChange, v4Enabled, v4ProposalCount }: ViewModeToggleProps) {
+  const views: Array<{ id: ViewMode; label: string; icon: React.ReactNode; requiresV4?: boolean }> = [
+    { id: 'map', label: 'Map', icon: <Map className="w-3.5 h-3.5" /> },
+    { id: 'table', label: 'Table', icon: <FileText className="w-3.5 h-3.5" /> },
+    { id: 'fields', label: 'Fields', icon: <ListChecks className="w-3.5 h-3.5" /> },
+    { id: 'review', label: 'Review', icon: <ClipboardCheck className="w-3.5 h-3.5" />, requiresV4: true },
+  ];
+
+  return (
+    <div className="flex items-center gap-1 p-0.5 bg-slate-800 rounded-lg">
+      {views.map((view) => {
+        // Skip V4-only views if V4 is not enabled
+        if (view.requiresV4 && !v4Enabled) return null;
+
+        const isActive = currentView === view.id;
+        return (
+          <button
+            key={view.id}
+            onClick={() => onViewChange(view.id)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              isActive
+                ? 'bg-slate-700 text-white'
+                : 'text-slate-400 hover:text-slate-300'
+            }`}
+          >
+            {view.icon}
+            {view.label}
+            {view.id === 'review' && v4ProposalCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-amber-500/20 text-amber-400 rounded-full">
+                {v4ProposalCount}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 // ============================================================================
@@ -58,6 +114,7 @@ export function ContextWorkspaceClient({
   debugInfo,
   hydratedNodes = [],
   baselineSignals,
+  v4Enabled = false,
 }: ContextWorkspaceClientProps) {
   // Deep link URL parameters
   const searchParams = useSearchParams();
@@ -67,15 +124,42 @@ export function ContextWorkspaceClient({
   const focusZone = searchParams.get('zone');
   const filterStatus = searchParams.get('filterStatus'); // 'proposed' | 'confirmed' | null
   const batchId = searchParams.get('batch'); // Deep link to a specific proposal batch
+  const viewParam = searchParams.get('view'); // Deep link to specific view: 'review' | 'map' | 'table' | 'fields'
 
   // Parse focusKeys into an array (for Fix button navigation)
   const focusKeys = focusKeysParam ? focusKeysParam.split(',') : focusKey ? [focusKey] : [];
 
-  // View mode state - default to Map, switch to Table if filtering by status or multiple focusKeys
-  // Table view is for bulk review/filtering, Map is for spatial understanding
-  const [viewMode, setViewMode] = useState<ViewMode>(
-    filterStatus === 'proposed' || focusKeys.length > 1 ? 'table' : 'map'
-  );
+  // Coerce view param to valid ViewMode
+  const coerceViewMode = useCallback((param: string | null): ViewMode => {
+    if (param === 'review' && v4Enabled) return 'review';
+    if (param && VALID_VIEW_MODES.includes(param as ViewMode) && param !== 'review') {
+      return param as ViewMode;
+    }
+    // Default logic
+    if (filterStatus === 'proposed' || focusKeys.length > 1) return 'table';
+    return 'map';
+  }, [v4Enabled, filterStatus, focusKeys.length]);
+
+  // View mode state - synced with URL
+  const [viewMode, setViewMode] = useState<ViewMode>(() => coerceViewMode(viewParam));
+
+  // Sync state with URL params (for browser back/forward navigation)
+  useEffect(() => {
+    const newViewMode = coerceViewMode(viewParam);
+    if (newViewMode !== viewMode) {
+      setViewMode(newViewMode);
+    }
+  }, [viewParam, coerceViewMode, viewMode]);
+
+  // Handle view mode change - updates both state and URL
+  const handleViewModeChange = useCallback((newView: ViewMode) => {
+    // Build new URL preserving existing params
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('view', newView);
+    router.push(`?${params.toString()}`, { scroll: false });
+    // State will update via the useEffect above when searchParams change
+    setViewMode(newView);
+  }, [searchParams, router]);
 
   // Use the draftable resource hook for generating initial context
   const {
@@ -122,6 +206,30 @@ export function ContextWorkspaceClient({
   // Manual add node modal state
   const [addNodeModalOpen, setAddNodeModalOpen] = useState(false);
   const [addNodeZoneId, setAddNodeZoneId] = useState<ZoneId | null>(null);
+
+  // V4 Review Queue proposal count (for badge)
+  const [v4ProposalCount, setV4ProposalCount] = useState<number>(0);
+
+  // Fetch V4 proposal count for badge (only if V4 is enabled)
+  useEffect(() => {
+    if (!v4Enabled) return;
+
+    const fetchV4Count = async () => {
+      try {
+        const response = await fetch(`/api/os/companies/${companyId}/context/v4/review`, {
+          cache: 'no-store',
+        });
+        const data = await response.json();
+        if (data.ok && typeof data.totalCount === 'number') {
+          setV4ProposalCount(data.totalCount);
+        }
+      } catch (err) {
+        console.error('[ContextWorkspace] Failed to fetch V4 proposal count:', err);
+      }
+    };
+
+    fetchV4Count();
+  }, [companyId, v4Enabled]);
 
   // ============================================================================
   // Context Map Handlers (all useCallback hooks must be before early returns)
@@ -697,30 +805,12 @@ export function ContextWorkspaceClient({
             </p>
           </div>
           <div className="flex items-center gap-3">
-            {/* View Mode Toggle - Fields is active in this view */}
-            <div className="flex items-center gap-1 p-0.5 bg-slate-800 rounded-lg">
-              <button
-                onClick={() => setViewMode('map')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-slate-400 hover:text-slate-300"
-              >
-                <Map className="w-3.5 h-3.5" />
-                Map
-              </button>
-              <button
-                onClick={() => setViewMode('table')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-slate-400 hover:text-slate-300"
-              >
-                <FileText className="w-3.5 h-3.5" />
-                Table
-              </button>
-              <button
-                onClick={() => setViewMode('fields')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors bg-slate-700 text-white"
-              >
-                <ListChecks className="w-3.5 h-3.5" />
-                Fields
-              </button>
-            </div>
+            <ViewModeToggle
+              currentView={viewMode}
+              onViewChange={handleViewModeChange}
+              v4Enabled={v4Enabled}
+              v4ProposalCount={v4ProposalCount}
+            />
           </div>
         </div>
 
@@ -739,6 +829,43 @@ export function ContextWorkspaceClient({
             />
           )}
         </div>
+      </div>
+    );
+  }
+
+  // ============================================================================
+  // Render: Review View (V4 Review Queue)
+  // ============================================================================
+
+  if (viewMode === 'review') {
+    return (
+      <div className="space-y-4">
+        {/* Header with View Toggle */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-white flex items-center gap-2">
+              <ClipboardCheck className="w-5 h-5 text-amber-400" />
+              Review Queue
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">
+              Review proposed context for {companyName}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <ViewModeToggle
+              currentView={viewMode}
+              onViewChange={handleViewModeChange}
+              v4Enabled={v4Enabled}
+              v4ProposalCount={v4ProposalCount}
+            />
+          </div>
+        </div>
+
+        {/* Review Queue Client */}
+        <ReviewQueueClient
+          companyId={companyId}
+          companyName={companyName}
+        />
       </div>
     );
   }
@@ -778,30 +905,12 @@ export function ContextWorkspaceClient({
                 Cleanup
               </button>
             )}
-            {/* View Mode Toggle - Map is active in this view */}
-            <div className="flex items-center gap-1 p-0.5 bg-slate-800 rounded-lg">
-              <button
-                onClick={() => setViewMode('map')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors bg-slate-700 text-white"
-              >
-                <Map className="w-3.5 h-3.5" />
-                Map
-              </button>
-              <button
-                onClick={() => setViewMode('table')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-slate-400 hover:text-slate-300"
-              >
-                <FileText className="w-3.5 h-3.5" />
-                Table
-              </button>
-              <button
-                onClick={() => setViewMode('fields')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-slate-400 hover:text-slate-300"
-              >
-                <ListChecks className="w-3.5 h-3.5" />
-                Fields
-              </button>
-            </div>
+            <ViewModeToggle
+              currentView={viewMode}
+              onViewChange={handleViewModeChange}
+              v4Enabled={v4Enabled}
+              v4ProposalCount={v4ProposalCount}
+            />
           </div>
         </div>
 
@@ -890,30 +999,12 @@ export function ContextWorkspaceClient({
               Cleanup
             </button>
           )}
-          {/* View Mode Toggle - Table is active in this view */}
-          <div className="flex items-center gap-1 p-0.5 bg-slate-800 rounded-lg">
-            <button
-              onClick={() => setViewMode('map')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-slate-400 hover:text-slate-300"
-            >
-              <Map className="w-3.5 h-3.5" />
-              Map
-            </button>
-            <button
-              onClick={() => setViewMode('table')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors bg-slate-700 text-white"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              Table
-            </button>
-            <button
-              onClick={() => setViewMode('fields')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-slate-400 hover:text-slate-300"
-            >
-              <ListChecks className="w-3.5 h-3.5" />
-              Fields
-            </button>
-          </div>
+          <ViewModeToggle
+            currentView={viewMode}
+            onViewChange={handleViewModeChange}
+            v4Enabled={v4Enabled}
+            v4ProposalCount={v4ProposalCount}
+          />
         </div>
       </div>
 

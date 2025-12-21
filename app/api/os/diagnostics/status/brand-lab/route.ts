@@ -2,7 +2,7 @@
 // API endpoint for polling Brand Lab diagnostic status
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDiagnosticStatus, makeStatusKey } from '@/lib/os/diagnostics/statusStore';
+import { getDiagnosticStatus, makeStatusKey, clearDiagnosticStatus } from '@/lib/os/diagnostics/statusStore';
 import { getLatestRunForCompanyAndTool } from '@/lib/os/diagnostics/runs';
 
 export async function GET(request: NextRequest) {
@@ -18,23 +18,33 @@ export async function GET(request: NextRequest) {
     }
 
     const statusKey = makeStatusKey('brandLab', companyId);
-    const status = getDiagnosticStatus(statusKey);
+    const inMemoryStatus = getDiagnosticStatus(statusKey);
 
-    // If we have in-memory status, return it
-    if (status) {
-      return NextResponse.json({
-        status: status.status,
-        currentStep: status.currentStep,
-        percent: status.percent,
-        error: status.error,
-        runId: status.runId,
-        score: (status as any).score,
-        benchmarkLabel: (status as any).benchmarkLabel,
-      });
+    // Always check database for authoritative status
+    // (Inngest runs on different serverless instance, so in-memory may be stale)
+    const latestRun = await getLatestRunForCompanyAndTool(companyId, 'brandLab');
+
+    // If database shows complete/failed, that's authoritative - clear stale in-memory status
+    if (latestRun && (latestRun.status === 'complete' || latestRun.status === 'failed')) {
+      // Clear stale in-memory status if it exists
+      if (inMemoryStatus && inMemoryStatus.status === 'running') {
+        clearDiagnosticStatus(statusKey);
+      }
     }
 
-    // Fallback: Check database for latest run status
-    const latestRun = await getLatestRunForCompanyAndTool(companyId, 'brandLab');
+    // If in-memory status is NOT 'running', return it (pending/completed/failed are set locally)
+    // But if it's 'running', prefer database since Inngest updates database, not in-memory
+    if (inMemoryStatus && inMemoryStatus.status !== 'running') {
+      return NextResponse.json({
+        status: inMemoryStatus.status,
+        currentStep: inMemoryStatus.currentStep,
+        percent: inMemoryStatus.percent,
+        error: inMemoryStatus.error,
+        runId: inMemoryStatus.runId,
+        score: (inMemoryStatus as any).score,
+        benchmarkLabel: (inMemoryStatus as any).benchmarkLabel,
+      });
+    }
 
     if (latestRun) {
       // Extract benchmarkLabel from rawJson if available

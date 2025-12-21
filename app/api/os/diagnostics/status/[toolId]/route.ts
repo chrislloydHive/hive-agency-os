@@ -2,7 +2,7 @@
 // Generic API endpoint for polling any diagnostic tool status
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDiagnosticStatus, makeStatusKey } from '@/lib/os/diagnostics/statusStore';
+import { getDiagnosticStatus, makeStatusKey, clearDiagnosticStatus } from '@/lib/os/diagnostics/statusStore';
 import { getLatestRunForCompanyAndTool, isValidToolId, type DiagnosticToolId } from '@/lib/os/diagnostics/runs';
 import { getGapIaRunsForCompany } from '@/lib/airtable/gapIaRuns';
 
@@ -49,21 +49,30 @@ export async function GET(request: NextRequest, context: RouteContext) {
     }
 
     const statusKey = makeStatusKey(toolId as DiagnosticToolId, companyId);
-    const status = getDiagnosticStatus(statusKey);
+    const inMemoryStatus = getDiagnosticStatus(statusKey);
 
-    // If we have in-memory status, return it
-    if (status) {
-      return NextResponse.json({
-        status: status.status,
-        currentStep: status.currentStep,
-        percent: status.percent,
-        error: status.error,
-        runId: status.runId,
-      });
+    // Always check database for authoritative status
+    // (Inngest runs on different serverless instance, so in-memory may be stale)
+    const latestRun = await getLatestRunForCompanyAndTool(companyId, toolId as DiagnosticToolId);
+
+    // If database shows complete/failed, that's authoritative - clear stale in-memory status
+    if (latestRun && (latestRun.status === 'complete' || latestRun.status === 'failed')) {
+      if (inMemoryStatus && inMemoryStatus.status === 'running') {
+        clearDiagnosticStatus(statusKey);
+      }
     }
 
-    // Fallback: Check database for latest run status
-    const latestRun = await getLatestRunForCompanyAndTool(companyId, toolId as DiagnosticToolId);
+    // If in-memory status is NOT 'running', return it (pending/completed/failed are set locally)
+    // But if it's 'running', prefer database since Inngest updates database, not in-memory
+    if (inMemoryStatus && inMemoryStatus.status !== 'running') {
+      return NextResponse.json({
+        status: inMemoryStatus.status,
+        currentStep: inMemoryStatus.currentStep,
+        percent: inMemoryStatus.percent,
+        error: inMemoryStatus.error,
+        runId: inMemoryStatus.runId,
+      });
+    }
 
     if (latestRun) {
       // Map database status to polling status

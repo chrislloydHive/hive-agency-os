@@ -12,6 +12,39 @@ import { createProposal } from './types';
 const PROPOSALS_TABLE = AIRTABLE_TABLES.CONTEXT_PROPOSALS;
 
 // ============================================================================
+// Error Types
+// ============================================================================
+
+export type ProposalStoreErrorCode =
+  | 'UNAUTHORIZED'
+  | 'NOT_FOUND'
+  | 'NETWORK_ERROR'
+  | 'PARSE_ERROR'
+  | 'UNKNOWN';
+
+export interface ProposalLoadResult {
+  batches: ContextProposalBatch[];
+  error: ProposalStoreErrorCode | null;
+  errorMessage: string | null;
+}
+
+/**
+ * Get debug info about proposal storage configuration (dev only)
+ */
+export function getProposalStoreDebugInfo(): {
+  baseId: string | undefined;
+  tableName: string;
+  tokenEnvVar: string;
+} {
+  return {
+    baseId: process.env.AIRTABLE_BASE_ID,
+    tableName: PROPOSALS_TABLE,
+    tokenEnvVar: process.env.AIRTABLE_ACCESS_TOKEN ? 'AIRTABLE_ACCESS_TOKEN' :
+                 process.env.AIRTABLE_API_KEY ? 'AIRTABLE_API_KEY' : 'NONE',
+  };
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -33,11 +66,21 @@ export interface ProposalRecord {
 // ============================================================================
 
 /**
- * Load all pending proposals for a company
+ * Load all pending proposals for a company (with error details)
  */
-export async function loadPendingProposals(
+export async function loadPendingProposalsWithError(
   companyId: string
-): Promise<ContextProposalBatch[]> {
+): Promise<ProposalLoadResult> {
+  // Log debug info in development
+  if (process.env.NODE_ENV === 'development' || process.env.DEBUG_CONTEXT_V4) {
+    const debugInfo = getProposalStoreDebugInfo();
+    console.log(`[ContextProposals] Debug info:`, {
+      baseId: debugInfo.baseId,
+      tableName: debugInfo.tableName,
+      tokenEnvVar: debugInfo.tokenEnvVar,
+    });
+  }
+
   try {
     const base = getBase();
     const records = await base(PROPOSALS_TABLE)
@@ -47,18 +90,60 @@ export async function loadPendingProposals(
       })
       .all();
 
-    return records
+    const batches = records
       .map(mapAirtableRecord)
       .filter((r): r is ContextProposalBatch => r !== null);
+
+    return { batches, error: null, errorMessage: null };
   } catch (error: any) {
-    // Handle case where table doesn't exist yet
+    // Categorize the error
+    if (error?.statusCode === 401 || error?.statusCode === 403 ||
+        error?.error === 'NOT_AUTHORIZED' || error?.error === 'AUTHENTICATION_REQUIRED' ||
+        error?.message?.includes('not authorized')) {
+      // This is an expected configuration issue - token lacks permission for ContextProposals table
+      console.warn(`[ContextProposals] Authorization error for ${companyId}: Token lacks permission for ${PROPOSALS_TABLE} table. Add data.records:read scope.`);
+      return {
+        batches: [],
+        error: 'UNAUTHORIZED',
+        errorMessage: error?.message || 'Not authorized to access proposals',
+      };
+    }
+
     if (error?.statusCode === 404 || error?.error === 'NOT_FOUND') {
       console.warn(`[ContextProposals] Table "${PROPOSALS_TABLE}" not found.`);
-      return [];
+      return {
+        batches: [],
+        error: 'NOT_FOUND',
+        errorMessage: `Table "${PROPOSALS_TABLE}" not found`,
+      };
     }
-    console.warn(`[ContextProposals] Could not load proposals for ${companyId}:`, error?.message || 'Unknown error');
-    return [];
+
+    if (error?.code === 'ENOTFOUND' || error?.code === 'ETIMEDOUT' || error?.code === 'ECONNREFUSED') {
+      console.error(`[ContextProposals] Network error for ${companyId}:`, error?.message || error);
+      return {
+        batches: [],
+        error: 'NETWORK_ERROR',
+        errorMessage: error?.message || 'Network error accessing Airtable',
+      };
+    }
+
+    console.warn(`[ContextProposals] Unknown error for ${companyId}:`, error?.message || 'Unknown error');
+    return {
+      batches: [],
+      error: 'UNKNOWN',
+      errorMessage: error?.message || 'Unknown error',
+    };
   }
+}
+
+/**
+ * Load all pending proposals for a company
+ */
+export async function loadPendingProposals(
+  companyId: string
+): Promise<ContextProposalBatch[]> {
+  const result = await loadPendingProposalsWithError(companyId);
+  return result.batches;
 }
 
 /**

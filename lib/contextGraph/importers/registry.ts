@@ -11,6 +11,8 @@ import type {
   HydrationTelemetry,
   DomainTelemetry,
   ImportResult,
+  ImportProof,
+  AggregatedProof,
 } from './types';
 import type { CompanyContextGraph } from '../companyContextGraph';
 import { loadContextGraph, saveContextGraph } from '../storage';
@@ -144,6 +146,14 @@ export async function checkAvailableImporters(
 // ============================================================================
 
 /**
+ * Options for hydrateContextFromHistory
+ */
+export interface HydrationOptions {
+  /** Enable proof mode to capture detailed write diagnostics */
+  proofMode?: boolean;
+}
+
+/**
  * Hydrate a company's context graph from all available historical data
  *
  * This function:
@@ -154,12 +164,22 @@ export async function checkAvailableImporters(
  * 5. Returns a summary of what was imported
  *
  * @param companyId - The company ID to hydrate
+ * @param options - Optional configuration including proofMode
  * @returns HydrationResult with details about what was imported
  */
 export async function hydrateContextFromHistory(
-  companyId: string
+  companyId: string,
+  options?: HydrationOptions
 ): Promise<HydrationResult> {
   const startTime = Date.now();
+  const proofMode = options?.proofMode || process.env.DEBUG_CONTEXT_PROOF === '1';
+
+  // Set env var for nested importers to pick up
+  if (proofMode) {
+    process.env.DEBUG_CONTEXT_PROOF = '1';
+    console.log(`[hydrateContextFromHistory] PROOF MODE enabled for company ${companyId}`);
+  }
+
   console.log(`[hydrateContextFromHistory] Starting hydration for company ${companyId}`);
 
   const result: HydrationResult = {
@@ -275,6 +295,16 @@ export async function hydrateContextFromHistory(
       result.importerResults,
       duration
     );
+
+    // Aggregate proof data if proof mode is enabled
+    if (proofMode) {
+      result.proof = aggregateProofData(result.importerResults);
+      console.log('[hydrateContextFromHistory] Proof aggregated:', {
+        totalCandidateWrites: result.proof.totalCandidateWrites,
+        totalPersistedWrites: result.proof.totalPersistedWrites,
+        droppedByReason: result.proof.aggregatedDroppedByReason,
+      });
+    }
 
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -413,5 +443,54 @@ function calculateHydrationTelemetry(
   };
 }
 
+/**
+ * Aggregate proof data from all importer results
+ */
+function aggregateProofData(
+  importerResults: HydrationResult['importerResults']
+): AggregatedProof {
+  const aggregated: AggregatedProof = {
+    perImporter: [],
+    totalCandidateWrites: 0,
+    totalPersistedWrites: 0,
+    aggregatedDroppedByReason: {
+      emptyValue: 0,
+      domainAuthority: 0,
+      wrongDomainForField: 0,
+      sourcePriority: 0,
+      humanConfirmed: 0,
+      notCanonical: 0,
+      other: 0,
+    },
+  };
+
+  for (const ir of importerResults) {
+    const proof = ir.result.proof;
+    aggregated.perImporter.push({
+      importerId: ir.importerId,
+      proof,
+    });
+
+    if (proof) {
+      aggregated.totalCandidateWrites += proof.candidateWrites.length;
+      aggregated.totalPersistedWrites += proof.persistedWrites.length;
+
+      // Aggregate drop reasons
+      if (proof.droppedByReason) {
+        aggregated.aggregatedDroppedByReason.emptyValue += proof.droppedByReason.emptyValue;
+        aggregated.aggregatedDroppedByReason.domainAuthority += proof.droppedByReason.domainAuthority;
+        aggregated.aggregatedDroppedByReason.wrongDomainForField += proof.droppedByReason.wrongDomainForField || 0;
+        aggregated.aggregatedDroppedByReason.sourcePriority += proof.droppedByReason.sourcePriority;
+        aggregated.aggregatedDroppedByReason.humanConfirmed += proof.droppedByReason.humanConfirmed;
+        aggregated.aggregatedDroppedByReason.notCanonical += proof.droppedByReason.notCanonical;
+        aggregated.aggregatedDroppedByReason.other += proof.droppedByReason.other;
+      }
+    }
+  }
+
+  return aggregated;
+}
+
 // Export types for consumers
-export type { DomainImporter, ImporterRegistryEntry, HydrationResult, HydrationTelemetry, DomainTelemetry, ImportResult };
+export type { DomainImporter, ImporterRegistryEntry, HydrationResult, HydrationTelemetry, DomainTelemetry, ImportResult, AggregatedProof };
+// HydrationOptions is already exported via interface declaration

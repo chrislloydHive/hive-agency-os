@@ -7,7 +7,7 @@
 // Uses the existing WebsiteLabWriter mappings to import historical Website Lab data.
 // Fetches runs via GAP Heavy Run records that contain websiteLabV4 diagnostic details.
 
-import type { DomainImporter, ImportResult } from './types';
+import type { DomainImporter, ImportResult, ImportProof } from './types';
 import type { CompanyContextGraph } from '../companyContextGraph';
 import { getHeavyGapRunsByCompanyId } from '@/lib/airtable/gapHeavyRuns';
 import { listDiagnosticRunsForCompany, type DiagnosticRun } from '@/lib/os/diagnostics/runs';
@@ -186,6 +186,8 @@ export const websiteLabImporter: DomainImporter = {
     companyId: string,
     domain: string
   ): Promise<ImportResult> {
+    const proofMode = process.env.DEBUG_CONTEXT_PROOF === '1';
+
     const result: ImportResult = {
       success: false,
       fieldsUpdated: 0,
@@ -193,6 +195,25 @@ export const websiteLabImporter: DomainImporter = {
       errors: [],
       sourceRunIds: [],
     };
+
+    // Initialize proof structure
+    if (proofMode) {
+      result.proof = {
+        extractionPath: null,
+        rawKeysFound: 0,
+        candidateWrites: [],
+        droppedByReason: {
+          emptyValue: 0,
+          domainAuthority: 0,
+          wrongDomainForField: 0,
+          sourcePriority: 0,
+          humanConfirmed: 0,
+          notCanonical: 0,
+          other: 0,
+        },
+        persistedWrites: [],
+      };
+    }
 
     try {
       // 1. Try Diagnostic Runs table first (primary source - where labs write)
@@ -218,7 +239,7 @@ export const websiteLabImporter: DomainImporter = {
 
         // Try new format first: rawEvidence.labResultV4
         const rawEvidence = rawData.rawEvidence as Record<string, unknown> | undefined;
-        let extractionPath: 'rawEvidence.labResultV4' | 'legacy' = 'legacy';
+        let extractionPath: string = 'legacy';
         if (rawEvidence?.labResultV4) {
           websiteLabData = rawEvidence.labResultV4 as WebsiteUXLabResultV4;
           extractionPath = 'rawEvidence.labResultV4';
@@ -226,8 +247,16 @@ export const websiteLabImporter: DomainImporter = {
         } else {
           // Fall back to legacy formats
           websiteLabData = (rawData.result || rawData) as WebsiteUXLabResultV4;
-          console.log('[websiteLabImporter] Using legacy extraction path');
+          extractionPath = rawData.result ? 'result' : 'direct';
+          console.log('[websiteLabImporter] Using legacy extraction path:', extractionPath);
         }
+
+        // Update proof with extraction path
+        if (proofMode && result.proof) {
+          result.proof.extractionPath = `DIAGNOSTIC_RUNS:${extractionPath}`;
+          result.proof.rawKeysFound = Object.keys(websiteLabData || {}).length;
+        }
+
         debugLog('extraction', { source: 'DIAGNOSTIC_RUNS', extractionPath, runId: diagnosticWebsiteRun.id });
 
         // Validate we have expected structure
@@ -242,12 +271,22 @@ export const websiteLabImporter: DomainImporter = {
         }
 
         // Use the existing WebsiteLabWriter to map the data
-        const writerResult = writeWebsiteLabToGraph(graph, websiteLabData, diagnosticWebsiteRun.id);
+        const writerResult = writeWebsiteLabToGraph(graph, websiteLabData, diagnosticWebsiteRun.id, { proofMode });
 
         result.fieldsUpdated = writerResult.fieldsUpdated;
         result.updatedPaths = writerResult.updatedPaths;
         result.errors.push(...writerResult.errors);
         result.success = writerResult.fieldsUpdated > 0;
+
+        // Merge proof data from writer
+        if (proofMode && result.proof && writerResult.proof) {
+          result.proof.candidateWrites = writerResult.proof.candidateWrites;
+          result.proof.droppedByReason = writerResult.proof.droppedByReason;
+          result.proof.persistedWrites = writerResult.updatedPaths;
+          if (writerResult.proof.offendingFields) {
+            result.proof.offendingFields = writerResult.proof.offendingFields;
+          }
+        }
 
         console.log(`[websiteLabImporter] Imported ${result.fieldsUpdated} fields from Diagnostic Run ${diagnosticWebsiteRun.id}`);
         return result;
@@ -255,6 +294,11 @@ export const websiteLabImporter: DomainImporter = {
 
       // 2. Fall back to Heavy GAP Runs (legacy)
       console.log('[websiteLabImporter] Falling back to Heavy GAP Runs');
+
+      if (proofMode && result.proof) {
+        result.proof.extractionPath = 'GAP_HEAVY_RUNS:evidencePack.websiteLabV4';
+      }
+
       debugLog('fallback', { source: 'GAP_HEAVY_RUNS', reason: 'no_diagnostic_runs' });
       const runs = await getHeavyGapRunsByCompanyId(companyId, 10);
 
@@ -274,11 +318,26 @@ export const websiteLabImporter: DomainImporter = {
 
       // Use the existing WebsiteLabWriter to map the data
       const websiteLabData = runWithLab.evidencePack.websiteLabV4 as WebsiteUXLabResultV4;
-      const writerResult = writeWebsiteLabToGraph(graph, websiteLabData, runWithLab.id);
+
+      if (proofMode && result.proof) {
+        result.proof.rawKeysFound = Object.keys(websiteLabData || {}).length;
+      }
+
+      const writerResult = writeWebsiteLabToGraph(graph, websiteLabData, runWithLab.id, { proofMode });
 
       result.fieldsUpdated = writerResult.fieldsUpdated;
       result.updatedPaths = writerResult.updatedPaths;
       result.errors.push(...writerResult.errors);
+
+      // Merge proof data from writer
+      if (proofMode && result.proof && writerResult.proof) {
+        result.proof.candidateWrites = writerResult.proof.candidateWrites;
+        result.proof.droppedByReason = writerResult.proof.droppedByReason;
+        result.proof.persistedWrites = writerResult.updatedPaths;
+        if (writerResult.proof.offendingFields) {
+          result.proof.offendingFields = writerResult.proof.offendingFields;
+        }
+      }
 
       result.success = writerResult.fieldsUpdated > 0;
       console.log(`[websiteLabImporter] Imported ${result.fieldsUpdated} fields from Heavy GAP Run ${runWithLab.id}`);

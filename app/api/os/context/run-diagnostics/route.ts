@@ -25,6 +25,7 @@ import {
 } from '@/lib/os/context';
 import type { CompanyContext, ContextDraft, ContextAiInput, InitialDiagnosticsResult, Competitor } from '@/lib/types/context';
 import { parseCompetitors } from '@/lib/types/context';
+import { normalizeWebsiteUrl } from '@/lib/utils/urls';
 
 export const maxDuration = 180; // 3 minutes for full pipeline
 
@@ -168,7 +169,15 @@ export async function POST(request: NextRequest) {
 
     // Fall back to GAP-IA if Full GAP failed
     if (fullGapResult.status === 'rejected' || !baselineResults.fullGap.success) {
-      const websiteUrl = company.website || `https://${company.domain}`;
+      // Normalize the website URL before using it
+      const rawUrl = company.website || company.domain || '';
+      let websiteUrl: string;
+      try {
+        websiteUrl = normalizeWebsiteUrl(rawUrl);
+      } catch (e) {
+        console.error('[run-diagnostics] URL normalization failed:', e);
+        websiteUrl = `https://${company.domain}`; // Fallback
+      }
       console.log('[run-diagnostics] Full GAP failed, trying GAP-IA for:', websiteUrl);
       baselineResults.gapIa.ran = true;
 

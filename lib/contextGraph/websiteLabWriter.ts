@@ -4,12 +4,17 @@
 // This writer takes the comprehensive WebsiteLab result and writes normalized
 // facts into the Context Graph via mergeField, so running Website Lab actually
 // populates the Context UI.
+//
+// DOMAIN AUTHORITY: website_lab can only write to 'website' and 'digitalInfra' domains.
+// Cross-domain observations (brand, content, audience, etc.) are tracked as
+// 'wrongDomainForField' skips for debugging but NOT written.
 
 import type { CompanyContextGraph } from './companyContextGraph';
 import type { ProvenanceTag } from './types';
-import { setDomainFields, setFieldUntyped, createProvenance } from './mutate';
+import { setDomainFields, setFieldUntyped, setFieldUntypedWithResult, createProvenance } from './mutate';
 import { saveContextGraph } from './storage';
 import type { WebsiteUXLabResultV4 } from '@/lib/gap-heavy/modules/websiteLab';
+import { canLabWriteToDomain, type DomainKey } from '@/lib/os/context/domainAuthority';
 
 // ============================================================================
 // MAPPING CONFIGURATION
@@ -396,6 +401,27 @@ export interface WebsiteLabWriterResult {
   skippedPaths: string[];
   /** Any errors encountered */
   errors: string[];
+  /** Proof data for debugging (populated in proof mode) */
+  proof?: {
+    extractionPath: string;
+    candidateWrites: Array<{
+      path: string;
+      valuePreview: string;
+      source: string;
+      confidence: number;
+    }>;
+    droppedByReason: {
+      emptyValue: number;
+      domainAuthority: number;
+      wrongDomainForField: number;
+      sourcePriority: number;
+      humanConfirmed: number;
+      notCanonical: number;
+      other: number;
+    };
+    /** Top offending field keys for debugging */
+    offendingFields?: Array<{ path: string; reason: string }>;
+  };
 }
 
 /**
@@ -407,19 +433,41 @@ export interface WebsiteLabWriterResult {
  * @param graph - The context graph to update
  * @param result - Full WebsiteUXLabResultV4 from Website Lab
  * @param runId - Optional run ID for provenance tracking
+ * @param options - Optional options including proof mode
  * @returns Summary of what was updated
  */
 export function writeWebsiteLabToGraph(
   graph: CompanyContextGraph,
   result: WebsiteUXLabResultV4,
-  runId?: string
+  runId?: string,
+  options?: { proofMode?: boolean }
 ): WebsiteLabWriterResult {
+  const proofMode = options?.proofMode || process.env.DEBUG_CONTEXT_PROOF === '1';
+
   const summary: WebsiteLabWriterResult = {
     fieldsUpdated: 0,
     updatedPaths: [],
     skippedPaths: [],
     errors: [],
   };
+
+  // Initialize proof data if in proof mode
+  if (proofMode) {
+    summary.proof = {
+      extractionPath: 'WEBSITE_LAB_MAPPINGS',
+      candidateWrites: [],
+      droppedByReason: {
+        emptyValue: 0,
+        domainAuthority: 0,
+        wrongDomainForField: 0,
+        sourcePriority: 0,
+        humanConfirmed: 0,
+        notCanonical: 0,
+        other: 0,
+      },
+      offendingFields: [],
+    };
+  }
 
   for (const mapping of WEBSITE_LAB_MAPPINGS) {
     try {
@@ -429,6 +477,9 @@ export function writeWebsiteLabToGraph(
       // Skip if no meaningful value
       if (!isMeaningfulValue(value)) {
         summary.skippedPaths.push(`${mapping.source} → ${mapping.target}`);
+        if (proofMode && summary.proof) {
+          summary.proof.droppedByReason.emptyValue++;
+        }
         continue;
       }
 
@@ -439,6 +490,9 @@ export function writeWebsiteLabToGraph(
         // Check again after transform
         if (!isMeaningfulValue(value)) {
           summary.skippedPaths.push(`${mapping.source} → ${mapping.target} (transform returned empty)`);
+          if (proofMode && summary.proof) {
+            summary.proof.droppedByReason.emptyValue++;
+          }
           continue;
         }
       }
@@ -456,11 +510,65 @@ export function writeWebsiteLabToGraph(
         mapping.confidenceMultiplier
       );
 
-      // Write to graph using setFieldUntyped (handles unknown fields gracefully)
-      setFieldUntyped(graph, domain, field, value, provenance);
+      // Capture candidate write for proof (before domain check)
+      if (proofMode && summary.proof) {
+        const valueStr = typeof value === 'string' ? value : JSON.stringify(value);
+        summary.proof.candidateWrites.push({
+          path: mapping.target,
+          valuePreview: valueStr.slice(0, 100) + (valueStr.length > 100 ? '...' : ''),
+          source: provenance.source,
+          confidence: provenance.confidence,
+        });
+      }
 
-      summary.fieldsUpdated++;
-      summary.updatedPaths.push(mapping.target);
+      // =========================================================================
+      // DOMAIN AUTHORITY CHECK - website_lab can only write to website/digitalInfra
+      // =========================================================================
+      const isAuthorizedDomain = canLabWriteToDomain('website_lab', domain as DomainKey);
+
+      if (!isAuthorizedDomain) {
+        // Skip this mapping - field belongs to a domain websiteLab cannot write to
+        summary.skippedPaths.push(
+          `${mapping.source} → ${mapping.target} (wrongDomainForField: website_lab cannot write to '${domain}')`
+        );
+
+        if (proofMode && summary.proof) {
+          summary.proof.droppedByReason.wrongDomainForField++;
+          // Track top 10 offending fields
+          if (summary.proof.offendingFields && summary.proof.offendingFields.length < 10) {
+            summary.proof.offendingFields.push({
+              path: mapping.target,
+              reason: `website_lab cannot write to '${domain}' domain`,
+            });
+          }
+        }
+        continue;
+      }
+
+      // Write to graph using setFieldUntypedWithResult to track blocking
+      const writeResult = setFieldUntypedWithResult(graph, domain, field, value, provenance, { debug: proofMode });
+
+      if (writeResult.result.updated) {
+        summary.fieldsUpdated++;
+        summary.updatedPaths.push(mapping.target);
+      } else {
+        summary.skippedPaths.push(`${mapping.source} → ${mapping.target} (blocked: ${writeResult.result.reason})`);
+
+        // Track skip reason in proof
+        if (proofMode && summary.proof) {
+          const reason = writeResult.result.reason;
+          if (reason === 'blocked_source') {
+            summary.proof.droppedByReason.domainAuthority++;
+          } else if (reason === 'lower_priority' || reason === 'low_confidence') {
+            summary.proof.droppedByReason.sourcePriority++;
+          } else if (reason === 'human_confirmed' || reason === 'human_override') {
+            summary.proof.droppedByReason.humanConfirmed++;
+          } else {
+            // Catches: empty_value, higher_priority, same_priority_newer, and other
+            summary.proof.droppedByReason.other++;
+          }
+        }
+      }
     } catch (error) {
       summary.errors.push(
         `Error mapping ${mapping.source} → ${mapping.target}: ${error}`
@@ -483,6 +591,13 @@ export function writeWebsiteLabToGraph(
   console.log(
     `[WebsiteLabWriter] Updated ${summary.fieldsUpdated} fields, skipped ${summary.skippedPaths.length}, errors: ${summary.errors.length}`
   );
+  if (proofMode && summary.proof) {
+    console.log(
+      `[WebsiteLabWriter] Proof: wrongDomainForField=${summary.proof.droppedByReason.wrongDomainForField}, ` +
+      `domainAuthority=${summary.proof.droppedByReason.domainAuthority}, ` +
+      `emptyValue=${summary.proof.droppedByReason.emptyValue}`
+    );
+  }
 
   return summary;
 }

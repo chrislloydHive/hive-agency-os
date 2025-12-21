@@ -56,6 +56,8 @@ const FORCE_ALLOWLIST = [
   'app/api/os/companies/[companyId]/competition/unmark-invalid/',
   // User-initiated company creation (force-runs labs for new company onboarding)
   'app/api/os/companies/create/',
+  // V4 materialization: user-confirmed facts bypass priority (explicit user approval)
+  'lib/contextGraph/materializeV4.ts',
   // Governance infrastructure (can force for emergency fixes)
   'lib/contextGraph/governance/pipeline.ts',
   // Tests

@@ -7,6 +7,50 @@
 import type { CompanyContextGraph } from '../companyContextGraph';
 
 /**
+ * Proof data for a single candidate write
+ */
+export interface CandidateWrite {
+  path: string;
+  valuePreview: string;
+  source: string;
+  confidence: number;
+}
+
+/**
+ * Proof data for debugging import issues
+ * Only populated when DEBUG_CONTEXT_PROOF=1 or options.proof=true
+ */
+export interface ImportProof {
+  /** How data was extracted (e.g., 'rawEvidence.labResultV4', 'legacy', 'findings') */
+  extractionPath: string | null;
+  /** Number of keys found in raw data */
+  rawKeysFound: number;
+  /** Candidate writes before filtering */
+  candidateWrites: CandidateWrite[];
+  /** Count of fields skipped by reason */
+  droppedByReason: {
+    /** Value was empty/null/undefined */
+    emptyValue: number;
+    /** Source not authorized for target domain (blocked by domain authority) */
+    domainAuthority: number;
+    /** Field belongs to a different domain than the writer is authorized for */
+    wrongDomainForField: number;
+    /** Higher priority source already wrote this field */
+    sourcePriority: number;
+    /** User has confirmed this field, cannot overwrite */
+    humanConfirmed: number;
+    /** Field is not in the canonical schema */
+    notCanonical: number;
+    /** Other/unknown reason */
+    other: number;
+  };
+  /** Paths that were successfully persisted */
+  persistedWrites: string[];
+  /** Top offending field keys that were skipped (for debugging) */
+  offendingFields?: Array<{ path: string; reason: string }>;
+}
+
+/**
  * Import Result - returned by importAll() to describe what was imported
  */
 export interface ImportResult {
@@ -20,6 +64,8 @@ export interface ImportResult {
   errors: string[];
   /** The source run IDs that were used */
   sourceRunIds: string[];
+  /** Proof data for debugging (only present in proof mode) */
+  proof?: ImportProof;
 }
 
 /**
@@ -113,6 +159,32 @@ export interface HydrationTelemetry {
 }
 
 /**
+ * Aggregated proof data from all importers
+ * Only present when proofMode=true or DEBUG_CONTEXT_PROOF=1
+ */
+export interface AggregatedProof {
+  /** Per-importer proof data */
+  perImporter: Array<{
+    importerId: string;
+    proof: ImportProof | undefined;
+  }>;
+  /** Total candidate writes across all importers */
+  totalCandidateWrites: number;
+  /** Total persisted writes across all importers */
+  totalPersistedWrites: number;
+  /** Aggregated skip reasons across all importers */
+  aggregatedDroppedByReason: {
+    emptyValue: number;
+    domainAuthority: number;
+    wrongDomainForField: number;
+    sourcePriority: number;
+    humanConfirmed: number;
+    notCanonical: number;
+    other: number;
+  };
+}
+
+/**
  * Hydration Result - returned by hydrateContextFromHistory()
  */
 export interface HydrationResult {
@@ -132,4 +204,6 @@ export interface HydrationResult {
   graph: CompanyContextGraph;
   /** Telemetry for debugging and dashboards */
   telemetry?: HydrationTelemetry;
+  /** Aggregated proof data (only present in proof mode) */
+  proof?: AggregatedProof;
 }

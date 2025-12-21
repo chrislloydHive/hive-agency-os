@@ -65,6 +65,8 @@ export const brandLabImporter: DomainImporter = {
     companyId: string,
     domain: string
   ): Promise<ImportResult> {
+    const proofMode = process.env.DEBUG_CONTEXT_PROOF === '1';
+
     const result: ImportResult = {
       success: false,
       fieldsUpdated: 0,
@@ -72,6 +74,25 @@ export const brandLabImporter: DomainImporter = {
       errors: [],
       sourceRunIds: [],
     };
+
+    // Initialize proof structure in proof mode
+    if (proofMode) {
+      result.proof = {
+        extractionPath: null,
+        rawKeysFound: 0,
+        candidateWrites: [],
+        droppedByReason: {
+          emptyValue: 0,
+          domainAuthority: 0,
+          wrongDomainForField: 0,
+          sourcePriority: 0,
+          humanConfirmed: 0,
+          notCanonical: 0,
+          other: 0,
+        },
+        persistedWrites: [],
+      };
+    }
 
     try {
       // 1. Try Diagnostic Runs table first (primary source)
@@ -117,12 +138,22 @@ export const brandLabImporter: DomainImporter = {
         }
         debugLog('extraction', { source: 'DIAGNOSTIC_RUNS', extractionPath, runId: diagnosticBrandRun.id });
 
+        // Populate proof data
+        if (proofMode && result.proof) {
+          result.proof.extractionPath = `DIAGNOSTIC_RUNS:${extractionPath}`;
+          result.proof.rawKeysFound = Object.keys(brandLabData || {}).length;
+        }
+
         const labImport = importFromDiagnosticBrandLab(graph, brandLabData, provenance);
         result.fieldsUpdated += labImport.count;
         result.updatedPaths.push(...labImport.paths);
 
         if (result.fieldsUpdated > 0) {
           result.success = true;
+          // Populate persistedWrites in proof mode
+          if (proofMode && result.proof) {
+            result.proof.persistedWrites = result.updatedPaths;
+          }
           console.log(`[brandLabImporter] Imported ${result.fieldsUpdated} fields from Diagnostic Runs`);
           return result;
         }
@@ -146,6 +177,14 @@ export const brandLabImporter: DomainImporter = {
       }
 
       result.sourceRunIds.push(runWithBrand.id);
+
+      // Populate proof data for legacy path
+      if (proofMode && result.proof) {
+        result.proof.extractionPath = 'GAP_HEAVY_RUNS:evidencePack.brandLab';
+        const evidenceKeys = Object.keys(runWithBrand.evidencePack?.brandLab || {}).length +
+                            Object.keys(runWithBrand.evidencePack?.brand || {}).length;
+        result.proof.rawKeysFound = evidenceKeys;
+      }
 
       // Create provenance for brand lab source
       const provenance = createProvenance('brand_lab', {
@@ -171,6 +210,10 @@ export const brandLabImporter: DomainImporter = {
       }
 
       result.success = result.fieldsUpdated > 0;
+      // Populate persistedWrites in proof mode
+      if (proofMode && result.proof) {
+        result.proof.persistedWrites = result.updatedPaths;
+      }
       console.log(`[brandLabImporter] Imported ${result.fieldsUpdated} fields from Heavy GAP Brand Lab/Evidence`);
 
     } catch (error) {

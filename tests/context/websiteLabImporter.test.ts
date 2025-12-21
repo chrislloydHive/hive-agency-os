@@ -169,7 +169,8 @@ describe('Website Lab Importer', () => {
         expect.objectContaining({
           siteAssessment: mockSiteAssessment,
         }),
-        'diag-run-123'
+        'diag-run-123',
+        expect.any(Object) // options with proofMode
       );
     });
   });
@@ -225,7 +226,8 @@ describe('Website Lab Importer', () => {
       expect(writeWebsiteLabToGraph).toHaveBeenCalledWith(
         graph,
         mockLabResult,
-        'new-format-run'
+        'new-format-run',
+        expect.any(Object) // options with proofMode
       );
     });
 
@@ -267,7 +269,8 @@ describe('Website Lab Importer', () => {
       expect(writeWebsiteLabToGraph).toHaveBeenCalledWith(
         graph,
         legacyData,
-        'legacy-format-run'
+        'legacy-format-run',
+        expect.any(Object) // options with proofMode
       );
     });
 
@@ -336,5 +339,246 @@ describe('Website Lab Importer', () => {
       expect(result.fieldsUpdated).toBeGreaterThan(0);
       expect(result.success).toBe(true);
     });
+  });
+});
+
+// ============================================================================
+// Domain Authority Compliance Tests
+// ============================================================================
+// Tests that websiteLab only writes to authorized domains (website, digitalInfra)
+// and that cross-domain keys are reported as wrongDomainForField
+//
+// NOTE: These tests directly import the real modules without mocking to test
+// the actual domain authority enforcement.
+
+describe('WebsiteLab Domain Authority Compliance', () => {
+  beforeEach(() => {
+    // Unmock the websiteLabWriter to get the real implementation
+    vi.doUnmock('@/lib/contextGraph/websiteLabWriter');
+    vi.resetModules();
+    // Enable proof mode for these tests
+    process.env.DEBUG_CONTEXT_PROOF = '1';
+  });
+
+  afterEach(() => {
+    delete process.env.DEBUG_CONTEXT_PROOF;
+    // Re-mock for other tests
+    vi.doMock('@/lib/contextGraph/websiteLabWriter', () => ({
+      writeWebsiteLabToGraph: vi.fn(),
+    }));
+  });
+
+  describe('websiteLabWriter Domain Filtering', () => {
+    it('should only write to website and digitalInfra domains', async () => {
+      // Fresh imports without mocks - uses real implementation
+      const { writeWebsiteLabToGraph } = await import('@/lib/contextGraph/websiteLabWriter');
+      const { createEmptyContextGraph: createGraph } = await import('@/lib/contextGraph/companyContextGraph');
+
+      const graph = createGraph('test-company', 'Test Company');
+
+      // Fixture with data that maps to multiple domains
+      // Use exact paths from WEBSITE_LAB_MAPPINGS
+      const labResultV4 = {
+        siteAssessment: {
+          score: 75, // → website.websiteScore
+          executiveSummary: 'Website assessment summary', // → website.executiveSummary
+          quickWins: [{ title: 'Add CTA', description: 'Add call to action' }], // → website.quickWins
+        },
+        siteGraph: { pages: [] },
+        // This data maps to brand domain (should be skipped)
+        visualBrandEvaluation: {
+          brandConsistencyScore: 80, // → brand.brandConsistencyScore
+          colorHarmony: { primaryColors: ['#000', '#fff'] }, // → brand.colorHarmony
+        },
+        // This data maps to content domain (should be skipped)
+        contentIntelligence: {
+          summaryScore: 70, // → content.contentScore
+          narrative: 'Content analysis', // → content.contentNarrative
+        },
+      };
+
+      const result = writeWebsiteLabToGraph(graph, labResultV4 as any, 'test-run', { proofMode: true });
+
+      // Verify proof data is captured
+      expect(result.proof).toBeDefined();
+
+      // The key assertion: wrongDomainForField should catch cross-domain writes
+      expect(result.proof?.droppedByReason.wrongDomainForField).toBeGreaterThan(0);
+
+      // No domainAuthority skips for website_lab on website domain
+      expect(result.proof?.droppedByReason.domainAuthority).toBe(0);
+
+      // All updated paths (if any) should be in website or digitalInfra
+      for (const path of result.updatedPaths) {
+        const domain = path.split('.')[0];
+        expect(['website', 'digitalInfra']).toContain(domain);
+      }
+    });
+
+    it('should report cross-domain keys as wrongDomainForField not domainAuthority', async () => {
+      const { writeWebsiteLabToGraph } = await import('@/lib/contextGraph/websiteLabWriter');
+      const { createEmptyContextGraph: createGraph } = await import('@/lib/contextGraph/companyContextGraph');
+
+      const graph = createGraph('test-company', 'Test Company');
+
+      // Fixture with data that should trigger wrongDomainForField
+      const labResultV4 = {
+        siteAssessment: {
+          score: 75,
+        },
+        siteGraph: { pages: [] },
+        // These map to brand/content/audience domains
+        visualBrandEvaluation: {
+          brandConsistencyScore: 80,
+          narrative: 'Visual brand assessment',
+        },
+        contentIntelligence: {
+          summaryScore: 70,
+        },
+        personas: [
+          { persona: 'Developer', goal: 'Learn', success: true },
+        ],
+      };
+
+      const result = writeWebsiteLabToGraph(graph, labResultV4 as any, 'test-run', { proofMode: true });
+
+      // Proof should show wrongDomainForField skips
+      expect(result.proof?.droppedByReason.wrongDomainForField).toBeGreaterThan(0);
+
+      // Should have offendingFields populated
+      expect(result.proof?.offendingFields).toBeDefined();
+      expect(result.proof?.offendingFields?.length).toBeGreaterThan(0);
+
+      // Verify the offending fields are for non-website domains
+      const offendingDomains = result.proof?.offendingFields?.map(f => f.path.split('.')[0]) || [];
+      for (const domain of offendingDomains) {
+        expect(['brand', 'content', 'audience', 'historical']).toContain(domain);
+      }
+    });
+
+    it('should achieve fieldsWritten > 0 with valid website data', async () => {
+      const { writeWebsiteLabToGraph } = await import('@/lib/contextGraph/websiteLabWriter');
+      const { createEmptyContextGraph: createGraph } = await import('@/lib/contextGraph/companyContextGraph');
+
+      const graph = createGraph('test-company', 'Test Company');
+
+      // Fixture with only website/digitalInfra data - exact paths from WEBSITE_LAB_MAPPINGS
+      const labResultV4 = {
+        siteAssessment: {
+          score: 85, // → website.websiteScore
+          executiveSummary: 'Excellent website with good UX', // → website.executiveSummary
+          keyIssues: ['Minor accessibility issues'], // → website.conversionBlocks
+          quickWins: [{ title: 'Add alt text', description: 'Images need alt text' }], // → website.quickWins
+          funnelHealthScore: 75, // → website.funnelHealthScore
+        },
+        siteGraph: {
+          pages: [
+            { path: '/', type: 'home', evidenceV3: { ctas: ['Get Started'] } },
+          ],
+        },
+        strategistViews: {
+          conversion: {
+            funnelBlockers: ['No clear CTA'], // → website.conversionBlocks
+            opportunities: ['Add testimonials'], // → website.conversionOpportunities
+          },
+        },
+      };
+
+      const result = writeWebsiteLabToGraph(graph, labResultV4 as any, 'test-run', { proofMode: true });
+
+      // Proof should be captured
+      expect(result.proof).toBeDefined();
+
+      // Key assertion: No domainAuthority blocks (website_lab is authorized for website)
+      expect(result.proof?.droppedByReason.domainAuthority).toBe(0);
+
+      // No wrongDomainForField (all data is for website domain)
+      expect(result.proof?.droppedByReason.wrongDomainForField).toBe(0);
+
+      // Should have written at least some fields (the core website fields)
+      // Note: If there are errors, log them for debugging
+      if (result.errors.length > 0) {
+        console.log('[Test] Errors during write:', result.errors);
+      }
+
+      // We expect writes to succeed - if they don't, we should investigate errors
+      expect(result.fieldsUpdated).toBeGreaterThan(0);
+    });
+  });
+});
+
+describe('fieldsWritten Reporting Regression', () => {
+  /**
+   * Regression test: Ensure fieldsUpdated and updatedPaths are correctly
+   * returned from the writer and importer, not just logged.
+   *
+   * This test catches the bug where proveContextPromotion.ts showed
+   * fieldsWritten: 0 even though WebsiteLabWriter logged "Updated 16 fields"
+   */
+  beforeEach(() => {
+    vi.doUnmock('@/lib/contextGraph/websiteLabWriter');
+    vi.resetModules();
+    process.env.DEBUG_CONTEXT_PROOF = '1';
+  });
+
+  afterEach(() => {
+    delete process.env.DEBUG_CONTEXT_PROOF;
+  });
+
+  it('should return fieldsUpdated > 0 and updatedPaths array from writeWebsiteLabToGraph', async () => {
+    const { writeWebsiteLabToGraph } = await import('@/lib/contextGraph/websiteLabWriter');
+    const { createEmptyContextGraph } = await import('@/lib/contextGraph/companyContextGraph');
+
+    const graph = createEmptyContextGraph('test-company', 'Test Company');
+
+    const labResultV4 = {
+      siteAssessment: {
+        score: 85,
+        executiveSummary: 'Test website assessment',
+        keyIssues: ['Issue 1', 'Issue 2'],
+        quickWins: [{ title: 'Quick win 1', description: 'Description' }],
+      },
+      siteGraph: { pages: [] },
+    };
+
+    const result = writeWebsiteLabToGraph(graph, labResultV4 as any, 'test-run', { proofMode: true });
+
+    // CRITICAL ASSERTIONS: These are the values that must flow through to proveContextPromotion
+    expect(result.fieldsUpdated).toBeGreaterThan(0);
+    expect(result.updatedPaths).toBeInstanceOf(Array);
+    expect(result.updatedPaths.length).toBeGreaterThan(0);
+
+    // Verify the paths are in the expected format
+    result.updatedPaths.forEach(path => {
+      expect(path).toMatch(/^(website|digitalInfra)\./);
+    });
+
+    // Verify proof data is also populated
+    expect(result.proof).toBeDefined();
+    expect(result.proof?.droppedByReason.domainAuthority).toBe(0);
+  });
+
+  it('should have matching fieldsUpdated count in writer result and updatedPaths length', async () => {
+    const { writeWebsiteLabToGraph } = await import('@/lib/contextGraph/websiteLabWriter');
+    const { createEmptyContextGraph } = await import('@/lib/contextGraph/companyContextGraph');
+
+    const graph = createEmptyContextGraph('test-company', 'Test Company');
+
+    const labResultV4 = {
+      siteAssessment: {
+        score: 75,
+        executiveSummary: 'Website summary',
+        funnelHealthScore: 60,
+      },
+      siteGraph: { pages: [] },
+    };
+
+    const result = writeWebsiteLabToGraph(graph, labResultV4 as any, 'test-run', { proofMode: true });
+
+    // fieldsUpdated should match the length of updatedPaths
+    expect(result.fieldsUpdated).toBe(result.updatedPaths.length);
+
+    // Both should be > 0
+    expect(result.fieldsUpdated).toBeGreaterThan(0);
   });
 });
