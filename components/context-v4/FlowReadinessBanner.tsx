@@ -734,4 +734,96 @@ export function FlowReadinessReadyIndicatorMulti({ readiness }: { readiness: Flo
   );
 }
 
+// ============================================================================
+// Competition Warning Banner
+// ============================================================================
+
+interface CompetitionWarningBannerProps {
+  /** Competition awareness from resolved readiness */
+  competitionAwareness: FlowReadinessResolved['competitionAwareness'];
+  /** Company ID for links */
+  companyId: string;
+  /** Optional callback for "Run Competition" button */
+  onRunCompetition?: () => Promise<void> | void;
+  /** Whether run is in progress */
+  runningCompetition?: boolean;
+}
+
+/**
+ * Yellow banner shown when competition is low/missing.
+ * Non-blocking - just informational.
+ */
+export function CompetitionWarningBanner({
+  competitionAwareness,
+  companyId,
+  onRunCompetition,
+  runningCompetition,
+}: CompetitionWarningBannerProps) {
+  // Only show if competition is not high confidence
+  if (!competitionAwareness || competitionAwareness.competitionInformed) {
+    return null;
+  }
+
+  const competitionPath = `/c/${companyId}/context#competitive`;
+  const isMissing = competitionAwareness.competitionConfidence === 'missing';
+
+  return (
+    <div className="rounded-lg border p-3 mb-4 bg-amber-900/20 border-amber-700/50 max-w-lg">
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+        <div className="flex-1">
+          <p className="text-sm text-amber-200 mb-2">
+            {isMissing
+              ? 'Strategy generated without competitive context.'
+              : 'Strategy generated with limited competitive context.'}
+          </p>
+          <p className="text-xs text-amber-300/70 mb-3">
+            Results should be validated once competitors are reviewed.
+          </p>
+          <div className="flex items-center gap-2">
+            <Link
+              href={competitionPath}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded bg-amber-600 hover:bg-amber-500 text-white transition-colors"
+            >
+              Improve Competitive Context
+              <ArrowRight className="w-3 h-3" />
+            </Link>
+            {onRunCompetition && (
+              <button
+                onClick={() => onRunCompetition()}
+                disabled={runningCompetition}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded text-amber-400/80 hover:text-amber-300 hover:bg-amber-900/30 disabled:opacity-50 transition-colors"
+              >
+                <RefreshCw className={`w-3 h-3 ${runningCompetition ? 'animate-spin' : ''}`} />
+                {runningCompetition ? 'Running...' : 'Run Competition Analysis'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Inline text warning about competition confidence.
+ * For use under buttons or in status areas.
+ */
+export function CompetitionInlineWarning({
+  competitionAwareness,
+}: {
+  competitionAwareness: FlowReadinessResolved['competitionAwareness'];
+}) {
+  if (!competitionAwareness || competitionAwareness.competitionInformed) {
+    return null;
+  }
+
+  return (
+    <p className="text-xs mt-2 flex items-center gap-1 text-amber-400">
+      <AlertTriangle className="w-3 h-3" />
+      {competitionAwareness.competitionSummary || 'Limited competitive context'}
+    </p>
+  );
+}
+
 export default FlowReadinessBanner;

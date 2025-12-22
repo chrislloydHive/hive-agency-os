@@ -17,6 +17,23 @@ import { isB2CVertical } from './verticalDetection';
 import { getVerticalModel } from './verticalModels';
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Safely join array or return string value
+ */
+function safeJoin(value: unknown, separator: string = ', '): string {
+  if (Array.isArray(value)) {
+    return value.join(separator);
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  return '';
+}
+
+// ============================================================================
 // Landscape Insights
 // ============================================================================
 
@@ -190,7 +207,7 @@ TARGET COMPANY: ${context.businessName}
 - Industry/Category: ${context.industry || 'General retail/services'}
 - Target Audience: ${context.icpDescription || audienceDescription}
 - Company Stage: ${context.icpStage || 'established'}
-- Primary Offerings: ${context.primaryOffers.join(', ') || 'Products and services'}
+- Primary Offerings: ${safeJoin(context.primaryOffers) || 'Products and services'}
 - Value Proposition: ${context.valueProposition || 'Unknown'}
 - Number of Direct Competitors: ${direct.length}
 - Competitor Type Model: ${verticalModel.displayName}
@@ -468,8 +485,8 @@ TARGET COMPANY: ${context.businessName}
 - Competitor Type Model: ${verticalModel.displayName}
 - Industry: ${context.industry || 'General retail/services'}
 - Value Proposition: ${context.valueProposition || 'Unknown'}
-- Differentiators: ${context.differentiators.join(', ') || 'Unknown'}
-- Primary Offerings: ${context.primaryOffers.join(', ') || 'Products and services'}
+- Differentiators: ${safeJoin(context.differentiators) || 'Unknown'}
+- Primary Offerings: ${safeJoin(context.primaryOffers) || 'Products and services'}
 - Target Audience: ${context.icpDescription || audienceDescription}
 - Number of Direct Competitors: ${direct.length}
 

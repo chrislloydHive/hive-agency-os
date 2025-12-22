@@ -20,12 +20,17 @@ import { generateSearchQueries } from '../discovery/searchQueries';
 import { runDiscovery } from '../discovery/aiSearch';
 import { enrichCandidates } from '../enrichment/metadataExtractor';
 import { classifyCandidates, selectFinalCompetitors } from '../enrichment/categoryClassifier';
-import { scoreCompetitors } from '../scoring/computeScores';
+import {
+  scoreCompetitorsWithDebug,
+  generateFallbackScoringDebug,
+  validateScoredCandidates,
+} from '../scoring/computeScores';
 import { computePositioningCoordinates, getQuadrantStats } from '../positioning/computeCoordinates';
 import { generateLandscapeNarrative, generateRecommendations } from './narrativeGenerator';
-import { saveCompetitionRunV3, type CompetitionRunV3Payload } from '../store';
+import { saveCompetitionRunV3, type CompetitionRunV3Payload, type CompetitionV3Error } from '../store';
 import { summarizeForContext } from '../summarizeForContext';
 import { updateCompetitiveDomain } from '../updateCompetitiveDomain';
+import { computeBusinessProfile, type BusinessProfile } from '../businessProfile';
 import type {
   QueryContext,
   CompetitionRunV3,
@@ -34,6 +39,7 @@ import type {
   StrategicRecommendation,
   VerticalCategory,
   CompanyArchetype,
+  ScoringDebug,
 } from '../types';
 import {
   detectVerticalCategory,
@@ -114,6 +120,101 @@ export async function runCompetitionV3(
       getCompanyById(companyId),
     ]);
     const context = buildQueryContext(graph, companyId, company);
+
+    // Step 1.5: BUSINESS TYPE SANITY GATE
+    // Compute business profile with confidence scoring
+    console.log('[competition-v3] Step 1.5: Computing business profile...');
+    const businessProfile = computeBusinessProfile(context);
+
+    // Check if we can run discovery
+    if (!businessProfile.canRunDiscovery) {
+      console.warn(`[competition-v3] GATE BLOCKED: ${businessProfile.gateReason}`);
+      console.warn('[competition-v3] Business profile confidence too low - cannot generate reliable competitors');
+
+      // Build error info
+      const errorInfo: CompetitionV3Error = {
+        type: 'LOW_CONFIDENCE_CONTEXT',
+        message: businessProfile.gateReason || 'Insufficient context to identify business type',
+        debug: {
+          confidence: businessProfile.confidence,
+          inferredCategory: businessProfile.inferredCategory,
+          missingFields: businessProfile.evidence.filter(e => !e.hasValue).map(e => e.field),
+          warnings: businessProfile.warnings,
+        },
+      };
+
+      // Complete the run with error state
+      run.status = 'completed';
+      run.completedAt = new Date().toISOString();
+      run.error = errorInfo.message;
+
+      // Generate fallback scoring debug for LOW_CONFIDENCE_CONTEXT
+      const fallbackScoringDebug = generateFallbackScoringDebug(
+        'fallback_low_confidence',
+        `LOW_CONFIDENCE_CONTEXT: ${businessProfile.gateReason}`
+      );
+
+      // Store the failed run
+      const failedPayload: CompetitionRunV3Payload = {
+        runId: run.id,
+        companyId,
+        status: 'completed', // Completed but with error, not 'failed' (which indicates exception)
+        createdAt: run.startedAt,
+        completedAt: run.completedAt,
+        competitors: [], // No competitors due to low confidence
+        insights: [{
+          id: `insight-${runId}-lowconf`,
+          category: 'threat',
+          title: 'Insufficient Business Context',
+          description: `Unable to generate reliable competitor analysis. ${businessProfile.gateReason}. Please ensure the company profile includes: website URL, business description, primary services, and target audience.`,
+          evidence: businessProfile.warnings,
+          competitors: [],
+          severity: 'high',
+        }],
+        recommendations: [{
+          id: `rec-${runId}-addcontext`,
+          priority: 1,
+          type: 'positioning',
+          title: 'Complete Company Profile',
+          description: 'Add missing business context to enable competitor analysis.',
+          actions: businessProfile.evidence.filter(e => !e.hasValue).map(e => `Add ${e.field}`),
+          targetCompetitors: [],
+          expectedOutcome: 'Reliable competitor discovery based on accurate business profile',
+        }],
+        summary: {
+          totalCandidates: 0,
+          totalCompetitors: 0,
+          byType: { direct: 0, partial: 0, fractional: 0, platform: 0, internal: 0 },
+          avgThreatScore: 0,
+          quadrantDistribution: {},
+          scoring: fallbackScoringDebug,
+        },
+        error: errorInfo.message,
+        errorInfo,
+      };
+
+      await saveCompetitionRunV3(failedPayload);
+
+      console.log(`\n${'='.repeat(60)}`);
+      console.log(`[competition-v3] Analysis BLOCKED by business type sanity gate`);
+      console.log(`[competition-v3] Confidence: ${(businessProfile.confidence * 100).toFixed(0)}%`);
+      console.log(`[competition-v3] Reason: ${businessProfile.gateReason}`);
+      console.log(`${'='.repeat(60)}\n`);
+
+      return {
+        run,
+        competitors: [],
+        insights: failedPayload.insights,
+        recommendations: failedPayload.recommendations,
+      };
+    }
+
+    // Log successful gate passage
+    console.log(`[competition-v3] Business profile gate PASSED:`);
+    console.log(`  - Confidence: ${(businessProfile.confidence * 100).toFixed(0)}%`);
+    console.log(`  - Category: ${businessProfile.inferredCategory}`);
+    console.log(`  - Vertical: ${businessProfile.verticalCategory}`);
+    console.log(`  - Archetype: ${businessProfile.archetype}`);
 
     // Step 2: Generate discovery queries
     console.log('[competition-v3] Step 2: Generating queries...');
@@ -196,18 +297,28 @@ export async function runCompetitionV3(
     run.steps.classification.status = 'completed';
     run.steps.classification.completedAt = new Date().toISOString();
 
-    // Step 6: Score competitors
+    // Step 6: Score competitors (with debug)
     console.log('[competition-v3] Step 6: Scoring competitors...');
     run.steps.scoring.status = 'running';
     run.steps.scoring.startedAt = new Date().toISOString();
 
-    const scored = scoreCompetitors(classified, context);
+    const scoringResult = scoreCompetitorsWithDebug(classified, context);
+    const scored = scoringResult.candidates;
+    const scoringDebug = scoringResult.debug;
+
+    // Validate no placeholder patterns
+    const validation = validateScoredCandidates(scored);
+    if (!validation.valid) {
+      console.error(`[competition-v3] SCORING VALIDATION FAILED: ${validation.message}`);
+      scoringDebug.notes.push(validation.message);
+    }
 
     // Drop irrelevant/low-threat competitors
     const filteredScored = scored.filter(c => c.classification.type !== 'irrelevant' && c.scores.threatScore >= 20);
     const forSelection = filteredScored.length > 0 ? filteredScored : scored;
 
-    console.log(`[competition-v3] Scored ${scored.length} competitors`);
+    console.log(`[competition-v3] Scored ${scored.length} competitors (strategy: ${scoringDebug.strategy})`);
+    console.log(`[competition-v3] Score distribution: threat=${scoringDebug.scoreDistribution.threatScoreMin}-${scoringDebug.scoreDistribution.threatScoreMax} (avg: ${scoringDebug.scoreDistribution.threatScoreAvg})`);
 
     run.steps.scoring.status = 'completed';
     run.steps.scoring.completedAt = new Date().toISOString();
@@ -296,14 +407,17 @@ export async function runCompetitionV3(
       return acc;
     }, { direct: 0, partial: 0, fractional: 0, platform: 0, internal: 0 });
 
-    run.summary.avgThreatScore = Math.round(
-      positioned.reduce((sum, c) => sum + c.scores.threatScore, 0) / positioned.length
-    );
+    run.summary.avgThreatScore = positioned.length > 0
+      ? Math.round(positioned.reduce((sum, c) => sum + c.scores.threatScore, 0) / positioned.length)
+      : 0;
 
     const quadrantStats = getQuadrantStats(positioned);
     run.summary.quadrantDistribution = Object.fromEntries(
       Object.entries(quadrantStats).map(([q, stats]) => [q, stats.count])
     );
+
+    // Attach scoring debug to summary
+    run.summary.scoring = scoringDebug;
 
     // Step 9: Generate narrative insights
     let insights: LandscapeInsight[] = [];
@@ -383,12 +497,14 @@ export async function runCompetitionV3(
  * @param company - Optional company data from Airtable (used as fallback)
  */
 function buildQueryContext(graph: any, companyId: string, company?: { name: string; domain?: string; website?: string } | null): QueryContext {
-  const identity = graph.identity || {};
-  const offer = graph.offer || {};
-  const icp = graph.icp || {};
-  const positioning = graph.positioning || {};
-  const pricing = graph.pricing || {};
-  const competitive = graph.competitive || {};
+  // Handle null/undefined graph - use empty object for safe property access
+  const safeGraph = graph || {};
+  const identity = safeGraph.identity || {};
+  const offer = safeGraph.offer || {};
+  const icp = safeGraph.icp || {};
+  const positioning = safeGraph.positioning || {};
+  const pricing = safeGraph.pricing || {};
+  const competitive = safeGraph.competitive || {};
 
   // Extract business name (with fallback to Airtable company data)
   const businessName = identity.businessName?.value ||

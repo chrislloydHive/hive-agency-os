@@ -12,6 +12,23 @@ import { aiSimple } from '@/lib/ai-gateway';
 import type { DiscoveryCandidate, EnrichedCandidate, CompanyMetadata, CrawledContent, SemanticSimilarity, QueryContext } from '../types';
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Safely join array or return string value
+ */
+function safeJoin(value: unknown, separator: string = ', '): string {
+  if (Array.isArray(value)) {
+    return value.join(separator);
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  return '';
+}
+
+// ============================================================================
 // Enrichment Pipeline
 // ============================================================================
 
@@ -147,7 +164,7 @@ COMPARISON TARGET (for similarity scoring):
 - Target Company: ${context.businessName}
 - Industry: ${context.industry || 'Marketing'}
 - ICP: ${context.icpDescription || 'Unknown'}
-- Services: ${context.primaryOffers.join(', ') || 'Unknown'}
+- Services: ${safeJoin(context.primaryOffers) || 'Unknown'}
 - Value Prop: ${context.valueProposition || 'Unknown'}
 
 Extract and return JSON with this structure:

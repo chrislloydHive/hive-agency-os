@@ -476,6 +476,44 @@ export interface RunStepStatus {
   enrichedCount?: number;
 }
 
+// ============================================================================
+// Scoring Strategy & Debug Types
+// ============================================================================
+
+/**
+ * Scoring strategy used for a competition run
+ */
+export type ScoringStrategy =
+  | 'deterministic'           // Computed from signals + evidence
+  | 'llm'                     // LLM-based scoring
+  | 'fallback_low_confidence' // LOW_CONFIDENCE_CONTEXT error state
+  | 'fallback_error';         // General error fallback
+
+/**
+ * Debug info for scoring
+ */
+export interface ScoringDebug {
+  strategy: ScoringStrategy;
+  version: string;
+  computedAt: string;
+  notes: string[];
+  missingInputs: string[];
+  signalCoverage: {
+    businessModelMatch: number;  // % of competitors with this signal
+    icpOverlap: number;
+    serviceOverlap: number;
+    sameMarket: number;
+  };
+  scoreDistribution: {
+    threatScoreMin: number;
+    threatScoreMax: number;
+    threatScoreAvg: number;
+    relevanceScoreMin: number;
+    relevanceScoreMax: number;
+    relevanceScoreAvg: number;
+  };
+}
+
 /**
  * Complete V3 run result
  */
@@ -515,6 +553,8 @@ export interface CompetitionRunV3 {
     };
     avgThreatScore: number;
     quadrantDistribution: Record<string, number>;
+    // V3.1: Scoring debug
+    scoring?: ScoringDebug;
   };
 }
 

@@ -18,9 +18,11 @@ import {
   type CompetitionRunInfo,
 } from '@/lib/os/competition';
 import { getOSGlobalContext } from '@/lib/os/globalContext';
+import { loadContextFieldsV4 } from '@/lib/contextGraph/fieldStoreV4';
 import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
 import type { CompetitorProfile } from '@/lib/contextGraph/domains/competitive';
 import type { WithMetaType } from '@/lib/contextGraph/types';
+import type { ContextFieldV4 } from '@/lib/types/contextField';
 import {
   CAPABILITY_CATEGORIES,
   CAPABILITY_LABELS,
@@ -54,6 +56,17 @@ export {
   getContextDeepLinkForField,
   getFixLinkForCriticalInput,
   getHiveBrainLink,
+  // Competition disclaimer exports
+  computeStrategyCompetitionContext,
+  buildStrategyPromptWithDisclaimer,
+  LOW_COMPETITION_DISCLAIMER,
+  MISSING_COMPETITION_DISCLAIMER,
+} from './strategyInputsHelpers';
+
+// Re-export competition types
+export type {
+  StrategyCompetitionConfidence,
+  StrategyCompetitionContext,
 } from './strategyInputsHelpers';
 
 // Import types for use in this file
@@ -241,6 +254,83 @@ function buildServiceTaxonomy(capabilities: CapabilitiesDomain | undefined): str
 }
 
 /**
+ * V4 Competition Adapter - maps competition.primaryCompetitors to CompetitorProfile[]
+ * This allows V4 fields to be consumed by strategy without requiring legacy graph updates.
+ */
+interface V4CompetitorEntry {
+  name: string;
+  domain?: string;
+  role?: string;
+  threatLevel?: number;
+  priceTier?: string;
+  summary?: string;
+}
+
+function adaptV4CompetitorsToLegacy(
+  v4Competitors: V4CompetitorEntry[]
+): Array<{ name: string; category: string | null; positioning: string | null; threatLevel: number | null }> {
+  return v4Competitors.map((c) => ({
+    name: c.name,
+    category: c.role || null, // V4 uses 'role' (core/secondary/alternative), map to category
+    positioning: c.summary || null,
+    threatLevel: c.threatLevel ?? null,
+  }));
+}
+
+/**
+ * Get V4 competition fields if available
+ * Returns confirmed competition.primaryCompetitors from V4 store
+ */
+async function getV4CompetitionFields(
+  companyId: string,
+  confirmedOnly: boolean
+): Promise<{
+  competitors: V4CompetitorEntry[] | null;
+  positioningMapSummary: string | null;
+  threatSummary: string | null;
+  sourceRunId: string | null;
+  sourceRunDate: string | null;
+}> {
+  try {
+    const v4Store = await loadContextFieldsV4(companyId);
+    if (!v4Store) {
+      return { competitors: null, positioningMapSummary: null, threatSummary: null, sourceRunId: null, sourceRunDate: null };
+    }
+
+    // Get competition.primaryCompetitors
+    const competitorsField = v4Store.fields['competition.primaryCompetitors'] as ContextFieldV4 | undefined;
+    const positioningField = v4Store.fields['competition.positioningMapSummary'] as ContextFieldV4 | undefined;
+    const threatField = v4Store.fields['competition.threatSummary'] as ContextFieldV4 | undefined;
+
+    // Check if we should include this field (confirmed vs any)
+    const shouldInclude = (field: ContextFieldV4 | undefined): boolean => {
+      if (!field) return false;
+      if (confirmedOnly && field.status !== 'confirmed') return false;
+      return true;
+    };
+
+    const competitors = shouldInclude(competitorsField)
+      ? (competitorsField!.value as V4CompetitorEntry[] | null)
+      : null;
+    const positioningMapSummary = shouldInclude(positioningField)
+      ? (positioningField!.value as string | null)
+      : null;
+    const threatSummary = shouldInclude(threatField)
+      ? (threatField!.value as string | null)
+      : null;
+
+    // Get source info from evidence
+    const sourceRunId = competitorsField?.evidence?.runId || null;
+    const sourceRunDate = competitorsField?.updatedAt || null;
+
+    return { competitors, positioningMapSummary, threatSummary, sourceRunId, sourceRunDate };
+  } catch (error) {
+    console.warn('[getV4CompetitionFields] Failed to load V4 fields:', error);
+    return { competitors: null, positioningMapSummary: null, threatSummary: null, sourceRunId: null, sourceRunDate: null };
+  }
+}
+
+/**
  * Get competition runs for source selection
  * This queries the competitive domain for run info
  */
@@ -294,16 +384,17 @@ export async function getStrategyInputs(
   companyId: string,
   options?: GetStrategyInputsOptions
 ): Promise<StrategyInputs> {
-  // Load context graph (from snapshot if specified) and Hive Brain in parallel
-  const [graph, hiveBrain, osContext] = await Promise.all([
+  const confirmedOnly = options?.confirmedOnly ?? false;
+
+  // Load context graph (from snapshot if specified), Hive Brain, and V4 competition fields in parallel
+  const [graph, hiveBrain, osContext, v4Competition] = await Promise.all([
     options?.snapshotId
       ? loadGraphFromSnapshot(options.snapshotId, companyId)
       : loadContextGraph(companyId),
     getHiveGlobalContextGraph(),
     Promise.resolve(getOSGlobalContext()),
+    getV4CompetitionFields(companyId, confirmedOnly),
   ]);
-
-  const confirmedOnly = options?.confirmedOnly ?? false;
 
   // If no graph exists, return empty inputs
   if (!graph) {
@@ -351,22 +442,45 @@ export async function getStrategyInputs(
   };
 
   // Build competitive landscape
-  const rawCompetitors = unwrap(graph.competitive?.competitors);
-  const competitors = Array.isArray(rawCompetitors) ? rawCompetitors : [];
-  const competition: CompetitiveLandscape = {
-    competitors: competitors.slice(0, 10).map((c: CompetitorProfile) => ({
+  // V4 Priority: Use competition.primaryCompetitors from V4 store if available
+  let competitorsForStrategy: Array<{ name: string; category: string | null; positioning: string | null; threatLevel: number | null }>;
+  let positionSummary: string | null;
+  let sourceVersion: 'v4' | 'v3' | 'none';
+  let sourceRunId: string | null;
+  let sourceRunDate: string | null;
+
+  if (v4Competition.competitors && v4Competition.competitors.length > 0) {
+    // Use V4 competition fields (preferred source)
+    competitorsForStrategy = adaptV4CompetitorsToLegacy(v4Competition.competitors).slice(0, 10);
+    positionSummary = v4Competition.positioningMapSummary || v4Competition.threatSummary || unwrap(graph.competitive?.positionSummary);
+    sourceVersion = 'v4';
+    sourceRunId = v4Competition.sourceRunId;
+    sourceRunDate = v4Competition.sourceRunDate;
+  } else {
+    // Fallback to legacy graph.competitive
+    const rawCompetitors = unwrap(graph.competitive?.competitors);
+    const competitors = Array.isArray(rawCompetitors) ? rawCompetitors : [];
+    competitorsForStrategy = competitors.slice(0, 10).map((c: CompetitorProfile) => ({
       name: c.name,
       category: c.category,
       positioning: c.positioning,
       threatLevel: c.threatLevel,
-    })),
+    }));
+    positionSummary = unwrap(graph.competitive?.positionSummary);
+    sourceVersion = competitionSource.version;
+    sourceRunId = competitionSource.runId;
+    sourceRunDate = competitionSource.runDate;
+  }
+
+  const competition: CompetitiveLandscape = {
+    competitors: competitorsForStrategy,
     positioningAxisPrimary: unwrap(graph.competitive?.primaryAxis),
     positioningAxisSecondary: unwrap(graph.competitive?.secondaryAxis),
-    positionSummary: unwrap(graph.competitive?.positionSummary),
+    positionSummary,
     competitiveAdvantages: unwrap(graph.competitive?.competitiveAdvantages) || [],
-    sourceVersion: competitionSource.version,
-    sourceRunId: competitionSource.runId,
-    sourceRunDate: competitionSource.runDate,
+    sourceVersion,
+    sourceRunId,
+    sourceRunDate,
   };
 
   // Build execution capabilities from Hive Brain

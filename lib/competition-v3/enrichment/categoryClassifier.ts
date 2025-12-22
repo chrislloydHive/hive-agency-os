@@ -29,6 +29,23 @@ import {
 } from '../verticalClassifier';
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Safely join array or return string value
+ */
+function safeJoin(value: unknown, separator: string = ', '): string {
+  if (Array.isArray(value)) {
+    return value.join(separator);
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  return '';
+}
+
+// ============================================================================
 // Classification
 // ============================================================================
 
@@ -305,7 +322,7 @@ TARGET COMPANY: ${context.businessName}
 - Business Model: ${context.businessModel || 'Agency'}
 - ICP: ${context.icpDescription || 'Unknown'}
 - ICP Stage: ${context.icpStage || 'Unknown'}
-- Primary Services: ${context.primaryOffers.join(', ') || 'Unknown'}
+- Primary Services: ${safeJoin(context.primaryOffers) || 'Unknown'}
 - Price Position: ${context.pricePositioning || 'Unknown'}
 - Geography: ${context.geography || 'Unknown'}
 - AI Orientation: ${context.aiOrientation || 'Unknown'}

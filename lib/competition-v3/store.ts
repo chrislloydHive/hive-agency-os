@@ -16,6 +16,7 @@ import type {
   CompetitorProfileV3,
   LandscapeInsight,
   StrategicRecommendation,
+  ScoringDebug,
 } from './types';
 
 const TABLE = AIRTABLE_TABLES.COMPETITION_RUNS;
@@ -23,6 +24,30 @@ const TABLE = AIRTABLE_TABLES.COMPETITION_RUNS;
 // ============================================================================
 // Types
 // ============================================================================
+
+/**
+ * Structured error types for Competition V3 runs
+ */
+export type CompetitionV3ErrorType =
+  | 'LOW_CONFIDENCE_CONTEXT'  // Insufficient context to identify business type
+  | 'DISCOVERY_FAILED'        // Discovery phase failed
+  | 'ENRICHMENT_FAILED'       // Enrichment phase failed
+  | 'CLASSIFICATION_FAILED'   // Classification phase failed
+  | 'UNKNOWN_ERROR';          // Catch-all for unexpected errors
+
+/**
+ * Structured error with type and debug info
+ */
+export interface CompetitionV3Error {
+  type: CompetitionV3ErrorType;
+  message: string;
+  debug?: {
+    confidence?: number;
+    inferredCategory?: string;
+    missingFields?: string[];
+    warnings?: string[];
+  };
+}
 
 /**
  * Full V3 run payload for storage
@@ -48,8 +73,13 @@ export interface CompetitionRunV3Payload {
     };
     avgThreatScore: number;
     quadrantDistribution: Record<string, number>;
+    /** V3.1: Scoring strategy and debug info */
+    scoring?: ScoringDebug;
   };
+  /** Simple error string (for backwards compatibility) */
   error: string | null;
+  /** Structured error with type and debug info */
+  errorInfo?: CompetitionV3Error | null;
 }
 
 // ============================================================================
@@ -70,7 +100,7 @@ export async function saveCompetitionRunV3(
       'Company ID': payload.companyId,
       'Status': payload.status,
       'Run Data': JSON.stringify(payload),
-      'Created At': new Date().toISOString(),
+      // Note: 'Created At' is auto-populated by Airtable (computed field)
     });
 
     console.log(`[competition-v3/store] Saved run with record ID: ${record.id}`);

@@ -96,6 +96,18 @@ export interface RecommendedAction {
 }
 
 /**
+ * Competition awareness metadata for strategy
+ */
+export interface CompetitionAwareness {
+  /** Whether strategy is informed by competition data */
+  competitionInformed: boolean;
+  /** Confidence level of competition data */
+  competitionConfidence: 'high' | 'low' | 'missing';
+  /** Human-readable summary of competition state */
+  competitionSummary: string | null;
+}
+
+/**
  * Fully resolved flow readiness combining multiple signals.
  */
 export interface FlowReadinessResolved {
@@ -109,6 +121,8 @@ export interface FlowReadinessResolved {
   rankedReasons: RankedReason[];
   /** Best action to take first */
   recommendedAction?: RecommendedAction;
+  /** Competition awareness for strategy (optional, for strategy flows) */
+  competitionAwareness?: CompetitionAwareness;
 }
 
 // ============================================================================

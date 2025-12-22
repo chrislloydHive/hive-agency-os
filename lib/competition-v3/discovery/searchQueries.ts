@@ -1029,12 +1029,26 @@ function extractServiceRegions(identity: any): string[] {
 }
 
 /**
+ * Safely convert a value to a joinable string
+ * Handles arrays, strings, and nullish values
+ */
+function toJoinableString(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.join(' ').toLowerCase();
+  }
+  if (typeof value === 'string') {
+    return value.toLowerCase();
+  }
+  return '';
+}
+
+/**
  * Extract AI orientation from brand/product
  */
 function extractAiOrientation(brand: any, productOffer: any): string | null {
   const positioning = brand.positioning?.value?.toLowerCase() || '';
-  const differentiators = (brand.differentiators?.value || []).join(' ').toLowerCase();
-  const offers = (productOffer.productLines?.value || []).join(' ').toLowerCase();
+  const differentiators = toJoinableString(brand.differentiators?.value);
+  const offers = toJoinableString(productOffer.productLines?.value);
 
   const combined = `${positioning} ${differentiators} ${offers}`;
 

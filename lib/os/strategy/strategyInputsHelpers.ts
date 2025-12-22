@@ -578,6 +578,98 @@ export function computeAIRecommendedNextStep(
 }
 
 // ============================================================================
+// Competition Disclaimers
+// ============================================================================
+
+/**
+ * Competition confidence level for strategy
+ */
+export type StrategyCompetitionConfidence = 'high' | 'low' | 'missing';
+
+/**
+ * Competition context for strategy generation
+ */
+export interface StrategyCompetitionContext {
+  /** Whether strategy is informed by competition data */
+  competitionInformed: boolean;
+  /** Confidence level of competition data */
+  competitionConfidence: StrategyCompetitionConfidence;
+  /** Disclaimer to inject into AI prompts when confidence is not high */
+  disclaimer: string | null;
+  /** Human-readable summary for UI */
+  uiMessage: string | null;
+}
+
+/**
+ * Default disclaimer text for low competition confidence
+ */
+export const LOW_COMPETITION_DISCLAIMER = `Note: Competitive analysis is incomplete or low-confidence. Strategic recommendations are based primarily on internal positioning, website signals, and brand context. Results should be validated once competitors are reviewed.`;
+
+/**
+ * Default disclaimer text for missing competition
+ */
+export const MISSING_COMPETITION_DISCLAIMER = `Note: No competitive analysis available. Strategic recommendations are based on internal positioning, website signals, and brand context only. Running a competition analysis will improve recommendation quality.`;
+
+/**
+ * Compute competition context for strategy generation
+ *
+ * @param competitionConfidence - Confidence level from competition run
+ * @param competitorCount - Number of competitors found
+ * @returns Competition context with disclaimer
+ */
+export function computeStrategyCompetitionContext(
+  competitionConfidence: StrategyCompetitionConfidence,
+  competitorCount: number
+): StrategyCompetitionContext {
+  // High confidence with competitors = fully informed
+  if (competitionConfidence === 'high' && competitorCount > 0) {
+    return {
+      competitionInformed: true,
+      competitionConfidence: 'high',
+      disclaimer: null,
+      uiMessage: null,
+    };
+  }
+
+  // Missing competition
+  if (competitionConfidence === 'missing' || competitorCount === 0) {
+    return {
+      competitionInformed: false,
+      competitionConfidence: 'missing',
+      disclaimer: MISSING_COMPETITION_DISCLAIMER,
+      uiMessage: 'Strategy generated without competitive context. Results should be validated once competitors are reviewed.',
+    };
+  }
+
+  // Low confidence
+  return {
+    competitionInformed: false,
+    competitionConfidence: 'low',
+    disclaimer: LOW_COMPETITION_DISCLAIMER,
+    uiMessage: 'Strategy generated with limited competitive context. Results should be validated once competitors are reviewed.',
+  };
+}
+
+/**
+ * Build strategy prompt with optional competition disclaimer
+ *
+ * @param basePrompt - The base strategy prompt
+ * @param competitionContext - Competition context with disclaimer
+ * @returns Prompt with disclaimer injected if needed
+ */
+export function buildStrategyPromptWithDisclaimer(
+  basePrompt: string,
+  competitionContext: StrategyCompetitionContext
+): string {
+  if (!competitionContext.disclaimer) {
+    return basePrompt;
+  }
+
+  // Inject disclaimer at the start of the prompt, after any system instructions
+  return `${competitionContext.disclaimer}\n\n${basePrompt}`;
+}
+
+// ============================================================================
 // AI Summary Data
 // ============================================================================
 

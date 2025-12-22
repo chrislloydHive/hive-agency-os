@@ -13,6 +13,24 @@
 import type { QueryContext, VerticalCategory, VerticalDetectionResult } from '../types';
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Safely convert a value to a joinable string
+ * Handles arrays, strings, and nullish values
+ */
+function toJoinableString(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.join(' ');
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  return '';
+}
+
+// ============================================================================
 // Vertical Categories
 // ============================================================================
 
@@ -207,9 +225,9 @@ function calculateSignalScore(
     context.industry ?? '',
     context.businessModel ?? '',
     context.icpDescription ?? '',
-    context.primaryOffers?.join(' ') ?? '',
+    toJoinableString(context.primaryOffers),
     context.valueProposition ?? '',
-    context.differentiators?.join(' ') ?? '',
+    toJoinableString(context.differentiators),
   ].join(' ').toLowerCase();
 
   // Domain patterns (high weight - 20 points each)
@@ -332,7 +350,7 @@ function detectSubVertical(context: QueryContext, vertical: VerticalCategory): s
   const searchText = [
     context.domain ?? '',
     context.industry ?? '',
-    context.primaryOffers?.join(' ') ?? '',
+    toJoinableString(context.primaryOffers),
   ].join(' ').toLowerCase();
 
   if (vertical === 'automotive') {

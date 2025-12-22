@@ -10,6 +10,23 @@
 import type { QueryContext, CompetitorType, EnrichedCandidate, ClassificationResult, CompetitorProfileV3 } from './types';
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Safely join array or return string value
+ */
+function safeJoin(value: unknown, separator: string = ' '): string {
+  if (Array.isArray(value)) {
+    return value.join(separator);
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  return '';
+}
+
+// ============================================================================
 // B2C Classification Rules
 // ============================================================================
 
@@ -225,7 +242,7 @@ export function isB2CCompany(context: QueryContext): boolean {
 export function isRetailServiceCompany(context: QueryContext): boolean {
   const industryLower = context.industry?.toLowerCase() || '';
   const businessModelLower = context.businessModel?.toLowerCase() || '';
-  const offersLower = context.primaryOffers.join(' ').toLowerCase();
+  const offersLower = safeJoin(context.primaryOffers).toLowerCase();
 
   // Check for installation/service indicators
   const serviceIndicators = ['installation', 'install', 'service', 'repair', 'maintenance'];

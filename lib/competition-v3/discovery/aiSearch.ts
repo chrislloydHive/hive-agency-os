@@ -8,22 +8,45 @@ import { aiSimple } from '@/lib/ai-gateway';
 import type { QueryContext, DiscoveryCandidate } from '../types';
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Safely join array or return string value
+ */
+function safeJoin(value: unknown, separator: string = ', '): string {
+  if (Array.isArray(value)) {
+    return value.join(separator);
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  return '';
+}
+
+// ============================================================================
 // AI Search
 // ============================================================================
 
-const SEARCH_SYSTEM_PROMPT = `You are a competitive intelligence analyst who anchors analysis in the target company's actual business category and industry (use the target company's industry, business model, ICP, and offerings to define the category—do NOT default to marketing/agency unless the target company itself is one).
+const SEARCH_SYSTEM_PROMPT = `You are a competitive intelligence analyst who anchors analysis in the target company's ACTUAL business category and industry.
+
+CRITICAL RULE - CATEGORY MATCHING:
+- Use the target company's industry, business model, ICP, and offerings to define what competitors should look like.
+- NEVER assume the target is a "marketing agency", "digital agency", or "software company" unless explicitly stated.
+- If the target is a LOCAL SERVICE business (e.g., car audio shop, plumber, tow company), competitors MUST be similar local service businesses, NOT marketing agencies.
+- If the target is RETAIL (e.g., car electronics store), competitors MUST be similar retailers, NOT agencies.
+- If category is "unknown", return ONLY competitors that match the explicit business signals provided (industry, offerings, ICP).
 
 Your task is to identify real companies that compete with a target company. You must:
 1. Only suggest REAL, established companies (not fictional or made-up)
-2. Focus on companies competing for the same customers
-3. Include different types of competitors:
+2. Focus on companies competing for the same customers IN THE SAME BUSINESS CATEGORY
+3. Include different types of competitors (appropriate to the category):
    - Direct competitors (same business model, same ICP, similar services)
    - Category neighbors (share some overlap but different focus)
-   - Fractional executives (CMO, marketing director services)
-   - Platform alternatives (SaaS tools that replace agency services)
-   - Internal hire alternatives (what a company might hire instead)
+   - Platform alternatives (tools/platforms in the same category)
+   - NOTE: Only include fractional executives / internal hire alternatives for SERVICES/AGENCY verticals
 4. Provide accurate domain URLs when known
-5. Be specific about WHY each is a competitor
+5. Be specific about WHY each is a competitor AND how they match the target's business category
 
 Always respond with valid JSON only. No commentary, explanations, or markdown.`;
 
@@ -67,33 +90,97 @@ export async function searchWithAI(
  * Build the search prompt with context
  */
 function buildSearchPrompt(context: QueryContext, queries: string[]): string {
+  // Determine the vertical/category for explicit guidance
+  const vertical = context.verticalCategory || 'unknown';
+  const archetype = (context as any).archetype || 'unknown';
+  const isAgency = vertical === 'services' || archetype === 'agency' ||
+    context.businessModel?.toLowerCase().includes('agency');
+  const isLocalService = vertical === 'automotive' || vertical === 'retail' ||
+    archetype === 'local_service' ||
+    context.industry?.toLowerCase().includes('service') ||
+    context.industry?.toLowerCase().includes('dispatch') ||
+    context.industry?.toLowerCase().includes('towing');
+
+  // Build the category enforcement block
+  let categoryEnforcement = '';
+  if (isLocalService) {
+    categoryEnforcement = `
+CRITICAL - BUSINESS CATEGORY ENFORCEMENT:
+This is a LOCAL SERVICE business (NOT a marketing agency or software company).
+- Direct competitors MUST be similar local service businesses in the same industry.
+- Do NOT include marketing agencies, digital agencies, or advertising companies as direct competitors.
+- Do NOT include SaaS companies or software platforms as direct competitors.
+- Platforms should only be industry-specific tools (e.g., dispatch software, booking systems).
+- Fractional/Internal types are NOT applicable for this business category.`;
+  } else if (!isAgency && vertical !== 'unknown') {
+    categoryEnforcement = `
+CRITICAL - BUSINESS CATEGORY ENFORCEMENT:
+This is a ${vertical.toUpperCase()} business (NOT a marketing agency).
+- Direct competitors MUST be similar ${vertical} businesses.
+- Do NOT include marketing agencies, digital agencies, or advertising companies as competitors.
+- Do NOT include fractional CMOs or marketing consultants as competitors.
+- Match the actual business model and industry of the target company.`;
+  } else if (vertical === 'unknown') {
+    categoryEnforcement = `
+CRITICAL - CATEGORY IS UNKNOWN:
+The business category could not be confidently determined.
+- ONLY suggest competitors that EXACTLY match the industry and offerings listed above.
+- Do NOT assume this is a marketing agency or software company.
+- If industry is "towing" or "dispatch", competitors must be towing/dispatch companies.
+- If industry is unknown, focus ONLY on companies with matching primary offerings.
+- Err on the side of caution - fewer relevant competitors is better than many wrong ones.`;
+  }
+
+  // Determine competitor types based on category
+  let competitorTypeGuidance = '';
+  if (isAgency) {
+    competitorTypeGuidance = `
+COMPETITOR TYPES TO FIND (for Services/Agency vertical):
+1. DIRECT COMPETITORS (6-8): Same agency model, same ICP, similar services
+2. CATEGORY NEIGHBORS (4-6): Overlapping market but different focus (e.g., bigger agencies, different specialization)
+3. FRACTIONAL EXECUTIVES (2-3): Fractional CMO services, marketing advisors
+4. PLATFORM ALTERNATIVES (2-3): SaaS tools that could replace some agency services
+5. INTERNAL ALTERNATIVES (1-2): What companies might hire internally instead`;
+  } else if (isLocalService) {
+    competitorTypeGuidance = `
+COMPETITOR TYPES TO FIND (for Local Service vertical):
+1. DIRECT COMPETITORS (8-12): Same type of local service business, same geographic area, similar offerings
+2. CATEGORY NEIGHBORS (4-6): Related local businesses (e.g., if car audio, then car customization, detailing)
+3. PLATFORM ALTERNATIVES (2-4): Industry-specific software tools (dispatch, scheduling, booking platforms)
+NOTE: Do NOT include fractional executives or internal hire alternatives - these are not applicable.`;
+  } else {
+    competitorTypeGuidance = `
+COMPETITOR TYPES TO FIND:
+1. DIRECT COMPETITORS (6-8): Same business model, same ICP, similar products/services
+2. CATEGORY NEIGHBORS (4-6): Related businesses with overlapping market
+3. PLATFORM ALTERNATIVES (2-4): Tools or platforms that serve similar needs
+NOTE: Only include fractional/internal types if this is clearly a services/agency business.`;
+  }
+
   return `Identify 15-25 real companies that compete with or are alternatives to the target company described below.
+${categoryEnforcement}
 
 TARGET COMPANY CONTEXT:
 - Business Name: ${context.businessName}
 - Domain: ${context.domain || 'Unknown'}
 - Industry: ${context.industry || 'Unknown'}
 - Business Model: ${context.businessModel || 'Unknown'}
+- Vertical Category: ${vertical}
+- Archetype: ${archetype}
 - ICP Description: ${context.icpDescription || 'Unknown'}
 - ICP Stage: ${context.icpStage || 'Unknown'}
-- Target Industries: ${context.targetIndustries.join(', ') || 'Various'}
-- Primary Offerings: ${context.primaryOffers.join(', ') || 'Unknown'}
+- Target Industries: ${safeJoin(context.targetIndustries) || 'Various'}
+- Primary Offerings: ${safeJoin(context.primaryOffers) || 'Unknown'}
 - Service Model: ${context.serviceModel || 'Unknown'}
 - Price Positioning: ${context.pricePositioning || 'Unknown'}
 - Value Proposition: ${context.valueProposition || 'Unknown'}
-- Differentiators: ${context.differentiators.join(', ') || 'Unknown'}
+- Differentiators: ${safeJoin(context.differentiators) || 'Unknown'}
 - Geography: ${context.geography || 'Unknown'}
 - AI/Tech Orientation: ${context.aiOrientation || 'Unknown'}
 
 SEARCH QUERIES THAT MIGHT FIND COMPETITORS:
 ${queries.slice(0, 10).map((q, i) => `${i + 1}. "${q}"`).join('\n')}
-
-COMPETITOR TYPES TO FIND:
-1. DIRECT COMPETITORS (6-8): Same business model, same ICP, similar services
-2. CATEGORY NEIGHBORS (4-6): Overlapping market but different focus (e.g., bigger agencies, different specialization)
-3. FRACTIONAL EXECUTIVES (2-3): Fractional CMO services, marketing advisors
-4. PLATFORM ALTERNATIVES (2-3): SaaS tools that could replace some services
-5. INTERNAL ALTERNATIVES (1-2): What companies might hire internally instead
+${competitorTypeGuidance}
 
 For each competitor, provide:
 - name: Company name (required, must be a REAL company)
@@ -101,7 +188,7 @@ For each competitor, provide:
 - homepageUrl: Full URL (e.g., "https://example.com")
 - competitorType: "direct" | "partial" | "fractional" | "platform" | "internal"
 - summary: 1-2 sentence description
-- whyCompetitor: Why they compete with the target
+- whyCompetitor: Why they compete with the target AND how they match the target's business category
 - estimatedSize: "solo" | "small" | "medium" | "large" | "enterprise"
 - pricingTier: "budget" | "mid" | "premium" | "enterprise" | null
 - geography: Primary market/region
@@ -109,8 +196,9 @@ For each competitor, provide:
 IMPORTANT:
 - Only include REAL companies that actually exist
 - Do NOT make up company names or domains
-- Prioritize companies that truly compete for the same customers
-- Include a good mix of competitor types
+- Competitors MUST match the target's business category (see CRITICAL section above)
+- If you're unsure about a competitor's relevance, DO NOT include them
+- Include a good mix of competitor types (appropriate to the vertical)
 
 Respond with a JSON object containing a "competitors" array:
 {
@@ -121,7 +209,7 @@ Respond with a JSON object containing a "competitors" array:
       "homepageUrl": "https://example.com",
       "competitorType": "direct",
       "summary": "Brief description of what they do.",
-      "whyCompetitor": "Why they compete with the target.",
+      "whyCompetitor": "Why they compete with the target and how they match the business category.",
       "estimatedSize": "medium",
       "pricingTier": "mid",
       "geography": "US"
@@ -249,23 +337,41 @@ export async function searchDirectories(
 ): Promise<DiscoveryCandidate[]> {
   console.log(`[competition-v3/directories] Searching directories for: ${context.businessName}`);
 
+  // Determine business category for context
+  const vertical = context.verticalCategory || 'unknown';
+  const archetype = (context as any).archetype || 'unknown';
+  const isAgency = vertical === 'services' || archetype === 'agency' ||
+    context.businessModel?.toLowerCase().includes('agency');
+
+  // Build category-appropriate guidance
+  let categoryGuidance = '';
+  if (!isAgency) {
+    categoryGuidance = `
+IMPORTANT: This company is NOT a marketing agency. It is a ${context.industry || 'local service'} business.
+- Only suggest companies that are in the same business category (${context.industry || vertical}).
+- Do NOT include marketing agencies, digital agencies, or advertising companies.
+- Focus on directory listings for ${context.industry || 'this type of'} businesses.`;
+  }
+
   // For now, use AI to simulate directory results
-  const prompt = `You are a competitive intelligence analyst. Based on the company context below, suggest 8-12 real companies that would appear on directories like Clutch, G2, and Manifest as competitors.
+  const prompt = `You are a competitive intelligence analyst. Based on the company context below, suggest 8-12 real companies that would appear on directories as competitors.
+${categoryGuidance}
 
 TARGET COMPANY:
 - Name: ${context.businessName}
-- Industry: ${context.industry || 'Marketing'}
+- Industry: ${context.industry || 'Unknown'}
+- Business Category: ${vertical}
 - ICP: ${context.icpDescription || 'Unknown'}
-- Services: ${context.primaryOffers.join(', ') || 'Marketing services'}
+- Services: ${safeJoin(context.primaryOffers) || 'Unknown'}
 - Geography: ${context.geography || 'US'}
 
 For each competitor, provide:
-- name: Company name (must be REAL)
+- name: Company name (must be REAL and in the SAME business category)
 - domain: Website domain
-- rating: Clutch/G2 rating (4.0-5.0)
+- rating: Directory rating (4.0-5.0)
 - reviews: Estimated review count
-- summary: Brief description
-- source: "clutch" | "g2" | "manifest" | "upcity"
+- summary: Brief description showing how they match the target's industry
+- source: "clutch" | "g2" | "manifest" | "upcity" | "yelp" | "google"
 
 Return JSON: { "agencies": [...] }`;
 

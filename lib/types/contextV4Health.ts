@@ -136,6 +136,52 @@ export interface V4HealthResponse {
 }
 
 // ============================================================================
+// Competition Health
+// ============================================================================
+
+/**
+ * Competition confidence level
+ */
+export type CompetitionConfidence = 'high' | 'low' | 'missing';
+
+/**
+ * Competition health status for V4
+ */
+export type CompetitionHealthStatus = 'healthy' | 'warning' | 'unknown';
+
+/**
+ * Competition health info for V4 health response
+ */
+export interface V4CompetitionHealthInfo {
+  /** Whether a competition run exists */
+  hasRun: boolean;
+  /** Status of competition health */
+  status: CompetitionHealthStatus;
+  /** Confidence level */
+  confidence: CompetitionConfidence;
+  /** Run ID if available */
+  runId: string | null;
+  /** Run date if available */
+  runDate: string | null;
+  /** Whether the run has LOW_CONFIDENCE_CONTEXT error */
+  hasLowConfidenceError: boolean;
+  /** Number of competitors found */
+  competitorCount: number | null;
+  /** Age of the run in days */
+  ageDays: number | null;
+}
+
+/**
+ * Labels for competition health reasons
+ */
+export const COMPETITION_HEALTH_REASON_LABELS: Record<string, string> = {
+  COMPETITION_MISSING: 'No competition analysis available',
+  COMPETITION_LOW_CONFIDENCE: 'Competition analysis has low confidence',
+  COMPETITION_STALE: 'Competition analysis is outdated (>30 days)',
+  COMPETITION_EMPTY: 'Competition analysis found no competitors',
+};
+
+// ============================================================================
 // Constants
 // ============================================================================
 
@@ -143,3 +189,8 @@ export interface V4HealthResponse {
  * Default stale threshold for WebsiteLab runs (7 days in minutes)
  */
 export const WEBSITELAB_STALE_THRESHOLD_MINUTES = 10080; // 7 * 24 * 60
+
+/**
+ * Default stale threshold for Competition runs (30 days)
+ */
+export const COMPETITION_STALE_THRESHOLD_DAYS = 30;
