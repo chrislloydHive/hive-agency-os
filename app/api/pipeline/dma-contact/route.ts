@@ -1,6 +1,9 @@
 // app/api/pipeline/dma-contact/route.ts
 // API endpoint for DMA Full GAP "Contact Us" form submissions
 //
+// LEAD-FIRST DESIGN: Creates Lead record first, then auto-converts to Company/Opportunity.
+// This maintains lead-first flow while providing seamless DMA experience.
+//
 // AUTO-CONVERT PIPELINE (OS-First Model):
 // 1. Creates or updates Inbound Lead from DMA (Status="New", NO Pipeline Stage)
 // 2. Upserts Company by domain (idempotent - never duplicates)
