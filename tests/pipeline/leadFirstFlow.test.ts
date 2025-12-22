@@ -10,7 +10,8 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const BASE_PATH = '/Users/chrislloyd/Hey, Dropbox/Chris Lloyd/Website Projects/hive-os';
+// Use process.cwd() to resolve the repo root dynamically
+const BASE_PATH = process.cwd();
 
 describe('Lead-First Flow', () => {
   describe('matchCompanyForLead Function Design', () => {
@@ -93,9 +94,10 @@ describe('Lead-First Flow', () => {
         'utf-8'
       );
 
-      // Should import V2 function (may have other imports on same line)
+      // Should import V2 function (may be alongside other imports)
       expect(fileContent).toContain('createOrUpdatePipelineLeadFromDmaV2');
-      expect(fileContent).not.toContain('createOrUpdatePipelineLeadFromDma,');
+      // Should NOT use V1 function (without V2 suffix)
+      expect(fileContent).not.toMatch(/createOrUpdatePipelineLeadFromDma[^V]/)
     });
 
     it('should NOT require companyId', () => {

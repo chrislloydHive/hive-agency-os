@@ -7,7 +7,9 @@
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import type { ContextProposal, ContextProposalBatch } from './types';
+import type { EvidenceAnchor } from '@/lib/types/contextField';
 import { createProposal } from './types';
+import { enhanceProposalWithConvergence, isConvergenceEnabled, computeSpecificityScore, inferDecisionImpact, isSummaryShaped } from '../v4/convergence';
 
 const PROPOSALS_TABLE = AIRTABLE_TABLES.CONTEXT_PROPOSALS;
 
@@ -542,6 +544,15 @@ async function updateBatchInAirtable(
 
 /**
  * Create a proposal batch from multiple field suggestions
+ *
+ * When V4 Convergence is enabled, each proposal is enhanced with:
+ * - decisionImpact (LOW/MEDIUM/HIGH)
+ * - specificityScore (0-100)
+ * - genericnessReasons (why it might be generic)
+ * - hiddenByDefault (should hide in Review Queue)
+ * - fieldCategory (derivedNarrative, corePositioning, tactical, evidence)
+ * - evidenceAnchors (V4 Evidence Grounding)
+ * - isUngrounded (true if no evidence anchors)
  */
 export function createProposalBatch(
   companyId: string,
@@ -552,15 +563,42 @@ export function createProposalBatch(
     currentValue: unknown | null;
     reasoning: string;
     confidence: number;
+    /** V4 Evidence Grounding: concrete quotes from the company's website */
+    evidenceAnchors?: EvidenceAnchor[];
   }>,
   trigger: ContextProposal['trigger'],
   batchReasoning: string,
-  triggerSource?: string
+  triggerSource?: string,
+  options?: {
+    /** Company name for specificity scoring (V4 Convergence) */
+    companyName?: string;
+    /** Block proposals if diagnostic had errors (V4 Evidence Grounding) */
+    blockOnError?: boolean;
+    /** True if diagnostic returned an error state (e.g., 403, blocked) */
+    diagnosticErrorState?: boolean;
+    /** Error message from diagnostic */
+    diagnosticErrorMessage?: string;
+  }
 ): ContextProposalBatch {
   const batchId = `batch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-  const contextProposals = proposals.map(p =>
-    createProposal(
+  // V4 Evidence Grounding: Block proposals if diagnostic is in error state
+  if (options?.blockOnError && options?.diagnosticErrorState) {
+    console.warn(`[ContextProposals] Blocking proposals due to diagnostic error: ${options.diagnosticErrorMessage || 'Unknown error'}`);
+    return {
+      id: batchId,
+      companyId,
+      proposals: [],
+      trigger,
+      triggerSource,
+      batchReasoning: `Proposals blocked: ${options.diagnosticErrorMessage || 'Diagnostic returned an error state. Cannot ground proposals without website access.'}`,
+      createdAt: new Date().toISOString(),
+      status: 'rejected', // Mark as rejected since we're blocking
+    };
+  }
+
+  let contextProposals = proposals.map(p => {
+    const proposal = createProposal(
       companyId,
       p.fieldPath,
       p.fieldLabel,
@@ -570,8 +608,28 @@ export function createProposalBatch(
       p.confidence,
       trigger,
       triggerSource
-    )
-  );
+    );
+
+    // V4 Evidence Grounding: Attach evidence anchors
+    if (p.evidenceAnchors !== undefined) {
+      proposal.evidenceAnchors = p.evidenceAnchors;
+      proposal.isUngrounded = p.evidenceAnchors.length === 0;
+    }
+
+    return proposal;
+  });
+
+  // V4 Convergence: Enhance proposals with decision-grade metadata
+  if (isConvergenceEnabled()) {
+    contextProposals = contextProposals.map(proposal => {
+      // Use evidence-aware specificity scoring
+      const enhanced = enhanceProposalWithConvergenceAndEvidence(
+        proposal,
+        options?.companyName
+      );
+      return enhanced;
+    });
+  }
 
   return {
     id: batchId,
@@ -582,6 +640,56 @@ export function createProposalBatch(
     batchReasoning,
     createdAt: new Date().toISOString(),
     status: 'pending',
+  };
+}
+
+/**
+ * Enhance proposal with convergence metadata including evidence grounding
+ */
+function enhanceProposalWithConvergenceAndEvidence(
+  proposal: ContextProposal,
+  companyName?: string
+): ContextProposal {
+  const { fieldPath, proposedValue, evidenceAnchors } = proposal;
+
+  // Compute decision impact
+  const decisionImpact = inferDecisionImpact(fieldPath, proposedValue);
+
+  // Compute specificity score with evidence awareness
+  const valueStr = typeof proposedValue === 'string'
+    ? proposedValue
+    : JSON.stringify(proposedValue);
+  const { score: specificityScore, reasons: genericnessReasons } = computeSpecificityScore(
+    valueStr,
+    { companyName, evidenceAnchors }
+  );
+
+  // Determine if summary-shaped
+  const isSummary = isSummaryShaped(fieldPath, proposedValue);
+
+  // Determine field category
+  let fieldCategory: ContextProposal['fieldCategory'] = 'evidence';
+  if (isSummary) {
+    fieldCategory = 'derivedNarrative';
+  } else if (['brand.positioning', 'productOffer.valueProposition', 'audience.primaryAudience', 'audience.icpDescription', 'brand.differentiators', 'competitive.positionSummary'].includes(fieldPath)) {
+    fieldCategory = 'corePositioning';
+  } else if (['productOffer.primaryConversionAction', 'productOffer.primaryProducts', 'audience.coreSegments', 'identity.businessModel'].includes(fieldPath)) {
+    fieldCategory = 'tactical';
+  }
+
+  // Determine if should be hidden by default
+  // Hide LOW impact, very low specificity, or ungrounded proposals
+  const isUngrounded = evidenceAnchors !== undefined && evidenceAnchors.length === 0;
+  const hiddenByDefault = decisionImpact === 'LOW' || specificityScore < 30 || (isUngrounded && decisionImpact !== 'HIGH');
+
+  return {
+    ...proposal,
+    decisionImpact,
+    specificityScore,
+    genericnessReasons,
+    hiddenByDefault,
+    fieldCategory,
+    isUngrounded,
   };
 }
 

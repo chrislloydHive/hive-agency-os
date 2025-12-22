@@ -22,6 +22,7 @@ import {
 } from './schema';
 import { getFieldFreshness, type FreshnessScore } from './freshness';
 import type { WithMetaType } from './types';
+import { computeConvergenceScore } from './convergence';
 
 /**
  * Context Graph health status
@@ -419,10 +420,10 @@ export async function computeContextHealthScore(
           }
         }
 
-        // Get confidence from provenance
-        const confidence = getFieldConfidence(fieldData);
-        if (confidence !== null) {
-          totalConfidence += confidence * 100;
+        // Get confidence from convergence scoring (includes humanEdited boost)
+        const convergence = computeConvergenceScore(fieldData as WithMetaType<unknown>);
+        if (convergence.finalConfidence > 0) {
+          totalConfidence += convergence.finalConfidence * 100;
           confidenceCount++;
         }
       } else if (fieldDef.critical) {

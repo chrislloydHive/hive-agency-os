@@ -10,6 +10,7 @@
 // IMPORTANT: This is read-only. Strategy page cannot edit context directly.
 
 import { loadContextGraph } from '@/lib/contextGraph/storage';
+import { getSnapshotById } from '@/lib/contextGraph/snapshots';
 import { getHiveGlobalContextGraph, HIVE_BRAIN_DOMAINS } from '@/lib/contextGraph/globalGraph';
 import {
   selectCompetitionSource,
@@ -70,8 +71,37 @@ import type {
 } from './strategyInputsHelpers';
 
 // ============================================================================
+// Types - Options
+// ============================================================================
+
+/**
+ * Options for getStrategyInputs
+ */
+export interface GetStrategyInputsOptions {
+  /** Only include human-confirmed fields (filters out proposed/AI values) */
+  confirmedOnly?: boolean;
+  /** Load from a specific snapshot instead of current graph */
+  snapshotId?: string;
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
+
+/**
+ * Check if a field is human-confirmed
+ */
+function isConfirmed(
+  field: WithMetaType<unknown> | undefined
+): boolean {
+  if (!field || !field.provenance || field.provenance.length === 0) {
+    return false;
+  }
+  const latest = field.provenance[0];
+  // User sources are confirmed
+  const userSources = ['user', 'user_input', 'manual', 'setup_wizard'];
+  return userSources.includes(latest.source) || latest.humanConfirmed === true;
+}
 
 /**
  * Extract value from WithMeta wrapper
@@ -79,6 +109,34 @@ import type {
 function unwrap<T>(field: WithMetaType<T> | undefined): T | null {
   if (!field) return null;
   return field.value ?? null;
+}
+
+/**
+ * Extract value only if confirmed, otherwise return null
+ * Used for confirmedOnly mode
+ */
+function unwrapConfirmed<T>(
+  field: WithMetaType<T> | undefined,
+  confirmedOnly: boolean
+): T | null {
+  if (!field) return null;
+  if (confirmedOnly && !isConfirmed(field)) return null;
+  return field.value ?? null;
+}
+
+/**
+ * Load context graph from a specific snapshot
+ */
+async function loadGraphFromSnapshot(
+  snapshotId: string,
+  companyId: string
+): Promise<CompanyContextGraph | null> {
+  const snapshot = await getSnapshotById(snapshotId);
+  if (!snapshot) {
+    console.warn(`[loadGraphFromSnapshot] Snapshot ${snapshotId} not found, falling back to current graph`);
+    return loadContextGraph(companyId);
+  }
+  return snapshot.graph;
 }
 
 /**
@@ -119,6 +177,36 @@ function buildGoals(graph: CompanyContextGraph): string[] {
 
   // Add secondary objectives if we don't have primary goals
   if (goals.length === 0) {
+    const secondaryObjectives = graph.objectives?.secondaryObjectives?.value || [];
+    for (const obj of secondaryObjectives) {
+      if (obj) goals.push(obj);
+    }
+  }
+
+  return goals;
+}
+
+/**
+ * Build goals array from confirmed-only objectives
+ */
+function buildGoalsConfirmedOnly(graph: CompanyContextGraph): string[] {
+  const goals: string[] = [];
+
+  // Only include goals from confirmed fields
+  if (isConfirmed(graph.objectives?.primaryObjective)) {
+    const primaryObjective = graph.objectives?.primaryObjective?.value;
+    if (primaryObjective) goals.push(primaryObjective);
+  }
+
+  if (isConfirmed(graph.objectives?.primaryBusinessGoal)) {
+    const primaryBusinessGoal = graph.objectives?.primaryBusinessGoal?.value;
+    if (primaryBusinessGoal && !goals.includes(primaryBusinessGoal)) {
+      goals.push(primaryBusinessGoal);
+    }
+  }
+
+  // Add confirmed secondary objectives if we don't have primary goals
+  if (goals.length === 0 && isConfirmed(graph.objectives?.secondaryObjectives)) {
     const secondaryObjectives = graph.objectives?.secondaryObjectives?.value || [];
     for (const obj of secondaryObjectives) {
       if (obj) goals.push(obj);
@@ -199,15 +287,23 @@ async function getCompetitionRuns(graph: CompanyContextGraph): Promise<{
  * Competition uses V4 > V3 selection logic.
  *
  * @param companyId - Company ID
+ * @param options - Optional settings (confirmedOnly, snapshotId)
  * @returns Strategy inputs view model
  */
-export async function getStrategyInputs(companyId: string): Promise<StrategyInputs> {
-  // Load context graph and Hive Brain in parallel
+export async function getStrategyInputs(
+  companyId: string,
+  options?: GetStrategyInputsOptions
+): Promise<StrategyInputs> {
+  // Load context graph (from snapshot if specified) and Hive Brain in parallel
   const [graph, hiveBrain, osContext] = await Promise.all([
-    loadContextGraph(companyId),
+    options?.snapshotId
+      ? loadGraphFromSnapshot(options.snapshotId, companyId)
+      : loadContextGraph(companyId),
     getHiveGlobalContextGraph(),
     Promise.resolve(getOSGlobalContext()),
   ]);
+
+  const confirmedOnly = options?.confirmedOnly ?? false;
 
   // If no graph exists, return empty inputs
   if (!graph) {
@@ -220,17 +316,18 @@ export async function getStrategyInputs(companyId: string): Promise<StrategyInpu
 
   // Build business reality
   // Note: coreSegments returns strings, not objects; use primaryAudience or first segment
-  const coreSegments = unwrap(graph.audience?.coreSegments) || [];
+  // Use unwrapConfirmed when confirmedOnly is true to filter to human-confirmed values only
+  const coreSegments = unwrapConfirmed(graph.audience?.coreSegments, confirmedOnly) || [];
   const businessReality: BusinessReality = {
-    stage: unwrap(graph.identity?.marketMaturity),
-    businessModel: unwrap(graph.identity?.businessModel),
-    primaryOffering: unwrap(graph.productOffer?.primaryProducts)?.[0] || null,
-    primaryAudience: unwrap(graph.audience?.primaryAudience) || coreSegments[0] || unwrap(graph.audience?.icpDescription),
-    icpDescription: unwrap(graph.audience?.icpDescription),
-    goals: buildGoals(graph),
-    valueProposition: unwrap(graph.brand?.positioning) || unwrap(graph.brand?.valueProps)?.[0] || null,
-    industry: unwrap(graph.identity?.industry),
-    geographicFootprint: unwrap(graph.identity?.geographicFootprint),
+    stage: unwrapConfirmed(graph.identity?.marketMaturity, confirmedOnly),
+    businessModel: unwrapConfirmed(graph.identity?.businessModel, confirmedOnly),
+    primaryOffering: unwrapConfirmed(graph.productOffer?.primaryProducts, confirmedOnly)?.[0] || null,
+    primaryAudience: unwrapConfirmed(graph.audience?.primaryAudience, confirmedOnly) || coreSegments[0] || unwrapConfirmed(graph.audience?.icpDescription, confirmedOnly),
+    icpDescription: unwrapConfirmed(graph.audience?.icpDescription, confirmedOnly),
+    goals: confirmedOnly ? buildGoalsConfirmedOnly(graph) : buildGoals(graph),
+    valueProposition: unwrapConfirmed(graph.brand?.positioning, confirmedOnly) || unwrapConfirmed(graph.brand?.valueProps, confirmedOnly)?.[0] || null,
+    industry: unwrapConfirmed(graph.identity?.industry, confirmedOnly),
+    geographicFootprint: unwrapConfirmed(graph.identity?.geographicFootprint, confirmedOnly),
   };
 
   // Build constraints
@@ -287,10 +384,11 @@ export async function getStrategyInputs(companyId: string): Promise<StrategyInpu
   if (hiveBrain) sourcesUsed.push('hive_brain');
 
   const meta: StrategyInputsMeta = {
-    contextRevisionId: graph.meta?.lastSnapshotId || null,
+    contextRevisionId: options?.snapshotId || graph.meta?.lastSnapshotId || null,
     lastUpdatedAt: graph.meta?.updatedAt || null,
     sourcesUsed,
     completenessScore: graph.meta?.completenessScore || null,
+    confirmedOnlyMode: confirmedOnly,
   };
 
   return {

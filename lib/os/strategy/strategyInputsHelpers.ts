@@ -135,6 +135,8 @@ export interface StrategyInputsMeta {
   lastUpdatedAt: string | null;
   sourcesUsed: string[];
   completenessScore: number | null;
+  /** True if only confirmed (human-verified) values were included */
+  confirmedOnlyMode?: boolean;
 }
 
 /**

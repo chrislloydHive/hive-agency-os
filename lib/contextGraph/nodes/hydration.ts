@@ -21,6 +21,7 @@ interface ContextField<T = unknown> {
   provenance?: ProvenanceTag[];
 }
 import type { ContextNode, ContextNodeStatus, ContextProposal } from './types';
+import type { DecisionImpact, EvidenceAnchor } from '@/lib/types/contextField';
 import { mapContextSourceToNodeSource } from './types';
 import { loadPendingProposals } from './proposalStorage';
 
@@ -36,6 +37,32 @@ export interface HydratedContextNode<T = unknown> extends ContextNode<T> {
   pendingProposal?: ContextProposal;
   /** The batch ID containing the pending proposal */
   proposalBatchId?: string;
+  /** True if the human modified the value (not just accepted AI proposal as-is) */
+  humanEdited?: boolean;
+
+  // ============================================================================
+  // V4 Convergence: Decision-Grade Metadata (propagated from proposal)
+  // ============================================================================
+
+  /** How important this field is for decision-making (V4 Convergence) */
+  decisionImpact?: DecisionImpact;
+  /** How specific this value is to the company (0-100) (V4 Convergence) */
+  specificityScore?: number;
+  /** Reasons why this value might be generic (V4 Convergence) */
+  genericnessReasons?: string[];
+  /** Whether this is a summary-shaped field that should be hidden by default (V4 Convergence) */
+  hiddenByDefault?: boolean;
+  /** Field category for grouping (V4 Convergence) */
+  fieldCategory?: 'derivedNarrative' | 'corePositioning' | 'tactical' | 'evidence';
+
+  // ============================================================================
+  // V4 Evidence Grounding (propagated from proposal)
+  // ============================================================================
+
+  /** Evidence anchors - concrete quotes from the company's website */
+  evidenceAnchors?: EvidenceAnchor[];
+  /** True if this proposal lacks evidence grounding */
+  isUngrounded?: boolean;
 }
 
 /**
@@ -176,6 +203,8 @@ export function hydrateFieldToNode<T>(
   const confidence = field.provenance?.[0]?.confidence ?? 1;
   const lastUpdated = field.provenance?.[0]?.updatedAt || new Date().toISOString();
 
+  const latestProvenance = field.provenance?.[0];
+
   const node: HydratedContextNode<T> = {
     key: fieldPath,
     category,
@@ -185,18 +214,44 @@ export function hydrateFieldToNode<T>(
     confidence,
     lastUpdated,
     provenance: field.provenance || [],
+    humanEdited: latestProvenance?.humanEdited ?? false,
   };
 
   // If confirmed, add confirmation details
-  if (status === 'confirmed' && field.provenance?.[0]) {
-    node.confirmedBy = field.provenance[0].source;
-    node.confirmedAt = field.provenance[0].updatedAt;
+  if (status === 'confirmed' && latestProvenance) {
+    node.confirmedBy = latestProvenance.source;
+    node.confirmedAt = latestProvenance.updatedAt;
   }
 
   // Attach pending proposal if exists
   if (pendingProposal) {
     node.pendingProposal = pendingProposal;
     node.proposalBatchId = proposalBatchId;
+
+    // V4 Convergence: Propagate decision-grade metadata from proposal
+    if (pendingProposal.decisionImpact) {
+      node.decisionImpact = pendingProposal.decisionImpact;
+    }
+    if (pendingProposal.specificityScore !== undefined) {
+      node.specificityScore = pendingProposal.specificityScore;
+    }
+    if (pendingProposal.genericnessReasons) {
+      node.genericnessReasons = pendingProposal.genericnessReasons;
+    }
+    if (pendingProposal.hiddenByDefault !== undefined) {
+      node.hiddenByDefault = pendingProposal.hiddenByDefault;
+    }
+    if (pendingProposal.fieldCategory) {
+      node.fieldCategory = pendingProposal.fieldCategory;
+    }
+
+    // V4 Evidence Grounding: Propagate evidence anchors from proposal
+    if (pendingProposal.evidenceAnchors) {
+      node.evidenceAnchors = pendingProposal.evidenceAnchors;
+    }
+    if (pendingProposal.isUngrounded !== undefined) {
+      node.isUngrounded = pendingProposal.isUngrounded;
+    }
   }
 
   return node;

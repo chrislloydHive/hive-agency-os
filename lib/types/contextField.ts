@@ -24,6 +24,77 @@
 export type ContextFieldStatus = 'missing' | 'proposed' | 'confirmed';
 
 // ============================================================================
+// Decision Impact (V4 Convergence)
+// ============================================================================
+
+/**
+ * Decision impact level for context proposals
+ *
+ * - HIGH: Critical for strategy (positioning, value prop, audience, ICP)
+ * - MEDIUM: Important for tactics (conversion actions, channels, budget)
+ * - LOW: Narrative/summary content (executive summary, website summary)
+ */
+export type DecisionImpact = 'LOW' | 'MEDIUM' | 'HIGH';
+
+/**
+ * Metadata for decision-grade context proposals
+ *
+ * Used by the V4 Convergence layer to filter and rank proposals.
+ */
+export interface DecisionGradeMetadata {
+  /** How important this field is for decision-making */
+  decisionImpact: DecisionImpact;
+  /** How specific this value is to the company (0-100) */
+  specificityScore: number;
+  /** Reasons why this value might be generic */
+  genericnessReasons: string[];
+  /** Whether this is a summary-shaped field that should be hidden by default */
+  hiddenByDefault?: boolean;
+  /** Field category for grouping (derivedNarrative, corePositioning, etc.) */
+  fieldCategory?: 'derivedNarrative' | 'corePositioning' | 'tactical' | 'evidence';
+}
+
+// ============================================================================
+// Evidence Anchors (V4 Evidence Grounding)
+// ============================================================================
+
+/**
+ * An evidence anchor is a concrete quote from the company's website
+ * that grounds a proposal in actual content rather than AI-generated summaries.
+ *
+ * Proposals with empty evidenceAnchors are considered "ungrounded" and
+ * receive a specificity penalty.
+ */
+export interface EvidenceAnchor {
+  /** URL of the source page (optional if from stored snapshot) */
+  url?: string;
+  /** Title of the source page */
+  pageTitle?: string;
+  /** Short quote from the page content (max 200 chars) */
+  quote: string;
+}
+
+/**
+ * Check if an evidence anchor is valid
+ * - quote must be non-empty and <= 200 chars
+ */
+export function isValidEvidenceAnchor(anchor: EvidenceAnchor): boolean {
+  return (
+    typeof anchor.quote === 'string' &&
+    anchor.quote.trim().length > 0 &&
+    anchor.quote.length <= 200
+  );
+}
+
+/**
+ * Truncate a quote to 200 chars with ellipsis
+ */
+export function truncateQuote(text: string, maxLength: number = 200): string {
+  if (!text || text.length <= maxLength) return text;
+  return text.slice(0, maxLength - 3).trim() + '...';
+}
+
+// ============================================================================
 // Source Types
 // ============================================================================
 

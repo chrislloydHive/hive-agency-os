@@ -9,6 +9,7 @@
 
 import { z } from 'zod';
 import type { ContextSource, ProvenanceTag } from '../types';
+import type { DecisionImpact, DecisionGradeMetadata, EvidenceAnchor } from '@/lib/types/contextField';
 
 // ============================================================================
 // ContextNode Status
@@ -141,6 +142,40 @@ export interface ContextProposal {
 
   /** If edited, what was the final value */
   editedValue?: unknown;
+
+  // ============================================================================
+  // V4 Convergence: Decision-Grade Metadata
+  // ============================================================================
+
+  /** How important this field is for decision-making (V4 Convergence) */
+  decisionImpact?: DecisionImpact;
+
+  /** How specific this value is to the company (0-100) (V4 Convergence) */
+  specificityScore?: number;
+
+  /** Reasons why this value might be generic (V4 Convergence) */
+  genericnessReasons?: string[];
+
+  /** Whether this is a summary-shaped field that should be hidden by default (V4 Convergence) */
+  hiddenByDefault?: boolean;
+
+  /** Field category for grouping (V4 Convergence) */
+  fieldCategory?: 'derivedNarrative' | 'corePositioning' | 'tactical' | 'evidence';
+
+  // ============================================================================
+  // V4 Evidence Grounding
+  // ============================================================================
+
+  /**
+   * Evidence anchors - concrete quotes from the company's website
+   * that ground this proposal in actual content.
+   *
+   * Empty array = "ungrounded" proposal (receives specificity penalty)
+   */
+  evidenceAnchors?: EvidenceAnchor[];
+
+  /** True if this proposal lacks evidence grounding */
+  isUngrounded?: boolean;
 }
 
 // ============================================================================

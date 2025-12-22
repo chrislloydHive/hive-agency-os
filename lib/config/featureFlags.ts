@@ -21,6 +21,9 @@ export const FEATURE_FLAGS = {
   /** Flow system debug UI - internal admin panel for flow diagnostics */
   FLOW_SYSTEM_DEBUG_UI: process.env.FLOW_SYSTEM_DEBUG_UI === 'true',
 
+  /** Context V4 Convergence - decision-grade proposals with specificity scoring */
+  CONTEXT_V4_CONVERGENCE_ENABLED: process.env.CONTEXT_V4_CONVERGENCE_ENABLED === 'true',
+
   // ============================================================================
   // ENABLED BY DEFAULT (core features)
   // ============================================================================
