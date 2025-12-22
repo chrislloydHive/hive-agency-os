@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     const body: CreateProspectRequest = await request.json();
 
     // Map to generic company create API
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const response = await fetch(`${baseUrl}/api/os/companies/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

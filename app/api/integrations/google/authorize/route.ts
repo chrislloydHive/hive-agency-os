@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Determine callback URL based on environment
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const callbackUrl = `${baseUrl}/api/integrations/google/callback`;
 
     // Create OAuth client

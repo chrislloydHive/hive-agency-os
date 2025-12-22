@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Determine base URL for redirects
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const defaultRedirect = companyId ? `/c/${companyId}/brain/setup?step=9` : '/';
     const finalRedirectBase = redirectUrl || defaultRedirect;
 
@@ -132,7 +132,7 @@ export async function GET(request: NextRequest) {
     console.error('[Google OAuth Callback] Error:', error);
 
     // Try to redirect with error, or return JSON if we can't determine redirect
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const errorMessage = error instanceof Error ? error.message : 'unknown_error';
 
     // If we have any state, try to redirect

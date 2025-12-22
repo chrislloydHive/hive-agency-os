@@ -186,7 +186,7 @@ export async function POST(request: NextRequest) {
     // - Creates DiagnosticRun record
     if (runDiagnostics && websiteUrl) {
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
         const response = await fetch(`${baseUrl}/api/os/diagnostics/run/gap-snapshot`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

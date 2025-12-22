@@ -193,7 +193,7 @@ export async function POST(request: NextRequest) {
     if (!body.skipGapSnapshot && result.company && lead.website) {
       try {
         const response = await fetch(
-          `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/os/diagnostics/run/gap-snapshot`,
+          `${process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/os/diagnostics/run/gap-snapshot`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

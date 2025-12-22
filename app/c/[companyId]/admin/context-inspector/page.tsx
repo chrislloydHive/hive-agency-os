@@ -65,9 +65,9 @@ interface InspectorData {
 
 async function fetchInspectorData(companyId: string): Promise<InspectorData | null> {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000';
+      : 'http://localhost:3000');
 
     const response = await fetch(
       `${baseUrl}/api/os/companies/${companyId}/context/inspector`,
