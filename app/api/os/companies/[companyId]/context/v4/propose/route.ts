@@ -12,13 +12,16 @@ import { getLatestRunForCompanyAndTool } from '@/lib/os/diagnostics/runs';
 import { buildWebsiteLabCandidates } from '@/lib/contextGraph/v4/websiteLabCandidates';
 import { buildBrandLabCandidates } from '@/lib/contextGraph/v4/brandLabCandidates';
 import { buildGapPlanCandidates } from '@/lib/contextGraph/v4/gapPlanCandidates';
+import { buildCompetitionCandidates } from '@/lib/contextGraph/v4/competitionCandidates';
 import { proposeFromLabResult } from '@/lib/contextGraph/v4/propose';
 import { getFieldCountsV4 } from '@/lib/contextGraph/fieldStoreV4';
+import { getLatestCompetitionRun } from '@/lib/competition/store';
 import {
   isContextV4Enabled,
   isContextV4IngestWebsiteLabEnabled,
   isContextV4IngestBrandLabEnabled,
   isContextV4IngestGapPlanEnabled,
+  isContextV4IngestCompetitionLabEnabled,
 } from '@/lib/types/contextField';
 import type { V4StoreCounts } from '@/lib/types/contextV4Debug';
 
@@ -68,12 +71,14 @@ interface ProposeResponse {
     websiteLab: SourceResult;
     brandLab: SourceResult;
     gapPlan: SourceResult;
+    competitionLab: SourceResult;
   };
   flags: {
     CONTEXT_V4_ENABLED: boolean;
     CONTEXT_V4_INGEST_WEBSITELAB: boolean;
     CONTEXT_V4_INGEST_BRANDLAB: boolean;
     CONTEXT_V4_INGEST_GAPPLAN: boolean;
+    CONTEXT_V4_INGEST_COMPETITIONLAB: boolean;
   };
   error?: string;
 }
@@ -95,6 +100,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     CONTEXT_V4_INGEST_WEBSITELAB: isContextV4IngestWebsiteLabEnabled(),
     CONTEXT_V4_INGEST_BRANDLAB: isContextV4IngestBrandLabEnabled(),
     CONTEXT_V4_INGEST_GAPPLAN: isContextV4IngestGapPlanEnabled(),
+    CONTEXT_V4_INGEST_COMPETITIONLAB: isContextV4IngestCompetitionLabEnabled(),
   };
 
   // Initialize response
@@ -112,6 +118,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       websiteLab: { enabled: flags.CONTEXT_V4_INGEST_WEBSITELAB, runId: null, candidatesCount: 0, proposedCount: 0, blockedCount: 0, dedupedCount: 0, conflictedCount: 0, errors: [] },
       brandLab: { enabled: flags.CONTEXT_V4_INGEST_BRANDLAB, runId: null, candidatesCount: 0, proposedCount: 0, blockedCount: 0, dedupedCount: 0, conflictedCount: 0, errors: [] },
       gapPlan: { enabled: flags.CONTEXT_V4_INGEST_GAPPLAN, runId: null, candidatesCount: 0, proposedCount: 0, blockedCount: 0, dedupedCount: 0, conflictedCount: 0, errors: [] },
+      competitionLab: { enabled: flags.CONTEXT_V4_INGEST_COMPETITIONLAB, runId: null, candidatesCount: 0, proposedCount: 0, blockedCount: 0, dedupedCount: 0, conflictedCount: 0, errors: [] },
     },
     flags,
   };
@@ -250,6 +257,43 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    // =========================================================================
+    // Competition Lab
+    // =========================================================================
+    if (flags.CONTEXT_V4_INGEST_COMPETITIONLAB) {
+      try {
+        const run = await getLatestCompetitionRun(companyId);
+        if (run) {
+          response.sources.competitionLab.runId = run.id;
+          response.sources.competitionLab.runCreatedAt = run.startedAt;
+
+          const candidateResult = buildCompetitionCandidates(run, run.id);
+          response.sources.competitionLab.candidatesCount = candidateResult.candidates.length;
+
+          if (candidateResult.candidates.length > 0) {
+            const proposalResult = await proposeFromLabResult({
+              companyId,
+              importerId: 'competitionLab',
+              source: 'lab',
+              sourceId: run.id,
+              extractionPath: candidateResult.extractionPath,
+              candidates: candidateResult.candidates,
+            });
+
+            response.sources.competitionLab.proposedCount = proposalResult.proposed;
+            response.sources.competitionLab.blockedCount = proposalResult.blocked;
+            response.sources.competitionLab.dedupedCount = proposalResult.deduped;
+            response.sources.competitionLab.conflictedCount = proposalResult.conflicted;
+            response.sources.competitionLab.errors = proposalResult.errors;
+          }
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        response.sources.competitionLab.errors.push(msg);
+        console.error('[propose] Competition Lab error:', msg);
+      }
+    }
+
     // Get store counts AFTER proposals
     response.storeAfter = await getFieldCountsV4(companyId);
 
@@ -257,27 +301,32 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     response.totalCandidates =
       response.sources.websiteLab.candidatesCount +
       response.sources.brandLab.candidatesCount +
-      response.sources.gapPlan.candidatesCount;
+      response.sources.gapPlan.candidatesCount +
+      response.sources.competitionLab.candidatesCount;
 
     response.writtenCount =
       response.sources.websiteLab.proposedCount +
       response.sources.brandLab.proposedCount +
-      response.sources.gapPlan.proposedCount;
+      response.sources.gapPlan.proposedCount +
+      response.sources.competitionLab.proposedCount;
 
     response.blockedCount =
       response.sources.websiteLab.blockedCount +
       response.sources.brandLab.blockedCount +
-      response.sources.gapPlan.blockedCount;
+      response.sources.gapPlan.blockedCount +
+      response.sources.competitionLab.blockedCount;
 
     response.dedupedCount =
       response.sources.websiteLab.dedupedCount +
       response.sources.brandLab.dedupedCount +
-      response.sources.gapPlan.dedupedCount;
+      response.sources.gapPlan.dedupedCount +
+      response.sources.competitionLab.dedupedCount;
 
     response.conflictedCount =
       response.sources.websiteLab.conflictedCount +
       response.sources.brandLab.conflictedCount +
-      response.sources.gapPlan.conflictedCount;
+      response.sources.gapPlan.conflictedCount +
+      response.sources.competitionLab.conflictedCount;
 
     response.ok = true;
 

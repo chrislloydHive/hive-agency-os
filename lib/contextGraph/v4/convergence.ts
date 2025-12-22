@@ -184,6 +184,10 @@ const HIGH_IMPACT_FIELDS = [
   'audience.icpDescription',
   'brand.differentiators',
   'competitive.positionSummary',
+  // Competition domain - critical for strategy
+  'competition.primaryCompetitors',
+  'competition.positioningMapSummary',
+  'competition.threatSummary',
 ];
 
 /**
@@ -198,6 +202,9 @@ const MEDIUM_IMPACT_FIELDS = [
   'performanceMedia.activeChannels',
   'operationalConstraints.minBudget',
   'operationalConstraints.maxBudget',
+  // Competition domain - tactical fields
+  'competition.marketAlternatives',
+  'competition.differentiationAxes',
 ];
 
 /**
@@ -420,6 +427,7 @@ export function inferDecisionImpact(key: string, value: unknown): DecisionImpact
     case 'productOffer':
       return 'MEDIUM';
     case 'competitive':
+    case 'competition':
       return 'MEDIUM';
     case 'website':
     case 'content':
@@ -805,6 +813,7 @@ export function getDomainGroup(fieldPath: string): string {
     content: 'Content',
     seo: 'SEO',
     competitive: 'Competitive',
+    competition: 'Competition',
     performanceMedia: 'Media',
     operationalConstraints: 'Constraints',
     creative: 'Creative',

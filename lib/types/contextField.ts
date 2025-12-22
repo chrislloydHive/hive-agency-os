@@ -773,6 +773,19 @@ export function isContextV4IngestGapPlanEnabled(): boolean {
 }
 
 /**
+ * Check if Competition Lab ingestion should use V4 proposal flow
+ * When enabled, Competition Lab results are proposed to the V4 Review Queue
+ * instead of being written directly to the Context Graph.
+ */
+export function isContextV4IngestCompetitionLabEnabled(): boolean {
+  return (
+    isContextV4Enabled() &&
+    (process.env.CONTEXT_V4_INGEST_COMPETITIONLAB === 'true' ||
+      process.env.CONTEXT_V4_INGEST_COMPETITIONLAB === '1')
+  );
+}
+
+/**
  * Check if auto-propose baseline is enabled
  * When enabled, required strategy fields are automatically proposed
  * after Labs/GAPs complete (without auto-confirming).

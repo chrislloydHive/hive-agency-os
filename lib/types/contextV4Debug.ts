@@ -284,6 +284,63 @@ export interface LatestGapPlanInfo {
 }
 
 /**
+ * Debug info for Competition Lab NO_CANDIDATES diagnosis
+ */
+export interface CompetitionLabDebugInfo {
+  /** Top-level keys found in the run */
+  rootTopKeys: string[];
+  /** Sample paths found in the data */
+  samplePathsFound: {
+    competitors: boolean;
+    status: boolean;
+    stats: boolean;
+    querySummary: boolean;
+    discoveredCandidates: boolean;
+    dataConfidenceScore: boolean;
+  };
+  /** Competitor count */
+  competitorCount: number;
+  /** Whether SERP evidence was found */
+  hasSerpEvidence: boolean;
+  /** Whether competitor URLs are present */
+  hasUrls: boolean;
+  /** Attempted mappings */
+  attemptedMappings: Array<{
+    fieldKey: string;
+    attempted: boolean;
+    found: boolean;
+    reason?: string;
+  }>;
+}
+
+/**
+ * Error state for Competition Lab
+ */
+export interface CompetitionLabErrorStateInfo {
+  isError: boolean;
+  errorType?: 'FAILED' | 'INCOMPLETE' | 'NO_COMPETITORS' | 'UNKNOWN_ERROR';
+  errorMessage?: string;
+}
+
+/**
+ * Latest Competition Lab run info for inspect endpoint
+ */
+export interface LatestCompetitionLabInfo {
+  runId: string | null;
+  createdAt: string | null;
+  status: string | null;
+  competitorCount: number | null;
+  hasRun: boolean;
+  extractionPathOk: boolean;
+  extractionPath: string | null;
+  candidatesCount: number | null;
+  /** Debug info when candidatesCount === 0 (NO_CANDIDATES) */
+  debug?: CompetitionLabDebugInfo;
+  /** Error state if competition run has errors */
+  errorState?: CompetitionLabErrorStateInfo;
+}
+
+/**
  * Proposal summary for inspect endpoint (computed if cheap)
  */
 export interface ProposeSummary {
@@ -308,11 +365,13 @@ export interface InspectV4Response {
     CONTEXT_V4_INGEST_WEBSITELAB: boolean;
     CONTEXT_V4_INGEST_BRANDLAB?: boolean;
     CONTEXT_V4_INGEST_GAPPLAN?: boolean;
+    CONTEXT_V4_INGEST_COMPETITIONLAB?: boolean;
     envVars: {
       CONTEXT_V4_ENABLED: string | undefined;
       CONTEXT_V4_INGEST_WEBSITELAB: string | undefined;
       CONTEXT_V4_INGEST_BRANDLAB?: string | undefined;
       CONTEXT_V4_INGEST_GAPPLAN?: string | undefined;
+      CONTEXT_V4_INGEST_COMPETITIONLAB?: string | undefined;
     };
   };
 
@@ -324,6 +383,9 @@ export interface InspectV4Response {
 
   // Latest GAP Plan run info
   latestGapPlan?: LatestGapPlanInfo;
+
+  // Latest Competition Lab run info
+  latestCompetitionLab?: LatestCompetitionLabInfo;
 
   // V4 store counts
   v4StoreCounts: V4StoreCounts & {
@@ -389,6 +451,8 @@ export interface InspectV4Response {
   proposeSummaryBrandLab?: ProposeSummary;
   /** GAP Plan-specific proposal summary */
   proposeSummaryGapPlan?: ProposeSummary;
+  /** Competition Lab-specific proposal summary */
+  proposeSummaryCompetitionLab?: ProposeSummary;
 
   // Next action hint (when wouldPropose > 0 but persisted = 0)
   nextAction?: {

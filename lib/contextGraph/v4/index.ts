@@ -45,6 +45,14 @@ export {
   type GapPlanDebug,
 } from './gapPlanCandidates';
 
+export {
+  buildCompetitionCandidates,
+  detectCompetitionErrorState,
+  type BuildCompetitionCandidatesResult,
+  type CompetitionLabDebug,
+  type CompetitionLabErrorState,
+} from './competitionCandidates';
+
 // ============================================================================
 // Cooldown
 // ============================================================================
