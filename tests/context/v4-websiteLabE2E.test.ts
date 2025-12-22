@@ -463,10 +463,10 @@ describe('V4 Idempotency: Replay-Safe Proposals', () => {
       candidates: candidateResult.candidates,
     });
 
-    // Second call should have 0 created, all blocked
+    // Second call should have 0 created, all deduped (same key+confidence)
     expect(secondResult.proposed).toBe(0);
-    expect(secondResult.blocked).toBe(candidateResult.candidates.length);
-    expect(secondResult.blockedKeys.length).toBe(candidateResult.candidates.length);
+    expect(secondResult.deduped).toBe(candidateResult.candidates.length);
+    expect(secondResult.dedupedKeys.length).toBe(candidateResult.candidates.length);
 
     // Store counts should be unchanged
     const countsAfterSecond = await getFieldCountsV4(companyId);
@@ -557,13 +557,13 @@ describe('V4 Idempotency: Replay-Safe Proposals', () => {
       candidates: candidateResult.candidates,
     });
 
-    // blockedKeys should contain the keys that were skipped
-    expect(secondResult.blockedKeys.length).toBeGreaterThan(0);
-    expect(secondResult.blockedKeys.length).toBeLessThanOrEqual(candidateResult.candidates.length);
+    // dedupedKeys should contain the keys that were skipped (same key+confidence)
+    expect(secondResult.dedupedKeys.length).toBeGreaterThan(0);
+    expect(secondResult.dedupedKeys.length).toBeLessThanOrEqual(candidateResult.candidates.length);
 
-    // Each blocked key should be from our candidates
-    for (const blockedKey of secondResult.blockedKeys) {
-      expect(candidateResult.candidates.map(c => c.key)).toContain(blockedKey);
+    // Each deduped key should be from our candidates
+    for (const dedupedKey of secondResult.dedupedKeys) {
+      expect(candidateResult.candidates.map(c => c.key)).toContain(dedupedKey);
     }
   });
 });
