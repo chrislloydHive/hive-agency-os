@@ -20,6 +20,7 @@ import {
   isContextV4IngestWebsiteLabEnabled,
   isContextV4IngestBrandLabEnabled,
   isContextV4IngestGapPlanEnabled,
+  isContextV4IngestCompetitionLabEnabled,
   type ContextFieldSourceV4,
 } from '@/lib/types/contextField';
 import { getLatestRunForCompanyAndTool } from '@/lib/os/diagnostics/runs';
@@ -36,6 +37,10 @@ import {
   extractGapPlanStructured,
   buildGapPlanCandidates,
 } from '@/lib/contextGraph/v4/gapPlanCandidates';
+import {
+  buildCompetitionCandidates,
+} from '@/lib/contextGraph/v4/competitionCandidates';
+import { getLatestCompetitionRunV3 } from '@/lib/competition-v3/store';
 import type {
   InspectV4Response,
   ProposalReason,
@@ -80,11 +85,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         CONTEXT_V4_INGEST_WEBSITELAB: isContextV4IngestWebsiteLabEnabled(),
         CONTEXT_V4_INGEST_BRANDLAB: isContextV4IngestBrandLabEnabled(),
         CONTEXT_V4_INGEST_GAPPLAN: isContextV4IngestGapPlanEnabled(),
+        CONTEXT_V4_INGEST_COMPETITIONLAB: isContextV4IngestCompetitionLabEnabled(),
         envVars: {
           CONTEXT_V4_ENABLED: process.env.CONTEXT_V4_ENABLED,
           CONTEXT_V4_INGEST_WEBSITELAB: process.env.CONTEXT_V4_INGEST_WEBSITELAB,
           CONTEXT_V4_INGEST_BRANDLAB: process.env.CONTEXT_V4_INGEST_BRANDLAB,
           CONTEXT_V4_INGEST_GAPPLAN: process.env.CONTEXT_V4_INGEST_GAPPLAN,
+          CONTEXT_V4_INGEST_COMPETITIONLAB: process.env.CONTEXT_V4_INGEST_COMPETITIONLAB,
         },
       },
 
@@ -115,6 +122,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         status: null,
         overallScore: null,
         hasDataJson: false,
+        extractionPathOk: false,
+        extractionPath: null,
+        candidatesCount: null,
+      },
+      latestCompetitionLab: {
+        runId: null,
+        createdAt: null,
+        status: null,
+        competitorCount: null,
+        hasRun: false,
         extractionPathOk: false,
         extractionPath: null,
         candidatesCount: null,
@@ -258,6 +275,38 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             response.latestGapPlan!.debug = candidateResult.debug;
           }
         }
+      }
+    }
+
+    // Get latest Competition Lab run (V3)
+    const latestCompetitionRun = await getLatestCompetitionRunV3(companyId);
+    if (latestCompetitionRun) {
+      // V3 competitors are all active (no removedByUser filter needed)
+      const competitors = latestCompetitionRun.competitors || [];
+      response.latestCompetitionLab!.runId = latestCompetitionRun.runId;
+      response.latestCompetitionLab!.createdAt = latestCompetitionRun.createdAt || null;
+      response.latestCompetitionLab!.status = latestCompetitionRun.status;
+      response.latestCompetitionLab!.competitorCount = competitors.length;
+      response.latestCompetitionLab!.hasRun = true;
+      response.latestCompetitionLab!.extractionPath = 'competitionRunV3';
+
+      // Build candidates to get count and debug info
+      const candidateResult = buildCompetitionCandidates(latestCompetitionRun);
+      response.latestCompetitionLab!.candidatesCount = candidateResult.candidates.length;
+      response.latestCompetitionLab!.extractionPathOk = candidateResult.candidates.length > 0 || !candidateResult.errorState?.isError;
+
+      // Attach error state if detected
+      if (candidateResult.errorState?.isError) {
+        response.latestCompetitionLab!.errorState = {
+          isError: true,
+          errorType: candidateResult.errorState.errorType,
+          errorMessage: candidateResult.errorState.errorMessage,
+        };
+      }
+
+      // Attach debug info if NO_CANDIDATES
+      if (candidateResult.candidates.length === 0 && candidateResult.debug) {
+        response.latestCompetitionLab!.debug = candidateResult.debug;
       }
     }
 
@@ -446,6 +495,44 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       };
     }
 
+    // ====================================================================
+    // Compute Competition Lab proposal summary
+    // ====================================================================
+    if (response.latestCompetitionLab?.hasRun) {
+      let reason: ProposalReason = 'UNKNOWN';
+
+      // Store errors take precedence
+      if (storeErrorReason) {
+        reason = storeErrorReason;
+      } else if (!isContextV4IngestCompetitionLabEnabled()) {
+        reason = 'FLAG_DISABLED';
+      } else if (response.latestCompetitionLab.errorState?.isError) {
+        // ERROR STATE - competition run failed or has no competitors
+        reason = 'ERROR_STATE';
+      } else if (!response.latestCompetitionLab.extractionPathOk) {
+        reason = 'EXTRACT_PATH_MISSING';
+      } else if (response.latestCompetitionLab.candidatesCount === 0) {
+        reason = 'NO_CANDIDATES';
+      } else if (response.latestCompetitionLab.candidatesCount !== null && response.latestCompetitionLab.candidatesCount > 0) {
+        reason = 'SUCCESS';
+      }
+
+      // If error state, wouldPropose should be 0 (we blocked proposals)
+      const wouldPropose = response.latestCompetitionLab.errorState?.isError
+        ? 0
+        : response.latestCompetitionLab.candidatesCount ?? 0;
+
+      response.proposeSummaryCompetitionLab = {
+        wouldPropose,
+        reason,
+      };
+    } else {
+      response.proposeSummaryCompetitionLab = {
+        wouldPropose: 0,
+        reason: storeErrorReason || 'NO_RUN',
+      };
+    }
+
     // Get legacy context graph
     try {
       const graph = await loadContextGraph(companyId);
@@ -478,7 +565,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const totalWouldPropose =
       (response.proposeSummaryWebsiteLab?.wouldPropose || 0) +
       (response.proposeSummaryBrandLab?.wouldPropose || 0) +
-      (response.proposeSummaryGapPlan?.wouldPropose || 0);
+      (response.proposeSummaryGapPlan?.wouldPropose || 0) +
+      (response.proposeSummaryCompetitionLab?.wouldPropose || 0);
 
     const persistedProposed = response.v4StoreCounts.proposed;
 

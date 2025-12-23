@@ -80,6 +80,9 @@ export const AIRTABLE_TABLES = {
   // Canonical Brief System
   BRIEFS: 'Briefs', // Canonical briefs - single source of truth for all work
 
+  // Workspace Artifacts (Google Drive integration)
+  ARTIFACTS: 'Artifacts', // First-class artifacts linked to Google Drive/Docs/Slides
+
   // Legacy (use BRIEFS instead)
   CREATIVE_BRIEFS: 'CreativeBriefs', // Deprecated - use BRIEFS
 

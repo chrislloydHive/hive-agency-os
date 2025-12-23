@@ -24,6 +24,12 @@ export const FEATURE_FLAGS = {
   /** Context V4 Convergence - decision-grade proposals with specificity scoring */
   CONTEXT_V4_CONVERGENCE_ENABLED: process.env.CONTEXT_V4_CONVERGENCE_ENABLED === 'true',
 
+  /** Workspace Artifacts - artifact management in Airtable */
+  ARTIFACTS_ENABLED: process.env.NEXT_PUBLIC_FEATURE_ARTIFACTS === 'true',
+
+  /** Workspace Artifacts + Google Drive - Google Docs/Slides/Drive integration */
+  ARTIFACTS_GOOGLE_ENABLED: process.env.NEXT_PUBLIC_FEATURE_ARTIFACTS_GOOGLE === 'true',
+
   // ============================================================================
   // ENABLED BY DEFAULT (core features)
   // ============================================================================

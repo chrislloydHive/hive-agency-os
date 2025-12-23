@@ -58,6 +58,13 @@ export interface OpportunityItem {
   activitiesCount?: number | null;
   externalThreadUrl?: string | null; // Primary thread URL (e.g., Slack, Notion)
   gmailThreadId?: string | null; // Gmail thread ID for "Open in Gmail" link
+
+  // DMA Activity fields (enriched from DMA runs)
+  dmaLastRunType?: 'GAP_IA' | 'GAP_FULL' | null;
+  dmaLastRunAt?: string | null; // ISO date
+  dmaTotalRuns?: number | null;
+  dmaLatestScore?: number | null;
+  dmaIntentLevel?: 'High' | 'Medium' | 'Low' | 'None' | null;
 }
 
 export interface InboundLeadItem {

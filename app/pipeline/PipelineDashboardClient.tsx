@@ -26,6 +26,8 @@ import {
 } from '@/lib/types/pipeline';
 import { ForecastSection } from '@/components/pipeline/ForecastSection';
 import { PipelineAlertsSection } from '@/components/pipeline/PipelineAlertsSection';
+import { DMAActivitySection } from '@/components/pipeline/DMAActivitySection';
+import { HighIntentSignalsSection } from '@/components/pipeline/HighIntentSignalsSection';
 
 interface PipelineDashboardClientProps {
   kpis: PipelineKpis;
@@ -213,6 +215,12 @@ export function PipelineDashboardClient({
         selectedBucket={selectedForecastBucket}
         onBucketClick={handleForecastBucketClick}
       />
+
+      {/* DMA Activity Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <DMAActivitySection />
+        <HighIntentSignalsSection />
+      </div>
 
       {/* Active Filter Bar */}
       {hasActiveFilter && (

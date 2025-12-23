@@ -284,23 +284,23 @@ export interface LatestGapPlanInfo {
 }
 
 /**
- * Debug info for Competition Lab NO_CANDIDATES diagnosis
+ * Debug info for Competition Lab NO_CANDIDATES diagnosis (V3 format)
  */
 export interface CompetitionLabDebugInfo {
   /** Top-level keys found in the run */
   rootTopKeys: string[];
-  /** Sample paths found in the data */
+  /** Sample paths found in the data (V3 structure) */
   samplePathsFound: {
     competitors: boolean;
     status: boolean;
-    stats: boolean;
-    querySummary: boolean;
-    discoveredCandidates: boolean;
-    dataConfidenceScore: boolean;
+    summary: boolean;
+    insights: boolean;
+    recommendations: boolean;
+    runId: boolean;
   };
   /** Competitor count */
   competitorCount: number;
-  /** Whether SERP evidence was found */
+  /** Whether SERP/Google Search evidence was found */
   hasSerpEvidence: boolean;
   /** Whether competitor URLs are present */
   hasUrls: boolean;
@@ -318,7 +318,7 @@ export interface CompetitionLabDebugInfo {
  */
 export interface CompetitionLabErrorStateInfo {
   isError: boolean;
-  errorType?: 'FAILED' | 'INCOMPLETE' | 'NO_COMPETITORS' | 'UNKNOWN_ERROR';
+  errorType?: 'FAILED' | 'INCOMPLETE' | 'NO_COMPETITORS' | 'LOW_CONFIDENCE_CONTEXT' | 'UNKNOWN_ERROR';
   errorMessage?: string;
 }
 

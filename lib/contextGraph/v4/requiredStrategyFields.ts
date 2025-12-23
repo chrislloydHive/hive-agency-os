@@ -36,7 +36,10 @@ export const V4_REQUIRED_STRATEGY_FIELDS: V4RequiredField[] = SRM_FIELDS.map((sr
     field: srmField.field,
     label: srmField.label,
     reason: srmField.reason,
-    alternatives: alternatives?.map((alt: string) => `${srmField.domain}.${alt}`),
+    // Handle alternatives: if already "domain.field" format, keep as-is; otherwise prefix with domain
+    alternatives: alternatives?.map((alt: string) =>
+      alt.includes('.') ? alt : `${srmField.domain}.${alt}`
+    ),
   };
 });
 

@@ -132,6 +132,8 @@ export const SRM_FIELDS = [
     label: 'Competitors',
     reason: 'Strategy needs competitive context',
     isArray: true,
+    // V4: competition.primaryCompetitors is the canonical source from Competition Lab
+    alternatives: ['competition.primaryCompetitors'],
   },
   {
     domain: 'brand',
@@ -162,6 +164,7 @@ export const SRM_FIELD_LABELS: Record<string, string> = {
   'operationalConstraints.minBudget': 'Minimum Budget',
   'operationalConstraints.maxBudget': 'Maximum Budget',
   'competitive.competitors': 'Competitors',
+  'competition.primaryCompetitors': 'Competitors',
   'brand.positioning': 'Brand Positioning',
   'brand.valueProps': 'Value Props',
 };

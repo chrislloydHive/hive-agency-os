@@ -12,9 +12,15 @@ import { google } from 'googleapis';
 import { getCompanyById } from '@/lib/airtable/companies';
 
 const SCOPES = [
+  // Analytics & Search Console (existing)
   'https://www.googleapis.com/auth/analytics.readonly',
   'https://www.googleapis.com/auth/analytics.edit', // For Admin API - list accounts/properties
   'https://www.googleapis.com/auth/webmasters.readonly',
+  // Google Drive + Docs/Sheets/Slides (for Workspace Artifacts)
+  'https://www.googleapis.com/auth/drive.file', // Create/manage files created by this app
+  'https://www.googleapis.com/auth/documents', // Create/edit Google Docs
+  'https://www.googleapis.com/auth/spreadsheets', // Create/edit Google Sheets
+  'https://www.googleapis.com/auth/presentations', // Create/edit Google Slides
 ];
 
 /**

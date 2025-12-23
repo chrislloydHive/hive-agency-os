@@ -22,6 +22,7 @@ import {
   getRegistryEntry,
   invalidateStrategySection,
 } from '@/lib/os/registry';
+import { incrementStrategyDocStaleness } from '@/lib/documents/strategyDoc';
 
 // ============================================================================
 // POST - Resolve proposal(s)
@@ -98,6 +99,11 @@ export async function POST(request: NextRequest) {
         );
 
         console.log(`[API] context/proposals/resolve: Applied to context graph: ${appliedToContext}`);
+
+        // Increment Strategy Doc staleness when context is confirmed
+        if (appliedToContext) {
+          await incrementStrategyDocStaleness(providedCompanyId);
+        }
 
         return NextResponse.json({
           success: true,
@@ -271,6 +277,11 @@ export async function POST(request: NextRequest) {
         { error: 'Failed to resolve proposal' },
         { status: 500 }
       );
+    }
+
+    // Increment Strategy Doc staleness when context is confirmed via proposal accept
+    if (appliedToContext && batch?.companyId) {
+      await incrementStrategyDocStaleness(batch.companyId);
     }
 
     console.log(

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { confirmFieldsV4 } from '@/lib/contextGraph/fieldStoreV4';
 import { materializeFieldsToGraph } from '@/lib/contextGraph/materializeV4';
+import { incrementStrategyDocStaleness } from '@/lib/documents/strategyDoc';
 import {
   isContextV4Enabled,
   type ConfirmFieldsRequestV4,
@@ -81,6 +82,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           materializeResult.errors
         );
       }
+
+      // Increment Strategy Doc staleness when context is confirmed
+      await incrementStrategyDocStaleness(companyId);
     }
 
     // Build response

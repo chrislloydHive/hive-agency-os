@@ -691,6 +691,15 @@ export function OpportunitiesBoardClient({
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
                     Owner
                   </th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                    DMA Intent
+                  </th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                    DMA Score
+                  </th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                    GAP Runs
+                  </th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">
                     Actions
                   </th>
@@ -796,6 +805,65 @@ export function OpportunitiesBoardClient({
                       </td>
                       <td className="px-4 py-3 text-slate-400 text-xs">
                         {opp.owner || '—'}
+                      </td>
+                      {/* DMA Intent Column */}
+                      <td className="px-4 py-3 text-center">
+                        {opp.dmaIntentLevel ? (
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${
+                              opp.dmaIntentLevel === 'High'
+                                ? 'bg-red-500/10 text-red-400 border-red-500/30'
+                                : opp.dmaIntentLevel === 'Medium'
+                                ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                : opp.dmaIntentLevel === 'Low'
+                                ? 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+                                : 'bg-slate-700/30 text-slate-500 border-slate-700/30'
+                            }`}
+                          >
+                            {opp.dmaIntentLevel}
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+                      {/* DMA Score Column */}
+                      <td className="px-4 py-3 text-center">
+                        {opp.dmaLatestScore !== null && opp.dmaLatestScore !== undefined ? (
+                          <span
+                            className={`text-sm font-medium ${
+                              opp.dmaLatestScore >= 75
+                                ? 'text-emerald-400'
+                                : opp.dmaLatestScore >= 55
+                                ? 'text-amber-400'
+                                : 'text-red-400'
+                            }`}
+                          >
+                            {opp.dmaLatestScore}
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+                      {/* GAP Runs Column */}
+                      <td className="px-4 py-3 text-center">
+                        {opp.dmaTotalRuns ? (
+                          <div className="flex flex-col items-center">
+                            <span className="text-sm text-slate-200">{opp.dmaTotalRuns}</span>
+                            {opp.dmaLastRunType && (
+                              <span
+                                className={`text-[10px] ${
+                                  opp.dmaLastRunType === 'GAP_FULL'
+                                    ? 'text-purple-400'
+                                    : 'text-blue-400'
+                                }`}
+                              >
+                                {opp.dmaLastRunType === 'GAP_FULL' ? 'Full' : 'IA'}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Link

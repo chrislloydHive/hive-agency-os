@@ -33,6 +33,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { DataConfidenceBadge, type DataSource } from '@/components/diagnostics/DataConfidenceBadge';
+import { CompanyDMATimeline } from '@/components/os/CompanyDMATimeline';
 import type { DiagnosticRunStatus, DiagnosticToolId } from '@/lib/os/diagnostics/runs';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
 
@@ -718,6 +719,11 @@ export function DiagnosticsControlCenter({
           </div>
         )}
       </div>
+
+      {/* ================================================================== */}
+      {/* 5. DMA ACTIVITY TIMELINE */}
+      {/* ================================================================== */}
+      <CompanyDMATimeline companyId={company.id} />
     </div>
   );
 }

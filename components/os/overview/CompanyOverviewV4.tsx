@@ -26,6 +26,8 @@ import { ProjectTypeSelector } from './ProjectTypeSelector';
 import { InlineLabsSelector } from './InlineLabsSelector';
 import { EngagementProgressCard } from './EngagementProgressCard';
 import { ProjectStartModeSelector } from './ProjectStartModeSelector';
+import { StrategyDocCard } from './StrategyDocCard';
+import { ArtifactsList } from './ArtifactsList';
 import { useEngagement, useLabProgress } from '@/hooks/useEngagement';
 import type { EngagementType, ProjectType, ProjectStartMode } from '@/lib/types/engagement';
 import type { LabId } from '@/lib/contextGraph/labContext';
@@ -461,6 +463,27 @@ export function CompanyOverviewV4({
             cancelling={cancelling}
           />
         )}
+      </section>
+
+      {/* ================================================================== */}
+      {/* 3. DELIVERABLES */}
+      {/* ================================================================== */}
+      <section id="deliverables">
+        <h2 className="text-sm font-medium text-slate-400 mb-3">Deliverables</h2>
+        <div className="space-y-4">
+          {/* Strategy Doc Card - uses artifacts or fallback */}
+          <StrategyDocCard
+            companyId={companyId}
+            strategyId={strategy?.id}
+          />
+
+          {/* Artifacts List - only shows if ARTIFACTS_ENABLED */}
+          <ArtifactsList
+            companyId={companyId}
+            showStaleBanner={true}
+            maxItems={5}
+          />
+        </div>
       </section>
     </div>
   );

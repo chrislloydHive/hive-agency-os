@@ -15,7 +15,7 @@ import { buildGapPlanCandidates } from '@/lib/contextGraph/v4/gapPlanCandidates'
 import { buildCompetitionCandidates } from '@/lib/contextGraph/v4/competitionCandidates';
 import { proposeFromLabResult } from '@/lib/contextGraph/v4/propose';
 import { getFieldCountsV4 } from '@/lib/contextGraph/fieldStoreV4';
-import { getLatestCompetitionRun } from '@/lib/competition/store';
+import { getLatestCompetitionRunV3 } from '@/lib/competition-v3/store';
 import {
   isContextV4Enabled,
   isContextV4IngestWebsiteLabEnabled,
@@ -262,12 +262,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // =========================================================================
     if (flags.CONTEXT_V4_INGEST_COMPETITIONLAB) {
       try {
-        const run = await getLatestCompetitionRun(companyId);
+        const run = await getLatestCompetitionRunV3(companyId);
         if (run) {
-          response.sources.competitionLab.runId = run.id;
-          response.sources.competitionLab.runCreatedAt = run.startedAt;
+          response.sources.competitionLab.runId = run.runId;
+          response.sources.competitionLab.runCreatedAt = run.createdAt;
 
-          const candidateResult = buildCompetitionCandidates(run, run.id);
+          const candidateResult = buildCompetitionCandidates(run, run.runId);
           response.sources.competitionLab.candidatesCount = candidateResult.candidates.length;
 
           if (candidateResult.candidates.length > 0) {
@@ -275,7 +275,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               companyId,
               importerId: 'competitionLab',
               source: 'lab',
-              sourceId: run.id,
+              sourceId: run.runId,
               extractionPath: candidateResult.extractionPath,
               candidates: candidateResult.candidates,
             });

@@ -27,6 +27,7 @@ import {
   getDomainGroup,
   groupProposalsByDomain,
 } from '@/lib/contextGraph/v4/convergence';
+import { incrementStrategyDocStaleness } from '@/lib/documents/strategyDoc';
 import type { ContextProposal, ContextProposalBatch } from '@/lib/contextGraph/nodes/types';
 
 // ============================================================================
@@ -267,6 +268,11 @@ export async function POST(request: NextRequest) {
         section as 'businessReality' | 'constraints' | 'competition' | 'executionCapabilities',
         'proposal_accepted'
       );
+    }
+
+    // Increment Strategy Doc staleness when context is confirmed
+    if (confirmed.length > 0) {
+      await incrementStrategyDocStaleness(companyId);
     }
 
     console.log(
