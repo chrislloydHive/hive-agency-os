@@ -31,17 +31,32 @@ function createMockArtifact(overrides: Partial<Artifact> = {}): Artifact {
     sourceQbrStoryId: null,
     sourceBriefId: null,
     sourceMediaPlanId: null,
+    sourceContentPlanId: null,
     engagementId: null,
     projectId: null,
     contextVersionAtCreation: 1,
     strategyVersionAtCreation: 1,
+    snapshotId: null,
     isStale: false,
     stalenessReason: null,
     stalenessCheckedAt: null,
+    lastSyncedAt: null,
+    generatedContent: null,
+    generatedMarkdown: null,
+    generatedFormat: null,
+    inputsUsedHash: null,
+    includedTacticIds: null,
+    finalizedAt: null,
+    finalizedBy: null,
+    archivedAt: null,
+    archivedBy: null,
+    archivedReason: null,
     createdBy: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     updatedBy: null,
+    lastEditedAt: null,
+    lastEditedBy: null,
     description: null,
     tags: [],
     ...overrides,
@@ -68,14 +83,14 @@ function createMockFallbackStatus(overrides: Partial<StrategyDocStatusResponse> 
 // ============================================================================
 
 /**
- * Find the active strategy_doc artifact (prefer published, then draft, ignore archived)
+ * Find the active strategy_doc artifact (prefer final, then draft, ignore archived)
  */
 function findActiveStrategyDoc(artifacts: Artifact[]): Artifact | null {
   const strategyDocs = artifacts.filter(a => a.type === 'strategy_doc' && a.status !== 'archived');
 
-  // Prefer published
-  const published = strategyDocs.find(a => a.status === 'published');
-  if (published) return published;
+  // Prefer final
+  const final = strategyDocs.find(a => a.status === 'final');
+  if (final) return final;
 
   // Fall back to draft
   const draft = strategyDocs.find(a => a.status === 'draft');
@@ -138,15 +153,15 @@ describe('StrategyDocCard State Derivation', () => {
       expect(findActiveStrategyDoc(artifacts)).toBeNull();
     });
 
-    it('prefers published over draft', () => {
+    it('prefers final over draft', () => {
       const draft = createMockArtifact({ id: 'draft-1', status: 'draft' });
-      const published = createMockArtifact({ id: 'published-1', status: 'published' });
-      const artifacts = [draft, published];
+      const final = createMockArtifact({ id: 'final-1', status: 'final' });
+      const artifacts = [draft, final];
 
-      expect(findActiveStrategyDoc(artifacts)?.id).toBe('published-1');
+      expect(findActiveStrategyDoc(artifacts)?.id).toBe('final-1');
     });
 
-    it('returns draft when no published exists', () => {
+    it('returns draft when no final exists', () => {
       const draft = createMockArtifact({ id: 'draft-1', status: 'draft' });
       const archived = createMockArtifact({ id: 'archived-1', status: 'archived' });
       const artifacts = [draft, archived];
@@ -155,7 +170,7 @@ describe('StrategyDocCard State Derivation', () => {
     });
 
     it('ignores non-strategy_doc types', () => {
-      const qbrSlides = createMockArtifact({ id: 'qbr-1', type: 'qbr_slides', status: 'published' });
+      const qbrSlides = createMockArtifact({ id: 'qbr-1', type: 'qbr_slides', status: 'final' });
       const strategyDoc = createMockArtifact({ id: 'strategy-1', type: 'strategy_doc', status: 'draft' });
       const artifacts = [qbrSlides, strategyDoc];
 
@@ -239,11 +254,11 @@ describe('StrategyDocCard State Derivation', () => {
 describe('StrategyDocCard Backend Selection', () => {
   it('uses artifacts when API returns 200', async () => {
     // This tests the logic: if artifacts API returns OK, use artifacts backend
-    const artifacts = [createMockArtifact({ status: 'published' })];
+    const artifacts = [createMockArtifact({ status: 'final' })];
     const activeArtifact = findActiveStrategyDoc(artifacts);
 
     expect(activeArtifact).not.toBeNull();
-    expect(activeArtifact?.status).toBe('published');
+    expect(activeArtifact?.status).toBe('final');
   });
 
   it('falls back when no strategy_doc artifacts exist', async () => {
@@ -257,9 +272,9 @@ describe('StrategyDocCard Backend Selection', () => {
 
   it('handles mixed artifact types correctly', () => {
     const artifacts = [
-      createMockArtifact({ id: 'qbr-1', type: 'qbr_slides', status: 'published' }),
+      createMockArtifact({ id: 'qbr-1', type: 'qbr_slides', status: 'final' }),
       createMockArtifact({ id: 'brief-1', type: 'brief_doc', status: 'draft' }),
-      createMockArtifact({ id: 'media-1', type: 'media_plan', status: 'published' }),
+      createMockArtifact({ id: 'media-1', type: 'media_plan', status: 'final' }),
     ];
 
     const activeStrategyDoc = findActiveStrategyDoc(artifacts);

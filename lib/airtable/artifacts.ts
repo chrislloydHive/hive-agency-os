@@ -14,7 +14,11 @@ import type {
   GoogleFileType,
   CreateArtifactInput,
   UpdateArtifactInput,
+  ArtifactUsage,
+  ArtifactReference,
+  ArtifactFeedbackEntry,
 } from '@/lib/types/artifact';
+import { createDefaultUsage } from '@/lib/types/artifact';
 
 // ============================================================================
 // Constants
@@ -47,6 +51,57 @@ function mapAirtableRecord(record: {
   const tagsStr = fields['tags'] as string | undefined;
   const tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
 
+  // Parse included tactic IDs from comma-separated string
+  const tacticsStr = fields['includedTacticIds'] as string | undefined;
+  const includedTacticIds = tacticsStr ? tacticsStr.split(',').map(t => t.trim()).filter(Boolean) : null;
+
+  // Parse generated content from JSON string
+  let generatedContent: unknown = null;
+  const contentStr = fields['generatedContent'] as string | undefined;
+  if (contentStr) {
+    try {
+      generatedContent = JSON.parse(contentStr);
+    } catch {
+      generatedContent = null;
+    }
+  }
+
+  // Parse usage from JSON string
+  let usage: ArtifactUsage = createDefaultUsage();
+  const usageStr = fields['usageJson'] as string | undefined;
+  if (usageStr) {
+    try {
+      usage = { ...usage, ...JSON.parse(usageStr) };
+    } catch {
+      // Keep default
+    }
+  }
+
+  // Parse lastReferencedBy from JSON string
+  let lastReferencedBy: ArtifactReference | null = null;
+  const refStr = fields['lastReferencedByJson'] as string | undefined;
+  if (refStr) {
+    try {
+      lastReferencedBy = JSON.parse(refStr);
+    } catch {
+      lastReferencedBy = null;
+    }
+  }
+
+  // Parse feedback from JSON string
+  let feedback: ArtifactFeedbackEntry[] = [];
+  const feedbackStr = fields['feedbackJson'] as string | undefined;
+  if (feedbackStr) {
+    try {
+      const parsed = JSON.parse(feedbackStr);
+      if (Array.isArray(parsed)) {
+        feedback = parsed;
+      }
+    } catch {
+      feedback = [];
+    }
+  }
+
   return {
     id: record.id,
     companyId: (fields['companyId'] as string) || '',
@@ -67,23 +122,50 @@ function mapAirtableRecord(record: {
     sourceQbrStoryId: (fields['sourceQbrStoryId'] as string) || null,
     sourceBriefId: (fields['sourceBriefId'] as string) || null,
     sourceMediaPlanId: (fields['sourceMediaPlanId'] as string) || null,
+    sourceContentPlanId: (fields['sourceContentPlanId'] as string) || null,
     engagementId: (fields['engagementId'] as string) || null,
     projectId: (fields['projectId'] as string) || null,
 
     // Staleness
     contextVersionAtCreation: (fields['contextVersionAtCreation'] as number) || null,
     strategyVersionAtCreation: (fields['strategyVersionAtCreation'] as number) || null,
+    snapshotId: (fields['snapshotId'] as string) || null,
     isStale: (fields['isStale'] as boolean) || false,
     stalenessReason: (fields['stalenessReason'] as string) || null,
     stalenessCheckedAt: (fields['stalenessCheckedAt'] as string) || null,
+    lastSyncedAt: (fields['lastSyncedAt'] as string) || null,
+
+    // Generated content
+    generatedContent,
+    generatedMarkdown: (fields['generatedMarkdown'] as string) || null,
+    generatedFormat: (fields['generatedFormat'] as 'structured' | 'markdown' | 'hybrid') || null,
+    inputsUsedHash: (fields['inputsUsedHash'] as string) || null,
+    includedTacticIds,
+
+    // Lifecycle timestamps
+    finalizedAt: (fields['finalizedAt'] as string) || null,
+    finalizedBy: (fields['finalizedBy'] as string) || null,
+    archivedAt: (fields['archivedAt'] as string) || null,
+    archivedBy: (fields['archivedBy'] as string) || null,
+    archivedReason: (fields['archivedReason'] as string) || null,
 
     // Metadata
     createdBy: (fields['createdBy'] as string) || null,
     createdAt: (fields['createdAt'] as string) || new Date().toISOString(),
     updatedAt: (fields['updatedAt'] as string) || new Date().toISOString(),
     updatedBy: (fields['updatedBy'] as string) || null,
+    lastEditedAt: (fields['lastEditedAt'] as string) || null,
+    lastEditedBy: (fields['lastEditedBy'] as string) || null,
     description: (fields['description'] as string) || null,
     tags,
+
+    // Usage & impact tracking
+    usage,
+    lastViewedAt: (fields['lastViewedAt'] as string) || null,
+    lastReferencedBy,
+
+    // Feedback
+    feedback,
   };
 }
 
@@ -104,28 +186,55 @@ function mapCreateInputToFields(
     updatedAt: now,
   };
 
-  // Optional fields
+  // Optional source linking fields
   if (input.sourceStrategyId) fields.sourceStrategyId = input.sourceStrategyId;
   if (input.sourceQbrStoryId) fields.sourceQbrStoryId = input.sourceQbrStoryId;
   if (input.sourceBriefId) fields.sourceBriefId = input.sourceBriefId;
   if (input.sourceMediaPlanId) fields.sourceMediaPlanId = input.sourceMediaPlanId;
+  if (input.sourceContentPlanId) fields.sourceContentPlanId = input.sourceContentPlanId;
   if (input.engagementId) fields.engagementId = input.engagementId;
   if (input.projectId) fields.projectId = input.projectId;
 
+  // Google Drive fields
   if (input.googleFileId) fields.googleFileId = input.googleFileId;
   if (input.googleFileType) fields.googleFileType = input.googleFileType;
   if (input.googleFileUrl) fields.googleFileUrl = input.googleFileUrl;
   if (input.googleFolderId) fields.googleFolderId = input.googleFolderId;
 
+  // Metadata
   if (input.description) fields.description = input.description;
   if (input.tags?.length) fields.tags = input.tags.join(',');
   if (input.createdBy) fields.createdBy = input.createdBy;
 
+  // Version tracking
   if (input.contextVersionAtCreation !== undefined) {
     fields.contextVersionAtCreation = input.contextVersionAtCreation;
   }
   if (input.strategyVersionAtCreation !== undefined) {
     fields.strategyVersionAtCreation = input.strategyVersionAtCreation;
+  }
+  if (input.snapshotId !== undefined) {
+    fields.snapshotId = input.snapshotId;
+  }
+  if (input.lastSyncedAt !== undefined) {
+    fields.lastSyncedAt = input.lastSyncedAt;
+  }
+
+  // Generated content fields
+  if (input.generatedContent !== undefined) {
+    fields.generatedContent = JSON.stringify(input.generatedContent);
+  }
+  if (input.generatedMarkdown !== undefined) {
+    fields.generatedMarkdown = input.generatedMarkdown;
+  }
+  if (input.generatedFormat !== undefined) {
+    fields.generatedFormat = input.generatedFormat;
+  }
+  if (input.inputsUsedHash !== undefined) {
+    fields.inputsUsedHash = input.inputsUsedHash;
+  }
+  if (input.includedTacticIds?.length) {
+    fields.includedTacticIds = input.includedTacticIds.join(',');
   }
 
   return fields;
@@ -157,6 +266,52 @@ function mapUpdateInputToFields(
   if (input.isStale !== undefined) fields.isStale = input.isStale;
   if (input.stalenessReason !== undefined) fields.stalenessReason = input.stalenessReason;
   if (input.stalenessCheckedAt !== undefined) fields.stalenessCheckedAt = input.stalenessCheckedAt;
+  if (input.snapshotId !== undefined) fields.snapshotId = input.snapshotId;
+  if (input.lastSyncedAt !== undefined) fields.lastSyncedAt = input.lastSyncedAt;
+
+  // Lifecycle updates
+  if (input.finalizedAt !== undefined) fields.finalizedAt = input.finalizedAt;
+  if (input.finalizedBy !== undefined) fields.finalizedBy = input.finalizedBy;
+  if (input.archivedAt !== undefined) fields.archivedAt = input.archivedAt;
+  if (input.archivedBy !== undefined) fields.archivedBy = input.archivedBy;
+  if (input.archivedReason !== undefined) fields.archivedReason = input.archivedReason;
+  if (input.lastEditedAt !== undefined) fields.lastEditedAt = input.lastEditedAt;
+  if (input.lastEditedBy !== undefined) fields.lastEditedBy = input.lastEditedBy;
+
+  // Generated content updates
+  if (input.generatedContent !== undefined) {
+    fields.generatedContent = JSON.stringify(input.generatedContent);
+  }
+  if (input.generatedMarkdown !== undefined) {
+    fields.generatedMarkdown = input.generatedMarkdown;
+  }
+  if (input.generatedFormat !== undefined) {
+    fields.generatedFormat = input.generatedFormat;
+  }
+  if (input.inputsUsedHash !== undefined) {
+    fields.inputsUsedHash = input.inputsUsedHash;
+  }
+  if (input.includedTacticIds !== undefined) {
+    fields.includedTacticIds = input.includedTacticIds?.join(',') ?? '';
+  }
+
+  // Usage tracking updates (metadata only)
+  if (input.usage !== undefined) {
+    fields.usageJson = JSON.stringify(input.usage);
+  }
+  if (input.lastViewedAt !== undefined) {
+    fields.lastViewedAt = input.lastViewedAt;
+  }
+  if (input.lastReferencedBy !== undefined) {
+    fields.lastReferencedByJson = input.lastReferencedBy
+      ? JSON.stringify(input.lastReferencedBy)
+      : '';
+  }
+
+  // Feedback updates
+  if (input.feedback !== undefined) {
+    fields.feedbackJson = JSON.stringify(input.feedback);
+  }
 
   return fields;
 }
@@ -173,11 +328,21 @@ export async function createArtifact(input: CreateArtifactInput): Promise<Artifa
     const now = new Date().toISOString();
     const fields = mapCreateInputToFields(input, now);
 
+    console.log(`[Artifacts] Creating artifact in table "${ARTIFACTS_TABLE}" with type "${input.type}"...`);
+
     const record = await base(ARTIFACTS_TABLE).create(fields as any);
 
     return mapAirtableRecord(record as unknown as { id: string; fields: Record<string, unknown> });
   } catch (error) {
-    console.error('[Artifacts] Failed to create artifact:', error);
+    // Log detailed error info for debugging
+    const airtableError = error as { statusCode?: number; message?: string; error?: string };
+    console.error('[Artifacts] Failed to create artifact:', {
+      table: ARTIFACTS_TABLE,
+      type: input.type,
+      statusCode: airtableError.statusCode,
+      message: airtableError.message || airtableError.error,
+      fullError: error,
+    });
     return null;
   }
 }
@@ -204,6 +369,7 @@ export async function getArtifactById(artifactId: string): Promise<Artifact | nu
  * Get all artifacts for a company
  */
 export async function getArtifactsForCompany(companyId: string): Promise<Artifact[]> {
+  console.log(`[Artifacts] Fetching artifacts for company ${companyId}...`);
   try {
     const records = await base(ARTIFACTS_TABLE)
       .select({
@@ -212,11 +378,13 @@ export async function getArtifactsForCompany(companyId: string): Promise<Artifac
       })
       .all();
 
+    console.log(`[Artifacts] Found ${records.length} artifacts for company ${companyId}`);
     return records.map((r: { id: string; fields: Record<string, unknown> }) =>
       mapAirtableRecord(r)
     );
   } catch (error) {
-    console.error(`[Artifacts] Failed to get artifacts for company ${companyId}:`, error);
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[Artifacts] Failed to get artifacts for company ${companyId}: ${errMsg}`);
     return [];
   }
 }
@@ -240,7 +408,8 @@ export async function getArtifactsForCompanyByType(
       mapAirtableRecord(r)
     );
   } catch (error) {
-    console.error(`[Artifacts] Failed to get artifacts for company ${companyId} type ${type}:`, error);
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[Artifacts] Failed to get artifacts for company ${companyId} type ${type}: ${errMsg}`);
     return [];
   }
 }
@@ -454,17 +623,58 @@ export async function deleteArtifact(artifactId: string): Promise<boolean> {
 }
 
 /**
- * Archive an artifact
+ * Finalize an artifact (draft → final)
+ * Sets finalizedAt timestamp and makes artifact immutable
  */
-export async function archiveArtifact(artifactId: string): Promise<Artifact | null> {
-  return updateArtifactStatus(artifactId, 'archived');
+export async function finalizeArtifact(
+  artifactId: string,
+  userId?: string
+): Promise<Artifact | null> {
+  const now = new Date().toISOString();
+  return updateArtifact(artifactId, {
+    status: 'final',
+    finalizedAt: now,
+    finalizedBy: userId,
+  });
 }
 
 /**
- * Publish an artifact
+ * Archive an artifact (draft/final → archived)
+ * Sets archivedAt timestamp and optional reason
  */
-export async function publishArtifact(artifactId: string): Promise<Artifact | null> {
-  return updateArtifactStatus(artifactId, 'published');
+export async function archiveArtifact(
+  artifactId: string,
+  reason?: string,
+  userId?: string
+): Promise<Artifact | null> {
+  const now = new Date().toISOString();
+  return updateArtifact(artifactId, {
+    status: 'archived',
+    archivedAt: now,
+    archivedBy: userId,
+    archivedReason: reason ?? null,
+  });
+}
+
+/**
+ * Update artifact content (only allowed for draft artifacts)
+ * Tracks lastEditedAt/By for audit trail
+ */
+export async function updateArtifactContent(
+  artifactId: string,
+  content: {
+    generatedContent?: unknown;
+    generatedMarkdown?: string;
+    generatedFormat?: 'structured' | 'markdown' | 'hybrid';
+  },
+  userId?: string
+): Promise<Artifact | null> {
+  const now = new Date().toISOString();
+  return updateArtifact(artifactId, {
+    ...content,
+    lastEditedAt: now,
+    lastEditedBy: userId,
+  });
 }
 
 // ============================================================================

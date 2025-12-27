@@ -5,26 +5,91 @@
 // They live in Google Drive but are tracked and managed in Airtable.
 
 // ============================================================================
+// Usage & Feedback Types
+// ============================================================================
+
+/**
+ * Usage metadata for artifact impact tracking
+ * Automatically updated when artifacts are attached/detached from work items
+ */
+export interface ArtifactUsage {
+  /** Number of work items this artifact is currently attached to */
+  attachedWorkCount: number;
+  /** First time this artifact was attached to any work item */
+  firstAttachedAt: string | null;
+  /** Most recent time this artifact was attached to a work item */
+  lastAttachedAt: string | null;
+  /** Number of attached work items that have been completed */
+  completedWorkCount: number;
+}
+
+/**
+ * Reference to the last entity that referenced this artifact
+ */
+export interface ArtifactReference {
+  type: 'work';
+  id: string;
+  at: string;
+}
+
+/**
+ * Feedback rating options
+ */
+export type ArtifactFeedbackRating = 'helpful' | 'neutral' | 'not_helpful';
+
+/**
+ * A single feedback entry from a user
+ */
+export interface ArtifactFeedbackEntry {
+  /** Rating given by the user */
+  rating: ArtifactFeedbackRating;
+  /** Optional comment from the user */
+  comment?: string;
+  /** When the feedback was submitted */
+  submittedAt: string;
+  /** Who submitted the feedback (user ID or session ID) */
+  submittedBy?: string;
+}
+
+// ============================================================================
 // Core Types
 // ============================================================================
 
 /**
  * Type of artifact - determines template and behavior
+ * Note: Generated artifacts use registry IDs (e.g., 'creative_brief', 'media_brief')
  */
 export type ArtifactType =
-  | 'strategy_doc'   // Strategy document (Google Docs)
-  | 'qbr_slides'     // QBR presentation (Google Slides)
-  | 'brief_doc'      // Brief document (Google Docs)
-  | 'media_plan'     // Media plan spreadsheet (Google Sheets)
-  | 'custom';        // Custom artifact type
+  | 'strategy_doc'      // Strategy document (Google Docs)
+  | 'qbr_slides'        // QBR presentation (Google Slides)
+  | 'brief_doc'         // Brief document (Google Docs)
+  | 'media_plan'        // Media plan spreadsheet (Google Sheets)
+  | 'rfp_response_doc'  // RFP Response document (Google Docs)
+  | 'proposal_slides'   // Proposal presentation (Google Slides)
+  | 'pricing_sheet'     // Pricing spreadsheet (Google Sheets)
+  | 'custom'            // Custom artifact type
+  // Generated artifact types (from registry)
+  | 'creative_brief'
+  | 'media_brief'
+  | 'content_brief'
+  | 'campaign_brief'
+  | 'seo_brief'
+  | 'strategy_summary'
+  | 'stakeholder_summary'
+  | 'acquisition_plan_summary'
+  | 'execution_playbook'
+  | 'experiment_roadmap'
+  | 'channel_analysis'
+  | 'competitive_positioning';
 
 /**
  * Lifecycle status of the artifact
+ * Transitions: draft → final → archived (or draft → archived)
  */
 export type ArtifactStatus =
   | 'draft'      // Being edited, not yet shared
-  | 'published'  // Finalized and shared
-  | 'archived';  // No longer active
+  | 'final'      // Finalized and shared (immutable)
+  | 'archived';  // No longer active (immutable)
 
 /**
  * How the artifact was created - determines source linking
@@ -34,6 +99,8 @@ export type ArtifactSource =
   | 'qbr_export'        // Created from QBR story export
   | 'brief_export'      // Created from brief export
   | 'media_plan_export' // Created from media plan export
+  | 'rfp_export'        // Created from RFP/proposal workflow
+  | 'ai_generated'      // Created by AI artifact generator
   | 'manual';           // Manually created by user
 
 /**
@@ -122,6 +189,9 @@ export interface Artifact {
   /** Strategy version at time of artifact creation (for strategy_doc) */
   strategyVersionAtCreation: number | null;
 
+  /** Snapshot ID at time of artifact creation (for RFP artifacts) */
+  snapshotId: string | null;
+
   /** Is the artifact potentially stale based on context/strategy changes? */
   isStale: boolean;
 
@@ -130,6 +200,50 @@ export interface Artifact {
 
   /** Last time staleness was checked */
   stalenessCheckedAt: string | null;
+
+  /** Last time the artifact was synced/updated with context */
+  lastSyncedAt: string | null;
+
+  // ---------------------------------------------------------------------------
+  // Generated Content (for AI-generated artifacts)
+  // ---------------------------------------------------------------------------
+
+  /** Generated content as JSON (structured or hybrid format) */
+  generatedContent: unknown | null;
+
+  /** Generated content as markdown (for markdown format) */
+  generatedMarkdown: string | null;
+
+  /** Output format of generated content */
+  generatedFormat: 'structured' | 'markdown' | 'hybrid' | null;
+
+  /** Hash of inputs used for generation (for staleness detection) */
+  inputsUsedHash: string | null;
+
+  /** Tactic IDs included in generation */
+  includedTacticIds: string[] | null;
+
+  /** Content plan ID if generated from content plan */
+  sourceContentPlanId: string | null;
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle Timestamps
+  // ---------------------------------------------------------------------------
+
+  /** When the artifact was finalized (status changed to 'final') */
+  finalizedAt: string | null;
+
+  /** User who finalized the artifact */
+  finalizedBy: string | null;
+
+  /** When the artifact was archived (status changed to 'archived') */
+  archivedAt: string | null;
+
+  /** User who archived the artifact */
+  archivedBy: string | null;
+
+  /** Reason for archiving (optional) */
+  archivedReason: string | null;
 
   // ---------------------------------------------------------------------------
   // Metadata
@@ -147,11 +261,37 @@ export interface Artifact {
   /** User who last updated the artifact in Hive OS */
   updatedBy: string | null;
 
+  /** Last time content was edited (for edit tracking) */
+  lastEditedAt: string | null;
+
+  /** User who last edited the content */
+  lastEditedBy: string | null;
+
   /** Optional description/notes */
   description: string | null;
 
   /** Tags for organization */
   tags: string[];
+
+  // ---------------------------------------------------------------------------
+  // Usage & Impact Tracking
+  // ---------------------------------------------------------------------------
+
+  /** Usage metadata (work item attachments, completions) */
+  usage: ArtifactUsage;
+
+  /** Last time the artifact was viewed */
+  lastViewedAt: string | null;
+
+  /** Last entity that referenced this artifact */
+  lastReferencedBy: ArtifactReference | null;
+
+  // ---------------------------------------------------------------------------
+  // Feedback
+  // ---------------------------------------------------------------------------
+
+  /** User feedback entries */
+  feedback: ArtifactFeedbackEntry[];
 }
 
 // ============================================================================
@@ -172,6 +312,7 @@ export interface CreateArtifactInput {
   sourceQbrStoryId?: string;
   sourceBriefId?: string;
   sourceMediaPlanId?: string;
+  sourceContentPlanId?: string;
   engagementId?: string;
   projectId?: string;
 
@@ -189,6 +330,15 @@ export interface CreateArtifactInput {
   // Version tracking for staleness
   contextVersionAtCreation?: number;
   strategyVersionAtCreation?: number;
+  snapshotId?: string;
+  lastSyncedAt?: string;
+
+  // Generated content (for AI-generated artifacts)
+  generatedContent?: unknown;
+  generatedMarkdown?: string;
+  generatedFormat?: 'structured' | 'markdown' | 'hybrid';
+  inputsUsedHash?: string;
+  includedTacticIds?: string[];
 }
 
 /**
@@ -212,6 +362,32 @@ export interface UpdateArtifactInput {
   isStale?: boolean;
   stalenessReason?: string | null;
   stalenessCheckedAt?: string;
+  snapshotId?: string;
+  lastSyncedAt?: string;
+
+  // Lifecycle updates
+  finalizedAt?: string;
+  finalizedBy?: string;
+  archivedAt?: string;
+  archivedBy?: string;
+  archivedReason?: string | null;
+  lastEditedAt?: string;
+  lastEditedBy?: string;
+
+  // Generated content updates
+  generatedContent?: unknown;
+  generatedMarkdown?: string;
+  generatedFormat?: 'structured' | 'markdown' | 'hybrid';
+  inputsUsedHash?: string;
+  includedTacticIds?: string[];
+
+  // Usage tracking updates (metadata only, never mutates content)
+  usage?: Partial<ArtifactUsage>;
+  lastViewedAt?: string;
+  lastReferencedBy?: ArtifactReference | null;
+
+  // Feedback updates
+  feedback?: ArtifactFeedbackEntry[];
 }
 
 // ============================================================================
@@ -264,6 +440,11 @@ export interface StalenessCheckResult {
     artifactStrategyVersion?: number;
     contextFieldsChanged?: string[];
     strategyFieldsChanged?: string[];
+    // RFP artifact staleness details
+    artifactSnapshotId?: string;
+    latestSnapshotId?: string;
+    lastSyncedAt?: string;
+    latestSnapshotCreatedAt?: string;
   };
 }
 
@@ -278,11 +459,14 @@ export function getGoogleFileTypeForArtifact(artifactType: ArtifactType): Google
   switch (artifactType) {
     case 'strategy_doc':
     case 'brief_doc':
+    case 'rfp_response_doc':
     case 'custom':
       return 'document';
     case 'qbr_slides':
+    case 'proposal_slides':
       return 'presentation';
     case 'media_plan':
+    case 'pricing_sheet':
       return 'spreadsheet';
     default:
       return 'document';
@@ -302,6 +486,12 @@ export function getArtifactTypeLabel(type: ArtifactType): string {
       return 'Brief Document';
     case 'media_plan':
       return 'Media Plan';
+    case 'rfp_response_doc':
+      return 'RFP Response';
+    case 'proposal_slides':
+      return 'Proposal Slides';
+    case 'pricing_sheet':
+      return 'Pricing Sheet';
     case 'custom':
       return 'Custom Document';
     default:
@@ -316,8 +506,8 @@ export function getArtifactStatusLabel(status: ArtifactStatus): string {
   switch (status) {
     case 'draft':
       return 'Draft';
-    case 'published':
-      return 'Published';
+    case 'final':
+      return 'Final';
     case 'archived':
       return 'Archived';
     default:
@@ -338,6 +528,10 @@ export function getArtifactSourceLabel(source: ArtifactSource): string {
       return 'Brief Export';
     case 'media_plan_export':
       return 'Media Plan Export';
+    case 'rfp_export':
+      return 'RFP Export';
+    case 'ai_generated':
+      return 'AI Generated';
     case 'manual':
       return 'Manual Creation';
     default:
@@ -364,16 +558,54 @@ export function createEmptyArtifact(companyId: string, type: ArtifactType): Part
     sourceQbrStoryId: null,
     sourceBriefId: null,
     sourceMediaPlanId: null,
+    sourceContentPlanId: null,
     engagementId: null,
     projectId: null,
     contextVersionAtCreation: null,
     strategyVersionAtCreation: null,
+    snapshotId: null,
     isStale: false,
     stalenessReason: null,
     stalenessCheckedAt: null,
+    lastSyncedAt: null,
+    generatedContent: null,
+    generatedMarkdown: null,
+    generatedFormat: null,
+    inputsUsedHash: null,
+    includedTacticIds: null,
+    finalizedAt: null,
+    finalizedBy: null,
+    archivedAt: null,
+    archivedBy: null,
+    archivedReason: null,
     createdBy: null,
     updatedBy: null,
+    lastEditedAt: null,
+    lastEditedBy: null,
     description: null,
     tags: [],
+    // Usage tracking defaults
+    usage: {
+      attachedWorkCount: 0,
+      firstAttachedAt: null,
+      lastAttachedAt: null,
+      completedWorkCount: 0,
+    },
+    lastViewedAt: null,
+    lastReferencedBy: null,
+    // Feedback defaults
+    feedback: [],
+  };
+}
+
+/**
+ * Create default usage metadata
+ */
+export function createDefaultUsage(): ArtifactUsage {
+  return {
+    attachedWorkCount: 0,
+    firstAttachedAt: null,
+    lastAttachedAt: null,
+    completedWorkCount: 0,
   };
 }

@@ -24,6 +24,7 @@ import type {
 import {
   checkArtifactStaleness,
   getStalenessActions,
+  isRfpArtifactType,
 } from '@/lib/artifacts/stalenessDetection';
 import type { StalenessContext } from '@/lib/artifacts/stalenessDetection';
 
@@ -62,12 +63,32 @@ describe('Artifact Type Helpers', () => {
       expect(getArtifactTypeLabel('media_plan')).toBe('Media Plan');
       expect(getArtifactTypeLabel('custom')).toBe('Custom Document');
     });
+
+    it('returns RFP artifact labels', () => {
+      expect(getArtifactTypeLabel('rfp_response_doc')).toBe('RFP Response');
+      expect(getArtifactTypeLabel('proposal_slides')).toBe('Proposal Slides');
+      expect(getArtifactTypeLabel('pricing_sheet')).toBe('Pricing Sheet');
+    });
+  });
+
+  describe('getGoogleFileTypeForArtifact - RFP types', () => {
+    it('returns document for rfp_response_doc', () => {
+      expect(getGoogleFileTypeForArtifact('rfp_response_doc')).toBe('document');
+    });
+
+    it('returns presentation for proposal_slides', () => {
+      expect(getGoogleFileTypeForArtifact('proposal_slides')).toBe('presentation');
+    });
+
+    it('returns spreadsheet for pricing_sheet', () => {
+      expect(getGoogleFileTypeForArtifact('pricing_sheet')).toBe('spreadsheet');
+    });
   });
 
   describe('getArtifactStatusLabel', () => {
     it('returns human-readable labels', () => {
       expect(getArtifactStatusLabel('draft')).toBe('Draft');
-      expect(getArtifactStatusLabel('published')).toBe('Published');
+      expect(getArtifactStatusLabel('final')).toBe('Final');
       expect(getArtifactStatusLabel('archived')).toBe('Archived');
     });
   });
@@ -79,6 +100,10 @@ describe('Artifact Type Helpers', () => {
       expect(getArtifactSourceLabel('brief_export')).toBe('Brief Export');
       expect(getArtifactSourceLabel('media_plan_export')).toBe('Media Plan Export');
       expect(getArtifactSourceLabel('manual')).toBe('Manual Creation');
+    });
+
+    it('returns RFP export label', () => {
+      expect(getArtifactSourceLabel('rfp_export')).toBe('RFP Export');
     });
   });
 
@@ -123,9 +148,11 @@ describe('Staleness Detection', () => {
       projectId: null,
       contextVersionAtCreation: null,
       strategyVersionAtCreation: 1,
+      snapshotId: null,
       isStale: false,
       stalenessReason: null,
       stalenessCheckedAt: null,
+      lastSyncedAt: null,
       createdBy: null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
@@ -254,6 +281,121 @@ describe('Staleness Detection', () => {
 
       expect(actions.some(a => a.action === 'dismiss')).toBe(true);
       expect(actions.some(a => a.label.includes('Mark as Current'))).toBe(true);
+    });
+
+    it('returns update action for rfp_response_doc', () => {
+      const artifact = createTestArtifact({ type: 'rfp_response_doc' });
+      const actions = getStalenessActions(artifact);
+
+      expect(actions.some(a => a.action === 'update')).toBe(true);
+      expect(actions.some(a => a.label.includes('Insert Updates'))).toBe(true);
+    });
+
+    it('returns open action for proposal_slides', () => {
+      const artifact = createTestArtifact({ type: 'proposal_slides' });
+      const actions = getStalenessActions(artifact);
+
+      expect(actions.some(a => a.action === 'open')).toBe(true);
+      expect(actions.some(a => a.label.includes('Open in Google'))).toBe(true);
+    });
+
+    it('returns open action for pricing_sheet', () => {
+      const artifact = createTestArtifact({ type: 'pricing_sheet' });
+      const actions = getStalenessActions(artifact);
+
+      expect(actions.some(a => a.action === 'open')).toBe(true);
+    });
+  });
+
+  describe('isRfpArtifactType', () => {
+    it('returns true for RFP artifact types', () => {
+      expect(isRfpArtifactType('rfp_response_doc')).toBe(true);
+      expect(isRfpArtifactType('proposal_slides')).toBe(true);
+      expect(isRfpArtifactType('pricing_sheet')).toBe(true);
+    });
+
+    it('returns false for non-RFP artifact types', () => {
+      expect(isRfpArtifactType('strategy_doc')).toBe(false);
+      expect(isRfpArtifactType('qbr_slides')).toBe(false);
+      expect(isRfpArtifactType('brief_doc')).toBe(false);
+      expect(isRfpArtifactType('media_plan')).toBe(false);
+      expect(isRfpArtifactType('custom')).toBe(false);
+    });
+  });
+
+  describe('RFP artifact staleness (snapshot-based)', () => {
+    it('returns stale when snapshot mismatch for rfp_response_doc', () => {
+      const artifact = createTestArtifact({
+        type: 'rfp_response_doc',
+        snapshotId: 'snapshot-old',
+        lastSyncedAt: new Date().toISOString(),
+      });
+
+      const context: StalenessContext = {
+        latestSnapshotId: 'snapshot-new',
+      };
+
+      const result = checkArtifactStaleness(artifact, context);
+
+      expect(result.isStale).toBe(true);
+      expect(result.reason).toContain('Context has been updated');
+    });
+
+    it('returns fresh when snapshot matches for rfp_response_doc', () => {
+      const artifact = createTestArtifact({
+        type: 'rfp_response_doc',
+        snapshotId: 'snapshot-123',
+        lastSyncedAt: new Date().toISOString(),
+      });
+
+      const context: StalenessContext = {
+        latestSnapshotId: 'snapshot-123',
+      };
+
+      const result = checkArtifactStaleness(artifact, context);
+
+      expect(result.isStale).toBe(false);
+    });
+
+    it('returns stale when newer snapshot created after lastSyncedAt', () => {
+      const syncedAt = new Date();
+      syncedAt.setHours(syncedAt.getHours() - 1);
+
+      const snapshotCreatedAt = new Date();
+
+      const artifact = createTestArtifact({
+        type: 'proposal_slides',
+        snapshotId: 'snapshot-123',
+        lastSyncedAt: syncedAt.toISOString(),
+      });
+
+      const context: StalenessContext = {
+        latestSnapshotId: 'snapshot-123', // Same ID but...
+        latestSnapshotCreatedAt: snapshotCreatedAt.toISOString(), // created after sync
+      };
+
+      const result = checkArtifactStaleness(artifact, context);
+
+      expect(result.isStale).toBe(true);
+      expect(result.reason).toContain('snapshot was created after');
+    });
+
+    it('returns fresh for pricing_sheet with no snapshot changes', () => {
+      const now = new Date().toISOString();
+      const artifact = createTestArtifact({
+        type: 'pricing_sheet',
+        snapshotId: 'snapshot-abc',
+        lastSyncedAt: now,
+      });
+
+      const context: StalenessContext = {
+        latestSnapshotId: 'snapshot-abc',
+        latestSnapshotCreatedAt: now,
+      };
+
+      const result = checkArtifactStaleness(artifact, context);
+
+      expect(result.isStale).toBe(false);
     });
   });
 });

@@ -4,6 +4,7 @@
 // Detects when artifacts may be stale due to:
 // - Context graph updates (new values, confirmed fields)
 // - Strategy updates (new version, field changes)
+// - Snapshot mismatch (for RFP artifacts)
 // - Time-based staleness (e.g., >30 days since creation)
 
 import {
@@ -13,6 +14,7 @@ import {
   markArtifactFresh,
 } from '@/lib/airtable/artifacts';
 import { getActiveStrategy } from '@/lib/os/strategy';
+import { getSnapshotMetaForCompany } from '@/lib/contextGraph/snapshots';
 import type { Artifact, StalenessCheckResult } from '@/lib/types/artifact';
 
 // ============================================================================
@@ -33,6 +35,10 @@ export interface StalenessContext {
   strategyVersion?: number;
   /** Current strategy updated timestamp */
   strategyUpdatedAt?: string;
+  /** Latest snapshot ID for the company */
+  latestSnapshotId?: string;
+  /** Latest snapshot created at */
+  latestSnapshotCreatedAt?: string;
 }
 
 export interface CheckStalenessResult {
@@ -74,6 +80,19 @@ export async function checkAndUpdateStaleness(
     }
   }
 
+  // Get latest snapshot for RFP staleness checks
+  if (!staleness.latestSnapshotId) {
+    try {
+      const snapshots = await getSnapshotMetaForCompany(companyId, 1);
+      if (snapshots.length > 0) {
+        staleness.latestSnapshotId = snapshots[0].id;
+        staleness.latestSnapshotCreatedAt = snapshots[0].createdAt;
+      }
+    } catch (e) {
+      // Ignore snapshot fetch errors - fall back to other staleness checks
+    }
+  }
+
   const result: CheckStalenessResult = {
     totalChecked: 0,
     newlyStale: 0,
@@ -112,6 +131,16 @@ export async function checkAndUpdateStaleness(
   return result;
 }
 
+/** RFP artifact types that use snapshot-based staleness */
+const RFP_ARTIFACT_TYPES = ['rfp_response_doc', 'proposal_slides', 'pricing_sheet'] as const;
+
+/**
+ * Check if artifact type is an RFP type
+ */
+export function isRfpArtifactType(type: string): boolean {
+  return (RFP_ARTIFACT_TYPES as readonly string[]).includes(type);
+}
+
 /**
  * Check staleness for a single artifact
  */
@@ -121,6 +150,39 @@ export function checkArtifactStaleness(
 ): StalenessCheckResult {
   const now = new Date();
   const checkedAt = now.toISOString();
+
+  // Check snapshot-based staleness for RFP artifacts
+  if (isRfpArtifactType(artifact.type) && artifact.snapshotId) {
+    // RFP artifacts are stale if there's a newer snapshot
+    if (context.latestSnapshotId && context.latestSnapshotId !== artifact.snapshotId) {
+      return {
+        isStale: true,
+        reason: 'Context has been updated since this artifact was created',
+        checkedAt,
+        details: {
+          artifactSnapshotId: artifact.snapshotId,
+          latestSnapshotId: context.latestSnapshotId,
+        },
+      };
+    }
+
+    // Also check if context was modified after the artifact's lastSyncedAt
+    if (artifact.lastSyncedAt && context.latestSnapshotCreatedAt) {
+      const lastSynced = new Date(artifact.lastSyncedAt);
+      const latestSnapshot = new Date(context.latestSnapshotCreatedAt);
+      if (latestSnapshot > lastSynced) {
+        return {
+          isStale: true,
+          reason: 'Context snapshot was created after this artifact was last synced',
+          checkedAt,
+          details: {
+            lastSyncedAt: artifact.lastSyncedAt,
+            latestSnapshotCreatedAt: context.latestSnapshotCreatedAt,
+          },
+        };
+      }
+    }
+  }
 
   // Check strategy version staleness (for strategy_doc artifacts)
   if (artifact.type === 'strategy_doc' && artifact.strategyVersionAtCreation !== null) {
@@ -258,6 +320,34 @@ export function getStalenessActions(artifact: Artifact): Array<{
       actions.push({
         action: 'regenerate',
         label: 'Regenerate from Brief',
+        priority: 'primary',
+      });
+      actions.push({
+        action: 'dismiss',
+        label: 'Mark as Current',
+        priority: 'secondary',
+      });
+      break;
+
+    case 'rfp_response_doc':
+      actions.push({
+        action: 'update',
+        label: 'Insert Updates',
+        priority: 'primary',
+      });
+      actions.push({
+        action: 'dismiss',
+        label: 'Mark as Current',
+        priority: 'secondary',
+      });
+      break;
+
+    case 'proposal_slides':
+    case 'pricing_sheet':
+      // Slides and sheets don't have update capability, only open or recreate
+      actions.push({
+        action: 'open',
+        label: 'Open in Google',
         priority: 'primary',
       });
       actions.push({

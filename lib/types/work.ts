@@ -98,7 +98,8 @@ export type WorkSourceType =
   | 'strategy_handoff'
   | 'creative_brief'
   | 'user_prescribed'
-  | 'postwon_onboarding';
+  | 'postwon_onboarding'
+  | 'heavy_plan';
 
 /**
  * Analytics metric source - when work is created from an analytics insight
@@ -352,6 +353,30 @@ export interface WorkSourcePostWonOnboarding {
 }
 
 /**
+ * Heavy Plan source - when work is created from an approved Media Plan or Content Plan
+ * Full traceability: Plan → Section → Work Item
+ */
+export interface WorkSourceHeavyPlan {
+  sourceType: 'heavy_plan';
+  /** Plan ID this work came from */
+  planId: string;
+  /** Plan type (media or content) */
+  planType: 'media' | 'content';
+  /** Plan version at conversion time */
+  planVersion: number;
+  /** Section within the plan this item came from */
+  sectionId: string;
+  /** Section name for display */
+  sectionName: string;
+  /** Item index within the section (for ordering) */
+  itemIndex: number;
+  /** Work key for idempotency */
+  workKey: string;
+  /** When conversion was performed */
+  convertedAt: string;
+}
+
+/**
  * Union of all work source types
  */
 export type WorkSource =
@@ -373,7 +398,8 @@ export type WorkSource =
   | WorkSourceStrategyHandoff
   | WorkSourceCreativeBrief
   | WorkSourceUserPrescribed
-  | WorkSourcePostWonOnboarding;
+  | WorkSourcePostWonOnboarding
+  | WorkSourceHeavyPlan;
 
 // ============================================================================
 // Work Item Types
@@ -432,6 +458,28 @@ export interface WorkItem {
   effort?: WorkEffort | string; // S/M/L effort estimate (or free text from Airtable)
   impact?: 'high' | 'medium' | 'low' | string; // Expected impact
   category?: WorkCategory; // Normalized category slug
+
+  // Attached artifacts (snapshot references)
+  artifacts?: WorkItemArtifact[];
+}
+
+/**
+ * Artifact attachment snapshot for work items
+ * Contains essential artifact metadata at time of attachment
+ */
+export interface WorkItemArtifact {
+  /** Artifact ID */
+  artifactId: string;
+  /** Artifact type (from registry) */
+  artifactTypeId: string;
+  /** Title at time of attachment */
+  artifactTitle: string;
+  /** Status at time of attachment */
+  artifactStatus: 'draft' | 'final' | 'archived';
+  /** When the artifact was attached */
+  attachedAt: string;
+  /** Who attached the artifact (optional) */
+  attachedBy?: string;
 }
 
 /**
@@ -556,6 +604,8 @@ export function getSourceLabel(source?: WorkSource): string {
       return `User Prescribed → ${source.workType.replace('_', ' ')}`;
     case 'postwon_onboarding':
       return 'Post-Won Onboarding';
+    case 'heavy_plan':
+      return `${source.planType === 'media' ? 'Media' : 'Content'} Plan → ${source.sectionName}`;
     default:
       return 'Unknown';
   }
@@ -566,4 +616,80 @@ export function getSourceLabel(source?: WorkSource): string {
  */
 export function isToolRunSource(source?: WorkSource): source is WorkSourceToolRun {
   return source?.sourceType === 'tool_run';
+}
+
+/**
+ * Check if a work source is from a heavy plan
+ */
+export function isHeavyPlanSource(source?: WorkSource): source is WorkSourceHeavyPlan {
+  return source?.sourceType === 'heavy_plan';
+}
+
+// ============================================================================
+// Artifact Attachment Helpers
+// ============================================================================
+
+/**
+ * Add an artifact to a work item's artifacts array
+ * Returns a new array (does not mutate the original)
+ */
+export function addArtifactToWorkItem(
+  currentArtifacts: WorkItemArtifact[] | undefined,
+  artifact: WorkItemArtifact
+): WorkItemArtifact[] {
+  const artifacts = currentArtifacts ?? [];
+  // Check if already attached
+  if (artifacts.some(a => a.artifactId === artifact.artifactId)) {
+    return artifacts;
+  }
+  return [...artifacts, artifact];
+}
+
+/**
+ * Remove an artifact from a work item's artifacts array
+ * Returns a new array (does not mutate the original)
+ */
+export function removeArtifactFromWorkItem(
+  currentArtifacts: WorkItemArtifact[] | undefined,
+  artifactId: string
+): WorkItemArtifact[] {
+  const artifacts = currentArtifacts ?? [];
+  return artifacts.filter(a => a.artifactId !== artifactId);
+}
+
+/**
+ * Get attached artifacts from a work item
+ */
+export function getAttachedArtifacts(workItem: WorkItem): WorkItemArtifact[] {
+  return workItem.artifacts ?? [];
+}
+
+/**
+ * Check if an artifact is attached to a work item
+ */
+export function isArtifactAttached(
+  workItem: WorkItem,
+  artifactId: string
+): boolean {
+  return (workItem.artifacts ?? []).some(a => a.artifactId === artifactId);
+}
+
+/**
+ * Create a WorkItemArtifact snapshot from artifact data
+ */
+export function createArtifactSnapshot(
+  artifactId: string,
+  artifactTypeId: string,
+  artifactTitle: string,
+  artifactStatus: 'draft' | 'final' | 'archived',
+  attachedBy?: string
+): WorkItemArtifact {
+  return {
+    artifactId,
+    artifactTypeId,
+    artifactTitle,
+    artifactStatus,
+    attachedAt: new Date().toISOString(),
+    attachedBy,
+  };
 }
