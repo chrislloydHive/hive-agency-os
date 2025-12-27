@@ -32,6 +32,18 @@ import { FieldAIActions, type FieldDraft } from '@/components/os/ai/FieldAIActio
 /** Field keys for the Strategy Frame */
 export type StrategyFrameKey = 'audience' | 'positioning' | 'constraints' | 'valueProp' | 'offering';
 
+/**
+ * Map Strategy Frame keys to their corresponding Context Graph paths.
+ * When a user edits a Strategy Frame field, we also update Context to keep them in sync.
+ */
+const FRAME_TO_CONTEXT_MAP: Record<StrategyFrameKey, string> = {
+  audience: 'audience.primaryAudience',
+  offering: 'productOffer.primaryProducts',
+  valueProp: 'productOffer.valueProposition',
+  positioning: 'brand.positioning',
+  constraints: 'operationalConstraints.legalRestrictions', // Best single mapping for constraints
+};
+
 /** Provenance source for a field */
 export type FieldSource = 'user' | 'context' | 'ai_draft' | 'empty';
 
@@ -78,6 +90,7 @@ export interface InlineEditableFieldProps {
     priorities?: unknown[];
     tactics?: unknown[];
     frame?: unknown;
+    goalStatement?: string;
   };
 
   // Optional callbacks
@@ -177,6 +190,31 @@ export function InlineEditableField({
       // Parse and log response
       const responseData = await response.json().catch(() => null);
       console.log(`[InlineEditableField] Save response for ${fieldKey}:`, responseData);
+
+      // SYNC TO CONTEXT: Also update the corresponding Context field to keep them in sync
+      const contextPath = FRAME_TO_CONTEXT_MAP[fieldKey];
+      if (contextPath) {
+        try {
+          const contextResponse = await fetch('/api/os/context/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              companyId,
+              nodeKey: contextPath,
+              value: trimmedValue,
+              source: 'user',
+            }),
+          });
+          if (contextResponse.ok) {
+            console.log(`[InlineEditableField] Synced ${fieldKey} → Context ${contextPath}`);
+          } else {
+            console.warn(`[InlineEditableField] Failed to sync to Context: ${contextResponse.statusText}`);
+          }
+        } catch (syncError) {
+          // Don't fail the whole save if context sync fails
+          console.warn(`[InlineEditableField] Context sync error (non-fatal):`, syncError);
+        }
+      }
 
       // Success
       setIsEditing(false);

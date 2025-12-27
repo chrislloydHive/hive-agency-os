@@ -416,6 +416,12 @@ export interface CompanyStrategy {
   title: string;
   summary: string;
 
+  // Goal Statement (V9+)
+  /** Plain-language goal statement describing what the user is trying to accomplish */
+  goalStatement?: string;
+  /** Timestamp when goalStatement was last updated */
+  goalStatementUpdatedAt?: string;
+
   // Strategy Frame (inputs/parameters)
   strategyFrame?: StrategyFrame;
 
@@ -776,6 +782,33 @@ export function pillarToStrategicBet(pillar: StrategyPillar): StrategicBet {
     status: pillar.status === 'active' ? 'accepted' : pillar.status === 'completed' ? 'accepted' : 'draft',
     order: pillar.order,
     provenance: pillar.provenance,
+  };
+}
+
+/**
+ * Convert StrategicBet back to StrategyPillar format for persistence
+ */
+export function strategicBetToPillar(bet: StrategicBet): StrategyPillar {
+  // Map status: accepted/rejected → active/draft, draft stays draft
+  const status: 'draft' | 'active' | 'completed' =
+    bet.status === 'accepted' ? 'active' :
+    bet.status === 'rejected' ? 'draft' :
+    'draft';
+
+  // Map confidence back to priority
+  const priority: 'low' | 'medium' | 'high' = bet.confidence || 'medium';
+
+  return {
+    id: bet.id,
+    title: bet.title,
+    description: bet.intent,
+    pros: bet.pros,
+    cons: bet.cons,
+    tradeoffs: bet.tradeoffs,
+    priority,
+    status,
+    order: bet.order,
+    provenance: bet.provenance,
   };
 }
 

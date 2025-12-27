@@ -136,9 +136,9 @@ export function StrategyReadinessGate({
           <div className="flex items-start gap-3">
             <CheckCircle className="w-5 h-5 text-green-400 mt-0.5 shrink-0" />
             <div className="flex-1">
-              <h3 className="text-green-200 font-medium">Context Ready for Strategy</h3>
+              <h3 className="text-green-200 font-medium">Strategy inputs confirmed</h3>
               <p className="text-green-300/70 text-sm mt-1">
-                {readiness.confirmedCount} confirmed fields ({readiness.readinessScore}% readiness)
+                {readiness.confirmedCount} fields confirmed ({readiness.readinessScore}% readiness)
               </p>
             </div>
           </div>

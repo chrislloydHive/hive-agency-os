@@ -4,7 +4,6 @@
 // Project Strategy Workspace client component
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -12,8 +11,6 @@ import {
   CheckCircle2,
   AlertCircle,
   Lock,
-  Sparkles,
-  FileText,
 } from 'lucide-react';
 import type { ProjectViewModel } from '@/lib/os/projects';
 import type { ProjectReadiness } from '@/lib/types/project';
@@ -28,11 +25,9 @@ export function ProjectStrategyClient({
   companyId,
   projectId,
 }: ProjectStrategyClientProps) {
-  const router = useRouter();
   const [viewModel, setViewModel] = useState<ProjectViewModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [generating, setGenerating] = useState(false);
 
   // Fetch project data
   useEffect(() => {
@@ -57,36 +52,6 @@ export function ProjectStrategyClient({
 
     fetchProject();
   }, [companyId, projectId]);
-
-  const handleGenerateBrief = async () => {
-    if (!viewModel?.readiness.canGenerateBrief) return;
-
-    setGenerating(true);
-    setError(null);
-
-    try {
-      const response = await fetch(
-        `/api/os/companies/${companyId}/projects/${projectId}/brief/generate`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: 'create' }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to generate brief');
-      }
-
-      // Navigate to brief page
-      router.push(`/c/${companyId}/projects/${projectId}/brief`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate brief');
-      setGenerating(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -163,46 +128,13 @@ export function ProjectStrategyClient({
               ready={readiness.hasAcceptedBets}
               blockedText="Accept bets"
             />
-
-            <div className="flex-1" />
-
-            {/* Generate Brief CTA */}
-            <button
-              onClick={handleGenerateBrief}
-              disabled={!readiness.canGenerateBrief || generating || isLocked}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {generating ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Sparkles className="w-4 h-4" />
-              )}
-              Generate Creative Brief
-            </button>
           </div>
         </div>
       </div>
 
       {/* Content */}
       <div className="max-w-6xl mx-auto px-6 py-6">
-        {/* Blocked reason */}
-        {readiness.blockedReason && !readiness.canGenerateBrief && (
-          <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-amber-400 font-medium">
-                  Complete the following to generate a brief:
-                </p>
-                <p className="text-amber-300/80 text-sm mt-1">
-                  {readiness.blockedReason}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Strategy workspace placeholder */}
+        {/* Strategy workspace */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Frame */}
           <div className="lg:col-span-3 p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">

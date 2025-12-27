@@ -340,14 +340,16 @@ describe('InputsUsedIndicator Component Logic', () => {
 describe('Strategy Health Integration Scenarios', () => {
   describe('Fresh Company (No Data)', () => {
     it('should handle fresh company with no health data', () => {
-      const health = null;
+      const health = null as V4HealthResponse | null;
       const strategyId = null;
 
       // Empty state should not show health gate (loading)
-      expect(health !== null && health?.status !== 'GREEN').toBe(false);
+      const showGate = health !== null && health.status !== 'GREEN';
+      expect(showGate).toBe(false);
 
       // No ready indicator either
-      expect(health?.status === 'GREEN').toBeFalsy();
+      const isGreen = health !== null && health.status === 'GREEN';
+      expect(isGreen).toBeFalsy();
     });
   });
 

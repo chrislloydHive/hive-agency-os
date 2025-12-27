@@ -9,7 +9,7 @@
 // Workspace: Single editing surface (Frame + Objectives + Bets + Tactics)
 // Blueprint: Read-only narrative (accepted bets only)
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -22,7 +22,9 @@ import {
   Sparkles,
   CheckCircle,
   XCircle,
+  Target,
 } from 'lucide-react';
+import { useGoalStatement, invalidateGoalCache } from '@/hooks/useGoalStatement';
 import {
   useUnifiedStrategyViewModel,
 } from '@/hooks/useUnifiedStrategyViewModel';
@@ -56,6 +58,7 @@ import type {
 } from '@/lib/types/strategy';
 import {
   pillarToStrategicBet,
+  strategicBetToPillar,
   playToTactic,
   normalizeFrame,
   normalizeObjectives,
@@ -141,108 +144,172 @@ function ViewTabs({ currentView, onViewChange }: ViewTabsProps) {
 }
 
 // ============================================================================
-// Validation Chips (Frame Completeness + Context Readiness)
+// Status Indicators (Frame Completeness + Context Readiness + Warnings)
 // ============================================================================
 
-interface ValidationChipsProps {
+interface StatusIndicatorsProps {
   frame: FrameCompleteness;
   context: ContextReadiness;
+  warningCount?: number;
 }
 
-function ValidationChips({ frame, context }: ValidationChipsProps) {
+function StatusIndicators({ frame, context, warningCount = 0 }: StatusIndicatorsProps) {
   const frameChip = getFrameStatusChip(frame);
   const contextChip = getContextStatusChip(context);
 
-  const frameColorClasses = {
-    red: 'bg-red-500/10 text-red-400 border-red-500/30',
-    amber: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
-    emerald: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-  };
-
-  const contextColorClasses = {
-    slate: 'bg-slate-500/10 text-slate-400 border-slate-500/30',
-    amber: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
-    emerald: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-  };
-
   return (
     <div className="flex items-center gap-2">
-      {/* Frame Completeness Chip (Hard Requirement) */}
-      <span
-        className={`text-xs px-2 py-1 rounded border ${frameColorClasses[frameChip.color]}`}
-        title={frameChip.tooltip}
-      >
-        {!frame.isComplete && (
-          <span className="mr-1">
-            {frameChip.color === 'red' ? '🔴' : ''}
-          </span>
-        )}
-        {frameChip.label}
-      </span>
+      {/* Frame Validation - compact, icon + text */}
+      {!frame.isComplete && (
+        <span
+          className="inline-flex items-center gap-1 text-[11px] text-red-400/90"
+          title={frameChip.tooltip}
+        >
+          <XCircle className="w-3 h-3" />
+          <span>{frame.missingFields.length} frame field{frame.missingFields.length !== 1 ? 's' : ''} missing</span>
+        </span>
+      )}
 
-      {/* Context Readiness Chip (Soft Signal) */}
-      <span
-        className={`text-xs px-2 py-1 rounded border ${contextColorClasses[contextChip.color]}`}
-        title={contextChip.tooltip}
-      >
-        {!context.isReady && context.percent < 50 && (
-          <span className="mr-1">🟡</span>
-        )}
-        {contextChip.label}
-      </span>
+      {/* Context Confirmed - compact, icon + text */}
+      {context.isReady ? (
+        <span
+          className="inline-flex items-center gap-1 text-[11px] text-emerald-400/80"
+          title={contextChip.tooltip}
+        >
+          <CheckCircle className="w-3 h-3" />
+          <span>Inputs confirmed</span>
+        </span>
+      ) : (
+        <span
+          className="inline-flex items-center gap-1 text-[11px] text-slate-400/70"
+          title={contextChip.tooltip}
+        >
+          <AlertCircle className="w-3 h-3" />
+          <span>{contextChip.label}</span>
+        </span>
+      )}
+
+      {/* Warnings - amber, smaller, always last */}
+      {warningCount > 0 && (
+        <span className="inline-flex items-center gap-1 text-[10px] text-amber-400/70">
+          <AlertCircle className="w-2.5 h-2.5" />
+          <span>{warningCount} signal{warningCount !== 1 ? 's' : ''} may affect quality</span>
+        </span>
+      )}
     </div>
   );
 }
 
 // ============================================================================
-// Inputs Used Indicator
+// Input Chips (Neutral status indicators - subtle icon + tint)
 // ============================================================================
 
-interface InputsUsedIndicatorProps {
+interface InputChipsProps {
   inputs: {
     context: boolean;
     websiteLab: boolean;
     strategy: boolean;
   };
+  companyId: string;
+  strategyId: string | null;
+  /** Callback when Goal chip is clicked (for scrolling to editor) */
+  onGoalClick?: () => void;
+  /** External goalStatement to avoid refetch (for optimistic updates) */
+  externalGoalStatement?: string | null;
 }
 
-function InputsUsedIndicator({ inputs }: InputsUsedIndicatorProps) {
+function InputChips({ inputs, companyId, strategyId, onGoalClick, externalGoalStatement }: InputChipsProps) {
+  // Fetch goalStatement for this strategy (unless external value provided)
+  const { goalStatement: fetchedGoalStatement, loading: goalLoading } = useGoalStatement(companyId, strategyId);
+  // Use external value if provided (for optimistic updates), else use fetched
+  const goalStatement = externalGoalStatement !== undefined ? externalGoalStatement : fetchedGoalStatement;
+  const hasGoal = Boolean(goalStatement && goalStatement.trim());
+
+  const chipClass = (active: boolean) =>
+    `inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] ${
+      active
+        ? 'text-slate-300 bg-slate-800/60'
+        : 'text-slate-500 bg-slate-800/30'
+    }`;
+
+  const iconClass = (active: boolean) =>
+    `w-3 h-3 ${active ? 'text-emerald-400/70' : 'text-slate-600'}`;
+
+  // Goal chip uses amber for missing (warning) state
+  const goalChipClass = hasGoal
+    ? 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] text-slate-300 bg-slate-800/60'
+    : 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] text-amber-400/80 bg-amber-500/10 border border-amber-500/20';
+
+  // Truncate goal for tooltip
+  const goalTooltip = hasGoal
+    ? `Goal: ${goalStatement!.length > 80 ? goalStatement!.slice(0, 80) + '...' : goalStatement}`
+    : 'No goal statement defined';
+
   return (
-    <div className="flex items-center gap-1.5 text-xs text-slate-500">
-      <span>Inputs:</span>
+    <div className="flex items-center gap-1.5">
       <span
-        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded ${
-          inputs.context
-            ? 'bg-emerald-500/10 text-emerald-400'
-            : 'bg-slate-700/50 text-slate-500'
-        }`}
+        className={chipClass(inputs.context)}
         title={inputs.context ? 'Context V4 data available' : 'No Context V4 data'}
       >
-        {inputs.context ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+        {inputs.context ? (
+          <CheckCircle className={iconClass(true)} />
+        ) : (
+          <XCircle className={iconClass(false)} />
+        )}
         Context
       </span>
       <span
-        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded ${
-          inputs.websiteLab
-            ? 'bg-emerald-500/10 text-emerald-400'
-            : 'bg-slate-700/50 text-slate-500'
-        }`}
+        className={chipClass(inputs.websiteLab)}
         title={inputs.websiteLab ? 'WebsiteLab run completed' : 'No WebsiteLab run'}
       >
-        {inputs.websiteLab ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+        {inputs.websiteLab ? (
+          <CheckCircle className={iconClass(true)} />
+        ) : (
+          <XCircle className={iconClass(false)} />
+        )}
         WebsiteLab
       </span>
       <span
-        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded ${
-          inputs.strategy
-            ? 'bg-emerald-500/10 text-emerald-400'
-            : 'bg-slate-700/50 text-slate-500'
-        }`}
+        className={chipClass(inputs.strategy)}
         title={inputs.strategy ? 'Existing strategy data' : 'No existing strategy'}
       >
-        {inputs.strategy ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+        {inputs.strategy ? (
+          <CheckCircle className={iconClass(true)} />
+        ) : (
+          <XCircle className={iconClass(false)} />
+        )}
         Strategy
       </span>
+      {/* Goal chip - shows goal status with fetch, clickable when missing */}
+      {strategyId && (
+        hasGoal ? (
+          <span
+            className={goalChipClass}
+            title={goalTooltip}
+          >
+            {goalLoading ? (
+              <Loader2 className="w-3 h-3 animate-spin text-slate-500" />
+            ) : (
+              <Target className="w-3 h-3 text-emerald-400/70" />
+            )}
+            Goal ✓
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={onGoalClick}
+            className={`${goalChipClass} cursor-pointer hover:bg-amber-500/20 transition-colors`}
+            title="Click to add goal statement"
+          >
+            {goalLoading ? (
+              <Loader2 className="w-3 h-3 animate-spin text-slate-500" />
+            ) : (
+              <Target className="w-3 h-3 text-amber-400/70" />
+            )}
+            Goal missing
+          </button>
+        )
+      )}
     </div>
   );
 }
@@ -285,6 +352,14 @@ export function StrategySurface({
   const [localObjectives, setLocalObjectives] = useState<StrategyObjective[]>([]);
   const [localBets, setLocalBets] = useState<StrategicBet[]>([]);
   const [localTactics, setLocalTactics] = useState<Tactic[]>([]);
+  // Goal statement for optimistic UI updates
+  const [localGoalStatement, setLocalGoalStatement] = useState<string | null>(null);
+
+  // Debounce refs for saves
+  const betsDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const frameDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  // Ref for scrolling to goal editor
+  const goalEditorRef = useRef<HTMLDivElement>(null);
 
   // Context V4 Health (using unified hook)
   const {
@@ -316,6 +391,9 @@ export function StrategySurface({
       // Convert plays to tactics
       const tactics = (data.strategy.plays || []).map(play => playToTactic(play));
       setLocalTactics(tactics);
+
+      // Sync goal statement
+      setLocalGoalStatement(data.strategy.goalStatement || null);
     }
   }, [data]);
 
@@ -362,6 +440,18 @@ export function StrategySurface({
     }
   }, [searchParams, router, companyId]);
 
+  // Cleanup debounce timers on unmount
+  useEffect(() => {
+    return () => {
+      if (betsDebounceRef.current) {
+        clearTimeout(betsDebounceRef.current);
+      }
+      if (frameDebounceRef.current) {
+        clearTimeout(frameDebounceRef.current);
+      }
+    };
+  }, []);
+
   // Handle view change
   const handleViewChange = useCallback((view: StrategyViewMode) => {
     setCurrentView(view);
@@ -382,11 +472,64 @@ export function StrategySurface({
     setStrategyId(strategyId);
   }, [setStrategyId]);
 
-  // Frame update handler
-  const handleFrameUpdate = useCallback((updates: Partial<StrategyFrame>) => {
-    setLocalFrame(prev => ({ ...prev, ...updates }));
-    // TODO: Debounce and sync to server
+  // Goal statement update handler (for optimistic UI)
+  const handleGoalStatementChange = useCallback((goalStatement: string) => {
+    setLocalGoalStatement(goalStatement);
+    // Invalidate cache so useGoalStatement refetches
+    if (data?.strategy?.id) {
+      invalidateGoalCache(companyId, data.strategy.id);
+    }
+  }, [companyId, data?.strategy?.id]);
+
+  // Scroll to goal editor (called from InputChips when "Goal missing" is clicked)
+  const handleGoalClick = useCallback(() => {
+    if (goalEditorRef.current) {
+      goalEditorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Focus the textarea inside if it exists
+      const textarea = goalEditorRef.current.querySelector('textarea');
+      if (textarea) {
+        setTimeout(() => textarea.focus(), 300);
+      }
+    }
   }, []);
+
+  // Frame update handler - saves to server with debounce
+  const handleFrameUpdate = useCallback((updates: Partial<StrategyFrame>) => {
+    setLocalFrame(prev => {
+      const newFrame = { ...prev, ...updates };
+
+      // Debounce server sync to avoid rapid updates
+      if (frameDebounceRef.current) {
+        clearTimeout(frameDebounceRef.current);
+      }
+
+      frameDebounceRef.current = setTimeout(async () => {
+        if (!data?.strategy?.id) return;
+
+        try {
+          const response = await fetch(`/api/os/companies/${companyId}/strategy/apply`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'apply_field',
+              strategyId: data.strategy.id,
+              fieldPath: 'strategyFrame',
+              newValue: newFrame,
+            }),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('[StrategySurface] Failed to save frame:', errorData.error || 'Unknown error');
+          }
+        } catch (error) {
+          console.error('[StrategySurface] Error saving frame:', error);
+        }
+      }, 500); // 500ms debounce
+
+      return newFrame;
+    });
+  }, [companyId, data?.strategy?.id]);
 
   // Objectives update handler
   const handleObjectivesUpdate = useCallback((objectives: StrategyObjective[]) => {
@@ -394,11 +537,42 @@ export function StrategySurface({
     // TODO: Sync to server
   }, []);
 
-  // Bets update handler
+  // Bets update handler - saves to server with debounce
   const handleBetsUpdate = useCallback((bets: StrategicBet[]) => {
     setLocalBets(bets);
-    // TODO: Sync to server
-  }, []);
+
+    // Debounce server sync to avoid rapid updates
+    if (betsDebounceRef.current) {
+      clearTimeout(betsDebounceRef.current);
+    }
+
+    betsDebounceRef.current = setTimeout(async () => {
+      if (!data?.strategy?.id) return;
+
+      try {
+        // Convert bets back to pillars format for storage
+        const pillars = bets.map(strategicBetToPillar);
+
+        const response = await fetch(`/api/os/companies/${companyId}/strategy/apply`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'apply_field',
+            strategyId: data.strategy.id,
+            fieldPath: 'pillars',
+            newValue: pillars,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          console.error('[StrategySurface] Failed to save bets:', errorData.error || 'Unknown error');
+        }
+      } catch (error) {
+        console.error('[StrategySurface] Error saving bets:', error);
+      }
+    }, 500); // 500ms debounce
+  }, [companyId, data?.strategy?.id]);
 
   // Tactics update handler
   const handleTacticsUpdate = useCallback((tactics: Tactic[]) => {
@@ -431,14 +605,63 @@ export function StrategySurface({
     }
   }, [proposeObjectives, proposeStrategy, proposeTactics, refresh]);
 
-  // AI Field Action handler - calls the dedicated field AI endpoint
+  // Map frame field keys to contract field keys for contract-driven generation
+  const FRAME_TO_CONTRACT_KEY: Record<string, string> = {
+    'frame.valueProp': 'valueProp',
+    'frame.positioning': 'positioning',
+    'frame.audience': 'audience',
+  };
+
+  // AI Field Action handler - calls contract-driven endpoint for frame fields
   const handleAIFieldAction = useCallback(async (
     fieldType: string,
     currentValue: string | string[],
     action: FieldAIAction,
     guidance?: string
-  ): Promise<{ value: string | string[] | { variants: string[] }; inputsUsed?: Record<string, boolean> }> => {
+  ): Promise<{
+    value: string | string[] | { variants: string[] };
+    inputsUsed?: Record<string, boolean>;
+    generatedUsing?: { primary: string[]; constraints: string[]; missingPrimary: string[] };
+    debug?: { contractId?: string; confirmedCount?: number };
+  }> => {
     try {
+      // Check if this is a frame field that uses contract-driven generation
+      const contractFieldKey = FRAME_TO_CONTRACT_KEY[fieldType];
+
+      if (contractFieldKey && (action === 'variants' || action === 'suggest')) {
+        // Use contract-driven endpoint for frame fields
+        // strategyId is required - goalStatement is fetched server-side
+        const response = await fetch(`/api/os/companies/${companyId}/strategy/fields/suggest`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            strategyId: data?.strategy?.id,
+            fieldKey: contractFieldKey,
+            currentValue: typeof currentValue === 'string' ? currentValue : undefined,
+            variants: action === 'variants' ? 3 : 1,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Contract-driven generation failed');
+        }
+
+        const result = await response.json();
+
+        // Convert to expected format
+        if (result.variants && result.variants.length > 0) {
+          return {
+            value: { variants: result.variants.map((v: { text: string }) => v.text) },
+            generatedUsing: result.generatedUsing,
+            debug: result.debug,
+          };
+        }
+
+        return { value: currentValue };
+      }
+
+      // Fall back to legacy endpoint for other fields/actions
       const response = await fetch('/api/os/strategy/ai-field', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -466,6 +689,64 @@ export function StrategySurface({
       return { value: currentValue };
     }
   }, [companyId, data?.strategy?.id]);
+
+  // Handle Regenerate with latest context
+  const handleRegenerateStrategy = useCallback(async () => {
+    setIsGenerating(true);
+    try {
+      // Regenerate all layers: objectives, strategy, tactics
+      await proposeObjectives?.();
+      await proposeStrategy?.();
+      await proposeTactics?.();
+      await refresh();
+      await refreshV4Health();
+    } catch (error) {
+      console.error('Strategy regeneration failed:', error);
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [proposeObjectives, proposeStrategy, proposeTactics, refresh, refreshV4Health]);
+
+  // Compute inputs used indicator
+  const inputsUsed = useMemo(() => ({
+    context: (v4Health?.store.total ?? 0) > 0,
+    websiteLab: v4Health?.websiteLab.hasRun ?? false,
+    strategy: !!data?.strategy.id && (localObjectives.length > 0 || localBets.length > 0),
+  }), [v4Health, data?.strategy.id, localObjectives.length, localBets.length]);
+
+  // ============================================================================
+  // Multi-Signal Flow Readiness (Composed)
+  // ============================================================================
+  // Composes multiple readiness signals into a single resolved status.
+  // This proves the multi-signal model works before expanding to other surfaces.
+  const composedReadiness: FlowReadinessResolved | null = useMemo(() => {
+    // Need at least v4Health to compose
+    if (!v4Health) return null;
+
+    const signals = [];
+
+    // Signal 1: Context V4 Health
+    signals.push(contextV4HealthToSignal(v4Health));
+
+    // Signal 2: Strategy Presence
+    const strategyPresenceInfo = {
+      hasStrategy: !!data?.strategy?.id,
+      hasObjectives: localObjectives.length > 0,
+      hasBets: localBets.length > 0,
+      companyId,
+    };
+    signals.push(strategyPresenceToSignal(strategyPresenceInfo));
+
+    return resolveFlowReadiness(signals);
+  }, [v4Health, data?.strategy?.id, localObjectives.length, localBets.length, companyId]);
+
+  // Count warnings from composed readiness for status indicators
+  // Must be defined before any early returns to satisfy Rules of Hooks
+  const warningCount = useMemo(() => {
+    if (!composedReadiness) return 0;
+    // Count WARN-severity reasons (not FAIL which are errors)
+    return composedReadiness.rankedReasons.filter(r => r.severity === 'WARN').length;
+  }, [composedReadiness]);
 
   // Loading state
   if (loading) {
@@ -571,114 +852,74 @@ export function StrategySurface({
     isApplying: false,
   };
 
-  // Handle Regenerate with latest context
-  const handleRegenerateStrategy = useCallback(async () => {
-    setIsGenerating(true);
-    try {
-      // Regenerate all layers: objectives, strategy, tactics
-      await proposeObjectives?.();
-      await proposeStrategy?.();
-      await proposeTactics?.();
-      await refresh();
-      await refreshV4Health();
-    } catch (error) {
-      console.error('Strategy regeneration failed:', error);
-    } finally {
-      setIsGenerating(false);
-    }
-  }, [proposeObjectives, proposeStrategy, proposeTactics, refresh, refreshV4Health]);
-
-  // Compute inputs used indicator
-  const inputsUsed = useMemo(() => ({
-    context: (v4Health?.store.total ?? 0) > 0,
-    websiteLab: v4Health?.websiteLab.hasRun ?? false,
-    strategy: !!data?.strategy.id && (localObjectives.length > 0 || localBets.length > 0),
-  }), [v4Health, data?.strategy.id, localObjectives.length, localBets.length]);
-
-  // ============================================================================
-  // Multi-Signal Flow Readiness (Composed)
-  // ============================================================================
-  // Composes multiple readiness signals into a single resolved status.
-  // This proves the multi-signal model works before expanding to other surfaces.
-  const composedReadiness: FlowReadinessResolved | null = useMemo(() => {
-    // Need at least v4Health to compose
-    if (!v4Health) return null;
-
-    const signals = [];
-
-    // Signal 1: Context V4 Health
-    signals.push(contextV4HealthToSignal(v4Health));
-
-    // Signal 2: Strategy Presence
-    const strategyPresenceInfo = {
-      hasStrategy: !!data?.strategy?.id,
-      hasObjectives: localObjectives.length > 0,
-      hasBets: localBets.length > 0,
-      companyId,
-    };
-    signals.push(strategyPresenceToSignal(strategyPresenceInfo));
-
-    return resolveFlowReadiness(signals);
-  }, [v4Health, data?.strategy?.id, localObjectives.length, localBets.length, companyId]);
-
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        {/* Left: View Tabs */}
-        <div className="flex items-center gap-4">
-          <span className="text-xs text-slate-500">View:</span>
-          <ViewTabs currentView={currentView} onViewChange={handleViewChange} />
-        </div>
+    <div className="space-y-3">
+      {/* ================================================================== */}
+      {/* Row 1: Mode/Scope - View toggle, Strategy selector, Compare action */}
+      {/* ================================================================== */}
+      <div className="flex items-center justify-between">
+        {/* Left: View Toggle (Workspace / Blueprint) */}
+        <ViewTabs currentView={currentView} onViewChange={handleViewChange} />
 
-        {/* Right: Actions Cluster */}
-        <div className="flex items-center gap-4">
-          {/* Inputs Used Indicator */}
-          <InputsUsedIndicator inputs={inputsUsed} />
-
-          {/* Regenerate Button */}
-          <button
-            onClick={handleRegenerateStrategy}
-            disabled={isGenerating || isProposing}
-            className="px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5 transition-colors text-purple-400 hover:text-purple-300 hover:bg-purple-900/30 bg-purple-900/20 border border-purple-700/30 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Regenerate strategy using latest context and inputs"
-          >
-            {(isGenerating || isProposing) ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
-            ) : (
-              <RefreshCw className="w-3 h-3" />
-            )}
-            Regenerate with latest context
-          </button>
-
-          {/* Strategy Switcher - Always show for explicit strategy creation */}
+        {/* Center: Strategy Scope */}
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wider text-slate-500">Strategy</span>
           <StrategySwitcher
             companyId={companyId}
             activeStrategyId={data.activeStrategyId ?? undefined}
             onStrategyChange={(id) => handleStrategyChange(id)}
           />
-
-          {/* Compare Button */}
-          <Link
-            href={`/c/${companyId}/strategy/compare`}
-            className="px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5 transition-colors text-slate-400 hover:text-slate-300 hover:bg-slate-700/50 bg-slate-800/50"
-            title="Compare strategies side-by-side"
-          >
-            <Scale className="w-3 h-3" />
-            Compare
-          </Link>
-
-          {/* Validation Chips (Frame Completeness + Context Readiness) */}
-          <ValidationChips
-            frame={frameCompleteness}
-            context={contextReadiness}
-          />
         </div>
+
+        {/* Right: Compare (secondary action) */}
+        <Link
+          href={`/c/${companyId}/strategy/compare`}
+          className="px-2.5 py-1 text-[11px] font-medium rounded flex items-center gap-1.5 transition-colors text-slate-400 hover:text-slate-300 hover:bg-slate-800/50"
+          title="Compare strategies side-by-side"
+        >
+          <Scale className="w-3 h-3" />
+          Compare
+        </Link>
       </div>
 
-      {/* Multi-Signal Flow Readiness Inline Warning */}
-      {/* Uses composed readiness (Context V4 Health + Strategy Presence) */}
-      {composedReadiness && composedReadiness.status !== 'GREEN' && (
+      {/* ================================================================== */}
+      {/* Row 2: Inputs | Actions | Status */}
+      {/* ================================================================== */}
+      <div className="flex items-center justify-between py-1.5 px-2 bg-slate-900/40 rounded-lg border border-slate-800/50">
+        {/* Left: Input Chips (neutral status) */}
+        <InputChips
+          inputs={inputsUsed}
+          companyId={companyId}
+          strategyId={data.activeStrategyId}
+          onGoalClick={handleGoalClick}
+          externalGoalStatement={localGoalStatement}
+        />
+
+        {/* Center: Primary Action */}
+        <button
+          onClick={handleRegenerateStrategy}
+          disabled={isGenerating || isProposing}
+          className="px-3 py-1 text-[11px] font-medium rounded flex items-center gap-1.5 transition-colors bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 border border-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Regenerate strategy using latest context and inputs"
+        >
+          {(isGenerating || isProposing) ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <Sparkles className="w-3 h-3" />
+          )}
+          Regenerate with latest context
+        </button>
+
+        {/* Right: Status Indicators (validation + warnings) */}
+        <StatusIndicators
+          frame={frameCompleteness}
+          context={contextReadiness}
+          warningCount={warningCount}
+        />
+      </div>
+
+      {/* Flow Readiness Inline Warning (only if errors, not just warnings) */}
+      {composedReadiness && composedReadiness.status === 'RED' && (
         <div className="flex items-center gap-2">
           <FlowReadinessInlineWarningMulti readiness={composedReadiness} />
         </div>
@@ -704,6 +945,9 @@ export function StrategySurface({
           objectives={localObjectives}
           bets={localBets}
           tactics={localTactics}
+          goalStatement={localGoalStatement || undefined}
+          onGoalStatementChange={handleGoalStatementChange}
+          goalEditorRef={goalEditorRef}
           drafts={data.drafts}
           draftsRecord={data.draftsRecord}
           onFrameUpdate={handleFrameUpdate}

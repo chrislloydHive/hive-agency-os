@@ -72,6 +72,7 @@ import {
 } from '@/components/strategy/StalenessBanner';
 import { HandoffButton } from '@/components/strategy/HandoffButton';
 import { ProgramsSummaryCard } from '@/components/os/strategy/ProgramsSummaryCard';
+import { GoalStatementCard, GoalBadge } from '@/components/os/strategy/GoalStatementCard';
 
 // ============================================================================
 // Types
@@ -248,6 +249,9 @@ export function StrategyWorkspaceV5Client({
   // Field-level AI drafts (client-side only, no persistence)
   const [fieldDrafts, setFieldDrafts] = useState<Record<string, FieldDraft>>({});
 
+  // Goal statement (stored in strategy record)
+  const [goalStatement, setGoalStatement] = useState<string>(strategy.goalStatement || '');
+
   // -------------------------------------------------------------------------
   // Field Draft Handlers
   // -------------------------------------------------------------------------
@@ -337,7 +341,8 @@ export function StrategyWorkspaceV5Client({
     priorities,
     tactics,
     frame: viewModelData?.hydratedFrame,
-  }), [objectives, priorities, tactics, viewModelData?.hydratedFrame]);
+    goalStatement, // Include goalStatement for AI generation
+  }), [objectives, priorities, tactics, viewModelData?.hydratedFrame, goalStatement]);
 
   // -------------------------------------------------------------------------
   // Derived State
@@ -737,6 +742,7 @@ export function StrategyWorkspaceV5Client({
         </div>
 
         <div className="flex items-center gap-3">
+          <GoalBadge hasGoal={!!goalStatement} />
           <HealthScoreBadge score={healthSignals.overallHealth} />
 
           {/* NOTE: Removed "AI Analyze" button - all AI actions are in StrategyAIActionsBar */}
@@ -870,6 +876,15 @@ export function StrategyWorkspaceV5Client({
       <div className="flex-1 flex overflow-hidden">
         {/* LEFT: Strategy Frame + Objectives */}
         <div className="w-1/3 border-r border-slate-700 p-4 overflow-y-auto space-y-6">
+          {/* Goal Statement Card - capture intent early */}
+          <GoalStatementCard
+            strategyId={strategy.id}
+            companyId={companyId}
+            goalStatement={goalStatement}
+            onGoalStatementChange={setGoalStatement}
+            defaultEdit={!goalStatement}
+          />
+
           {/* Strategy Frame - lives in Strategy, defaults populated from Context */}
           {viewModelLoading ? (
             <div className="flex items-center justify-center py-8">

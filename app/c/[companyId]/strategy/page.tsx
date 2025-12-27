@@ -1,6 +1,8 @@
 // app/c/[companyId]/strategy/page.tsx
 // Strategy Workspace Page - Unified Surface
 //
+// Part of the Decide phase - wrapped in DecideShell for consistent sub-navigation.
+//
 // VIEW MODES (via ?view=...):
 // - builder (default): Full authoring workspace
 // - blueprint: Read-only visual summary
@@ -25,6 +27,7 @@ import { getActiveStrategy } from '@/lib/os/strategy';
 import { getCompanyContext } from '@/lib/os/context';
 import { Wrench } from 'lucide-react';
 import Link from 'next/link';
+import { DecideShell } from '@/components/os/decide/DecideShell';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,7 +74,7 @@ export default async function StrategyPage({ params, searchParams }: PageProps) 
     ]);
 
     return (
-      <div className="space-y-6">
+      <DecideShell companyId={companyId} activeSubView="strategy">
         {/* Deprecation Banner */}
         <div className="bg-amber-950/30 border border-amber-800/50 rounded-xl p-4">
           <div className="flex items-center justify-between">
@@ -99,7 +102,7 @@ export default async function StrategyPage({ params, searchParams }: PageProps) 
           initialStrategy={strategy}
           contextObjectives={context?.objectives || []}
         />
-      </div>
+      </DecideShell>
     );
   }
 
@@ -114,10 +117,12 @@ export default async function StrategyPage({ params, searchParams }: PageProps) 
   });
 
   return (
-    <StrategySurface
-      companyId={companyId}
-      companyName={company.name}
-      initialView={requestedView}
-    />
+    <DecideShell companyId={companyId} activeSubView="strategy">
+      <StrategySurface
+        companyId={companyId}
+        companyName={company.name}
+        initialView={requestedView}
+      />
+    </DecideShell>
   );
 }

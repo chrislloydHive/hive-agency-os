@@ -14,6 +14,7 @@
 // - Multi-strategy support
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { usePathname } from 'next/navigation';
 import type { StrategyViewModel } from '@/lib/os/strategy/strategyViewModel';
 import type { HydratedStrategyFrame } from '@/lib/os/strategy/strategyHydration';
 import type { StrategyReadiness, StrategyInputs } from '@/lib/os/strategy/strategyInputsHelpers';
@@ -53,6 +54,8 @@ export interface UnifiedStrategyViewModelData {
       sacrifices?: string[];
       risks?: string[];
     };
+    /** Goal statement for AI alignment (strategy-scoped) */
+    goalStatement?: string;
   };
 
   // Multi-strategy support
@@ -212,10 +215,14 @@ export function useUnifiedStrategyViewModel(
     }
   }, [companyId, strategyId]);
 
-  // Initial fetch
+  // Track pathname to detect navigation
+  const pathname = usePathname();
+
+  // Initial fetch - runs on mount AND when pathname changes (navigation)
+  // This ensures fresh data is fetched when navigating to the strategy page
   useEffect(() => {
     fetchViewModel(false);
-  }, [fetchViewModel]);
+  }, [fetchViewModel, pathname]);
 
   // Refresh handler - doesn't show full loading state
   const refresh = useCallback(async () => {

@@ -364,7 +364,7 @@ export function getContextStatusChip(context: ContextReadiness): {
   if (context.isReady) {
     return {
       color: 'emerald',
-      label: 'Context ready',
+      label: 'Inputs confirmed',
       tooltip: 'All context fields available - AI will have high confidence',
     };
   }

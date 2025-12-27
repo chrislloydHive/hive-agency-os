@@ -33,8 +33,6 @@ import {
   MoreHorizontal,
   Scale,
   Sparkles,
-  FileText,
-  Loader2,
 } from 'lucide-react';
 import type {
   StrategyObjective,
@@ -61,6 +59,8 @@ import {
   computeFrameCompleteness,
   type FrameCompleteness,
 } from '@/lib/os/strategy/frameValidation';
+import { GoalStatementCard } from './GoalStatementCard';
+import Link from 'next/link';
 
 // ============================================================================
 // Types
@@ -75,17 +75,16 @@ interface StrategyWorkspaceProps {
   objectives: StrategyObjective[];
   bets: StrategicBet[];
   tactics: Tactic[];
+  // Goal Statement
+  goalStatement?: string;
+  onGoalStatementChange?: (goalStatement: string) => void;
+  /** Ref for scrolling to goal editor from Inputs row */
+  goalEditorRef?: React.RefObject<HTMLDivElement | null>;
   // Drafts (AI-generated items pending approval)
   drafts?: StrategyDraft[];
   draftsRecord?: Record<string, StrategyDraft>;
   // State
   isLoading?: boolean;
-  // Brief generation gating
-  gapStatus?: {
-    isComplete: boolean;
-    gapRunId?: string;
-  };
-  briefId?: string; // Existing brief ID if already generated
   // Callbacks
   onFrameUpdate: (updates: Partial<StrategyFrame>) => void;
   onObjectivesUpdate: (objectives: StrategyObjective[]) => void;
@@ -107,10 +106,6 @@ interface StrategyWorkspaceProps {
     guidance?: string
   ) => Promise<{ value: string | string[] | { variants: string[] }; inputsUsed?: Record<string, boolean> }>;
   isGenerating?: boolean;
-  // Brief generation
-  onGenerateBrief?: () => Promise<{ briefId: string } | null>;
-  onNavigateToBrief?: (briefId: string) => void;
-  isGeneratingBrief?: boolean;
 }
 
 // ============================================================================
@@ -1374,118 +1369,6 @@ function TacticCard({ tactic, bets, onUpdate, onDelete, onTogglePin, onAIFieldAc
 }
 
 // ============================================================================
-// Generate Brief CTA
-// ============================================================================
-
-interface GenerateBriefCTAProps {
-  hasAcceptedBets: boolean;
-  gapStatus?: { isComplete: boolean; gapRunId?: string };
-  briefId?: string;
-  onGenerateBrief?: () => Promise<{ briefId: string } | null>;
-  onNavigateToBrief?: (briefId: string) => void;
-  isGenerating?: boolean;
-}
-
-function GenerateBriefCTA({
-  hasAcceptedBets,
-  gapStatus,
-  briefId,
-  onGenerateBrief,
-  onNavigateToBrief,
-  isGenerating = false,
-}: GenerateBriefCTAProps) {
-  const gapComplete = gapStatus?.isComplete ?? false;
-  const canGenerate = gapComplete && hasAcceptedBets;
-
-  // Build blockers list
-  const blockers: string[] = [];
-  if (!gapComplete) blockers.push('Full GAP analysis required');
-  if (!hasAcceptedBets) blockers.push('At least 1 accepted strategic bet required');
-
-  const handleClick = async () => {
-    if (briefId && onNavigateToBrief) {
-      onNavigateToBrief(briefId);
-      return;
-    }
-    if (canGenerate && onGenerateBrief) {
-      const result = await onGenerateBrief();
-      if (result?.briefId && onNavigateToBrief) {
-        onNavigateToBrief(result.briefId);
-      }
-    }
-  };
-
-  // If brief already exists, show view button
-  if (briefId) {
-    return (
-      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-emerald-500/20">
-              <FileText className="w-5 h-5 text-emerald-400" />
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-emerald-300">Brief Generated</h3>
-              <p className="text-xs text-emerald-400/70">Review and finalize your creative brief</p>
-            </div>
-          </div>
-          <button
-            onClick={handleClick}
-            className="px-4 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors"
-          >
-            View Brief
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Show generate CTA with gating
-  return (
-    <div className={`rounded-xl p-4 ${canGenerate ? 'bg-purple-500/10 border border-purple-500/30' : 'bg-slate-800/50 border border-slate-700'}`}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className={`p-2 rounded-lg ${canGenerate ? 'bg-purple-500/20' : 'bg-slate-700'}`}>
-            <FileText className={`w-5 h-5 ${canGenerate ? 'text-purple-400' : 'text-slate-500'}`} />
-          </div>
-          <div>
-            <h3 className={`text-sm font-medium ${canGenerate ? 'text-purple-300' : 'text-slate-400'}`}>
-              Generate Creative Brief
-            </h3>
-            {canGenerate ? (
-              <p className="text-xs text-purple-400/70">Ready to generate brief from strategy</p>
-            ) : (
-              <p className="text-xs text-slate-500">{blockers.join(' • ')}</p>
-            )}
-          </div>
-        </div>
-        <button
-          onClick={handleClick}
-          disabled={!canGenerate || isGenerating || !onGenerateBrief}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
-            canGenerate
-              ? 'bg-purple-600 hover:bg-purple-500 text-white'
-              : 'bg-slate-700 text-slate-500 cursor-not-allowed'
-          }`}
-        >
-          {isGenerating ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Generating...
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-4 h-4" />
-              Generate Brief
-            </>
-          )}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
 // Tools Row
 // ============================================================================
 
@@ -1535,11 +1418,12 @@ export function StrategyWorkspace({
   objectives,
   bets,
   tactics,
+  goalStatement,
+  onGoalStatementChange,
+  goalEditorRef,
   drafts = [],
   draftsRecord = {},
   isLoading,
-  gapStatus,
-  briefId,
   onFrameUpdate,
   onObjectivesUpdate,
   onBetsUpdate,
@@ -1549,9 +1433,6 @@ export function StrategyWorkspace({
   onAIGenerate,
   onAIFieldAction,
   isGenerating = false,
-  onGenerateBrief,
-  onNavigateToBrief,
-  isGeneratingBrief = false,
 }: StrategyWorkspaceProps) {
   // Filter drafts by scope type
   const objectiveDrafts = useMemo(() => drafts.filter(d => d.scopeType === 'objective'), [drafts]);
@@ -1575,6 +1456,17 @@ export function StrategyWorkspace({
 
   return (
     <div className="space-y-4">
+      {/* Goal Statement - shown above frame as primary strategy input */}
+      <div ref={goalEditorRef}>
+        <GoalStatementCard
+          companyId={companyId}
+          strategyId={strategyId}
+          goalStatement={goalStatement}
+          onGoalStatementChange={onGoalStatementChange}
+          className="mb-0"
+        />
+      </div>
+
       {/* Strategic Frame */}
       <FrameBar
         frame={frame}
@@ -1630,15 +1522,19 @@ export function StrategyWorkspace({
         />
       </div>
 
-      {/* Generate Brief CTA */}
-      <GenerateBriefCTA
-        hasAcceptedBets={hasAcceptedBets}
-        gapStatus={gapStatus}
-        briefId={briefId}
-        onGenerateBrief={onGenerateBrief}
-        onNavigateToBrief={onNavigateToBrief}
-        isGenerating={isGeneratingBrief}
-      />
+      {/* Next Step Hint */}
+      <div className="text-center py-4">
+        <p className="text-sm text-slate-500">
+          Next step: Generate briefs, summaries, and playbooks from this strategy in{' '}
+          <Link
+            href={`/c/${companyId}/deliver/artifacts`}
+            className="text-purple-400 hover:text-purple-300 underline underline-offset-2"
+          >
+            Deliver → Artifacts
+          </Link>
+          .
+        </p>
+      </div>
 
       {/* Tools Row */}
       <ToolsRow onTool={handleTool} />
