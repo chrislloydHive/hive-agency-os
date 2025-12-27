@@ -199,7 +199,7 @@ async function autoConfirmFields(companyId: string) {
   const keysToConfirm = proposed.slice(0, 3).map((f) => f.key);
   console.log(`  Keys to confirm: ${keysToConfirm.join(', ')}`);
 
-  const result = await confirmFieldsV4(companyId, keysToConfirm, 'smoke-test');
+  const result = await confirmFieldsV4(companyId, keysToConfirm, { confirmedBy: 'smoke-test' });
 
   console.log(`  Confirmed: ${result.confirmed?.length ?? 0}`);
   console.log(`  Failed: ${result.failed?.length ?? 0}`);

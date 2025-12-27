@@ -4,6 +4,8 @@
 // Loads context from the ContextGraphs Airtable table and hydrates nodes
 // for the Map and Table views.
 //
+// Part of the Decide phase - wrapped in DecideShell for consistent sub-navigation.
+//
 // Data sources:
 // - ContextGraphs table: Primary source for all context data
 // - Hydrated nodes: Converted from ContextGraph for UI rendering
@@ -25,6 +27,7 @@ import type { CompanyContext } from '@/lib/types/context';
 import type { DraftableState, DraftSource } from '@/lib/os/draft/types';
 import { ContextWorkspaceClient } from './ContextWorkspaceClient';
 import { isContextV4Enabled } from '@/lib/types/contextField';
+import { DecideShell } from '@/components/os/decide/DecideShell';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,7 +107,7 @@ export default async function ContextPage({ params }: PageProps) {
   const v4Enabled = isContextV4Enabled();
 
   return (
-    <div className="space-y-6">
+    <DecideShell companyId={companyId} activeSubView="context">
       <ContextWorkspaceClient
         companyId={companyId}
         companyName={company.name}
@@ -114,6 +117,6 @@ export default async function ContextPage({ params }: PageProps) {
         baselineSignals={baselineSignals}
         v4Enabled={v4Enabled}
       />
-    </div>
+    </DecideShell>
   );
 }

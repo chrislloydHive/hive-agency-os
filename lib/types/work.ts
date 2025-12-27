@@ -99,7 +99,8 @@ export type WorkSourceType =
   | 'creative_brief'
   | 'user_prescribed'
   | 'postwon_onboarding'
-  | 'heavy_plan';
+  | 'heavy_plan'
+  | 'artifact';
 
 /**
  * Analytics metric source - when work is created from an analytics insight
@@ -377,6 +378,28 @@ export interface WorkSourceHeavyPlan {
 }
 
 /**
+ * Artifact source - when work is created from an artifact conversion
+ * Full traceability: Artifact → Section → Work Item
+ */
+export interface WorkSourceArtifact {
+  sourceType: 'artifact';
+  /** Artifact ID this work came from */
+  artifactId: string;
+  /** Artifact type (from registry, e.g., 'media_brief', 'content_brief') */
+  artifactType: string;
+  /** Artifact version or snapshot hash for traceability */
+  artifactVersion: string;
+  /** Section within the artifact this item came from (optional) */
+  sectionId?: string;
+  /** Section name for display (optional) */
+  sectionName?: string;
+  /** Work key for idempotency */
+  workKey: string;
+  /** When conversion was performed */
+  convertedAt: string;
+}
+
+/**
  * Union of all work source types
  */
 export type WorkSource =
@@ -399,7 +422,8 @@ export type WorkSource =
   | WorkSourceCreativeBrief
   | WorkSourceUserPrescribed
   | WorkSourcePostWonOnboarding
-  | WorkSourceHeavyPlan;
+  | WorkSourceHeavyPlan
+  | WorkSourceArtifact;
 
 // ============================================================================
 // Work Item Types
@@ -606,6 +630,8 @@ export function getSourceLabel(source?: WorkSource): string {
       return 'Post-Won Onboarding';
     case 'heavy_plan':
       return `${source.planType === 'media' ? 'Media' : 'Content'} Plan → ${source.sectionName}`;
+    case 'artifact':
+      return `Artifact → ${source.sectionName || source.artifactType}`;
     default:
       return 'Unknown';
   }
@@ -623,6 +649,13 @@ export function isToolRunSource(source?: WorkSource): source is WorkSourceToolRu
  */
 export function isHeavyPlanSource(source?: WorkSource): source is WorkSourceHeavyPlan {
   return source?.sourceType === 'heavy_plan';
+}
+
+/**
+ * Check if a work source is from an artifact
+ */
+export function isArtifactSource(source?: WorkSource): source is WorkSourceArtifact {
+  return source?.sourceType === 'artifact';
 }
 
 // ============================================================================

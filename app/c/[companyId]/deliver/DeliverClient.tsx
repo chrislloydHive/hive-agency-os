@@ -8,8 +8,9 @@
 //
 // UI state is derived from a single selector: getDeliverUIState()
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   AlertCircle,
   ChevronRight,
@@ -18,6 +19,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   FileOutput,
+  Sparkles,
+  Star,
 } from 'lucide-react';
 import { StrategyDocCard } from '@/components/os/overview/StrategyDocCard';
 import { RfpDeliverablesCard } from '@/components/os/overview/RfpDeliverablesCard';
@@ -30,6 +33,12 @@ import {
   type DeliverUIState,
   type DeliverDataInput,
 } from '@/lib/os/ui/deliverUiState';
+import {
+  getArtifactRecommendations,
+  type ScoredRecommendation,
+} from '@/lib/os/artifacts/recommendations';
+import { getArtifactViewerHref } from '@/lib/os/artifacts/navigation';
+import { findExistingArtifact } from '@/lib/os/artifacts/findExistingArtifact';
 
 // ============================================================================
 // Types
@@ -195,6 +204,15 @@ export function DeliverClient({ companyId, companyName }: DeliverClientProps) {
         primaryCTA={uiState.primaryCTA}
         secondaryCTA={uiState.secondaryCTA}
       />
+
+      {/* Next Recommended Artifact - shown when we have strategy and deliverables enabled */}
+      {uiState.showPrimaryDeliverables && strategyId && (
+        <NextRecommendedArtifactCard
+          companyId={companyId}
+          strategyId={strategyId}
+          artifacts={artifacts}
+        />
+      )}
 
       {/* Plans Section */}
       {uiState.showPrimaryDeliverables && (
@@ -424,6 +442,174 @@ function DeliverBanner({ tone, title, body, primaryCTA, secondaryCTA }: DeliverB
             )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Next Recommended Artifact Card
+// ============================================================================
+
+interface NextRecommendedArtifactCardProps {
+  companyId: string;
+  strategyId: string;
+  artifacts: Artifact[];
+}
+
+function NextRecommendedArtifactCard({
+  companyId,
+  strategyId,
+  artifacts,
+}: NextRecommendedArtifactCardProps) {
+  const router = useRouter();
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Get top recommendation
+  const recommendation = useMemo<ScoredRecommendation | null>(() => {
+    const recommendations = getArtifactRecommendations({
+      sourceType: 'strategy',
+      existingArtifacts: artifacts,
+    });
+    // Return first high-priority recommendation, or null if none
+    const highPriority = recommendations.find(r => r.priority === 'high');
+    return highPriority ?? recommendations[0] ?? null;
+  }, [artifacts]);
+
+  // Check if this artifact already exists
+  const existingArtifact = useMemo(() => {
+    if (!recommendation) return null;
+    const result = findExistingArtifact({
+      artifactTypeId: recommendation.type.id,
+      sourceType: 'strategy',
+      sourceId: strategyId,
+      artifacts,
+    });
+    return result.artifact;
+  }, [recommendation, strategyId, artifacts]);
+
+  const handleGenerate = async () => {
+    if (!recommendation) return;
+
+    // If artifact exists, navigate to it
+    if (existingArtifact) {
+      router.push(getArtifactViewerHref(companyId, existingArtifact.id));
+      return;
+    }
+
+    // Otherwise, generate new artifact
+    setIsGenerating(true);
+    setError(null);
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+      const response = await fetch(`/api/os/companies/${companyId}/artifacts/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          artifactTypeId: recommendation.type.id,
+          source: {
+            sourceType: 'strategy',
+            sourceId: strategyId,
+          },
+          mode: 'create',
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        let errorMessage = 'Failed to generate artifact';
+        try {
+          const data = await response.json();
+          errorMessage = data.error || errorMessage;
+        } catch {
+          errorMessage = `Server error: ${response.status} ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+      router.push(getArtifactViewerHref(companyId, data.artifact.id));
+    } catch (err) {
+      console.error('[NextRecommendedArtifactCard] Generation error:', err);
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError('Generation timed out. Please try again.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Generation failed');
+      }
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Don't render if no recommendation
+  if (!recommendation) return null;
+
+  return (
+    <div className="bg-gradient-to-r from-purple-500/10 to-cyan-500/10 border border-purple-500/30 rounded-xl p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-4">
+          <div className="p-3 bg-purple-500/20 rounded-lg">
+            <Sparkles className="w-5 h-5 text-purple-400" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <p className="text-xs text-purple-400/80 uppercase tracking-wider">
+                Next Recommended
+              </p>
+              {recommendation.priority === 'high' && (
+                <span className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-purple-500/20 text-purple-400 rounded">
+                  <Star className="w-2.5 h-2.5" />
+                  High Priority
+                </span>
+              )}
+            </div>
+            <h3 className="text-lg font-semibold text-white">
+              {recommendation.type.label}
+            </h3>
+            <p className="text-sm text-slate-400 mt-1 max-w-md">
+              {recommendation.type.description}
+            </p>
+            {recommendation.reasons.length > 0 && (
+              <p className="text-xs text-purple-400/60 mt-2">
+                {recommendation.reasons.slice(0, 2).join(' • ')}
+              </p>
+            )}
+            {error && (
+              <p className="text-xs text-red-400 mt-2 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                {error}
+              </p>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={handleGenerate}
+          disabled={isGenerating}
+          className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm rounded-lg transition-colors"
+        >
+          {isGenerating ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Generating...
+            </>
+          ) : existingArtifact ? (
+            <>
+              Open
+              <ChevronRight className="w-4 h-4" />
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-4 h-4" />
+              Generate
+            </>
+          )}
+        </button>
       </div>
     </div>
   );

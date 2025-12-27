@@ -136,11 +136,11 @@ export function BrainContextHealthBanner({
             <ChevronRight className="w-3 h-3" />
           </Link>
           <Link
-            href={`/c/${companyId}/brain/labs`}
+            href={`/c/${companyId}/diagnostics`}
             className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-medium text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg transition-colors"
           >
-            Run Labs
-            <FlaskConical className="w-3 h-3" />
+            Go to Discover
+            <ChevronRight className="w-3 h-3" />
           </Link>
         </div>
       </div>

@@ -31,6 +31,7 @@ interface RequestBody {
     priorities?: unknown[];
     tactics?: unknown[];
     frame?: unknown;
+    goalStatement?: string;
   };
 }
 
@@ -50,18 +51,30 @@ function getFieldPrompt(
   scope: FieldScope,
   fieldKey: string,
   currentValue: string | null,
-  contextSummary: string
+  contextSummary: string,
+  hasGoalStatement: boolean = false
 ): string {
   const currentValueText = currentValue
     ? `Current value: "${currentValue}"`
     : 'No current value (field is empty)';
+
+  // Add goal alignment instructions when goalStatement is present
+  const goalAlignmentInstructions = hasGoalStatement
+    ? `
+CRITICAL - Goal Alignment:
+If a STRATEGY GOAL is provided above, you MUST:
+- Ensure your improvement directly supports achieving that goal
+- Do NOT introduce concepts unrelated to the stated goal
+- Keep recommendations focused on the user's stated intent
+`
+    : '';
 
   const baseInstructions = `
 You are helping improve a strategy field. Your goal is to make the content more:
 - Specific and actionable
 - Clear and concise
 - Aligned with the company's context and objectives
-
+${goalAlignmentInstructions}
 ${currentValueText}
 
 Context about the company:
@@ -72,7 +85,7 @@ Return your response in this exact JSON format:
   "draftValue": "Your improved text here",
   "rationale": ["Reason 1 for the change", "Reason 2 for the change"],
   "confidence": "high" | "medium" | "low",
-  "sourcesUsed": ["context", "objectives", "strategy", "tactics"] // which inputs you used
+  "sourcesUsed": ["context", "objectives", "strategy", "tactics", "goal"] // which inputs you used
 }
 
 Only return valid JSON, no other text.
@@ -162,9 +175,17 @@ Include the baseline and target if known.
 function buildContextSummary(
   contextGraph: unknown,
   requestContext?: RequestBody['context']
-): { summary: string; sourcesAvailable: string[] } {
+): { summary: string; sourcesAvailable: string[]; hasGoalStatement: boolean } {
   const parts: string[] = [];
   const sources: string[] = [];
+  let hasGoalStatement = false;
+
+  // Goal Statement (from strategy record) - prioritize this as it represents user intent
+  if (requestContext?.goalStatement && typeof requestContext.goalStatement === 'string' && requestContext.goalStatement.trim()) {
+    hasGoalStatement = true;
+    sources.push('goal');
+    parts.push(`STRATEGY GOAL: "${requestContext.goalStatement.trim()}"`);
+  }
 
   // Context Graph data
   if (contextGraph && typeof contextGraph === 'object') {
@@ -269,6 +290,7 @@ function buildContextSummary(
   return {
     summary: parts.length > 0 ? parts.join('\n\n') : 'No context available.',
     sourcesAvailable: [...new Set(sources)],
+    hasGoalStatement,
   };
 }
 
@@ -303,10 +325,10 @@ export async function POST(
     }
 
     // Build context summary
-    const { summary: contextSummary, sourcesAvailable } = buildContextSummary(contextGraph, context);
+    const { summary: contextSummary, sourcesAvailable, hasGoalStatement } = buildContextSummary(contextGraph, context);
 
-    // Build prompt
-    const prompt = getFieldPrompt(scope, fieldKey, currentValue, contextSummary);
+    // Build prompt (with goal alignment when goalStatement is present)
+    const prompt = getFieldPrompt(scope, fieldKey, currentValue, contextSummary, hasGoalStatement);
 
     // Call Claude
     const anthropic = new Anthropic();

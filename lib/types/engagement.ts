@@ -310,7 +310,7 @@ export function getStatusLabel(status: EngagementStatus): string {
   const labels: Record<EngagementStatus, string> = {
     draft: 'Draft',
     context_gathering: 'Gathering Context',
-    context_approved: 'Context Ready',
+    context_approved: 'Inputs Confirmed',
     in_progress: 'In Progress',
     completed: 'Completed',
   };

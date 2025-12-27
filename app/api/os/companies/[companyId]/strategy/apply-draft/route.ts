@@ -18,7 +18,7 @@ import {
 } from '@/lib/os/strategy/drafts';
 import { computeAllHashes, type StrategyHashes } from '@/lib/os/strategy/hashes';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
-import type { StrategyPillar, StrategyPlay, StrategyObjective } from '@/lib/types/strategy';
+import type { StrategyPillar, StrategyObjective, StrategyPlay } from '@/lib/types/strategy';
 
 // ============================================================================
 // Types
@@ -395,7 +395,7 @@ async function applyDraftToStrategy(
     }
 
     case 'tactic': {
-      // Parse the draft value (full tactic object)
+      // Parse the draft value (full tactic/play object)
       let tacticData: Partial<StrategyPlay>;
       try {
         tacticData = JSON.parse(value);
@@ -405,19 +405,15 @@ async function applyDraftToStrategy(
 
       // If entityId is 'proposed_X', add as new tactic
       if (entityId?.startsWith('proposed_')) {
-        const newTactic: StrategyPlay = {
+        const newPlay: StrategyPlay = {
           id: `play_${Date.now()}`,
           title: tacticData.title || 'New Tactic',
           description: tacticData.description || '',
-          priorityId: tacticData.priorityId,
-          channels: tacticData.channels || [],
-          impact: tacticData.impact || 'medium',
-          effort: tacticData.effort || 'medium',
           status: 'proposed',
           provenance,
         };
 
-        const plays = [...(strategy.plays || []), newTactic];
+        const plays = [...(strategy.plays || []), newPlay];
 
         const updated = await updateStrategy({
           strategyId: strategy.id,
@@ -434,7 +430,7 @@ async function applyDraftToStrategy(
       const plays = (strategy.plays || []).map(play => {
         if (play.id === entityId) {
           if (fieldKey === 'full') {
-            // Replace entire tactic
+            // Replace entire play
             return {
               ...play,
               ...tacticData,

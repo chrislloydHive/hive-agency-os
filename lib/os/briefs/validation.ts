@@ -1,13 +1,17 @@
 // lib/os/briefs/validation.ts
-// Brief generation validation - GAP gating and accepted bets requirement
+// Brief generation validation - Frame completeness and accepted bets requirement
 //
-// Gating Rules (NON-NEGOTIABLE):
-// 1. No brief generation without Full GAP complete
-// 2. No brief generation without at least 1 accepted strategic bet
+// Gating Rules (Decide-driven flow):
+// 1. Strategy must exist
+// 2. Strategic Frame must be complete (audience, valueProp, positioning, constraints)
+// 3. At least 1 strategic bet must be accepted
+//
+// NOTE: Full GAP is NOT required. The new flow is Decide-driven.
 
-import { getLatestOsGapFullReportForCompany } from '@/lib/airtable/gapFullReports';
 import { getProjectStrategyByProjectId } from '@/lib/airtable/projectStrategies';
+import { getActiveStrategy } from '@/lib/os/strategy';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
+import { computeFrameCompleteness } from '@/lib/os/strategy/frameValidation';
 import type { BriefGenerationValidation, BriefType } from '@/lib/types/brief';
 
 // ============================================================================
@@ -24,14 +28,15 @@ export interface BriefValidationResult {
   valid: boolean;
   error?: string;
   missingRequirements?: {
-    gapMissing: boolean;
+    noStrategy: boolean;
+    frameIncomplete: boolean;
     noBetsAccepted: boolean;
     contextIncomplete: boolean;
   };
-  gapData?: {
-    runId: string;
-    score?: number;
-    maturityStage?: string;
+  strategyData?: {
+    strategyId: string;
+    frameComplete: boolean;
+    missingFrameFields?: string[];
   };
   acceptedBetIds?: string[];
   contextSnapshotId?: string;
@@ -44,10 +49,11 @@ export interface BriefValidationResult {
 /**
  * Validate that all requirements are met for brief generation
  *
- * Requirements:
- * 1. Full GAP must be complete (status='ready')
- * 2. At least 1 strategic bet must be accepted
- * 3. Context should be available (warning if incomplete)
+ * Requirements (Decide-driven flow):
+ * 1. Strategy must exist
+ * 2. Strategic Frame must be complete (audience, valueProp, positioning, constraints)
+ * 3. At least 1 strategic bet must be accepted
+ * 4. Context should be available (warning if incomplete, not blocking)
  */
 export async function validateBriefGeneration(
   input: BriefValidationInput
@@ -56,93 +62,115 @@ export async function validateBriefGeneration(
 
   // Track missing requirements
   const missingRequirements = {
-    gapMissing: true,
+    noStrategy: true,
+    frameIncomplete: true,
     noBetsAccepted: true,
     contextIncomplete: false,
   };
 
-  let gapData: BriefValidationResult['gapData'];
+  let strategyData: BriefValidationResult['strategyData'];
   let acceptedBetIds: string[] = [];
   let contextSnapshotId: string | undefined;
 
-  // 1. Check GAP readiness
+  // 1. Check for strategy and frame completeness
   try {
-    const rawReport = await getLatestOsGapFullReportForCompany(companyId);
+    // Try project strategy first, then company strategy
+    let strategy: { id: string; strategyFrame?: Record<string, unknown>; pillars?: Array<{ id: string; status?: string }> } | null = null;
 
-    if (!rawReport) {
+    if (projectId) {
+      const projectStrategy = await getProjectStrategyByProjectId(projectId);
+      if (projectStrategy) {
+        // Map ProjectStrategicFrame to standard frame format for validation
+        const projectFrame = projectStrategy.strategicFrame;
+        strategy = {
+          id: projectStrategy.id,
+          strategyFrame: projectFrame ? {
+            audience: projectFrame.targetAudience,
+            valueProp: projectFrame.coreMessage,
+            positioning: projectFrame.tone, // Best mapping available
+            constraints: projectFrame.constraints,
+          } : undefined,
+          pillars: projectStrategy.strategicBets?.map(b => ({ id: b.id, status: b.status })),
+        };
+      }
+    }
+
+    // Fall back to company strategy if no project strategy
+    if (!strategy) {
+      const companyStrategy = await getActiveStrategy(companyId);
+      if (companyStrategy) {
+        strategy = {
+          id: companyStrategy.id,
+          strategyFrame: companyStrategy.strategyFrame as Record<string, unknown> | undefined,
+          pillars: companyStrategy.pillars?.map(p => ({ id: p.id, status: (p as { status?: string }).status })),
+        };
+      }
+    }
+
+    if (!strategy) {
       return {
         valid: false,
-        error: 'No GAP report found. Run Full GAP before generating a brief.',
+        error: 'No strategy found. Create a strategy before generating a brief.',
         missingRequirements,
       };
     }
 
-    const status = rawReport.fields?.['Status'] as string | undefined;
-    if (status !== 'ready') {
+    missingRequirements.noStrategy = false;
+
+    // Check frame completeness
+    const frameCompleteness = computeFrameCompleteness(strategy.strategyFrame);
+
+    if (!frameCompleteness.isComplete) {
       return {
         valid: false,
-        error: `GAP report is not ready (status: ${status || 'unknown'}). Complete the Full GAP run.`,
-        missingRequirements,
+        error: `Strategic Frame is incomplete. Missing: ${frameCompleteness.missingLabels.join(', ')}`,
+        missingRequirements: {
+          ...missingRequirements,
+          frameIncomplete: true,
+        },
+        strategyData: {
+          strategyId: strategy.id,
+          frameComplete: false,
+          missingFrameFields: frameCompleteness.missingFields,
+        },
       };
     }
 
-    // GAP is ready
-    missingRequirements.gapMissing = false;
-    gapData = {
-      runId: rawReport.id,
-      score: rawReport.fields?.['Overall Score'] as number | undefined,
-      maturityStage: rawReport.fields?.['Maturity Stage'] as string | undefined,
+    missingRequirements.frameIncomplete = false;
+
+    strategyData = {
+      strategyId: strategy.id,
+      frameComplete: true,
     };
+
+    // 2. Check for accepted strategic bets
+    // Note: In the DB, 'accepted' bets are stored as 'active' pillars
+    // (see strategicBetToPillar in lib/types/strategy.ts)
+    const pillars = strategy.pillars || [];
+    acceptedBetIds = pillars
+      .filter((p) => p.status === 'accepted' || p.status === 'active')
+      .map((p) => p.id);
+
+    if (acceptedBetIds.length === 0) {
+      return {
+        valid: false,
+        error: 'No accepted strategic bets. Accept at least one bet before generating a brief.',
+        missingRequirements: {
+          ...missingRequirements,
+          noBetsAccepted: true,
+        },
+        strategyData,
+      };
+    }
+
+    missingRequirements.noBetsAccepted = false;
   } catch (error) {
-    console.error('[BriefValidation] Failed to check GAP:', error);
+    console.error('[BriefValidation] Failed to check strategy:', error);
     return {
       valid: false,
-      error: 'Failed to check GAP status. Please try again.',
+      error: 'Failed to check strategy. Please try again.',
       missingRequirements,
     };
-  }
-
-  // 2. Check for accepted strategic bets
-  if (projectId) {
-    try {
-      const strategy = await getProjectStrategyByProjectId(projectId);
-
-      if (!strategy) {
-        return {
-          valid: false,
-          error: 'No project strategy found. Create a strategy before generating a brief.',
-          missingRequirements,
-        };
-      }
-
-      // Get accepted bets
-      const strategicBets = strategy.strategicBets || [];
-      acceptedBetIds = strategicBets
-        .filter((bet) => bet.status === 'accepted')
-        .map((bet) => bet.id);
-
-      if (acceptedBetIds.length === 0) {
-        return {
-          valid: false,
-          error: 'No accepted strategic bets. Accept at least one bet before generating a brief.',
-          missingRequirements,
-        };
-      }
-
-      missingRequirements.noBetsAccepted = false;
-    } catch (error) {
-      console.error('[BriefValidation] Failed to check strategy:', error);
-      return {
-        valid: false,
-        error: 'Failed to check project strategy. Please try again.',
-        missingRequirements,
-      };
-    }
-  } else {
-    // For engagement-level briefs without a project, we still need accepted bets
-    // This would come from company strategy - for now, skip this check
-    missingRequirements.noBetsAccepted = false;
-    console.warn('[BriefValidation] Engagement-level brief - skipping bet check');
   }
 
   // 3. Check context (warning only, not blocking)
@@ -174,7 +202,7 @@ export async function validateBriefGeneration(
   return {
     valid: true,
     missingRequirements,
-    gapData,
+    strategyData,
     acceptedBetIds,
     contextSnapshotId,
   };
@@ -214,8 +242,17 @@ export function getBlockingMessage(result: BriefValidationResult): string {
 
   const issues: string[] = [];
 
-  if (missing.gapMissing) {
-    issues.push('Complete Full GAP');
+  if (missing.noStrategy) {
+    issues.push('Create a strategy');
+  }
+
+  if (missing.frameIncomplete) {
+    const missingFields = result.strategyData?.missingFrameFields;
+    if (missingFields && missingFields.length > 0) {
+      issues.push(`Complete Strategic Frame (missing: ${missingFields.join(', ')})`);
+    } else {
+      issues.push('Complete Strategic Frame');
+    }
   }
 
   if (missing.noBetsAccepted) {

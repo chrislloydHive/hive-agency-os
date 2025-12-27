@@ -9,6 +9,7 @@
 // - List of artifacts with type, status, stale badge, and Google link
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   FileText,
   Presentation,
@@ -23,6 +24,7 @@ import {
 } from 'lucide-react';
 import type { Artifact, ArtifactType, ArtifactStatus } from '@/lib/types/artifact';
 import { getArtifactTypeLabel, getArtifactStatusLabel } from '@/lib/types/artifact';
+import { getArtifactViewerHref } from '@/lib/os/artifacts/navigation';
 
 // ============================================================================
 // Types
@@ -143,7 +145,7 @@ export function ArtifactsList({
       {/* Artifacts list */}
       <div className="space-y-2">
         {activeArtifacts.map(artifact => (
-          <ArtifactRow key={artifact.id} artifact={artifact} />
+          <ArtifactRow key={artifact.id} artifact={artifact} companyId={companyId} />
         ))}
       </div>
 
@@ -166,9 +168,23 @@ export function ArtifactsList({
 // Artifact Row
 // ============================================================================
 
-function ArtifactRow({ artifact }: { artifact: Artifact }) {
+function ArtifactRow({ artifact, companyId }: { artifact: Artifact; companyId: string }) {
+  const router = useRouter();
+  const viewerHref = getArtifactViewerHref(companyId, artifact.id);
+
+  const handleRowClick = () => {
+    router.push(viewerHref);
+  };
+
+  const stopPropagation = (e: React.MouseEvent) => {
+    e.stopPropagation();
+  };
+
   return (
-    <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-3 flex items-center justify-between">
+    <div
+      onClick={handleRowClick}
+      className="bg-slate-900/50 border border-slate-800 hover:border-slate-700 rounded-lg p-3 flex items-center justify-between cursor-pointer transition-colors"
+    >
       <div className="flex items-center gap-3">
         {/* Type icon */}
         <div className={`p-1.5 rounded-lg ${getTypeIconStyle(artifact.type)}`}>
@@ -197,7 +213,7 @@ function ArtifactRow({ artifact }: { artifact: Artifact }) {
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2" onClick={stopPropagation}>
         {artifact.googleFileUrl && (
           <a
             href={artifact.googleFileUrl}

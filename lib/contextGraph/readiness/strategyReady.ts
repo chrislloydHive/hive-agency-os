@@ -190,10 +190,11 @@ function hasValue<T>(field: WithMetaType<T> | undefined): boolean {
  */
 function hasArrayValue<T>(field: WithMetaArrayType<T> | undefined): boolean {
   if (!field) return false;
+  const val = field.value as unknown;
   // Handle array values
-  if (Array.isArray(field.value)) return field.value.length > 0;
+  if (Array.isArray(val)) return val.length > 0;
   // Handle string values (legacy format or UI storage)
-  if (typeof field.value === 'string') return field.value.trim().length > 0;
+  if (typeof val === 'string') return val.trim().length > 0;
   return false;
 }
 

@@ -23,7 +23,7 @@ const STATUS_OPTIONS: WorkItemStatus[] = ['Backlog', 'Planned', 'In Progress', '
 /**
  * Get a short, display-friendly source label
  */
-function getSourceDisplayLabel(source?: WorkSource): { label: string; type: 'ai' | 'user' | 'diagnostic' | 'manual' } {
+function getSourceDisplayLabel(source?: WorkSource): { label: string; type: 'ai' | 'user' | 'diagnostic' | 'manual' | 'artifact' } {
   if (!source) return { label: 'Manual', type: 'manual' };
 
   switch (source.sourceType) {
@@ -48,6 +48,9 @@ function getSourceDisplayLabel(source?: WorkSource): { label: string; type: 'ai'
       return { label: 'Brief', type: 'user' };
     case 'program':
       return { label: 'Program', type: 'ai' };
+    case 'artifact':
+    case 'heavy_plan':
+      return { label: 'From Artifact', type: 'artifact' };
     default:
       return { label: 'Manual', type: 'manual' };
   }
@@ -134,7 +137,7 @@ function formatRelativeTime(dateStr?: string): string {
 /**
  * Get source icon component
  */
-function SourceIcon({ type }: { type: 'ai' | 'user' | 'diagnostic' | 'manual' }) {
+function SourceIcon({ type }: { type: 'ai' | 'user' | 'diagnostic' | 'manual' | 'artifact' }) {
   switch (type) {
     case 'ai':
       return <Bot className="w-3 h-3" />;
@@ -142,6 +145,8 @@ function SourceIcon({ type }: { type: 'ai' | 'user' | 'diagnostic' | 'manual' })
       return <User className="w-3 h-3" />;
     case 'diagnostic':
       return <Wrench className="w-3 h-3" />;
+    case 'artifact':
+      return <FileText className="w-3 h-3" />;
     default:
       return <Target className="w-3 h-3" />;
   }
@@ -236,6 +241,8 @@ export default function WorkItemCardWithStatus({ item, companyId, isSelected, on
             ? 'bg-blue-500/10 text-blue-300 border-blue-500/30'
             : sourceInfo.type === 'diagnostic'
             ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+            : sourceInfo.type === 'artifact'
+            ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
             : 'bg-slate-700/50 text-slate-300 border-slate-600/50'
         }`}>
           <SourceIcon type={sourceInfo.type} />

@@ -3,9 +3,12 @@
 //
 // POST /api/os/companies/[companyId]/briefs/generate
 //
-// Gating (NON-NEGOTIABLE):
-// - Full GAP must be complete
+// Gating (Decide-driven flow):
+// - Strategy must exist
+// - Strategic Frame must be complete (audience, valueProp, positioning, constraints)
 // - At least 1 accepted strategic bet required
+//
+// NOTE: Full GAP is NOT required. The new flow is Decide-driven.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { generateBrief } from '@/lib/os/briefs/generation';

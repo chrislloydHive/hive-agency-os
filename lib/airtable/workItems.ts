@@ -1101,6 +1101,7 @@ import type {
   WorkSourceToolRun,
   WorkSourceStrategyPlay,
   WorkSourceHeavyPlan,
+  WorkSourceArtifact,
 } from '@/lib/types/work';
 import type { StrategyPlay } from '@/lib/types/strategy';
 
@@ -1838,4 +1839,275 @@ export async function updateWorkItemArtifacts(
     console.error('[Work Items] Error updating work item artifacts:', error);
     throw error;
   }
+}
+
+// ============================================================================
+// Artifact → Work Item Conversion
+// ============================================================================
+
+/**
+ * Input for creating work items from an artifact conversion
+ */
+export interface ArtifactWorkItemInput {
+  title: string;
+  notes: string;
+  area: WorkItemArea;
+  severity: WorkItemSeverity;
+  source: WorkSourceArtifact;
+}
+
+/**
+ * Get existing work keys for an artifact
+ * Used for idempotency checking during conversion
+ *
+ * @param artifactId - The artifact ID to check
+ * @returns Set of existing work keys
+ */
+export async function getExistingWorkKeysForArtifact(artifactId: string): Promise<Set<string>> {
+  try {
+    console.log('[Work Items] Fetching existing work keys for artifact:', artifactId);
+
+    // Fetch all work items that have Source JSON
+    const records = await base('Work Items')
+      .select({
+        fields: [WORK_ITEMS_FIELDS.SOURCE_JSON],
+        filterByFormula: `NOT({${WORK_ITEMS_FIELDS.SOURCE_JSON}} = '')`,
+      })
+      .all();
+
+    // Extract work keys from artifact sources for this artifact
+    const workKeys = new Set<string>();
+    for (const record of records) {
+      const fields = record.fields as WorkItemFields;
+      const sourceJson = fields['Source JSON'];
+      if (sourceJson) {
+        try {
+          const source = JSON.parse(sourceJson) as WorkSource;
+          if (source.sourceType === 'artifact' && source.artifactId === artifactId) {
+            workKeys.add(source.workKey);
+          }
+        } catch {
+          // Skip invalid JSON
+        }
+      }
+    }
+
+    console.log('[Work Items] Found', workKeys.size, 'existing work keys for artifact:', artifactId);
+    return workKeys;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('NOT_FOUND') || errorMessage.includes('UNKNOWN_FIELD_NAME')) {
+      console.log('[Work Items] Table or field not found, returning empty set');
+      return new Set();
+    }
+    console.error('[Work Items] Error fetching work keys for artifact:', errorMessage);
+    return new Set();
+  }
+}
+
+/**
+ * Create work items from an artifact conversion
+ * Supports batch creation with idempotency
+ *
+ * @param input - Configuration for creating work items
+ * @returns Object with created and skipped counts
+ */
+export async function createWorkItemsFromArtifact(input: {
+  companyId: string;
+  items: ArtifactWorkItemInput[];
+  attachArtifact?: {
+    artifactId: string;
+    artifactTypeId: string;
+    artifactTitle: string;
+    artifactStatus: 'draft' | 'final' | 'archived';
+  };
+}): Promise<{ created: WorkItemRecord[]; skippedCount: number }> {
+  const { companyId, items, attachArtifact } = input;
+
+  if (items.length === 0) {
+    return { created: [], skippedCount: 0 };
+  }
+
+  // Get existing work keys for idempotency
+  const artifactId = items[0]?.source?.artifactId;
+  const existingKeys = artifactId ? await getExistingWorkKeysForArtifact(artifactId) : new Set<string>();
+
+  // Filter out items that already exist
+  const itemsToCreate = items.filter(item => !existingKeys.has(item.source.workKey));
+  const skippedCount = items.length - itemsToCreate.length;
+
+  if (itemsToCreate.length === 0) {
+    console.log('[Work Items] All items already exist, skipping creation');
+    return { created: [], skippedCount };
+  }
+
+  console.log('[Work Items] Creating work items from artifact:', {
+    companyId,
+    itemCount: itemsToCreate.length,
+    skippedCount,
+    artifactId,
+    artifactType: items[0]?.source?.artifactType,
+  });
+
+  // Build records for batch creation
+  const recordsToCreate = itemsToCreate.map((item) => {
+    const fields: Record<string, any> = {
+      [WORK_ITEMS_FIELDS.TITLE]: item.title,
+      [WORK_ITEMS_FIELDS.COMPANY]: [companyId],
+      [WORK_ITEMS_FIELDS.AREA]: item.area,
+      [WORK_ITEMS_FIELDS.STATUS]: 'Backlog',
+      [WORK_ITEMS_FIELDS.SEVERITY]: item.severity,
+      [WORK_ITEMS_FIELDS.SOURCE_JSON]: JSON.stringify(item.source),
+    };
+
+    if (item.notes) {
+      fields[WORK_ITEMS_FIELDS.NOTES] = item.notes;
+    }
+
+    // Attach artifact if requested
+    if (attachArtifact) {
+      const artifactSnapshot: WorkItemArtifact = {
+        artifactId: attachArtifact.artifactId,
+        artifactTypeId: attachArtifact.artifactTypeId,
+        artifactTitle: attachArtifact.artifactTitle,
+        artifactStatus: attachArtifact.artifactStatus,
+        attachedAt: new Date().toISOString(),
+      };
+      fields[WORK_ITEMS_FIELDS.ARTIFACTS_JSON] = JSON.stringify([artifactSnapshot]);
+    }
+
+    return { fields };
+  });
+
+  try {
+    // Airtable batch create supports up to 10 records at a time
+    const createdRecords: WorkItemRecord[] = [];
+    const batchSize = 10;
+
+    for (let i = 0; i < recordsToCreate.length; i += batchSize) {
+      const batch = recordsToCreate.slice(i, i + batchSize);
+      const records = await base('Work Items').create(batch);
+
+      if (records && records.length > 0) {
+        createdRecords.push(...records.map(mapWorkItemRecord));
+      }
+    }
+
+    console.log('[Work Items] Work items created successfully from artifact:', {
+      companyId,
+      createdCount: createdRecords.length,
+      skippedCount,
+      artifactId,
+    });
+
+    return { created: createdRecords, skippedCount };
+  } catch (error) {
+    console.error('[Work Items] Error creating work items from artifact:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get work items created from a specific artifact
+ *
+ * @param artifactId - The artifact ID
+ * @returns Array of work items linked to this artifact
+ */
+export async function getWorkItemsForArtifact(artifactId: string): Promise<WorkItemRecord[]> {
+  try {
+    console.log('[Work Items] Fetching work items for artifact:', artifactId);
+
+    // Fetch all work items that have Source JSON
+    const records = await base('Work Items')
+      .select({
+        filterByFormula: `NOT({${WORK_ITEMS_FIELDS.SOURCE_JSON}} = '')`,
+      })
+      .all();
+
+    // Filter those that match the artifactId in Source JSON
+    const matchingRecords: WorkItemRecord[] = [];
+    for (const record of records) {
+      const fields = record.fields as WorkItemFields;
+      const sourceJson = fields['Source JSON'];
+      if (sourceJson) {
+        try {
+          const source = JSON.parse(sourceJson) as WorkSource;
+          if (source.sourceType === 'artifact' && source.artifactId === artifactId) {
+            matchingRecords.push(mapWorkItemRecord(record));
+          }
+        } catch {
+          // Skip invalid JSON
+        }
+      }
+    }
+
+    console.log('[Work Items] Found', matchingRecords.length, 'work items for artifact:', artifactId);
+    return matchingRecords;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('NOT_FOUND') || errorMessage.includes('UNKNOWN_FIELD_NAME')) {
+      console.log('[Work Items] Table or field not found, returning empty array');
+      return [];
+    }
+    console.error('[Work Items] Error fetching work items for artifact:', errorMessage);
+    return [];
+  }
+}
+
+/**
+ * Get work items that have a specific artifact attached
+ *
+ * @param artifactId - The artifact ID to search for in attachments
+ * @returns Array of work items with this artifact attached
+ */
+export async function getWorkItemsWithArtifactAttached(artifactId: string): Promise<WorkItemRecord[]> {
+  try {
+    console.log('[Work Items] Fetching work items with artifact attached:', artifactId);
+
+    // Fetch all work items that have Artifacts JSON
+    const records = await base('Work Items')
+      .select({
+        filterByFormula: `NOT({${WORK_ITEMS_FIELDS.ARTIFACTS_JSON}} = '')`,
+      })
+      .all();
+
+    // Filter those that have the artifactId in their attachments
+    const matchingRecords: WorkItemRecord[] = [];
+    for (const record of records) {
+      const fields = record.fields as WorkItemFields;
+      const artifactsJson = fields['Artifacts JSON'];
+      if (artifactsJson) {
+        try {
+          const artifacts = JSON.parse(artifactsJson) as WorkItemArtifact[];
+          if (Array.isArray(artifacts) && artifacts.some(a => a.artifactId === artifactId)) {
+            matchingRecords.push(mapWorkItemRecord(record));
+          }
+        } catch {
+          // Skip invalid JSON
+        }
+      }
+    }
+
+    console.log('[Work Items] Found', matchingRecords.length, 'work items with artifact attached:', artifactId);
+    return matchingRecords;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('NOT_FOUND') || errorMessage.includes('UNKNOWN_FIELD_NAME')) {
+      console.log('[Work Items] Table or field not found, returning empty array');
+      return [];
+    }
+    console.error('[Work Items] Error fetching work items with artifact attached:', errorMessage);
+    return [];
+  }
+}
+
+/**
+ * Count work items created from a specific artifact
+ *
+ * @param artifactId - The artifact ID
+ * @returns Count of work items linked to this artifact
+ */
+export async function countWorkItemsForArtifact(artifactId: string): Promise<number> {
+  const items = await getWorkItemsForArtifact(artifactId);
+  return items.length;
 }

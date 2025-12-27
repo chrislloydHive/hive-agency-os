@@ -6,7 +6,7 @@
 // Shows correlation analysis between bid readiness signals and RFP outcomes
 // across all companies (institutional learning).
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import {
   ChevronLeft,
@@ -26,9 +26,20 @@ import {
   Gauge,
   Calendar,
   Building2,
+  Sliders,
+  Copy,
+  Check,
+  ArrowRight,
 } from 'lucide-react';
 import type { OutcomeAnalysisResult, OutcomeInsight, LossReasonAnalysis } from '@/lib/os/rfp/analyzeOutcomes';
 import type { OutcomeTimeRange } from '@/lib/airtable/rfp';
+import {
+  suggestReadinessTuning,
+  generatePatchForClipboard,
+  getSuggestionsSummary,
+  type ReadinessTuningSuggestion,
+  type TuningSuggestionResult,
+} from '@/lib/os/rfp/suggestReadinessTuning';
 
 // ============================================================================
 // Types
@@ -227,6 +238,185 @@ function EmptyState() {
 }
 
 // ============================================================================
+// Calibration Suggestions Components
+// ============================================================================
+
+function RiskBadge({ risk }: { risk: 'low' | 'medium' | 'high' }) {
+  const styles = {
+    low: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+    medium: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+    high: 'bg-red-500/20 text-red-400 border-red-500/30',
+  };
+
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded border ${styles[risk]}`}>
+      {risk} risk
+    </span>
+  );
+}
+
+function ImpactBadge({ impact }: { impact: 'minor' | 'moderate' | 'significant' }) {
+  const styles = {
+    minor: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
+    moderate: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+    significant: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  };
+
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded border ${styles[impact]}`}>
+      {impact} impact
+    </span>
+  );
+}
+
+function RationaleChips({ rationale }: { rationale: ReadinessTuningSuggestion['rationale'] }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-2">
+      {rationale.map((r, i) => (
+        <span
+          key={i}
+          className={`text-xs px-2 py-0.5 rounded ${
+            r.type === 'correlation'
+              ? r.value && Number(r.value) > 0
+                ? 'bg-emerald-500/10 text-emerald-400'
+                : 'bg-red-500/10 text-red-400'
+              : 'bg-slate-700 text-slate-400'
+          }`}
+        >
+          {r.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function SuggestionCard({ suggestion }: { suggestion: ReadinessTuningSuggestion }) {
+  return (
+    <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="font-medium text-slate-200">{suggestion.title}</span>
+            <ConfidenceBadge confidence={suggestion.confidence} />
+          </div>
+          <p className="text-sm text-slate-400">{suggestion.description}</p>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <ImpactBadge impact={suggestion.expectedImpact} />
+          <RiskBadge risk={suggestion.risk} />
+        </div>
+      </div>
+
+      {/* Config Changes */}
+      <div className="bg-slate-900/50 rounded-lg p-3 mb-3">
+        <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Changes</div>
+        <div className="space-y-1">
+          {suggestion.changes.map((change, i) => (
+            <div key={i} className="flex items-center gap-2 text-sm">
+              <code className="text-slate-400">{change.path}</code>
+              <span className="text-slate-600">:</span>
+              <span className="text-red-400">{typeof change.from === 'number' ? change.from.toFixed(2) : change.from}</span>
+              <ArrowRight className="w-3 h-3 text-slate-600" />
+              <span className="text-emerald-400">{typeof change.to === 'number' ? change.to.toFixed(2) : change.to}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Rationale */}
+      <RationaleChips rationale={suggestion.rationale} />
+    </div>
+  );
+}
+
+function CalibrationSuggestionsSection({
+  suggestions,
+}: {
+  suggestions: TuningSuggestionResult;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyPatch = () => {
+    const patch = generatePatchForClipboard(suggestions.suggestions);
+    navigator.clipboard.writeText(patch);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (!suggestions.hasEnoughData) {
+    return (
+      <div className="border border-slate-700 rounded-lg p-6 bg-slate-900/50">
+        <div className="flex items-center gap-3 mb-2">
+          <Sliders className="w-5 h-5 text-slate-500" />
+          <h3 className="text-lg font-semibold text-slate-400">Suggested Calibration</h3>
+          <span className="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-400">
+            Advisory
+          </span>
+        </div>
+        <p className="text-slate-500">{suggestions.insufficientDataMessage}</p>
+      </div>
+    );
+  }
+
+  if (suggestions.suggestions.length === 0) {
+    return (
+      <div className="border border-slate-700 rounded-lg p-6 bg-slate-900/50">
+        <div className="flex items-center gap-3 mb-2">
+          <Sliders className="w-5 h-5 text-emerald-400" />
+          <h3 className="text-lg font-semibold text-white">Suggested Calibration</h3>
+          <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+            Well-Tuned
+          </span>
+        </div>
+        <p className="text-slate-400">
+          No calibration suggestions at this time. Current configuration appears well-tuned based on outcome data.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-slate-700 rounded-lg overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 bg-slate-800/50 border-b border-slate-700">
+        <div className="flex items-center gap-3">
+          <Sliders className="w-5 h-5 text-purple-400" />
+          <h3 className="text-lg font-semibold text-white">Suggested Calibration</h3>
+          <span className="text-xs px-2 py-0.5 rounded bg-purple-500/20 text-purple-400 border border-purple-500/30">
+            Advisory
+          </span>
+        </div>
+        <button
+          onClick={handleCopyPatch}
+          className="flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors"
+        >
+          {copied ? (
+            <>
+              <Check className="w-4 h-4 text-emerald-400" />
+              Copied!
+            </>
+          ) : (
+            <>
+              <Copy className="w-4 h-4" />
+              Copy config patch
+            </>
+          )}
+        </button>
+      </div>
+
+      <div className="p-4 space-y-3">
+        <p className="text-sm text-slate-400 mb-4">
+          {getSuggestionsSummary(suggestions)} These suggestions are based on outcome correlations
+          and are advisory only. Review carefully before applying any changes.
+        </p>
+        {suggestions.suggestions.map((suggestion, i) => (
+          <SuggestionCard key={suggestion.id || i} suggestion={suggestion} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -259,6 +449,12 @@ export default function FirmRfpInsightsPage() {
 
     fetchAnalysis();
   }, [timeRange]);
+
+  // Compute tuning suggestions from analysis data
+  const tuningSuggestions = useMemo<TuningSuggestionResult | null>(() => {
+    if (!data?.analysis) return null;
+    return suggestReadinessTuning(data.analysis);
+  }, [data?.analysis]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -362,6 +558,11 @@ export default function FirmRfpInsightsPage() {
                 </div>
               </div>
             </div>
+
+            {/* Calibration Suggestions */}
+            {tuningSuggestions && (
+              <CalibrationSuggestionsSection suggestions={tuningSuggestions} />
+            )}
 
             {/* Top Insights */}
             {data.topInsights.length > 0 && (

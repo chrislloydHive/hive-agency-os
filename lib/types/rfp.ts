@@ -188,6 +188,19 @@ export const RfpSchema = z.object({
     /** User who submitted */
     submittedBy: z.string().nullable().optional(),
   }).nullable().optional(),
+  // V5: Outcome Capture - captured when status changes to won/lost
+  /** When the outcome decision was made (won/lost status set) */
+  outcomeDecisionAt: z.string().nullable().optional(),
+  /** Loss reason tags for analysis */
+  lossReasonTags: z.array(z.string()).optional(),
+  /** Competitor that won (if lost to competitor) */
+  competitorChosen: z.string().nullable().optional(),
+  /** Free-form notes about the decision */
+  decisionNotes: z.string().nullable().optional(),
+  /** Final deal value (if won) */
+  dealValue: z.number().nullable().optional(),
+  /** Budget range mentioned during process */
+  budgetRange: z.string().nullable().optional(),
   createdBy: z.string().nullable(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
@@ -402,3 +415,34 @@ export const RFP_ARTIFACT_TYPES = [
 ] as const;
 
 export type RfpArtifactType = typeof RFP_ARTIFACT_TYPES[number];
+
+// ============================================================================
+// V5: Outcome Capture Types
+// ============================================================================
+
+/** Standard loss reason tags for categorization */
+export const LOSS_REASON_TAGS = [
+  'price',           // Pricing too high/low
+  'timing',          // Timeline didn't align
+  'scope',           // Scope mismatch
+  'competitor',      // Lost to specific competitor
+  'budget',          // Client budget constraints
+  'fit',             // Poor strategic fit
+  'experience',      // Lacked relevant experience
+  'relationship',    // Incumbent or existing relationship won
+  'internal',        // Client went with internal team
+  'cancelled',       // Client cancelled the project
+  'other',           // Other reason
+] as const;
+
+export type LossReasonTag = typeof LOSS_REASON_TAGS[number];
+
+/** Outcome capture data for modal */
+export interface OutcomeCaptureData {
+  outcomeDecisionAt: string;
+  lossReasonTags?: string[];
+  competitorChosen?: string | null;
+  decisionNotes?: string | null;
+  dealValue?: number | null;
+  budgetRange?: string | null;
+}

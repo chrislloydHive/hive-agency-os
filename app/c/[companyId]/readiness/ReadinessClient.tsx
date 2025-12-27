@@ -202,9 +202,17 @@ export function ReadinessClient({ companyId, companyName }: ReadinessClientProps
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-100">Flow Readiness</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-slate-100">AI Quality</h1>
+          <span className="px-2 py-0.5 text-xs font-medium bg-slate-700 text-slate-400 rounded">
+            Advanced
+          </span>
+        </div>
         <p className="text-sm text-slate-400 mt-1">
-          A quick view of what&apos;s ready and what needs attention.
+          Quality signals that influence AI-generated content.
+        </p>
+        <p className="text-xs text-slate-500 mt-2">
+          This is an advanced view. Quality issues are surfaced inline in Decide and Deliver phases.
         </p>
       </div>
 

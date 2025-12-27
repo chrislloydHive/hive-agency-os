@@ -8,10 +8,11 @@
 // - Experiments: A/B tests and growth experiments
 // - Backlog: Suggested work from diagnostics
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { useSearchParams, useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
-import { Lightbulb, Zap, Plus, Loader2, ArrowRight, Target, Clock } from 'lucide-react';
+import { Lightbulb, Zap, Plus, Loader2, ArrowRight, Target, Clock, Info, ChevronRight, FileText, X } from 'lucide-react';
 import type { ExtendedNextBestAction } from '@/lib/os/companies/nextBestAction.types';
 import type {
   WorkItemRecord,
@@ -25,6 +26,9 @@ import { STATUS_LABELS, STATUS_COLORS } from '@/lib/types/workMvp';
 import PriorityCardWithAction from './PriorityCardWithAction';
 import WorkItemCardWithStatus from './WorkItemCardWithStatus';
 import { ExperimentsClient } from '@/components/experiments/ExperimentsClient';
+import { WorkItemArtifactsSection } from '@/components/os/work/WorkItemArtifactsSection';
+import type { WorkItemArtifact, WorkSource } from '@/lib/types/work';
+import { isArtifactSource } from '@/lib/types/work';
 
 // ============================================================================
 // Types
@@ -65,22 +69,52 @@ export function WorkClient({
   fullReportId,
   workItemsByPriorityId,
 }: WorkClientProps) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<ActiveTab>('tasks');
   const [selectedWorkItem, setSelectedWorkItem] = useState<WorkItemRecord | null>(null);
   const [aiAdditionalInfo, setAiAdditionalInfo] = useState<string | null>(null);
   const [loadingAI, setLoadingAI] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
+  // Check for artifact filter from URL
+  const artifactIdFilter = searchParams.get('artifactId');
+
+  // Filter work items by artifact if filter is present
+  const filteredWorkItems = useMemo(() => {
+    if (!artifactIdFilter) return workItems;
+
+    return workItems.filter((item) => {
+      // Check if work item was created from this artifact
+      if (item.source && isArtifactSource(item.source) && item.source.artifactId === artifactIdFilter) {
+        return true;
+      }
+
+      // Check if artifact is attached to this work item
+      const artifacts = item.artifacts as WorkItemArtifact[] | undefined;
+      if (artifacts && artifacts.some(a => a.artifactId === artifactIdFilter)) {
+        return true;
+      }
+
+      return false;
+    });
+  }, [workItems, artifactIdFilter]);
+
+  // Clear artifact filter
+  const clearArtifactFilter = useCallback(() => {
+    router.push(`/c/${company.id}/work`);
+  }, [router, company.id]);
+
   // Group work items by status
   const grouped = {
-    'In Progress': workItems.filter((item) => item.status === 'In Progress'),
-    'Planned': workItems.filter((item) => item.status === 'Planned'),
-    'Backlog': workItems.filter((item) => item.status === 'Backlog'),
-    'Done': workItems.filter((item) => item.status === 'Done'),
+    'In Progress': filteredWorkItems.filter((item) => item.status === 'In Progress'),
+    'Planned': filteredWorkItems.filter((item) => item.status === 'Planned'),
+    'Backlog': filteredWorkItems.filter((item) => item.status === 'Backlog'),
+    'Done': filteredWorkItems.filter((item) => item.status === 'Done'),
   };
 
-  const activeItems = workItems.filter((w) => w.status !== 'Done');
-  const doneItems = workItems.filter((w) => w.status === 'Done');
+  const activeItems = filteredWorkItems.filter((w) => w.status !== 'Done');
+  const doneItems = filteredWorkItems.filter((w) => w.status === 'Done');
 
   // Handle selecting a work item
   const handleSelectWorkItem = useCallback((item: WorkItemRecord | null) => {
@@ -128,8 +162,96 @@ export function WorkClient({
     }
   }, [selectedWorkItem]);
 
+  // Check if there's any work at all
+  const hasAnyWork = filteredWorkItems.length > 0 || (!artifactIdFilter && (mvpWorkstreams.length > 0 || mvpTasks.length > 0));
+
   return (
     <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold text-white">Work</h1>
+        <p className="text-sm text-slate-400 mt-1">
+          Approved programs and initiatives in execution.
+        </p>
+        <p className="text-xs text-slate-500 mt-2">
+          Work items are created after deliverables are approved and programs are greenlit.
+        </p>
+      </div>
+
+      {/* Durable principle */}
+      <div className="bg-slate-800/30 border border-slate-700/50 rounded-lg p-4">
+        <p className="text-sm text-slate-300">
+          Work is not a phase—it&apos;s ongoing execution. Items here are committed programs from approved deliverables.
+        </p>
+      </div>
+
+      {/* Artifact Filter Banner */}
+      {artifactIdFilter && (
+        <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-purple-500/20 rounded-lg">
+                <FileText className="w-4 h-4 text-purple-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-purple-300">
+                  Filtering by artifact
+                </p>
+                <p className="text-xs text-purple-400/80 mt-0.5">
+                  Showing {filteredWorkItems.length} work item{filteredWorkItems.length !== 1 ? 's' : ''} linked to this artifact
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={clearArtifactFilter}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-300 hover:text-purple-200 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded-lg transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+              Clear filter
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Empty state: No work yet */}
+      {!hasAnyWork && !artifactIdFilter && (
+        <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-5">
+          <div className="flex items-start gap-3">
+            <Info className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-blue-300">Work begins after deliverables are approved</p>
+              <p className="text-xs text-blue-400/80 mt-1">
+                Create deliverables in the Deliver phase, then committed programs will appear here for tracking.
+              </p>
+              <Link
+                href={`/c/${company.id}/deliver`}
+                className="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-lg hover:bg-blue-500/30 transition-colors"
+              >
+                Go to Deliver
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Empty state: Artifact filter has no results */}
+      {artifactIdFilter && filteredWorkItems.length === 0 && (
+        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 text-center">
+          <FileText className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+          <p className="text-sm font-medium text-slate-300">No work items linked to this artifact</p>
+          <p className="text-xs text-slate-500 mt-1 mb-4">
+            Work items created from or attached to this artifact will appear here.
+          </p>
+          <button
+            onClick={clearArtifactFilter}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-slate-300 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-lg transition-colors"
+          >
+            View all work items
+          </button>
+        </div>
+      )}
+
       {/* Sub-tabs with Media link */}
       <div className="border-b border-slate-800">
         <div className="flex items-center justify-between">
@@ -632,6 +754,7 @@ function TasksSection({
       {selectedWorkItem && (
         <WorkItemDetailPanel
           item={selectedWorkItem}
+          companyId={companyId}
           aiAdditionalInfo={aiAdditionalInfo}
           loadingAI={loadingAI}
           aiError={aiError}
@@ -671,18 +794,22 @@ function TasksSection({
 
 function WorkItemDetailPanel({
   item,
+  companyId,
   aiAdditionalInfo,
   loadingAI,
   aiError,
   onAdditionalInfo,
   onClose,
+  onArtifactsChange,
 }: {
   item: WorkItemRecord;
+  companyId: string;
   aiAdditionalInfo: string | null;
   loadingAI: boolean;
   aiError: string | null;
   onAdditionalInfo: () => void;
   onClose: () => void;
+  onArtifactsChange?: (artifacts: WorkItemArtifact[]) => void;
 }) {
   const formatDate = (dateStr?: string | null) => {
     if (!dateStr) return '—';
@@ -768,6 +895,14 @@ function WorkItemDetailPanel({
           </button>
           {aiError && <p className="mt-2 text-xs text-red-400">{aiError}</p>}
         </div>
+
+        {/* Attached Artifacts Section */}
+        <WorkItemArtifactsSection
+          companyId={companyId}
+          workItemId={item.id}
+          artifacts={(item.artifacts as WorkItemArtifact[]) ?? []}
+          onArtifactsChange={onArtifactsChange}
+        />
       </div>
 
       {/* AI Additional Information Card */}

@@ -12,6 +12,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   FileText,
   Presentation,
@@ -40,6 +41,7 @@ import {
   type DocumentsDataInput,
   type DocumentGroupKey,
 } from '@/lib/os/ui/documentsUiState';
+import { getArtifactViewerHref } from '@/lib/os/artifacts/navigation';
 
 // ============================================================================
 // Types
@@ -356,13 +358,24 @@ function ArtifactRow({
   companyId: string;
   isPrimary: boolean;
 }) {
+  const router = useRouter();
   const updateRoute = getUpdateRouteForArtifact(artifact, companyId);
+  const viewerHref = getArtifactViewerHref(companyId, artifact.id);
+
+  const handleRowClick = () => {
+    router.push(viewerHref);
+  };
+
+  const stopPropagation = (e: React.MouseEvent) => {
+    e.stopPropagation();
+  };
 
   return (
     <div
-      className={`bg-slate-900/50 border rounded-lg p-4 flex items-center justify-between ${
+      onClick={handleRowClick}
+      className={`bg-slate-900/50 border rounded-lg p-4 flex items-center justify-between cursor-pointer ${
         isPrimary
-          ? 'border-purple-500/30 bg-purple-500/5'
+          ? 'border-purple-500/30 bg-purple-500/5 hover:border-purple-500/50'
           : 'border-slate-800 hover:border-slate-700'
       } transition-colors`}
     >
@@ -398,7 +411,7 @@ function ArtifactRow({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2" onClick={stopPropagation}>
         {/* Insert Updates action for stale updatable artifacts */}
         {artifact.isStale && updateRoute && (
           <Link

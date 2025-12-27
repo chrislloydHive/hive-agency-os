@@ -17,6 +17,11 @@ import {
   type SectionCoverage,
   getShortSectionLabel,
 } from './computeRubricCoverage';
+import {
+  getBidReadinessConfig,
+  type BidReadinessConfig,
+  type BidReadinessWeights,
+} from './bidReadinessConfig';
 
 // ============================================================================
 // Types
@@ -122,38 +127,16 @@ export interface BidReadinessInputs {
 }
 
 // ============================================================================
-// Configuration
+// Configuration (loaded from centralized config)
 // ============================================================================
 
 /**
- * Weights for each component in the overall score
+ * Get current configuration
+ * Uses centralized config from bidReadinessConfig.ts
  */
-const COMPONENT_WEIGHTS = {
-  firmBrain: 0.25,   // Foundation: Firm Brain data quality
-  strategy: 0.20,    // Win strategy completeness
-  coverage: 0.25,    // Rubric coverage across sections
-  proof: 0.15,       // Proof plan coverage
-  persona: 0.15,     // Persona alignment (no skew)
-};
-
-/**
- * Thresholds for recommendations
- */
-const RECOMMENDATION_THRESHOLDS = {
-  go: 70,            // Score >= 70 = GO
-  conditional: 45,   // Score 45-69 = CONDITIONAL
-  // Score < 45 = NO-GO
-};
-
-/**
- * Thresholds for risk severity based on component scores
- */
-const RISK_THRESHOLDS = {
-  critical: 20,      // Component score < 20 = critical risk
-  high: 40,          // Component score < 40 = high risk
-  medium: 60,        // Component score < 60 = medium risk
-  // Score >= 60 = low risk
-};
+function getConfig(): BidReadinessConfig {
+  return getBidReadinessConfig();
+}
 
 // ============================================================================
 // Score Calculation Functions
@@ -245,21 +228,21 @@ function identifyRisks(
   const risks: BidRisk[] = [];
 
   // Firm Brain risks
-  if (breakdown.firmBrainReadiness < RISK_THRESHOLDS.critical) {
+  if (breakdown.firmBrainReadiness < getConfig().riskThresholds.critical) {
     risks.push({
       category: 'firm_brain',
       severity: 'critical',
       description: 'Firm Brain data is severely incomplete - responses will be generic',
       mitigation: 'Add agency profile, team members, and case studies before proceeding',
     });
-  } else if (breakdown.firmBrainReadiness < RISK_THRESHOLDS.high) {
+  } else if (breakdown.firmBrainReadiness < getConfig().riskThresholds.high) {
     risks.push({
       category: 'firm_brain',
       severity: 'high',
       description: 'Firm Brain data is incomplete - some sections may lack specificity',
       mitigation: 'Review and complete missing Firm Brain components',
     });
-  } else if (breakdown.firmBrainReadiness < RISK_THRESHOLDS.medium) {
+  } else if (breakdown.firmBrainReadiness < getConfig().riskThresholds.medium) {
     risks.push({
       category: 'firm_brain',
       severity: 'medium',
@@ -268,14 +251,14 @@ function identifyRisks(
   }
 
   // Strategy risks
-  if (breakdown.winStrategyHealth < RISK_THRESHOLDS.critical) {
+  if (breakdown.winStrategyHealth < getConfig().riskThresholds.critical) {
     risks.push({
       category: 'strategy',
       severity: 'critical',
       description: 'No win strategy defined - responses will not be aligned to evaluation criteria',
       mitigation: 'Define evaluation criteria, win themes, and proof plan',
     });
-  } else if (breakdown.winStrategyHealth < RISK_THRESHOLDS.high) {
+  } else if (breakdown.winStrategyHealth < getConfig().riskThresholds.high) {
     risks.push({
       category: 'strategy',
       severity: 'high',
@@ -285,14 +268,14 @@ function identifyRisks(
   }
 
   // Coverage risks
-  if (breakdown.rubricCoverageHealth < RISK_THRESHOLDS.critical) {
+  if (breakdown.rubricCoverageHealth < getConfig().riskThresholds.critical) {
     risks.push({
       category: 'coverage',
       severity: 'critical',
       description: 'Evaluation criteria are not being addressed in sections',
       mitigation: 'Review and regenerate sections with win strategy enabled',
     });
-  } else if (breakdown.rubricCoverageHealth < RISK_THRESHOLDS.high) {
+  } else if (breakdown.rubricCoverageHealth < getConfig().riskThresholds.high) {
     risks.push({
       category: 'coverage',
       severity: 'high',
@@ -302,24 +285,24 @@ function identifyRisks(
   }
 
   // Proof risks
-  if (breakdown.proofCoverage < RISK_THRESHOLDS.high) {
+  if (breakdown.proofCoverage < getConfig().riskThresholds.high) {
     risks.push({
       category: 'proof',
-      severity: breakdown.proofCoverage < RISK_THRESHOLDS.critical ? 'high' : 'medium',
+      severity: breakdown.proofCoverage < getConfig().riskThresholds.critical ? 'high' : 'medium',
       description: 'Proof points (case studies, references) are underutilized',
       mitigation: 'Add more proof items to the strategy and regenerate relevant sections',
     });
   }
 
   // Persona alignment risks
-  if (breakdown.personaAlignment < RISK_THRESHOLDS.high) {
+  if (breakdown.personaAlignment < getConfig().riskThresholds.high) {
     risks.push({
       category: 'persona',
       severity: 'high',
       description: 'Significant persona skew detected - content may not resonate with evaluators',
       mitigation: 'Review persona assignments and adjust section framing',
     });
-  } else if (breakdown.personaAlignment < RISK_THRESHOLDS.medium) {
+  } else if (breakdown.personaAlignment < getConfig().riskThresholds.medium) {
     risks.push({
       category: 'persona',
       severity: 'medium',
@@ -368,7 +351,7 @@ function identifyHighestImpactFixes(
     {
       key: 'firmBrain',
       score: breakdown.firmBrainReadiness,
-      weight: COMPONENT_WEIGHTS.firmBrain,
+      weight: getConfig().weights.firmBrain,
       sectionKey: 'firm_brain',
       fixDescription: 'Complete Firm Brain profile, add team members and case studies',
       effort: 'high' as const,
@@ -376,7 +359,7 @@ function identifyHighestImpactFixes(
     {
       key: 'strategy',
       score: breakdown.winStrategyHealth,
-      weight: COMPONENT_WEIGHTS.strategy,
+      weight: getConfig().weights.strategy,
       sectionKey: 'strategy',
       fixDescription: 'Complete win strategy with criteria, themes, and proof plan',
       effort: 'medium' as const,
@@ -436,7 +419,7 @@ function identifySectionFixes(rubricCoverage: RubricCoverageResult): BidReadines
         potentialLift += (criterion.weight || 0.3) * 20; // Rough estimate
       }
     }
-    potentialLift = Math.min(Math.round(potentialLift * COMPONENT_WEIGHTS.coverage), 25);
+    potentialLift = Math.min(Math.round(potentialLift * getConfig().weights.coverage), 25);
 
     if (potentialLift >= 3) {
       const missingCount = section.missingHighWeightCriteria.length;
@@ -459,7 +442,7 @@ function identifySectionFixes(rubricCoverage: RubricCoverageResult): BidReadines
   }
 
   for (const sectionKey of personaSkewSections) {
-    const potentialLift = Math.round(10 * COMPONENT_WEIGHTS.persona);
+    const potentialLift = Math.round(10 * getConfig().weights.persona);
     fixes.push({
       sectionKey,
       reason: `Adjust ${getShortSectionLabel(sectionKey)} framing to match evaluator expectations`,
@@ -504,7 +487,7 @@ function determineRecommendation(
   }
 
   // Score-based recommendation with adjustments
-  if (score >= RECOMMENDATION_THRESHOLDS.go) {
+  if (score >= getConfig().thresholds.go) {
     // High score - but check for any critical issues
     if (criticalRisks.length > 0) {
       return {
@@ -531,7 +514,7 @@ function determineRecommendation(
     return { recommendation: 'go', reasons };
   }
 
-  if (score >= RECOMMENDATION_THRESHOLDS.conditional) {
+  if (score >= getConfig().thresholds.conditionalMin) {
     reasons.push(`Overall readiness score is ${score}% - proceed with caution`);
 
     // Add top improvement suggestions as conditions
@@ -606,7 +589,7 @@ export function computeBidReadiness(inputs: BidReadinessInputs): BidReadiness {
     rubricCoverageHealth: rubricScore,
     proofCoverage: proofScore,
     personaAlignment: personaScore,
-    weights: COMPONENT_WEIGHTS,
+    weights: getConfig().weights,
   };
 
   // Calculate overall score

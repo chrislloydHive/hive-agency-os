@@ -43,6 +43,7 @@ import {
   type ScoredRecommendation,
 } from '@/lib/os/artifacts/recommendations';
 import { findExistingArtifact } from '@/lib/os/artifacts/findExistingArtifact';
+import { getArtifactViewerHref } from '@/lib/os/artifacts/navigation';
 
 // ============================================================================
 // Types
@@ -685,8 +686,22 @@ function ArtifactRow({
   onArchive,
   onDelete,
 }: ArtifactRowProps) {
+  const router = useRouter();
+  const viewerHref = getArtifactViewerHref(companyId, artifact.id);
+
+  const handleRowClick = () => {
+    router.push(viewerHref);
+  };
+
+  const stopPropagation = (e: React.MouseEvent) => {
+    e.stopPropagation();
+  };
+
   return (
-    <div className="bg-slate-900/50 border border-slate-800 hover:border-slate-700 rounded-xl p-4 transition-colors">
+    <div
+      onClick={handleRowClick}
+      className="bg-slate-900/50 border border-slate-800 hover:border-slate-700 rounded-xl p-4 transition-colors cursor-pointer"
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4 flex-1 min-w-0">
           {/* Type Icon */}
@@ -697,12 +712,9 @@ function ArtifactRow({
           {/* Content */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <Link
-                href={`/c/${companyId}/artifacts/${artifact.id}`}
-                className="text-sm font-medium text-slate-200 hover:text-white truncate transition-colors"
-              >
+              <span className="text-sm font-medium text-slate-200 hover:text-white truncate transition-colors">
                 {artifact.title}
-              </Link>
+              </span>
             </div>
             <div className="flex items-center gap-2 mt-1">
               <span className="text-xs text-slate-500">
@@ -719,7 +731,7 @@ function ArtifactRow({
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" onClick={stopPropagation}>
           {artifact.googleFileUrl && (
             <a
               href={artifact.googleFileUrl}

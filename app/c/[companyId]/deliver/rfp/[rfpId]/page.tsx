@@ -47,6 +47,11 @@ import {
   type SubmissionSnapshot,
 } from '@/components/os/rfp/SubmissionReadinessModal';
 import {
+  OutcomeCaptureModal,
+  useOutcomeCapture,
+} from '@/components/os/rfp/OutcomeCaptureModal';
+import type { OutcomeCaptureData } from '@/lib/types/rfp';
+import {
   useFirmOutcomeInsights,
   hasFirmInsightsForDisplay,
   getRelevantInsights,
@@ -115,6 +120,9 @@ export default function RfpBuilderPage() {
   // V3: Section Library modals
   const [showSaveToLibrary, setShowSaveToLibrary] = useState(false);
   const [showInsertFromLibrary, setShowInsertFromLibrary] = useState(false);
+
+  // V5: Status change with outcome capture
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   // Fetch all data
   const fetchData = useCallback(async () => {
@@ -295,6 +303,84 @@ export default function RfpBuilderPage() {
       }
     },
   });
+
+  // V5: Outcome capture for won/lost status transitions
+  const handleOutcomeSave = useCallback(async (
+    outcome: 'won' | 'lost',
+    data: OutcomeCaptureData
+  ) => {
+    const response = await fetch(`/api/os/companies/${companyId}/rfps/${rfpId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: outcome,
+        ...data,
+      }),
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      setRfp(result.rfp);
+    } else {
+      throw new Error('Failed to save outcome');
+    }
+  }, [companyId, rfpId]);
+
+  const outcomeCapture = useOutcomeCapture({
+    onSave: handleOutcomeSave,
+    competitors: rfp?.competitors || [],
+  });
+
+  // V5: Handle status change - triggers modal for won/lost
+  const handleStatusChange = useCallback(async (newStatus: Rfp['status']) => {
+    if (newStatus === 'won' || newStatus === 'lost') {
+      // Open outcome capture modal
+      outcomeCapture.open(newStatus);
+    } else {
+      // Update status directly
+      setUpdatingStatus(true);
+      try {
+        const response = await fetch(`/api/os/companies/${companyId}/rfps/${rfpId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          setRfp(result.rfp);
+        }
+      } catch (err) {
+        console.error('Failed to update status:', err);
+      } finally {
+        setUpdatingStatus(false);
+      }
+    }
+  }, [companyId, rfpId, outcomeCapture]);
+
+  // Handle outcome skip (just update status without outcome data)
+  const handleOutcomeSkip = useCallback(async () => {
+    if (!outcomeCapture.outcome) return;
+
+    setUpdatingStatus(true);
+    try {
+      const response = await fetch(`/api/os/companies/${companyId}/rfps/${rfpId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: outcomeCapture.outcome }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setRfp(result.rfp);
+      }
+    } catch (err) {
+      console.error('Failed to update status:', err);
+    } finally {
+      setUpdatingStatus(false);
+      outcomeCapture.close();
+    }
+  }, [companyId, rfpId, outcomeCapture]);
 
   useEffect(() => {
     fetchData();
@@ -491,6 +577,28 @@ export default function RfpBuilderPage() {
             <div className="text-xs text-slate-400">
               {uiState.progressSummary.completedSections}/{uiState.progressSummary.totalSections} approved
             </div>
+
+            {/* V5: Status Selector */}
+            <select
+              value={rfp.status}
+              onChange={(e) => handleStatusChange(e.target.value as Rfp['status'])}
+              disabled={updatingStatus || outcomeCapture.isSaving}
+              className={`px-2 py-1 text-xs rounded border transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500/50 ${
+                rfp.status === 'won' ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300' :
+                rfp.status === 'lost' ? 'bg-slate-700 border-slate-600 text-slate-400' :
+                rfp.status === 'submitted' ? 'bg-purple-500/20 border-purple-500/30 text-purple-300' :
+                rfp.status === 'review' ? 'bg-amber-500/20 border-amber-500/30 text-amber-300' :
+                rfp.status === 'assembling' ? 'bg-blue-500/20 border-blue-500/30 text-blue-300' :
+                'bg-slate-800 border-slate-700 text-slate-300'
+              }`}
+            >
+              <option value="intake">Intake</option>
+              <option value="assembling">Assembling</option>
+              <option value="review">In Review</option>
+              <option value="submitted">Submitted</option>
+              <option value="won">Won</option>
+              <option value="lost">Lost</option>
+            </select>
 
             {/* V3: Convert to Proposal */}
             <button
@@ -921,6 +1029,20 @@ export default function RfpBuilderPage() {
           readiness={bidReadiness}
           {...submissionGate.modalProps}
           submissionInsights={submissionInsights}
+        />
+      )}
+
+      {/* V5: Outcome Capture Modal */}
+      {outcomeCapture.isOpen && outcomeCapture.outcome && (
+        <OutcomeCaptureModal
+          outcome={outcomeCapture.outcome}
+          knownCompetitors={rfp.competitors || []}
+          onSave={(data) => {
+            handleOutcomeSave(outcomeCapture.outcome!, data);
+            outcomeCapture.close();
+          }}
+          onSkip={handleOutcomeSkip}
+          isLoading={outcomeCapture.isSaving || updatingStatus}
         />
       )}
     </div>

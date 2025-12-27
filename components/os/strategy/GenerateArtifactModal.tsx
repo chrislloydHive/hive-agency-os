@@ -108,7 +108,7 @@ export function GenerateArtifactModal({
   strategyId: legacyStrategyId,
   tactics: legacyTactics,
   recommendedTypes = [],
-  launchMode = 'all',
+  launchMode = 'recommended',
   recommendedTypeIds = [],
   defaultSelectedTypeId,
 }: GenerateArtifactModalProps) {

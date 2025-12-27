@@ -10,6 +10,10 @@
 // This is the single source of truth for the Strategy Workspace UI.
 
 import { NextRequest, NextResponse } from 'next/server';
+
+// Force dynamic rendering - never cache this route
+// Context data changes frequently and must always be fresh
+export const dynamic = 'force-dynamic';
 import { getActiveStrategy, getStrategyById, getStrategiesForCompany } from '@/lib/os/strategy';
 import { toStrategyViewModel, createEmptyStrategyViewModel } from '@/lib/os/strategy/strategyViewModel';
 import {
@@ -54,6 +58,8 @@ interface StrategyViewModelResponse {
     pillars: unknown[];
     plays: unknown[];
     tradeoffs?: unknown;
+    /** Goal statement for AI alignment (strategy-scoped) */
+    goalStatement?: string;
   };
 
   // Multi-strategy support
@@ -261,6 +267,7 @@ export async function GET(
         pillars: strategy?.pillars || [],
         plays: strategy?.plays || [],
         tradeoffs: strategy?.tradeoffs,
+        goalStatement: strategy?.goalStatement,
       },
       strategies: strategiesSummary,
       activeStrategyId: strategy?.id || null,

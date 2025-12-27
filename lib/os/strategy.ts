@@ -232,6 +232,11 @@ export async function updateStrategy(request: UpdateStrategyRequest): Promise<Co
     if (updates.lockState !== undefined) fields.lockState = updates.lockState;
     if (updates.lastAiUpdatedAt !== undefined) fields.lastAiUpdatedAt = updates.lastAiUpdatedAt;
     if (updates.lastHumanUpdatedAt !== undefined) fields.lastHumanUpdatedAt = updates.lastHumanUpdatedAt;
+    // Goal Statement (V9+) - auto-set goalStatementUpdatedAt when goalStatement changes
+    if (updates.goalStatement !== undefined) {
+      fields.goalStatement = updates.goalStatement;
+      fields.goalStatementUpdatedAt = now;
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const results = await (base(STRATEGY_TABLE) as any).update([
@@ -386,6 +391,9 @@ export async function duplicateStrategy(
       title: options?.title || `${source.title} (Copy)`,
       summary: source.summary,
       description: `Duplicated from "${source.title}"`,
+      // Goal Statement (V9+) - copy from source
+      goalStatement: source.goalStatement || undefined,
+      goalStatementUpdatedAt: source.goalStatementUpdatedAt || undefined,
       objectives: JSON.stringify(source.objectives),
       pillars: JSON.stringify(newPillars),
       plays: JSON.stringify(newPlays),
@@ -540,6 +548,9 @@ function mapRecordToStrategy(record: {
     projectName: fields.projectName as string | undefined,
     title: (fields.title as string) || 'Untitled Strategy',
     summary: (fields.summary as string) || '',
+    // Goal Statement (V9+)
+    goalStatement: fields.goalStatement as string | undefined,
+    goalStatementUpdatedAt: fields.goalStatementUpdatedAt as string | undefined,
     objectives: parseJsonObjectives(fields.objectives),
     pillars: parseJsonPillars(fields.pillars),
     plays: parseJsonPlays(fields.plays),
@@ -713,7 +724,7 @@ export async function createProjectStrategy(
       summary: `Project strategy for ${projectLabel}`,
       objectives: JSON.stringify([]),
       pillars: JSON.stringify([]),
-      // Note: 'plays' field removed - doesn't exist in Airtable
+      plays: JSON.stringify([]),
       strategyFrame: JSON.stringify(strategyFrame),
       status: 'draft',
       isActive: true, // Set as active immediately

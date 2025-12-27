@@ -36,10 +36,29 @@ import { DataConfidenceBadge, type DataSource } from '@/components/diagnostics/D
 import { CompanyDMATimeline } from '@/components/os/CompanyDMATimeline';
 import type { DiagnosticRunStatus, DiagnosticToolId } from '@/lib/os/diagnostics/runs';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
+import {
+  getDiscoverUIState,
+  isVisible,
+  type DiscoverDataInput,
+  type PathKey,
+} from '@/lib/os/ui/discoverUiState';
 
 // ============================================================================
 // Types
 // ============================================================================
+
+type StartingPath = 'baseline' | 'project' | 'rfp' | 'custom' | null;
+
+interface PathDefinition {
+  id: StartingPath;
+  name: string;
+  description: string;
+  primaryLab: string;
+  recommendedLabs: string[];
+  ctaLabel: string;
+  icon: keyof typeof iconMap;
+  color: string;
+}
 
 interface CompanyData {
   id: string;
@@ -193,6 +212,53 @@ const LABS: LabDefinition[] = [
     color: 'indigo',
     viewPath: '/labs/analytics',
     category: 'specialized',
+  },
+];
+
+// ============================================================================
+// Starting Paths
+// ============================================================================
+
+const STARTING_PATHS: PathDefinition[] = [
+  {
+    id: 'baseline',
+    name: 'Full Strategy Baseline',
+    description: 'Best for new clients or when you need a comprehensive baseline.',
+    primaryLab: 'gapPlan',
+    recommendedLabs: ['websiteLab', 'brandLab', 'seoLab', 'contentLab', 'competitionLab'],
+    ctaLabel: 'Start Full Diagnostic',
+    icon: 'barChart',
+    color: 'purple',
+  },
+  {
+    id: 'project',
+    name: 'Project Kickoff',
+    description: 'Best for website redesigns, rebrands, or a specific initiative.',
+    primaryLab: 'websiteLab',
+    recommendedLabs: ['brandLab', 'contentLab', 'competitionLab'],
+    ctaLabel: 'Start Project Discovery',
+    icon: 'globe',
+    color: 'blue',
+  },
+  {
+    id: 'rfp',
+    name: 'RFP Response',
+    description: 'Best for responding to an RFP on a tight timeline.',
+    primaryLab: 'brandLab',
+    recommendedLabs: ['competitionLab', 'websiteLab'],
+    ctaLabel: 'Start RFP Discovery',
+    icon: 'zap',
+    color: 'amber',
+  },
+  {
+    id: 'custom',
+    name: 'Custom',
+    description: 'Pick labs manually based on your needs.',
+    primaryLab: '',
+    recommendedLabs: [],
+    ctaLabel: 'Choose Labs',
+    icon: 'settings',
+    color: 'slate',
   },
 ];
 
@@ -367,6 +433,31 @@ export function DiagnosticsControlCenter({
   const router = useRouter();
   const [runningLabs, setRunningLabs] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [selectedPath, setSelectedPath] = useState<StartingPath>(null);
+  const [packStarted, setPackStarted] = useState(false);
+
+  // Compute selector inputs
+  const hasAnyRuns = recentDiagnostics.length > 0;
+  const hasRunning = runningLabs.size > 0 || recentDiagnostics.some(r => r.status === 'running');
+  const hasCompleted = recentDiagnostics.some(r => r.status === 'complete');
+  // Check if Website Lab completed (for Decide eligibility)
+  const decideEligible = recentDiagnostics.some(
+    r => r.toolId === 'websiteLab' && r.status === 'complete'
+  );
+
+  // Derive UI state from selector
+  const dataInput: DiscoverDataInput = {
+    hasAnyRuns,
+    hasRunning,
+    hasCompleted,
+    selectedPath: selectedPath as PathKey | null,
+    packStarted,
+    decideEligible,
+  };
+  const uiState = getDiscoverUIState(dataInput, company.id);
+
+  // Legacy alias for backward compat
+  const hasRunAnyLabs = hasAnyRuns;
 
   // Get last run for each lab
   const getLastRunForLab = (labId: string): RecentDiagnostic | null => {
@@ -461,6 +552,36 @@ export function DiagnosticsControlCenter({
     }
   }, [handleRunLab]);
 
+  // Handle selecting a starting path
+  const handleSelectPath = useCallback((path: PathDefinition) => {
+    setSelectedPath(path.id);
+
+    // For custom path, just scroll to labs
+    if (path.id === 'custom') {
+      document.getElementById('core-labs')?.scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
+
+    // Run the primary lab for this path
+    const primaryLab = LABS.find(l => l.id === path.primaryLab);
+    if (primaryLab && primaryLab.runApiPath) {
+      setPackStarted(true);
+      handleRunLab(primaryLab);
+    }
+  }, [handleRunLab]);
+
+  // Get recommended labs for selected path
+  const getRecommendedLabs = useCallback(() => {
+    if (!selectedPath || selectedPath === 'custom') return [];
+    const path = STARTING_PATHS.find(p => p.id === selectedPath);
+    if (!path) return [];
+    return path.recommendedLabs
+      .map(labId => LABS.find(l => l.id === labId))
+      .filter((lab): lab is LabDefinition => !!lab);
+  }, [selectedPath]);
+
+  const recommendedLabs = getRecommendedLabs();
+
   const coreLabs = LABS.filter(l => l.category === 'core');
   const specializedLabs = LABS.filter(l => l.category === 'specialized');
 
@@ -473,11 +594,134 @@ export function DiagnosticsControlCenter({
       {/* HEADER */}
       {/* ================================================================== */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Diagnostics</h1>
+        <h1 className="text-2xl font-bold text-white">Discover</h1>
+        <p className="text-xs text-purple-400/80 mt-0.5">Phase 1</p>
         <p className="text-sm text-slate-400 mt-1">
-          Run labs to surface issues. Fix them in your Plan.
+          Gather business context through Labs.
         </p>
       </div>
+
+      {/* Context intro */}
+      <div className="bg-purple-500/5 border border-purple-500/20 rounded-lg p-4">
+        <p className="text-sm text-purple-300/90">
+          Discover is where you gather facts before making decisions—whether you&apos;re building strategy from scratch or responding to an RFP.
+        </p>
+      </div>
+
+      {/* Dev-only UI state debug indicator */}
+      {process.env.NODE_ENV !== 'production' && (
+        <div className="text-[10px] font-mono text-slate-500 bg-slate-900/50 border border-slate-800/50 rounded px-2 py-1">
+          <span className="text-cyan-400">{uiState.state}</span>
+          <span className="mx-2">|</span>
+          paths: {uiState.showStartingPaths}
+          <span className="mx-2">|</span>
+          pack: {uiState.showPackRunner}
+          <span className="mx-2">|</span>
+          labs: {uiState.showLabsGrid}
+          <span className="mx-2">|</span>
+          runs: {uiState.showRecentRuns}
+          <span className="mx-2">|</span>
+          nextStep: {uiState.showNextStepPanel ? 'yes' : 'no'}
+          <span className="mx-2">|</span>
+          CTA: &quot;{uiState.primaryCTA.label}&quot;
+        </div>
+      )}
+
+      {/* ================================================================== */}
+      {/* STARTING PATHS - visibility controlled by selector */}
+      {/* ================================================================== */}
+      {isVisible(uiState.showStartingPaths) && !selectedPath && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <div className="mb-4">
+            <h2 className="text-base font-semibold text-white">How are you starting?</h2>
+            <p className="text-sm text-slate-400 mt-1">
+              Choose a path to gather the right context. You can always adjust later.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {STARTING_PATHS.map(path => {
+              const colors = getColorClasses(path.color);
+              const Icon = iconMap[path.icon];
+              return (
+                <button
+                  key={path.id}
+                  onClick={() => handleSelectPath(path)}
+                  className={`text-left rounded-xl border p-4 ${colors.bg} ${colors.border} hover:border-opacity-60 transition-all`}
+                >
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className={`w-9 h-9 rounded-lg ${colors.iconBg} flex items-center justify-center flex-shrink-0`}>
+                      <Icon className={`w-4 h-4 ${colors.text}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-sm font-semibold text-white">{path.name}</h3>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-400 mb-3 line-clamp-2">{path.description}</p>
+                  <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ${colors.bg} ${colors.text} border ${colors.border}`}>
+                    <Play className="w-3 h-3" />
+                    {path.ctaLabel}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================== */}
+      {/* PACK RUNNER - Show after a path is selected */}
+      {/* ================================================================== */}
+      {isVisible(uiState.showPackRunner) && selectedPath && selectedPath !== 'custom' && recommendedLabs.length > 0 && (
+        <div className="bg-slate-900 border border-emerald-500/30 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-emerald-400" />
+              <span className="text-sm font-medium text-emerald-300">
+                {STARTING_PATHS.find(p => p.id === selectedPath)?.name} started
+              </span>
+            </div>
+            <button
+              onClick={() => setSelectedPath(null)}
+              className="text-xs text-slate-500 hover:text-slate-400"
+            >
+              Change path
+            </button>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-slate-400">Recommended next:</span>
+            {recommendedLabs.map(lab => {
+              const isRunning = runningLabs.has(lab.id);
+              const lastRun = getLastRunForLab(lab.id);
+              const isComplete = lastRun?.status === 'complete';
+              return (
+                <button
+                  key={lab.id}
+                  onClick={() => handleRunLab(lab)}
+                  disabled={isRunning || isComplete || !lab.runApiPath}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    isComplete
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      : isRunning
+                      ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                      : lab.runApiPath
+                      ? 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-700'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                  }`}
+                >
+                  {isComplete ? (
+                    <CheckCircle className="w-3 h-3" />
+                  ) : isRunning ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Play className="w-3 h-3" />
+                  )}
+                  {lab.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (
@@ -573,7 +817,7 @@ export function DiagnosticsControlCenter({
       {/* ================================================================== */}
       {/* 2. CORE LABS GRID */}
       {/* ================================================================== */}
-      <div>
+      <div id="core-labs">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-white">Core Labs</h2>
           <p className="text-xs text-slate-500">Essential diagnostics for marketing health</p>
@@ -643,8 +887,9 @@ export function DiagnosticsControlCenter({
       </div>
 
       {/* ================================================================== */}
-      {/* 5. RECENT DIAGNOSTICS */}
+      {/* 5. RECENT DIAGNOSTICS - visibility controlled by selector */}
       {/* ================================================================== */}
+      {isVisible(uiState.showRecentRuns) && (
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
           <div className="flex items-center gap-2">
@@ -719,9 +964,36 @@ export function DiagnosticsControlCenter({
           </div>
         )}
       </div>
+      )}
 
       {/* ================================================================== */}
-      {/* 5. DMA ACTIVITY TIMELINE */}
+      {/* 6. NEXT STEP PANEL - Show when eligible to proceed to Decide */}
+      {/* ================================================================== */}
+      {uiState.showNextStepPanel && uiState.nextStepCTA && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-emerald-400/80 uppercase tracking-wider mb-1">Next Step</p>
+              <p className="text-base font-medium text-emerald-300">
+                Context is ready for review
+              </p>
+              <p className="text-sm text-emerald-400/70 mt-1">
+                Labs have extracted proposals. Review and confirm them in Decide.
+              </p>
+            </div>
+            <Link
+              href={uiState.nextStepCTA.href}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold text-sm transition-colors"
+            >
+              {uiState.nextStepCTA.label}
+              <ChevronRight className="w-4 h-4" />
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================== */}
+      {/* 7. DMA ACTIVITY TIMELINE */}
       {/* ================================================================== */}
       <CompanyDMATimeline companyId={company.id} />
     </div>

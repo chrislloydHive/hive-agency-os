@@ -57,6 +57,7 @@ export interface FieldAIActionsProps {
     priorities?: unknown[];
     tactics?: unknown[];
     frame?: unknown;
+    goalStatement?: string;
   };
   // Current draft if exists
   draft?: FieldDraft;

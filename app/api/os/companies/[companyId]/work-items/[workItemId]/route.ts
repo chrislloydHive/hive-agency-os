@@ -7,6 +7,8 @@ import {
   deleteWorkItem,
   UpdateWorkItemInput,
 } from '@/lib/work/workItems';
+import { getWorkItemById } from '@/lib/airtable/workItems';
+import { recordWorkItemCompletedForArtifacts } from '@/lib/os/artifacts/usage';
 
 // PATCH /api/os/companies/[companyId]/work-items/[workItemId]
 // Update a work item
@@ -28,6 +30,15 @@ export async function PATCH(
     if (body.status !== undefined) updates.status = body.status;
     if (body.dueDate !== undefined) updates.dueDate = body.dueDate;
 
+    // Check if this is a transition to completed status
+    const isCompletingWork = body.status === 'done';
+    let existingWorkItem: Awaited<ReturnType<typeof getWorkItemById>> | null = null;
+
+    if (isCompletingWork) {
+      // Get existing work item to check if it has artifacts
+      existingWorkItem = await getWorkItemById(workItemId);
+    }
+
     const workItem = await updateWorkItem(workItemId, updates);
 
     if (!workItem) {
@@ -35,6 +46,14 @@ export async function PATCH(
         { error: 'Failed to update work item' },
         { status: 500 }
       );
+    }
+
+    // Track artifact completion if transitioning to done and work item has artifacts
+    if (isCompletingWork && existingWorkItem?.artifacts?.length) {
+      const artifactIds = existingWorkItem.artifacts.map((a) => a.artifactId);
+      recordWorkItemCompletedForArtifacts(workItemId, artifactIds).catch((err) => {
+        console.error('[WorkItems API] Failed to track artifact completion:', err);
+      });
     }
 
     return NextResponse.json({

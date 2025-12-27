@@ -52,6 +52,25 @@ export function isFeatureEnabled(flag: FeatureFlagKey): boolean {
   return FEATURE_FLAGS[flag];
 }
 
+// ============================================================================
+// Convenience Helpers
+// ============================================================================
+
+/**
+ * Check if the Artifacts feature is enabled
+ * Use this to gate artifact-related UI components
+ */
+export function isArtifactsEnabled(): boolean {
+  return FEATURE_FLAGS.ARTIFACTS_ENABLED;
+}
+
+/**
+ * Check if Google Drive integration for Artifacts is enabled
+ */
+export function isArtifactsGoogleEnabled(): boolean {
+  return FEATURE_FLAGS.ARTIFACTS_ENABLED && FEATURE_FLAGS.ARTIFACTS_GOOGLE_ENABLED;
+}
+
 // Response for disabled feature (API routes)
 export const FEATURE_DISABLED_RESPONSE = {
   error: 'Feature not enabled',
