@@ -10,6 +10,7 @@
 
 import { IntegrationsSection } from '@/components/settings/IntegrationsSection';
 import { WorkspaceSection } from '@/components/settings/WorkspaceSection';
+import { FirmBrainSection } from '@/components/settings/FirmBrainSection';
 
 export default function SettingsPage() {
   return (
@@ -24,6 +25,9 @@ export default function SettingsPage() {
       <div className="space-y-8">
         {/* Workspace Settings - Client Component with Logo Upload */}
         <WorkspaceSection />
+
+        {/* Firm Brain - Agency Knowledge Base */}
+        <FirmBrainSection />
 
         {/* Integrations - Live Status */}
         <IntegrationsSection />
