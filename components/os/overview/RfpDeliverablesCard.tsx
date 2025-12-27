@@ -195,7 +195,12 @@ export function RfpDeliverablesCard({ companyId }: RfpDeliverablesCardProps) {
       const data = await response.json();
 
       if (!response.ok || data.error) {
-        throw new Error(data.error || `Failed to create ${type}`);
+        // Include missing fields in the error message if available
+        let errorMsg = data.error || `Failed to create ${type}`;
+        if (data.missing && Array.isArray(data.missing) && data.missing.length > 0) {
+          errorMsg += ` (Missing: ${data.missing.join(', ')})`;
+        }
+        throw new Error(errorMsg);
       }
 
       // Refresh the page
