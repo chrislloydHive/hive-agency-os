@@ -186,11 +186,15 @@ function hasValue<T>(field: WithMetaType<T> | undefined): boolean {
 
 /**
  * Check if a WithMetaArray field has at least one item
+ * Also handles string values (legacy/UI storage) as valid
  */
 function hasArrayValue<T>(field: WithMetaArrayType<T> | undefined): boolean {
   if (!field) return false;
-  if (!Array.isArray(field.value)) return false;
-  return field.value.length > 0;
+  // Handle array values
+  if (Array.isArray(field.value)) return field.value.length > 0;
+  // Handle string values (legacy format or UI storage)
+  if (typeof field.value === 'string') return field.value.trim().length > 0;
+  return false;
 }
 
 /**
