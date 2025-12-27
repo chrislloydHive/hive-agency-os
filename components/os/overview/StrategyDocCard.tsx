@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import type { StrategyDocStatusResponse } from '@/app/api/os/companies/[companyId]/documents/strategy/status/route';
 import type { Artifact } from '@/lib/types/artifact';
+import { InlineReadinessWarning } from './InlineReadinessWarning';
 
 // ============================================================================
 // Types
@@ -34,6 +35,22 @@ interface StrategyDocCardProps {
   companyId: string;
   /** Strategy ID for artifacts mode (required for create) */
   strategyId?: string;
+  /**
+   * Override props for controlled mode (used by DeliverClient to enforce single source of truth)
+   * When these are provided, StrategyDocCard will NOT fetch its own readiness state
+   */
+  controlled?: {
+    /** Whether creation is allowed */
+    canCreate: boolean;
+    /** Reason creation is blocked (shown when canCreate=false) */
+    blockedReason?: string;
+    /** Confirmed field count to display */
+    confirmedCount: number;
+    /** Required field count */
+    requiredCount: number;
+    /** Handler for create action */
+    onCreate?: () => Promise<void>;
+  };
 }
 
 type DocStatus = 'not_created' | 'up_to_date' | 'out_of_date';
@@ -57,12 +74,19 @@ interface UnifiedDocState {
 // Component
 // ============================================================================
 
-export function StrategyDocCard({ companyId, strategyId }: StrategyDocCardProps) {
+export function StrategyDocCard({ companyId, strategyId, controlled }: StrategyDocCardProps) {
   const [state, setState] = useState<UnifiedDocState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [updating, setUpdating] = useState(false);
+
+  // When in controlled mode, derive canCreate and blockedReason from props
+  const isControlled = !!controlled;
+  const controlledCanCreate = controlled?.canCreate ?? false;
+  const controlledBlockedReason = controlled?.blockedReason;
+  const controlledConfirmedCount = controlled?.confirmedCount ?? 0;
+  const controlledRequiredCount = controlled?.requiredCount ?? 3;
 
   // Fetch status - tries artifacts first, falls back to company-field approach
   const fetchStatus = useCallback(async () => {
@@ -70,9 +94,9 @@ export function StrategyDocCard({ companyId, strategyId }: StrategyDocCardProps)
       // First, try to fetch artifacts (will 403 if disabled)
       const artifactsResponse = await fetch(
         `/api/os/companies/${companyId}/artifacts?type=strategy_doc`
-      );
+      ).catch(() => null);
 
-      if (artifactsResponse.ok) {
+      if (artifactsResponse?.ok) {
         const artifactsData = await artifactsResponse.json();
         const artifacts: Artifact[] = artifactsData.artifacts || [];
 
@@ -101,42 +125,60 @@ export function StrategyDocCard({ companyId, strategyId }: StrategyDocCardProps)
         // Fetch context readiness from fallback status endpoint
         const fallbackResponse = await fetch(
           `/api/os/companies/${companyId}/documents/strategy/status`
-        );
-        const fallbackData: StrategyDocStatusResponse = await fallbackResponse.json();
+        ).catch(() => null);
 
-        setState({
-          status: 'not_created',
-          docUrl: null,
-          isStale: false,
-          stalenessCount: 0,
-          lastSyncedAt: null,
-          contextReady: fallbackData.contextReady,
-          confirmedFieldCount: fallbackData.confirmedFieldCount,
-          minRequiredFields: fallbackData.minRequiredFields,
-          usingArtifacts: true,
-        });
-        setError(null);
-        return;
+        if (fallbackResponse?.ok) {
+          const fallbackData: StrategyDocStatusResponse = await fallbackResponse.json();
+          setState({
+            status: 'not_created',
+            docUrl: null,
+            isStale: false,
+            stalenessCount: 0,
+            lastSyncedAt: null,
+            contextReady: fallbackData.contextReady,
+            confirmedFieldCount: fallbackData.confirmedFieldCount,
+            minRequiredFields: fallbackData.minRequiredFields,
+            usingArtifacts: true,
+          });
+          setError(null);
+          return;
+        }
       }
 
       // Artifacts not available (403 or error) - use fallback
       const fallbackResponse = await fetch(
         `/api/os/companies/${companyId}/documents/strategy/status`
-      );
-      const fallbackData: StrategyDocStatusResponse = await fallbackResponse.json();
+      ).catch(() => null);
 
+      if (fallbackResponse?.ok) {
+        const fallbackData: StrategyDocStatusResponse = await fallbackResponse.json();
+        setState({
+          status: fallbackData.status,
+          docUrl: fallbackData.docUrl,
+          isStale: fallbackData.status === 'out_of_date',
+          stalenessCount: fallbackData.stalenessCount,
+          lastSyncedAt: fallbackData.lastSyncedAt,
+          contextReady: fallbackData.contextReady,
+          confirmedFieldCount: fallbackData.confirmedFieldCount,
+          minRequiredFields: fallbackData.minRequiredFields,
+          usingArtifacts: false,
+        });
+        setError(null);
+        return;
+      }
+
+      // All fetches failed - set a default state
       setState({
-        status: fallbackData.status,
-        docUrl: fallbackData.docUrl,
-        isStale: fallbackData.status === 'out_of_date',
-        stalenessCount: fallbackData.stalenessCount,
-        lastSyncedAt: fallbackData.lastSyncedAt,
-        contextReady: fallbackData.contextReady,
-        confirmedFieldCount: fallbackData.confirmedFieldCount,
-        minRequiredFields: fallbackData.minRequiredFields,
+        status: 'not_created',
+        docUrl: null,
+        isStale: false,
+        stalenessCount: 0,
+        lastSyncedAt: null,
+        contextReady: false,
+        confirmedFieldCount: 0,
+        minRequiredFields: 3,
         usingArtifacts: false,
       });
-      setError(null);
     } catch (err) {
       console.error('[StrategyDocCard] Error fetching status:', err);
       setError('Failed to load status');
@@ -151,6 +193,24 @@ export function StrategyDocCard({ companyId, strategyId }: StrategyDocCardProps)
 
   // Create Strategy Doc
   const handleCreate = useCallback(async () => {
+    // In controlled mode, use the provided onCreate handler
+    if (isControlled && controlled?.onCreate) {
+      setCreating(true);
+      setError(null);
+      try {
+        await controlled.onCreate();
+        // After success, refresh status
+        await fetchStatus();
+      } catch (err) {
+        console.error('[StrategyDocCard] Error creating doc:', err);
+        setError(err instanceof Error ? err.message : 'Failed to create');
+      } finally {
+        setCreating(false);
+      }
+      return;
+    }
+
+    // Uncontrolled mode - use internal logic
     setCreating(true);
     setError(null);
     try {
@@ -194,7 +254,7 @@ export function StrategyDocCard({ companyId, strategyId }: StrategyDocCardProps)
     } finally {
       setCreating(false);
     }
-  }, [companyId, strategyId, state?.usingArtifacts, fetchStatus]);
+  }, [companyId, strategyId, state?.usingArtifacts, fetchStatus, isControlled, controlled]);
 
   // Insert updates / refresh
   const handleUpdate = useCallback(async () => {
@@ -280,8 +340,10 @@ export function StrategyDocCard({ companyId, strategyId }: StrategyDocCardProps)
             {getIcon(state.status)}
           </div>
           <div>
-            <p className="text-sm font-medium text-slate-300">Strategy Document</p>
-            <p className="text-xs text-slate-500">{getSubtitle(state)}</p>
+            <p className="text-sm font-medium text-slate-300">
+              Strategy <span className="text-slate-500 font-normal">(Decision Output)</span>
+            </p>
+            <p className="text-xs text-slate-500">{getSubtitle(state, isControlled, controlledCanCreate, controlledConfirmedCount, controlledRequiredCount)}</p>
           </div>
         </div>
 
@@ -293,25 +355,18 @@ export function StrategyDocCard({ companyId, strategyId }: StrategyDocCardProps)
 
           {/* Action buttons based on status */}
           {state.status === 'not_created' && (
-            <button
-              onClick={handleCreate}
-              disabled={creating || !state.contextReady || (state.usingArtifacts && !strategyId)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/30 rounded-lg hover:bg-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              title={
-                !state.contextReady
-                  ? `Need ${state.minRequiredFields - state.confirmedFieldCount} more confirmed fields`
-                  : state.usingArtifacts && !strategyId
-                  ? 'Strategy required to create document'
-                  : 'Create Strategy Document'
-              }
-            >
-              {creating ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Plus className="w-3.5 h-3.5" />
-              )}
-              Create
-            </button>
+            <CreateButton
+              isControlled={isControlled}
+              controlledCanCreate={controlledCanCreate}
+              controlledBlockedReason={controlledBlockedReason}
+              contextReady={state.contextReady}
+              usingArtifacts={state.usingArtifacts}
+              strategyId={strategyId}
+              minRequiredFields={state.minRequiredFields}
+              confirmedFieldCount={state.confirmedFieldCount}
+              creating={creating}
+              onCreateClick={handleCreate}
+            />
           )}
 
           {state.status === 'up_to_date' && state.docUrl && (
@@ -356,16 +411,32 @@ export function StrategyDocCard({ companyId, strategyId }: StrategyDocCardProps)
         </div>
       </div>
 
-      {/* Context readiness warning */}
-      {state.status === 'not_created' && !state.contextReady && (
-        <div className="mt-3 flex items-start gap-2 text-xs text-amber-400/80">
-          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-          <span>
-            Need {state.minRequiredFields - state.confirmedFieldCount} more confirmed
-            Context V4 fields before creating.
-          </span>
-        </div>
+      {/* Helper text - shows when not created */}
+      {state.status === 'not_created' && (
+        <p className="mt-3 text-xs text-slate-500">
+          Your confirmed context decisions drive strategy generation.
+        </p>
       )}
+
+      {/* Context readiness warning */}
+      {state.status === 'not_created' && (() => {
+        // Use controlled values when in controlled mode
+        const contextReady = isControlled ? controlledCanCreate : state.contextReady;
+        const confirmedCount = isControlled ? controlledConfirmedCount : state.confirmedFieldCount;
+        const requiredCount = isControlled ? controlledRequiredCount : state.minRequiredFields;
+        const blockedReason = isControlled ? controlledBlockedReason : null;
+
+        if (contextReady) return null;
+
+        return (
+          <div className="mt-2 flex items-start gap-2 text-xs text-amber-400/80">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+            <span>
+              {blockedReason || `Need ${requiredCount - confirmedCount} more confirmed Context V4 fields before creating.`}
+            </span>
+          </div>
+        );
+      })()}
 
       {/* Strategy ID warning for artifacts mode */}
       {state.status === 'not_created' && state.contextReady && state.usingArtifacts && !strategyId && (
@@ -376,6 +447,11 @@ export function StrategyDocCard({ companyId, strategyId }: StrategyDocCardProps)
           </span>
         </div>
       )}
+
+      {/* AI Readiness warnings */}
+      {state.status === 'not_created' && state.contextReady && (
+        <InlineReadinessWarning companyId={companyId} context="strategy" />
+      )}
     </div>
   );
 }
@@ -385,14 +461,14 @@ export function StrategyDocCard({ companyId, strategyId }: StrategyDocCardProps)
 // ============================================================================
 
 /**
- * Find the active strategy_doc artifact (prefer published, then draft, ignore archived)
+ * Find the active strategy_doc artifact (prefer final, then draft, ignore archived)
  */
 function findActiveStrategyDoc(artifacts: Artifact[]): Artifact | null {
   const strategyDocs = artifacts.filter(a => a.type === 'strategy_doc' && a.status !== 'archived');
 
-  // Prefer published
-  const published = strategyDocs.find(a => a.status === 'published');
-  if (published) return published;
+  // Prefer final
+  const final = strategyDocs.find(a => a.status === 'final');
+  if (final) return final;
 
   // Fall back to draft
   const draft = strategyDocs.find(a => a.status === 'draft');
@@ -423,9 +499,21 @@ function getIconStyle(status: DocStatus) {
   }
 }
 
-function getSubtitle(state: UnifiedDocState) {
+function getSubtitle(
+  state: UnifiedDocState,
+  isControlled: boolean,
+  controlledCanCreate: boolean,
+  controlledConfirmedCount: number,
+  controlledRequiredCount: number
+) {
   switch (state.status) {
     case 'not_created':
+      // In controlled mode, use controlled values for the subtitle
+      if (isControlled) {
+        return controlledCanCreate
+          ? 'Ready to create'
+          : `${controlledConfirmedCount}/${controlledRequiredCount} fields confirmed`;
+      }
       return state.contextReady
         ? 'Ready to create'
         : `${state.confirmedFieldCount}/${state.minRequiredFields} fields confirmed`;
@@ -457,6 +545,65 @@ function formatRelativeTime(isoString: string): string {
   if (diffDays < 7) return `${diffDays}d ago`;
 
   return date.toLocaleDateString();
+}
+
+/**
+ * Create button component - extracted for clarity
+ */
+interface CreateButtonProps {
+  isControlled: boolean;
+  controlledCanCreate: boolean;
+  controlledBlockedReason?: string;
+  contextReady: boolean;
+  usingArtifacts: boolean;
+  strategyId?: string;
+  minRequiredFields: number;
+  confirmedFieldCount: number;
+  creating: boolean;
+  onCreateClick: () => void;
+}
+
+function CreateButton({
+  isControlled,
+  controlledCanCreate,
+  controlledBlockedReason,
+  contextReady,
+  usingArtifacts,
+  strategyId,
+  minRequiredFields,
+  confirmedFieldCount,
+  creating,
+  onCreateClick,
+}: CreateButtonProps) {
+  // Determine canCreate based on controlled mode or internal state
+  const canCreate = isControlled
+    ? controlledCanCreate
+    : contextReady && (!usingArtifacts || !!strategyId);
+
+  // Determine button title/tooltip
+  const buttonTitle = isControlled
+    ? (controlledCanCreate ? 'Create Strategy Document' : controlledBlockedReason || 'Cannot create')
+    : (!contextReady
+        ? `Need ${minRequiredFields - confirmedFieldCount} more confirmed fields`
+        : usingArtifacts && !strategyId
+        ? 'Strategy required to create document'
+        : 'Create Strategy Document');
+
+  return (
+    <button
+      onClick={onCreateClick}
+      disabled={creating || !canCreate}
+      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/30 rounded-lg hover:bg-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      title={buttonTitle}
+    >
+      {creating ? (
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+      ) : (
+        <Plus className="w-3.5 h-3.5" />
+      )}
+      Create
+    </button>
+  );
 }
 
 export default StrategyDocCard;

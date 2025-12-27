@@ -1,11 +1,13 @@
 // lib/nav/companyNav.ts
 // Centralized navigation helpers for company routes
 //
-// Used by:
-// - CompanyTabs (company-level navigation)
-// - BrainSubNav (brain workspace navigation)
-// - QbrSubNav (QBR workspace navigation)
-// - BlueprintSubNav (blueprint workspace navigation)
+// Phase-aligned navigation:
+// - Discover: Run labs to understand the business
+// - Decide: Confirm context and generate strategy
+// - Deliver: Create deliverables from confirmed decisions
+// - (Iterate): Implicit - shown via staleness/update CTAs
+//
+// Work is NOT a phase - it's execution handoff after Deliver
 
 // ============================================================================
 // Company-Level Navigation
@@ -13,13 +15,17 @@
 
 export type CompanyTabId =
   | 'overview'
+  | 'discover'    // Phase 1: Labs/Diagnostics
+  | 'decide'      // Phase 2: Context + Strategy
+  | 'deliver'     // Phase 3: Deliverables
+  | 'work'        // Execution handoff
+  | 'documents'   // Archive/browse
+  // Legacy/secondary (routes still work)
   | 'context'
   | 'diagnostics'
   | 'strategy'
   | 'readiness'
-  | 'work'
   | 'reports'
-  | 'documents'
   | 'blueprint'
   | 'brain'
   | 'findings';
@@ -33,73 +39,101 @@ export interface CompanyTab {
   primary?: boolean;
   /** If true, tab is hidden from navigation but routes still work */
   hidden?: boolean;
+  /** Phase number for visual indicators (1=Discover, 2=Decide, 3=Deliver) */
+  phase?: number;
 }
 
 export const COMPANY_TABS: CompanyTab[] = [
-  // === Primary Navigation (MVP 1.0) ===
+  // === Primary Navigation (Phase-Aligned) ===
   {
     id: 'overview',
     name: 'Overview',
     href: (companyId) => `/c/${companyId}`,
-    description: 'Company dashboard with health summary and quick actions',
+    description: 'Company dashboard with phase guidance and quick actions',
     primary: true,
   },
   {
-    id: 'context',
-    name: 'Context',
-    href: (companyId) => `/c/${companyId}/context`,
-    description: 'Editable company context: business model, audience, objectives, constraints',
-    primary: true,
-  },
-  {
-    id: 'diagnostics',
-    name: 'Diagnostics',
+    id: 'discover',
+    name: 'Discover',
     href: (companyId) => `/c/${companyId}/diagnostics`,
-    description: 'Run labs and GAP assessments to uncover issues and opportunities',
+    description: 'Run labs to understand the business before forming strategy',
     primary: true,
+    phase: 1,
   },
   {
-    id: 'strategy',
-    name: 'Strategy',
-    href: (companyId) => `/c/${companyId}/strategy`,
-    description: 'Marketing strategy with pillars, objectives, and AI-assisted planning',
+    id: 'decide',
+    name: 'Decide',
+    href: (companyId) => `/c/${companyId}/decide`,
+    description: 'Confirm context and generate strategy from discoveries',
     primary: true,
+    phase: 2,
   },
   {
-    id: 'readiness',
-    name: 'Readiness',
-    href: (companyId) => `/c/${companyId}/readiness`,
-    description: 'Flow readiness: what is ready and what needs attention',
+    id: 'deliver',
+    name: 'Deliver',
+    href: (companyId) => `/c/${companyId}/deliver`,
+    description: 'Create deliverables from confirmed decisions',
     primary: true,
+    phase: 3,
   },
   {
     id: 'work',
     name: 'Work',
     href: (companyId) => `/c/${companyId}/work`,
-    description: 'Active tasks, workstreams, and 90-day plan',
-    primary: true,
-  },
-  {
-    id: 'reports',
-    name: 'Reports',
-    href: (companyId) => `/c/${companyId}/reports`,
-    description: 'Monthly reports, QBRs, and strategic documents',
+    description: 'Approved programs and initiatives in execution',
     primary: true,
   },
   {
     id: 'documents',
     name: 'Documents',
     href: (companyId) => `/c/${companyId}/documents`,
-    description: 'Briefs, proposals, and generated documents',
+    description: 'Browse and manage all generated artifacts',
     primary: true,
   },
-  // === Secondary Navigation (accessible but not in main tabs) ===
+  // === Secondary Navigation (accessible via direct routes) ===
+  {
+    id: 'context',
+    name: 'Context',
+    href: (companyId) => `/c/${companyId}/context`,
+    description: 'Editable company context: business model, audience, objectives',
+    primary: false,
+  },
+  {
+    id: 'diagnostics',
+    name: 'Diagnostics',
+    href: (companyId) => `/c/${companyId}/diagnostics`,
+    description: 'Run labs and GAP assessments',
+    primary: false,
+    hidden: true, // Accessed via "Discover" tab
+  },
+  {
+    id: 'strategy',
+    name: 'Strategy',
+    href: (companyId) => `/c/${companyId}/strategy`,
+    description: 'Marketing strategy with pillars and objectives',
+    primary: false,
+  },
+  {
+    id: 'readiness',
+    name: 'AI Quality',
+    href: (companyId) => `/c/${companyId}/readiness`,
+    description: 'Advanced quality signals for AI-generated content',
+    primary: false,
+  },
+  {
+    id: 'reports',
+    name: 'Reports',
+    href: (companyId) => `/c/${companyId}/reports`,
+    description: 'QBRs and periodic reports',
+    primary: false,
+  },
   {
     id: 'blueprint',
     name: 'Labs',
     href: (companyId) => `/c/${companyId}/blueprint`,
-    description: 'Run labs and assessments to uncover issues and opportunities',
+    description: 'Run labs and assessments',
     primary: false,
+    hidden: true,
   },
   {
     id: 'brain',
@@ -107,6 +141,7 @@ export const COMPANY_TABS: CompanyTab[] = [
     href: (companyId) => `/c/${companyId}/brain`,
     description: 'Company memory & intelligence hub',
     primary: false,
+    hidden: true,
   },
   {
     id: 'findings',
@@ -114,6 +149,7 @@ export const COMPANY_TABS: CompanyTab[] = [
     href: (companyId) => `/c/${companyId}/findings`,
     description: 'Issues and opportunities from diagnostics',
     primary: false,
+    hidden: true,
   },
 ];
 
@@ -135,22 +171,31 @@ export function getAllCompanyTabs(): CompanyTab[] {
  * Determine which company tab is active based on pathname
  */
 export function getCompanyTabFromPath(pathname: string, companyId: string): CompanyTabId {
-  // Check for specific tab routes (order matters - check more specific routes first)
-  // New MVP 1.0 routes
-  if (pathname.startsWith(`/c/${companyId}/context`)) return 'context';
-  if (pathname.startsWith(`/c/${companyId}/diagnostics`)) return 'diagnostics';
-  if (pathname.startsWith(`/c/${companyId}/strategy`)) return 'strategy';
-  if (pathname.startsWith(`/c/${companyId}/readiness`)) return 'readiness';
+  // Phase-aligned routes (primary nav)
+  if (pathname.startsWith(`/c/${companyId}/decide`)) return 'decide';
+  if (pathname.startsWith(`/c/${companyId}/deliver`)) return 'deliver';
+
+  // Discover phase - diagnostics routes map to discover
+  if (pathname.startsWith(`/c/${companyId}/diagnostics`)) return 'discover';
+  if (pathname.startsWith(`/c/${companyId}/blueprint`)) return 'discover';
+  if (pathname.startsWith(`/c/${companyId}/labs`)) return 'discover';
+
+  // Decide phase - context and strategy routes map to decide
+  if (pathname.startsWith(`/c/${companyId}/context`)) return 'decide';
+  if (pathname.startsWith(`/c/${companyId}/strategy`)) return 'decide';
+  if (pathname.startsWith(`/c/${companyId}/readiness`)) return 'decide'; // AI Quality is under Decide
+
+  // Other primary routes
+  if (pathname.startsWith(`/c/${companyId}/work`)) return 'work';
   if (pathname.startsWith(`/c/${companyId}/documents`)) return 'documents';
-  // Existing routes
-  if (pathname.startsWith(`/c/${companyId}/blueprint`)) return 'diagnostics'; // Blueprint now maps to diagnostics
+
+  // Legacy routes map to documents
+  if (pathname.startsWith(`/c/${companyId}/reports`)) return 'documents';
+  if (pathname.startsWith(`/c/${companyId}/qbr`)) return 'documents';
+
+  // Secondary routes (not in primary nav but still functional)
   if (pathname.startsWith(`/c/${companyId}/brain`)) return 'brain';
   if (pathname.startsWith(`/c/${companyId}/findings`)) return 'findings';
-  if (pathname.startsWith(`/c/${companyId}/work`)) return 'work';
-  if (pathname.startsWith(`/c/${companyId}/reports`)) return 'reports';
-  // Legacy routes
-  if (pathname.startsWith(`/c/${companyId}/qbr`)) return 'reports';
-  if (pathname.startsWith(`/c/${companyId}/labs`)) return 'diagnostics';
 
   // Default to overview for exact match or unknown routes
   return 'overview';

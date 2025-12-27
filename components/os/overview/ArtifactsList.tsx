@@ -151,7 +151,7 @@ export function ArtifactsList({
       {artifacts.filter(a => a.status !== 'archived').length > maxItems && (
         <div className="text-center">
           <a
-            href={`/c/${companyId}/documents`}
+            href={`/c/${companyId}/deliver/artifacts`}
             className="text-xs text-slate-500 hover:text-slate-400 transition-colors"
           >
             View all {artifacts.filter(a => a.status !== 'archived').length} artifacts →
@@ -220,7 +220,7 @@ function ArtifactRow({ artifact }: { artifact: Artifact }) {
 
 function StatusBadge({ status }: { status: ArtifactStatus }) {
   switch (status) {
-    case 'published':
+    case 'final':
       return (
         <span className="flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded">
           <CheckCircle className="w-3 h-3" />

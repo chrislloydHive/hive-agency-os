@@ -292,14 +292,14 @@ export function EngagementProgressCard({
         )}
       </div>
 
-      {/* Context ready state */}
+      {/* Strategy inputs confirmed state */}
       {engagement.status === 'context_approved' && (
         <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <CheckCircle2 className="w-5 h-5 text-emerald-400" />
               <div>
-                <p className="text-sm font-medium text-emerald-300">Context Ready</p>
+                <p className="text-sm font-medium text-emerald-300">Strategy inputs confirmed</p>
                 <p className="text-xs text-slate-400">
                   Completed {engagement.contextApprovedAt
                     ? new Date(engagement.contextApprovedAt).toLocaleDateString()
