@@ -83,6 +83,31 @@ export const AIRTABLE_TABLES = {
   // Workspace Artifacts (Google Drive integration)
   ARTIFACTS: 'Artifacts', // First-class artifacts linked to Google Drive/Docs/Slides
 
+  // Heavy Plans (structured planning objects - Decide → Deliver → Work bridge)
+  HEAVY_MEDIA_PLANS: 'HeavyMediaPlans', // Heavy Media Plan entities
+  HEAVY_CONTENT_PLANS: 'HeavyContentPlans', // Heavy Content Plan entities
+  PLAN_PROPOSALS: 'PlanProposals', // AI-generated plan update proposals
+
+  // Firm Brain Tables (Settings - Agency-wide knowledge)
+  AGENCY_PROFILE: 'AgencyProfile', // Single record - agency overview, differentiators, services
+  TEAM_MEMBERS: 'TeamMembers', // Agency team members for RFP proposals
+  CASE_STUDIES: 'CaseStudies', // Portfolio work samples
+  REFERENCES: 'References', // Client references with permission tracking
+  PRICING_TEMPLATES: 'PricingTemplates', // Reusable pricing structures
+  PLAN_TEMPLATES: 'PlanTemplates', // Reusable project plan structures
+
+  // RFP System Tables (Deliver - Heavy RFP workflow)
+  RFPS: 'RFPs', // RFP entities linked to companies
+  RFP_SECTIONS: 'RfpSections', // Individual RFP sections (agency_overview, approach, team, etc.)
+  RFP_BINDINGS: 'RfpBindings', // Links between RFPs and Firm Brain entities
+
+  // Proposal System Tables (Deliver - converted from RFPs)
+  PROPOSALS: 'Proposals', // Proposal entities (converted from RFPs or created fresh)
+  PROPOSAL_SECTIONS: 'ProposalSections', // Individual proposal sections
+
+  // Section Library (Reusable content - V3)
+  SECTION_LIBRARY: 'SectionLibrary', // Reusable sections (company-scoped + global)
+
   // Legacy (use BRIEFS instead)
   CREATIVE_BRIEFS: 'CreativeBriefs', // Deprecated - use BRIEFS
 
