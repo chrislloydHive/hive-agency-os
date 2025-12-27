@@ -141,7 +141,7 @@ export const SRM_FIELDS = [
     label: 'Brand Positioning',
     reason: 'Strategy must align with brand positioning',
     isArray: false,
-    alternatives: ['valueProps'],
+    alternatives: ['valueProps', 'differentiators'],
   },
 ] as const;
 
@@ -167,6 +167,7 @@ export const SRM_FIELD_LABELS: Record<string, string> = {
   'competition.primaryCompetitors': 'Competitors',
   'brand.positioning': 'Brand Positioning',
   'brand.valueProps': 'Value Props',
+  'brand.differentiators': 'Differentiators',
 };
 
 // ============================================================================
