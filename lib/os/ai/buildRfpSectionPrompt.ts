@@ -1069,7 +1069,7 @@ ${personaGuidance}
   // V2.5: Requirements-based guidance (if parsed requirements available)
   if (rfpContext.parsedRequirements) {
     const requirementsGuidance = getSectionRequirementsGuidance(
-      contract.key as RfpSectionKey,
+      contract.sectionKey,
       rfpContext.parsedRequirements
     );
     if (requirementsGuidance) {

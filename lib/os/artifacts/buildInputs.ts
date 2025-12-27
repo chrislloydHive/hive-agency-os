@@ -6,8 +6,8 @@
 // - Context Graph (audience, positioning, value prop)
 // - Plans (if generating from media/content plan)
 
-import type { ContextGraph } from '@/lib/types/contextGraph';
-import type { Strategy, StrategyPlay, StrategyObjective } from '@/lib/types/strategy';
+import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
+import type { CompanyStrategy, StrategyPlay, StrategyObjective } from '@/lib/types/strategy';
 import type { MediaPlan, ContentPlan, MediaPlanSections, ContentPlanSections } from '@/lib/types/plan';
 import type { ArtifactGenerationContext } from './prompts';
 import type { ArtifactSourceType } from './registry';
@@ -26,8 +26,8 @@ export interface ArtifactSourceInput {
 export interface BuildInputsParams {
   source: ArtifactSourceInput;
   companyName: string;
-  context: ContextGraph | null;
-  strategy: Strategy | null;
+  context: CompanyContextGraph | null;
+  strategy: CompanyStrategy | null;
   mediaPlan?: MediaPlan | null;
   contentPlan?: ContentPlan | null;
   promptHint?: string;
@@ -38,8 +38,8 @@ export interface BuildInputsParams {
 // ============================================================================
 
 function getConfirmedValue(
-  context: ContextGraph | null,
-  domain: keyof ContextGraph,
+  context: CompanyContextGraph | null,
+  domain: keyof CompanyContextGraph,
   key: string
 ): string | null {
   if (!context) return null;
@@ -51,12 +51,17 @@ function getConfirmedValue(
   return fieldObj.value || null;
 }
 
-function extractObjectives(strategy: Strategy | null): Array<{ text: string; metric?: string; target?: string }> {
+function extractObjectives(strategy: CompanyStrategy | null): Array<{ text: string; metric?: string; target?: string }> {
   if (!strategy?.objectives) return [];
-  return strategy.objectives
-    .filter((o): o is StrategyObjective & { status: 'active' } =>
-      o.status === 'active' || o.status === 'draft'
-    )
+
+  // Handle legacy string[] format
+  if (typeof strategy.objectives[0] === 'string') {
+    return (strategy.objectives as string[]).map(text => ({ text }));
+  }
+
+  // Handle StrategyObjective[] format
+  return (strategy.objectives as StrategyObjective[])
+    .filter((o) => o.status === 'active' || o.status === 'draft')
     .map(o => ({
       text: o.text,
       metric: o.metric,
@@ -65,7 +70,7 @@ function extractObjectives(strategy: Strategy | null): Array<{ text: string; met
 }
 
 function extractTactics(
-  strategy: Strategy | null,
+  strategy: CompanyStrategy | null,
   includedTacticIds?: string[]
 ): Array<{
   title: string;
@@ -144,7 +149,7 @@ export function buildArtifactInputs(params: BuildInputsParams): ArtifactGenerati
     valueProposition: getConfirmedValue(context, 'productOffer', 'valueProposition') || undefined,
     primaryAudience: getConfirmedValue(context, 'audience', 'primaryAudience') || undefined,
     icpDescription: getConfirmedValue(context, 'audience', 'icpDescription') || undefined,
-    strategyFrame: strategy?.strategyFrame || undefined,
+    strategyFrame: strategy?.strategyFrame ? JSON.stringify(strategy.strategyFrame) : undefined,
     objectives: extractObjectives(strategy),
     tactics: extractTactics(strategy, source.includedTacticIds),
     promptHint,
@@ -188,7 +193,7 @@ export function hashInputs(inputs: ArtifactGenerationContext): string {
 /**
  * Detect which tactic channels are present in the strategy
  */
-export function detectTacticChannels(strategy: Strategy | null): {
+export function detectTacticChannels(strategy: CompanyStrategy | null): {
   hasMediaTactics: boolean;
   hasContentTactics: boolean;
   hasSeoTactics: boolean;

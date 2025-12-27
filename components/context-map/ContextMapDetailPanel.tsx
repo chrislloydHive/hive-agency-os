@@ -7,7 +7,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { X, Check, Pencil, Sparkles, User, TestTube, ArrowRight, ChevronDown, ChevronUp, Eye, Edit3, Loader2, CheckCircle2, XCircle, AlertCircle, Code, Trash2, LinkIcon } from 'lucide-react';
 import type { HydratedContextNode } from '@/lib/contextGraph/nodes';
 import type { WhereUsedRef } from './types';
-import { getShortLabel, formatRelativeTime, SOURCE_LABELS, formatNodeValue, getNodeTier, DOMAIN_TO_ZONE, ZONE_DEFINITIONS } from './constants';
+import { getShortLabel, formatRelativeTime, SOURCE_LABELS, formatNodeValue, getNodeTier, getZoneForField, ZONE_DEFINITIONS } from './constants';
 import { RefinementComparisonPanel, RefinementPrompt } from './RefinementComparisonPanel';
 import { FieldInput, getValuePreview } from './field-renderers';
 import { getSchemaV2Entry } from '@/lib/contextGraph/unifiedRegistry';
@@ -237,9 +237,8 @@ export function ContextMapDetailPanel({
   const proposedValue = hasProposal ? formatValue(node.pendingProposal?.proposedValue) : null;
   const nodeTier = getNodeTier(node.key);
 
-  // Get zone from domain
-  const domain = node.key.split('.')[0];
-  const zoneId = DOMAIN_TO_ZONE[domain] || 'overflow';
+  // Get zone from field key (checks field-level mapping first, then domain fallback)
+  const zoneId = getZoneForField(node.key);
   const zone = ZONE_DEFINITIONS.find(z => z.id === zoneId);
   const zoneName = zone?.label || 'Other';
 

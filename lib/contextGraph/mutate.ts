@@ -237,17 +237,17 @@ export function setFieldUntyped(
     );
   }
 
+  // Ensure domain exists (may have been stripped during storage load)
+  ensureDomain(graph, domain as DomainName);
+
   const domainObj = graph[domain as DomainName] as Record<string, WithMetaType<unknown>>;
   if (!domainObj || typeof domainObj !== 'object') {
     console.warn(`[setFieldUntyped] Domain ${domain} not found`);
     return graph;
   }
 
-  const fieldData = domainObj[field];
-  if (!fieldData || typeof fieldData !== 'object') {
-    console.warn(`[setFieldUntyped] Field ${domain}.${field} not found`);
-    return graph;
-  }
+  // Initialize field if it doesn't exist (stripped during storage load)
+  const fieldData = domainObj[field] || { value: null, provenance: [] };
 
   // HUMAN CONFIRMED GATE: Prevent AI/Lab overwrites of human-confirmed fields
   if (!options?.force) {

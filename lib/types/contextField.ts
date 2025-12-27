@@ -405,6 +405,8 @@ export interface ContextFieldV4 {
   lockedAt?: string;
   /** User ID who confirmed */
   lockedBy?: string;
+  /** True if user edited the proposed value before confirming (not just accepted as-is) */
+  humanEdited?: boolean;
 
   // Rejection
   /** ISO timestamp when rejected */

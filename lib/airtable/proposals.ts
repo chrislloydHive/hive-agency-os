@@ -35,7 +35,7 @@ export async function getProposalsForCompany(companyId: string): Promise<Proposa
       title: (record.get('title') as string) || '',
       status: (record.get('status') as Proposal['status']) || 'draft',
       sourceRfpId: record.get('sourceRfpId') as string | null,
-      firmBrainSnapshot: parseJsonObject(record.get('firmBrainSnapshot')),
+      firmBrainSnapshot: parseJsonObject(record.get('firmBrainSnapshot')) as Proposal['firmBrainSnapshot'],
       createdBy: record.get('createdBy') as string | null,
       createdAt: record.get('createdAt') as string | null,
       updatedAt: record.get('updatedAt') as string | null,
@@ -57,7 +57,7 @@ export async function getProposalById(id: string): Promise<Proposal | null> {
       title: (record.get('title') as string) || '',
       status: (record.get('status') as Proposal['status']) || 'draft',
       sourceRfpId: record.get('sourceRfpId') as string | null,
-      firmBrainSnapshot: parseJsonObject(record.get('firmBrainSnapshot')),
+      firmBrainSnapshot: parseJsonObject(record.get('firmBrainSnapshot')) as Proposal['firmBrainSnapshot'],
       createdBy: record.get('createdBy') as string | null,
       createdAt: record.get('createdAt') as string | null,
       updatedAt: record.get('updatedAt') as string | null,
@@ -72,16 +72,19 @@ export async function createProposal(input: ProposalInput): Promise<Proposal> {
   const base = getAirtableBase();
   const now = new Date().toISOString();
 
-  const record = await base(AIRTABLE_TABLES.PROPOSALS).create({
-    companyId: input.companyId,
-    title: input.title,
-    status: input.status || 'draft',
-    sourceRfpId: input.sourceRfpId || null,
-    firmBrainSnapshot: input.firmBrainSnapshot ? JSON.stringify(input.firmBrainSnapshot) : null,
-    createdBy: input.createdBy || null,
-    createdAt: now,
-    updatedAt: now,
-  });
+  const records = await base(AIRTABLE_TABLES.PROPOSALS).create([{
+    fields: {
+      companyId: input.companyId,
+      title: input.title,
+      status: input.status || 'draft',
+      sourceRfpId: input.sourceRfpId || undefined,
+      firmBrainSnapshot: input.firmBrainSnapshot ? JSON.stringify(input.firmBrainSnapshot) : undefined,
+      createdBy: input.createdBy || undefined,
+      createdAt: now,
+      updatedAt: now,
+    }
+  }]) as unknown as Array<{ id: string }>;
+  const record = records[0];
 
   const proposal: Proposal = {
     id: record.id,
@@ -102,7 +105,7 @@ export async function updateProposal(id: string, input: Partial<ProposalInput>):
   const base = getAirtableBase();
   const now = new Date().toISOString();
 
-  const fields: Record<string, unknown> = { updatedAt: now };
+  const fields: Record<string, any> = { updatedAt: now };
   if (input.title !== undefined) fields.title = input.title;
   if (input.status !== undefined) fields.status = input.status;
   if (input.sourceRfpId !== undefined) fields.sourceRfpId = input.sourceRfpId;
@@ -167,16 +170,16 @@ export async function initializeProposalSections(proposalId: string): Promise<vo
       sectionKey: key,
       title: SECTION_LABELS[key],
       status: 'empty',
-      content: null,
-      sourceType: null,
-      sourceRfpSectionKey: null,
-      sourceLibrarySectionId: null,
+      content: undefined,
+      sourceType: undefined,
+      sourceRfpSectionKey: undefined,
+      sourceLibrarySectionId: undefined,
       createdAt: now,
       updatedAt: now,
     },
   }));
 
-  await base(AIRTABLE_TABLES.PROPOSAL_SECTIONS).create(sections);
+  await base(AIRTABLE_TABLES.PROPOSAL_SECTIONS).create(sections as any);
 }
 
 export async function getProposalSections(proposalId: string): Promise<ProposalSection[]> {
@@ -257,7 +260,7 @@ export async function updateProposalSection(
     const base = getAirtableBase();
     const now = new Date().toISOString();
 
-    const fields: Record<string, unknown> = { updatedAt: now };
+    const fields: Record<string, any> = { updatedAt: now };
     if (input.title !== undefined) fields.title = input.title;
     if (input.status !== undefined) fields.status = input.status;
     if (input.content !== undefined) fields.content = input.content;
@@ -290,18 +293,21 @@ export async function createProposalSection(input: ProposalSectionInput): Promis
   const base = getAirtableBase();
   const now = new Date().toISOString();
 
-  const record = await base(AIRTABLE_TABLES.PROPOSAL_SECTIONS).create({
-    proposalId: input.proposalId,
-    sectionKey: input.sectionKey,
-    title: input.title,
-    status: input.status || 'empty',
-    content: input.content || null,
-    sourceType: input.sourceType || null,
-    sourceRfpSectionKey: input.sourceRfpSectionKey || null,
-    sourceLibrarySectionId: input.sourceLibrarySectionId || null,
-    createdAt: now,
-    updatedAt: now,
-  });
+  const records = await base(AIRTABLE_TABLES.PROPOSAL_SECTIONS).create([{
+    fields: {
+      proposalId: input.proposalId,
+      sectionKey: input.sectionKey,
+      title: input.title,
+      status: input.status || 'empty',
+      content: input.content || undefined,
+      sourceType: input.sourceType || undefined,
+      sourceRfpSectionKey: input.sourceRfpSectionKey || undefined,
+      sourceLibrarySectionId: input.sourceLibrarySectionId || undefined,
+      createdAt: now,
+      updatedAt: now,
+    },
+  }]) as unknown as Array<{ id: string }>;
+  const record = records[0];
 
   return {
     id: record.id,

@@ -10,7 +10,7 @@ import { useState } from 'react';
 import { X, Check, Trash2, Pencil, CheckCheck, Sparkles, Filter, Zap, Target, Eye, EyeOff, ChevronDown, ChevronUp, AlertTriangle, Link as LinkIcon, Quote } from 'lucide-react';
 import type { HydratedContextNode } from '@/lib/contextGraph/nodes';
 import type { DecisionImpact } from '@/lib/types/contextField';
-import { getShortLabel, formatNodeValue, getZoneForDomain, getZoneColor } from './constants';
+import { getShortLabel, formatNodeValue, getZoneForField, getZoneColor } from './constants';
 
 interface ProposalReviewPanelProps {
   isOpen: boolean;
@@ -310,7 +310,7 @@ export function ProposalReviewPanel({
           <div className="divide-y divide-slate-800">
             {proposalNodes.map((node) => {
               const status = reviewStatus[node.key] || 'pending';
-              const zoneId = getZoneForDomain(node.category);
+              const zoneId = getZoneForField(node.key);
               const zoneColor = getZoneColor(zoneId);
               const isEditing = editingKey === node.key;
 

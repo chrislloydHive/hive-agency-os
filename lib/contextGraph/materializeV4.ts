@@ -114,10 +114,11 @@ function materializeFieldToGraph(
     confidence: 1.0,
     updatedAt: field.updatedAt,
     humanConfirmed: true, // Lock from AI overwrites
+    humanEdited: field.humanEdited ?? false, // Track if user modified the value
     confirmedAt: field.lockedAt,
     confirmedBy: field.lockedBy,
     sourceRunId: field.evidence?.runId,
-    notes: `Confirmed via V4 review (original source: ${field.source})`,
+    notes: `Confirmed via V4 review (original source: ${field.source})${field.humanEdited ? ', human edited' : ''}`,
   };
 
   // Write to graph with force=true to bypass checks
