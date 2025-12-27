@@ -115,21 +115,23 @@ export async function createSection(
   const base = getAirtableBase();
   const now = new Date().toISOString();
 
-  const record = await base(AIRTABLE_TABLES.SECTION_LIBRARY).create({
-    scope: 'company', // Always company-scoped for normal creation
-    companyId, // Required for company scope
-    title: input.title,
-    content: input.content,
-    tagsString: input.tags.join(','), // Store as comma-separated
-    source: input.source,
-    sourceId: input.sourceId || null,
-    sourceSectionKey: input.sourceSectionKey || null,
-    outcome: null, // Will be populated from RFP outcome later
-    createdAt: now,
-    updatedAt: now,
-  });
+  const records = await base(AIRTABLE_TABLES.SECTION_LIBRARY).create([{
+    fields: {
+      scope: 'company', // Always company-scoped for normal creation
+      companyId, // Required for company scope
+      title: input.title,
+      content: input.content,
+      tagsString: input.tags.join(','), // Store as comma-separated
+      source: input.source,
+      sourceId: input.sourceId || undefined,
+      sourceSectionKey: input.sourceSectionKey || undefined,
+      outcome: undefined, // Will be populated from RFP outcome later
+      createdAt: now,
+      updatedAt: now,
+    },
+  }]) as unknown as Array<{ id: string; get: (field: string) => unknown }>;
 
-  return mapRecordToSection(record);
+  return mapRecordToSection(records[0]);
 }
 
 /**
@@ -158,7 +160,7 @@ export async function updateSection(
     }
 
     const now = new Date().toISOString();
-    const fields: Record<string, unknown> = { updatedAt: now };
+    const fields: Record<string, any> = { updatedAt: now };
 
     if (input.title !== undefined) fields.title = input.title;
     if (input.content !== undefined) fields.content = input.content;
@@ -230,21 +232,23 @@ export async function promoteSectionToGlobal(
   const now = new Date().toISOString();
 
   // Create new global section (copy content, clear company-specific data)
-  const record = await base(AIRTABLE_TABLES.SECTION_LIBRARY).create({
-    scope: 'global',
-    companyId: null, // Global sections have no company
-    title: original.title,
-    content: original.content,
-    tagsString: original.tags.join(','),
-    source: original.source,
-    sourceId: null, // Clear source reference (original RFP/Proposal is company-specific)
-    sourceSectionKey: original.sourceSectionKey,
-    outcome: original.outcome, // Keep outcome if present
-    createdAt: now,
-    updatedAt: now,
-  });
+  const records = await base(AIRTABLE_TABLES.SECTION_LIBRARY).create([{
+    fields: {
+      scope: 'global',
+      companyId: undefined, // Global sections have no company
+      title: original.title,
+      content: original.content,
+      tagsString: original.tags.join(','),
+      source: original.source,
+      sourceId: undefined, // Clear source reference (original RFP/Proposal is company-specific)
+      sourceSectionKey: original.sourceSectionKey ?? undefined,
+      outcome: original.outcome ?? undefined, // Keep outcome if present
+      createdAt: now,
+      updatedAt: now,
+    },
+  }]) as unknown as Array<{ id: string; get: (field: string) => unknown }>;
 
-  const globalSection = mapRecordToSection(record);
+  const globalSection = mapRecordToSection(records[0]);
 
   return { originalSection: original, globalSection };
 }
@@ -261,8 +265,8 @@ export async function updateSectionOutcome(
     const now = new Date().toISOString();
 
     const [updated] = await base(AIRTABLE_TABLES.SECTION_LIBRARY).update([
-      { id, fields: { outcome, updatedAt: now } },
-    ]);
+      { id, fields: { outcome: outcome ?? undefined, updatedAt: now } },
+    ] as any);
 
     return mapRecordToSection(updated);
   } catch (error) {

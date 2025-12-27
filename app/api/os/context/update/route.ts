@@ -16,12 +16,81 @@
 // 2. Node-key updates: { companyId, nodeKey, value } - Context Map edits, routes based on path
 
 import { NextRequest, NextResponse } from 'next/server';
+
+// Force dynamic rendering - mutations should never be cached
+export const dynamic = 'force-dynamic';
 import { updateCompanyContext } from '@/lib/os/context';
 import { getFieldEntry } from '@/lib/contextMap/fieldRegistry';
 import { loadContextGraph, saveContextGraph, getOrCreateContextGraph } from '@/lib/contextGraph/storage';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { isRemovedField, getRegistryEntry, getSchemaV2Entry } from '@/lib/contextGraph/unifiedRegistry';
 import { isDeprecatedDomain } from '@/lib/contextGraph/companyContextGraph';
+import { getActiveStrategy, updateStrategy } from '@/lib/os/strategy';
+
+/**
+ * Map Context Graph paths to their corresponding Strategy Frame keys.
+ * When a user edits a Context field, we also update the Strategy Frame to keep them in sync.
+ */
+const CONTEXT_TO_FRAME_MAP: Record<string, string> = {
+  'audience.primaryAudience': 'audience',
+  'audience.icpDescription': 'audience',
+  'productOffer.primaryProducts': 'offering',
+  'productOffer.services': 'offering',
+  'productOffer.valueProposition': 'valueProp',
+  'brand.positioning': 'positioning',
+  'identity.marketPosition': 'positioning',
+  'productOffer.keyDifferentiators': 'positioning',
+  'operationalConstraints.legalRestrictions': 'constraints',
+};
+
+/**
+ * Sync a Context field update to the corresponding Strategy Frame field.
+ * This keeps Context and Strategy Frame in sync bidirectionally.
+ */
+async function syncToStrategyFrame(
+  companyId: string,
+  contextPath: string,
+  value: unknown
+): Promise<void> {
+  const frameKey = CONTEXT_TO_FRAME_MAP[contextPath];
+  if (!frameKey) {
+    console.log(`[context/update] No Strategy Frame mapping for: ${contextPath}`);
+    return;
+  }
+
+  try {
+    // Get active strategy
+    const activeStrategy = await getActiveStrategy(companyId);
+    if (!activeStrategy?.id) {
+      console.log(`[context/update] No active strategy for company, skipping frame sync`);
+      return;
+    }
+
+    // Build the frame update
+    const frameUpdate: Record<string, unknown> = {
+      [frameKey]: typeof value === 'string' ? value : JSON.stringify(value),
+    };
+
+    console.log(`[context/update] Syncing to Strategy Frame: ${contextPath} → ${frameKey}`);
+
+    // Update the strategy frame
+    await updateStrategy({
+      strategyId: activeStrategy.id,
+      updates: {
+        strategyFrame: {
+          ...activeStrategy.strategyFrame,
+          ...frameUpdate,
+        },
+        lastHumanUpdatedAt: new Date().toISOString(),
+      },
+    });
+
+    console.log(`[context/update] SUCCESS: Synced ${contextPath} → Strategy Frame ${frameKey}`);
+  } catch (error) {
+    // Non-fatal - log but don't fail the context update
+    console.warn(`[context/update] Failed to sync to Strategy Frame (non-fatal):`, error);
+  }
+}
 
 // Context graph domains (stored in ContextGraphs table)
 // Must match DOMAIN_NAMES from lib/contextGraph/companyContextGraph.ts
@@ -380,6 +449,12 @@ export async function POST(request: NextRequest) {
         // For deletes, pass null to clear the field
         const result = await updateContextGraphField(companyId, graphPath, isDelete ? null : value, source || 'user');
         console.log(`[context/update] SUCCESS → ContextGraphs table${isDelete ? ' (deleted)' : ''}`);
+
+        // SYNC TO STRATEGY FRAME: Keep Context and Strategy Frame in sync
+        if (!isDelete && value !== null && value !== undefined) {
+          await syncToStrategyFrame(companyId, graphPath, value);
+        }
+
         return NextResponse.json({
           success: true,
           revisionId: result.revisionId,

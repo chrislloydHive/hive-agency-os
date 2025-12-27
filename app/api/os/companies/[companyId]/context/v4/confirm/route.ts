@@ -47,7 +47,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // Confirm fields in V4 store
-    const result = await confirmFieldsV4(companyId, body.keys);
+    // Note: Direct API confirms without override, so humanEdited is false
+    const result = await confirmFieldsV4(companyId, body.keys, { humanEdited: false });
 
     // Check for store errors
     if (result.error) {

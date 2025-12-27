@@ -622,8 +622,10 @@ export interface BatchFieldResult {
 export async function confirmFieldsV4(
   companyId: string,
   keys: string[],
-  confirmedBy?: string
+  options?: { confirmedBy?: string; humanEdited?: boolean }
 ): Promise<BatchFieldResult> {
+  const confirmedBy = options?.confirmedBy;
+  const humanEdited = options?.humanEdited ?? false;
   // Ensure store exists first
   const ensureResult = await ensureContextFieldsV4Store(companyId);
   if (ensureResult.error) {
@@ -660,6 +662,7 @@ export async function confirmFieldsV4(
     field.status = 'confirmed';
     field.lockedAt = now;
     field.lockedBy = confirmedBy;
+    field.humanEdited = humanEdited;
     field.updatedAt = now;
 
     confirmed.push(key);

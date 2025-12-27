@@ -7,7 +7,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { X, Plus, Sparkles } from 'lucide-react';
 import { ZONE_DEFINITIONS } from './constants';
-import { getSchemaV2FieldsForZone } from '@/lib/contextGraph/unifiedRegistry';
+import { getSchemaV2FieldsForZone, getFieldsForZone, type UnifiedFieldEntry } from '@/lib/contextGraph/unifiedRegistry';
 import { FieldInput } from './field-renderers';
 import type { ZoneId } from './types';
 
@@ -35,10 +35,27 @@ export function AddNodeModal({
   const zone = ZONE_DEFINITIONS.find(z => z.id === zoneId);
 
   // Get available fields for this zone that don't already have values
-  // Uses Schema V2 registry for strict field set
+  // Merges Schema V2 fields with legacy UNIFIED_FIELD_REGISTRY fields
+  // This ensures both new V2 keys and legacy keys (like productOffer.valueProposition) are available
   const availableFields = useMemo(() => {
-    const zoneFields = getSchemaV2FieldsForZone(zoneId);
-    return zoneFields.filter(field => !existingNodeKeys.has(field.key));
+    const v2Fields = getSchemaV2FieldsForZone(zoneId);
+    const legacyFields = getFieldsForZone(zoneId);
+
+    // Merge and dedupe by key, preferring V2 fields
+    const fieldMap = new Map<string, UnifiedFieldEntry>();
+    for (const field of legacyFields) {
+      if (!existingNodeKeys.has(field.key)) {
+        fieldMap.set(field.key, field);
+      }
+    }
+    for (const field of v2Fields) {
+      if (!existingNodeKeys.has(field.key)) {
+        fieldMap.set(field.key, field);
+      }
+    }
+
+    // Sort by label for consistent ordering
+    return Array.from(fieldMap.values()).sort((a, b) => a.label.localeCompare(b.label));
   }, [zoneId, existingNodeKeys]);
 
   // Get selected field metadata

@@ -40,7 +40,7 @@ export async function getRfpsForCompany(companyId: string): Promise<Rfp[]> {
       dueDate: record.get('dueDate') as string | null,
       scopeSummary: record.get('scopeSummary') as string | null,
       sourceDocUrl: record.get('sourceDocUrl') as string | null,
-      requirementsChecklist: parseJsonArray(record.get('requirementsChecklist')),
+      requirementsChecklist: parseJsonArray(record.get('requirementsChecklist')) as Rfp['requirementsChecklist'],
       selectedPath: (record.get('selectedPath') as Rfp['selectedPath']) || 'project',
       // V2.5: RFP Source
       sourceText: record.get('sourceText') as string | null,
@@ -50,6 +50,13 @@ export async function getRfpsForCompany(companyId: string): Promise<Rfp[]> {
       winStrategy: parseJsonObject(record.get('winStrategy')) as Rfp['winStrategy'],
       // V4: Submission Readiness Snapshot
       submissionSnapshot: parseJsonObject(record.get('submissionSnapshot')) as Rfp['submissionSnapshot'],
+      // V5: Outcome Capture
+      outcomeDecisionAt: record.get('outcomeDecisionAt') as string | null,
+      lossReasonTags: parseJsonArray(record.get('lossReasonTags')) as string[],
+      competitorChosen: record.get('competitorChosen') as string | null,
+      decisionNotes: record.get('decisionNotes') as string | null,
+      dealValue: record.get('dealValue') as number | null,
+      budgetRange: record.get('budgetRange') as string | null,
       createdBy: record.get('createdBy') as string | null,
       createdAt: record.get('createdAt') as string | null,
       updatedAt: record.get('updatedAt') as string | null,
@@ -74,7 +81,7 @@ export async function getRfpById(id: string): Promise<Rfp | null> {
       dueDate: record.get('dueDate') as string | null,
       scopeSummary: record.get('scopeSummary') as string | null,
       sourceDocUrl: record.get('sourceDocUrl') as string | null,
-      requirementsChecklist: parseJsonArray(record.get('requirementsChecklist')),
+      requirementsChecklist: parseJsonArray(record.get('requirementsChecklist')) as Rfp['requirementsChecklist'],
       selectedPath: (record.get('selectedPath') as Rfp['selectedPath']) || 'project',
       // V2.5: RFP Source
       sourceText: record.get('sourceText') as string | null,
@@ -84,6 +91,13 @@ export async function getRfpById(id: string): Promise<Rfp | null> {
       winStrategy: parseJsonObject(record.get('winStrategy')) as Rfp['winStrategy'],
       // V4: Submission Readiness Snapshot
       submissionSnapshot: parseJsonObject(record.get('submissionSnapshot')) as Rfp['submissionSnapshot'],
+      // V5: Outcome Capture
+      outcomeDecisionAt: record.get('outcomeDecisionAt') as string | null,
+      lossReasonTags: parseJsonArray(record.get('lossReasonTags')) as string[],
+      competitorChosen: record.get('competitorChosen') as string | null,
+      decisionNotes: record.get('decisionNotes') as string | null,
+      dealValue: record.get('dealValue') as number | null,
+      budgetRange: record.get('budgetRange') as string | null,
       createdBy: record.get('createdBy') as string | null,
       createdAt: record.get('createdAt') as string | null,
       updatedAt: record.get('updatedAt') as string | null,
@@ -98,26 +112,30 @@ export async function createRfp(input: RfpInput): Promise<Rfp> {
   const base = getAirtableBase();
   const now = new Date().toISOString();
 
-  const record = await base(AIRTABLE_TABLES.RFPS).create({
-    companyId: input.companyId,
-    opportunityId: input.opportunityId || null,
-    title: input.title,
-    status: input.status || 'intake',
-    dueDate: input.dueDate || null,
-    scopeSummary: input.scopeSummary || null,
-    sourceDocUrl: input.sourceDocUrl || null,
-    requirementsChecklist: JSON.stringify(input.requirementsChecklist || []),
-    selectedPath: input.selectedPath || 'project',
-    // V2.5: RFP Source
-    sourceText: input.sourceText || null,
-    parsedRequirements: input.parsedRequirements ? JSON.stringify(input.parsedRequirements) : null,
-    // V3: Win Strategy
-    competitors: input.competitors ? JSON.stringify(input.competitors) : null,
-    winStrategy: input.winStrategy ? JSON.stringify(input.winStrategy) : null,
-    createdBy: input.createdBy || null,
-    createdAt: now,
-    updatedAt: now,
-  });
+  const records = await base(AIRTABLE_TABLES.RFPS).create([{
+    fields: {
+      companyId: input.companyId,
+      opportunityId: input.opportunityId || undefined,
+      title: input.title,
+      status: input.status || 'intake',
+      dueDate: input.dueDate || undefined,
+      scopeSummary: input.scopeSummary || undefined,
+      sourceDocUrl: input.sourceDocUrl || undefined,
+      requirementsChecklist: JSON.stringify(input.requirementsChecklist || []),
+      selectedPath: input.selectedPath || 'project',
+      // V2.5: RFP Source
+      sourceText: input.sourceText || undefined,
+      parsedRequirements: input.parsedRequirements ? JSON.stringify(input.parsedRequirements) : undefined,
+      // V3: Win Strategy
+      competitors: input.competitors ? JSON.stringify(input.competitors) : undefined,
+      winStrategy: input.winStrategy ? JSON.stringify(input.winStrategy) : undefined,
+      createdBy: input.createdBy || undefined,
+      createdAt: now,
+      updatedAt: now,
+    },
+  }]) as unknown as Array<{ id: string }>;
+
+  const record = records[0];
 
   const rfp: Rfp = {
     id: record.id,
@@ -161,7 +179,7 @@ export async function updateRfp(id: string, input: Partial<RfpInput>): Promise<R
   const base = getAirtableBase();
   const now = new Date().toISOString();
 
-  const fields: Record<string, unknown> = { updatedAt: now };
+  const fields: Record<string, any> = { updatedAt: now };
   if (input.title !== undefined) fields.title = input.title;
   if (input.status !== undefined) fields.status = input.status;
   if (input.dueDate !== undefined) fields.dueDate = input.dueDate;
@@ -187,6 +205,25 @@ export async function updateRfp(id: string, input: Partial<RfpInput>): Promise<R
   // V4: Submission Readiness Snapshot
   if (input.submissionSnapshot !== undefined) {
     fields.submissionSnapshot = input.submissionSnapshot ? JSON.stringify(input.submissionSnapshot) : null;
+  }
+  // V5: Outcome Capture
+  if (input.outcomeDecisionAt !== undefined) {
+    fields.outcomeDecisionAt = input.outcomeDecisionAt;
+  }
+  if (input.lossReasonTags !== undefined) {
+    fields.lossReasonTags = input.lossReasonTags ? JSON.stringify(input.lossReasonTags) : null;
+  }
+  if (input.competitorChosen !== undefined) {
+    fields.competitorChosen = input.competitorChosen;
+  }
+  if (input.decisionNotes !== undefined) {
+    fields.decisionNotes = input.decisionNotes;
+  }
+  if (input.dealValue !== undefined) {
+    fields.dealValue = input.dealValue;
+  }
+  if (input.budgetRange !== undefined) {
+    fields.budgetRange = input.budgetRange;
   }
 
   await base(AIRTABLE_TABLES.RFPS).update([{ id, fields }]);
@@ -252,21 +289,21 @@ async function initializeRfpSections(rfpId: string): Promise<void> {
       sectionKey: key,
       title: SECTION_LABELS[key],
       status: 'empty',
-      contentWorking: null,
-      contentApproved: null,
-      sourceType: null,
-      generatedUsing: null,
+      contentWorking: undefined,
+      contentApproved: undefined,
+      sourceType: undefined,
+      generatedUsing: undefined,
       needsReview: false,
-      lastGeneratedAt: null,
+      lastGeneratedAt: undefined,
       isStale: false,
-      staleReason: null,
-      reviewNotes: null,
+      staleReason: undefined,
+      reviewNotes: undefined,
       createdAt: now,
       updatedAt: now,
     },
   }));
 
-  await base(AIRTABLE_TABLES.RFP_SECTIONS).create(sections);
+  await base(AIRTABLE_TABLES.RFP_SECTIONS).create(sections as any);
 }
 
 export async function getRfpSections(rfpId: string): Promise<RfpSection[]> {
@@ -354,7 +391,7 @@ export async function updateRfpSection(
     const base = getAirtableBase();
     const now = new Date().toISOString();
 
-    const fields: Record<string, unknown> = { updatedAt: now };
+    const fields: Record<string, any> = { updatedAt: now };
     if (input.title !== undefined) fields.title = input.title;
     if (input.status !== undefined) fields.status = input.status;
     if (input.contentWorking !== undefined) fields.contentWorking = input.contentWorking;
@@ -433,16 +470,19 @@ export async function createRfpBindings(input: RfpBindingsInput): Promise<RfpBin
   const base = getAirtableBase();
   const now = new Date().toISOString();
 
-  const record = await base(AIRTABLE_TABLES.RFP_BINDINGS).create({
-    rfpId: input.rfpId,
-    teamMemberIds: JSON.stringify(input.teamMemberIds || []),
-    caseStudyIds: JSON.stringify(input.caseStudyIds || []),
-    referenceIds: JSON.stringify(input.referenceIds || []),
-    pricingTemplateId: input.pricingTemplateId || null,
-    planTemplateId: input.planTemplateId || null,
-    createdAt: now,
-    updatedAt: now,
-  });
+  const records = await base(AIRTABLE_TABLES.RFP_BINDINGS).create([{
+    fields: {
+      rfpId: input.rfpId,
+      teamMemberIds: JSON.stringify(input.teamMemberIds || []),
+      caseStudyIds: JSON.stringify(input.caseStudyIds || []),
+      referenceIds: JSON.stringify(input.referenceIds || []),
+      pricingTemplateId: input.pricingTemplateId || undefined,
+      planTemplateId: input.planTemplateId || undefined,
+      createdAt: now,
+      updatedAt: now,
+    },
+  }]) as unknown as Array<{ id: string }>;
+  const record = records[0];
 
   return {
     id: record.id,
@@ -465,7 +505,7 @@ export async function updateRfpBindings(
     const base = getAirtableBase();
     const now = new Date().toISOString();
 
-    const fields: Record<string, unknown> = { updatedAt: now };
+    const fields: Record<string, any> = { updatedAt: now };
     if (input.teamMemberIds !== undefined) {
       fields.teamMemberIds = JSON.stringify(input.teamMemberIds);
     }
@@ -658,11 +698,11 @@ export async function updateSectionStaleness(
       id: sectionId,
       fields: {
         isStale,
-        staleReason,
+        staleReason: staleReason ?? undefined,
         updatedAt: new Date().toISOString(),
       },
     },
-  ]);
+  ] as any);
 }
 
 // ============================================================================

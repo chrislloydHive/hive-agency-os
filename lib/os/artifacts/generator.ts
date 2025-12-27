@@ -118,7 +118,7 @@ export async function generateArtifact(
   while (retries < 2) {
     try {
       const result = await aiForCompany(companyId, {
-        type: `Artifact Generation (${artifactTypeId})`,
+        type: 'Artifact Generation',
         tags: ['Artifact', artifactType.category, artifactTypeId],
         systemPrompt: promptTemplate.systemPrompt,
         taskPrompt: retries > 0
