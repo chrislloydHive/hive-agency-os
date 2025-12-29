@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getPlanningProgram } from '@/lib/airtable/planningPrograms';
-import { materializeWorkFromProgram } from '@/lib/os/planning/materializeWork';
+import { materializeWorkFromProgram, type SyncMode } from '@/lib/os/planning/materializeWork';
 import { buildProgramWorkPlan } from '@/lib/os/planning/programToWork';
 import { canCommitPlanningProgram } from '@/lib/types/program';
 
@@ -22,6 +22,8 @@ type Params = { params: Promise<{ programId: string }> };
 // Validation Schemas
 // ============================================================================
 
+const SyncModeSchema = z.enum(['additive', 'update', 'full']);
+
 const CommitRequestSchema = z.object({
   /** Optional notes about the commitment */
   notes: z.string().optional(),
@@ -31,6 +33,8 @@ const CommitRequestSchema = z.object({
   dryRun: z.boolean().optional().default(false),
   /** Force re-sync even if already committed */
   resync: z.boolean().optional().default(false),
+  /** Sync mode for re-sync operations (default: 'full') */
+  syncMode: SyncModeSchema.optional().default('full'),
 });
 
 // ============================================================================
@@ -66,7 +70,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       );
     }
 
-    const { dryRun, resync } = parseResult.data;
+    const { dryRun, resync, syncMode } = parseResult.data;
 
     // 1. Get program
     const program = await getPlanningProgram(programId);
@@ -127,8 +131,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     }
 
     // 4. Materialize work items
-    console.log('[commit] Materializing work items for program:', programId);
-    const result = await materializeWorkFromProgram(programId);
+    console.log('[commit] Materializing work items for program:', programId, 'mode:', syncMode);
+    const result = await materializeWorkFromProgram(programId, { mode: syncMode as SyncMode });
 
     if (!result.success && result.errors.length > 0) {
       // Partial success - some items may have been created
@@ -165,10 +169,11 @@ export async function POST(request: NextRequest, { params }: Params) {
       program: updatedProgram || program,
       workItemIds: result.workItemIds,
       workPlanVersion: result.workPlanVersion,
+      syncMode: result.syncMode,
       counts: result.counts,
       errors: result.errors.length > 0 ? result.errors : undefined,
       message: resync
-        ? `Work re-synced. Created: ${result.counts.created}, Updated: ${result.counts.updated}, Unchanged: ${result.counts.unchanged}, Removed: ${result.counts.removed}`
+        ? `Work re-synced (${syncMode}). Created: ${result.counts.created}, Updated: ${result.counts.updated}, Unchanged: ${result.counts.unchanged}, Removed: ${result.counts.removed}, Skipped: ${result.counts.skipped}`
         : `Program committed. Created ${result.counts.created} work items.`,
     });
   } catch (error) {

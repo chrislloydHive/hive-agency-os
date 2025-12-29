@@ -76,6 +76,12 @@ interface TacticProposal {
   confidence: 'high' | 'medium' | 'low';
 }
 
+interface ServiceCoverage {
+  servicesUsed: string[];
+  unusedServices: string[];
+  gaps: string[];
+}
+
 interface FieldImprovement {
   fieldPath: string;
   originalValue: unknown;
@@ -100,6 +106,9 @@ interface AIProposalResponse {
     alternative: string;
     rationale: string;
   }>;
+
+  // Service coverage analysis (for tactics)
+  serviceCoverage?: ServiceCoverage;
 
   // Metadata
   inputsUsed: string[];
@@ -142,7 +151,7 @@ Return 3-5 objectives in JSON format:
   ]
 }`;
 
-const STRATEGY_PROMPT = `You are a strategic marketing advisor. Generate Strategic Bets based on the company context and objectives provided.
+const STRATEGY_PROMPT = `You are a strategic marketing advisor for Hive, a marketing agency. Generate Strategic Bets based on the company context and objectives provided.
 
 A Strategic Bet is a clear commitment with an explicit tradeoff. Each bet should:
 - Be a clear strategic choice (not an activity or tactic)
@@ -150,6 +159,13 @@ A Strategic Bet is a clear commitment with an explicit tradeoff. Each bet should
 - Include a clear intent (the expected outcome)
 - Align with company positioning and constraints
 - Be achievable with available resources
+- LEVERAGE HIVE'S ENABLED SERVICES (see "Hive Services" in context)
+
+SERVICE-AWARE REASONING:
+1. Prefer bets that can be executed through Hive's enabled services
+2. If a bet requires services Hive doesn't offer, note this as a constraint
+3. Reference specific services in rationale when they provide structural advantage
+4. Consider service synergies (e.g., SEO + Content, Paid Media + Analytics)
 
 IMPORTANT: Do NOT include KPIs or metrics - those belong in Objectives only.
 
@@ -159,7 +175,7 @@ Return 3-5 strategic bets in JSON format:
     {
       "title": "bet name (what we're betting on)",
       "description": "the strategic intent - what outcome we expect",
-      "rationale": "why this is a good strategic choice",
+      "rationale": "why this is a good strategic choice (reference Hive services when relevant)",
       "tradeoff": "what we're explicitly NOT doing to make this bet",
       "priority": "high|medium|low",
       "confidence": "high|medium|low"
@@ -167,13 +183,30 @@ Return 3-5 strategic bets in JSON format:
   ]
 }`;
 
-const TACTICS_PROMPT = `You are a tactical marketing advisor. Generate tactical plays to implement the Strategic Bets.
+const TACTICS_PROMPT = `You are a tactical marketing advisor for Hive, a marketing agency. Generate tactical plays to implement the Strategic Bets.
+
+CRITICAL: Only propose tactics that Hive can execute using its enabled services (see "Hive Services" in context).
 
 Each tactic should:
 - Directly support one or more priorities
 - Be actionable and specific
 - Have a clear channel and approach
 - Include impact and effort estimates
+- BE DELIVERABLE BY HIVE (use enabled services from context)
+
+SERVICE-AWARE REASONING RULES:
+1. ONLY recommend tactics within Hive's service capabilities
+2. Prioritize tactics that leverage Hive's strongest services (elite > strong > basic)
+3. Combine complementary services for multiplier effects (e.g., SEO Content + Technical SEO)
+4. Flag any capability gaps that limit tactic options
+5. Reference the specific Hive service(s) enabling each tactic in the rationale
+
+CHANNELS should map to Hive services:
+- "seo" → requires Technical SEO, On-Page SEO, Content SEO, or Local SEO
+- "content" → requires SEO Content, Brand Content, or Social Content
+- "paid" → requires Search, Social Ads, PMax/Shopping, or Retargeting
+- "web" → requires Web Design & Build or Conversion Optimization
+- "analytics" → requires GA4/GTM Setup, Conversion Tracking, or Experimentation
 
 Return 4-8 tactics in JSON format:
 {
@@ -182,13 +215,18 @@ Return 4-8 tactics in JSON format:
       "title": "tactic name",
       "description": "what this tactic involves",
       "priorityId": "priority this supports (optional)",
-      "channels": ["seo", "content", "social", etc.],
+      "channels": ["seo", "content", "paid", "web", "analytics"],
       "impact": "high|medium|low",
       "effort": "high|medium|low",
-      "rationale": "why this tactic will work",
+      "rationale": "why this tactic will work AND which Hive services enable it",
       "confidence": "high|medium|low"
     }
-  ]
+  ],
+  "serviceCoverage": {
+    "servicesUsed": ["list of Hive services used across all tactics"],
+    "unusedServices": ["enabled services not leveraged"],
+    "gaps": ["any capabilities needed but not available"]
+  }
 }`;
 
 const TRADEOFFS_PROMPT = `You are a strategic advisor explaining tradeoffs. Analyze the current strategy and explain:
@@ -505,8 +543,21 @@ function buildContextForAI(params: {
 
   const sections: string[] = [];
 
+  // Hive Services (FIRST - most important for service-aware generation)
+  if (inputs?.executionCapabilities?.serviceTaxonomy?.length > 0) {
+    sections.push('## Hive Services (What We Can Deliver)');
+    sections.push('The following services are enabled and available for this client:');
+    for (const service of inputs.executionCapabilities.serviceTaxonomy) {
+      sections.push(`- ${service}`);
+    }
+    sections.push('\nIMPORTANT: Only recommend tactics/strategies that leverage these services.');
+  } else {
+    sections.push('## Hive Services');
+    sections.push('WARNING: No services are currently enabled. Please configure Hive Brain before generating strategy.');
+  }
+
   // Strategic Frame
-  sections.push('## Strategic Frame');
+  sections.push('\n## Strategic Frame');
   if (hydratedFrame.audience.value) {
     sections.push(`- Target Audience: ${hydratedFrame.audience.value}`);
   }
@@ -683,6 +734,7 @@ function parseAIResponse(
       case 'improve_tactics':
         return {
           tactics: parsed.tactics || [],
+          serviceCoverage: parsed.serviceCoverage || undefined,
           confidence: 'medium',
         };
       case 'improve_field':
@@ -725,6 +777,11 @@ function getInputsUsed(inputs: any, contextGraph: any): string[] {
 
   if (inputs?.constraints) {
     used.push('Constraints');
+  }
+
+  // Hive Services from execution capabilities
+  if (inputs?.executionCapabilities?.serviceTaxonomy?.length > 0) {
+    used.push('Hive Services');
   }
 
   return used;

@@ -18,7 +18,6 @@ import {
   X,
   ChevronDown,
   ChevronUp,
-  ChevronRight,
   Plus,
   Trash2,
   Check,
@@ -47,14 +46,20 @@ import type {
   PlanningDeliverable,
   PlanningMilestone,
   PlanningProgramKPI,
-  WorkstreamType,
 } from '@/lib/types/program';
 import {
   generatePlanningDeliverableId,
   generatePlanningMilestoneId,
   WORKSTREAM_LABELS,
-  PLANNING_PROGRAM_STATUS_LABELS,
 } from '@/lib/types/program';
+import {
+  computeProgramReadiness,
+  getReadinessStatusLabel,
+  getMissingItemLabel,
+  getAIFillableMissing,
+  canCommitFromReadiness,
+  type ProgramReadiness,
+} from '@/lib/os/programs/programReadiness';
 import { AICoPlannerPanel } from './AICoPlannerPanel';
 import { ExecutionStatusPanel } from './ExecutionStatusPanel';
 import { ProgramOutputsPanel } from './ProgramOutputsPanel';
@@ -266,89 +271,298 @@ function ExecutionModal({ program, isOpen, isCommitting, onClose, onConfirm }: E
 }
 
 // ============================================================================
+// Resync Modal Component
+// ============================================================================
+
+type SyncMode = 'additive' | 'update' | 'full';
+
+interface ResyncModalProps {
+  isOpen: boolean;
+  isResyncing: boolean;
+  selectedMode: SyncMode;
+  onModeChange: (mode: SyncMode) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+}
+
+function ResyncModal({
+  isOpen,
+  isResyncing,
+  selectedMode,
+  onModeChange,
+  onClose,
+  onConfirm,
+}: ResyncModalProps) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Modal */}
+      <div className="relative bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-lg mx-4 p-6">
+        <div className="flex items-start gap-4 mb-4">
+          <div className="p-3 bg-purple-500/20 rounded-lg">
+            <RefreshCw className="w-6 h-6 text-purple-400" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-semibold text-white mb-1">
+              Re-sync Work Items
+            </h3>
+            <p className="text-sm text-slate-400">
+              Choose how to synchronize program changes with existing work items.
+            </p>
+          </div>
+        </div>
+
+        {/* Sync Mode Options */}
+        <div className="space-y-2 mb-6">
+          {/* Additive Option */}
+          <button
+            onClick={() => onModeChange('additive')}
+            className={`w-full text-left p-3 rounded-lg border transition-all ${
+              selectedMode === 'additive'
+                ? 'bg-emerald-500/10 border-emerald-500/50'
+                : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                  selectedMode === 'additive' ? 'border-emerald-400' : 'border-slate-600'
+                }`}
+              >
+                {selectedMode === 'additive' && <div className="w-2 h-2 rounded-full bg-emerald-400" />}
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className={`text-sm font-medium ${selectedMode === 'additive' ? 'text-white' : 'text-slate-300'}`}>
+                    Add New Only
+                  </span>
+                  <span className="text-[10px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded">
+                    Recommended
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Creates new work items for new deliverables. Never modifies or removes existing items. Safe for preserving manual edits.
+                </p>
+              </div>
+            </div>
+          </button>
+
+          {/* Update Option */}
+          <button
+            onClick={() => onModeChange('update')}
+            className={`w-full text-left p-3 rounded-lg border transition-all ${
+              selectedMode === 'update'
+                ? 'bg-amber-500/10 border-amber-500/50'
+                : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                  selectedMode === 'update' ? 'border-amber-400' : 'border-slate-600'
+                }`}
+              >
+                {selectedMode === 'update' && <div className="w-2 h-2 rounded-full bg-amber-400" />}
+              </div>
+              <div className="flex-1">
+                <span className={`text-sm font-medium ${selectedMode === 'update' ? 'text-white' : 'text-slate-300'}`}>
+                  Add & Update
+                </span>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Creates new items and updates existing ones to match program changes. Never removes items.
+                </p>
+              </div>
+            </div>
+          </button>
+
+          {/* Full Option */}
+          <button
+            onClick={() => onModeChange('full')}
+            className={`w-full text-left p-3 rounded-lg border transition-all ${
+              selectedMode === 'full'
+                ? 'bg-red-500/10 border-red-500/50'
+                : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                  selectedMode === 'full' ? 'border-red-400' : 'border-slate-600'
+                }`}
+              >
+                {selectedMode === 'full' && <div className="w-2 h-2 rounded-full bg-red-400" />}
+              </div>
+              <div className="flex-1">
+                <span className={`text-sm font-medium ${selectedMode === 'full' ? 'text-white' : 'text-slate-300'}`}>
+                  Full Sync
+                </span>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Complete synchronization. Creates, updates, and marks removed items. May override manual changes.
+                </p>
+              </div>
+            </div>
+          </button>
+        </div>
+
+        <div className="flex items-center justify-end gap-3">
+          <button
+            onClick={onClose}
+            disabled={isResyncing}
+            className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isResyncing}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {isResyncing ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Syncing...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4" />
+                Re-sync Work
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // Readiness Gate Component
 // ============================================================================
 
 interface ReadinessGateProps {
-  program: PlanningProgram;
-  canMarkReady: boolean;
+  readiness: ProgramReadiness;
+  onAIFill?: () => void;
+  isFillingMissing?: boolean;
 }
 
-interface ReadinessCheckItem {
-  id: string;
-  label: string;
-  passed: boolean;
-  required: boolean;
-}
+function ReadinessGate({ readiness, onAIFill, isFillingMissing }: ReadinessGateProps) {
+  const { score, status, reasons, missing } = readiness;
+  const aiFillable = getAIFillableMissing(missing);
+  const hasAIFillable = aiFillable.length > 0 && onAIFill;
 
-function ReadinessGate({ program, canMarkReady }: ReadinessGateProps) {
-  const checks: ReadinessCheckItem[] = useMemo(() => [
-    {
-      id: 'intent',
-      label: 'Program intent completed',
-      passed: !!(program.scope.summary && program.scope.summary.trim().length > 10),
-      required: true,
-    },
-    {
-      id: 'deliverables',
-      label: 'At least 1 deliverable',
-      passed: program.scope.deliverables.length > 0,
-      required: true,
-    },
-    {
-      id: 'milestones',
-      label: 'At least 1 milestone',
-      passed: program.planDetails.milestones.length > 0,
-      required: true,
-    },
-    {
-      id: 'owner',
-      label: 'Owner assigned',
-      passed: !!(program.planDetails.owner && program.planDetails.owner.trim().length > 0),
-      required: true,
-    },
-  ], [program]);
+  // Status-based styling
+  const statusStyles: Record<typeof status, { border: string; bg: string; icon: string }> = {
+    ready: { border: 'border-emerald-500/30', bg: 'bg-emerald-500/5', icon: 'text-emerald-400' },
+    needs_structure: { border: 'border-amber-500/30', bg: 'bg-amber-500/5', icon: 'text-amber-400' },
+    not_ready: { border: 'border-slate-700', bg: 'bg-slate-900/50', icon: 'text-slate-400' },
+  };
 
-  const allPassed = checks.every(c => c.passed);
+  const style = statusStyles[status];
 
   return (
-    <div className={`border rounded-xl p-4 ${allPassed ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-slate-700 bg-slate-900/50'}`}>
-      <div className="flex items-center gap-2 mb-3">
-        <div className={`p-1.5 rounded-lg ${allPassed ? 'bg-emerald-500/20' : 'bg-slate-800'}`}>
-          <Flag className={`w-4 h-4 ${allPassed ? 'text-emerald-400' : 'text-slate-400'}`} />
-        </div>
-        <h3 className="text-sm font-medium text-white">Readiness Gate</h3>
-        {allPassed && (
-          <span className="text-xs px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full">
-            All passed
-          </span>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        {checks.map(check => (
-          <div key={check.id} className="flex items-center gap-2">
-            {check.passed ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            ) : (
-              <Circle className="w-4 h-4 text-slate-600" />
-            )}
-            <span className={`text-sm ${check.passed ? 'text-slate-400' : 'text-slate-300'}`}>
-              {check.label}
-            </span>
-            {check.required && !check.passed && (
-              <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded">
-                Required
-              </span>
-            )}
+    <div className={`border rounded-xl p-4 ${style.border} ${style.bg}`}>
+      {/* Header with score */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className={`p-1.5 rounded-lg ${status === 'ready' ? 'bg-emerald-500/20' : status === 'needs_structure' ? 'bg-amber-500/20' : 'bg-slate-800'}`}>
+            <Flag className={`w-4 h-4 ${style.icon}`} />
           </div>
-        ))}
+          <h3 className="text-sm font-medium text-white">Readiness Gate</h3>
+          <span className={`text-xs px-2 py-0.5 rounded-full ${
+            status === 'ready'
+              ? 'bg-emerald-500/20 text-emerald-400'
+              : status === 'needs_structure'
+              ? 'bg-amber-500/20 text-amber-400'
+              : 'bg-slate-700 text-slate-400'
+          }`}>
+            {getReadinessStatusLabel(status)}
+          </span>
+        </div>
+
+        {/* Score indicator */}
+        <div className="flex items-center gap-2">
+          <div className="text-xs text-slate-500">Score</div>
+          <div className={`text-sm font-mono font-medium ${
+            score >= 65 ? 'text-emerald-400' : score >= 30 ? 'text-amber-400' : 'text-slate-400'
+          }`}>
+            {score}%
+          </div>
+        </div>
       </div>
 
-      {!allPassed && (
-        <p className="text-xs text-slate-500 mt-3">
-          Complete all required items to mark this program as Ready.
-        </p>
+      {/* Score progress bar */}
+      <div className="h-1.5 bg-slate-800 rounded-full mb-4 overflow-hidden">
+        <div
+          className={`h-full transition-all duration-300 rounded-full ${
+            score >= 65 ? 'bg-emerald-500' : score >= 30 ? 'bg-amber-500' : 'bg-slate-600'
+          }`}
+          style={{ width: `${score}%` }}
+        />
+      </div>
+
+      {/* What's missing section */}
+      {missing.length > 0 && status !== 'ready' && (
+        <div className="mb-4">
+          <p className="text-xs font-medium text-slate-400 mb-2">What&apos;s missing:</p>
+          <div className="space-y-1.5">
+            {missing.map(item => (
+              <div key={item} className="flex items-center gap-2">
+                <Circle className="w-3 h-3 text-slate-600" />
+                <span className="text-sm text-slate-300">{getMissingItemLabel(item)}</span>
+                {aiFillable.includes(item) && (
+                  <span className="text-[10px] px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded">
+                    AI can fill
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Reasons (informational) */}
+      {reasons.length > 0 && (
+        <div className="space-y-1 mb-4">
+          {reasons.map((reason, i) => (
+            <p key={i} className="text-xs text-slate-500">{reason}</p>
+          ))}
+        </div>
+      )}
+
+      {/* AI Fill Missing button */}
+      {hasAIFillable && status === 'needs_structure' && (
+        <button
+          onClick={onAIFill}
+          disabled={isFillingMissing}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded-lg transition-colors disabled:opacity-50"
+        >
+          {isFillingMissing ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Filling missing pieces...
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-4 h-4" />
+              AI: Fill Missing Pieces
+            </>
+          )}
+        </button>
+      )}
+
+      {/* Ready state encouragement */}
+      {status === 'ready' && (
+        <div className="flex items-center gap-2 text-emerald-400">
+          <CheckCircle2 className="w-4 h-4" />
+          <span className="text-sm">Ready to commit to work</span>
+        </div>
       )}
     </div>
   );
@@ -439,7 +653,10 @@ export function ProgramPlanner({
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
   const [isResyncing, setIsResyncing] = useState(false);
+  const [isFillingMissing, setIsFillingMissing] = useState(false);
   const [showExecutionModal, setShowExecutionModal] = useState(false);
+  const [showResyncModal, setShowResyncModal] = useState(false);
+  const [selectedSyncMode, setSelectedSyncMode] = useState<'additive' | 'update' | 'full'>('additive');
   const [showArtifactPicker, setShowArtifactPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -454,14 +671,9 @@ export function ProgramPlanner({
   // Is program read-only (committed)?
   const isReadOnly = program.status === 'committed';
 
-  // Compute readiness
-  const canMarkReady = useMemo(() => {
-    const hasIntent = !!(localProgram.scope.summary && localProgram.scope.summary.trim().length > 10);
-    const hasDeliverables = localProgram.scope.deliverables.length > 0;
-    const hasMilestones = localProgram.planDetails.milestones.length > 0;
-    const hasOwner = !!(localProgram.planDetails.owner && localProgram.planDetails.owner.trim().length > 0);
-    return hasIntent && hasDeliverables && hasMilestones && hasOwner;
-  }, [localProgram]);
+  // Compute readiness using the scoring function
+  const readiness = useMemo(() => computeProgramReadiness(localProgram), [localProgram]);
+  const canMarkReady = canCommitFromReadiness(readiness);
 
   // Auto-save with debounce
   const debouncedSave = useCallback(async (updates: Partial<PlanningProgram>) => {
@@ -655,15 +867,16 @@ export function ProgramPlanner({
   }, [program.id, onCommit]);
 
   // Re-sync work items (for committed programs)
-  const handleResync = useCallback(async () => {
+  const handleResync = useCallback(async (syncMode: 'additive' | 'update' | 'full') => {
     setIsResyncing(true);
     setError(null);
+    setShowResyncModal(false);
 
     try {
       const response = await fetch(`/api/os/programs/${program.id}/commit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resync: true }),
+        body: JSON.stringify({ resync: true, syncMode }),
       });
 
       if (!response.ok) {
@@ -680,6 +893,39 @@ export function ProgramPlanner({
       setIsResyncing(false);
     }
   }, [program.id, onStatusChange]);
+
+  // AI Fill Missing - generate only missing sections
+  const handleAIFillMissing = useCallback(async () => {
+    const aiFillable = getAIFillableMissing(readiness.missing);
+    if (aiFillable.length === 0) return;
+
+    setIsFillingMissing(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/os/programs/${program.id}/ai/fill-missing`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ missing: aiFillable }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to fill missing pieces');
+      }
+
+      const data = await response.json();
+      // Update local program with the filled data
+      if (data.program) {
+        setLocalProgram(data.program);
+        onStatusChange(data.program);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'AI fill failed');
+    } finally {
+      setIsFillingMissing(false);
+    }
+  }, [program.id, readiness.missing, onStatusChange]);
 
   // Handle linking an artifact to the program
   const handleLinkArtifact = useCallback(async (artifact: Artifact, linkType: ProgramArtifactLinkType) => {
@@ -818,7 +1064,7 @@ export function ProgramPlanner({
             {localProgram.status === 'committed' && (
               <div className="flex items-center gap-2">
                 <button
-                  onClick={handleResync}
+                  onClick={() => setShowResyncModal(true)}
                   disabled={isResyncing}
                   className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded-lg transition-colors disabled:opacity-50"
                 >
@@ -1173,7 +1419,11 @@ export function ProgramPlanner({
         {/* Readiness Gate */}
         {/* ============================================================== */}
         {localProgram.status === 'draft' && (
-          <ReadinessGate program={localProgram} canMarkReady={canMarkReady} />
+          <ReadinessGate
+            readiness={readiness}
+            onAIFill={handleAIFillMissing}
+            isFillingMissing={isFillingMissing}
+          />
         )}
       </div>
 
@@ -1184,6 +1434,16 @@ export function ProgramPlanner({
         isCommitting={isCommitting}
         onClose={() => setShowExecutionModal(false)}
         onConfirm={handleCommit}
+      />
+
+      {/* Resync Modal */}
+      <ResyncModal
+        isOpen={showResyncModal}
+        isResyncing={isResyncing}
+        selectedMode={selectedSyncMode}
+        onModeChange={setSelectedSyncMode}
+        onClose={() => setShowResyncModal(false)}
+        onConfirm={() => handleResync(selectedSyncMode)}
       />
 
       {/* Artifact Picker Modal */}

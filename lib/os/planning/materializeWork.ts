@@ -5,7 +5,7 @@
  * Supports create, update, and mark-removed operations.
  */
 
-import { buildProgramWorkPlan, type WorkPlan, type WorkPlanItem } from './programToWork';
+import { buildProgramWorkPlan, type WorkPlanItem } from './programToWork';
 import { getPlanningProgram, updatePlanningProgram } from '@/lib/airtable/planningPrograms';
 import {
   createWorkItem,
@@ -21,15 +21,29 @@ import type { WorkSource, StrategyLink } from '@/lib/types/work';
 // Types
 // ============================================================================
 
+/**
+ * Sync mode for work materialization:
+ * - 'additive': Only creates new work items, never updates or removes existing
+ * - 'update': Creates new + updates existing, but never removes
+ * - 'full': Full sync - creates, updates, and marks removed items (default)
+ */
+export type SyncMode = 'additive' | 'update' | 'full';
+
+export interface MaterializationOptions {
+  mode?: SyncMode;
+}
+
 export interface MaterializationResult {
   success: boolean;
   programId: string;
   workPlanVersion: number;
+  syncMode: SyncMode;
   counts: {
     created: number;
     updated: number;
     unchanged: number;
     removed: number;
+    skipped: number;
   };
   workItemIds: string[];
   errors: Array<{ workKey: string; error: string }>;
@@ -86,18 +100,20 @@ function needsUpdate(existing: WorkItemRecord, planItem: WorkPlanItem): boolean 
 /**
  * Materialize work items from a program.
  *
- * This is a full-sync operation:
- * - Creates new work items for new work keys
- * - Updates existing work items if data changed
- * - Marks removed work items (prefixes title with "[Removed]")
+ * Sync modes:
+ * - 'additive': Only creates new work items (safe for preserving edits)
+ * - 'update': Creates new + updates existing (preserves work item data)
+ * - 'full': Full sync - creates, updates, and marks removed (default)
  *
  * The operation is idempotent: running twice with same program
- * state produces the same result.
+ * state and mode produces the same result.
  */
 export async function materializeWorkFromProgram(
-  programId: string
+  programId: string,
+  options: MaterializationOptions = {}
 ): Promise<MaterializationResult> {
-  console.log('[Materialize] Starting materialization for program:', programId);
+  const mode = options.mode || 'full';
+  console.log('[Materialize] Starting materialization:', { programId, mode });
 
   // 1. Fetch program
   const program = await getPlanningProgram(programId);
@@ -107,7 +123,8 @@ export async function materializeWorkFromProgram(
       success: false,
       programId,
       workPlanVersion: 0,
-      counts: { created: 0, updated: 0, unchanged: 0, removed: 0 },
+      syncMode: mode,
+      counts: { created: 0, updated: 0, unchanged: 0, removed: 0, skipped: 0 },
       workItemIds: [],
       errors: [{ workKey: '', error: 'Program not found' }],
     };
@@ -139,6 +156,7 @@ export async function materializeWorkFromProgram(
   let updated = 0;
   let unchanged = 0;
   let removed = 0;
+  let skipped = 0;
   const allWorkItemIds: string[] = [];
   const errors: Array<{ workKey: string; error: string }> = [];
 
@@ -180,28 +198,35 @@ export async function materializeWorkFromProgram(
         console.error('[Materialize] Error creating work item:', planItem.workKey, err);
       }
     } else {
-      // Check if update needed
-      if (needsUpdate(existing, planItem)) {
-        try {
-          const updatedItem = await updateWorkItem(existing.id, {
-            title: planItem.title,
-            notes: planItem.notes,
-            dueDate: planItem.dueDate,
-          });
-          if (updatedItem) {
-            updated++;
-            console.log('[Materialize] Updated work item:', {
-              id: existing.id,
-              workKey: planItem.workKey,
-            });
-          }
-        } catch (err) {
-          const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-          errors.push({ workKey: planItem.workKey, error: errorMessage });
-          console.error('[Materialize] Error updating work item:', planItem.workKey, err);
-        }
+      // Existing item found - handle based on sync mode
+      if (mode === 'additive') {
+        // Additive mode: never update existing items
+        skipped++;
+        console.log('[Materialize] Skipped existing (additive mode):', planItem.workKey);
       } else {
-        unchanged++;
+        // Update or full mode: check if update needed
+        if (needsUpdate(existing, planItem)) {
+          try {
+            const updatedItem = await updateWorkItem(existing.id, {
+              title: planItem.title,
+              notes: planItem.notes,
+              dueDate: planItem.dueDate,
+            });
+            if (updatedItem) {
+              updated++;
+              console.log('[Materialize] Updated work item:', {
+                id: existing.id,
+                workKey: planItem.workKey,
+              });
+            }
+          } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+            errors.push({ workKey: planItem.workKey, error: errorMessage });
+            console.error('[Materialize] Error updating work item:', planItem.workKey, err);
+          }
+        } else {
+          unchanged++;
+        }
       }
 
       allWorkItemIds.push(existing.id);
@@ -210,25 +235,34 @@ export async function materializeWorkFromProgram(
   }
 
   // 6. Handle removed items (items in existing but not in plan)
-  for (const [workKey, item] of existingByKey) {
-    // Skip items that are already marked as removed
-    if (item.title.startsWith('[Removed]')) {
-      continue;
-    }
+  // Only in 'full' mode - other modes preserve existing items
+  if (mode === 'full') {
+    for (const [workKey, item] of existingByKey) {
+      // Skip items that are already marked as removed
+      if (item.title.startsWith('[Removed]')) {
+        continue;
+      }
 
-    try {
-      await updateWorkItem(item.id, {
-        title: `[Removed] ${item.title}`,
-      });
-      removed++;
-      console.log('[Materialize] Marked work item as removed:', {
-        id: item.id,
-        workKey,
-      });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      errors.push({ workKey, error: `Failed to mark as removed: ${errorMessage}` });
-      console.error('[Materialize] Error marking work item as removed:', workKey, err);
+      try {
+        await updateWorkItem(item.id, {
+          title: `[Removed] ${item.title}`,
+        });
+        removed++;
+        console.log('[Materialize] Marked work item as removed:', {
+          id: item.id,
+          workKey,
+        });
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        errors.push({ workKey, error: `Failed to mark as removed: ${errorMessage}` });
+        console.error('[Materialize] Error marking work item as removed:', workKey, err);
+      }
+    }
+  } else {
+    // In additive/update mode, count orphaned items as skipped
+    for (const [workKey] of existingByKey) {
+      skipped++;
+      console.log('[Materialize] Preserved orphaned item (mode: %s):', mode, workKey);
     }
   }
 
@@ -261,12 +295,13 @@ export async function materializeWorkFromProgram(
     success: errors.length === 0,
     programId,
     workPlanVersion: newVersion,
-    counts: { created, updated, unchanged, removed },
+    syncMode: mode,
+    counts: { created, updated, unchanged, removed, skipped },
     workItemIds: allWorkItemIds,
     errors,
   };
 
-  console.log('[Materialize] Completed:', result.counts);
+  console.log('[Materialize] Completed:', { mode, ...result.counts });
 
   return result;
 }
