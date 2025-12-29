@@ -12,7 +12,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
-import { Lightbulb, Zap, Plus, Loader2, ArrowRight, Target, Clock, FileText, X, ExternalLink, Layers } from 'lucide-react';
+import { Lightbulb, Zap, Plus, Loader2, ArrowRight, Target, Clock, FileText, X, ExternalLink, Layers, Activity } from 'lucide-react';
 import type { ExtendedNextBestAction } from '@/lib/os/companies/nextBestAction.types';
 import type {
   WorkItemRecord,
@@ -83,6 +83,9 @@ export function WorkClient({
   // Check for strategy filter from URL
   const strategyIdFilter = searchParams.get('strategyId');
 
+  // Check for program filter from URL
+  const programIdFilter = searchParams.get('programId');
+
   // Artifact details for filter display
   const [artifactTitle, setArtifactTitle] = useState<string | null>(null);
   const [loadingArtifact, setLoadingArtifact] = useState(false);
@@ -90,6 +93,10 @@ export function WorkClient({
   // Strategy details for filter display
   const [strategyTitle, setStrategyTitle] = useState<string | null>(null);
   const [loadingStrategy, setLoadingStrategy] = useState(false);
+
+  // Program details for filter display
+  const [programTitle, setProgramTitle] = useState<string | null>(null);
+  const [loadingProgram, setLoadingProgram] = useState(false);
 
   // Fetch artifact details when filtering
   useEffect(() => {
@@ -129,7 +136,26 @@ export function WorkClient({
       .finally(() => setLoadingStrategy(false));
   }, [strategyIdFilter, company.id]);
 
-  // Filter work items by artifact or strategy if filter is present
+  // Fetch program details when filtering
+  useEffect(() => {
+    if (!programIdFilter) {
+      setProgramTitle(null);
+      return;
+    }
+
+    setLoadingProgram(true);
+    fetch(`/api/os/programs/${programIdFilter}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.program?.title) {
+          setProgramTitle(data.program.title);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingProgram(false));
+  }, [programIdFilter]);
+
+  // Filter work items by artifact, strategy, or program if filter is present
   const filteredWorkItems = useMemo(() => {
     let items = workItems;
 
@@ -158,8 +184,15 @@ export function WorkClient({
       });
     }
 
+    // Filter by program
+    if (programIdFilter) {
+      items = items.filter((item) => {
+        return item.programId === programIdFilter;
+      });
+    }
+
     return items;
-  }, [workItems, artifactIdFilter, strategyIdFilter]);
+  }, [workItems, artifactIdFilter, strategyIdFilter, programIdFilter]);
 
   // Clear artifact filter
   const clearArtifactFilter = useCallback(() => {
@@ -168,6 +201,11 @@ export function WorkClient({
 
   // Clear strategy filter
   const clearStrategyFilter = useCallback(() => {
+    router.push(`/c/${company.id}/work`);
+  }, [router, company.id]);
+
+  // Clear program filter
+  const clearProgramFilter = useCallback(() => {
     router.push(`/c/${company.id}/work`);
   }, [router, company.id]);
 
@@ -315,8 +353,45 @@ export function WorkClient({
         </div>
       )}
 
+      {/* Program Filter Banner */}
+      {programIdFilter && (
+        <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-cyan-500/20 rounded-lg">
+                <Activity className="w-4 h-4 text-cyan-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-cyan-300">
+                  {loadingProgram ? 'Loading...' : programTitle ? `Work from Program: ${programTitle}` : 'Filtering by program'}
+                </p>
+                <p className="text-xs text-cyan-400/80 mt-0.5">
+                  Showing {filteredWorkItems.length} work item{filteredWorkItems.length !== 1 ? 's' : ''} from this program
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link
+                href={`/c/${company.id}/deliver?programId=${programIdFilter}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-cyan-300 hover:text-cyan-200 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/30 rounded-lg transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                View program
+              </Link>
+              <button
+                onClick={clearProgramFilter}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-300 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700 rounded-lg transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+                Clear filter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Empty state: No work yet - concise, confident */}
-      {!hasAnyWork && !artifactIdFilter && !strategyIdFilter && (
+      {!hasAnyWork && !artifactIdFilter && !strategyIdFilter && !programIdFilter && (
         <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-6 text-center">
           <Layers className="w-8 h-8 text-slate-500 mx-auto mb-3" />
           <p className="text-sm font-medium text-slate-300">No active work</p>
@@ -343,6 +418,23 @@ export function WorkClient({
           </p>
           <button
             onClick={clearArtifactFilter}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-slate-300 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-lg transition-colors"
+          >
+            View all work items
+          </button>
+        </div>
+      )}
+
+      {/* Empty state: Program filter has no results */}
+      {programIdFilter && filteredWorkItems.length === 0 && (
+        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 text-center">
+          <Activity className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+          <p className="text-sm font-medium text-slate-300">No work items from this program</p>
+          <p className="text-xs text-slate-500 mt-1 mb-4">
+            Work items created when this program was committed will appear here.
+          </p>
+          <button
+            onClick={clearProgramFilter}
             className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-slate-300 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-lg transition-colors"
           >
             View all work items

@@ -36,6 +36,8 @@ const WORK_ITEMS_FIELDS = {
   ARTIFACTS_JSON: 'Artifacts JSON', // JSON-encoded WorkItemArtifact array
   STRATEGY_LINK_JSON: 'Strategy Link JSON', // JSON-encoded StrategyLink object
   WORKSTREAM_TYPE: 'Workstream Type', // Classification for downstream artifacts
+  PROGRAM_ID: 'Program ID', // Program this work item was materialized from
+  PROGRAM_WORK_KEY: 'Program Work Key', // Stable key within the program
 } as const;
 
 /**
@@ -97,6 +99,8 @@ interface WorkItemFields {
   'Artifacts JSON'?: string; // JSON-encoded WorkItemArtifact[]
   'Strategy Link JSON'?: string; // JSON-encoded StrategyLink
   'Workstream Type'?: string; // WorkstreamType classification
+  'Program ID'?: string; // Program this was materialized from
+  'Program Work Key'?: string; // Stable key within the program
 }
 
 /**
@@ -126,6 +130,8 @@ export interface WorkItemRecord {
   artifacts?: WorkItemArtifact[]; // Attached artifact snapshots
   strategyLink?: StrategyLink; // Link to strategy tactic
   workstreamType?: WorkstreamType; // Classification for downstream artifacts
+  programId?: string; // Program this was materialized from
+  programWorkKey?: string; // Stable key within the program
 }
 
 /**
@@ -206,6 +212,8 @@ function mapWorkItemRecord(record: any): WorkItemRecord {
     artifacts: parseArtifactsJson(fields['Artifacts JSON']),
     strategyLink: parseStrategyLinkJson(fields['Strategy Link JSON']),
     workstreamType: fields['Workstream Type'] as WorkstreamType | undefined,
+    programId: fields['Program ID'],
+    programWorkKey: fields['Program Work Key'],
   };
 }
 
@@ -813,6 +821,8 @@ export interface CreateWorkItemInput {
   dueDate?: string; // ISO date string
   strategyLink?: StrategyLink; // Link to strategy tactic
   workstreamType?: WorkstreamType; // Classification for downstream artifacts
+  programId?: string; // Program this work item was materialized from
+  programWorkKey?: string; // Stable key within the program
 }
 
 /**
@@ -836,6 +846,8 @@ export async function createWorkItem(
     dueDate,
     strategyLink,
     workstreamType,
+    programId,
+    programWorkKey,
   } = input;
 
   console.log('[Work Items] Creating generic work item:', {
@@ -879,6 +891,14 @@ export async function createWorkItem(
 
   if (workstreamType) {
     fields[WORK_ITEMS_FIELDS.WORKSTREAM_TYPE] = workstreamType;
+  }
+
+  if (programId) {
+    fields[WORK_ITEMS_FIELDS.PROGRAM_ID] = programId;
+  }
+
+  if (programWorkKey) {
+    fields[WORK_ITEMS_FIELDS.PROGRAM_WORK_KEY] = programWorkKey;
   }
 
   try {
@@ -2372,5 +2392,130 @@ export async function getCommittedTacticIds(
     }
     console.error('[Work Items] Error getting committed tactic IDs:', errorMessage);
     return new Set();
+  }
+}
+
+// ============================================================================
+// Program Materialization Functions
+// ============================================================================
+
+/**
+ * Get all work items for a program by programId (top-level field)
+ *
+ * @param programId - Program ID to filter by
+ * @returns Array of work items for this program
+ */
+export async function getWorkItemsByProgramId(
+  programId: string
+): Promise<WorkItemRecord[]> {
+  try {
+    console.log('[Work Items] Fetching work items for program:', programId);
+
+    const records = await base('Work Items')
+      .select({
+        filterByFormula: `{${WORK_ITEMS_FIELDS.PROGRAM_ID}} = "${programId}"`,
+      })
+      .all();
+
+    const workItems = records.map(mapWorkItemRecord);
+    console.log('[Work Items] Found', workItems.length, 'work items for program');
+    return workItems;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('NOT_FOUND') || errorMessage.includes('UNKNOWN_FIELD_NAME')) {
+      console.log('[Work Items] Program ID field not found, returning empty array');
+      return [];
+    }
+    console.error('[Work Items] Error fetching by program ID:', error);
+    return [];
+  }
+}
+
+/**
+ * Find a work item by program ID and work key (for upsert lookup)
+ *
+ * @param programId - Program ID
+ * @param programWorkKey - Stable work key within the program
+ * @returns The matching work item or null
+ */
+export async function findWorkItemByProgramKey(
+  programId: string,
+  programWorkKey: string
+): Promise<WorkItemRecord | null> {
+  try {
+    const filterFormula = `AND({${WORK_ITEMS_FIELDS.PROGRAM_ID}} = "${programId}", {${WORK_ITEMS_FIELDS.PROGRAM_WORK_KEY}} = "${programWorkKey}")`;
+
+    const records = await base('Work Items')
+      .select({
+        filterByFormula: filterFormula,
+        maxRecords: 1,
+      })
+      .firstPage();
+
+    return records.length > 0 ? mapWorkItemRecord(records[0]) : null;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('NOT_FOUND') || errorMessage.includes('UNKNOWN_FIELD_NAME')) {
+      console.log('[Work Items] Program fields not found, returning null');
+      return null;
+    }
+    console.error('[Work Items] Error finding by program key:', error);
+    return null;
+  }
+}
+
+/**
+ * Update a work item (partial update)
+ *
+ * @param workItemId - Work item record ID
+ * @param updates - Fields to update
+ * @returns Updated work item record or null if failed
+ */
+export async function updateWorkItem(
+  workItemId: string,
+  updates: Partial<{
+    title: string;
+    notes: string;
+    status: WorkItemStatus;
+    dueDate: string;
+    area: WorkItemArea;
+  }>
+): Promise<WorkItemRecord | null> {
+  try {
+    console.log('[Work Items] Updating work item:', workItemId, updates);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fields: Record<string, any> = {};
+
+    if (updates.title !== undefined) {
+      fields[WORK_ITEMS_FIELDS.TITLE] = updates.title;
+    }
+    if (updates.notes !== undefined) {
+      fields[WORK_ITEMS_FIELDS.NOTES] = updates.notes;
+    }
+    if (updates.status !== undefined) {
+      fields[WORK_ITEMS_FIELDS.STATUS] = updates.status;
+    }
+    if (updates.dueDate !== undefined) {
+      fields[WORK_ITEMS_FIELDS.DUE_DATE] = updates.dueDate;
+    }
+    if (updates.area !== undefined) {
+      fields[WORK_ITEMS_FIELDS.AREA] = updates.area;
+    }
+
+    const records = await base('Work Items').update([
+      { id: workItemId, fields },
+    ]);
+
+    if (!records || records.length === 0) {
+      console.error('[Work Items] No record returned from update');
+      return null;
+    }
+
+    console.log('[Work Items] Work item updated successfully');
+    return mapWorkItemRecord(records[0]);
+  } catch (error) {
+    console.error('[Work Items] Error updating work item:', error);
+    return null;
   }
 }

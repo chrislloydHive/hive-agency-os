@@ -23,8 +23,10 @@ import {
   Edit3,
   Archive,
   RefreshCw,
+  Paperclip,
 } from 'lucide-react';
 import type { ProgramArtifactLink } from '@/lib/types/program';
+import { mapProgramLinkToCanonical } from '@/lib/types/program';
 
 // ============================================================================
 // Types
@@ -54,6 +56,17 @@ interface PropagateResponse {
   unchanged: number;
   errors: Array<{ artifactId: string; error: string }>;
   error?: string;
+}
+
+interface WorkItemSummary {
+  id: string;
+  title: string;
+  status: string | undefined;
+}
+
+interface ExecutionStatusData {
+  success: boolean;
+  workItems: WorkItemSummary[];
 }
 
 interface ProgramOutputsPanelProps {
@@ -113,11 +126,19 @@ export function ProgramOutputsPanel({
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<PropagateResponse | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [attachingArtifactId, setAttachingArtifactId] = useState<string | null>(null);
+  const [showWorkSelector, setShowWorkSelector] = useState<string | null>(null);
 
   const { data, error, isLoading } = useSWR<GetArtifactsResponse>(
     `/api/os/programs/${programId}/artifacts`,
     fetcher,
     { refreshInterval: 30000 }
+  );
+
+  // Fetch work items for this program
+  const { data: workData } = useSWR<ExecutionStatusData>(
+    `/api/os/programs/${programId}/work`,
+    fetcher
   );
 
   // Handle sync artifacts to work items
@@ -150,6 +171,56 @@ export function ProgramOutputsPanel({
       setIsSyncing(false);
     }
   }, [programId]);
+
+  // Handle attaching an artifact to a specific work item
+  const handleAttachToWork = useCallback(async (
+    artifact: ProgramArtifactLink,
+    workItemId: string
+  ) => {
+    setAttachingArtifactId(artifact.artifactId);
+    setShowWorkSelector(null);
+
+    try {
+      const canonicalRelation = mapProgramLinkToCanonical(artifact.linkType);
+
+      const response = await fetch(
+        `/api/os/companies/${companyId}/work-items/${workItemId}/artifacts/attach`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            artifactId: artifact.artifactId,
+            artifactType: artifact.artifactType,
+            artifactTitle: artifact.artifactTitle,
+            artifactStatus: artifact.artifactStatus,
+            relation: canonicalRelation,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to attach artifact');
+      }
+
+      // Show success briefly
+      setSyncResult({
+        success: true,
+        programId,
+        attempted: 1,
+        attached: 1,
+        updated: 0,
+        unchanged: 0,
+        errors: [],
+      });
+      setTimeout(() => setSyncResult(null), 3000);
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : 'Failed to attach');
+      setTimeout(() => setSyncError(null), 5000);
+    } finally {
+      setAttachingArtifactId(null);
+    }
+  }, [companyId, programId]);
 
   // Loading state
   if (isLoading) {
@@ -262,7 +333,20 @@ export function ProgramOutputsPanel({
           </p>
           <ul className="space-y-1">
             {byType.outputs.map((artifact) => (
-              <ArtifactRow key={artifact.artifactId} artifact={artifact} companyId={companyId} />
+              <ArtifactRow
+                key={artifact.artifactId}
+                artifact={artifact}
+                companyId={companyId}
+                workItems={workData?.workItems || []}
+                showWorkSelector={showWorkSelector === artifact.artifactId}
+                onToggleWorkSelector={() =>
+                  setShowWorkSelector(
+                    showWorkSelector === artifact.artifactId ? null : artifact.artifactId
+                  )
+                }
+                onAttachToWork={(workItemId) => handleAttachToWork(artifact, workItemId)}
+                isAttaching={attachingArtifactId === artifact.artifactId}
+              />
             ))}
           </ul>
         </div>
@@ -276,7 +360,20 @@ export function ProgramOutputsPanel({
           </p>
           <ul className="space-y-1">
             {byType.inputs.map((artifact) => (
-              <ArtifactRow key={artifact.artifactId} artifact={artifact} companyId={companyId} />
+              <ArtifactRow
+                key={artifact.artifactId}
+                artifact={artifact}
+                companyId={companyId}
+                workItems={workData?.workItems || []}
+                showWorkSelector={showWorkSelector === artifact.artifactId}
+                onToggleWorkSelector={() =>
+                  setShowWorkSelector(
+                    showWorkSelector === artifact.artifactId ? null : artifact.artifactId
+                  )
+                }
+                onAttachToWork={(workItemId) => handleAttachToWork(artifact, workItemId)}
+                isAttaching={attachingArtifactId === artifact.artifactId}
+              />
             ))}
           </ul>
         </div>
@@ -290,7 +387,20 @@ export function ProgramOutputsPanel({
           </p>
           <ul className="space-y-1">
             {byType.references.map((artifact) => (
-              <ArtifactRow key={artifact.artifactId} artifact={artifact} companyId={companyId} />
+              <ArtifactRow
+                key={artifact.artifactId}
+                artifact={artifact}
+                companyId={companyId}
+                workItems={workData?.workItems || []}
+                showWorkSelector={showWorkSelector === artifact.artifactId}
+                onToggleWorkSelector={() =>
+                  setShowWorkSelector(
+                    showWorkSelector === artifact.artifactId ? null : artifact.artifactId
+                  )
+                }
+                onAttachToWork={(workItemId) => handleAttachToWork(artifact, workItemId)}
+                isAttaching={attachingArtifactId === artifact.artifactId}
+              />
             ))}
           </ul>
         </div>
@@ -306,27 +416,79 @@ export function ProgramOutputsPanel({
 function ArtifactRow({
   artifact,
   companyId,
+  workItems,
+  showWorkSelector,
+  onToggleWorkSelector,
+  onAttachToWork,
+  isAttaching,
 }: {
   artifact: ProgramArtifactLink;
   companyId: string;
+  workItems: WorkItemSummary[];
+  showWorkSelector: boolean;
+  onToggleWorkSelector: () => void;
+  onAttachToWork: (workItemId: string) => void;
+  isAttaching: boolean;
 }) {
-  // TODO: Link to actual artifact viewer when available
   const artifactUrl = `/c/${companyId}/artifacts/${artifact.artifactId}`;
+  const hasWorkItems = workItems.length > 0;
 
   return (
-    <li className="flex items-center gap-2 py-1.5 group">
-      <ArtifactStatusIcon status={artifact.artifactStatus} />
-      <span className="text-sm text-slate-300 truncate flex-1">
-        {artifact.artifactTitle}
-      </span>
-      <ArtifactTypeBadge type={artifact.artifactType} />
-      <a
-        href={artifactUrl}
-        className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-slate-300"
-        title="View artifact"
-      >
-        <ExternalLink className="w-3 h-3" />
-      </a>
+    <li className="py-1.5 group">
+      <div className="flex items-center gap-2">
+        <ArtifactStatusIcon status={artifact.artifactStatus} />
+        <span className="text-sm text-slate-300 truncate flex-1">
+          {artifact.artifactTitle}
+        </span>
+        <ArtifactTypeBadge type={artifact.artifactType} />
+
+        {/* Attach to work button */}
+        {hasWorkItems && (
+          <button
+            onClick={onToggleWorkSelector}
+            disabled={isAttaching}
+            className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-cyan-400 disabled:opacity-50"
+            title="Attach to work item"
+          >
+            {isAttaching ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <Paperclip className="w-3 h-3" />
+            )}
+          </button>
+        )}
+
+        <a
+          href={artifactUrl}
+          className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-slate-300"
+          title="View artifact"
+        >
+          <ExternalLink className="w-3 h-3" />
+        </a>
+      </div>
+
+      {/* Work item selector dropdown */}
+      {showWorkSelector && hasWorkItems && (
+        <div className="mt-2 ml-6 p-2 bg-slate-800/80 border border-slate-700 rounded-lg">
+          <p className="text-[10px] text-slate-400 mb-1.5">Attach to work item:</p>
+          <div className="space-y-1 max-h-32 overflow-y-auto">
+            {workItems.map((work) => (
+              <button
+                key={work.id}
+                onClick={() => onAttachToWork(work.id)}
+                className="w-full text-left px-2 py-1 text-xs text-slate-300 hover:bg-slate-700 rounded transition-colors truncate"
+              >
+                {work.title}
+                {work.status && (
+                  <span className="ml-1 text-[10px] text-slate-500">
+                    ({work.status})
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </li>
   );
 }

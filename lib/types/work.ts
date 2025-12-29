@@ -522,6 +522,12 @@ export interface WorkItem {
 
   // Attached artifacts (snapshot references)
   artifacts?: WorkItemArtifact[];
+
+  // Program materialization fields (top-level for efficient querying)
+  /** Program ID this work item was materialized from */
+  programId?: string;
+  /** Stable work key within the program (e.g., "del::0", "milestone::1", "setup") */
+  programWorkKey?: string;
 }
 
 /**

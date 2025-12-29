@@ -46,6 +46,7 @@ function createMockProgram(overrides: Partial<PlanningProgram> = {}): PlanningPr
       workItemIds: [],
     },
     linkedArtifacts: [],
+    workPlanVersion: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides,

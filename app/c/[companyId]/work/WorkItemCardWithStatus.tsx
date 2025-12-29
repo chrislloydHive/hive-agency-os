@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { FileText, ExternalLink, Clock, User, Wrench, Target, Bot, Layers, Package } from 'lucide-react';
+import { FileText, ExternalLink, Clock, User, Wrench, Target, Bot, Layers, Package, Activity } from 'lucide-react';
 import type { WorkItemRecord, WorkItemStatus } from '@/lib/airtable/workItems';
 import type { WorkSource, StrategyLink } from '@/lib/types/work';
 
@@ -273,6 +273,19 @@ export default function WorkItemCardWithStatus({ item, companyId, isSelected, on
           >
             <Layers className="w-3 h-3" />
             From Strategy
+          </Link>
+        )}
+
+        {/* Program Link Badge */}
+        {item.programId && (
+          <Link
+            href={`/c/${companyId}/deliver?programId=${item.programId}`}
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/20 transition-colors"
+            title="From Program"
+          >
+            <Activity className="w-3 h-3" />
+            From Program
           </Link>
         )}
 

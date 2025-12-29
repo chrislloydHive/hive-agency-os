@@ -40,6 +40,8 @@ const FIELDS = {
   PLAN_JSON: 'Plan JSON',
   COMMITMENT_JSON: 'Commitment JSON',
   ARTIFACTS_JSON: 'Artifacts JSON',
+  WORK_PLAN_JSON: 'Work Plan JSON', // JSON-encoded work plan for materialization
+  WORK_PLAN_VERSION: 'Work Plan Version', // Incremented on each materialization
   CREATED_AT: 'Created At',
   UPDATED_AT: 'Updated At',
 } as const;
@@ -109,6 +111,8 @@ function mapAirtableRecord(record: AirtableRecord): PlanningProgram | null {
       planDetails,
       commitment,
       linkedArtifacts,
+      workPlanJson: (fields[FIELDS.WORK_PLAN_JSON] as string) || null,
+      workPlanVersion: (fields[FIELDS.WORK_PLAN_VERSION] as number) || 0,
       createdAt: (fields[FIELDS.CREATED_AT] as string) || null,
       updatedAt: (fields[FIELDS.UPDATED_AT] as string) || null,
     };
@@ -135,6 +139,8 @@ function toAirtableFields(program: PlanningProgramInput, includeId: boolean = fa
     [FIELDS.PLAN_JSON]: JSON.stringify(program.planDetails),
     [FIELDS.COMMITMENT_JSON]: JSON.stringify(program.commitment),
     [FIELDS.ARTIFACTS_JSON]: JSON.stringify(program.linkedArtifacts || []),
+    [FIELDS.WORK_PLAN_JSON]: program.workPlanJson || null,
+    [FIELDS.WORK_PLAN_VERSION]: program.workPlanVersion || 0,
     // Note: Created At and Updated At are computed fields in Airtable - don't set them
   };
 
@@ -330,6 +336,7 @@ export async function createPlanningProgramFromTactic(
       planDetails: { horizonDays: 30, milestones: [] },
       commitment: { workItemIds: [] },
       linkedArtifacts: [],
+      workPlanVersion: 0,
     };
 
     const created = await createPlanningProgram(input);

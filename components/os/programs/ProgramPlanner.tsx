@@ -39,6 +39,7 @@ import {
   DollarSign,
   Radio,
   Eye,
+  RefreshCw,
 } from 'lucide-react';
 import type {
   PlanningProgram,
@@ -437,6 +438,7 @@ export function ProgramPlanner({
   const [isSaving, setIsSaving] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
+  const [isResyncing, setIsResyncing] = useState(false);
   const [showExecutionModal, setShowExecutionModal] = useState(false);
   const [showArtifactPicker, setShowArtifactPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -652,6 +654,33 @@ export function ProgramPlanner({
     }
   }, [program.id, onCommit]);
 
+  // Re-sync work items (for committed programs)
+  const handleResync = useCallback(async () => {
+    setIsResyncing(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/os/programs/${program.id}/commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resync: true }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to resync');
+      }
+
+      const data = await response.json();
+      // Refresh the program data
+      onStatusChange(data.program);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Resync failed');
+    } finally {
+      setIsResyncing(false);
+    }
+  }, [program.id, onStatusChange]);
+
   // Handle linking an artifact to the program
   const handleLinkArtifact = useCallback(async (artifact: Artifact, linkType: ProgramArtifactLinkType) => {
     try {
@@ -774,29 +803,43 @@ export function ProgramPlanner({
               </button>
             )}
 
-            {/* Ready → Start execution */}
+            {/* Ready → Commit to Work */}
             {localProgram.status === 'ready' && (
               <button
                 onClick={() => setShowExecutionModal(true)}
                 className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors"
               >
                 <Play className="w-4 h-4" />
-                Start execution
+                Commit to Work
               </button>
             )}
 
-            {/* Committed → View Work */}
+            {/* Committed → Re-sync Work and View Work */}
             {localProgram.status === 'committed' && (
-              <Link
-                href={`/c/${companyId}/work?programId=${program.id}`}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-lg transition-colors"
-              >
-                <Eye className="w-4 h-4" />
-                View Work
-                <span className="text-xs opacity-70">
-                  ({program.commitment.workItemIds?.length || 0})
-                </span>
-              </Link>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleResync}
+                  disabled={isResyncing}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {isResyncing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4" />
+                  )}
+                  Re-sync Work
+                </button>
+                <Link
+                  href={`/c/${companyId}/work?programId=${program.id}`}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-lg transition-colors"
+                >
+                  <Eye className="w-4 h-4" />
+                  View Work
+                  <span className="text-xs opacity-70">
+                    ({program.commitment.workItemIds?.length || 0})
+                  </span>
+                </Link>
+              </div>
             )}
 
             {/* Close */}

@@ -1,25 +1,15 @@
 // app/api/os/programs/[programId]/commit/route.ts
-// Commit a Planning Program to create Work items
+// Commit a Planning Program to create/sync Work items
 //
 // This is the final step in the Strategy → Program → Work flow.
-// When a program is committed, its deliverables are converted to Work items.
+// When a program is committed, its deliverables are materialized to Work items.
+// Supports re-syncing to update existing work items.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import {
-  getPlanningProgram,
-  commitPlanningProgram,
-} from '@/lib/airtable/planningPrograms';
-import {
-  createWorkItem,
-  type CreateWorkItemInput,
-} from '@/lib/airtable/workItems';
-import {
-  buildWorkItemsFromProgram,
-  draftsToCreateInputs,
-  filterDuplicateDrafts,
-  findExistingWorkKeys,
-} from '@/lib/os/planning/programToWork';
+import { getPlanningProgram } from '@/lib/airtable/planningPrograms';
+import { materializeWorkFromProgram } from '@/lib/os/planning/materializeWork';
+import { buildProgramWorkPlan } from '@/lib/os/planning/programToWork';
 import { canCommitPlanningProgram } from '@/lib/types/program';
 
 // ============================================================================
@@ -39,24 +29,27 @@ const CommitRequestSchema = z.object({
   committedBy: z.string().optional(),
   /** Skip creating work items (for testing) */
   dryRun: z.boolean().optional().default(false),
+  /** Force re-sync even if already committed */
+  resync: z.boolean().optional().default(false),
 });
 
 // ============================================================================
-// POST - Commit program and create work items
+// POST - Commit program and create/sync work items
 // ============================================================================
 
 /**
  * POST /api/os/programs/[programId]/commit
- * Commit a program and create Work items from deliverables
+ * Commit a program and create/sync Work items from deliverables
  *
  * Flow:
- * 1. Validate program is in "ready" status
- * 2. Build work item drafts from program deliverables
- * 3. Filter out duplicates (if any work items already exist)
- * 4. Create work items in Airtable
- * 5. Update program status to "committed" with work item IDs
+ * 1. Validate program is in "ready" status (or allow resync for "committed")
+ * 2. Build work plan from program deliverables
+ * 3. Materialize work items (create new, update existing, mark removed)
+ * 4. Update program status to "committed" with work item IDs
+ * 5. Propagate artifacts to work items
  *
- * Idempotent: If program is already committed, returns existing work items.
+ * Idempotent: Running twice with same program state produces same result.
+ * Use resync: true to update work items for an already committed program.
  */
 export async function POST(request: NextRequest, { params }: Params) {
   try {
@@ -73,7 +66,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       );
     }
 
-    const { notes, committedBy, dryRun } = parseResult.data;
+    const { dryRun, resync } = parseResult.data;
 
     // 1. Get program
     const program = await getPlanningProgram(programId);
@@ -86,136 +79,97 @@ export async function POST(request: NextRequest, { params }: Params) {
     }
 
     // Check if already committed
-    if (program.status === 'committed') {
+    const isCommitted = program.status === 'committed';
+    if (isCommitted && !resync) {
       return NextResponse.json({
         success: true,
         alreadyCommitted: true,
         program,
         workItemIds: program.commitment.workItemIds || [],
-        message: 'Program was already committed',
+        workPlanVersion: program.workPlanVersion || 0,
+        message: 'Program was already committed. Pass resync: true to re-materialize.',
       });
     }
 
-    // 2. Validate program can be committed
-    if (!canCommitPlanningProgram(program)) {
-      return NextResponse.json(
-        {
-          error: 'Program cannot be committed',
-          reason: program.status !== 'ready'
-            ? `Program must be in "ready" status (current: ${program.status})`
-            : 'Program has no deliverables',
-          status: program.status,
-          deliverablesCount: program.scope.deliverables.length,
-        },
-        { status: 400 }
-      );
+    // 2. Validate program can be committed (skip for resync of committed programs)
+    if (!isCommitted && !canCommitPlanningProgram(program)) {
+      // For programs without structure, we still allow commit (will use default items)
+      const hasNoStructure = program.scope.deliverables.length === 0 &&
+                             program.planDetails.milestones.length === 0;
+
+      if (program.status !== 'ready' && !hasNoStructure) {
+        return NextResponse.json(
+          {
+            error: 'Program cannot be committed',
+            reason: `Program must be in "ready" status (current: ${program.status})`,
+            status: program.status,
+            deliverablesCount: program.scope.deliverables.length,
+          },
+          { status: 400 }
+        );
+      }
     }
 
-    // 3. Build work item drafts
-    const { workItemDrafts, summary } = buildWorkItemsFromProgram(program);
-
-    console.log('[commit] Built work item drafts:', {
-      programId,
-      total: summary.totalItems,
-      fromDeliverables: summary.fromDeliverables,
-      fromMilestones: summary.fromMilestones,
-      setupItems: summary.setupItems,
-    });
-
-    // 4. Filter duplicates
-    const existingKeys = findExistingWorkKeys(program);
-    const newDrafts = filterDuplicateDrafts(workItemDrafts, existingKeys);
-
-    console.log('[commit] Filtered duplicates:', {
-      original: workItemDrafts.length,
-      new: newDrafts.length,
-      filtered: workItemDrafts.length - newDrafts.length,
-    });
-
+    // 3. Build work plan (for dry run preview)
     if (dryRun) {
+      const workPlan = buildProgramWorkPlan(program);
       return NextResponse.json({
         success: true,
         dryRun: true,
         program,
-        workItemDrafts: newDrafts,
+        workPlan,
         summary: {
-          ...summary,
-          newItems: newDrafts.length,
-          existingItems: workItemDrafts.length - newDrafts.length,
+          totalItems: workPlan.items.length,
+          inputHash: workPlan.inputHash,
         },
         message: 'Dry run completed. No work items created.',
       });
     }
 
-    // 5. Create work items
-    const createInputs = draftsToCreateInputs(newDrafts, program.companyId);
-    const createdWorkItemIds: string[] = [];
-    const errors: Array<{ title: string; error: string }> = [];
+    // 4. Materialize work items
+    console.log('[commit] Materializing work items for program:', programId);
+    const result = await materializeWorkFromProgram(programId);
 
-    for (const input of createInputs) {
+    if (!result.success && result.errors.length > 0) {
+      // Partial success - some items may have been created
+      console.warn('[commit] Materialization completed with errors:', result.errors);
+    }
+
+    console.log('[commit] Materialization complete:', {
+      programId,
+      workPlanVersion: result.workPlanVersion,
+      counts: result.counts,
+    });
+
+    // 5. Propagate artifacts after successful materialization
+    if (result.workItemIds.length > 0 && program.linkedArtifacts?.length) {
       try {
-        const workItem = await createWorkItem(input);
-        if (workItem) {
-          createdWorkItemIds.push(workItem.id);
-        } else {
-          errors.push({
-            title: input.title,
-            error: 'Failed to create work item',
-          });
-        }
-      } catch (err) {
-        errors.push({
-          title: input.title,
-          error: err instanceof Error ? err.message : 'Unknown error',
+        // Get the base URL from the request
+        const baseUrl = request.nextUrl.origin;
+        await fetch(`${baseUrl}/api/os/programs/${programId}/artifacts/propagate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
         });
+        console.log('[commit] Artifact propagation triggered');
+      } catch (err) {
+        console.warn('[commit] Artifact propagation failed (non-blocking):', err);
       }
     }
 
-    console.log('[commit] Created work items:', {
-      programId,
-      created: createdWorkItemIds.length,
-      errors: errors.length,
-    });
-
-    // Include any previously created work item IDs
-    const allWorkItemIds = [
-      ...(program.commitment.workItemIds || []),
-      ...createdWorkItemIds,
-    ];
-
-    // 6. Update program to committed status
-    const committedProgram = await commitPlanningProgram(
-      programId,
-      allWorkItemIds,
-      committedBy,
-      notes
-    );
-
-    if (!committedProgram) {
-      return NextResponse.json(
-        {
-          error: 'Failed to update program status',
-          workItemsCreated: createdWorkItemIds.length,
-          workItemIds: createdWorkItemIds,
-        },
-        { status: 500 }
-      );
-    }
+    // 6. Fetch updated program
+    const updatedProgram = await getPlanningProgram(programId);
 
     return NextResponse.json({
-      success: true,
-      program: committedProgram,
-      workItemIds: allWorkItemIds,
-      summary: {
-        totalDeliverables: summary.fromDeliverables,
-        totalMilestones: summary.fromMilestones,
-        totalSetupItems: summary.setupItems,
-        workItemsCreated: createdWorkItemIds.length,
-        workItemsExisting: program.commitment.workItemIds?.length || 0,
-        errors: errors.length,
-      },
-      errors: errors.length > 0 ? errors : undefined,
-      message: `Program committed. Created ${createdWorkItemIds.length} work items.`,
+      success: result.success,
+      program: updatedProgram || program,
+      workItemIds: result.workItemIds,
+      workPlanVersion: result.workPlanVersion,
+      counts: result.counts,
+      errors: result.errors.length > 0 ? result.errors : undefined,
+      message: resync
+        ? `Work re-synced. Created: ${result.counts.created}, Updated: ${result.counts.updated}, Unchanged: ${result.counts.unchanged}, Removed: ${result.counts.removed}`
+        : `Program committed. Created ${result.counts.created} work items.`,
     });
   } catch (error) {
     console.error('[API] Failed to commit program:', error);

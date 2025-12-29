@@ -588,6 +588,11 @@ export const PlanningProgramSchema = z.object({
   commitment: PlanningProgramCommitmentSchema.default({ workItemIds: [] }),
   linkedArtifacts: z.array(ProgramArtifactLinkSchema).default([]), // Outputs/inputs/references
   stableKey: z.string().optional(), // For idempotent creation from tactics
+  // Work plan materialization tracking
+  /** JSON-encoded work plan (for change detection) */
+  workPlanJson: z.string().nullable().optional(),
+  /** Version number, incremented on each materialization */
+  workPlanVersion: z.number().default(0),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
 });
@@ -970,7 +975,7 @@ export const FullProgramDraftPayloadSchema = z.object({
   constraints: z.array(z.string()).default([]),
   dependencies: z.array(ProposedDependencySchema).default([]),
   risks: z.array(ProposedRiskSchema).default([]),
-  executionPlan: z.array(ProposedPhaseSchema).optional(),
+  executionPlan: z.array(ProposedPhaseSchema).default([]),
 });
 export type FullProgramDraftPayload = z.infer<typeof FullProgramDraftPayloadSchema>;
 
