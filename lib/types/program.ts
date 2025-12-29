@@ -459,6 +459,106 @@ export const PlanningProgramPlanSchema = z.object({
 export type PlanningProgramPlanDetails = z.infer<typeof PlanningProgramPlanSchema>;
 
 // ============================================================================
+// Canonical Artifact Relation Type
+// ============================================================================
+// Canonical vocabulary for artifact relations across the system:
+// - 'produces': The entity creates/generates this artifact as output
+// - 'requires': The entity needs this artifact as input
+// - 'reference': The entity references this artifact without dependency
+//
+// WHY: Consistent vocabulary across Programs and Work Items enables
+// proper propagation and reduces confusion. UI labels can differ
+// (e.g., "Output" vs "Produces") but storage is canonical.
+
+export const CanonicalArtifactRelationSchema = z.enum(['produces', 'requires', 'reference']);
+export type CanonicalArtifactRelation = z.infer<typeof CanonicalArtifactRelationSchema>;
+
+// ============================================================================
+// Program Artifact Links
+// ============================================================================
+// Links programs to artifacts they produce or reference
+//
+// Note: ProgramArtifactLinkType uses 'output'|'input'|'reference' for backwards
+// compatibility with existing data. Use mapProgramLinkToCanonical() to convert.
+
+export const ProgramArtifactLinkTypeSchema = z.enum(['output', 'input', 'reference']);
+export type ProgramArtifactLinkType = z.infer<typeof ProgramArtifactLinkTypeSchema>;
+
+/**
+ * Map program artifact link type to canonical relation
+ *
+ * Program UI shows: Output / Input / Reference
+ * Canonical stores: produces / requires / reference
+ */
+export function mapProgramLinkToCanonical(linkType: ProgramArtifactLinkType): CanonicalArtifactRelation {
+  const mapping: Record<ProgramArtifactLinkType, CanonicalArtifactRelation> = {
+    output: 'produces',
+    input: 'requires',
+    reference: 'reference',
+  };
+  return mapping[linkType];
+}
+
+/**
+ * Map canonical relation to program artifact link type (for display)
+ */
+export function mapCanonicalToProgramLink(relation: CanonicalArtifactRelation): ProgramArtifactLinkType {
+  const mapping: Record<CanonicalArtifactRelation, ProgramArtifactLinkType> = {
+    produces: 'output',
+    requires: 'input',
+    reference: 'reference',
+  };
+  return mapping[relation];
+}
+
+/**
+ * Get UI label for program artifact link type
+ * UI always shows user-friendly labels regardless of storage format
+ */
+export function getProgramLinkTypeLabel(linkType: ProgramArtifactLinkType): string {
+  const labels: Record<ProgramArtifactLinkType, string> = {
+    output: 'Output',
+    input: 'Input',
+    reference: 'Reference',
+  };
+  return labels[linkType];
+}
+
+export const ProgramArtifactLinkSchema = z.object({
+  artifactId: z.string(),
+  artifactTitle: z.string(), // Snapshot at link time
+  artifactType: z.string(),  // e.g., 'media_brief', 'content_brief'
+  artifactStatus: z.enum(['draft', 'final', 'archived']),
+  linkType: ProgramArtifactLinkTypeSchema.default('output'),
+  linkedAt: z.string(), // ISO timestamp
+  linkedBy: z.string().optional(),
+});
+
+export type ProgramArtifactLink = z.infer<typeof ProgramArtifactLinkSchema>;
+
+/**
+ * Create a program artifact link snapshot
+ */
+export function createProgramArtifactLink(
+  artifactId: string,
+  artifactTitle: string,
+  artifactType: string,
+  artifactStatus: 'draft' | 'final' | 'archived',
+  linkType: ProgramArtifactLinkType = 'output',
+  linkedBy?: string
+): ProgramArtifactLink {
+  return {
+    artifactId,
+    artifactTitle,
+    artifactType,
+    artifactStatus,
+    linkType,
+    linkedAt: new Date().toISOString(),
+    linkedBy,
+  };
+}
+
+// ============================================================================
 // Commitment (Work creation)
 // ============================================================================
 
@@ -486,6 +586,7 @@ export const PlanningProgramSchema = z.object({
   success: PlanningProgramSuccessSchema.default({ kpis: [] }),
   planDetails: PlanningProgramPlanSchema.default({ horizonDays: 30, milestones: [] }),
   commitment: PlanningProgramCommitmentSchema.default({ workItemIds: [] }),
+  linkedArtifacts: z.array(ProgramArtifactLinkSchema).default([]), // Outputs/inputs/references
   stableKey: z.string().optional(), // For idempotent creation from tactics
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),

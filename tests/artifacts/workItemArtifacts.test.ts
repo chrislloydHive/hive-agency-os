@@ -30,6 +30,7 @@ function createTestArtifact(
     artifactTypeId: 'strategy_doc',
     artifactTitle: `Test Artifact ${id}`,
     artifactStatus: 'draft',
+    relation: 'produces',
     attachedAt: new Date().toISOString(),
     ...overrides,
   };
@@ -335,6 +336,7 @@ describe('createArtifactSnapshot', () => {
       'strategy_doc',
       'My Strategy Doc',
       'final',
+      'produces',
       'user-456'
     );
 

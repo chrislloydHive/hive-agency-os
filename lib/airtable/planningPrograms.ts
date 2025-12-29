@@ -16,6 +16,7 @@ import type {
   PlanningProgramSuccess,
   PlanningProgramPlanDetails,
   PlanningProgramCommitment,
+  ProgramArtifactLink,
 } from '@/lib/types/program';
 import { generatePlanningProgramId, stablePlanningProgramKey } from '@/lib/types/program';
 
@@ -38,6 +39,7 @@ const FIELDS = {
   SUCCESS_JSON: 'Success JSON',
   PLAN_JSON: 'Plan JSON',
   COMMITMENT_JSON: 'Commitment JSON',
+  ARTIFACTS_JSON: 'Artifacts JSON',
   CREATED_AT: 'Created At',
   UPDATED_AT: 'Updated At',
 } as const;
@@ -68,6 +70,7 @@ function mapAirtableRecord(record: AirtableRecord): PlanningProgram | null {
     const successJson = fields[FIELDS.SUCCESS_JSON] as string | undefined;
     const planJson = fields[FIELDS.PLAN_JSON] as string | undefined;
     const commitmentJson = fields[FIELDS.COMMITMENT_JSON] as string | undefined;
+    const artifactsJson = fields[FIELDS.ARTIFACTS_JSON] as string | undefined;
 
     const origin: PlanningProgramOrigin = originJson
       ? JSON.parse(originJson)
@@ -89,6 +92,10 @@ function mapAirtableRecord(record: AirtableRecord): PlanningProgram | null {
       ? JSON.parse(commitmentJson)
       : { workItemIds: [] };
 
+    const linkedArtifacts: ProgramArtifactLink[] = artifactsJson
+      ? JSON.parse(artifactsJson)
+      : [];
+
     return {
       id: (fields[FIELDS.PROGRAM_ID] as string) || record.id,
       companyId,
@@ -101,6 +108,7 @@ function mapAirtableRecord(record: AirtableRecord): PlanningProgram | null {
       success,
       planDetails,
       commitment,
+      linkedArtifacts,
       createdAt: (fields[FIELDS.CREATED_AT] as string) || null,
       updatedAt: (fields[FIELDS.UPDATED_AT] as string) || null,
     };
@@ -126,6 +134,7 @@ function toAirtableFields(program: PlanningProgramInput, includeId: boolean = fa
     [FIELDS.SUCCESS_JSON]: JSON.stringify(program.success),
     [FIELDS.PLAN_JSON]: JSON.stringify(program.planDetails),
     [FIELDS.COMMITMENT_JSON]: JSON.stringify(program.commitment),
+    [FIELDS.ARTIFACTS_JSON]: JSON.stringify(program.linkedArtifacts || []),
     // Note: Created At and Updated At are computed fields in Airtable - don't set them
   };
 
@@ -320,6 +329,7 @@ export async function createPlanningProgramFromTactic(
       success: { kpis: [] },
       planDetails: { horizonDays: 30, milestones: [] },
       commitment: { workItemIds: [] },
+      linkedArtifacts: [],
     };
 
     const created = await createPlanningProgram(input);
@@ -379,6 +389,10 @@ export async function updatePlanningProgram(
 
     if (patch.commitment !== undefined) {
       updateFields[FIELDS.COMMITMENT_JSON] = JSON.stringify(patch.commitment);
+    }
+
+    if (patch.linkedArtifacts !== undefined) {
+      updateFields[FIELDS.ARTIFACTS_JSON] = JSON.stringify(patch.linkedArtifacts);
     }
 
     // Find Airtable record ID from program ID

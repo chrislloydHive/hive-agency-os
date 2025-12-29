@@ -37,6 +37,7 @@ function createMockArtifactSnapshot(overrides: Partial<WorkItemArtifact> = {}): 
     artifactTypeId: 'strategy_doc',
     artifactTitle: 'Test Strategy Doc',
     artifactStatus: 'draft',
+    relation: 'produces',
     attachedAt: new Date().toISOString(),
     ...overrides,
   };
@@ -69,6 +70,7 @@ describe('createArtifactSnapshot', () => {
       'qbr_slides',
       'Q1 QBR',
       'draft',
+      'produces',
       'user-456'
     );
 
@@ -283,6 +285,7 @@ describe('Artifact Attachment Scenarios', () => {
       'strategy_doc',
       'My Strategy',
       'draft',
+      'produces',
       'user-1'
     );
 

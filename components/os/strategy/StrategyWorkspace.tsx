@@ -658,6 +658,12 @@ function BetsColumn({
   hasObjectives,
   confirmedContextCount,
 }: BetsColumnProps) {
+  const [rejectedExpanded, setRejectedExpanded] = useState(false);
+
+  // Separate active bets (draft + accepted) from rejected
+  const activeBets = bets.filter((b) => b.status !== 'rejected');
+  const rejectedBets = bets.filter((b) => b.status === 'rejected');
+
   const acceptedCount = bets.filter((b) => b.status === 'accepted').length;
   const draftCount = bets.filter((b) => b.status === 'draft').length;
 
@@ -738,9 +744,9 @@ function BetsColumn({
         </div>
       )}
 
-      {/* List */}
+      {/* List - Active bets only */}
       <div className="flex-1 overflow-y-auto space-y-2">
-        {bets.map((bet) => (
+        {activeBets.map((bet) => (
           <BetCard
             key={bet.id}
             bet={bet}
@@ -750,11 +756,38 @@ function BetsColumn({
             onAIFieldAction={onAIFieldAction}
           />
         ))}
-        {bets.length === 0 && drafts.length === 0 && (
+        {activeBets.length === 0 && drafts.length === 0 && (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <Layers className="w-8 h-8 text-slate-600 mb-2" />
             <p className="text-sm text-slate-500">No strategic bets yet</p>
             <p className="text-xs text-slate-600 mt-1">Add one or use AI Generate</p>
+          </div>
+        )}
+
+        {/* Rejected Bets - Collapsed section */}
+        {rejectedBets.length > 0 && (
+          <div className="border-t border-slate-700/50 pt-3 mt-3">
+            <button
+              onClick={() => setRejectedExpanded(!rejectedExpanded)}
+              className="flex items-center gap-2 text-xs text-slate-500 hover:text-slate-400 transition-colors w-full"
+            >
+              {rejectedExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              <span className="uppercase tracking-wider">Rejected ({rejectedBets.length})</span>
+            </button>
+            {rejectedExpanded && (
+              <div className="mt-2 space-y-2 opacity-60">
+                {rejectedBets.map((bet) => (
+                  <BetCard
+                    key={bet.id}
+                    bet={bet}
+                    objectives={objectives}
+                    onUpdate={(updates) => handleUpdateBet(bet.id, updates)}
+                    onDelete={() => handleDeleteBet(bet.id)}
+                    onAIFieldAction={onAIFieldAction}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

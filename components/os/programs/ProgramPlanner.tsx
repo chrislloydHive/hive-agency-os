@@ -55,6 +55,13 @@ import {
   PLANNING_PROGRAM_STATUS_LABELS,
 } from '@/lib/types/program';
 import { AICoPlannerPanel } from './AICoPlannerPanel';
+import { ExecutionStatusPanel } from './ExecutionStatusPanel';
+import { ProgramOutputsPanel } from './ProgramOutputsPanel';
+import { ProgramLearningsPanel } from './ProgramLearningsPanel';
+import { ArtifactPickerModal } from './ArtifactPickerModal';
+import type { Artifact } from '@/lib/types/artifact';
+import type { ProgramArtifactLinkType } from '@/lib/types/program';
+import { createProgramArtifactLink } from '@/lib/types/program';
 
 // ============================================================================
 // Types
@@ -431,6 +438,7 @@ export function ProgramPlanner({
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
   const [showExecutionModal, setShowExecutionModal] = useState(false);
+  const [showArtifactPicker, setShowArtifactPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Debounce ref for auto-save
@@ -644,6 +652,42 @@ export function ProgramPlanner({
     }
   }, [program.id, onCommit]);
 
+  // Handle linking an artifact to the program
+  const handleLinkArtifact = useCallback(async (artifact: Artifact, linkType: ProgramArtifactLinkType) => {
+    try {
+      const response = await fetch(`/api/os/programs/${program.id}/artifacts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          artifactId: artifact.id,
+          artifactTitle: artifact.title,
+          artifactType: artifact.type,
+          artifactStatus: artifact.status,
+          linkType,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to link artifact');
+      }
+
+      // Refresh program data via onUpdate
+      const newLink = createProgramArtifactLink(
+        artifact.id,
+        artifact.title,
+        artifact.type,
+        artifact.status,
+        linkType
+      );
+      const updatedArtifacts = [...(localProgram.linkedArtifacts || []), newLink];
+      setLocalProgram(prev => ({ ...prev, linkedArtifacts: updatedArtifacts }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to link artifact');
+      throw err;
+    }
+  }, [program.id, localProgram.linkedArtifacts]);
+
   // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
@@ -776,6 +820,34 @@ export function ProgramPlanner({
             <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
             <p className="text-sm text-red-400">{error}</p>
           </div>
+        )}
+
+        {/* ============================================================== */}
+        {/* Execution Status (Committed Programs Only) */}
+        {/* ============================================================== */}
+        {localProgram.status === 'committed' && (
+          <ExecutionStatusPanel programId={program.id} companyId={companyId} />
+        )}
+
+        {/* ============================================================== */}
+        {/* Program Outputs (Committed Programs Only) */}
+        {/* ============================================================== */}
+        {localProgram.status === 'committed' && (
+          <ProgramOutputsPanel
+            programId={program.id}
+            companyId={companyId}
+            onLinkArtifact={() => setShowArtifactPicker(true)}
+          />
+        )}
+
+        {/* ============================================================== */}
+        {/* Program Learnings (Committed Programs Only) */}
+        {/* ============================================================== */}
+        {localProgram.status === 'committed' && (
+          <ProgramLearningsPanel
+            programId={program.id}
+            companyId={companyId}
+          />
         )}
 
         {/* ============================================================== */}
@@ -1070,6 +1142,17 @@ export function ProgramPlanner({
         onClose={() => setShowExecutionModal(false)}
         onConfirm={handleCommit}
       />
+
+      {/* Artifact Picker Modal */}
+      {showArtifactPicker && (
+        <ArtifactPickerModal
+          programId={program.id}
+          companyId={companyId}
+          linkedArtifactIds={(localProgram.linkedArtifacts || []).map(a => a.artifactId)}
+          onSelect={handleLinkArtifact}
+          onClose={() => setShowArtifactPicker(false)}
+        />
+      )}
     </div>
   );
 }

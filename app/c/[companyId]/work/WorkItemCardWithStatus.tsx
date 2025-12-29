@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { FileText, ExternalLink, Clock, User, Wrench, Target, Bot, Layers } from 'lucide-react';
+import { FileText, ExternalLink, Clock, User, Wrench, Target, Bot, Layers, Package } from 'lucide-react';
 import type { WorkItemRecord, WorkItemStatus } from '@/lib/airtable/workItems';
 import type { WorkSource, StrategyLink } from '@/lib/types/work';
 
@@ -274,6 +274,17 @@ export default function WorkItemCardWithStatus({ item, companyId, isSelected, on
             <Layers className="w-3 h-3" />
             From Strategy
           </Link>
+        )}
+
+        {/* Outputs Badge - Produced Artifacts */}
+        {item.artifacts && item.artifacts.filter(a => a.relation === 'produces' || !a.relation).length > 0 && (
+          <span
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/30"
+            title={`Produces ${item.artifacts.filter(a => a.relation === 'produces' || !a.relation).length} artifact(s)`}
+          >
+            <Package className="w-3 h-3" />
+            {item.artifacts.filter(a => a.relation === 'produces' || !a.relation).length} Output{item.artifacts.filter(a => a.relation === 'produces' || !a.relation).length !== 1 ? 's' : ''}
+          </span>
         )}
 
         {/* Brief Indicator */}

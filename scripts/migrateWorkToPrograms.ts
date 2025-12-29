@@ -134,6 +134,7 @@ async function migrateWorkToPrograms(
           committedAt: new Date().toISOString(),
           workItemIds: items.map((item) => item.id),
         },
+        linkedArtifacts: [],
       };
 
       if (dryRun) {

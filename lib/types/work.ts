@@ -525,6 +525,14 @@ export interface WorkItem {
 }
 
 /**
+ * Relation type for artifact links
+ * - produces: Work item creates/generates this artifact
+ * - requires: Work item needs this artifact as input
+ * - reference: Work item references this artifact
+ */
+export type WorkArtifactRelation = 'produces' | 'requires' | 'reference';
+
+/**
  * Artifact attachment snapshot for work items
  * Contains essential artifact metadata at time of attachment
  */
@@ -537,6 +545,8 @@ export interface WorkItemArtifact {
   artifactTitle: string;
   /** Status at time of attachment */
   artifactStatus: 'draft' | 'final' | 'archived';
+  /** Relationship of artifact to work item */
+  relation: WorkArtifactRelation;
   /** When the artifact was attached */
   attachedAt: string;
   /** Who attached the artifact (optional) */
@@ -772,6 +782,7 @@ export function createArtifactSnapshot(
   artifactTypeId: string,
   artifactTitle: string,
   artifactStatus: 'draft' | 'final' | 'archived',
+  relation: WorkArtifactRelation = 'produces',
   attachedBy?: string
 ): WorkItemArtifact {
   return {
@@ -779,6 +790,7 @@ export function createArtifactSnapshot(
     artifactTypeId,
     artifactTitle,
     artifactStatus,
+    relation,
     attachedAt: new Date().toISOString(),
     attachedBy,
   };

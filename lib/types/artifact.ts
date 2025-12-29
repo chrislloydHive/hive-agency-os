@@ -516,6 +516,25 @@ export function getArtifactStatusLabel(status: ArtifactStatus): string {
 }
 
 /**
+ * Check if an artifact is "shipped" (finalized/published)
+ * Shipped = final status (immutable, shared externally)
+ *
+ * This is used to trigger outcome capture candidates when work
+ * produces artifacts that reach their final state.
+ */
+export function isArtifactShipped(status: ArtifactStatus): boolean {
+  return status === 'final';
+}
+
+/**
+ * Check if an artifact can transition to shipped (final) status
+ * Only draft artifacts can be finalized
+ */
+export function canShipArtifact(status: ArtifactStatus): boolean {
+  return status === 'draft';
+}
+
+/**
  * Get human-readable label for artifact source
  */
 export function getArtifactSourceLabel(source: ArtifactSource): string {

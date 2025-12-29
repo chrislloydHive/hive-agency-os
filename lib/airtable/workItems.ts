@@ -767,6 +767,38 @@ export async function getWorkItemById(
 }
 
 /**
+ * Get multiple Work Items by their IDs
+ * Fetches in parallel for efficiency
+ *
+ * @param workItemIds - Array of Airtable record IDs
+ * @returns Array of work items (excludes any not found)
+ */
+export async function getWorkItemsByIds(
+  workItemIds: string[]
+): Promise<WorkItemRecord[]> {
+  if (!workItemIds.length) return [];
+
+  try {
+    console.log('[Work Items] Fetching', workItemIds.length, 'work items by IDs');
+
+    // Airtable allows filtering by RECORD_ID() for batch fetching
+    const filterFormula = `OR(${workItemIds.map(id => `RECORD_ID()='${id}'`).join(',')})`;
+
+    const records = await base('Work Items')
+      .select({ filterByFormula: filterFormula })
+      .all();
+
+    const workItems = records.map(mapWorkItemRecord);
+    console.log('[Work Items] Found', workItems.length, 'of', workItemIds.length, 'requested');
+
+    return workItems;
+  } catch (error) {
+    console.error('[Work Items] Error fetching work items by IDs:', error);
+    return [];
+  }
+}
+
+/**
  * Generic work item creation input
  */
 export interface CreateWorkItemInput {
@@ -1700,14 +1732,36 @@ export async function countWorkItemsForHeavyPlan(planId: string): Promise<number
  * @param artifact - Artifact snapshot to attach
  * @returns Updated work item record
  */
+/**
+ * Attach result indicating what happened
+ */
+export interface AttachArtifactResult {
+  workItem: WorkItemRecord;
+  action: 'attached' | 'updated' | 'unchanged';
+  previousRelation?: string;
+}
+
+/**
+ * Attach an artifact to a work item (with upsert support)
+ *
+ * Idempotency behavior:
+ * - If artifact not attached: adds it ('attached')
+ * - If artifact attached with different relation: updates relation ('updated')
+ * - If artifact attached with same relation: no-op ('unchanged')
+ *
+ * @param workItemId - Work item record ID
+ * @param artifact - Artifact snapshot to attach (includes relation)
+ * @returns Updated work item and action taken
+ */
 export async function attachArtifactToWorkItem(
   workItemId: string,
   artifact: WorkItemArtifact
-): Promise<WorkItemRecord> {
+): Promise<AttachArtifactResult> {
   console.log('[Work Items] Attaching artifact to work item:', {
     workItemId,
     artifactId: artifact.artifactId,
     artifactType: artifact.artifactTypeId,
+    relation: artifact.relation,
   });
 
   try {
@@ -1721,12 +1775,56 @@ export async function attachArtifactToWorkItem(
     const currentArtifacts = parseArtifactsJson(fields['Artifacts JSON']) ?? [];
 
     // Check if already attached
-    if (currentArtifacts.some(a => a.artifactId === artifact.artifactId)) {
-      console.log('[Work Items] Artifact already attached, skipping:', artifact.artifactId);
-      return mapWorkItemRecord(existingRecord);
+    const existingIndex = currentArtifacts.findIndex(a => a.artifactId === artifact.artifactId);
+
+    if (existingIndex >= 0) {
+      const existing = currentArtifacts[existingIndex];
+
+      // Same relation - no change needed
+      if (existing.relation === artifact.relation) {
+        console.log('[Work Items] Artifact already attached with same relation, skipping:', artifact.artifactId);
+        return {
+          workItem: mapWorkItemRecord(existingRecord),
+          action: 'unchanged',
+        };
+      }
+
+      // Different relation - update it
+      console.log('[Work Items] Updating artifact relation:', {
+        artifactId: artifact.artifactId,
+        oldRelation: existing.relation,
+        newRelation: artifact.relation,
+      });
+
+      const updatedArtifacts = [...currentArtifacts];
+      updatedArtifacts[existingIndex] = {
+        ...existing,
+        relation: artifact.relation,
+        // Keep original attachedAt, update attachedBy if provided
+        attachedBy: artifact.attachedBy || existing.attachedBy,
+      };
+
+      const records = await base('Work Items').update([
+        {
+          id: workItemId,
+          fields: {
+            [WORK_ITEMS_FIELDS.ARTIFACTS_JSON]: JSON.stringify(updatedArtifacts),
+          },
+        },
+      ]);
+
+      if (!records || records.length === 0) {
+        throw new Error('No record returned from Airtable update');
+      }
+
+      return {
+        workItem: mapWorkItemRecord(records[0]),
+        action: 'updated',
+        previousRelation: existing.relation,
+      };
     }
 
-    // Add new artifact
+    // Not attached - add new artifact
     const updatedArtifacts = [...currentArtifacts, artifact];
 
     // Update the record
@@ -1751,7 +1849,10 @@ export async function attachArtifactToWorkItem(
       totalArtifacts: updatedArtifacts.length,
     });
 
-    return mapWorkItemRecord(record);
+    return {
+      workItem: mapWorkItemRecord(record),
+      action: 'attached',
+    };
   } catch (error) {
     console.error('[Work Items] Error attaching artifact:', error);
     throw error;
@@ -2005,6 +2106,7 @@ export async function createWorkItemsFromArtifact(input: {
         artifactTypeId: attachArtifact.artifactTypeId,
         artifactTitle: attachArtifact.artifactTitle,
         artifactStatus: attachArtifact.artifactStatus,
+        relation: 'produces', // Default: artifact is produced by this work item
         attachedAt: new Date().toISOString(),
       };
       fields[WORK_ITEMS_FIELDS.ARTIFACTS_JSON] = JSON.stringify([artifactSnapshot]);
