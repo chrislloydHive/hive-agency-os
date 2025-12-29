@@ -43,17 +43,6 @@ interface GapRunSummary {
   domain: string;
 }
 
-interface ContextFieldStatus {
-  path: string;
-  hasValue: boolean;
-  value: unknown;
-  provenance?: {
-    source: string;
-    updatedAt: string;
-    confidence: number;
-  };
-}
-
 interface ImporterAvailability {
   id: string;
   label: string;
@@ -103,7 +92,7 @@ interface InspectorResponse {
 // Helpers
 // ============================================================================
 
-function countContextNodes(graph: any): number {
+function countContextNodes(graph: Record<string, unknown>): number {
   let count = 0;
 
   function walk(obj: unknown, depth = 0): void {
@@ -141,7 +130,7 @@ function countContextNodes(graph: any): number {
   return count;
 }
 
-function getPopulatedDomains(graph: any): string[] {
+function getPopulatedDomains(graph: Record<string, unknown>): string[] {
   const populated: string[] = [];
   const domains = [
     'identity', 'brand', 'objectives', 'audience', 'productOffer',
@@ -152,14 +141,15 @@ function getPopulatedDomains(graph: any): string[] {
   for (const domain of domains) {
     if (graph[domain]) {
       let hasContent = false;
-      const walk = (obj: any): void => {
+      const walk = (obj: unknown): void => {
         if (!obj || typeof obj !== 'object') return;
-        if ('value' in obj && obj.value !== null && obj.value !== undefined) {
-          if (!(Array.isArray(obj.value) && obj.value.length === 0)) {
+        const record = obj as Record<string, unknown>;
+        if ('value' in record && record.value !== null && record.value !== undefined) {
+          if (!(Array.isArray(record.value) && record.value.length === 0)) {
             hasContent = true;
           }
         } else if (!Array.isArray(obj)) {
-          Object.values(obj).forEach(walk);
+          Object.values(record).forEach(walk);
         }
       };
       walk(graph[domain]);
@@ -227,7 +217,7 @@ export async function GET(
       createdAt: run.createdAt,
       hasCore: !!run.core,
       hasInsights: !!run.insights,
-      hasDimensions: !!(run as any).dimensions,
+      hasDimensions: !!('dimensions' in run && run.dimensions),
       domain: run.domain,
     }));
 

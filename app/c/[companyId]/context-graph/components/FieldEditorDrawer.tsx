@@ -101,10 +101,11 @@ export function FieldEditorDrawer({
       case 'text':
         newValue = editedValue.trim() || null;
         break;
-      case 'number':
+      case 'number': {
         const num = parseFloat(editedValue);
         newValue = isNaN(num) ? null : num;
         break;
+      }
       case 'boolean':
         newValue = editedValue === 'true';
         break;

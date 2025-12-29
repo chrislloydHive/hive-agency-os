@@ -12,7 +12,6 @@ import {
   acceptSuggestion,
   rejectSuggestion,
   queryUpdateLogs,
-  getRecentUpdates,
   getPendingSuggestions,
   getUpdateStats,
   getLocks,

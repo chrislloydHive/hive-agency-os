@@ -7,8 +7,7 @@ import {
   checkFirmBrainDrift,
   getDriftDetails,
 } from '@/lib/os/ai/firmBrainSnapshot';
-import type { FirmBrainSnapshot, FirmBrainSnapshotRef } from '@/lib/types/firmBrain';
-import type { FirmBrainSnapshotRef as RfpSnapshotRef } from '@/lib/types/rfp';
+import type { FirmBrainSnapshot } from '@/lib/types/firmBrain';
 
 // ============================================================================
 // Test Fixtures
@@ -35,13 +34,13 @@ const createSnapshot = (overrides: Partial<FirmBrainSnapshot> = {}): FirmBrainSn
     { id: 'tm-2', name: 'Bob', role: 'Designer', bio: null, strengths: [], functions: [], availabilityStatus: 'available', defaultOnRfp: false, headshotUrl: null, linkedinUrl: null, createdAt: null, updatedAt: '2024-01-01' },
   ],
   caseStudies: [
-    { id: 'cs-1', title: 'Case 1', client: 'Client 1', industry: 'Tech', services: [], summary: null, problem: null, approach: null, outcome: null, metrics: [], assets: [], tags: [], permissionLevel: 'public', caseStudyUrl: null, createdAt: null, updatedAt: '2024-01-01' },
+    { id: 'cs-1', title: 'Case 1', client: 'Client 1', industry: 'Tech', services: [], summary: null, problem: null, approach: null, outcome: null, metrics: [], assets: [], tags: [], permissionLevel: 'public', visibility: 'public', caseStudyUrl: null, visuals: [], createdAt: null, updatedAt: '2024-01-01' },
   ],
   references: [
     { id: 'ref-1', client: 'Ref Client', contactName: 'John', email: null, phone: null, engagementType: null, industries: [], permissionStatus: 'confirmed', notes: null, lastConfirmedAt: null, createdAt: null, updatedAt: '2024-01-01' },
   ],
   pricingTemplates: [
-    { id: 'pt-1', templateName: 'Standard', useCase: null, lineItems: [], assumptions: [], exclusions: [], optionSets: [], createdAt: null, updatedAt: '2024-01-01' },
+    { id: 'pt-1', name: 'Standard', description: '', linkedAgencyId: null, examplePricingFiles: [], relevantOpportunities: [], createdAt: null, updatedAt: '2024-01-01' },
   ],
   planTemplates: [
     { id: 'pl-1', templateName: 'Standard Plan', useCase: null, phases: [], dependencies: [], typicalTimeline: null, createdAt: null, updatedAt: '2024-01-01' },

@@ -11,7 +11,6 @@ import {
   getDetailedIntegrityCheck,
   healthToDataSource,
   generateHealthReport,
-  type ContextHealthSummary,
 } from '@/lib/os/context';
 import type { FieldProvenance } from '@/lib/os/context/types';
 

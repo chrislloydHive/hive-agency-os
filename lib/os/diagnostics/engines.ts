@@ -9,18 +9,16 @@
 // via aiForCompany() when called from API routes.
 
 import { getCompanyById, type CompanyRecord } from '@/lib/airtable/companies';
-import { runBrandLab as runBrandLabV2, type BrandLabEngineResult } from '@/lib/diagnostics/brand-lab';
+import { runBrandLab as runBrandLabV2 } from '@/lib/diagnostics/brand-lab';
 import { runWebsiteLabV4 } from '@/lib/gap-heavy/modules/website';
 import { runHeavyWorkerV4 } from '@/lib/gap-heavy/orchestratorV4';
 import { runStrategicOrchestrator } from '@/lib/gap-heavy/strategicOrchestrator';
-import type { GapHeavyResult } from '@/lib/gap-heavy/strategicTypes';
-import { runInitialAssessment, runFullGap, runFullGapV4, type GapModelCaller } from '@/lib/gap/core';
+import { runInitialAssessment, runFullGapV4, type GapModelCaller } from '@/lib/gap/core';
 import type { DiagnosticToolId } from './runs';
 // Import lab refinement runners for missing labs
 import {
   runAudienceLabRefinement,
   runCreativeLabRefinement,
-  runCompetitorLabRefinementGeneric,
   runWebsiteLabRefinementGeneric,
 } from '@/lib/labs/refinementRunner';
 import { runCompetitorLabRefinement } from '@/lib/labs/competitor/competitorLab';
@@ -748,7 +746,7 @@ function buildInternalLinkingSummary(evidence: any): string {
 /**
  * Build issues from module output with effort levels for quick win derivation
  */
-function buildSeoIssues(moduleIssues: string[], evidence: any): SeoIssue[] {
+function buildSeoIssues(moduleIssues: string[], _evidence: any): SeoIssue[] {
   const issues: SeoIssue[] = [];
 
   // Convert module issues to structured format
@@ -1028,7 +1026,7 @@ function buildNarrativeSummary(
 ): string {
   const clicks = analytics?.clicks ?? 0;
   const impressions = analytics?.impressions ?? 0;
-  const hasSearchData = searchPerformanceScore !== null;
+  const _hasSearchData = searchPerformanceScore !== null;
 
   let summary = '';
 
@@ -1581,7 +1579,7 @@ export async function runDiagnosticEngine(
       return runBrandLabEngine(input);
     case 'contentLab':
       return runContentLabEngine(input);
-    case 'seoLab':
+    case 'seoLab': {
       // SEO Lab returns SeoLabEngineResult, convert to EngineResult
       const seoLabResult = await runSeoLabEngine(input);
       return {
@@ -1591,6 +1589,7 @@ export async function runDiagnosticEngine(
         data: seoLabResult.report,
         error: seoLabResult.error,
       };
+    }
     case 'demandLab':
       return runDemandLabEngine(input);
     case 'opsLab':

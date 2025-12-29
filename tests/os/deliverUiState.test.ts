@@ -8,7 +8,7 @@ import {
   type DeliverDataInput,
 } from '@/lib/os/ui/deliverUiState';
 import type { V4HealthResponse } from '@/lib/types/contextV4Health';
-import type { Artifact } from '@/lib/types/artifact';
+import { createArtifact } from '@/tests/helpers/factories';
 
 // ============================================================================
 // Test Fixtures
@@ -56,53 +56,17 @@ function makeHealth(overrides: Partial<{
   };
 }
 
-function makeArtifact(overrides: Partial<Artifact>): Artifact {
-  return {
+/** Alias to createArtifact for use in this test file */
+function makeArtifact(overrides: Parameters<typeof createArtifact>[0] = {}) {
+  return createArtifact({
     id: 'artifact-1',
-    companyId: 'test-company',
-    title: 'Test Artifact',
-    type: 'strategy_doc',
     status: 'final',
     source: 'strategy_handoff',
     googleFileId: 'gfile-123',
     googleFileType: 'document',
     googleFileUrl: 'https://docs.google.com/document/d/abc',
-    googleFolderId: null,
-    googleModifiedAt: null,
-    sourceStrategyId: null,
-    sourceQbrStoryId: null,
-    sourceBriefId: null,
-    sourceMediaPlanId: null,
-    sourceContentPlanId: null,
-    engagementId: null,
-    projectId: null,
-    contextVersionAtCreation: null,
-    strategyVersionAtCreation: null,
-    snapshotId: null,
-    isStale: false,
-    stalenessReason: null,
-    stalenessCheckedAt: null,
-    lastSyncedAt: null,
-    generatedContent: null,
-    generatedMarkdown: null,
-    generatedFormat: null,
-    inputsUsedHash: null,
-    includedTacticIds: null,
-    finalizedAt: null,
-    finalizedBy: null,
-    archivedAt: null,
-    archivedBy: null,
-    archivedReason: null,
-    createdBy: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    updatedBy: null,
-    lastEditedAt: null,
-    lastEditedBy: null,
-    description: null,
-    tags: [],
     ...overrides,
-  };
+  });
 }
 
 // ============================================================================

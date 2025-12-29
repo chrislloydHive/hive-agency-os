@@ -6,9 +6,7 @@
 
 import type {
   ParsedRfpRequirements,
-  ParsedRequiredSection,
   RfpSectionKey,
-  RfpSection,
 } from '@/lib/types/rfp';
 import { RFP_SECTION_ORDER, RFP_SECTION_LABELS } from '@/lib/types/rfp';
 
@@ -366,7 +364,6 @@ export function outlineToSectionData(
 export function getOutlineSummary(outline: GeneratedOutline): string {
   const parts: string[] = [];
 
-  const standardCount = outline.sections.filter((s) => s.isStandard).length;
   const customCount = outline.customSections.length;
   const requiredCount = outline.sections.filter((s) => s.isRequired).length;
 

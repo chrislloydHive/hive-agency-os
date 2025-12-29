@@ -22,10 +22,7 @@ import type {
   TrustSignal,
   TrustDistribution,
   VisualBrandEvaluation,
-  ColorHarmony,
-  TypographyAnalysis,
   LayoutAnalysis,
-  HeroAesthetics,
   ImpactMatrix,
   ImpactMatrixItem,
   ScentTrailAnalysis,
@@ -256,7 +253,6 @@ function analyzeCtaPatterns(ctas: CtaAnalysis[]): CtaPatternAnalysis {
 
   // Find pages missing CTAs
   const pagesMissingCtas: string[] = [];
-  const pagesWithCtas = new Set(ctas.map(c => c.pagePath));
   // Would need site graph to know all pages - simplified for now
 
   // Find dead CTAs (would need link analysis)
@@ -1023,7 +1019,6 @@ export function analyzeVisualBrand(siteGraph: WebsiteSiteGraphV4): VisualBrandEv
   // Layout analysis
   const $ = cheerio.load(homePage.evidenceV3.rawHtml);
   const headerCount = $('h1, h2, h3').length;
-  const paragraphCount = $('p').length;
 
   const hierarchyScore = headerCount >= 3 && headerCount <= 10 ? 80 : 60;
   const scannabilityScore = homePage.evidenceV3.visual.readabilityScore || 60;
@@ -1239,7 +1234,6 @@ export function buildImpactMatrix(
 
   // Add trust signal improvements
   if (trustAnalysis && trustAnalysis.trustScore < 70) {
-    const missingSignals = trustAnalysis.fixes.length;
     const pagesMissing = trustAnalysis.distribution?.pagesMissingTrust?.length || 0;
     items.push({
       id: 'trust-signals',
@@ -1394,7 +1388,6 @@ export function analyzeScentTrail(siteGraph: WebsiteSiteGraphV4): ScentTrailAnal
     return getDefaultScentAnalysis();
   }
 
-  const homeValueProp = homePage.evidenceV3.valueProp.text || '';
   const homeHeadline = cheerio.load(homePage.evidenceV3.rawHtml)('h1').first().text();
 
   // Check promise continuity from home to other pages
@@ -1717,7 +1710,7 @@ The copy would benefit most from a "benefits-first" rewrite of key pages.
  */
 export function enhancePersonas(
   personas: WebsiteUXLabPersonaResult[],
-  siteGraph: WebsiteSiteGraphV4
+  _siteGraph: WebsiteSiteGraphV4
 ): WebsiteUXLabPersonaResult[] {
   console.log('[Persona Enhancement V5.7] Enhancing persona recommendations...');
 
@@ -1871,10 +1864,8 @@ export async function getAnalyticsIntegrations(options?: {
     // Note: The current googleTelemetry.ts doesn't provide page-level pageviews/bounce/exit data yet
     // We're setting pageMetrics to undefined for now since we don't have the required fields
     // This could be enhanced in the future when more granular GA4 data is available
-    const pageMetrics = undefined; // Would need additional GA4 API calls for pageview-level data
 
     const engagementRateMetric = ga4Metrics.find(m => m.id === 'ga4_engagement_rate_30d');
-    const sessionsMetric = ga4Metrics.find(m => m.id === 'ga4_sessions_30d');
 
     // Extract top landing pages from page-level low engagement metrics (if available)
     const topLandingPages: Array<{ path: string; sessions: number }> = [];
@@ -1912,12 +1903,8 @@ export async function getAnalyticsIntegrations(options?: {
     // Note: Current googleTelemetry doesn't provide query-level data with full keyword stats
     // We're setting topKeywords to undefined since we don't have the required fields
     // This could be enhanced when query-level Search Console data is added
-    const topKeywords = undefined; // Would need query-level data from GSC API
 
-    const clicksMetric = gscMetrics.find(m => m.id === 'gsc_clicks_28d');
-    const impressionsMetric = gscMetrics.find(m => m.id === 'gsc_impressions_28d');
     const ctrMetric = gscMetrics.find(m => m.id === 'gsc_ctr_28d');
-    const positionMetric = gscMetrics.find(m => m.id === 'gsc_position_28d');
 
     // Coverage issues from insights (mapped to simplified structure)
     const highSeverityInsights = insights.filter(
@@ -1929,9 +1916,6 @@ export async function getAnalyticsIntegrations(options?: {
           affectedPages: 1, // Unknown from current data
         }))
       : undefined;
-
-    // Indexing status - not available in current telemetry
-    const indexingStatus = undefined;
 
     // CTR anomalies from insights
     const ctrOpportunityInsights = insights.filter(

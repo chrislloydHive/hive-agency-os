@@ -115,7 +115,7 @@ export interface SnapshotResponse {
         gaps: string[];
       };
     };
-    extraction?: any; // Full extraction data (can be large)
+    extraction?: unknown; // Full extraction data (can be large)
   };
   // Growth Acceleration Plan (GAP) (optional, full strategic plan)
   growthActionPlan?: import('@/lib/growth-plan/schema').GrowthAccelerationPlan;

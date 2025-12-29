@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 interface AuditCTAProps {
@@ -36,12 +37,12 @@ export default function AuditCTA({ children, className = '', variant = 'primary'
     : 'inline-block px-8 py-4 border border-slate-700 hover:border-slate-600 text-slate-200 hover:text-slate-100 font-semibold rounded-lg transition-all duration-200';
 
   return (
-    <a
+    <Link
       href="/#run-audit"
       onClick={handleClick}
       className={`${baseClasses} ${className}`}
     >
       {children || 'Run Free Audit'}
-    </a>
+    </Link>
   );
 }

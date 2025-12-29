@@ -71,7 +71,7 @@ export async function checkAndUpdateStaleness(
   const artifacts = await getArtifactsForCompany(companyId);
 
   // Get strategy context if not provided
-  let staleness = context || {};
+  const staleness = context || {};
   if (!staleness.strategyVersion || !staleness.strategyUpdatedAt) {
     const strategy = await getActiveStrategy(companyId);
     if (strategy) {

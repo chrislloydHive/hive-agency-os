@@ -6,7 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint \"app/**/*.{ts,tsx}\" \"components/**/*.{ts,tsx}\" \"lib/**/*.{ts,tsx}\" \"hooks/**/*.{ts,tsx}\" \"types/**/*.{ts,tsx}\" --cache",
+    "lint:budget": "node scripts/check-eslint-warnings.js",
+    "lint:ci": "node scripts/check-eslint-warnings.js",
+    "lint:report": "mkdir -p reports && eslint \"app/**/*.{ts,tsx}\" \"components/**/*.{ts,tsx}\" \"lib/**/*.{ts,tsx}\" \"hooks/**/*.{ts,tsx}\" \"types/**/*.{ts,tsx}\" --format json --output-file reports/eslint.json; node scripts/eslint-report.mjs",
+    "lint:strict": "eslint \"app/**/*.{ts,tsx}\" \"components/**/*.{ts,tsx}\" \"lib/**/*.{ts,tsx}\" \"hooks/**/*.{ts,tsx}\" \"types/**/*.{ts,tsx}\" --cache --max-warnings 0",
+    "lint:tests": "eslint \"tests/**/*.{ts,tsx}\" --cache",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -15,7 +21,8 @@
     "fixtures:capture": "npx tsx scripts/fixtures/captureLabOutput.ts",
     "fixtures:list": "npx tsx scripts/fixtures/listScenarios.ts",
     "purge:hive": "npx ts-node scripts/purgeHiveCompanies.ts",
-    "gap:check": "npx tsx scripts/gapBaselineCheck.ts"
+    "gap:check": "npx tsx scripts/gapBaselineCheck.ts",
+    "ingest:case-study-media": "npx tsx scripts/ingestCaseStudyMedia.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
@@ -48,11 +55,13 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/jsdom": "^27.0.0",
     "@types/node": "^20.19.25",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.0.4",
+    "jsdom": "^27.4.0",
     "open": "^11.0.0",
     "tailwindcss": "^4",
     "typescript": "^5",

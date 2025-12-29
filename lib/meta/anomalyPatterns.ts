@@ -7,7 +7,6 @@
 // - Seasonal deviations from expected patterns
 // - Cross-vertical disruptions
 
-import type { CompanyContextGraph } from '../contextGraph/companyContextGraph';
 import type {
   GlobalAnomaly,
   GlobalAnomalyType,

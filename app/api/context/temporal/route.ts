@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
     let result: Record<string, unknown>;
 
     switch (mode) {
-      case 'field_history':
+      case 'field_history': {
         if (!path) {
           return NextResponse.json(
             { error: 'path is required for field_history mode' },
@@ -64,8 +64,9 @@ export async function GET(request: NextRequest) {
           count: fieldHistory.entries.length,
         };
         break;
+      }
 
-      case 'domain_history':
+      case 'domain_history': {
         if (!domain) {
           return NextResponse.json(
             { error: 'domain is required for domain_history mode' },
@@ -79,8 +80,9 @@ export async function GET(request: NextRequest) {
           count: domainHistory.totalChanges,
         };
         break;
+      }
 
-      case 'velocity':
+      case 'velocity': {
         if (!path) {
           return NextResponse.json(
             { error: 'path is required for velocity mode' },
@@ -90,8 +92,9 @@ export async function GET(request: NextRequest) {
         const velocity = await getChangeVelocity(companyId, path);
         result = { velocity };
         break;
+      }
 
-      case 'staleness':
+      case 'staleness': {
         if (!path) {
           return NextResponse.json(
             { error: 'path is required for staleness mode' },
@@ -101,8 +104,9 @@ export async function GET(request: NextRequest) {
         const staleness = await getStalenessTrend(companyId, path);
         result = { staleness };
         break;
+      }
 
-      case 'narrative':
+      case 'narrative': {
         // Generate AI narrative - needs company graph
         const graphRecord = await loadContextGraphRecord(companyId);
         if (!graphRecord) {
@@ -119,8 +123,9 @@ export async function GET(request: NextRequest) {
         );
         result = { narrative };
         break;
+      }
 
-      case 'insight':
+      case 'insight': {
         // Generate a quick insight based on recent changes
         const insightEndDate = new Date().toISOString();
         const insightStartDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -128,14 +133,16 @@ export async function GET(request: NextRequest) {
         const insight = generateQuickInsight(insightSummary, 'month');
         result = { insight };
         break;
+      }
 
-      case 'summary':
+      case 'summary': {
         // Get change summary for last 30 days
         const endDate = new Date().toISOString();
         const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
         const summary = await getCompanyChangeSummary(companyId, startDate, endDate);
         result = { summary };
         break;
+      }
 
       default:
         return NextResponse.json(

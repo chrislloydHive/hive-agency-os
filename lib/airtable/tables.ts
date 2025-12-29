@@ -60,6 +60,7 @@ export const AIRTABLE_TABLES = {
 
   // Programs
   PROGRAMS: 'Programs', // Program plans (website, content, media - MVP: website only)
+  PLANNING_PROGRAMS: 'PlanningPrograms', // Strategy→Deliver→Work planning units (from tactics)
 
   // Context Proposals (AI-First Context)
   CONTEXT_PROPOSALS: 'ContextProposals', // AI-generated proposals awaiting confirmation
@@ -69,6 +70,10 @@ export const AIRTABLE_TABLES = {
   STRATEGY_DRAFTS: 'StrategyDrafts', // AI-generated strategy field drafts awaiting confirmation
   STRATEGY_COMPARISONS: 'StrategyComparisons', // Strategy comparison artifacts
   PROGRAM_HANDOFF_DRAFTS: 'ProgramHandoffDrafts', // AI-generated program drafts from strategy handoff
+  STRATEGY_REVISION_PROPOSALS: 'StrategyRevisionProposals', // Guided revision proposals from outcome signals
+  STRATEGY_VERSIONS: 'StrategyVersions', // Versioned snapshots of strategy state
+  STRATEGY_EVOLUTION_EVENTS: 'StrategyEvolutionEvents', // Append-only evolution history
+  OUTCOME_SIGNALS: 'OutcomeSignals', // Persisted outcome signals from artifacts/work
 
   // Engagement System Tables
   COMPANY_ENGAGEMENTS: 'Engagements', // Engagement records (strategy vs project paths)

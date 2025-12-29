@@ -77,8 +77,8 @@ export async function GET(request: NextRequest) {
     try {
       const sitesResponse = await searchconsole.sites.list();
       sites = (sitesResponse.data.siteEntry || [])
-        .filter((site: any) => site.permissionLevel !== 'siteUnverifiedUser')
-        .map((site: any) => site.siteUrl);
+        .filter((site) => site.permissionLevel !== 'siteUnverifiedUser')
+        .map((site) => site.siteUrl || '');
     } catch (sitesError) {
       console.error('[GSC OAuth Callback] Error fetching sites:', sitesError);
     }

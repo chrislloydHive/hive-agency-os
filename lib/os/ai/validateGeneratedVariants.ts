@@ -379,7 +379,7 @@ function checkDomainMismatch(
       const matchedPhrase = match[0].toLowerCase();
       if (!lowerContext.includes(matchedPhrase)) {
         // Also check if any domain keywords are in context
-        const domainKeywords = domain.toLowerCase().split(/[\s\/]+/);
+        const domainKeywords = domain.toLowerCase().split(/[\s/]+/);
         const domainInContext = domainKeywords.some(kw => lowerContext.includes(kw));
         if (!domainInContext) {
           return { found: true, domain, phrase: match[0] };
@@ -947,7 +947,7 @@ export function parseVariantsFromOutput(
   expectedCount: number
 ): { variants: string[]; parseMethod: string } {
   // Clean the output
-  let cleaned = output.trim();
+  const cleaned = output.trim();
 
   // Try JSON first (preferred)
   const jsonResult = tryParseJson(cleaned);

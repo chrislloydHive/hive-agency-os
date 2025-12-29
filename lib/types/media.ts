@@ -723,11 +723,12 @@ export function formatMetricValue(value: number, unit: MetricUnit): string {
       }).format(value);
     case 'Rating':
       return value.toFixed(1);
-    case 'Duration':
+    case 'Duration': {
       // Duration in seconds, format as mm:ss
       const minutes = Math.floor(value / 60);
       const seconds = Math.round(value % 60);
       return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    }
     case 'Count':
     default:
       if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;

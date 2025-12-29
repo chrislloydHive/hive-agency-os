@@ -125,8 +125,8 @@ const THRESHOLDS = {
     weak: 1,
     good: 1,
     excellent: 2,
-    // Good template has line items and assumptions
-    qualityFields: ['lineItems', 'assumptions'] as const,
+    // Good template has a detailed description with key sections
+    minDescriptionLength: 100, // At least 100 chars for quality
   },
   planTemplates: {
     weak: 1,
@@ -289,8 +289,12 @@ function scoreCaseStudies(studies: CaseStudy[]): ComponentScore {
     s.problem && s.approach && s.outcome
   );
 
-  // Count case studies with metrics
-  const studiesWithMetrics = studies.filter(s => s.metrics && s.metrics.length > 0);
+  // Count case studies with metrics (handle both array and object formats)
+  const studiesWithMetrics = studies.filter(s => {
+    if (!s.metrics) return false;
+    if (Array.isArray(s.metrics)) return s.metrics.length > 0;
+    return Object.keys(s.metrics).length > 0;
+  });
 
   // Check permission levels
   const publicStudies = studies.filter(s => s.permissionLevel === 'public');
@@ -412,13 +416,14 @@ function scorePricingTemplates(templates: PricingTemplate[]): ComponentScore {
   const issues: string[] = [];
   const thresholds = THRESHOLDS.pricingTemplates;
 
-  // Check quality of templates
+  // Check quality of templates (good templates have detailed descriptions)
+  const minDescLength = thresholds.minDescriptionLength ?? 100;
   const qualityTemplates = templates.filter(t =>
-    t.lineItems.length > 0 && t.assumptions.length > 0
+    t.description && t.description.length >= minDescLength
   );
 
   if (qualityTemplates.length < templates.length) {
-    issues.push(`${templates.length - qualityTemplates.length} template(s) missing line items or assumptions`);
+    issues.push(`${templates.length - qualityTemplates.length} template(s) have minimal descriptions`);
   }
 
   // Calculate score

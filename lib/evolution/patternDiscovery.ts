@@ -12,8 +12,6 @@ import type { ExperimentPlan, Hypothesis } from '../autopilot/types';
 import type {
   Pattern,
   PatternType,
-  PatternCondition,
-  PatternOutcome,
   Learning,
   LearningType,
 } from './types';
@@ -66,9 +64,10 @@ export async function discoverPatterns(
   const discoveredPatterns: Pattern[] = [];
 
   // Group companies by attributes for pattern detection
-  const industryGroups = groupByAttribute(companyData, 'industry');
-  const budgetGroups = groupByBudgetRange(companyData);
-  const channelGroups = groupByChannelMix(companyData);
+  // Note: these groupings are computed but pattern discovery uses inline grouping
+  const _industryGroups = groupByAttribute(companyData, 'industry');
+  const _budgetGroups = groupByBudgetRange(companyData);
+  const _channelGroups = groupByChannelMix(companyData);
 
   // Discover budget allocation patterns
   if (patternTypes.includes('budget_allocation')) {
@@ -584,7 +583,7 @@ export function updatePatternStatus(
 
 function groupByAttribute(
   data: Array<{ graph: CompanyContextGraph; [key: string]: unknown }>,
-  attribute: string
+  _attribute: string
 ): Map<string, Array<{ graph: CompanyContextGraph; [key: string]: unknown }>> {
   const groups = new Map<string, Array<{ graph: CompanyContextGraph; [key: string]: unknown }>>();
 
@@ -602,7 +601,6 @@ function groupByBudgetRange(
   data: Array<{ graph: CompanyContextGraph; performance: { spend: number } }>
 ): Map<string, typeof data> {
   const groups = new Map<string, typeof data>();
-  const ranges = ['0-10k', '10k-50k', '50k-200k', '200k+'];
 
   for (const item of data) {
     const spend = item.performance.spend;

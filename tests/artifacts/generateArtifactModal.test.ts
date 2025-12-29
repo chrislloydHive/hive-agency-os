@@ -20,6 +20,7 @@ const mockArtifactTypes: ArtifactTypeDefinition[] = [
     description: 'High-level strategy overview',
     category: 'summary',
     supportedSources: ['strategy'],
+    outputFormat: 'markdown',
     defaultSections: ['overview', 'objectives', 'tactics'],
   },
   {
@@ -28,6 +29,7 @@ const mockArtifactTypes: ArtifactTypeDefinition[] = [
     description: 'Brief for creative work',
     category: 'brief',
     supportedSources: ['strategy'],
+    outputFormat: 'markdown',
     defaultSections: ['background', 'objectives', 'deliverables'],
   },
   {
@@ -36,6 +38,7 @@ const mockArtifactTypes: ArtifactTypeDefinition[] = [
     description: 'Brief for media planning',
     category: 'brief',
     supportedSources: ['strategy'],
+    outputFormat: 'markdown',
     defaultSections: ['audience', 'channels', 'budget'],
   },
   {
@@ -44,6 +47,7 @@ const mockArtifactTypes: ArtifactTypeDefinition[] = [
     description: 'Step-by-step execution guide',
     category: 'playbook',
     supportedSources: ['strategy'],
+    outputFormat: 'structured',
     defaultSections: ['phases', 'milestones', 'dependencies'],
   },
 ];

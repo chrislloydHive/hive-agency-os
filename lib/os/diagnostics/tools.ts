@@ -10,12 +10,6 @@ import {
   COMPANY_TOOL_DEFS,
   type CompanyToolDefinition,
   type ToolCategory,
-  getToolById,
-  getToolsByCategory as getToolsByCategoryNew,
-  getEnabledTools as getEnabledToolsNew,
-  getToolsGroupedByCategory as getToolsGroupedByCategoryNew,
-  getAllCategories as getAllCategoriesNew,
-  getCategoryColor as getCategoryColorNew,
 } from '@/lib/tools/registry';
 
 // ============================================================================

@@ -86,29 +86,34 @@ async function searchGapPlanRuns(domain: string): Promise<GapLookupResult> {
     const fields = record.fields;
 
     // Parse Data JSON if available
-    let dataJson: any = {};
+    let dataJson: Record<string, unknown> = {};
     const dataJsonStr = fields['Data JSON'] as string | undefined;
     if (dataJsonStr) {
       try {
-        dataJson = JSON.parse(dataJsonStr);
+        const parsed: unknown = JSON.parse(dataJsonStr);
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          dataJson = parsed as Record<string, unknown>;
+        }
       } catch {
         console.warn('[GAP Lookup] Failed to parse Data JSON');
       }
     }
 
     // Extract company name from various possible locations
+    const growthPlan = dataJson.growthPlan as Record<string, unknown> | undefined;
+    const companyObj = dataJson.company as Record<string, unknown> | undefined;
     const companyName =
-      dataJson.companyName ||
-      dataJson.growthPlan?.companyName ||
-      dataJson.company?.name ||
+      (dataJson.companyName as string | undefined) ||
+      (growthPlan?.companyName as string | undefined) ||
+      (companyObj?.name as string | undefined) ||
       (fields['Company Name'] as string) ||
       undefined;
 
     // Extract company type
     const companyType =
       (fields['Company Type'] as string) ||
-      dataJson.companyType ||
-      dataJson.businessModel ||
+      (dataJson.companyType as string | undefined) ||
+      (dataJson.businessModel as string | undefined) ||
       undefined;
 
     // Get existing company ID if linked (must be Airtable record ID starting with 'rec')
@@ -126,7 +131,7 @@ async function searchGapPlanRuns(domain: string): Promise<GapLookupResult> {
         domain,
         url: fields['URL'] as string || `https://${domain}`,
         overallScore: fields['Overall Score'] as number | undefined,
-        maturityStage: (fields['Maturity Stage'] as string) || dataJson.maturityStage,
+        maturityStage: (fields['Maturity Stage'] as string) || (dataJson.maturityStage as string | undefined),
         companyType,
         scores: {
           brand: fields['Brand Score'] as number | undefined,
@@ -163,27 +168,31 @@ async function searchGapIaRuns(domain: string): Promise<GapLookupResult> {
     const fields = record.fields;
 
     // Parse Data JSON if available
-    let dataJson: any = {};
+    let dataJson: Record<string, unknown> = {};
     const dataJsonStr = fields['Data JSON'] as string | undefined;
     if (dataJsonStr) {
       try {
-        dataJson = JSON.parse(dataJsonStr);
+        const parsed: unknown = JSON.parse(dataJsonStr);
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          dataJson = parsed as Record<string, unknown>;
+        }
       } catch {
         console.warn('[GAP Lookup] Failed to parse GAP-IA Data JSON');
       }
     }
 
     // Extract company name from core context
+    const coreObj = dataJson.core as Record<string, unknown> | undefined;
     const companyName =
-      dataJson.core?.companyName ||
-      dataJson.companyName ||
+      (coreObj?.companyName as string | undefined) ||
+      (dataJson.companyName as string | undefined) ||
       (fields['Company Name'] as string) ||
       undefined;
 
     // Extract company type from core context
     const companyType =
-      dataJson.core?.businessModel ||
-      dataJson.companyType ||
+      (coreObj?.businessModel as string | undefined) ||
+      (dataJson.companyType as string | undefined) ||
       undefined;
 
     // Get existing company ID if linked (must be Airtable record ID starting with 'rec')
@@ -193,7 +202,7 @@ async function searchGapIaRuns(domain: string): Promise<GapLookupResult> {
       : undefined;
 
     // Extract scores from dataJson
-    const scores = dataJson.scores || {};
+    const scoresObj = (dataJson.scores as Record<string, unknown>) || {};
 
     return {
       found: true,
@@ -202,14 +211,14 @@ async function searchGapIaRuns(domain: string): Promise<GapLookupResult> {
         companyName,
         domain: (fields['Domain'] as string) || domain,
         url: (fields['Website URL'] as string) || `https://${domain}`,
-        overallScore: scores.overall || dataJson.overallScore,
-        maturityStage: dataJson.maturityStage,
+        overallScore: (scoresObj.overall as number | undefined) || (dataJson.overallScore as number | undefined),
+        maturityStage: dataJson.maturityStage as string | undefined,
         companyType,
         scores: {
-          brand: scores.brand,
-          content: scores.content,
-          seo: scores.seo,
-          website: scores.website,
+          brand: scoresObj.brand as number | undefined,
+          content: scoresObj.content as number | undefined,
+          seo: scoresObj.seo as number | undefined,
+          website: scoresObj.website as number | undefined,
         },
         createdAt: fields['Created At'] as string | undefined,
         existingCompanyId,

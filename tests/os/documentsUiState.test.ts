@@ -10,59 +10,15 @@ import {
   UPDATABLE_TYPES,
   type DocumentsDataInput,
 } from '@/lib/os/ui/documentsUiState';
-import type { Artifact, ArtifactType, ArtifactStatus } from '@/lib/types/artifact';
+import { createArtifact, type Artifact } from '@/tests/helpers/factories';
 
 // ============================================================================
 // Test Helpers
 // ============================================================================
 
-function makeArtifact(overrides: Partial<Artifact> = {}): Artifact {
-  return {
-    id: `artifact-${Math.random().toString(36).slice(2, 9)}`,
-    companyId: 'test-company',
-    title: 'Test Artifact',
-    type: 'strategy_doc',
-    status: 'draft',
-    source: 'manual',
-    googleFileId: null,
-    googleFileType: null,
-    googleFileUrl: null,
-    googleFolderId: null,
-    googleModifiedAt: null,
-    sourceStrategyId: null,
-    sourceQbrStoryId: null,
-    sourceBriefId: null,
-    sourceMediaPlanId: null,
-    sourceContentPlanId: null,
-    engagementId: null,
-    projectId: null,
-    contextVersionAtCreation: null,
-    strategyVersionAtCreation: null,
-    snapshotId: null,
-    isStale: false,
-    stalenessReason: null,
-    stalenessCheckedAt: null,
-    lastSyncedAt: null,
-    generatedContent: null,
-    generatedMarkdown: null,
-    generatedFormat: null,
-    inputsUsedHash: null,
-    includedTacticIds: null,
-    finalizedAt: null,
-    finalizedBy: null,
-    archivedAt: null,
-    archivedBy: null,
-    archivedReason: null,
-    createdBy: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    updatedBy: null,
-    lastEditedAt: null,
-    lastEditedBy: null,
-    description: null,
-    tags: [],
-    ...overrides,
-  };
+/** Alias to createArtifact for use in this test file */
+function makeArtifact(overrides: Parameters<typeof createArtifact>[0] = {}) {
+  return createArtifact(overrides);
 }
 
 function makeInput(artifacts: Artifact[] = []): DocumentsDataInput {

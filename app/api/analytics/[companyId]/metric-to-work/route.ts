@@ -120,7 +120,7 @@ Based on this metric and its recent performance, propose one specific work item 
     let suggestion: MetricWorkSuggestion;
     try {
       suggestion = JSON.parse(rawContent);
-    } catch (parseError) {
+    } catch {
       console.error('[Metric to Work] Failed to parse AI response:', rawContent);
       return NextResponse.json(
         { ok: false, error: 'Failed to parse AI response' },

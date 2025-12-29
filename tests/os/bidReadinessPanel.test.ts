@@ -20,29 +20,47 @@ import {
   type RfpFocusCallbacks,
   type RfpFocusAction,
 } from '@/lib/os/rfp/focus';
-import type { FirmBrainReadiness } from '@/lib/os/ai/firmBrainReadiness';
+import type { FirmBrainReadiness, ComponentScore } from '@/lib/os/ai/firmBrainReadiness';
 import type { StrategyHealth } from '@/lib/types/rfpWinStrategy';
 import type { RubricCoverageResult, CriterionCoverage, SectionCoverage } from '@/lib/os/rfp/computeRubricCoverage';
-import type { RfpSection } from '@/lib/types/rfp';
+import { createRfpSection, createRfpWinStrategy } from '@/tests/helpers/factories';
 
 // ============================================================================
 // Mock Data Helpers
 // ============================================================================
 
+function createMockComponentScore(score: number, weight: number): ComponentScore {
+  let status: ComponentScore['status'];
+  if (score === 0) status = 'missing';
+  else if (score < 40) status = 'weak';
+  else if (score < 80) status = 'good';
+  else status = 'excellent';
+
+  return {
+    score,
+    weight,
+    status,
+    issues: score < 70 ? ['Test issue'] : [],
+    sufficient: score >= 40,
+  };
+}
+
 function createMockFirmBrainReadiness(score: number): FirmBrainReadiness {
   return {
-    overallScore: score,
-    categories: {
-      profile: { score: score, weight: 0.15, status: score >= 70 ? 'ready' : 'needs_work', missingFields: [] },
-      team: { score: score, weight: 0.20, status: score >= 70 ? 'ready' : 'needs_work', missingFields: [] },
-      caseStudies: { score: score, weight: 0.20, status: score >= 70 ? 'ready' : 'needs_work', missingFields: [] },
-      references: { score: score, weight: 0.15, status: score >= 70 ? 'ready' : 'needs_work', missingFields: [] },
-      pricing: { score: score, weight: 0.15, status: score >= 70 ? 'ready' : 'needs_work', missingFields: [] },
-      planning: { score: score, weight: 0.15, status: score >= 70 ? 'ready' : 'needs_work', missingFields: [] },
-    },
-    isRfpReady: score >= 60,
+    score,
+    missing: score < 30 ? ['Agency Profile'] : [],
+    weak: score < 60 ? ['Team Members'] : [],
     summary: `Test summary with score ${score}`,
-    topPriorities: [],
+    components: {
+      agencyProfile: createMockComponentScore(score, 0.25),
+      teamMembers: createMockComponentScore(score, 0.20),
+      caseStudies: createMockComponentScore(score, 0.20),
+      references: createMockComponentScore(score, 0.15),
+      pricingTemplates: createMockComponentScore(score, 0.10),
+      planTemplates: createMockComponentScore(score, 0.10),
+    },
+    recommendGeneration: score >= 40,
+    qualityWarnings: score < 60 ? ['Quality may be limited'] : [],
   };
 }
 
@@ -50,11 +68,9 @@ function createMockStrategyHealth(score: number): StrategyHealth {
   return {
     isDefined: score > 0,
     completenessScore: score,
-    hasCriteria: score >= 30,
-    hasWinThemes: score >= 40,
-    hasProofPlan: score >= 50,
-    hasLandmines: score >= 60,
     isLocked: false,
+    issues: score < 50 ? ['Missing evaluation criteria'] : [],
+    suggestions: score < 70 ? ['Add more win themes'] : [],
   };
 }
 
@@ -133,7 +149,7 @@ function createMockInputs(
     firmBrainReadiness: createMockFirmBrainReadiness(firmBrainScore),
     strategyHealth: createMockStrategyHealth(strategyScore),
     rubricCoverage: createMockRubricCoverage(coverageScore),
-    strategy: {
+    strategy: createRfpWinStrategy({
       evaluationCriteria: [
         { label: 'Technical Approach', weight: 0.3 },
         { label: 'Team Experience', weight: 0.2 },
@@ -141,13 +157,14 @@ function createMockInputs(
       ],
       winThemes: [],
       proofPlan: [],
+      competitiveAssumptions: [],
       landmines: [],
       locked: false,
-    },
+    }),
     sections: [
-      { sectionKey: 'approach', title: 'Approach', content: 'Content', status: 'approved' } as RfpSection,
-      { sectionKey: 'team', title: 'Team', content: 'Content', status: 'approved' } as RfpSection,
-      { sectionKey: 'pricing', title: 'Pricing', content: 'Content', status: 'approved' } as RfpSection,
+      createRfpSection({ sectionKey: 'approach', title: 'Approach', contentWorking: 'Content', status: 'approved' }),
+      createRfpSection({ sectionKey: 'team', title: 'Team', contentWorking: 'Content', status: 'approved' }),
+      createRfpSection({ sectionKey: 'pricing', title: 'Pricing', contentWorking: 'Content', status: 'approved' }),
     ],
   };
 }

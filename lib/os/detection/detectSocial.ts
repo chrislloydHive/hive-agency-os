@@ -232,7 +232,7 @@ function mergeSourcesForPlatform(
  * Detect all social profiles from HTML
  */
 export async function detectSocial(options: DetectSocialOptions): Promise<SocialSignal[]> {
-  const { html, domain, brandName } = options;
+  const { html, domain: _domain, brandName: _brandName } = options;
   const results: SocialSignal[] = [];
   const platforms: SocialPlatform[] = ['facebook', 'instagram', 'tiktok', 'youtube', 'linkedin', 'x'];
 

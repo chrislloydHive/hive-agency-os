@@ -7,20 +7,14 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
-  BarChart3,
   RefreshCw,
   Clock,
   ClipboardList,
   CheckCircle2,
   AlertTriangle,
   Target,
-  ListChecks,
   ChevronRight,
   Activity,
-  Trophy,
-  AlertOctagon,
-  Compass,
-  Layers,
   ExternalLink,
   AlertCircle,
 } from 'lucide-react';
@@ -31,7 +25,7 @@ import { QBRStoryHeader } from '@/components/reports/QBRStoryHeader';
 import { QBRScoreStrip } from '@/components/reports/QBRScoreStrip';
 import { QBRHighlightsGrid } from '@/components/reports/QBRHighlightsGrid';
 import { QBRStorySection, StorySectionBulletList } from '@/components/reports/QBRStorySection';
-import { QBRJumpNav, QBRJumpNavMobile, DEFAULT_QBR_SECTIONS } from '@/components/reports/QBRJumpNav';
+import { QBRJumpNav, QBRJumpNavMobile } from '@/components/reports/QBRJumpNav';
 import { HealthScoreRing } from '@/components/qbr/HealthScoreRing';
 import { TrendIndicator } from '@/components/qbr/TrendIndicator';
 import { QBREmptyState, getQBREmptyStateReason } from '@/components/qbr/QBREmptyState';
@@ -318,7 +312,7 @@ function WinsChallengesContent({
 // Theme Deep Dives Content
 function ThemeDeepDivesContent({
   themes,
-  companyId,
+  companyId: _companyId,
 }: {
   themes?: ThemeDeepDive[];
   companyId: string;

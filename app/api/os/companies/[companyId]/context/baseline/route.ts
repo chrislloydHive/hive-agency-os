@@ -8,7 +8,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   runBaselineContextBuild,
   getBaselineStatus,
-  type BaselineBuildResult,
 } from '@/lib/contextGraph/baseline';
 
 // ============================================================================

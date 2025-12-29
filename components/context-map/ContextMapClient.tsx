@@ -33,7 +33,7 @@ interface ContextMapClientProps {
   /** For AI-assisted context suggestions */
   onSuggestWithAI?: (zoneId: string) => Promise<void>;
   /** For adding a new node (AI-assisted or manual) */
-  onAddNode?: (zoneId: string, mode: 'ai' | 'manual') => void;
+  onAddNode?: (zoneId: string, mode: 'ai' | 'manual', preSelectedFieldKey?: string) => void;
   /** Zone currently loading AI suggestions */
   loadingZoneId?: string | null;
   /** Deep link: Focus on a specific node key */
@@ -345,6 +345,7 @@ export function ContextMapClient({
 
   // Handle click on a specific field badge in readiness strip
   // Navigates directly to the zone containing that field and opens manual edit
+  // Pre-selects the clicked field so user goes straight to value input
   const handleFieldClick = useCallback((fieldLabel: string, _isCritical: boolean) => {
     console.log(`[ContextMap] Field badge clicked: "${fieldLabel}"`);
 
@@ -361,11 +362,11 @@ export function ContextMapClient({
     const zoneId = getZoneForField(fieldKey);
     console.log(`[ContextMap] Zone for field: ${zoneId}`);
 
-    // Open manual add/edit modal for this zone
-    // This allows the user to directly fill in the missing field
+    // Open manual add/edit modal for this zone with the field pre-selected
+    // This allows the user to directly fill in the value for the missing field
     if (onAddNode) {
-      console.log(`[ContextMap] Opening manual edit modal for zone: ${zoneId}`);
-      onAddNode(zoneId, 'manual');
+      console.log(`[ContextMap] Opening modal for zone: ${zoneId}, pre-selecting field: ${fieldKey}`);
+      onAddNode(zoneId, 'manual', fieldKey);
     } else {
       console.warn('[ContextMap] onAddNode not provided, cannot open edit modal');
     }

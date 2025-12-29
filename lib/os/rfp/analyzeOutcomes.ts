@@ -345,7 +345,7 @@ function analyzeRiskAcknowledgement(
  * For now, we analyze the overall score. Future: store breakdown in snapshot.
  */
 function analyzeComponentCorrelations(
-  completeRecords: RfpOutcomeRecord[]
+  _completeRecords: RfpOutcomeRecord[]
 ): ComponentCorrelation[] {
   // Currently we only have overall score in the snapshot.
   // To analyze components, we'd need to either:

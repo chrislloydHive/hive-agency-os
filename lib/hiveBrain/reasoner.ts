@@ -13,15 +13,10 @@
 
 import { loadContextGraph } from '../contextGraph/storage';
 import type { CompanyContextGraph } from '../contextGraph/companyContextGraph';
-import {
-  inferCausalRelationshipsForVertical,
-  explainObservedChange,
-} from './causalModel';
 import type {
   ReasonerQuery,
   ReasonerConclusion,
   ReasonerEvidence,
-  CausalGraph,
 } from './types';
 
 // ============================================================================
@@ -228,7 +223,7 @@ function detectPatterns(snapshots: CompanySnapshot[]): DetectedPattern[] {
  */
 function generateCausalHypotheses(
   patterns: DetectedPattern[],
-  snapshots: CompanySnapshot[]
+  _snapshots: CompanySnapshot[]
 ): string[] {
   const hypotheses: string[] = [];
 
@@ -292,7 +287,7 @@ function generateCausalHypotheses(
 function generateRecommendations(
   patterns: DetectedPattern[],
   hypotheses: string[],
-  snapshots: CompanySnapshot[]
+  _snapshots: CompanySnapshot[]
 ): string[] {
   const recommendations: string[] = [];
 
@@ -348,7 +343,6 @@ export async function reason(
   query: ReasonerQuery,
   allCompanyIds: string[]
 ): Promise<ReasonerConclusion> {
-  const startTime = Date.now();
 
   // Apply filters
   let companyIds = allCompanyIds;

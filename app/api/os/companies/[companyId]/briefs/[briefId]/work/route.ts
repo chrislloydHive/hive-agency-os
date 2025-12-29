@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getBriefById } from '@/lib/airtable/briefs';
 import { createWorkItem, type CreateWorkItemInput } from '@/lib/airtable/workItems';
 import { canGenerateWork } from '@/lib/types/brief';
-import type { BriefType, Brief } from '@/lib/types/brief';
+import type { BriefType } from '@/lib/types/brief';
 import type { WorkItemArea, WorkSourceCreativeBrief, WorkItemSeverity } from '@/lib/types/work';
 
 export const maxDuration = 120;

@@ -15,6 +15,8 @@ interface AddNodeModalProps {
   isOpen: boolean;
   zoneId: ZoneId;
   existingNodeKeys: Set<string>;
+  /** Pre-select a specific field (for direct navigation from context gaps) */
+  preSelectedFieldKey?: string | null;
   onClose: () => void;
   onSubmit: (fieldKey: string, value: unknown) => Promise<void>;
 }
@@ -23,6 +25,7 @@ export function AddNodeModal({
   isOpen,
   zoneId,
   existingNodeKeys,
+  preSelectedFieldKey,
   onClose,
   onSubmit,
 }: AddNodeModalProps) {
@@ -31,31 +34,47 @@ export function AddNodeModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Pre-select field when modal opens with a preSelectedFieldKey
+  useEffect(() => {
+    if (preSelectedFieldKey && isOpen) {
+      setSelectedField(preSelectedFieldKey);
+    }
+  }, [preSelectedFieldKey, isOpen]);
+
   // Get zone metadata
   const zone = ZONE_DEFINITIONS.find(z => z.id === zoneId);
 
   // Get available fields for this zone that don't already have values
-  // Merges Schema V2 fields with legacy UNIFIED_FIELD_REGISTRY fields
-  // This ensures both new V2 keys and legacy keys (like productOffer.valueProposition) are available
+  // Uses Schema V2 fields as the primary source, with legacy fallback for missing fields
   const availableFields = useMemo(() => {
     const v2Fields = getSchemaV2FieldsForZone(zoneId);
     const legacyFields = getFieldsForZone(zoneId);
 
-    // Merge and dedupe by key, preferring V2 fields
-    const fieldMap = new Map<string, UnifiedFieldEntry>();
-    for (const field of legacyFields) {
-      if (!existingNodeKeys.has(field.key)) {
-        fieldMap.set(field.key, field);
-      }
-    }
+    // Dedupe by LABEL to catch different keys for same concept (e.g., gtm.* vs productOffer.*)
+    // Prefer V2 fields over legacy fields
+    const fieldByLabel = new Map<string, UnifiedFieldEntry>();
+    const fieldByKey = new Set<string>();
+
+    // Add V2 fields first (preferred)
     for (const field of v2Fields) {
       if (!existingNodeKeys.has(field.key)) {
-        fieldMap.set(field.key, field);
+        fieldByLabel.set(field.label.toLowerCase(), field);
+        fieldByKey.add(field.key);
+      }
+    }
+
+    // Add legacy fields only if no V2 field with same label exists
+    for (const field of legacyFields) {
+      if (!existingNodeKeys.has(field.key) && !fieldByKey.has(field.key)) {
+        const labelKey = field.label.toLowerCase();
+        if (!fieldByLabel.has(labelKey)) {
+          fieldByLabel.set(labelKey, field);
+        }
       }
     }
 
     // Sort by label for consistent ordering
-    return Array.from(fieldMap.values()).sort((a, b) => a.label.localeCompare(b.label));
+    return Array.from(fieldByLabel.values()).sort((a, b) => a.label.localeCompare(b.label));
   }, [zoneId, existingNodeKeys]);
 
   // Get selected field metadata

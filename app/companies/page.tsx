@@ -3,6 +3,7 @@
 // Server component that fetches enriched company data and renders directory client
 
 import { Suspense } from 'react';
+import Link from 'next/link';
 import { aggregateCompaniesData } from '@/lib/os/companies/aggregate';
 import type {
   CompanyListFilterV2,
@@ -95,7 +96,7 @@ async function CompaniesContent({ searchParams }: CompaniesPageProps) {
               Track health, activity, and prioritize who needs attention.
             </p>
           </div>
-          <a
+          <Link
             href="/c/new"
             className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors text-sm"
           >
@@ -103,7 +104,7 @@ async function CompaniesContent({ searchParams }: CompaniesPageProps) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
             Add Company
-          </a>
+          </Link>
         </div>
 
         <CompaniesDirectoryClientV2
@@ -124,7 +125,7 @@ async function CompaniesContent({ searchParams }: CompaniesPageProps) {
             Track health, activity, and prioritize who needs attention.
           </p>
         </div>
-        <a
+        <Link
           href="/c/new"
           className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors text-sm"
         >
@@ -132,7 +133,7 @@ async function CompaniesContent({ searchParams }: CompaniesPageProps) {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
           Add Company
-        </a>
+        </Link>
       </div>
 
       <CompaniesDirectoryClientV2

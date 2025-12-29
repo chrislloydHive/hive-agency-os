@@ -17,6 +17,12 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
+// Recharts tooltip payload entry type
+interface TooltipPayloadEntry {
+  color?: string;
+  name?: string | number;
+  value?: string | number;
+}
 import type { AuditFunnelSnapshot } from '@/lib/ga4Client';
 import {
   getCachedInsights,
@@ -78,15 +84,21 @@ interface DmaAnalyticsBlueprint {
 }
 
 // Custom tooltip for charts
-function CustomTooltip({ active, payload, label }: any) {
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: TooltipPayloadEntry[];
+  label?: string | number;
+}
+
+function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 shadow-lg">
       <p className="text-slate-300 text-sm font-medium mb-1">{label}</p>
-      {payload.map((entry: any, idx: number) => (
+      {payload.map((entry, idx) => (
         <p key={idx} className="text-sm" style={{ color: entry.color }}>
-          {entry.name}: {entry.value.toLocaleString()}
-          {entry.name.includes('Rate') ? '%' : ''}
+          {entry.name}: {typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}
+          {typeof entry.name === 'string' && entry.name.includes('Rate') ? '%' : ''}
         </p>
       ))}
     </div>

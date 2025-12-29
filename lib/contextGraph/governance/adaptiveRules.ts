@@ -389,9 +389,10 @@ function checkRuleTrigger(
     case 'time_elapsed':
       return checkTimeElapsedTrigger(rule, graph);
 
-    case 'value_changed':
+    case 'value_changed': {
       const watchField = rule.triggerConfig.watchField as string;
       return context?.changedField === watchField;
+    }
 
     case 'performance_delta':
       return checkPerformanceDeltaTrigger(rule, graph, context?.performanceData);
@@ -491,24 +492,27 @@ function checkCondition(
   const field = domain ? (domain as Record<string, unknown>)[targetPath] : null;
 
   switch (condition.type) {
-    case 'field_value':
+    case 'field_value': {
       if (!field || typeof field !== 'object' || !('value' in field)) {
         return condition.operator === 'is_empty';
       }
       const value = (field as { value: unknown }).value;
       return evaluateOperator(value, condition.operator, condition.value);
+    }
 
-    case 'field_age':
+    case 'field_age': {
       if (!field || typeof field !== 'object') return false;
       const updatedAt = (field as { updatedAt?: string }).updatedAt;
       if (!updatedAt) return true;
       const ageDays = (Date.now() - new Date(updatedAt).getTime()) / (1000 * 60 * 60 * 24);
       return evaluateOperator(ageDays, condition.operator, condition.value);
+    }
 
-    case 'field_confidence':
+    case 'field_confidence': {
       if (!field || typeof field !== 'object') return false;
       const confidence = (field as { confidence?: number }).confidence || 0;
       return evaluateOperator(confidence, condition.operator, condition.value);
+    }
 
     default:
       return true;

@@ -14,7 +14,7 @@ import type {
   FunnelStageMetrics,
 } from './types';
 import { getWorkspaceGa4Summary } from './ga4';
-import { getAuditFunnelSnapshot, type AuditFunnelSnapshot } from '@/lib/ga4Client';
+import { getAuditFunnelSnapshot } from '@/lib/ga4Client';
 
 // Re-export types from funnelTypes for backward compatibility
 export type {
@@ -36,9 +36,6 @@ export {
 import type {
   FunnelStageId,
   FunnelStageSummary,
-  FunnelTimePoint,
-  FunnelChannelPerformance,
-  FunnelCampaignPerformance,
   FunnelSummary,
   FunnelDataset,
 } from './funnelTypes';
@@ -219,7 +216,6 @@ export async function getWorkspaceFunnelSummary(
  */
 async function fetchLeadsInRange(range: WorkspaceDateRange): Promise<any[]> {
   try {
-    const rangeStart = new Date(range.startDate);
     const rangeEnd = new Date(range.endDate);
     rangeEnd.setHours(23, 59, 59, 999);
 
@@ -252,7 +248,6 @@ async function fetchDmaAuditsInRange(range: WorkspaceDateRange): Promise<any[]> 
   try {
     // First, try the dedicated DMA Audits table
     try {
-      const rangeStart = new Date(range.startDate);
       const rangeEnd = new Date(range.endDate);
       rangeEnd.setHours(23, 59, 59, 999);
 
@@ -462,7 +457,7 @@ export async function getCompanyFunnelDataset(
   startDate: string,
   endDate: string,
   preset?: '7d' | '30d' | '90d',
-  ga4PropertyId?: string
+  _ga4PropertyId?: string
 ): Promise<FunnelDataset> {
   // For now, return a basic dataset
   // Company-specific funnel data would come from company's GA4 property

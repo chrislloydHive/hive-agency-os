@@ -9,7 +9,7 @@
  */
 
 import OpenAI from 'openai';
-import type { CoreMarketingContext, GapIaRun } from '@/lib/gap/types';
+import type { CoreMarketingContext } from '@/lib/gap/types';
 
 // ============================================================================
 // Model Caller Abstraction
@@ -716,7 +716,6 @@ ${FULL_GAP_OUTPUT_PROMPT_V3}`;
     // Map V3 output to existing API format for backward compatibility
     const apiResponse = mapFullGapToApiResponse(validatedV3, {
       url: params.url,
-      domain: params.domain,
       businessName: params.gapIa.businessName || params.domain,
       gapId: params.gapIa.id || 'unknown',
     });

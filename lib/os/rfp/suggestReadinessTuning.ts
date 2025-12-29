@@ -9,8 +9,6 @@ import {
   type BidReadinessConfig,
   type ConfigChange,
   getBidReadinessConfig,
-  diffConfigs,
-  validateConfig,
 } from './bidReadinessConfig';
 
 // ============================================================================
@@ -231,9 +229,7 @@ function suggestGoThresholdAdjustment(
   );
 
   // Also check adjacent thresholds
-  const above70 = analysis.insights.find(i => i.signal === 'score >= 70');
   const above80 = analysis.insights.find(i => i.signal === 'score >= 80');
-  const below70 = analysis.insights.find(i => i.signal === 'score < 70');
 
   // Heuristic: If scores below threshold still win at similar rate, threshold may be too high
   if (aboveInsight && belowInsight) {
@@ -397,8 +393,6 @@ function suggestProofGapPenalty(
   const fitLoss = analysis.lossReasons.find(r => r.reason === 'fit');
 
   if (!experienceLoss && !fitLoss) return null;
-
-  const totalLost = analysis.totalAnalyzed - Math.round(analysis.overallWinRate * analysis.completeRecords / 100);
 
   // If "lacked experience" is cited in >20% of losses, suggest increasing proof gap penalty
   const experiencePercent = experienceLoss?.percentage || 0;

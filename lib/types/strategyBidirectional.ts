@@ -365,7 +365,7 @@ export function lockItem<T extends { isLocked?: boolean; lockedAt?: string; lock
 export function unlockItem<T extends { isLocked?: boolean; lockedAt?: string; lockedBy?: string }>(
   item: T
 ): T {
-  const { isLocked, lockedAt, lockedBy, ...rest } = item;
+  const { isLocked: _isLocked, lockedAt: _lockedAt, lockedBy: _lockedBy, ...rest } = item;
   return rest as T;
 }
 

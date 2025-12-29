@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getCompanyById } from '@/lib/airtable/companies';
-import { runSmartAutoFillContext, type SmartAutoFillOptions, type SmartAutoFillResult } from '@/lib/contextGraph/autoFill';
+import { runSmartAutoFillContext, type SmartAutoFillOptions } from '@/lib/contextGraph/autoFill';
 
 interface RouteParams {
   params: Promise<{ companyId: string }>;

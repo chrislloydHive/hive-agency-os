@@ -9,6 +9,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { websiteLabImporter } from '@/lib/contextGraph/importers/websiteLabImporter';
 import { createEmptyContextGraph } from '@/lib/contextGraph/companyContextGraph';
+import {
+  makeDiagnosticRun,
+  makeHeavyGapRunState,
+  makeWebsiteLabWriterResult,
+  makeEvidencePack,
+} from '@/tests/helpers/contextFactories';
 
 // Mock the Airtable layer calls
 vi.mock('@/lib/os/diagnostics/runs', () => ({
@@ -52,25 +58,23 @@ describe('Website Lab Importer', () => {
 
       // Setup: DIAGNOSTIC_RUNS has data
       vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([
-        {
+        makeDiagnosticRun({
           id: 'diag-run-123',
           companyId: 'test-company',
           toolId: 'websiteLab',
           status: 'complete',
           rawJson: { rawEvidence: { labResultV4: { siteAssessment: {} } } },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any);
+        }),
+      ]);
 
       // GAP_HEAVY_RUNS also has data (should not be called)
       vi.mocked(getHeavyGapRunsByCompanyId).mockResolvedValue([
-        {
+        makeHeavyGapRunState({
           id: 'heavy-run-456',
           status: 'completed',
-          evidencePack: { websiteLabV4: { siteAssessment: {} } },
-        },
-      ] as any);
+          evidencePack: makeEvidencePack({ websiteLabV4: { siteAssessment: {} } }),
+        }),
+      ]);
 
       const result = await websiteLabImporter.supports('test-company', 'website');
 
@@ -96,12 +100,12 @@ describe('Website Lab Importer', () => {
 
       // GAP_HEAVY_RUNS has data
       vi.mocked(getHeavyGapRunsByCompanyId).mockResolvedValue([
-        {
+        makeHeavyGapRunState({
           id: 'heavy-run-456',
           status: 'completed',
-          evidencePack: { websiteLabV4: { siteAssessment: {} } },
-        },
-      ] as any);
+          evidencePack: makeEvidencePack({ websiteLabV4: { siteAssessment: {} } }),
+        }),
+      ]);
 
       const result = await websiteLabImporter.supports('test-company', 'website');
 
@@ -127,7 +131,7 @@ describe('Website Lab Importer', () => {
 
       // Setup: DIAGNOSTIC_RUNS has data with new format
       vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([
-        {
+        makeDiagnosticRun({
           id: 'diag-run-123',
           companyId: 'test-company',
           toolId: 'websiteLab',
@@ -140,17 +144,17 @@ describe('Website Lab Importer', () => {
               },
             },
           },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any);
+        }),
+      ]);
 
       // Mock writer to return success
-      vi.mocked(writeWebsiteLabToGraph).mockReturnValue({
-        fieldsUpdated: 5,
-        updatedPaths: ['website.score', 'website.summary'],
-        errors: [],
-      } as any);
+      vi.mocked(writeWebsiteLabToGraph).mockReturnValue(
+        makeWebsiteLabWriterResult({
+          fieldsUpdated: 5,
+          updatedPaths: ['website.score', 'website.summary'],
+          errors: [],
+        })
+      );
 
       const graph = createEmptyContextGraph('test-company', 'Test Company');
       const result = await websiteLabImporter.importAll(graph, 'test-company', 'website');
@@ -194,7 +198,7 @@ describe('Website Lab Importer', () => {
 
       // New format: rawEvidence.labResultV4
       vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([
-        {
+        makeDiagnosticRun({
           id: 'new-format-run',
           companyId: 'test-company',
           toolId: 'websiteLab',
@@ -208,16 +212,16 @@ describe('Website Lab Importer', () => {
               labResultV4: mockLabResult,
             },
           },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any);
+        }),
+      ]);
 
-      vi.mocked(writeWebsiteLabToGraph).mockReturnValue({
-        fieldsUpdated: 3,
-        updatedPaths: ['website.score'],
-        errors: [],
-      } as any);
+      vi.mocked(writeWebsiteLabToGraph).mockReturnValue(
+        makeWebsiteLabWriterResult({
+          fieldsUpdated: 3,
+          updatedPaths: ['website.score'],
+          errors: [],
+        })
+      );
 
       const graph = createEmptyContextGraph('test-company', 'Test Company');
       await websiteLabImporter.importAll(graph, 'test-company', 'website');
@@ -245,22 +249,22 @@ describe('Website Lab Importer', () => {
 
       // Legacy format: direct structure
       vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([
-        {
+        makeDiagnosticRun({
           id: 'legacy-format-run',
           companyId: 'test-company',
           toolId: 'websiteLab',
           status: 'complete',
           rawJson: legacyData,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any);
+        }),
+      ]);
 
-      vi.mocked(writeWebsiteLabToGraph).mockReturnValue({
-        fieldsUpdated: 2,
-        updatedPaths: ['website.score'],
-        errors: [],
-      } as any);
+      vi.mocked(writeWebsiteLabToGraph).mockReturnValue(
+        makeWebsiteLabWriterResult({
+          fieldsUpdated: 2,
+          updatedPaths: ['website.score'],
+          errors: [],
+        })
+      );
 
       const graph = createEmptyContextGraph('test-company', 'Test Company');
       await websiteLabImporter.importAll(graph, 'test-company', 'website');
@@ -279,7 +283,7 @@ describe('Website Lab Importer', () => {
 
       // Invalid structure: no siteAssessment or siteGraph
       vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([
-        {
+        makeDiagnosticRun({
           id: 'bad-format-run',
           companyId: 'test-company',
           toolId: 'websiteLab',
@@ -287,10 +291,8 @@ describe('Website Lab Importer', () => {
           rawJson: {
             someOtherField: 'data',
           },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any);
+        }),
+      ]);
 
       const graph = createEmptyContextGraph('test-company', 'Test Company');
       const result = await websiteLabImporter.importAll(graph, 'test-company', 'website');
@@ -307,7 +309,7 @@ describe('Website Lab Importer', () => {
       const { writeWebsiteLabToGraph } = await import('@/lib/contextGraph/websiteLabWriter');
 
       vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([
-        {
+        makeDiagnosticRun({
           id: 'valid-run',
           companyId: 'test-company',
           toolId: 'websiteLab',
@@ -320,17 +322,17 @@ describe('Website Lab Importer', () => {
               },
             },
           },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any);
+        }),
+      ]);
 
       // Writer produces output
-      vi.mocked(writeWebsiteLabToGraph).mockReturnValue({
-        fieldsUpdated: 5,
-        updatedPaths: ['website.score', 'website.summary', 'website.issues'],
-        errors: [],
-      } as any);
+      vi.mocked(writeWebsiteLabToGraph).mockReturnValue(
+        makeWebsiteLabWriterResult({
+          fieldsUpdated: 5,
+          updatedPaths: ['website.score', 'website.summary', 'website.issues'],
+          errors: [],
+        })
+      );
 
       const graph = createEmptyContextGraph('test-company', 'Test Company');
       const result = await websiteLabImporter.importAll(graph, 'test-company', 'website');
@@ -397,7 +399,7 @@ describe('WebsiteLab Domain Authority Compliance', () => {
         },
       };
 
-      const result = writeWebsiteLabToGraph(graph, labResultV4 as any, 'test-run', { proofMode: true });
+      const result = writeWebsiteLabToGraph(graph, labResultV4 as unknown as Parameters<typeof writeWebsiteLabToGraph>[1], 'test-run', { proofMode: true });
 
       // Verify proof data is captured
       expect(result.proof).toBeDefined();
@@ -440,7 +442,7 @@ describe('WebsiteLab Domain Authority Compliance', () => {
         ],
       };
 
-      const result = writeWebsiteLabToGraph(graph, labResultV4 as any, 'test-run', { proofMode: true });
+      const result = writeWebsiteLabToGraph(graph, labResultV4 as unknown as Parameters<typeof writeWebsiteLabToGraph>[1], 'test-run', { proofMode: true });
 
       // Proof should show wrongDomainForField skips
       expect(result.proof?.droppedByReason.wrongDomainForField).toBeGreaterThan(0);
@@ -484,7 +486,7 @@ describe('WebsiteLab Domain Authority Compliance', () => {
         },
       };
 
-      const result = writeWebsiteLabToGraph(graph, labResultV4 as any, 'test-run', { proofMode: true });
+      const result = writeWebsiteLabToGraph(graph, labResultV4 as unknown as Parameters<typeof writeWebsiteLabToGraph>[1], 'test-run', { proofMode: true });
 
       // Proof should be captured
       expect(result.proof).toBeDefined();
@@ -541,7 +543,7 @@ describe('fieldsWritten Reporting Regression', () => {
       siteGraph: { pages: [] },
     };
 
-    const result = writeWebsiteLabToGraph(graph, labResultV4 as any, 'test-run', { proofMode: true });
+    const result = writeWebsiteLabToGraph(graph, labResultV4 as unknown as Parameters<typeof writeWebsiteLabToGraph>[1], 'test-run', { proofMode: true });
 
     // CRITICAL ASSERTIONS: These are the values that must flow through to proveContextPromotion
     expect(result.fieldsUpdated).toBeGreaterThan(0);
@@ -573,7 +575,7 @@ describe('fieldsWritten Reporting Regression', () => {
       siteGraph: { pages: [] },
     };
 
-    const result = writeWebsiteLabToGraph(graph, labResultV4 as any, 'test-run', { proofMode: true });
+    const result = writeWebsiteLabToGraph(graph, labResultV4 as unknown as Parameters<typeof writeWebsiteLabToGraph>[1], 'test-run', { proofMode: true });
 
     // fieldsUpdated should match the length of updatedPaths
     expect(result.fieldsUpdated).toBe(result.updatedPaths.length);

@@ -56,7 +56,7 @@ export interface RfpFocusCallbacks {
 /**
  * Parse a fix section key to determine the focus target
  */
-export function parseFocusTarget(fixSectionKey: string, fixReason: string): RfpFocusTarget {
+export function parseFocusTarget(fixSectionKey: string, _fixReason: string): RfpFocusTarget {
   // Check if it's a special target
   if (fixSectionKey === 'strategy' || fixSectionKey === 'win_strategy') {
     return { type: 'panel', panel: 'strategy' };

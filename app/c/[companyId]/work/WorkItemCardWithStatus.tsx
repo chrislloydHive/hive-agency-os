@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { FileText, ExternalLink, Clock, User, Wrench, Target, Bot } from 'lucide-react';
+import { FileText, ExternalLink, Clock, User, Wrench, Target, Bot, Layers } from 'lucide-react';
 import type { WorkItemRecord, WorkItemStatus } from '@/lib/airtable/workItems';
-import type { WorkSource } from '@/lib/types/work';
+import type { WorkSource, StrategyLink } from '@/lib/types/work';
 
 export interface WorkItemCardWithStatusProps {
   item: WorkItemRecord;
@@ -261,6 +261,19 @@ export default function WorkItemCardWithStatus({ item, companyId, isSelected, on
           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-700/50 text-slate-400 border border-slate-600/50">
             {item.area}
           </span>
+        )}
+
+        {/* Strategy Link Badge */}
+        {item.strategyLink && (
+          <Link
+            href={`/c/${companyId}/strategy?id=${item.strategyLink.strategyId}`}
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-300 border border-blue-500/30 hover:bg-blue-500/20 transition-colors"
+            title={item.strategyLink.tacticTitle || 'From Strategy'}
+          >
+            <Layers className="w-3 h-3" />
+            From Strategy
+          </Link>
         )}
 
         {/* Brief Indicator */}

@@ -150,15 +150,15 @@ describe('Strategy Flow End-to-End', () => {
     it('should import Brand Lab output', () => {
       graph = importBrandLabToGraph(graph);
 
-      expect((graph.brand as any).positioning?.value).toBe(brandLabOutput.positioning);
-      expect((graph.brand as any).differentiators?.value).toEqual(brandLabOutput.differentiators);
+      expect((graph.brand as Record<string, { value?: unknown }>).positioning?.value).toBe(brandLabOutput.positioning);
+      expect((graph.brand as Record<string, { value?: unknown }>).differentiators?.value).toEqual(brandLabOutput.differentiators);
     });
 
     it('should import Website Lab output', () => {
       graph = importWebsiteLabToGraph(graph);
 
-      expect((graph.website as any).websiteScore?.value).toBe(websiteLabOutput.websiteScore);
-      expect((graph.website as any).websiteSummary?.value).toBe(websiteLabOutput.websiteSummary);
+      expect((graph.website as Record<string, { value?: unknown }>).websiteScore?.value).toBe(websiteLabOutput.websiteScore);
+      expect((graph.website as Record<string, { value?: unknown }>).websiteSummary?.value).toBe(websiteLabOutput.websiteSummary);
     });
 
     it('should import all Labs without conflicts', () => {
@@ -169,11 +169,11 @@ describe('Strategy Flow End-to-End', () => {
       graph = importContentLabToGraph(graph);
 
       // All domains should have data
-      expect((graph.identity as any).businessName?.value).toBeTruthy();
-      expect((graph.brand as any).positioning?.value).toBeTruthy();
-      expect((graph.website as any).websiteScore?.value).toBeTruthy();
-      expect((graph.seo as any).seoScore?.value).toBeTruthy();
-      expect((graph.content as any).contentScore?.value).toBeTruthy();
+      expect((graph.identity as Record<string, { value?: unknown }>).businessName?.value).toBeTruthy();
+      expect((graph.brand as Record<string, { value?: unknown }>).positioning?.value).toBeTruthy();
+      expect((graph.website as Record<string, { value?: unknown }>).websiteScore?.value).toBeTruthy();
+      expect((graph.seo as Record<string, { value?: unknown }>).seoScore?.value).toBeTruthy();
+      expect((graph.content as Record<string, { value?: unknown }>).contentScore?.value).toBeTruthy();
     });
   });
 
@@ -296,14 +296,14 @@ describe('Strategy Flow End-to-End', () => {
       graph = addIdentityToGraph(graph);
       graph = confirmField(graph, 'identity', 'businessName');
 
-      const originalName = (graph.identity as any).businessName?.value;
+      const originalName = (graph.identity as Record<string, { value?: unknown }>).businessName?.value;
 
       // Try to overwrite with AI source (gap_ia is allowed to write to identity)
       const aiProvenance = createProvenance('gap_ia', { confidence: 0.9 });
       graph = setFieldUntyped(graph, 'identity', 'businessName', 'AI Renamed Company', aiProvenance);
 
       // Should NOT be updated because field is confirmed
-      expect((graph.identity as any).businessName?.value).toBe(originalName);
+      expect((graph.identity as Record<string, { value?: unknown }>).businessName?.value).toBe(originalName);
     });
 
     it('should allow user overwrites of human-confirmed fields', () => {
@@ -315,7 +315,7 @@ describe('Strategy Flow End-to-End', () => {
       graph = setFieldUntyped(graph, 'identity', 'businessName', 'User Updated Company', userProvenance);
 
       // Should be updated
-      expect((graph.identity as any).businessName?.value).toBe('User Updated Company');
+      expect((graph.identity as Record<string, { value?: unknown }>).businessName?.value).toBe('User Updated Company');
     });
 
     it('should allow forced overwrites regardless of confirmation', () => {
@@ -334,7 +334,7 @@ describe('Strategy Flow End-to-End', () => {
       );
 
       // Should be updated due to force
-      expect((graph.identity as any).businessName?.value).toBe('Force Renamed Company');
+      expect((graph.identity as Record<string, { value?: unknown }>).businessName?.value).toBe('Force Renamed Company');
     });
   });
 
@@ -342,7 +342,7 @@ describe('Strategy Flow End-to-End', () => {
     it('should not overwrite existing values with empty values', () => {
       // First set a valid value
       graph = addIdentityToGraph(graph);
-      const originalName = (graph.identity as any).businessName?.value;
+      const originalName = (graph.identity as Record<string, { value?: unknown }>).businessName?.value;
 
       // Try to write empty value
       const provenance = createProvenance('user', { confidence: 0.9 });
@@ -351,7 +351,7 @@ describe('Strategy Flow End-to-End', () => {
       // Value should remain unchanged (empty values are ignored)
       // Note: actual behavior depends on setFieldUntyped implementation
       // This test documents the expected behavior
-      expect((graph.identity as any).businessName?.value).toBe(originalName);
+      expect((graph.identity as Record<string, { value?: unknown }>).businessName?.value).toBe(originalName);
     });
   });
 
@@ -385,11 +385,11 @@ describe('Strategy Flow End-to-End', () => {
 
       // Step 6: Verify AI cannot overwrite confirmed fields
       const aiProvenance = createProvenance('gap_full', { confidence: 0.8 });
-      const businessNameBefore = (graph.identity as any).businessName?.value;
+      const businessNameBefore = (graph.identity as Record<string, { value?: unknown }>).businessName?.value;
 
       graph = setFieldUntyped(graph, 'identity', 'businessName', 'AI Override Attempt', aiProvenance);
 
-      expect((graph.identity as any).businessName?.value).toBe(businessNameBefore);
+      expect((graph.identity as Record<string, { value?: unknown }>).businessName?.value).toBe(businessNameBefore);
 
       // Pipeline complete!
       console.log('[E2E] Strategy readiness pipeline completed successfully');

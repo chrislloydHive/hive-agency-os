@@ -294,11 +294,12 @@ function CompetitorListV3({
           aVal = a.name.toLowerCase();
           bVal = b.name.toLowerCase();
           break;
-        case 'type':
+        case 'type': {
           const typeOrder = { direct: 0, partial: 1, fractional: 2, platform: 3, internal: 4, irrelevant: 5 };
           aVal = typeOrder[a.type];
           bVal = typeOrder[b.type];
           break;
+        }
         case 'threat':
           aVal = a.scores.threat;
           bVal = b.scores.threat;

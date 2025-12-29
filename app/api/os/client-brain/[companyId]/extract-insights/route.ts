@@ -15,10 +15,7 @@ import type { DiagnosticToolId } from '@/lib/os/diagnostics/runs';
 import { getToolConfig } from '@/lib/os/diagnostics/tools';
 import { createClientInsights } from '@/lib/airtable/clientInsights';
 import type {
-  ClientInsight,
   CreateClientInsightPayload,
-  InsightCategory,
-  InsightSeverity,
   InsightSource,
 } from '@/lib/types/clientBrain';
 import { normalizeInsightCategory, normalizeInsightSeverity } from '@/lib/types/clientBrain';

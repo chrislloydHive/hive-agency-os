@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     let result: Record<string, unknown>;
 
     switch (mode) {
-      case 'similar':
+      case 'similar': {
         if (!companyId) {
           return NextResponse.json(
             { error: 'companyId is required' },
@@ -64,8 +64,9 @@ export async function GET(request: NextRequest) {
           count: similar.length,
         };
         break;
+      }
 
-      case 'embedding':
+      case 'embedding': {
         if (!companyId) {
           return NextResponse.json(
             { error: 'companyId is required' },
@@ -85,8 +86,9 @@ export async function GET(request: NextRequest) {
           classification,
         };
         break;
+      }
 
-      case 'benchmark':
+      case 'benchmark': {
         if (!companyId || !metricId) {
           return NextResponse.json(
             { error: 'companyId and metricId are required' },
@@ -96,8 +98,9 @@ export async function GET(request: NextRequest) {
         const position = getBenchmarkPosition(companyId, metricId);
         result = { position };
         break;
+      }
 
-      case 'report':
+      case 'report': {
         if (!companyId) {
           return NextResponse.json(
             { error: 'companyId is required' },
@@ -109,8 +112,9 @@ export async function GET(request: NextRequest) {
         const report = generateBenchmarkReport(companyId, companyName);
         result = { report };
         break;
+      }
 
-      case 'compare':
+      case 'compare': {
         if (!companyId || !otherCompanyId) {
           return NextResponse.json(
             { error: 'companyId and otherCompanyId are required' },
@@ -120,16 +124,18 @@ export async function GET(request: NextRequest) {
         const comparison = compareCompanies(companyId, otherCompanyId);
         result = { comparison };
         break;
+      }
 
-      case 'patterns':
+      case 'patterns': {
         const patterns = getAllPatterns();
         result = {
           patterns: patterns.slice(0, limit),
           totalPatterns: patterns.length,
         };
         break;
+      }
 
-      case 'recommendations':
+      case 'recommendations': {
         if (!companyId) {
           return NextResponse.json(
             { error: 'companyId is required' },
@@ -149,8 +155,9 @@ export async function GET(request: NextRequest) {
           count: recommendations.length,
         };
         break;
+      }
 
-      case 'stats':
+      case 'stats': {
         const embeddingStats = getEmbeddingStats();
         const benchmarkStats = getBenchmarkStats();
         const learningStats = getLearningStats();
@@ -160,14 +167,16 @@ export async function GET(request: NextRequest) {
           learning: learningStats,
         };
         break;
+      }
 
-      case 'metrics':
+      case 'metrics': {
         const allBenchmarks = getAllBenchmarks();
         result = {
           metrics: allBenchmarks,
           count: allBenchmarks.length,
         };
         break;
+      }
 
       default:
         return NextResponse.json(
@@ -208,7 +217,7 @@ export async function POST(request: NextRequest) {
     let result: Record<string, unknown>;
 
     switch (action) {
-      case 'register':
+      case 'register': {
         if (!companyId) {
           return NextResponse.json(
             { error: 'companyId is required' },
@@ -250,8 +259,9 @@ export async function POST(request: NextRequest) {
           classification: getCompanyClassification(companyId),
         };
         break;
+      }
 
-      case 'compute':
+      case 'compute': {
         // Compute all benchmarks
         const benchmarks = computeBenchmarks();
         result = {
@@ -259,8 +269,9 @@ export async function POST(request: NextRequest) {
           benchmarksCount: benchmarks.length,
         };
         break;
+      }
 
-      case 'discover_patterns':
+      case 'discover_patterns': {
         // Discover patterns across companies
         const patterns = await discoverPatterns();
         result = {
@@ -269,6 +280,7 @@ export async function POST(request: NextRequest) {
           patterns: patterns.slice(0, 5),
         };
         break;
+      }
 
       default:
         return NextResponse.json(

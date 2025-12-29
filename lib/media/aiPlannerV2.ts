@@ -23,8 +23,6 @@ import {
   generateMediaPlanOptions,
   type MediaPlanOption,
   type ChannelAllocation,
-  type PlanExpectedOutcomes,
-  type PlanOptionLabel,
 } from './aiPlanner';
 import { getMediaProfile } from './mediaProfile';
 import { analyzeSeasonality } from './seasonality';
@@ -330,8 +328,8 @@ function mapChannelIdsToMediaChannels(
 async function enhancePlanOption(
   option: MediaPlanOption,
   inputs: MediaPlanningInputs,
-  profile: Awaited<ReturnType<typeof getMediaProfile>>,
-  seasonality: ReturnType<typeof analyzeSeasonality>
+  _profile: Awaited<ReturnType<typeof getMediaProfile>>,
+  _seasonality: ReturnType<typeof analyzeSeasonality>
 ): Promise<EnhancedMediaPlanOption> {
   // Build geo strategy
   const geoStrategy = buildGeoStrategy(inputs, option);
@@ -372,7 +370,7 @@ async function enhancePlanOption(
 
 function buildGeoStrategy(
   inputs: MediaPlanningInputs,
-  option: MediaPlanOption
+  _option: MediaPlanOption
 ): GeoStrategy {
   const isMultiLocation = inputs.storeLocation.isMultiLocation;
   const geos = inputs.audience.geos;
@@ -876,7 +874,7 @@ function buildInputSummary(inputs: MediaPlanningInputs): InputSummary {
 
 function generateContextNotes(
   inputs: MediaPlanningInputs,
-  profile: Awaited<ReturnType<typeof getMediaProfile>>
+  _profile: Awaited<ReturnType<typeof getMediaProfile>>
 ): string[] {
   const notes: string[] = [];
 

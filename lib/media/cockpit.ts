@@ -148,10 +148,11 @@ export function getTimeRange(preset: TimeRangePreset): MediaDateRange {
       start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       end = new Date(now.getFullYear(), now.getMonth(), 0);
       break;
-    case 'thisQuarter':
+    case 'thisQuarter': {
       const quarterStart = Math.floor(now.getMonth() / 3) * 3;
       start = new Date(now.getFullYear(), quarterStart, 1);
       break;
+    }
     default:
       start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   }

@@ -2,7 +2,7 @@
 // API endpoints for Company Context Graph
 
 import { NextRequest, NextResponse } from 'next/server';
-import { loadContextGraph, getContextGraphStats } from '@/lib/contextGraph/storage';
+import { loadContextGraph } from '@/lib/contextGraph/storage';
 import { runFusion } from '@/lib/contextGraph/fusion';
 
 /**

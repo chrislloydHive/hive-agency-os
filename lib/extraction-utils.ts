@@ -400,7 +400,7 @@ export async function parseBlogPosts(page: puppeteer.Page, baseUrl: string): Pro
                           hrefLower.includes('/post/') || 
                           hrefLower.includes('/article/') ||
                           hrefLower.includes('/news/') ||
-                          hrefLower.match(/\/blog\/[^\/]+$/); // Blog post URL pattern
+                          hrefLower.match(/\/blog\/[^/]+$/); // Blog post URL pattern
         
         if (!isBlogLink) continue;
         

@@ -10,7 +10,6 @@ import Link from 'next/link';
 import {
   ChevronLeft,
   Loader2,
-  FileText,
   Users,
   Briefcase,
   Star,
@@ -20,26 +19,24 @@ import {
   Check,
   AlertTriangle,
   ExternalLink,
-  RefreshCw,
   Save,
   History,
   ArrowRightLeft,
   Library,
   BookOpen,
 } from 'lucide-react';
-import type { Rfp, RfpSection, RfpBindings, RfpSectionKey, ParsedRfpRequirements } from '@/lib/types/rfp';
+import type { Rfp, RfpSection, RfpBindings, RfpSectionKey } from '@/lib/types/rfp';
 import type { FirmBrainHealth, FirmBrainSnapshot, TeamMember, CaseStudy, Reference, PricingTemplate, PlanTemplate } from '@/lib/types/firmBrain';
 import { getRfpUIState, type RfpUIState, type RfpDataInput } from '@/lib/os/ui/rfpUiState';
-import type { FirmBrainReadiness } from '@/lib/os/ai/firmBrainReadiness';
 import { calculateFirmBrainReadiness } from '@/lib/os/ai/firmBrainReadiness';
-import { checkFirmBrainDrift, getDriftDetails, type FirmBrainDriftDetails } from '@/lib/os/ai/firmBrainSnapshot';
+import { getDriftDetails, type FirmBrainDriftDetails } from '@/lib/os/ai/firmBrainSnapshot';
 import { FirmBrainReadinessBanner } from '@/components/os/rfp/FirmBrainReadinessBanner';
-import { FirmBrainDriftWarning, DriftIndicator } from '@/components/os/rfp/FirmBrainDriftWarning';
+import { FirmBrainDriftWarning } from '@/components/os/rfp/FirmBrainDriftWarning';
 import { SectionTrustIndicators, SectionTrustBadge } from '@/components/os/rfp/SectionTrustIndicators';
 import { SaveToLibraryModal } from '@/components/os/library/SaveToLibraryModal';
 import { InsertFromLibraryModal } from '@/components/os/library/InsertFromLibraryModal';
 import { RfpRequirementsPanel, SectionRequirementsBadge } from '@/components/os/rfp/RfpRequirementsPanel';
-import { WinStrategyPanel, WinStrategyMissingBanner, SectionAlignmentBadge } from '@/components/os/rfp/WinStrategyPanel';
+import { WinStrategyPanel, SectionAlignmentBadge } from '@/components/os/rfp/WinStrategyPanel';
 import { BidReadinessPanel } from '@/components/os/rfp/BidReadinessPanel';
 import {
   SubmissionReadinessModal,
@@ -57,8 +54,8 @@ import {
   getRelevantInsights,
   getSubmissionInsights,
 } from '@/hooks/useOutcomeInsights';
-import { computeRubricCoverage, type RubricCoverageResult } from '@/lib/os/rfp/computeRubricCoverage';
-import { computeStrategyHealth, type StrategyHealth } from '@/lib/types/rfpWinStrategy';
+import { computeRubricCoverage } from '@/lib/os/rfp/computeRubricCoverage';
+import { computeStrategyHealth } from '@/lib/types/rfpWinStrategy';
 import { computeBidReadiness, type BidReadiness } from '@/lib/os/rfp/computeBidReadiness';
 import { createDefaultPersonaSettings } from '@/lib/types/rfpEvaluatorPersona';
 import type { RfpFocusCallbacks } from '@/lib/os/rfp/focus';
@@ -114,7 +111,7 @@ export default function RfpBuilderPage() {
   const [generating, setGenerating] = useState(false);
   const [savingContent, setSavingContent] = useState(false);
   const [savingBindings, setSavingBindings] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [_exporting, _setExporting] = useState(false);
   const [converting, setConverting] = useState(false);
 
   // V3: Section Library modals
@@ -241,7 +238,7 @@ export default function RfpBuilderPage() {
   }, [firmInsights, bidReadiness]);
 
   // V4: Focus callbacks for bid readiness navigation
-  const [winStrategyExpanded, setWinStrategyExpanded] = useState(false);
+  const [_winStrategyExpanded, setWinStrategyExpanded] = useState(false);
 
   const focusCallbacks = useMemo<RfpFocusCallbacks>(() => ({
     setSelectedSection: setSelectedSectionKey,
@@ -253,7 +250,7 @@ export default function RfpBuilderPage() {
   }), []);
 
   // V4: Submission gate for export/submit actions
-  const handleSubmissionWithSnapshot = useCallback(async (snapshot: SubmissionSnapshot) => {
+  const _handleSubmissionWithSnapshot = useCallback(async (snapshot: SubmissionSnapshot) => {
     // Store snapshot and update RFP status
     const response = await fetch(`/api/os/companies/${companyId}/rfps/${rfpId}/submit`, {
       method: 'POST',
@@ -658,7 +655,6 @@ export default function RfpBuilderPage() {
             <div className="space-y-1">
               {SECTION_ORDER.map((key) => {
                 const section = sections.find(s => s.sectionKey === key);
-                const sectionVis = uiState.sections.find(s => s.sectionKey === key);
                 return (
                   <button
                     key={key}
@@ -958,7 +954,7 @@ export default function RfpBuilderPage() {
               >
                 <option value="">None</option>
                 {pricingTemplates.map(pt => (
-                  <option key={pt.id} value={pt.id}>{pt.templateName}</option>
+                  <option key={pt.id} value={pt.id}>{pt.name}</option>
                 ))}
               </select>
             </div>

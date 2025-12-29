@@ -206,6 +206,7 @@ export function ContextWorkspaceClient({
   // Manual add node modal state
   const [addNodeModalOpen, setAddNodeModalOpen] = useState(false);
   const [addNodeZoneId, setAddNodeZoneId] = useState<ZoneId | null>(null);
+  const [preSelectedFieldKey, setPreSelectedFieldKey] = useState<string | null>(null);
 
   // V4 Review Queue proposal count (for badge)
   const [v4ProposalCount, setV4ProposalCount] = useState<number>(0);
@@ -590,13 +591,14 @@ export function ContextWorkspaceClient({
    * Handle add node action from zone header
    * Routes to AI suggestion or opens manual add flow
    */
-  const handleMapAddNode = useCallback((zoneId: string, mode: 'ai' | 'manual') => {
+  const handleMapAddNode = useCallback((zoneId: string, mode: 'ai' | 'manual', fieldKey?: string) => {
     if (mode === 'ai') {
       // Trigger AI suggestion for this zone
       handleMapSuggestWithAI(zoneId);
     } else {
-      // Open manual add modal
+      // Open manual add modal, optionally with a pre-selected field
       setAddNodeZoneId(zoneId as ZoneId);
+      setPreSelectedFieldKey(fieldKey || null);
       setAddNodeModalOpen(true);
     }
   }, [handleMapSuggestWithAI]);
@@ -954,9 +956,11 @@ export function ContextWorkspaceClient({
             isOpen={addNodeModalOpen}
             zoneId={addNodeZoneId}
             existingNodeKeys={existingNodeKeys}
+            preSelectedFieldKey={preSelectedFieldKey}
             onClose={() => {
               setAddNodeModalOpen(false);
               setAddNodeZoneId(null);
+              setPreSelectedFieldKey(null);
             }}
             onSubmit={handleManualNodeSubmit}
           />
@@ -1053,9 +1057,11 @@ export function ContextWorkspaceClient({
           isOpen={addNodeModalOpen}
           zoneId={addNodeZoneId}
           existingNodeKeys={existingNodeKeys}
+          preSelectedFieldKey={preSelectedFieldKey}
           onClose={() => {
             setAddNodeModalOpen(false);
             setAddNodeZoneId(null);
+            setPreSelectedFieldKey(null);
           }}
           onSubmit={handleManualNodeSubmit}
         />

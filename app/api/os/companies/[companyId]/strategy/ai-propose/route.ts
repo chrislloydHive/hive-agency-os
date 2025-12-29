@@ -17,9 +17,8 @@ import { getActiveStrategy, getStrategyById } from '@/lib/os/strategy';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
 import { getStrategyInputs } from '@/lib/os/strategy/strategyInputs';
 import { hydrateStrategyFrameFromContext } from '@/lib/os/strategy/strategyHydration';
-import { computeHash } from '@/lib/types/strategyOrchestration';
-import { saveDraft, type CreateDraftRequest, type DraftScopeType } from '@/lib/os/strategy/drafts';
-import { computeAllHashes, type StrategyHashes } from '@/lib/os/strategy/hashes';
+import { saveDraft, type DraftScopeType } from '@/lib/os/strategy/drafts';
+import { computeAllHashes } from '@/lib/os/strategy/hashes';
 import type { StrategyObjective, StrategyPillar, StrategyPlay } from '@/lib/types/strategy';
 
 // ============================================================================

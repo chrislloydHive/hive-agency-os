@@ -68,7 +68,7 @@ export async function PUT(
       );
     }
 
-    const { value, status = 'proposed' } = body as {
+    const { value, status: _status = 'proposed' } = body as {
       value: string;
       status?: ContextFieldStatus;
     };

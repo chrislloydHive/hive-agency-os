@@ -606,9 +606,12 @@ function formatCaseStudy(study: CaseStudy, index: number): string {
   if (study.outcome) {
     lines.push(`   Outcome: ${study.outcome}`);
   }
-  if (study.metrics.length > 0) {
-    const metricsStr = study.metrics.map(m => `${m.label}: ${m.value}`).join('; ');
-    lines.push(`   Metrics: ${metricsStr}`);
+  // Handle both array and object metrics formats
+  const metricsEntries = Array.isArray(study.metrics)
+    ? study.metrics.map(m => `${m.label}: ${m.value}`)
+    : Object.entries(study.metrics).filter(([, v]) => v !== null).map(([k, v]) => `${k}: ${v}`);
+  if (metricsEntries.length > 0) {
+    lines.push(`   Metrics: ${metricsEntries.join('; ')}`);
   }
   if (study.permissionLevel !== 'public') {
     lines.push(`   [Permission: ${study.permissionLevel}]`);
@@ -652,38 +655,18 @@ function formatReference(ref: Reference, index: number): string {
 
 /**
  * Format pricing template for prompt
+ * Uses simplified schema with name + description (plain text with sections)
  */
 function formatPricingTemplate(template: PricingTemplate): string {
   const lines: string[] = [
-    `Template: ${template.templateName}`,
+    `Template: ${template.name}`,
   ];
 
-  if (template.useCase) {
-    lines.push(`Use Case: ${template.useCase}`);
-  }
-
-  if (template.lineItems.length > 0) {
-    lines.push('\nLine Items:');
-    for (const item of template.lineItems) {
-      const optionalTag = item.optional ? ' (optional)' : '';
-      const rateStr = item.rate ? ` - ${item.rate}/${item.unit}` : '';
-      lines.push(`  - ${item.category}: ${item.description}${rateStr}${optionalTag}`);
-    }
-  }
-
-  if (template.assumptions.length > 0) {
-    lines.push(`\nAssumptions: ${template.assumptions.join('; ')}`);
-  }
-
-  if (template.exclusions.length > 0) {
-    lines.push(`\nExclusions: ${template.exclusions.join('; ')}`);
-  }
-
-  if (template.optionSets.length > 0) {
-    lines.push('\nOption Sets:');
-    for (const opt of template.optionSets) {
-      lines.push(`  - ${opt.name}: ${opt.description || 'No description'}`);
-    }
+  // Include the full description which contains structured sections
+  // (Best for, Typical range, Includes, Excludes, etc.)
+  if (template.description) {
+    lines.push('');
+    lines.push(template.description);
   }
 
   return lines.join('\n');

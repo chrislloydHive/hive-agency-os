@@ -603,7 +603,7 @@ function extractTopicsFromTitles(titles: string[]): string[] {
     // Split on common title separators: | – — : -
     const segments = title
       .toLowerCase()
-      .split(/[|–—:\-]/)
+      .split(/[|–—:-]/)
       .map(s => s.trim())
       .filter(Boolean);
 
@@ -725,7 +725,7 @@ function computeDataConfidence(
   hasGscData: boolean
 ): ContentDataConfidence {
   let score = 30; // Base score
-  let reasons: string[] = [];
+  const reasons: string[] = [];
 
   // Page count contribution
   if (pageCount >= 10) {

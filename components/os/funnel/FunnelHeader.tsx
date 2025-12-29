@@ -9,7 +9,7 @@ import type { FunnelDataset } from '@/lib/os/analytics/funnelTypes';
 export interface FunnelHeaderProps {
   dataset: FunnelDataset;
   title: string;
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   breadcrumb?: {
     label: string;
     href: string;

@@ -20,6 +20,19 @@ interface DmaFunnelClientV2Props {
 
 type DateRangeOption = '7d' | '30d' | '90d';
 
+// Type for company funnel breakdown data
+interface CompanyFunnelBreakdown {
+  companyId: string;
+  companyName: string;
+  dmaStarted: number;
+  dmaCompleted: number;
+  dmaCompletionRate: number;
+  gapFullStarted: number;
+  gapFullComplete: number;
+  gapFullReviewCtaClicked: number;
+  gapReviewCtaRate: number;
+}
+
 export default function DmaFunnelClientV2({
   initialSnapshot,
   initialRange,
@@ -44,10 +57,10 @@ export default function DmaFunnelClientV2({
   const [error, setError] = useState<string | null>(null);
 
   // Keep legacy snapshot for per-company breakdown
-  const [snapshot, setSnapshot] = useState<AuditFunnelSnapshot>(initialSnapshot);
+  const [_snapshot, setSnapshot] = useState<AuditFunnelSnapshot>(initialSnapshot);
 
   // Per-company breakdown state (keeping this from legacy)
-  const [companyBreakdown, setCompanyBreakdown] = useState<any[]>([]);
+  const [companyBreakdown, setCompanyBreakdown] = useState<CompanyFunnelBreakdown[]>([]);
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);
 
   // Fetch company breakdown
@@ -153,7 +166,7 @@ export default function DmaFunnelClientV2({
               </tr>
             </thead>
             <tbody>
-              {companyBreakdown.map((company: any) => (
+              {companyBreakdown.map((company) => (
                 <tr key={company.companyId} className="border-b border-slate-800/50 last:border-0 hover:bg-slate-800/30 transition-colors">
                   <td className="py-3 px-4">
                     <Link
@@ -230,7 +243,7 @@ export default function DmaFunnelClientV2({
           <>
             Performance of the <span className="text-amber-400">DigitalMarketingAudit.ai</span> acquisition funnel.
           </>
-        ) as any,
+        ),
         breadcrumb: {
           label: "Part of Workspace Analytics",
           href: "/analytics/os",

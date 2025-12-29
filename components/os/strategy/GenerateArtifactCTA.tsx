@@ -45,18 +45,20 @@ export function GenerateArtifactCTA({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [recommendedTypes, setRecommendedTypes] = useState<ArtifactTypeDefinition[]>([]);
 
-  // Don't render if artifacts feature is disabled
-  if (!FEATURE_FLAGS.ARTIFACTS_ENABLED) {
-    return null;
-  }
-
   // Compute readiness
   const canGenerate = frameCompleteness.isComplete;
   const activeTactics = tactics.filter(t => t.status === 'active' || t.status === 'proposed');
   const hasActiveTactics = activeTactics.length > 0;
 
+  // Check if artifacts feature is enabled
+  const isEnabled = FEATURE_FLAGS.ARTIFACTS_ENABLED;
+
   // Load recommended artifact types based on tactics
+  // Hook must be called unconditionally, before any early returns
   useEffect(() => {
+    // Skip if feature is disabled
+    if (!isEnabled) return;
+
     async function loadRecommendations() {
       try {
         const { detectTacticChannels } = await import('@/lib/os/artifacts/buildInputs');
@@ -83,7 +85,7 @@ export function GenerateArtifactCTA({
     if (canGenerate && hasActiveTactics) {
       loadRecommendations();
     }
-  }, [canGenerate, hasActiveTactics, tactics]);
+  }, [isEnabled, canGenerate, hasActiveTactics, tactics]);
 
   // Disabled reason
   const disabledReason = useMemo(() => {
@@ -96,6 +98,11 @@ export function GenerateArtifactCTA({
     }
     return null;
   }, [frameCompleteness, hasActiveTactics]);
+
+  // Don't render if artifacts feature is disabled
+  if (!isEnabled) {
+    return null;
+  }
 
   return (
     <>

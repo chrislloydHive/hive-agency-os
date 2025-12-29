@@ -7,12 +7,12 @@ import {
   hashInputs,
   detectTacticChannels,
 } from '@/lib/os/artifacts/buildInputs';
-import type { ContextGraph } from '@/lib/types/contextGraph';
-import type { Strategy } from '@/lib/types/strategy';
+import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
+import type { CompanyStrategy } from '@/lib/types/strategy';
 import type { ArtifactSourceInput } from '@/lib/os/artifacts/buildInputs';
 
 // Mock data helpers
-function createMockContextGraph(overrides: Partial<ContextGraph> = {}): ContextGraph {
+function createMockContextGraph(overrides: Partial<CompanyContextGraph> = {}): CompanyContextGraph {
   return {
     brand: {
       positioning: { value: 'Premium B2B solution', status: 'confirmed' },
@@ -25,10 +25,10 @@ function createMockContextGraph(overrides: Partial<ContextGraph> = {}): ContextG
       valueProposition: { value: 'Save 50% on cloud costs', status: 'confirmed' },
     },
     ...overrides,
-  } as ContextGraph;
+  } as CompanyContextGraph;
 }
 
-function createMockStrategy(overrides: Partial<Strategy> = {}): Strategy {
+function createMockStrategy(overrides: Partial<CompanyStrategy> = {}): CompanyStrategy {
   return {
     id: 'test-strategy-1',
     goalStatement: 'Increase ARR by 40% through targeted enterprise acquisition',
@@ -47,7 +47,7 @@ function createMockStrategy(overrides: Partial<Strategy> = {}): Strategy {
       { id: 'tactic-4', title: 'Paused tactic', status: 'paused', channels: ['media'] },
     ],
     ...overrides,
-  } as Strategy;
+  } as CompanyStrategy;
 }
 
 describe('buildArtifactInputs', () => {

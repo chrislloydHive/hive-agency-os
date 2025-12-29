@@ -59,11 +59,12 @@ export function CenterCompetitionPanel({
           aVal = a.competitorName.toLowerCase();
           bVal = b.competitorName.toLowerCase();
           break;
-        case 'role':
+        case 'role': {
           const roleOrder = { core: 0, secondary: 1, alternative: 2 };
           aVal = roleOrder[a.role] ?? 3;
           bVal = roleOrder[b.role] ?? 3;
           break;
+        }
         case 'threatLevel':
           aVal = a.threatLevel ?? 0;
           bVal = b.threatLevel ?? 0;

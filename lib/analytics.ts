@@ -17,7 +17,7 @@ export function trackEvent(eventName: string, params: Record<string, any> = {}) 
 
   // Debug logging in development only
   if (process.env.NODE_ENV !== "production") {
-    // eslint-disable-next-line no-console
+     
     console.debug("[analytics]", eventName, params);
   }
 }

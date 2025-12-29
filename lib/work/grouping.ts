@@ -7,7 +7,6 @@ import {
   isPast,
   isThisWeek,
   parseISO,
-  startOfDay,
 } from 'date-fns';
 import type { WorkItem } from '@/lib/types/work';
 
@@ -56,7 +55,6 @@ export function getTimeBucket(dueDate: string | undefined | null): TimeBucket {
 
   try {
     const date = parseISO(dueDate);
-    const todayStart = startOfDay(new Date());
 
     // Check if overdue (past and not today)
     if (isPast(date) && !isToday(date)) {

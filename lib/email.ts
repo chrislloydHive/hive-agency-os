@@ -51,16 +51,16 @@ export async function sendEmail(emailData: EmailData): Promise<boolean> {
     });
 
     if (error) {
-      // eslint-disable-next-line no-console
+       
       console.error('Resend API error:', error);
       return false;
     }
 
-    // eslint-disable-next-line no-console
+     
     console.log('Email sent successfully:', data?.id);
     return true;
   } catch (error) {
-    // eslint-disable-next-line no-console
+     
     console.error('Error sending email:', error);
     return false;
   }
@@ -408,7 +408,7 @@ export async function sendSnapshotEmail(
       html,
     });
   } catch (error) {
-    // eslint-disable-next-line no-console
+     
     console.error('Error sending snapshot email:', error);
     return false;
   }

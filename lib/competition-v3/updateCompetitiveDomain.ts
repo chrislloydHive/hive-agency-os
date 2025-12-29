@@ -47,7 +47,7 @@ export async function updateCompetitiveDomain(
 
   try {
     // Load existing graph
-    let graph = await loadContextGraph(companyId);
+    const graph = await loadContextGraph(companyId);
 
     if (!graph) {
       console.warn(`[updateCompetitiveDomain] No context graph found for ${companyId}`);

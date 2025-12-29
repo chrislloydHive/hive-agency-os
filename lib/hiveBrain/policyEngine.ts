@@ -217,7 +217,7 @@ const VERTICAL_POLICIES: HivePolicy[] = [
 // ============================================================================
 
 // In production, this would be backed by a database
-let customPolicies: HivePolicy[] = [];
+const customPolicies: HivePolicy[] = [];
 
 /**
  * Get all active policies

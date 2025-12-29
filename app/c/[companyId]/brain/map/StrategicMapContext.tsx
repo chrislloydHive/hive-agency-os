@@ -341,7 +341,9 @@ export function StrategicMapProvider({
         if (stored) {
           return new Set(JSON.parse(stored));
         }
-      } catch {}
+      } catch {
+        // Ignore localStorage errors - fall back to empty set
+      }
     }
     return new Set();
   });

@@ -136,6 +136,9 @@ export function DecideShell({
     );
   }
 
+  // Check if all decisions are confirmed (strategy locked = ready to proceed)
+  const allConfirmed = uiState.state === 'strategy_locked';
+
   return (
     <div className="space-y-6">
       {/* Sub-Navigation */}
@@ -143,6 +146,7 @@ export function DecideShell({
         subNav={uiState.subNav}
         activeSubView={sanitizedActiveSubView}
         onChange={handleSubViewChange}
+        allConfirmed={allConfirmed}
       />
 
       {/* Dev-only UI state debug indicator */}

@@ -25,10 +25,9 @@ interface ExplanationRequest {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ companyId: string }> }
+  { params: _params }: { params: Promise<{ companyId: string }> }
 ) {
   try {
-    const { companyId } = await params;
     const body: ExplanationRequest = await request.json();
 
     const { fieldPath, fieldLabel, fieldValue, domainId } = body;

@@ -300,7 +300,7 @@ export async function buildCompanySummaries(runs: DMARun[]): Promise<DMACompanyS
   }
 
   // Fetch company names in batch
-  let companiesMap = new Map<string, { name: string; domain: string | null }>();
+  const companiesMap = new Map<string, { name: string; domain: string | null }>();
   try {
     const companies = await getAllCompanies();
     for (const company of companies) {

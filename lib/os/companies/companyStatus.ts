@@ -257,7 +257,7 @@ export async function getCompanyStatusSummary(
 
   // Initialize with defaults
   const now = new Date().toISOString();
-  let summary: CompanyStatusSummary = {
+  const summary: CompanyStatusSummary = {
     companyId,
     lifecycleStage: 'active_client',
     overallStatus: 'yellow',

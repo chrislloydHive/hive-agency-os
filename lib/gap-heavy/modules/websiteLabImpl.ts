@@ -27,7 +27,7 @@ import type {
   WebsiteUxSectionAnalysis,
   WebsiteUxDimensionKey,
 } from './websiteLab';
-import type { WebsiteEvidenceV3 } from './website';
+import type { WebsiteEvidenceV3 as _WebsiteEvidenceV3 } from './website';
 
 // ============================================================================
 // MULTI-PAGE SPIDER (V4.0)
@@ -453,7 +453,7 @@ export async function analyzePage(
  */
 export async function discoverPages(
   websiteUrl: string,
-  maxPages: number = 10
+  _maxPages: number = 10
 ): Promise<WebsitePageSnapshot[]> {
   console.log('[WebsiteLab V4] Discovering pages from:', websiteUrl);
 
@@ -724,7 +724,7 @@ export function buildSiteGraph(pages: WebsitePageEvidenceV4[]): WebsiteSiteGraph
  * For now, returns empty array
  */
 export async function captureScreenshots(
-  pages: WebsitePageSnapshot[]
+  _pages: WebsitePageSnapshot[]
 ): Promise<WebsiteScreenshotSet[]> {
   console.log(`[WebsiteLab V4] Screenshot capture not yet implemented`);
   // TODO: Implement screenshot capture
@@ -741,7 +741,7 @@ export async function captureScreenshots(
  * For now, returns empty map
  */
 export async function analyzeVision(
-  screenshotSets: WebsiteScreenshotSet[]
+  _screenshotSets: WebsiteScreenshotSet[]
 ): Promise<Map<string, PageVisionAnalysis>> {
   console.log(`[WebsiteLab V4] Vision analysis not yet implemented`);
   // TODO: Implement vision analysis
@@ -992,7 +992,6 @@ export function evaluateHeuristics(siteGraph: WebsiteSiteGraphV4): HeuristicUxSu
 
   const homePage = pages.find(p => p.type === 'home');
   const pricingPage = pages.find(p => p.type === 'pricing');
-  const contactPage = pages.find(p => p.type === 'contact');
   const primaryPages = pages.filter(p => p.isPrimary);
 
   // Rule 1: No primary CTA on homepage
@@ -1216,7 +1215,7 @@ function simulatePersona(
       timeToGoalEstimate += 1;
       break;
 
-    case 'ready_to_buy':
+    case 'ready_to_buy': {
       // Try to find pricing or contact quickly
       const pricingPage = pages.find(p => p.type === 'pricing');
       const contactPage = pages.find(p => p.type === 'contact');
@@ -1246,8 +1245,9 @@ function simulatePersona(
         timeToGoalEstimate += 5;
       }
       break;
+    }
 
-    case 'researcher':
+    case 'researcher': {
       // Look for product/service details
       const productPage = pages.find(p => p.type === 'product' || p.type === 'service');
       if (productPage) {
@@ -1262,6 +1262,7 @@ function simulatePersona(
         timeToGoalEstimate += 4;
       }
       break;
+    }
 
     case 'comparison_shopper':
       // Look for features, benefits, case studies
@@ -1808,7 +1809,7 @@ for 5 different user personas. This is the most comprehensive UX diagnostic avai
       overallScore,
       brainContext
     );
-  } catch (error) {
+  } catch {
     console.warn('[WebsiteLab V5] Failed to generate consultant report, using fallback');
     consultantReport = {
       executiveSummary: `Your website scored ${overallScore}/100 in our comprehensive analysis. This reflects the current state of your digital presence across multiple dimensions including user experience, conversion optimization, and technical implementation.`,

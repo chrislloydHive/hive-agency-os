@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { getGapPlanRunsForCompany } from '@/lib/airtable/gapPlanRuns';
-import { loadContextFieldsV4WithError, getV4StoreDebugInfo, type V4StoreErrorCode } from '@/lib/contextGraph/fieldStoreV4';
+import { loadContextFieldsV4WithError, getV4StoreDebugInfo } from '@/lib/contextGraph/fieldStoreV4';
 import { getProposalStoreDebugInfo } from '@/lib/contextGraph/nodes/proposalStorage';
 import {
   isContextV4Enabled,

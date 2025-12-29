@@ -10,7 +10,6 @@ import {
   type SectionPersonaAssignment,
   type RfpPersonaSettings,
   DEFAULT_SECTION_PERSONAS,
-  CRITERION_PERSONA_KEYWORDS,
   inferCriterionPersona,
 } from '@/lib/types/rfpEvaluatorPersona';
 

@@ -73,7 +73,7 @@ export {
   recallMemories,
   queryMemories,
   getMemory,
-  useMemory,
+  recordMemoryUsage,
   validateMemory,
   deprecateMemory,
   findSimilarMemories,

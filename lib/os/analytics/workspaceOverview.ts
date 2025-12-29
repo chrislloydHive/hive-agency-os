@@ -775,7 +775,7 @@ export async function getWorkspaceOperatorOverview(options?: {
   const [health, risksAndOpps, funnel, attentionList, dmaContribution] =
     await Promise.all(corePromises);
 
-  let { risks, opportunities } = risksAndOpps;
+  const { risks, opportunities } = risksAndOpps;
 
   // Merge DMA risks and opportunities if available
   if (dmaContribution) {

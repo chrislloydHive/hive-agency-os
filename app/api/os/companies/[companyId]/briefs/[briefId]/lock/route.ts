@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getBriefById, lockBrief, unlockBrief } from '@/lib/airtable/briefs';
-import { canLockBrief, canUnlockBrief, getLockedBriefError } from '@/lib/types/brief';
+import { canLockBrief, canUnlockBrief } from '@/lib/types/brief';
 
 type Params = { params: Promise<{ companyId: string; briefId: string }> };
 

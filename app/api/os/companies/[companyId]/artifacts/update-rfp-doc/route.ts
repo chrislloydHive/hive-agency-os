@@ -6,7 +6,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getArtifactsForCompanyByType, updateArtifact, getArtifactById } from '@/lib/airtable/artifacts';
 import { createGoogleDriveClient, isGoogleDriveAvailable } from '@/lib/integrations/googleDrive';
-import type { DocumentSection } from '@/lib/integrations/googleDrive';
 import { FEATURE_FLAGS, FEATURE_DISABLED_RESPONSE } from '@/lib/config/featureFlags';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
 import { getSnapshotById } from '@/lib/contextGraph/snapshots';

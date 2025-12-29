@@ -25,8 +25,9 @@ import {
   getPersonaDistribution,
 } from '@/lib/os/rfp/assignSectionPersona';
 import { computeRubricCoverage } from '@/lib/os/rfp/computeRubricCoverage';
-import type { RfpSection, RfpSectionKey } from '@/lib/types/rfp';
+import type { RfpSectionKey } from '@/lib/types/rfp';
 import type { RfpWinStrategy } from '@/lib/types/rfpWinStrategy';
+import { createRfpSection, createRfpWinStrategy } from '@/tests/helpers/factories';
 
 // ============================================================================
 // Persona Types and Definitions Tests
@@ -300,10 +301,10 @@ describe('Criterion Persona Inference', () => {
 // ============================================================================
 
 describe('Persona Assignment Management', () => {
-  const mockSections: RfpSection[] = [
-    { sectionKey: 'approach', title: 'Technical Approach', content: '', status: 'draft' },
-    { sectionKey: 'pricing', title: 'Investment', content: '', status: 'draft' },
-    { sectionKey: 'team', title: 'Our Team', content: '', status: 'draft' },
+  const mockSections = [
+    createRfpSection({ sectionKey: 'approach', title: 'Technical Approach', contentWorking: '', status: 'draft' }),
+    createRfpSection({ sectionKey: 'pricing', title: 'Investment', contentWorking: '', status: 'draft' }),
+    createRfpSection({ sectionKey: 'team', title: 'Our Team', contentWorking: '', status: 'draft' }),
   ];
 
   test('getPersonaAssignments creates assignments for all sections', () => {
@@ -382,27 +383,25 @@ describe('Persona-Aware Rubric Coverage', () => {
     evaluationCriteriaConsidered: [],
   };
 
-  const mockSections: RfpSection[] = [
-    { sectionKey: 'approach', title: 'Technical Approach', content: 'Our methodology includes agile development', status: 'approved', generatedUsing: mockGeneratedUsing },
-    { sectionKey: 'pricing', title: 'Investment', content: 'Our pricing model includes fixed rates', status: 'approved', generatedUsing: mockGeneratedUsing },
-    { sectionKey: 'team', title: 'Our Team', content: 'Team of experienced developers', status: 'approved', generatedUsing: mockGeneratedUsing },
+  const mockSections = [
+    createRfpSection({ sectionKey: 'approach', title: 'Technical Approach', contentWorking: 'Our methodology includes agile development', status: 'approved', generatedUsing: mockGeneratedUsing }),
+    createRfpSection({ sectionKey: 'pricing', title: 'Investment', contentWorking: 'Our pricing model includes fixed rates', status: 'approved', generatedUsing: mockGeneratedUsing }),
+    createRfpSection({ sectionKey: 'team', title: 'Our Team', contentWorking: 'Team of experienced developers', status: 'approved', generatedUsing: mockGeneratedUsing }),
   ];
 
-  const mockStrategy: RfpWinStrategy = {
+  const mockStrategy = createRfpWinStrategy({
     evaluationCriteria: [
-      { label: 'Technical Methodology', weight: 0.3, keywordMatches: ['methodology'] },
-      { label: 'Price Competitiveness', weight: 0.3, keywordMatches: ['pricing'] },
-      { label: 'Team Experience', weight: 0.2, keywordMatches: ['team'] },
-      { label: 'Strategic Value', weight: 0.2, keywordMatches: [] },
+      { label: 'Technical Methodology', weight: 0.3, primarySections: ['approach'] },
+      { label: 'Price Competitiveness', weight: 0.3, primarySections: ['pricing'] },
+      { label: 'Team Experience', weight: 0.2, primarySections: ['team'] },
+      { label: 'Strategic Value', weight: 0.2, primarySections: [] },
     ],
     winThemes: [],
     proofPlan: [],
+    competitiveAssumptions: [],
     landmines: [],
-    decisionMakers: [],
-    competitorMentions: [],
     locked: false,
-    suggestedAt: new Date().toISOString(),
-  };
+  });
 
   test('computeRubricCoverage includes persona fields', () => {
     const result = computeRubricCoverage(mockStrategy, mockSections, enabledPersonaSettings);
@@ -438,22 +437,20 @@ describe('Persona-Aware Rubric Coverage', () => {
 
   test('computeRubricCoverage detects persona mismatch', () => {
     // Create a scenario where a procurement criterion is only covered by a technical section
-    const mismatchStrategy: RfpWinStrategy = {
+    const mismatchStrategy = createRfpWinStrategy({
       evaluationCriteria: [
-        { label: 'Contract Terms and Compliance', weight: 0.5, keywordMatches: ['contract', 'compliance'] },
+        { label: 'Contract Terms and Compliance', weight: 0.5, primarySections: ['approach'] },
       ],
       winThemes: [],
       proofPlan: [],
+      competitiveAssumptions: [],
       landmines: [],
-      decisionMakers: [],
-      competitorMentions: [],
       locked: false,
-      suggestedAt: new Date().toISOString(),
-    };
+    });
 
     // Only technical sections have content (with generatedUsing to enable coverage)
-    const techOnlySections: RfpSection[] = [
-      { sectionKey: 'approach', title: 'Technical Approach', content: 'Contract terms are handled by our compliance team', status: 'approved', generatedUsing: mockGeneratedUsing },
+    const techOnlySections = [
+      createRfpSection({ sectionKey: 'approach', title: 'Technical Approach', contentWorking: 'Contract terms are handled by our compliance team', status: 'approved', generatedUsing: mockGeneratedUsing }),
     ];
 
     const result = computeRubricCoverage(mismatchStrategy, techOnlySections, enabledPersonaSettings);
@@ -475,27 +472,24 @@ describe('Persona-Aware Rubric Coverage', () => {
     // Use a technical criterion that maps to 'approach' section (which has technical persona)
     // but we'll make the criterion expect procurement persona (by using procurement keywords)
     // Actually, let's use a criterion with primarySections set to 'approach' but procurement keywords
-    const highWeightMismatchStrategy: RfpWinStrategy = {
+    const highWeightMismatchStrategy = createRfpWinStrategy({
       evaluationCriteria: [
         {
           label: 'Compliance and Contract Terms',
           weight: 0.5,
-          keywordMatches: ['contract'],
           primarySections: ['approach'], // Force it to use approach section
         },
       ],
       winThemes: [],
       proofPlan: [],
+      competitiveAssumptions: [],
       landmines: [],
-      decisionMakers: [],
-      competitorMentions: [],
       locked: false,
-      suggestedAt: new Date().toISOString(),
-    };
+    });
 
     // Only technical section covers it (with generatedUsing to enable coverage)
-    const techOnlySections: RfpSection[] = [
-      { sectionKey: 'approach', title: 'Technical Approach', content: 'Contract terms compliance', status: 'approved', generatedUsing: mockGeneratedUsing },
+    const techOnlySections = [
+      createRfpSection({ sectionKey: 'approach', title: 'Technical Approach', contentWorking: 'Contract terms compliance', status: 'approved', generatedUsing: mockGeneratedUsing }),
     ];
 
     const result = computeRubricCoverage(highWeightMismatchStrategy, techOnlySections, enabledPersonaSettings);
@@ -538,22 +532,20 @@ describe('Persona Layer Determinism', () => {
   });
 
   test('computeRubricCoverage persona results are deterministic', () => {
-    const mockSections: RfpSection[] = [
-      { sectionKey: 'approach', title: 'Technical Approach', content: 'Methodology includes testing', status: 'approved' },
+    const mockSections = [
+      createRfpSection({ sectionKey: 'approach', title: 'Technical Approach', contentWorking: 'Methodology includes testing', status: 'approved' }),
     ];
 
-    const mockStrategy: RfpWinStrategy = {
+    const mockStrategy = createRfpWinStrategy({
       evaluationCriteria: [
-        { label: 'Technical Quality', weight: 0.5, keywordMatches: ['testing'] },
+        { label: 'Technical Quality', weight: 0.5, primarySections: ['approach'] },
       ],
       winThemes: [],
       proofPlan: [],
+      competitiveAssumptions: [],
       landmines: [],
-      decisionMakers: [],
-      competitorMentions: [],
       locked: false,
-      suggestedAt: new Date().toISOString(),
-    };
+    });
 
     const results = new Set<string>();
 
@@ -613,16 +605,14 @@ describe('Persona Layer Edge Cases', () => {
   });
 
   test('handles empty sections array', () => {
-    const mockStrategy: RfpWinStrategy = {
-      evaluationCriteria: [{ label: 'Test', weight: 0.5, keywordMatches: [] }],
+    const mockStrategy = createRfpWinStrategy({
+      evaluationCriteria: [{ label: 'Test', weight: 0.5, primarySections: [] }],
       winThemes: [],
       proofPlan: [],
+      competitiveAssumptions: [],
       landmines: [],
-      decisionMakers: [],
-      competitorMentions: [],
       locked: false,
-      suggestedAt: new Date().toISOString(),
-    };
+    });
 
     const result = computeRubricCoverage(mockStrategy, []);
     expect(result.criterionCoverage).toHaveLength(1);
@@ -630,20 +620,18 @@ describe('Persona Layer Edge Cases', () => {
   });
 
   test('handles null persona settings gracefully', () => {
-    const mockSections: RfpSection[] = [
-      { sectionKey: 'approach', title: 'Test', content: 'test content', status: 'draft' },
+    const mockSections = [
+      createRfpSection({ sectionKey: 'approach', title: 'Test', contentWorking: 'test content', status: 'draft' }),
     ];
 
-    const mockStrategy: RfpWinStrategy = {
-      evaluationCriteria: [{ label: 'Test Criterion', weight: 0.5, keywordMatches: ['test'] }],
+    const mockStrategy = createRfpWinStrategy({
+      evaluationCriteria: [{ label: 'Test Criterion', weight: 0.5, primarySections: ['approach'] }],
       winThemes: [],
       proofPlan: [],
+      competitiveAssumptions: [],
       landmines: [],
-      decisionMakers: [],
-      competitorMentions: [],
       locked: false,
-      suggestedAt: new Date().toISOString(),
-    };
+    });
 
     // Should not throw with null settings
     const result = computeRubricCoverage(mockStrategy, mockSections, null);

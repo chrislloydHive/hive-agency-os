@@ -349,7 +349,7 @@ export function CompaniesDirectoryClientV2({
           return multiplier * (a.latestGap.score - b.latestGap.score);
         case 'openWork':
           return multiplier * (b.openWorkCount - a.openWorkCount);
-        case 'health':
+        case 'health': {
           const healthOrder: Record<CompanyHealthStatus, number> = {
             AtRisk: 0,
             Unknown: 1,
@@ -357,6 +357,7 @@ export function CompaniesDirectoryClientV2({
             Good: 3,
           };
           return multiplier * (healthOrder[a.health] - healthOrder[b.health]);
+        }
         default:
           return 0;
       }

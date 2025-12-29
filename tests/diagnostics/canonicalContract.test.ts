@@ -295,7 +295,7 @@ describe('ensureCanonical', () => {
 
       expect(result.synthesizedFields.length).toBeGreaterThan(0);
       expect(result.canonical.positioning).toBeDefined();
-      expect((result.canonical.positioning as any).statement).toBeDefined();
+      expect((result.canonical.positioning as Record<string, unknown>).statement).toBeDefined();
     });
 
     it('should preserve existing canonical values', () => {
@@ -313,7 +313,7 @@ describe('ensureCanonical', () => {
       });
 
       // Should keep existing positioning
-      expect((result.canonical.positioning as any).statement).toBe('Existing positioning statement for the company.');
+      expect((result.canonical.positioning as Record<string, unknown>).statement).toBe('Existing positioning statement for the company.');
     });
 
     it('should set null for required fields that cannot be synthesized', () => {
@@ -344,7 +344,7 @@ describe('ensureCanonical', () => {
       // Empty objects should be stripped
       expect(result.canonical.emptyField).toBeUndefined();
       expect(result.canonical.emptyArray).toBeUndefined();
-      expect((result.canonical.positioning as any).emptyNested).toBeUndefined();
+      expect((result.canonical.positioning as Record<string, unknown>).emptyNested).toBeUndefined();
     });
 
     it('should report valid when all required fields present', () => {
@@ -389,7 +389,7 @@ describe('ensureCanonical', () => {
 
       expect(result.canonical.competitors).toBeDefined();
       expect(Array.isArray(result.canonical.competitors)).toBe(true);
-      expect((result.canonical.competitors as any[]).length).toBe(3);
+      expect((result.canonical.competitors as unknown[]).length).toBe(3);
     });
 
     it('should synthesize position summary', () => {
@@ -477,7 +477,7 @@ describe('ensureCanonical', () => {
       });
 
       expect(result.canonical.topQueries).toBeDefined();
-      expect((result.canonical.topQueries as string[])).toContain('company research');
+      expect((result.canonical.topQueries as unknown as string[])).toContain('company research');
     });
   });
 
@@ -500,8 +500,8 @@ describe('ensureCanonical', () => {
       });
 
       expect(result.canonical.contentTypes).toBeDefined();
-      expect((result.canonical.contentTypes as string[])).toContain('blog');
-      expect((result.canonical.contentTypes as string[])).not.toContain('case-studies');
+      expect((result.canonical.contentTypes as unknown as string[])).toContain('blog');
+      expect((result.canonical.contentTypes as unknown as string[])).not.toContain('case-studies');
     });
 
     it('should synthesize top topics', () => {
@@ -512,7 +512,7 @@ describe('ensureCanonical', () => {
       });
 
       expect(result.canonical.topTopics).toBeDefined();
-      expect((result.canonical.topTopics as string[])).toContain('market intelligence');
+      expect((result.canonical.topTopics as unknown as string[])).toContain('market intelligence');
     });
   });
 
@@ -547,7 +547,7 @@ describe('ensureCanonical', () => {
       });
 
       expect(result.canonical.painPoints).toBeDefined();
-      expect((result.canonical.painPoints as string[])).toContain('Data accuracy concerns');
+      expect((result.canonical.painPoints as unknown as string[])).toContain('Data accuracy concerns');
     });
   });
 });
@@ -688,7 +688,7 @@ describe('Empty Field Detection', () => {
     });
 
     // Null should be preserved
-    expect((result.canonical.positioning as any)?.statement).toBeNull();
+    expect((result.canonical.positioning as Record<string, unknown>)?.statement).toBeNull();
   });
 });
 

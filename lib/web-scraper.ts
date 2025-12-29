@@ -45,10 +45,8 @@ export class WebScraper {
             '--single-process'
           ]
         });
-        // eslint-disable-next-line no-console
         console.log('✅ Puppeteer browser initialized successfully');
       } catch (error) {
-        // eslint-disable-next-line no-console
         console.error('❌ Failed to initialize Puppeteer browser:', error);
         throw new Error(`Browser initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
@@ -76,8 +74,7 @@ export class WebScraper {
       try {
         // Set user agent to avoid being blocked
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-        
-        // eslint-disable-next-line no-console
+
         console.log(`🌐 Navigating to: ${url}`);
         // Navigate to the page with more lenient timeout
         await page.goto(url, { 
@@ -86,7 +83,6 @@ export class WebScraper {
         });
         
         const loadTime = Date.now() - startTime;
-        // eslint-disable-next-line no-console
         console.log(`⏱️ Page loaded in ${loadTime}ms`);
 
         // Get page content
@@ -147,7 +143,6 @@ export class WebScraper {
         await page.close();
       }
     } catch (error) {
-      // eslint-disable-next-line no-console
       console.error('❌ Website analysis failed:', error);
       throw error;
     }
@@ -172,7 +167,6 @@ export class WebScraper {
       
       return mobileContent.isMobileFriendly;
     } catch (error) {
-      // eslint-disable-next-line no-console
       console.error('Error checking mobile friendliness:', error);
       return false;
     }

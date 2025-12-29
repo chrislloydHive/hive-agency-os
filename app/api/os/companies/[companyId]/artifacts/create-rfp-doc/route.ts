@@ -334,7 +334,7 @@ function buildProposedApproachSection(graph: CompanyContextGraph): string {
 /**
  * Build scope and deliverables section
  */
-function buildScopeSection(graph: CompanyContextGraph): string {
+function buildScopeSection(_graph: CompanyContextGraph): string {
   const parts: string[] = [
     'In Scope:',
     '  - Strategic planning and execution',

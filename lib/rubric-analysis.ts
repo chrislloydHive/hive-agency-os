@@ -109,7 +109,7 @@ Extract data from the HTML and metadata above. Return JSON only.`;
 
   const extractionStartTime = Date.now();
   const promptLength = prompt.length;
-  // eslint-disable-next-line no-console
+   
   console.log(`📤 Starting extraction API call (HTML: ${truncatedHtml.length} chars, Total prompt: ${promptLength} chars)...`);
 
   try {
@@ -141,7 +141,7 @@ Extract data from the HTML and metadata above. Return JSON only.`;
       timeoutId = setTimeout(() => {
         if (!resolved) {
           const elapsed = Date.now() - extractionStartTime;
-          // eslint-disable-next-line no-console
+           
           console.error(`⏱️  Extraction API call timed out after ${elapsed}ms (timeout: ${timeoutMs}ms)`);
           reject(new Error(`OpenAI API call timed out after ${timeoutMs}ms`));
         }
@@ -153,7 +153,7 @@ Extract data from the HTML and metadata above. Return JSON only.`;
         resolved = true;
         if (timeoutId) clearTimeout(timeoutId);
         const elapsed = Date.now() - extractionStartTime;
-        // eslint-disable-next-line no-console
+         
         console.log(`✅ Extraction API call completed in ${elapsed}ms`);
         return result;
       }),
@@ -178,7 +178,7 @@ Extract data from the HTML and metadata above. Return JSON only.`;
 
     return extraction;
   } catch (error) {
-    // eslint-disable-next-line no-console
+     
     console.error('Error in extraction:', error);
     // Return minimal extraction on error
     return {
@@ -203,7 +203,7 @@ Extract data from the HTML and metadata above. Return JSON only.`;
  * Score the website using the rubric system
  */
 async function scoreWebsite(extraction: ExtractionData, rubric: RubricDefinition): Promise<Scorecard> {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   const normalizedRubric = normalizeRubricWeights(rubric);
   
   // Further optimize: Send only minimal data needed for scoring
@@ -251,7 +251,7 @@ ${JSON.stringify(minimalRubric)}
 Score each subpillar 0-100. Return: {overallScore, maturityStage, pillars: [{id, score, weightedScore, subpillarScores: [{id, score}]}]}`;
 
   const scoringStartTime = Date.now();
-  // eslint-disable-next-line no-console
+   
   console.log(`📤 Starting scoring API call...`);
 
   try {
@@ -268,7 +268,7 @@ Score each subpillar 0-100. Return: {overallScore, maturityStage, pillars: [{id,
           content: prompt,
         },
       ],
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       temperature: 0.1, // Lower temperature for faster, more consistent scoring
       response_format: { type: 'json_object' },
       max_tokens: 2500, // Reduced from 4000 to speed up
@@ -283,7 +283,7 @@ Score each subpillar 0-100. Return: {overallScore, maturityStage, pillars: [{id,
       timeoutId = setTimeout(() => {
         if (!resolved) {
           const elapsed = Date.now() - scoringStartTime;
-          // eslint-disable-next-line no-console
+           
           console.error(`⏱️  Scoring API call timed out after ${elapsed}ms`);
           reject(new Error(`Scoring timeout after ${timeoutMs}ms`));
         }
@@ -295,7 +295,7 @@ Score each subpillar 0-100. Return: {overallScore, maturityStage, pillars: [{id,
         resolved = true;
         if (timeoutId) clearTimeout(timeoutId);
         const elapsed = Date.now() - scoringStartTime;
-        // eslint-disable-next-line no-console
+         
         console.log(`✅ Scoring API call completed in ${elapsed}ms`);
         return result;
       }),
@@ -316,7 +316,7 @@ Score each subpillar 0-100. Return: {overallScore, maturityStage, pillars: [{id,
 
     return scorecard;
   } catch (error) {
-    // eslint-disable-next-line no-console
+     
     console.error('Error in scoring:', error);
     // Return default scorecard on error
     return {
@@ -380,7 +380,7 @@ ${competitors && competitors.length > 0 ? `Competitors: ${competitors.slice(0, 3
 Return: {summary, top_opportunities: [{issue, why_it_matters, recommendation}], prioritized_roadmap: [{priority, action, impact}], rewrite_suggestions: [{element, current, recommended}], competitor_analysis: {competitors, positioning_summary, gaps}}`;
 
   const strategyStartTime = Date.now();
-  // eslint-disable-next-line no-console
+   
   console.log(`📤 Starting strategy API call...`);
 
   try {
@@ -411,7 +411,7 @@ Return: {summary, top_opportunities: [{issue, why_it_matters, recommendation}], 
       timeoutId = setTimeout(() => {
         if (!resolved) {
           const elapsed = Date.now() - strategyStartTime;
-          // eslint-disable-next-line no-console
+           
           console.error(`⏱️  Strategy API call timed out after ${elapsed}ms`);
           reject(new Error(`Strategy timeout after ${timeoutMs}ms`));
         }
@@ -423,7 +423,7 @@ Return: {summary, top_opportunities: [{issue, why_it_matters, recommendation}], 
         resolved = true;
         if (timeoutId) clearTimeout(timeoutId);
         const elapsed = Date.now() - strategyStartTime;
-        // eslint-disable-next-line no-console
+         
         console.log(`✅ Strategy API call completed in ${elapsed}ms`);
         return result;
       }),
@@ -479,7 +479,7 @@ Return: {summary, top_opportunities: [{issue, why_it_matters, recommendation}], 
     
     return strategy;
   } catch (error) {
-    // eslint-disable-next-line no-console
+     
     console.error('Error in strategy generation:', error);
     // Return default strategy on error
     return {
@@ -661,12 +661,12 @@ export async function analyzeWebsiteWithRubric(
   linkedinData?: { found: boolean; completeness?: number; followerCount?: number }
 ): Promise<RubricAnalysisResult> {
   const startTime = Date.now();
-  // eslint-disable-next-line no-console
+   
   console.log('🔍 Starting rubric-based analysis for:', url);
 
   try {
     // Step 1: Extract data (with timeout)
-    // eslint-disable-next-line no-console
+     
     console.log('📊 Step 1: Extracting website data...');
     let extractionTimeoutId: NodeJS.Timeout | null = null;
     let extractionResolved = false;
@@ -674,7 +674,7 @@ export async function analyzeWebsiteWithRubric(
     const extractionTimeoutPromise = new Promise<ExtractionData>((_, reject) => {
       extractionTimeoutId = setTimeout(() => {
         if (!extractionResolved) {
-          // eslint-disable-next-line no-console
+           
           console.error(`⏱️  Extraction timed out after 30 seconds`);
           reject(new Error('Extraction timeout'));
         }
@@ -689,11 +689,11 @@ export async function analyzeWebsiteWithRubric(
       }),
       extractionTimeoutPromise,
     ]);
-    // eslint-disable-next-line no-console
+     
     console.log(`✅ Extraction complete (${Date.now() - startTime}ms)`);
 
     // Step 2: Score using rubric (with timeout)
-    // eslint-disable-next-line no-console
+     
     console.log('📊 Step 2: Scoring website with rubric...');
     let scoringTimeoutId: NodeJS.Timeout | null = null;
     let scoringResolved = false;
@@ -701,7 +701,7 @@ export async function analyzeWebsiteWithRubric(
     const scoringTimeoutPromise = new Promise<Scorecard>((_, reject) => {
       scoringTimeoutId = setTimeout(() => {
         if (!scoringResolved) {
-          // eslint-disable-next-line no-console
+           
           console.error(`⏱️  Scoring timed out after 45 seconds`);
           reject(new Error('Scoring timeout'));
         }
@@ -716,19 +716,19 @@ export async function analyzeWebsiteWithRubric(
       }),
       scoringTimeoutPromise,
     ]);
-    // eslint-disable-next-line no-console
+     
     console.log(`✅ Scoring complete. Overall score: ${scorecard.overallScore}/100 (${Date.now() - startTime}ms)`);
 
     // Step 3: Detect competitors
     const competitorCluster = detectCompetitors(htmlHint);
     const competitors = competitorCluster?.competitors || [];
     if (competitors.length > 0) {
-      // eslint-disable-next-line no-console
+       
       console.log(`🎯 Competitors detected: ${competitors.join(', ')}`);
     }
 
     // Step 4: Generate strategy (with timeout)
-    // eslint-disable-next-line no-console
+     
     console.log('📊 Step 3: Generating strategic recommendations...');
     let strategyTimeoutId: NodeJS.Timeout | null = null;
     let strategyResolved = false;
@@ -736,7 +736,7 @@ export async function analyzeWebsiteWithRubric(
     const strategyTimeoutPromise = new Promise<RubricAnalysisResult['strategy']>((_, reject) => {
       strategyTimeoutId = setTimeout(() => {
         if (!strategyResolved) {
-          // eslint-disable-next-line no-console
+           
           console.error(`⏱️  Strategy generation timed out after 30 seconds`);
           reject(new Error('Strategy generation timeout'));
         }
@@ -751,13 +751,13 @@ export async function analyzeWebsiteWithRubric(
       }),
       strategyTimeoutPromise,
     ]);
-    // eslint-disable-next-line no-console
+     
     console.log(`✅ Strategy generation complete (${Date.now() - startTime}ms)`);
 
     // Step 5: Convert to legacy format for compatibility
     const legacyFormat = convertToLegacyFormat(scorecard, strategy);
 
-    // eslint-disable-next-line no-console
+     
     console.log(`🎉 Rubric analysis completed successfully in ${Date.now() - startTime}ms`);
 
     return {
@@ -767,9 +767,9 @@ export async function analyzeWebsiteWithRubric(
       ...legacyFormat,
     };
   } catch (error) {
-    // eslint-disable-next-line no-console
+     
     console.error('❌ Error in rubric analysis:', error);
-    // eslint-disable-next-line no-console
+     
     console.error('   Error details:', error instanceof Error ? error.message : 'Unknown error');
     throw error; // Re-throw to trigger fallback
   }

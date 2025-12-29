@@ -2,9 +2,8 @@
 // Computes coverage per criterion across RFP sections
 // Used to identify gaps in addressing evaluation criteria and improve win rate
 
-import type { RfpSection, RfpSectionKey, GeneratedUsing } from '@/lib/types/rfp';
-import type { RfpWinStrategy, RfpEvaluationCriterion, RfpProofItem } from '@/lib/types/rfpWinStrategy';
-import { SECTION_STRATEGY_DEFAULTS } from '@/lib/types/rfpWinStrategy';
+import type { RfpSection, RfpSectionKey } from '@/lib/types/rfp';
+import type { RfpWinStrategy, RfpEvaluationCriterion } from '@/lib/types/rfpWinStrategy';
 import {
   type EvaluatorPersonaType,
   type RfpPersonaSettings,

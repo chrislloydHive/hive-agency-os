@@ -10,17 +10,13 @@
 import type { CompanyContextGraph, DomainName } from './companyContextGraph';
 import { DOMAIN_NAMES } from './companyContextGraph';
 import {
-  CONTEXT_FIELDS,
-  getCriticalFields,
   getAllSections,
   getFieldsBySection,
   getAutoFillMode,
   type ContextFieldDef,
   type ContextSectionId,
-  type WriterModuleId,
-  type AutoFillMode,
 } from './schema';
-import { getFieldFreshness, type FreshnessScore } from './freshness';
+import { getFieldFreshness } from './freshness';
 import type { WithMetaType } from './types';
 import { computeConvergenceScore } from './convergence';
 
@@ -616,7 +612,7 @@ function isFieldPopulated(field: WithMetaType<unknown>): boolean {
 /**
  * Get confidence from field provenance
  */
-function getFieldConfidence(field: WithMetaType<unknown> | null): number | null {
+function _getFieldConfidence(field: WithMetaType<unknown> | null): number | null {
   if (!field || !field.provenance || field.provenance.length === 0) return null;
 
   // Use the most recent provenance entry's confidence

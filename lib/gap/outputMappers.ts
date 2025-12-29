@@ -45,7 +45,6 @@ import type {
   DigitalFootprintDimension,
   AuthorityDimension,
   BreakdownItem,
-  QuickWinItem,
   CoreMarketingContext,
   DiagnosticCategory,
   GapFullAssessmentV1,
@@ -57,7 +56,6 @@ import type {
   GapDataConfidence,
   DimensionId,
 } from './types';
-import type { GrowthAccelerationPlan } from '../growth-plan/types';
 
 // GapIaInsights type (inline from GapIaRun.insights)
 interface GapIaInsights {
@@ -111,7 +109,7 @@ export function mapInitialAssessmentToApiResponse(
     socialFootprint?: SocialFootprintSnapshot;
   }
 ): GapIaV2AiOutput {
-  const { url, domain, businessName, companyType, brandTier, socialFootprint } = enrichmentData;
+  const { url, domain, businessName, socialFootprint } = enrichmentData;
 
   // Defensive warning: if socialFootprint is missing, gating won't be applied
   // This helps identify pipelines that aren't passing detection results
@@ -417,7 +415,7 @@ function formatDimensionLabel(dimId: DimensionIdType): string {
  * Estimate subscore for dimensions with subscores
  * This is a placeholder - in real implementation, subscores would come from enrichmentData
  */
-function estimateSubscore(overallScore: number, subcategory: string): number {
+function estimateSubscore(overallScore: number, _subcategory: string): number {
   // Slight variation around overall score (+/- 10%)
   const variance = Math.random() * 20 - 10;
   return Math.max(0, Math.min(100, Math.round(overallScore + variance)));
@@ -723,7 +721,6 @@ export function mapFullGapToApiResponse(
   templateOutput: FullGapOutput,
   gapIaData: {
     url: string;
-    domain: string;
     businessName: string;
     gapId: string;
   }
@@ -746,7 +743,7 @@ export function mapFullGapToApiResponse(
   kpisSummary: Array<{ name: string; description: string }>;
   notes?: string;
 } {
-  const { url, domain, businessName, gapId } = gapIaData;
+  const { url, businessName, gapId } = gapIaData;
 
   // Extract dimension scores
   const dimensionScores: Record<string, number> = {};

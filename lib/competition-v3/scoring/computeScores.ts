@@ -324,7 +324,7 @@ function computeDeterministicScores(
   // 4. Value Model Fit (from metadata alignment)
   // =========================================================================
   let valueModelFit: number;
-  let valueModelNotesParts: string[] = [];
+  const valueModelNotesParts: string[] = [];
 
   if (candidate.semanticSimilarity?.valueModelSimilarity) {
     valueModelFit = Math.round(candidate.semanticSimilarity.valueModelSimilarity * 100);

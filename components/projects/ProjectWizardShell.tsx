@@ -102,7 +102,7 @@ export function ProjectWizardShell({
       case 'start_mode':
         // Only requires projectType to be selected
         return state.startMode !== null;
-      case 'brief':
+      case 'brief': {
         // Requires projectType AND startMode to be selected
         if (!projectType || !state.startMode) return false;
         const requiredFields = projectType.briefFields.filter((f) => f.required);
@@ -110,6 +110,7 @@ export function ProjectWizardShell({
           const value = state.brief[f.key];
           return value !== undefined && value !== '' && value !== null;
         });
+      }
       default:
         return false;
     }

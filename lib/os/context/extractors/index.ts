@@ -50,8 +50,9 @@ function isBaselineMode(ctx: ExtractionContext): boolean {
 
 /**
  * Check if we should use lenient B2C/local filtering
+ * Note: Named without "use" prefix to avoid React hook naming convention
  */
-function useLenientFiltering(ctx: ExtractionContext): boolean {
+function isLenientFilteringMode(ctx: ExtractionContext): boolean {
   return isBaselineMode(ctx) && ctx.businessModel !== 'b2b';
 }
 
@@ -64,7 +65,7 @@ function withBaselineProvenance(
   evidence: string,
   ctx: ExtractionContext
 ): string {
-  if (useLenientFiltering(ctx)) {
+  if (isLenientFilteringMode(ctx)) {
     return `${evidence} [baseline-lenient: ${ctx.businessModel || 'unknown'}]`;
   }
   return evidence;
@@ -188,7 +189,7 @@ function isQualityValue(
   const trimmed = value.trim();
   if (trimmed.length < minLength) return false;
 
-  const lenient = useLenientFiltering(ctx);
+  const lenient = isLenientFilteringMode(ctx);
 
   // ALWAYS reject placeholder patterns (even in baseline mode)
   const placeholderPatterns = [
@@ -245,7 +246,7 @@ function isQualityICP(
   if (!isQualityValue(value, 20, ctx)) return false;
   const trimmed = (value as string).trim();
 
-  const lenient = useLenientFiltering(ctx);
+  const lenient = isLenientFilteringMode(ctx);
 
   // In strict mode, reject generic ICP patterns
   if (!lenient) {
@@ -308,7 +309,7 @@ function isQualityPositioning(
   if (!isQualityValue(value, 25, ctx)) return false;
   const trimmed = (value as string).trim();
 
-  const lenient = useLenientFiltering(ctx);
+  const lenient = isLenientFilteringMode(ctx);
 
   // ALWAYS reject pure buzzword combinations (e.g. "Innovation and Customer-Centricity")
   if (BUZZWORD_ONLY_PATTERNS.some(p => p.test(trimmed))) {

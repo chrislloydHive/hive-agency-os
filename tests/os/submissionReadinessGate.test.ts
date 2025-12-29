@@ -3,6 +3,7 @@
 
 import { describe, test, expect } from 'vitest';
 import type { BidReadiness, BidRisk } from '@/lib/os/rfp/computeBidReadiness';
+import { createBidRisk, type BidRiskCategory, type BidRiskSeverity } from '@/tests/helpers/factories';
 import type { SubmissionSnapshot } from '@/components/os/rfp/SubmissionReadinessModal';
 import {
   getRecommendationLabel,
@@ -15,15 +16,14 @@ import {
 // ============================================================================
 
 function createMockRisk(
-  severity: 'low' | 'medium' | 'high' | 'critical',
-  category: string = 'coverage'
+  severity: BidRiskSeverity,
+  category: BidRiskCategory = 'coverage'
 ): BidRisk {
-  return {
+  return createBidRisk({
     category,
     severity,
     description: `${severity} severity ${category} risk`,
-    impact: 'May affect win probability',
-  };
+  });
 }
 
 function createMockBidReadiness(options: {
@@ -54,7 +54,7 @@ function createMockSnapshot(options: {
   score: number;
   recommendation: 'go' | 'conditional' | 'no_go';
   risksAcknowledged: boolean;
-  acknowledgedRisks?: Array<{ category: string; severity: 'low' | 'medium' | 'high' | 'critical'; description: string }>;
+  acknowledgedRisks?: Array<{ category: BidRiskCategory; severity: BidRiskSeverity; description: string }>;
 }): SubmissionSnapshot {
   return {
     score: options.score,
@@ -85,9 +85,9 @@ describe('SubmissionSnapshot Structure', () => {
   });
 
   test('snapshot captures acknowledged risks', () => {
-    const risks = [
-      { category: 'coverage', severity: 'high' as const, description: 'Low coverage' },
-      { category: 'strategy', severity: 'medium' as const, description: 'Missing themes' },
+    const risks: Array<{ category: BidRiskCategory; severity: BidRiskSeverity; description: string }> = [
+      { category: 'coverage', severity: 'high', description: 'Low coverage' },
+      { category: 'strategy', severity: 'medium', description: 'Missing themes' },
     ];
 
     const snapshot = createMockSnapshot({
@@ -424,15 +424,18 @@ describe('Snapshot Building', () => {
 // ============================================================================
 
 describe('Action Types', () => {
+  type ActionType = 'submit' | 'export';
+
+  const getActionLabel = (action: ActionType): string =>
+    action === 'submit' ? 'Submit' : 'Export';
+
   test('submit action uses correct label', () => {
-    const action: 'submit' | 'export' = 'submit';
-    const actionLabel = action === 'submit' ? 'Submit' : 'Export';
-    expect(actionLabel).toBe('Submit');
+    const action: ActionType = 'submit';
+    expect(getActionLabel(action)).toBe('Submit');
   });
 
   test('export action uses correct label', () => {
-    const action: 'submit' | 'export' = 'export';
-    const actionLabel = action === 'submit' ? 'Submit' : 'Export';
-    expect(actionLabel).toBe('Export');
+    const action: ActionType = 'export';
+    expect(getActionLabel(action)).toBe('Export');
   });
 });

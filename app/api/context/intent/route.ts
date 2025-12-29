@@ -8,8 +8,6 @@ import {
   classifyIntent,
   routeIntent,
   validateIntentContext,
-  type ClassifiedIntent,
-  type RouteDecision,
   type AutonomyLevel,
 } from '@/lib/contextGraph/intent';
 import { loadContextGraphRecord } from '@/lib/contextGraph/storage';

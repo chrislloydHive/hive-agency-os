@@ -41,12 +41,12 @@ export function StrategyBindingsDebugPanel({ companyId }: StrategyBindingsDebugP
   const [isOpen, setIsOpen] = useState(false);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
 
-  // Only render in development
-  if (process.env.NODE_ENV !== 'development') {
-    return null;
-  }
+  // Check if in development mode
+  const isDev = process.env.NODE_ENV === 'development';
 
-  const { data, error, isLoading, isValidating, mutate } = useContextNodes(companyId);
+  // Hooks must be called unconditionally, before any early returns
+  // Pass null companyId when not in dev to skip the fetch
+  const { data, error, isLoading, isValidating, mutate } = useContextNodes(isDev ? companyId : null);
 
   // Group bindings by section
   const groupedBindings = useMemo(() => {
@@ -60,6 +60,11 @@ export function StrategyBindingsDebugPanel({ companyId }: StrategyBindingsDebugP
     }
     return groups;
   }, [data?.resolvedBindings]);
+
+  // Only render in development
+  if (!isDev) {
+    return null;
+  }
 
   // Copy debug data to clipboard
   const handleCopyDebug = () => {

@@ -33,6 +33,10 @@
 
 import type { ZoneId } from '@/components/context-map/types';
 import type { DomainName } from './companyContextGraph';
+import {
+  CANONICAL_CONVERSION_ACTIONS,
+  getConversionActionLabel,
+} from '@/lib/constants/conversionActions';
 
 // ============================================================================
 // Types
@@ -332,6 +336,16 @@ export const BRAND_ATTRIBUTE_OPTIONS: SelectOption[] = [
   { value: 'innovative', label: 'Innovative' },
   { value: 'friendly', label: 'Friendly' },
 ];
+
+/**
+ * Primary Conversion Action options - derived from canonical list
+ * @see lib/constants/conversionActions.ts for the source of truth
+ */
+export const PRIMARY_CONVERSION_ACTION_OPTIONS: SelectOption[] =
+  CANONICAL_CONVERSION_ACTIONS.map(action => ({
+    value: action.key,
+    label: action.label,
+  }));
 
 // ============================================================================
 // SCHEMA V2 REGISTRY - Structured Context Fields
@@ -826,19 +840,24 @@ export const CONTEXT_SCHEMA_V2_REGISTRY: UnifiedFieldEntry[] = [
   },
   {
     key: 'gtm.conversionAction',
-    label: 'Conversion Action',
-    description: 'Primary conversion (e.g., "Book a demo", "Subscribe")',
+    label: 'Primary Conversion Action',
+    shortLabel: 'Conversion',
+    description: 'The single action a user must take for marketing to be considered successful (e.g., Book a demo, Start free trial, Request a quote, Complete purchase).',
     domain: 'productOffer',
     zoneId: 'go-to-market',
     category: 'gtm',
     strategySection: null,
-    valueType: 'text',
+    valueType: 'select',
+    options: PRIMARY_CONVERSION_ACTION_OPTIONS,
+    allowCustomOptions: true,
     legacyPath: 'primaryConversionAction',
     defaultStatus: 'confirmed',
     defaultSource: 'user',
     requiredFor: ['demandProgram'],
+    isCritical: true,
     isRecommended: true,
     aiProposable: true,
+    aiPromptHint: 'Select the main conversion action or enter a custom action verb phrase',
   },
   {
     key: 'gtm.currentFunnelMotion',
@@ -1757,23 +1776,8 @@ export const UNIFIED_FIELD_REGISTRY: UnifiedFieldEntry[] = [
   // ============================================================================
   // ZONE: Go-to-Market (How We Sell)
   // ============================================================================
-  {
-    key: 'productOffer.primaryConversionAction',
-    label: 'Primary Conversion Action',
-    description: 'Lead, signup, purchase, etc.',
-    domain: 'productOffer',
-    graphPath: 'productOffer.primaryConversionAction',
-    zoneId: 'go-to-market',
-    category: 'productOffer',
-    strategySection: null,
-    valueType: 'string',
-    legacyPath: 'primaryConversionAction',
-    defaultStatus: 'confirmed',
-    defaultSource: 'user',
-    requiredFor: [],
-    isRecommended: true,
-    aiProposable: true,
-  },
+  // REMOVED: productOffer.primaryConversionAction - consolidated into gtm.conversionAction
+  // See gtm.conversionAction in the Go-to-Market zone for the canonical field
   {
     key: 'productOffer.salesChannels',
     label: 'Sales Channels',

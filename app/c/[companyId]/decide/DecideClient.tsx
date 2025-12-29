@@ -1,14 +1,14 @@
 'use client';
 
 // app/c/[companyId]/decide/DecideClient.tsx
-// Decide Phase Client Component
+// Decide Phase Client Component - Confirmation Gate
 //
-// Landing page for Phase 2: Decide
-// Shows the Review sub-view with links to Context and Strategy pages.
-//
-// Now uses DecideShell for consistent sub-navigation across all Decide pages.
-// The DecideShell handles navigation to /context and /strategy.
-// This component focuses on the Review experience.
+// Landing page for Phase 2: Decide - "Confirm" subview
+// This is a confirmation gate that:
+// 1) Confirms decisions are locked
+// 2) Communicates consequence
+// 3) Provides one dominant forward CTA to Deliver
+// 4) Shows readiness checks as informational status (not tasks)
 //
 // UI state is derived from a single selector: getDecideUIState()
 
@@ -23,6 +23,10 @@ import {
   Settings2,
   Search,
   ChevronRight,
+  ArrowRight,
+  ShieldCheck,
+  AlertCircle,
+  MoreHorizontal,
 } from 'lucide-react';
 import type { V4HealthResponse } from '@/lib/types/contextV4Health';
 import {
@@ -52,6 +56,8 @@ export function DecideClient({ companyId, companyName }: DecideClientProps) {
   const [strategyExists, setStrategyExists] = useState(false);
   const [strategyLocked, setStrategyLocked] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showReadyPrompt, setShowReadyPrompt] = useState(false);
+  const [showDetailsMenu, setShowDetailsMenu] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -121,6 +127,17 @@ export function DecideClient({ companyId, companyName }: DecideClientProps) {
   // Derived values for UI
   const confirmedCount = contextHealth?.store?.confirmed ?? 0;
   const hasLabsRun = contextHealth?.websiteLab?.hasRun ?? false;
+  const allChecksPassed = hasLabsRun && confirmedCount >= 3 && strategyExists;
+
+  // Show "Ready when you are" prompt after 2 seconds if all checks pass
+  useEffect(() => {
+    if (allChecksPassed && !loading) {
+      const timer = setTimeout(() => setShowReadyPrompt(true), 2000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowReadyPrompt(false);
+    }
+  }, [allChecksPassed, loading]);
 
   if (loading) {
     return (
@@ -141,145 +158,191 @@ export function DecideClient({ companyId, companyName }: DecideClientProps) {
 
   return (
     <DecideShell companyId={companyId} activeSubView="review" preloadedUIState={uiState}>
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">Decide</h1>
-        <p className="text-xs text-purple-400/80 mt-0.5">Phase 2</p>
-        <p className="text-sm text-slate-400 mt-1">
-          Confirm what&apos;s true and commit to a strategy.
-        </p>
-      </div>
+      {/* Confirmation Banner - The dominant element */}
+      <div className={`rounded-xl p-6 ${
+        allChecksPassed
+          ? 'bg-gradient-to-br from-emerald-500/15 to-emerald-600/5 border-2 border-emerald-500/40'
+          : 'bg-gradient-to-br from-amber-500/10 to-amber-600/5 border-2 border-amber-500/30'
+      }`}>
+        <div className="flex items-start gap-4">
+          <div className={`p-3 rounded-xl ${
+            allChecksPassed ? 'bg-emerald-500/20' : 'bg-amber-500/20'
+          }`}>
+            {allChecksPassed ? (
+              <ShieldCheck className="w-6 h-6 text-emerald-400" />
+            ) : (
+              <AlertCircle className="w-6 h-6 text-amber-400" />
+            )}
+          </div>
+          <div className="flex-1">
+            <h1 className={`text-xl font-bold ${
+              allChecksPassed ? 'text-emerald-300' : 'text-amber-300'
+            }`}>
+              {allChecksPassed ? 'Decisions confirmed' : 'Decisions pending'}
+            </h1>
+            <p className="text-sm text-slate-300 mt-1">
+              {allChecksPassed
+                ? 'Everything downstream will be generated from these decisions.'
+                : 'Complete the checks below to confirm your decisions.'}
+            </p>
+            {allChecksPassed && (
+              <p className="text-xs text-slate-500 mt-2">
+                Changing strategy later may invalidate plans and work in progress.
+              </p>
+            )}
 
-      {/* Gate intro */}
-      <div className="bg-purple-500/5 border border-purple-500/20 rounded-lg p-4">
-        <p className="text-sm text-purple-300/90">
-          Everything created after this point is based on the decisions made here.
-        </p>
-      </div>
+            {/* Primary CTA - Proceed to Deliver */}
+            <div className="flex items-center gap-4 mt-5">
+              {allChecksPassed ? (
+                <Link
+                  href={`/c/${companyId}/deliver`}
+                  className="inline-flex items-center gap-2 px-6 py-3 text-sm font-semibold bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors shadow-lg shadow-purple-500/20"
+                >
+                  Proceed to Deliver
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              ) : (
+                <button
+                  disabled
+                  className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium bg-slate-700 text-slate-400 rounded-lg cursor-not-allowed"
+                >
+                  Proceed to Deliver
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              )}
 
-      {/* Review Checklist */}
-      <div className="bg-slate-800/30 border border-slate-700/50 rounded-lg p-4">
-        <h4 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">
-          Decide Phase Checklist
-        </h4>
-        <ul className="space-y-3">
-          {/* Labs discovered */}
-          <li className="flex items-start gap-3">
-            <span className={`mt-0.5 ${hasLabsRun ? 'text-emerald-400' : 'text-slate-500'}`}>
-              {hasLabsRun ? <CheckCircle2 className="w-4 h-4" /> : <Search className="w-4 h-4" />}
-            </span>
-            <div className="flex-1">
-              <div className="flex items-center justify-between">
-                <span className={hasLabsRun ? 'text-sm text-slate-300' : 'text-sm text-slate-500'}>
-                  Labs discovered (context extracted)
-                </span>
-                {!hasLabsRun && (
-                  <button
-                    onClick={navigateToContext}
-                    className="text-xs text-purple-400 hover:text-purple-300"
-                  >
-                    Go to Context
-                    <ChevronRight className="w-3 h-3 inline ml-0.5" />
-                  </button>
-                )}
-              </div>
+              {/* Secondary: Back to Strategy */}
+              <button
+                onClick={navigateToStrategy}
+                className="text-sm text-slate-400 hover:text-slate-300 transition-colors"
+              >
+                Back to Strategy
+              </button>
             </div>
+
+            {/* What happens next - clarity for first-time users */}
+            {allChecksPassed && (
+              <p className="text-xs text-slate-500 mt-3">
+                Next, activate which tactics you want to execute. Activated tactics become Programs in Deliver.
+              </p>
+            )}
+
+            {/* Ready when you are prompt - appears after 2s if all checks pass */}
+            {showReadyPrompt && allChecksPassed && (
+              <p className="text-xs text-purple-400/80 mt-2 animate-in fade-in slide-in-from-bottom-1 duration-300">
+                Ready when you are → Proceed to Deliver
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Readiness Checks - Informational, not actionable */}
+      <div className="bg-slate-800/20 border border-slate-700/30 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+            Confirmation Checks
+          </h4>
+          {/* De-emphasized details menu */}
+          <div className="relative">
+            <button
+              onClick={() => setShowDetailsMenu(!showDetailsMenu)}
+              className="p-1.5 text-slate-500 hover:text-slate-400 hover:bg-slate-700/50 rounded transition-colors"
+              title="Review details"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+            {showDetailsMenu && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setShowDetailsMenu(false)}
+                />
+                <div className="absolute right-0 top-full mt-1 z-20 bg-slate-800 border border-slate-700 rounded-lg shadow-lg py-1 min-w-[140px]">
+                  <button
+                    onClick={() => {
+                      setShowDetailsMenu(false);
+                      navigateToContext();
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-700/50 flex items-center gap-2"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-slate-500" />
+                    Open Context
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowDetailsMenu(false);
+                      navigateToStrategy();
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-700/50 flex items-center gap-2"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-slate-500" />
+                    Open Strategy
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <ul className="space-y-2">
+          {/* Labs discovered */}
+          <li className="flex items-center gap-2.5 text-xs">
+            <span className={hasLabsRun ? 'text-emerald-400' : 'text-slate-600'}>
+              {hasLabsRun ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Search className="w-3.5 h-3.5" />}
+            </span>
+            <span className={hasLabsRun ? 'text-slate-400' : 'text-slate-500'}>
+              Labs discovered (context extracted)
+            </span>
           </li>
 
           {/* Context confirmed */}
-          <li className="flex items-start gap-3">
-            <span className={`mt-0.5 ${confirmedCount >= 3 ? 'text-emerald-400' : 'text-slate-500'}`}>
-              {confirmedCount >= 3 ? <CheckCircle2 className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+          <li className="flex items-center gap-2.5 text-xs">
+            <span className={confirmedCount >= 3 ? 'text-emerald-400' : 'text-slate-600'}>
+              {confirmedCount >= 3 ? <CheckCircle2 className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
             </span>
-            <div className="flex-1">
-              <div className="flex items-center justify-between">
-                <span className={confirmedCount >= 3 ? 'text-sm text-slate-300' : 'text-sm text-slate-500'}>
-                  Strategy inputs confirmed ({confirmedCount}/3 minimum)
-                </span>
-                <button
-                  onClick={navigateToContext}
-                  className="text-xs text-purple-400 hover:text-purple-300"
-                >
-                  Open Context
-                  <ChevronRight className="w-3 h-3 inline ml-0.5" />
-                </button>
-              </div>
-            </div>
+            <span className={confirmedCount >= 3 ? 'text-slate-400' : 'text-slate-500'}>
+              Strategy inputs confirmed ({confirmedCount}/3 minimum)
+            </span>
           </li>
 
           {/* Strategy generated */}
-          <li className="flex items-start gap-3">
-            <span className={`mt-0.5 ${strategyExists ? 'text-emerald-400' : 'text-slate-500'}`}>
-              {strategyExists ? <CheckCircle2 className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+          <li className="flex items-center gap-2.5 text-xs">
+            <span className={strategyExists ? 'text-emerald-400' : 'text-slate-600'}>
+              {strategyExists ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5" />}
             </span>
-            <div className="flex-1">
-              <div className="flex items-center justify-between">
-                <span className={strategyExists ? 'text-sm text-slate-300' : 'text-sm text-slate-500'}>
-                  Strategy framing saved
-                </span>
-                <button
-                  onClick={navigateToStrategy}
-                  className="text-xs text-purple-400 hover:text-purple-300"
-                >
-                  Open Strategy
-                  <ChevronRight className="w-3 h-3 inline ml-0.5" />
-                </button>
-              </div>
-            </div>
+            <span className={strategyExists ? 'text-slate-400' : 'text-slate-500'}>
+              Strategy framing saved
+            </span>
           </li>
         </ul>
-        <p className="text-xs text-slate-500 mt-4 pt-3 border-t border-slate-700/50">
-          Complete all items to unlock the Deliver phase.
+
+        {/* Status line */}
+        <p className="text-xs text-slate-600 mt-3 pt-3 border-t border-slate-700/30">
+          {allChecksPassed
+            ? 'All required inputs are confirmed.'
+            : 'Complete the missing items to proceed.'}
         </p>
       </div>
 
-      {/* Review-specific CTA */}
-      {uiState.primaryCTA && uiState.state === 'strategy_locked' && (
-        <div className="bg-slate-900/80 border border-slate-700 rounded-xl p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Ready</p>
-              <p className="text-base font-medium text-white">{uiState.statusSummary}</p>
-            </div>
-            <Link
-              href={uiState.primaryCTA.href}
-              className={`flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-lg transition-colors ${
-                uiState.primaryCTA.variant === 'primary'
-                  ? 'bg-purple-500 text-white hover:bg-purple-600'
-                  : 'bg-slate-700 text-slate-200 hover:bg-slate-600'
-              }`}
-            >
-              {uiState.primaryCTA.label}
-              <ChevronRight className="w-4 h-4" />
-            </Link>
-          </div>
-        </div>
-      )}
-
-      {/* AI Quality Link (always visible in Review) */}
+      {/* AI Quality Link - tertiary */}
       <Link
         href={`/c/${companyId}/readiness`}
-        className="block bg-slate-900/50 border border-slate-800/50 rounded-xl p-4 transition-all hover:border-purple-500/50"
+        className="block bg-slate-900/30 border border-slate-800/30 rounded-lg p-3 transition-all hover:border-slate-700/50"
       >
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="p-2.5 rounded-lg bg-slate-800 text-slate-400">
-              <Settings2 className="w-5 h-5" />
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-slate-800/50 text-slate-500">
+              <Settings2 className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-base font-medium text-white">AI Quality</h3>
-              <p className="text-sm text-slate-400 mt-0.5">
-                Quality signals for AI-generated content
-              </p>
-              <p className="text-xs text-slate-500 mt-1">
+              <h3 className="text-sm font-medium text-slate-400">AI Quality</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
                 Advanced checks—most users won&apos;t need this.
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-slate-500">View details</span>
-            <ChevronRight className="w-5 h-5 text-slate-500" />
-          </div>
+          <ChevronRight className="w-4 h-4 text-slate-600" />
         </div>
       </Link>
     </DecideShell>

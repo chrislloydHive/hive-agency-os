@@ -8,7 +8,7 @@
 import { base } from './client';
 import type { PriorityItem } from './fullReports';
 import type { PlanInitiative } from '@/lib/gap/types';
-import type { WorkSource, WorkSourceAnalytics, WorkItemArtifact } from '@/lib/types/work';
+import type { WorkSource, WorkSourceAnalytics, WorkItemArtifact, StrategyLink, WorkstreamType } from '@/lib/types/work';
 
 /**
  * Work Items table field names (matching Airtable schema exactly)
@@ -34,6 +34,8 @@ const WORK_ITEMS_FIELDS = {
   AI_ADDITIONAL_INFO: 'AI Additional Info',
   SOURCE_JSON: 'Source JSON', // JSON-encoded WorkSource object
   ARTIFACTS_JSON: 'Artifacts JSON', // JSON-encoded WorkItemArtifact array
+  STRATEGY_LINK_JSON: 'Strategy Link JSON', // JSON-encoded StrategyLink object
+  WORKSTREAM_TYPE: 'Workstream Type', // Classification for downstream artifacts
 } as const;
 
 /**
@@ -93,6 +95,8 @@ interface WorkItemFields {
   'AI Additional Info'?: string;
   'Source JSON'?: string; // JSON-encoded WorkSource
   'Artifacts JSON'?: string; // JSON-encoded WorkItemArtifact[]
+  'Strategy Link JSON'?: string; // JSON-encoded StrategyLink
+  'Workstream Type'?: string; // WorkstreamType classification
 }
 
 /**
@@ -120,6 +124,8 @@ export interface WorkItemRecord {
   aiAdditionalInfo?: string; // AI-generated implementation guide
   source?: WorkSource; // Where this work item came from
   artifacts?: WorkItemArtifact[]; // Attached artifact snapshots
+  strategyLink?: StrategyLink; // Link to strategy tactic
+  workstreamType?: WorkstreamType; // Classification for downstream artifacts
 }
 
 /**
@@ -131,6 +137,19 @@ function parseSourceJson(sourceJson: string | undefined): WorkSource | undefined
     return JSON.parse(sourceJson) as WorkSource;
   } catch (error) {
     console.warn('[Work Items] Failed to parse Source JSON:', error);
+    return undefined;
+  }
+}
+
+/**
+ * Parse Strategy Link JSON from Airtable field
+ */
+function parseStrategyLinkJson(strategyLinkJson: string | undefined): StrategyLink | undefined {
+  if (!strategyLinkJson) return undefined;
+  try {
+    return JSON.parse(strategyLinkJson) as StrategyLink;
+  } catch (error) {
+    console.warn('[Work Items] Failed to parse Strategy Link JSON:', error);
     return undefined;
   }
 }
@@ -185,6 +204,8 @@ function mapWorkItemRecord(record: any): WorkItemRecord {
     aiAdditionalInfo: fields['AI Additional Info'],
     source: parseSourceJson(fields['Source JSON']),
     artifacts: parseArtifactsJson(fields['Artifacts JSON']),
+    strategyLink: parseStrategyLinkJson(fields['Strategy Link JSON']),
+    workstreamType: fields['Workstream Type'] as WorkstreamType | undefined,
   };
 }
 
@@ -758,6 +779,8 @@ export interface CreateWorkItemInput {
   source?: WorkSource;
   aiAdditionalInfo?: string;
   dueDate?: string; // ISO date string
+  strategyLink?: StrategyLink; // Link to strategy tactic
+  workstreamType?: WorkstreamType; // Classification for downstream artifacts
 }
 
 /**
@@ -779,6 +802,8 @@ export async function createWorkItem(
     source,
     aiAdditionalInfo,
     dueDate,
+    strategyLink,
+    workstreamType,
   } = input;
 
   console.log('[Work Items] Creating generic work item:', {
@@ -788,6 +813,7 @@ export async function createWorkItem(
     severity,
     status,
     hasSource: !!source,
+    hasStrategyLink: !!strategyLink,
   });
 
   // Build Airtable fields
@@ -813,6 +839,14 @@ export async function createWorkItem(
 
   if (dueDate) {
     fields[WORK_ITEMS_FIELDS.DUE_DATE] = dueDate;
+  }
+
+  if (strategyLink) {
+    fields[WORK_ITEMS_FIELDS.STRATEGY_LINK_JSON] = JSON.stringify(strategyLink);
+  }
+
+  if (workstreamType) {
+    fields[WORK_ITEMS_FIELDS.WORKSTREAM_TYPE] = workstreamType;
   }
 
   try {
@@ -2110,4 +2144,131 @@ export async function getWorkItemsWithArtifactAttached(artifactId: string): Prom
 export async function countWorkItemsForArtifact(artifactId: string): Promise<number> {
   const items = await getWorkItemsForArtifact(artifactId);
   return items.length;
+}
+
+// ============================================================================
+// Strategy → Work Bridge Functions
+// ============================================================================
+
+/**
+ * Find work item by strategy link (for idempotency)
+ *
+ * @param strategyId - Strategy ID
+ * @param tacticId - Tactic ID
+ * @returns Work item if found, null otherwise
+ */
+export async function findWorkItemByStrategyTactic(
+  strategyId: string,
+  tacticId: string
+): Promise<WorkItemRecord | null> {
+  try {
+    console.log('[Work Items] Searching for work item with strategy link:', { strategyId, tacticId });
+
+    // Fetch all work items that have Strategy Link JSON
+    const records = await base('Work Items')
+      .select({
+        filterByFormula: `NOT({${WORK_ITEMS_FIELDS.STRATEGY_LINK_JSON}} = '')`,
+      })
+      .all();
+
+    // Find the one that matches strategyId and tacticId
+    for (const record of records) {
+      const fields = record.fields as WorkItemFields;
+      const strategyLinkJson = fields['Strategy Link JSON'];
+      if (strategyLinkJson) {
+        try {
+          const link = JSON.parse(strategyLinkJson) as StrategyLink;
+          if (link.strategyId === strategyId && link.tacticId === tacticId) {
+            console.log('[Work Items] Found existing work item for strategy tactic:', record.id);
+            return mapWorkItemRecord(record);
+          }
+        } catch {
+          // Skip invalid JSON
+        }
+      }
+    }
+
+    console.log('[Work Items] No existing work item found for strategy tactic');
+    return null;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('NOT_FOUND') || errorMessage.includes('UNKNOWN_FIELD_NAME')) {
+      console.log('[Work Items] Strategy Link JSON field not found, returning null');
+      return null;
+    }
+    console.error('[Work Items] Error finding work item by strategy tactic:', errorMessage);
+    return null;
+  }
+}
+
+/**
+ * Get all work items with strategy links for a company
+ *
+ * @param companyId - Company record ID
+ * @returns Array of work items that have strategy links
+ */
+export async function getStrategyLinkedWorkItems(
+  companyId: string
+): Promise<WorkItemRecord[]> {
+  try {
+    console.log('[Work Items] Fetching strategy-linked work items for company:', companyId);
+
+    const allItems = await getWorkItemsForCompany(companyId);
+    const strategyLinkedItems = allItems.filter(item => item.strategyLink?.tacticId);
+
+    console.log('[Work Items] Found', strategyLinkedItems.length, 'strategy-linked work items');
+    return strategyLinkedItems;
+  } catch (error) {
+    console.error('[Work Items] Error fetching strategy-linked work items:', error);
+    return [];
+  }
+}
+
+/**
+ * Get committed tactic IDs for a strategy
+ *
+ * @param strategyId - Strategy ID
+ * @returns Set of tactic IDs that have been committed to work
+ */
+export async function getCommittedTacticIds(
+  strategyId: string
+): Promise<Set<string>> {
+  try {
+    console.log('[Work Items] Getting committed tactic IDs for strategy:', strategyId);
+
+    // Fetch all work items that have Strategy Link JSON
+    const records = await base('Work Items')
+      .select({
+        filterByFormula: `NOT({${WORK_ITEMS_FIELDS.STRATEGY_LINK_JSON}} = '')`,
+      })
+      .all();
+
+    const tacticIds = new Set<string>();
+
+    for (const record of records) {
+      const fields = record.fields as WorkItemFields;
+      const strategyLinkJson = fields['Strategy Link JSON'];
+      if (strategyLinkJson) {
+        try {
+          const link = JSON.parse(strategyLinkJson) as StrategyLink;
+          if (link.strategyId === strategyId && link.tacticId) {
+            tacticIds.add(link.tacticId);
+          }
+        } catch {
+          // Skip invalid JSON
+        }
+      }
+    }
+
+    console.log('[Work Items] Found', tacticIds.size, 'committed tactics for strategy');
+    return tacticIds;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('NOT_FOUND') || errorMessage.includes('UNKNOWN_FIELD_NAME')) {
+      console.log('[Work Items] Strategy Link JSON field not found, returning empty set');
+      return new Set();
+    }
+    console.error('[Work Items] Error getting committed tactic IDs:', errorMessage);
+    return new Set();
+  }
 }

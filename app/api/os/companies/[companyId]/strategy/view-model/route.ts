@@ -164,7 +164,7 @@ export async function GET(
 
     // Load strategy (specific or active)
     console.log('[view-model] Loading active strategy...');
-    let strategy = strategyId
+    const strategy = strategyId
       ? await getStrategyById(strategyId)
       : await getActiveStrategy(companyId);
     console.log('[view-model] Strategy loaded:', strategy?.id || '(none)');

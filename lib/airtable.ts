@@ -274,7 +274,7 @@ export async function createAssessmentLead(assessmentData: AssessmentData): Prom
 
     console.log('📝 Sending fields to Airtable:', fields);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const record = await base(TABLES.MAIN_LEADS).create([
       { fields: fields as any }
     ]);
@@ -305,7 +305,7 @@ export async function updateLead(
   tableName: string = TABLES.MAIN_LEADS
 ): Promise<LeadRecord> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const record = await base(tableName).update([
       {
         id: recordId,
@@ -632,17 +632,17 @@ export async function upsertLead(
       console.warn('   Attempting to create with Email and Website URL fields');
     }
     
-    // eslint-disable-next-line no-console
+     
     console.log(`   Creating record with fields: ${Object.keys(createFields).join(', ')}`);
     
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const record = await base(TABLES.MAIN_LEADS).create([
         { fields: createFields as any },
       ]);
 
       const recordId = record[0].id;
-      // eslint-disable-next-line no-console
+       
       console.log(`   ✅ Lead created: ${recordId}`);
       
       // Verify what was actually saved
@@ -795,7 +795,7 @@ export async function createSnapshot(
     let snapshotRecordId: string;
     
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const record = await base(snapshotsTable).create([
         {
           fields: fieldsToCreate as any,
@@ -891,7 +891,7 @@ export async function createSnapshot(
             console.log('   Retrying without Website URL field...');
             
             try {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+               
               const retryRecord = await base(snapshotsTable).create([
                 { fields: fieldsFixed as any },
               ]);
@@ -929,7 +929,7 @@ export async function createSnapshot(
             }
             
             try {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+               
               const retryRecord = await base(snapshotsTable).create([
                 { fields: fieldsFixed as any },
               ]);
@@ -943,7 +943,7 @@ export async function createSnapshot(
               delete fieldsWithoutEmail['Email Address'];
               
               try {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                 
                 const finalRetryRecord = await base(snapshotsTable).create([
                   { fields: fieldsWithoutEmail as any },
                 ]);
@@ -970,7 +970,7 @@ export async function createSnapshot(
             
             console.log('\n🔄 Retrying without Content Insights field...');
             try {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+               
               const retryRecord = await base(snapshotsTable).create([
                 { fields: fieldsWithoutContent as any },
               ]);
@@ -1274,7 +1274,7 @@ export async function saveFullReport(reportData: {
     if (availableFields.includes('Report URL')) {
       try {
         const reportUrl = `${process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://hiveadagency.com'}/full-report?id=${reportId}`;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         await base(fullReportsTable).update([
           {
             id: reportId,
@@ -1305,7 +1305,7 @@ export async function saveFullReport(reportData: {
         }
         
         if (Object.keys(snapshotUpdates).length > 0) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           await base(snapshotsTable).update([
             {
               id: reportData.snapshotId,

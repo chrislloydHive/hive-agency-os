@@ -7,7 +7,7 @@
 // - To create a company from a lead, use the convert-lead-to-company endpoint
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createInboundLead, linkLeadToCompany, updateLeadAssignee, updateLeadStatus } from '@/lib/airtable/inboundLeads';
+import { createInboundLead, linkLeadToCompany, updateLeadAssignee } from '@/lib/airtable/inboundLeads';
 import { matchCompanyForLead } from '@/lib/pipeline/createOrMatchCompany';
 import { matchLeadToRule, DEFAULT_OWNER } from '@/lib/pipeline/routingConfig';
 import type { InboundLeadItem } from '@/lib/types/pipeline';

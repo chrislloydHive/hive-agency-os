@@ -15,7 +15,6 @@ import {
   releaseEditLock,
   extendEditLock,
   isPathLocked,
-  createConflict,
   getPendingConflicts,
   resolveConflict,
   generateMergeSuggestion,
@@ -59,7 +58,7 @@ export async function GET(request: NextRequest) {
     let result: Record<string, unknown>;
 
     switch (mode) {
-      case 'users':
+      case 'users': {
         const users = getCompanyUsers(companyId!);
         result = {
           users: users.map(u => ({
@@ -76,8 +75,9 @@ export async function GET(request: NextRequest) {
           count: users.length,
         };
         break;
+      }
 
-      case 'domain_viewers':
+      case 'domain_viewers': {
         if (!domain) {
           return NextResponse.json(
             { error: 'domain is required for domain_viewers mode' },
@@ -95,8 +95,9 @@ export async function GET(request: NextRequest) {
           count: viewers.length,
         };
         break;
+      }
 
-      case 'path_editor':
+      case 'path_editor': {
         if (!path) {
           return NextResponse.json(
             { error: 'path is required for path_editor mode' },
@@ -113,8 +114,9 @@ export async function GET(request: NextRequest) {
           } : null,
         };
         break;
+      }
 
-      case 'lock_status':
+      case 'lock_status': {
         if (!path) {
           return NextResponse.json(
             { error: 'path is required for lock_status mode' },
@@ -132,19 +134,22 @@ export async function GET(request: NextRequest) {
           } : null,
         };
         break;
+      }
 
-      case 'conflicts':
+      case 'conflicts': {
         const conflicts = getPendingConflicts(companyId!);
         result = {
           conflicts,
           count: conflicts.length,
         };
         break;
+      }
 
-      case 'stats':
+      case 'stats': {
         const stats = getCollaborationStats();
         result = { stats };
         break;
+      }
 
       default:
         return NextResponse.json(
@@ -210,7 +215,7 @@ export async function POST(request: NextRequest) {
     let result: Record<string, unknown>;
 
     switch (action) {
-      case 'join':
+      case 'join': {
         if (!companyId || !userId || !userName) {
           return NextResponse.json(
             { error: 'companyId, userId, and userName are required' },
@@ -224,8 +229,9 @@ export async function POST(request: NextRequest) {
           userColor: presence.userColor,
         };
         break;
+      }
 
-      case 'leave':
+      case 'leave': {
         if (!companyId || !sessionId) {
           return NextResponse.json(
             { error: 'companyId and sessionId are required' },
@@ -235,8 +241,9 @@ export async function POST(request: NextRequest) {
         const left = removeUserPresence(companyId, sessionId);
         result = { left };
         break;
+      }
 
-      case 'focus':
+      case 'focus': {
         if (!companyId || !sessionId) {
           return NextResponse.json(
             { error: 'companyId and sessionId are required' },
@@ -251,8 +258,9 @@ export async function POST(request: NextRequest) {
         );
         result = { focused: true };
         break;
+      }
 
-      case 'lock':
+      case 'lock': {
         if (!companyId || !sessionId || !path) {
           return NextResponse.json(
             { error: 'companyId, sessionId, and path are required' },
@@ -266,8 +274,9 @@ export async function POST(request: NextRequest) {
           existingLock: lockResult.existingLock,
         };
         break;
+      }
 
-      case 'unlock':
+      case 'unlock': {
         if (!path || !sessionId) {
           return NextResponse.json(
             { error: 'path and sessionId are required' },
@@ -277,8 +286,9 @@ export async function POST(request: NextRequest) {
         const unlocked = releaseEditLock(path, sessionId);
         result = { unlocked };
         break;
+      }
 
-      case 'extend_lock':
+      case 'extend_lock': {
         if (!path || !sessionId) {
           return NextResponse.json(
             { error: 'path and sessionId are required' },
@@ -288,8 +298,9 @@ export async function POST(request: NextRequest) {
         const extended = extendEditLock(path, sessionId);
         result = { extended };
         break;
+      }
 
-      case 'resolve_conflict':
+      case 'resolve_conflict': {
         if (!conflictId || !userId || winningValue === undefined) {
           return NextResponse.json(
             { error: 'conflictId, userId, and winningValue are required' },
@@ -299,8 +310,9 @@ export async function POST(request: NextRequest) {
         const resolved = resolveConflict(conflictId, userId, winningValue);
         result = { resolved };
         break;
+      }
 
-      case 'get_merge_suggestion':
+      case 'get_merge_suggestion': {
         if (!conflictId) {
           return NextResponse.json(
             { error: 'conflictId is required' },
@@ -318,8 +330,9 @@ export async function POST(request: NextRequest) {
         const suggestion = generateMergeSuggestion(conflict);
         result = { suggestion };
         break;
+      }
 
-      case 'cleanup':
+      case 'cleanup': {
         const cleanupResult = cleanupExpired();
         result = {
           cleaned: true,
@@ -327,6 +340,7 @@ export async function POST(request: NextRequest) {
           conflictsExpired: cleanupResult.conflictsExpired,
         };
         break;
+      }
 
       default:
         return NextResponse.json(

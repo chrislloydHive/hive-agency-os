@@ -7,27 +7,18 @@
 // - Left sidebar: Tree navigation by domain/field
 // - Main panel: Field details, provenance, history, usage
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Search,
-  ChevronRight,
-  ChevronDown,
   Filter,
   X,
   ArrowLeft,
   Database,
   Activity,
-  ExternalLink,
-  Copy,
-  Check,
-  Sparkles,
-  User,
-  Bot,
   RefreshCw,
 } from 'lucide-react';
-import type { GraphFieldUi, ContextDomainId } from '@/lib/contextGraph/uiHelpers';
-import { CONTEXT_DOMAIN_META } from '@/lib/contextGraph/uiHelpers';
+import type { GraphFieldUi } from '@/lib/contextGraph/uiHelpers';
 import type { ContextHealthScore } from '@/lib/contextGraph/health';
 import { FieldTreeSidebar } from './FieldTreeSidebar';
 import { FieldDetailPanel } from './FieldDetailPanel';
@@ -85,7 +76,7 @@ interface ExplorerFilters {
 
 export function ContextExplorerClient({
   companyId,
-  companyName,
+  companyName: _companyName,
   fields,
   fieldsByDomain,
   healthScore,

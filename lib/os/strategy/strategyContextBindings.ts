@@ -29,7 +29,6 @@ import type { StrategySection } from '@/lib/contextGraph/unifiedRegistry';
 import {
   isCanonicalField,
   isRemovedField,
-  REMOVED_FIELDS,
 } from '@/lib/contextGraph/unifiedRegistry';
 
 // ============================================================================

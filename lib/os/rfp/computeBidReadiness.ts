@@ -5,22 +5,18 @@
 // based on Firm Brain readiness, win strategy health, rubric coverage, proof coverage,
 // and persona alignment.
 
-import type { RfpSection, RfpSectionKey } from '@/lib/types/rfp';
+import type { RfpSection } from '@/lib/types/rfp';
 import type { RfpWinStrategy } from '@/lib/types/rfpWinStrategy';
 import type { RfpPersonaSettings } from '@/lib/types/rfpEvaluatorPersona';
 import type { FirmBrainReadiness } from '@/lib/os/ai/firmBrainReadiness';
 import type { StrategyHealth } from '@/lib/types/rfpWinStrategy';
 import {
-  computeRubricCoverage,
   type RubricCoverageResult,
-  type CriterionCoverage,
-  type SectionCoverage,
   getShortSectionLabel,
 } from './computeRubricCoverage';
 import {
   getBidReadinessConfig,
   type BidReadinessConfig,
-  type BidReadinessWeights,
 } from './bidReadinessConfig';
 
 // ============================================================================
@@ -156,8 +152,6 @@ function calculatePersonaAlignmentScore(
 
   const totalCriteria = rubricCoverage.criterionCoverage.length;
   if (totalCriteria === 0) return 100;
-
-  const mismatchCount = rubricCoverage.personaMismatchCount;
 
   // Calculate weighted mismatch penalty
   // Consider severity of mismatches (high-weight criteria matter more)

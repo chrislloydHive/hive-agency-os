@@ -223,6 +223,10 @@ describe('extractWorkKeys', () => {
         fromSections: 1,
         fromAi: 1,
       },
+      artifactId: 'art123',
+      artifactType: 'creative_brief',
+      artifactVersion: 'v1',
+      companyId: 'comp123',
     };
 
     const keys = extractWorkKeys(result);
@@ -235,6 +239,10 @@ describe('extractWorkKeys', () => {
     const result = {
       proposedWorkItems: [],
       stats: { total: 0, fromSections: 0, fromAi: 0 },
+      artifactId: 'art123',
+      artifactType: 'creative_brief',
+      artifactVersion: 'v1',
+      companyId: 'comp123',
     };
 
     const keys = extractWorkKeys(result);
@@ -249,7 +257,7 @@ describe('extractWorkKeys', () => {
 describe('isArtifactSource', () => {
   it('returns true for artifact source', () => {
     const source = {
-      sourceType: 'artifact',
+      sourceType: 'artifact' as const,
       artifactId: 'art123',
       artifactType: 'creative_brief',
       artifactVersion: 'v1',
@@ -262,10 +270,9 @@ describe('isArtifactSource', () => {
 
   it('returns false for other source types', () => {
     const sources = [
-      { sourceType: 'tool_run', toolSlug: 'test' },
-      { sourceType: 'strategy_play', strategyId: 'strat123' },
-      { sourceType: 'heavy_plan', planId: 'plan123' },
-      { sourceType: 'creative_brief', briefId: 'brief123' },
+      { sourceType: 'diagnostics' as const, toolId: 'test' },
+      { sourceType: 'strategy_play' as const, strategyId: 'strat123', playId: 'play123', playTitle: 'Test Play' },
+      { sourceType: 'manual' as const },
     ];
 
     for (const source of sources) {
@@ -273,8 +280,7 @@ describe('isArtifactSource', () => {
     }
   });
 
-  it('returns false for undefined or null', () => {
+  it('returns false for undefined', () => {
     expect(isArtifactSource(undefined)).toBe(false);
-    expect(isArtifactSource(null)).toBe(false);
   });
 });

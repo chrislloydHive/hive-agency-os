@@ -170,7 +170,7 @@ function buildLandscapeSummary(
   const partialCount = byType.partial || 0;
   const platformCount = byType.platform || 0;
 
-  let summaryParts: string[] = [];
+  const summaryParts: string[] = [];
   summaryParts.push(`Analyzed ${totalCompetitors} competitors.`);
 
   if (directCount > 0) {

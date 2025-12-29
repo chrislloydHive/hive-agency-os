@@ -18,7 +18,7 @@
 import { useMemo, useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
-import { DOMAIN_NAMES, type DomainName } from '@/lib/contextGraph/companyContextGraph';
+import { DOMAIN_NAMES } from '@/lib/contextGraph/companyContextGraph';
 import type {
   GraphFieldUi,
   GraphDiffItem,
@@ -44,7 +44,6 @@ import { AIConsistencyPanel } from './components/AIConsistencyPanel';
 
 // Import Phase 3 components
 import { SuggestionPanel } from './components/SuggestionPanel';
-import { ValidationPanel } from './components/ValidationPanel';
 import { ContractPanel } from './components/ContractPanel';
 import { UpdateLogPanel } from './components/UpdateLogPanel';
 import { HealingModal } from './components/HealingModal';
@@ -110,14 +109,14 @@ export function ContextGraphViewer({
 
   // Phase 3: Locks state
   const [locks, setLocks] = useState<Map<string, FieldLock>>(new Map());
-  const [locksLoading, setLocksLoading] = useState(false);
+  const [_locksLoading, setLocksLoading] = useState(false);
 
   // Phase 3: Validation state
-  const [validationIssues, setValidationIssues] = useState<ValidationIssue[]>([]);
-  const [validationLoading, setValidationLoading] = useState(false);
+  const [_validationIssues, _setValidationIssues] = useState<ValidationIssue[]>([]);
+  const [_validationLoading, _setValidationLoading] = useState(false);
 
   // Phase 3: Contract status state
-  const [contractStatus, setContractStatus] = useState<GraphContractStatus | null>(null);
+  const [contractStatus, _setContractStatus] = useState<GraphContractStatus | null>(null);
 
   // Phase 3: AI Suggestions state
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);

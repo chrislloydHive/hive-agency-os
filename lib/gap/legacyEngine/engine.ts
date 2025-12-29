@@ -1342,7 +1342,7 @@ export async function processNextStep(run: GapRunState): Promise<GapRunState> {
         }
         break;
         
-      case 'fetch_extra_pages':
+      case 'fetch_extra_pages': {
         // Check if we need to fetch more pages
         const hasExtraPages = run.htmlByUrl && Object.keys(run.htmlByUrl).length > 1;
         if (!hasExtraPages && run.discoveredPages && run.discoveredPages.length > 0) {
@@ -1351,6 +1351,7 @@ export async function processNextStep(run: GapRunState): Promise<GapRunState> {
           logStep(run, 'extra pages already fetched or none to fetch, skipping');
         }
         break;
+      }
         
       case 'content_inventory':
         if (!run.contentInventory) {

@@ -10,8 +10,6 @@ import type {
   WebsiteActionTheme,
   WebsiteExperiment,
   StrategyChange,
-  ServiceArea,
-  PriorityBucket,
 } from './websiteActionPlan';
 import { dimensionToServiceArea } from './websiteActionPlan';
 import type {
@@ -38,7 +36,7 @@ export function buildWebsiteActionPlan(
 ): WebsiteActionPlan {
   console.log('[WebsiteActionPlanBuilder] Building action plan from lab result...');
 
-  const { siteAssessment, impactMatrix, personas, trustAnalysis, ctaIntelligence, contentIntelligence, strategistViews, siteGraph } = labResult;
+  const { siteAssessment } = labResult;
 
   // ========================================================================
   // 1. Generate Summary
@@ -179,7 +177,7 @@ function generateActionSummary(labResult: WebsiteUXLabResultV4): string {
 
 function identifyKeyThemes(labResult: WebsiteUXLabResultV4): WebsiteActionTheme[] {
   const themes: WebsiteActionTheme[] = [];
-  const { siteAssessment, trustAnalysis, ctaIntelligence, contentIntelligence, impactMatrix } = labResult;
+  const { siteAssessment, trustAnalysis, ctaIntelligence, contentIntelligence } = labResult;
 
   // Theme 1: Trust & Social Proof
   if (trustAnalysis && trustAnalysis.trustScore < 70) {

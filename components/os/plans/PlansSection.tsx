@@ -86,7 +86,7 @@ export function PlansSection({
       ) ?? null;
 
       // If we have plans, fetch their individual staleness info
-      let fetchedData: FetchedPlansData = {
+      const fetchedData: FetchedPlansData = {
         mediaPlan,
         contentPlan,
         mediaPlanStale: false,

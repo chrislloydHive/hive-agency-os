@@ -745,35 +745,41 @@ function extractHandle(url: string, platform: SocialPlatform): string | undefine
     switch (platform) {
       case 'instagram':
       case 'facebook':
-      case 'pinterest':
+      case 'pinterest': {
         // /username or /username/
         const simplePath = path.replace(/^\//, '').replace(/\/$/, '').split('/')[0];
         return simplePath || undefined;
+      }
 
-      case 'tiktok':
+      case 'tiktok': {
         // /@username
         const tiktokMatch = path.match(/^\/@?([a-zA-Z0-9_.]+)/);
         return tiktokMatch?.[1];
+      }
 
-      case 'x':
+      case 'x': {
         // /username
         const xMatch = path.match(/^\/([a-zA-Z0-9_]+)/);
         return xMatch?.[1];
+      }
 
-      case 'linkedin':
+      case 'linkedin': {
         // /company/name or /in/name
         const linkedinMatch = path.match(/^\/(company|in|showcase)\/([a-zA-Z0-9_-]+)/);
         return linkedinMatch?.[2];
+      }
 
-      case 'youtube':
+      case 'youtube': {
         // /channel/id, /c/name, /@name, /user/name
         const ytMatch = path.match(/^\/(channel|c|user|@)?\/?\/?([a-zA-Z0-9_-]+)/);
         return ytMatch?.[2];
+      }
 
-      case 'yelp':
+      case 'yelp': {
         // /biz/business-name
         const yelpMatch = path.match(/^\/biz\/([a-zA-Z0-9_-]+)/);
         return yelpMatch?.[1];
+      }
 
       default:
         return undefined;

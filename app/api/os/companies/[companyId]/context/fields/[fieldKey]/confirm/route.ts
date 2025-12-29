@@ -66,7 +66,8 @@ export async function POST(
     }
 
     const [domain, ...fieldParts] = pathParts;
-    const domainObj = (graph as any)[domain];
+    const graphRecord = graph as unknown as Record<string, Record<string, unknown> | undefined>;
+    const domainObj = graphRecord[domain];
     if (!domainObj) {
       return NextResponse.json(
         { error: `Domain ${domain} not found in graph` },
@@ -75,19 +76,20 @@ export async function POST(
     }
 
     // Navigate to the field
-    let target = domainObj;
+    let target: Record<string, unknown> = domainObj;
     for (let i = 0; i < fieldParts.length - 1; i++) {
-      target = target[fieldParts[i]];
-      if (!target) {
+      const next = target[fieldParts[i]];
+      if (!next || typeof next !== 'object' || Array.isArray(next)) {
         return NextResponse.json(
           { error: `Path ${graphPath} not found` },
           { status: 404 }
         );
       }
+      target = next as Record<string, unknown>;
     }
 
     const finalField = fieldParts[fieldParts.length - 1];
-    const fieldData = target[finalField];
+    const fieldData = target[finalField] as { value?: unknown; provenance?: unknown[] } | undefined;
 
     if (!fieldData || fieldData.value === null || fieldData.value === undefined) {
       return NextResponse.json(

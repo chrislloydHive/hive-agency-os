@@ -14,13 +14,10 @@ import {
   ContextIntegritySummary,
   ContextIntegrityItem,
   QBR_DOMAINS,
-  domainToTitle,
   domainToStrategicRole,
   getQuarterDateRange,
-  getCurrentQuarter,
   GraphDeltaItem,
   InsightItem,
-  DomainKpiMetric,
   DomainWorkItem,
 } from './qbrTypes';
 import { loadQbrStory, saveQbrStory, updateQbrStoryBlocks } from './qbrStore';
@@ -32,8 +29,6 @@ import {
   type ContextFieldSnapshot,
 } from './contextSnapshots';
 import {
-  computeDeltasFromCurrentState,
-  groupDeltasByDomain,
   getFieldLabel,
 } from './contextDeltas';
 
@@ -195,7 +190,7 @@ interface BuildDomainBundleArgs {
 }
 
 function buildDomainBundle(args: BuildDomainBundleArgs): DomainBundleRoot {
-  const { companyId, quarter, contextGraph, versions, insights, workItems, diagnosticRuns } = args;
+  const { quarter, contextGraph, versions, insights, workItems, diagnosticRuns } = args;
 
   const { start: quarterStart, end: quarterEnd } = getQuarterDateRange(quarter);
 
@@ -205,7 +200,7 @@ function buildDomainBundle(args: BuildDomainBundleArgs): DomainBundleRoot {
     return date >= quarterStart && date <= quarterEnd;
   });
 
-  const quarterWorkItems = workItems.filter((w) => {
+  const quarterWorkItems = workItems.filter((_w) => {
     // Work items don't have reliable date filtering, include all recent ones
     return true;
   });

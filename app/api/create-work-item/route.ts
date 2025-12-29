@@ -166,13 +166,13 @@ export async function POST(
       fullReportId,
       sourcePriorityId: priorityId,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[POST /api/os/create-work-item] Error:', error);
 
     return NextResponse.json(
       {
         success: false,
-        error: error?.message || 'Internal server error',
+        error: error instanceof Error ? error.message : 'Internal server error',
       },
       { status: 500 }
     );

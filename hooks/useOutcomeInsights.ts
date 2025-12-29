@@ -1,7 +1,7 @@
 // hooks/useOutcomeInsights.ts
 // Hook for fetching and filtering RFP outcome insights
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import type { OutcomeInsight, OutcomeAnalysisResult } from '@/lib/os/rfp/analyzeOutcomes';
 import type { BidReadiness } from '@/lib/os/rfp/computeBidReadiness';
 import type { OutcomeTimeRange } from '@/lib/airtable/rfp';

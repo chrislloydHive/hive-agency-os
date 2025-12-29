@@ -20,7 +20,6 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Map,
-  AlertCircle,
   Info,
   X,
   Sparkles,
@@ -57,7 +56,7 @@ import { generateGhostNodes, getGhostNodePosition } from './ghostNodes';
 import { MapToolbar } from './MapToolbar';
 import { FilterPanel } from './FilterPanel';
 import { NodeDrawer } from './NodeDrawer';
-import { MapNode, GhostMapNode, NODE_WIDTH, NODE_HEIGHT, GHOST_NODE_WIDTH, GHOST_NODE_HEIGHT } from './MapNode';
+import { MapNode, GhostMapNode, NODE_WIDTH, NODE_HEIGHT } from './MapNode';
 import { useNodeAI } from './useNodeAI';
 
 // ============================================================================
@@ -446,7 +445,7 @@ function useDebugMode() {
 
 function TruthFirstFallback({
   companyId,
-  healthScore,
+  healthScore: _healthScore,
 }: {
   companyId: string;
   healthScore: ContextHealthScore;
@@ -702,7 +701,7 @@ function StrategicMapInner({
     setHoveredNode,
     showGhostNodes,
     ghostNodes,
-    showHeatmap,
+    showHeatmap: _showHeatmap,
     focusMode,
     enterFocusMode,
     exitFocusMode,
@@ -853,7 +852,7 @@ function StrategicMapInner({
   }, [mapGraph.edges]);
 
   // Active domains
-  const activeDomains = useMemo(() => getActiveDomains(mapGraph.nodes), [mapGraph.nodes]);
+  const _activeDomains = useMemo(() => getActiveDomains(mapGraph.nodes), [mapGraph.nodes]);
 
   // Highlighted domain (from hovered/selected node)
   const highlightedDomain = hoveredNode
@@ -1103,8 +1102,8 @@ function StrategicMapInner({
                   const toPos = nodePositions[edge.to];
                   if (!fromPos || !toPos) return null;
 
-                  const fromNode = mapGraph.nodes.find(n => n.id === edge.from);
-                  const toNode = mapGraph.nodes.find(n => n.id === edge.to);
+                  const _fromNode = mapGraph.nodes.find(n => n.id === edge.from);
+                  const _toNode = mapGraph.nodes.find(n => n.id === edge.to);
 
                   // Skip edges if nodes are filtered out
                   const fromFiltered = filteredNodes.find(n => n.id === edge.from);

@@ -37,7 +37,7 @@ import type {
   LabInsightUnit,
 } from './types';
 import { assessContextHealth } from './contextHealth';
-import { determineLabsNeededForMissingFields, getFieldsForLab } from './labPlan';
+import { determineLabsNeededForMissingFields } from './labPlan';
 import { runCompetitionGap, validateCompetitiveContextForStrategy } from './competitionGap';
 
 // Import canonical context extraction
@@ -1294,7 +1294,7 @@ function countFieldChanges(
   after: CompanyContextGraph
 ): number {
   // Simple count of fields that have different values
-  let changes = 0;
+  const changes = 0;
   const beforeJson = JSON.stringify(before);
   const afterJson = JSON.stringify(after);
 

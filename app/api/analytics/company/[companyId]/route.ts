@@ -3,13 +3,70 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getCompanyById } from '@/lib/airtable/companies';
-import { getGa4AnalyticsSnapshot } from '@/lib/analytics/ga4Analytics';
-import { getSearchConsoleSnapshot } from '@/lib/analytics/searchConsoleAnalytics';
 import { getDefaultDateRange } from '@/lib/analytics/growthAnalytics';
 import type { GrowthAnalyticsSnapshot } from '@/lib/analytics/models';
 
 interface RouteParams {
   params: Promise<{ companyId: string }>;
+}
+
+// Type for GA4 report row from the API
+interface GA4ReportRow {
+  dimensionValues?: Array<{ value?: string | null }> | null;
+  metricValues?: Array<{ value?: string | null }> | null;
+}
+
+// Type for Search Console analytics row
+interface SearchConsoleRow {
+  keys: string[];
+  clicks?: number;
+  impressions?: number;
+  ctr?: number;
+  position?: number;
+}
+
+// Traffic metrics shape
+interface TrafficMetrics {
+  users: number | null;
+  sessions: number | null;
+  pageviews: number | null;
+  avgSessionDurationSeconds: number | null;
+  bounceRate: number | null;
+}
+
+// Channel data shape
+interface ChannelData {
+  channel: string;
+  sessions: number;
+  users: number | null;
+  conversions: number | null;
+}
+
+// Landing page data shape
+interface LandingPageData {
+  path: string;
+  sessions: number;
+  users: number | null;
+  conversions: number | null;
+  avgEngagementTimeSeconds: number | null;
+}
+
+// Search query data shape
+interface SearchQueryData {
+  query: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number | null;
+}
+
+// Search page data shape
+interface SearchPageData {
+  url: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number | null;
 }
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
@@ -71,10 +128,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     // Fetch GA4 data if configured
-    let ga4Data = {
-      traffic: { users: null, sessions: null, pageviews: null, avgSessionDurationSeconds: null, bounceRate: null } as any,
-      channels: [] as any[],
-      topLandingPages: [] as any[],
+    let ga4Data: {
+      traffic: TrafficMetrics;
+      channels: ChannelData[];
+      topLandingPages: LandingPageData[];
+    } = {
+      traffic: { users: null, sessions: null, pageviews: null, avgSessionDurationSeconds: null, bounceRate: null },
+      channels: [],
+      topLandingPages: [],
     };
 
     if (hasGa4 && company.ga4PropertyId) {
@@ -90,9 +151,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     // Fetch Search Console data if configured
-    let searchConsoleData = {
-      queries: [] as any[],
-      pages: [] as any[],
+    let searchConsoleData: {
+      queries: SearchQueryData[];
+      pages: SearchPageData[];
+    } = {
+      queries: [],
+      pages: [],
     };
 
     if (hasSearchConsole && company.searchConsoleSiteUrl) {
@@ -208,7 +272,7 @@ async function getGa4AnalyticsSnapshotForProperty(
       limit: 10,
     });
 
-    const channels = (channelsResponse.rows || []).map((row: any) => ({
+    const channels: ChannelData[] = (channelsResponse.rows || []).map((row: GA4ReportRow) => ({
       channel: row.dimensionValues?.[0]?.value || 'Unattributed',
       sessions: row.metricValues?.[0]?.value ? parseInt(row.metricValues[0].value) : 0,
       users: row.metricValues?.[1]?.value ? parseInt(row.metricValues[1].value) : null,
@@ -229,7 +293,7 @@ async function getGa4AnalyticsSnapshotForProperty(
       limit: 20,
     });
 
-    const topLandingPages = (landingPagesResponse.rows || []).map((row: any) => ({
+    const topLandingPages: LandingPageData[] = (landingPagesResponse.rows || []).map((row: GA4ReportRow) => ({
       path: row.dimensionValues?.[0]?.value || '/',
       sessions: row.metricValues?.[0]?.value ? parseInt(row.metricValues[0].value) : 0,
       users: row.metricValues?.[1]?.value ? parseInt(row.metricValues[1].value) : null,
@@ -272,7 +336,7 @@ async function getSearchConsoleSnapshotForSite(
       },
     });
 
-    const queries = (queriesResponse.data.rows || []).map((row: any) => ({
+    const queries: SearchQueryData[] = ((queriesResponse.data.rows || []) as SearchConsoleRow[]).map((row) => ({
       query: row.keys[0],
       clicks: row.clicks || 0,
       impressions: row.impressions || 0,
@@ -291,7 +355,7 @@ async function getSearchConsoleSnapshotForSite(
       },
     });
 
-    const pages = (pagesResponse.data.rows || []).map((row: any) => ({
+    const pages: SearchPageData[] = ((pagesResponse.data.rows || []) as SearchConsoleRow[]).map((row) => ({
       url: row.keys[0],
       clicks: row.clicks || 0,
       impressions: row.impressions || 0,
@@ -300,8 +364,9 @@ async function getSearchConsoleSnapshotForSite(
     }));
 
     return { queries, pages };
-  } catch (err: any) {
-    if (err?.message?.includes('permission') || err?.code === 403) {
+  } catch (err: unknown) {
+    const errorObj = err as { message?: string; code?: number };
+    if (errorObj?.message?.includes('permission') || errorObj?.code === 403) {
       console.warn('[Search Console] Permission denied for site:', siteUrl);
     } else {
       console.error('[Search Console] Error fetching site data:', err);

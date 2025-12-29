@@ -282,27 +282,28 @@ describe('V4 Store ensureContextFieldsV4Store', () => {
 describe('V4 Store Error Codes', () => {
   it('should define correct error code types', () => {
     // This test verifies the V4StoreErrorCode type exists and is properly exported
-    const errorCodes = ['UNAUTHORIZED', 'NOT_FOUND', 'NETWORK_ERROR', 'PARSE_ERROR', 'UNKNOWN'];
+    type V4ErrorCode = 'UNAUTHORIZED' | 'NOT_FOUND' | 'NETWORK_ERROR' | 'PARSE_ERROR' | 'UNKNOWN';
+    const errorCodes: V4ErrorCode[] = ['UNAUTHORIZED', 'NOT_FOUND', 'NETWORK_ERROR', 'PARSE_ERROR', 'UNKNOWN'];
 
     // Import the type to ensure it compiles
     // If the type is wrong, TypeScript will catch it at build time
-    const testErrorCode = (code: 'UNAUTHORIZED' | 'NOT_FOUND' | 'NETWORK_ERROR' | 'PARSE_ERROR' | 'UNKNOWN') => code;
+    const testErrorCode = (code: V4ErrorCode) => code;
 
     for (const code of errorCodes) {
-      expect(testErrorCode(code as any)).toBe(code);
+      expect(testErrorCode(code)).toBe(code);
     }
   });
 
   it('should handle 403 (UNAUTHORIZED) status code pattern', () => {
     // Simulate the error categorization logic used in loadContextFieldsV4WithError
-    const error403 = { statusCode: 403, message: 'Not authorized to access this table' };
+    const error403: { statusCode: number; message: string; error?: string } = { statusCode: 403, message: 'Not authorized to access this table' };
 
     // The logic from loadContextFieldsV4WithError:
     const isUnauthorized =
       error403.statusCode === 401 ||
       error403.statusCode === 403 ||
-      (error403 as any).error === 'NOT_AUTHORIZED' ||
-      (error403 as any).error === 'AUTHENTICATION_REQUIRED' ||
+      error403.error === 'NOT_AUTHORIZED' ||
+      error403.error === 'AUTHENTICATION_REQUIRED' ||
       error403.message?.includes('not authorized');
 
     expect(isUnauthorized).toBe(true);
@@ -319,11 +320,11 @@ describe('V4 Store Error Codes', () => {
   });
 
   it('should handle NOT_AUTHORIZED error code pattern', () => {
-    const errorNotAuth = { error: 'NOT_AUTHORIZED', message: 'Access denied' };
+    const errorNotAuth: { error: string; message: string; statusCode?: number } = { error: 'NOT_AUTHORIZED', message: 'Access denied' };
 
     const isUnauthorized =
-      (errorNotAuth as any).statusCode === 401 ||
-      (errorNotAuth as any).statusCode === 403 ||
+      errorNotAuth.statusCode === 401 ||
+      errorNotAuth.statusCode === 403 ||
       errorNotAuth.error === 'NOT_AUTHORIZED' ||
       errorNotAuth.error === 'AUTHENTICATION_REQUIRED';
 

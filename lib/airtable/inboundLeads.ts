@@ -496,7 +496,7 @@ export async function createOrUpdatePipelineLeadFromDmaV2(params: {
 
     // Build deduplication filter
     // Dedupe key: email + domain (if available) + source="DMA Full GAP"
-    let filterParts = [
+    const filterParts = [
       `{Email} = '${params.contactEmail.replace(/'/g, "\\'")}'`,
       `{Lead Source} = 'DMA Full GAP'`,
     ];

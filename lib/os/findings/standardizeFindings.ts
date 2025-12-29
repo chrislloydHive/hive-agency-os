@@ -370,12 +370,12 @@ function parseSummaryText(labSlug: LabSlug, summaryText: string): Finding[] {
     }
 
     // Check if it's a finding-like line
-    const cleanLine = line.replace(/^[\d\.\-\*\•]\s*/, '').trim();
+    const cleanLine = line.replace(/^[\d.*•-]\s*/, '').trim();
     if (cleanLine.length < 10) continue;
 
     // Extract issue key from common patterns
     let issueKey = `${labSlug}-parsed-${i}`;
-    const keyMatch = cleanLine.match(/^(\w+[\-_]\w+):/);
+    const keyMatch = cleanLine.match(/^(\w+[-_]\w+):/);
     if (keyMatch) {
       issueKey = keyMatch[1].toLowerCase();
     }

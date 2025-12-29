@@ -77,7 +77,7 @@ export function PipelineTableClient({ leads }: PipelineTableClientProps) {
 
   // Filter and sort leads
   const filteredLeads = useMemo(() => {
-    let result = localLeads.filter((lead) => {
+    const result = localLeads.filter((lead) => {
       // Search filter
       if (searchQuery) {
         const query = searchQuery.toLowerCase();

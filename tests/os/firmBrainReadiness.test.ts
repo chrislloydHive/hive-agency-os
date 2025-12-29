@@ -84,7 +84,9 @@ const createCaseStudy = (id: string, withQuality: boolean = false): CaseStudy =>
   assets: [],
   tags: [],
   permissionLevel: 'public',
+  visibility: 'public',
   caseStudyUrl: null,
+  visuals: [],
   createdAt: null,
   updatedAt: null,
 });
@@ -106,12 +108,14 @@ const createReference = (id: string, confirmed: boolean = false): Reference => (
 
 const createPricingTemplate = (id: string, withQuality: boolean = false): PricingTemplate => ({
   id,
-  templateName: `Pricing ${id}`,
-  useCase: 'Strategy',
-  lineItems: withQuality ? [{ id: '1', category: 'Strategy', description: 'Work', unit: 'fixed', rate: 10000, quantity: 1, optional: false }] : [],
-  assumptions: withQuality ? ['Assumption 1'] : [],
-  exclusions: [],
-  optionSets: [],
+  name: `Pricing ${id}`,
+  // Quality templates have detailed descriptions (>= 100 chars)
+  description: withQuality
+    ? 'Best for: Strategy engagements\n\nTypical range: $10k-$20k\n\nIncludes:\n- Discovery\n- Strategy development\n\nExcludes:\n- Implementation'
+    : 'Basic template',
+  linkedAgencyId: null,
+  examplePricingFiles: [],
+  relevantOpportunities: [],
   createdAt: null,
   updatedAt: null,
 });

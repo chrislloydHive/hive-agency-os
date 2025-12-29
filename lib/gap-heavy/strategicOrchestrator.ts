@@ -222,23 +222,23 @@ function extractEvidenceItems(evidencePack: EvidencePack): GapHeavyEvidenceItem[
   const modules = evidencePack.modules || [];
 
   // Add evidence from each completed module
-  for (const module of modules) {
-    if (module.status !== 'completed') continue;
+  for (const mod of modules) {
+    if (mod.status !== 'completed') continue;
 
     // Add summary as evidence
-    if (module.summary) {
+    if (mod.summary) {
       evidence.push({
         id: generateGapHeavyId('ev'),
-        source: mapModuleToEvidenceSource(module.module),
-        description: `${module.module.toUpperCase()} Module: ${module.summary}`,
+        source: mapModuleToEvidenceSource(mod.module),
+        description: `${mod.module.toUpperCase()} Module: ${mod.summary}`,
       });
     }
 
     // Add key issues as evidence
-    for (const issue of (module.issues || []).slice(0, 3)) {
+    for (const issue of (mod.issues || []).slice(0, 3)) {
       evidence.push({
         id: generateGapHeavyId('ev'),
-        source: mapModuleToEvidenceSource(module.module),
+        source: mapModuleToEvidenceSource(mod.module),
         description: issue,
       });
     }
@@ -607,18 +607,18 @@ function buildFallbackSynthesis(input: SynthesisInput): SynthesisOutput {
   const categoryOpportunities: GapHeavyOpportunity[] = [];
   const contentOpportunities: GapHeavyOpportunity[] = [];
 
-  for (const module of modules) {
-    if (module.status !== 'completed') continue;
-    for (const rec of (module.recommendations || []).slice(0, 2)) {
+  for (const mod of modules) {
+    if (mod.status !== 'completed') continue;
+    for (const rec of (mod.recommendations || []).slice(0, 2)) {
       const opp: GapHeavyOpportunity = {
         id: generateGapHeavyId('op'),
         title: rec.length > 60 ? rec.slice(0, 57) + '...' : rec,
-        category: module.module === 'content' ? 'content' : 'category',
+        category: mod.module === 'content' ? 'content' : 'category',
         description: rec,
         expectedImpact: 'medium',
         timeHorizon: 'mid-term',
       };
-      if (module.module === 'content') {
+      if (mod.module === 'content') {
         contentOpportunities.push(opp);
       } else {
         categoryOpportunities.push(opp);
@@ -628,9 +628,9 @@ function buildFallbackSynthesis(input: SynthesisInput): SynthesisOutput {
 
   // Build funnel gaps from issues
   const funnelGaps: GapHeavyFunnelGap[] = [];
-  for (const module of modules) {
-    if (module.status !== 'completed') continue;
-    for (const issue of (module.issues || []).slice(0, 2)) {
+  for (const mod of modules) {
+    if (mod.status !== 'completed') continue;
+    for (const issue of (mod.issues || []).slice(0, 2)) {
       funnelGaps.push({
         id: generateGapHeavyId('fg'),
         title: issue.length > 60 ? issue.slice(0, 57) + '...' : issue,

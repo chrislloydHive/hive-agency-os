@@ -60,12 +60,12 @@ const IS_LOCAL = !process.env.VERCEL && process.env.NODE_ENV !== 'production';
 
 // For background jobs, use very long timeouts (or effectively no timeout)
 // We'll use 10 minutes as a safety measure, but it can be even longer
-const MAX_GENERATION_TIME = IS_LOCAL ? 600000 : 50000; // 10 minutes local, 50s production
+const _MAX_GENERATION_TIME = IS_LOCAL ? 600000 : 50000; // 10 minutes local, 50s production
 const QUICK_WINS_TIMEOUT = IS_LOCAL ? 600000 : 10000; // 10 minutes local (no effective timeout), 10s production
 const STRATEGIC_INITIATIVES_TIMEOUT = IS_LOCAL ? 600000 : 15000; // 10 minutes local (no effective timeout), 15s production
 const SECTION_ANALYSIS_TIMEOUT = IS_LOCAL ? 300000 : 10000; // 5 minutes local, 10s production
-const COMPETITOR_ANALYSIS_TIMEOUT = IS_LOCAL ? 180000 : 8000; // 3 minutes local, 8s production
-const MARKET_ANALYSIS_TIMEOUT = IS_LOCAL ? 180000 : 8000; // 3 minutes local, 8s production
+const _COMPETITOR_ANALYSIS_TIMEOUT = IS_LOCAL ? 180000 : 8000; // 3 minutes local, 8s production
+const _MARKET_ANALYSIS_TIMEOUT = IS_LOCAL ? 180000 : 8000; // 3 minutes local, 8s production
 
 if (IS_LOCAL) {
   console.log('[GAP Generation] Running in LOCAL mode with extended timeouts:');
@@ -760,9 +760,8 @@ export async function runFetchExtraPagesStep(state: GapRunState, timeLeftMs: num
     { pattern: /^\/(pricing|plans|prices)/i, type: 'pricing' },
   ];
   
-  let discoveredUrlsSet = new Set(discoveredPages);
-  const baseUrlObj = new URL(state.url);
-  
+  const discoveredUrlsSet = new Set(discoveredPages);
+
   for (const { pattern, type } of criticalPageTypes) {
     const hasType = discoveredPages.some(pageUrl => {
       try {
@@ -1637,8 +1636,7 @@ export async function generateGrowthAccelerationPlan(
   
   // Check if we have all critical page types, if not, try to construct URLs
   const discoveredUrls = new Set(discoveredPages);
-  const baseUrlObj = new URL(url);
-  
+
   for (const { pattern, type } of criticalPageTypes) {
     const hasType = discoveredPages.some(pageUrl => {
       try {
@@ -1715,7 +1713,7 @@ export async function generateGrowthAccelerationPlan(
   // Extract structured context for main site
   await reportProgress('Extracting structured content from pages...', 18, 'extracting-context');
   const siteElementContext = extractSiteElementContext(htmlByUrl, url);
-  const siteContextText = formatSiteContextForPrompt(siteElementContext);
+  // siteContextText is formatted for prompts but currently formatted inline where needed
   console.log(`✅ Extracted structured context from ${siteElementContext.pages.length} page(s)`);
   if (siteElementContext.blogPosts.length > 0) {
     console.log(`   📝 Found ${siteElementContext.blogPosts.length} blog post(s)`);
@@ -1910,7 +1908,7 @@ export async function generateGrowthAccelerationPlan(
   // Wrap section analyses in timeout protection
   const sectionAnalysisTimeout = 12000; // 12 seconds max per analysis
   
-  const [websiteConversionAnalysis, websiteSectionAnalysis, seoSectionAnalysis, contentSectionAnalysis] = await Promise.all([
+  const [_websiteConversionAnalysis, websiteSectionAnalysis, seoSectionAnalysis, contentSectionAnalysis] = await Promise.all([
     Promise.race([
       analyzeWebsiteAndConversionPerformance(assessment),
       new Promise<Awaited<ReturnType<typeof analyzeWebsiteAndConversionPerformance>>>((resolve) => 
@@ -3762,7 +3760,7 @@ export function buildTimeline(
       case 'long_term':
         longTerm.push(action);
         break;
-      default:
+      default: {
         // Fallback: if timeHorizon is invalid, normalize it and assign to appropriate bucket
         const normalized = normalizeTimeHorizon((action as any).timeHorizon);
         console.warn(`⚠️  Invalid timeHorizon "${(action as any).timeHorizon}" for action "${action.id}", normalized to "${normalized}"`);
@@ -3783,6 +3781,7 @@ export function buildTimeline(
             longTerm.push(action);
             break;
         }
+      }
     }
   }
   

@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { getPrimaryCompanyTabs, getCompanyTabFromPath } from '@/lib/nav/companyNav';
+import { makeCompanyRecord } from '@/tests/helpers/factories';
 
 // ============================================================================
 // Navigation Tests
@@ -11,52 +12,60 @@ import { getPrimaryCompanyTabs, getCompanyTabFromPath } from '@/lib/nav/companyN
 
 describe('Diagnostics Navigation', () => {
   describe('getPrimaryCompanyTabs', () => {
-    it('should include Diagnostics in primary tabs', () => {
+    it('should include Discover (Phase 1) in primary tabs', () => {
+      const primaryTabs = getPrimaryCompanyTabs();
+      const discoverTab = primaryTabs.find(tab => tab.id === 'discover');
+
+      expect(discoverTab).toBeDefined();
+      expect(discoverTab?.name).toBe('Discover');
+      expect(discoverTab?.primary).toBe(true);
+      expect(discoverTab?.phase).toBe(1);
+    });
+
+    it('should have Discover after Overview', () => {
+      const primaryTabs = getPrimaryCompanyTabs();
+      const overviewIndex = primaryTabs.findIndex(tab => tab.id === 'overview');
+      const discoverIndex = primaryTabs.findIndex(tab => tab.id === 'discover');
+
+      expect(discoverIndex).toBeGreaterThan(overviewIndex);
+    });
+
+    it('should not include diagnostics in primary tabs (hidden)', () => {
       const primaryTabs = getPrimaryCompanyTabs();
       const diagnosticsTab = primaryTabs.find(tab => tab.id === 'diagnostics');
 
-      expect(diagnosticsTab).toBeDefined();
-      expect(diagnosticsTab?.name).toBe('Diagnostics');
-      expect(diagnosticsTab?.primary).toBe(true);
-    });
-
-    it('should have Diagnostics after Context', () => {
-      const primaryTabs = getPrimaryCompanyTabs();
-      const contextIndex = primaryTabs.findIndex(tab => tab.id === 'context');
-      const diagnosticsIndex = primaryTabs.findIndex(tab => tab.id === 'diagnostics');
-
-      expect(diagnosticsIndex).toBeGreaterThan(contextIndex);
+      expect(diagnosticsTab).toBeUndefined();
     });
   });
 
   describe('getCompanyTabFromPath', () => {
-    it('should return diagnostics for /c/[companyId]/diagnostics', () => {
+    it('should return discover for /c/[companyId]/diagnostics', () => {
       const result = getCompanyTabFromPath('/c/recABC123/diagnostics', 'recABC123');
-      expect(result).toBe('diagnostics');
+      expect(result).toBe('discover');
     });
 
-    it('should return diagnostics for /c/[companyId]/diagnostics/website', () => {
+    it('should return discover for /c/[companyId]/diagnostics/website', () => {
       const result = getCompanyTabFromPath('/c/recABC123/diagnostics/website', 'recABC123');
-      expect(result).toBe('diagnostics');
+      expect(result).toBe('discover');
     });
 
-    it('should return diagnostics for /c/[companyId]/blueprint (legacy)', () => {
+    it('should return discover for /c/[companyId]/blueprint (legacy)', () => {
       const result = getCompanyTabFromPath('/c/recABC123/blueprint', 'recABC123');
-      expect(result).toBe('diagnostics');
+      expect(result).toBe('discover');
     });
 
-    it('should return diagnostics for /c/[companyId]/labs (legacy)', () => {
+    it('should return discover for /c/[companyId]/labs (legacy)', () => {
       const result = getCompanyTabFromPath('/c/recABC123/labs', 'recABC123');
-      expect(result).toBe('diagnostics');
+      expect(result).toBe('discover');
     });
   });
 
-  describe('Diagnostics tab href', () => {
-    it('should generate correct href for Diagnostics tab', () => {
+  describe('Discover tab href', () => {
+    it('should generate correct href for Discover tab (points to diagnostics route)', () => {
       const primaryTabs = getPrimaryCompanyTabs();
-      const diagnosticsTab = primaryTabs.find(tab => tab.id === 'diagnostics');
+      const discoverTab = primaryTabs.find(tab => tab.id === 'discover');
 
-      expect(diagnosticsTab?.href('recABC123')).toBe('/c/recABC123/diagnostics');
+      expect(discoverTab?.href('recABC123')).toBe('/c/recABC123/diagnostics');
     });
   });
 });
@@ -107,11 +116,13 @@ describe('Diagnostics Runs API', () => {
     const { getCompanyById } = await import('@/lib/airtable/companies');
     const { listDiagnosticRunsForCompany } = await import('@/lib/os/diagnostics/runs');
 
-    vi.mocked(getCompanyById).mockResolvedValue({
-      id: 'recABC123',
-      name: 'Test Company',
-      website: 'https://example.com',
-    } as any);
+    vi.mocked(getCompanyById).mockResolvedValue(
+      makeCompanyRecord({
+        id: 'recABC123',
+        name: 'Test Company',
+        website: 'https://example.com',
+      })
+    );
 
     vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([
       {
@@ -123,6 +134,8 @@ describe('Diagnostics Runs API', () => {
         summary: 'Website analysis complete',
         companyId: 'recABC123',
         updatedAt: '2024-01-01T01:00:00Z',
+        metadata: null,
+        rawJson: undefined,
       },
       {
         id: 'run2',
@@ -133,6 +146,8 @@ describe('Diagnostics Runs API', () => {
         summary: null,
         companyId: 'recABC123',
         updatedAt: '2024-01-02T00:00:00Z',
+        metadata: null,
+        rawJson: undefined,
       },
     ]);
 
@@ -150,13 +165,13 @@ describe('Diagnostics Runs API', () => {
     expect(Array.isArray(data.runs)).toBe(true);
 
     // Find websiteLab run
-    const websiteRun = data.runs.find((r: any) => r.toolId === 'websiteLab');
+    const websiteRun = data.runs.find((r: { toolId: string; status: string; score: number | null }) => r.toolId === 'websiteLab');
     expect(websiteRun).toBeDefined();
     expect(websiteRun.status).toBe('complete');
     expect(websiteRun.score).toBe(75);
 
     // Find brandLab run
-    const brandRun = data.runs.find((r: any) => r.toolId === 'brandLab');
+    const brandRun = data.runs.find((r: { toolId: string; status: string; score: number | null }) => r.toolId === 'brandLab');
     expect(brandRun).toBeDefined();
     expect(brandRun.status).toBe('running');
   });
@@ -165,11 +180,13 @@ describe('Diagnostics Runs API', () => {
     const { getCompanyById } = await import('@/lib/airtable/companies');
     const { listDiagnosticRunsForCompany } = await import('@/lib/os/diagnostics/runs');
 
-    vi.mocked(getCompanyById).mockResolvedValue({
-      id: 'recABC123',
-      name: 'Test Company',
-      website: 'https://example.com',
-    } as any);
+    vi.mocked(getCompanyById).mockResolvedValue(
+      makeCompanyRecord({
+        id: 'recABC123',
+        name: 'Test Company',
+        website: 'https://example.com',
+      })
+    );
 
     // Return empty array - no runs
     vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([]);

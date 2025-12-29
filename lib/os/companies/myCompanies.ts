@@ -317,7 +317,7 @@ export async function getMyCompanies(
     });
 
     // Filter by activity recency (unless pinned)
-    let filtered = enrichedCompanies.filter(company => {
+    const filtered = enrichedCompanies.filter(company => {
       if (company.isPinned) return true;
       if (company.daysSinceLastActivity === null) return false;
       return company.daysSinceLastActivity <= maxDaysSinceActivity;

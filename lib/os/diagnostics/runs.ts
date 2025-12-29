@@ -613,7 +613,7 @@ export async function listDiagnosticRunsForCompany(
   // Use "Company ID" text field for reliable querying (ARRAYJOIN on link fields returns names, not IDs)
   // Also check legacy "Company" text field for backward compatibility
   const companyFilter = `OR({Company ID} = '${companyId}', {Company} = '${companyId}')`;
-  let filterParts: string[] = [companyFilter];
+  const filterParts: string[] = [companyFilter];
 
   if (opts?.toolId) {
     filterParts.push(`{Tool ID} = '${opts.toolId}'`);

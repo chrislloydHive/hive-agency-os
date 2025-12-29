@@ -12,13 +12,13 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
-import { Lightbulb, Zap, Plus, Loader2, ArrowRight, Target, Clock, Info, ChevronRight, FileText, X } from 'lucide-react';
+import { Lightbulb, Zap, Plus, Loader2, ArrowRight, Target, Clock, FileText, X, ExternalLink, Layers } from 'lucide-react';
 import type { ExtendedNextBestAction } from '@/lib/os/companies/nextBestAction.types';
 import type {
   WorkItemRecord,
   WorkItemStatus,
 } from '@/lib/airtable/workItems';
-import type { PriorityItem, PrioritiesPayload } from '@/lib/airtable/fullReports';
+import type { PriorityItem } from '@/lib/airtable/fullReports';
 import type { EvidencePayload } from '@/lib/gap/types';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
 import type { Workstream, Task } from '@/lib/types/workMvp';
@@ -27,7 +27,7 @@ import PriorityCardWithAction from './PriorityCardWithAction';
 import WorkItemCardWithStatus from './WorkItemCardWithStatus';
 import { ExperimentsClient } from '@/components/experiments/ExperimentsClient';
 import { WorkItemArtifactsSection } from '@/components/os/work/WorkItemArtifactsSection';
-import type { WorkItemArtifact, WorkSource } from '@/lib/types/work';
+import type { WorkItemArtifact } from '@/lib/types/work';
 import { isArtifactSource } from '@/lib/types/work';
 
 // ============================================================================
@@ -80,28 +80,94 @@ export function WorkClient({
   // Check for artifact filter from URL
   const artifactIdFilter = searchParams.get('artifactId');
 
-  // Filter work items by artifact if filter is present
+  // Check for strategy filter from URL
+  const strategyIdFilter = searchParams.get('strategyId');
+
+  // Artifact details for filter display
+  const [artifactTitle, setArtifactTitle] = useState<string | null>(null);
+  const [loadingArtifact, setLoadingArtifact] = useState(false);
+
+  // Strategy details for filter display
+  const [strategyTitle, setStrategyTitle] = useState<string | null>(null);
+  const [loadingStrategy, setLoadingStrategy] = useState(false);
+
+  // Fetch artifact details when filtering
+  useEffect(() => {
+    if (!artifactIdFilter) {
+      setArtifactTitle(null);
+      return;
+    }
+
+    setLoadingArtifact(true);
+    fetch(`/api/os/companies/${company.id}/artifacts/${artifactIdFilter}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.artifact?.title) {
+          setArtifactTitle(data.artifact.title);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingArtifact(false));
+  }, [artifactIdFilter, company.id]);
+
+  // Fetch strategy details when filtering
+  useEffect(() => {
+    if (!strategyIdFilter) {
+      setStrategyTitle(null);
+      return;
+    }
+
+    setLoadingStrategy(true);
+    fetch(`/api/os/companies/${company.id}/strategy/${strategyIdFilter}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.strategy?.title) {
+          setStrategyTitle(data.strategy.title);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingStrategy(false));
+  }, [strategyIdFilter, company.id]);
+
+  // Filter work items by artifact or strategy if filter is present
   const filteredWorkItems = useMemo(() => {
-    if (!artifactIdFilter) return workItems;
+    let items = workItems;
 
-    return workItems.filter((item) => {
-      // Check if work item was created from this artifact
-      if (item.source && isArtifactSource(item.source) && item.source.artifactId === artifactIdFilter) {
-        return true;
-      }
+    // Filter by artifact
+    if (artifactIdFilter) {
+      items = items.filter((item) => {
+        // Check if work item was created from this artifact
+        if (item.source && isArtifactSource(item.source) && item.source.artifactId === artifactIdFilter) {
+          return true;
+        }
 
-      // Check if artifact is attached to this work item
-      const artifacts = item.artifacts as WorkItemArtifact[] | undefined;
-      if (artifacts && artifacts.some(a => a.artifactId === artifactIdFilter)) {
-        return true;
-      }
+        // Check if artifact is attached to this work item
+        const artifacts = item.artifacts as WorkItemArtifact[] | undefined;
+        if (artifacts && artifacts.some(a => a.artifactId === artifactIdFilter)) {
+          return true;
+        }
 
-      return false;
-    });
-  }, [workItems, artifactIdFilter]);
+        return false;
+      });
+    }
+
+    // Filter by strategy
+    if (strategyIdFilter) {
+      items = items.filter((item) => {
+        return item.strategyLink?.strategyId === strategyIdFilter;
+      });
+    }
+
+    return items;
+  }, [workItems, artifactIdFilter, strategyIdFilter]);
 
   // Clear artifact filter
   const clearArtifactFilter = useCallback(() => {
+    router.push(`/c/${company.id}/work`);
+  }, [router, company.id]);
+
+  // Clear strategy filter
+  const clearStrategyFilter = useCallback(() => {
     router.push(`/c/${company.id}/work`);
   }, [router, company.id]);
 
@@ -171,17 +237,7 @@ export function WorkClient({
       <div>
         <h1 className="text-2xl font-bold text-white">Work</h1>
         <p className="text-sm text-slate-400 mt-1">
-          Approved programs and initiatives in execution.
-        </p>
-        <p className="text-xs text-slate-500 mt-2">
-          Work items are created after deliverables are approved and programs are greenlit.
-        </p>
-      </div>
-
-      {/* Durable principle */}
-      <div className="bg-slate-800/30 border border-slate-700/50 rounded-lg p-4">
-        <p className="text-sm text-slate-300">
-          Work is not a phase—it&apos;s ongoing execution. Items here are committed programs from approved deliverables.
+          Track execution of committed programs.
         </p>
       </div>
 
@@ -195,43 +251,85 @@ export function WorkClient({
               </div>
               <div>
                 <p className="text-sm font-medium text-purple-300">
-                  Filtering by artifact
+                  {loadingArtifact ? 'Loading...' : artifactTitle ? `Work generated from: ${artifactTitle}` : 'Filtering by artifact'}
                 </p>
                 <p className="text-xs text-purple-400/80 mt-0.5">
                   Showing {filteredWorkItems.length} work item{filteredWorkItems.length !== 1 ? 's' : ''} linked to this artifact
                 </p>
               </div>
             </div>
-            <button
-              onClick={clearArtifactFilter}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-300 hover:text-purple-200 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded-lg transition-colors"
-            >
-              <X className="w-3.5 h-3.5" />
-              Clear filter
-            </button>
+            <div className="flex items-center gap-2">
+              <Link
+                href={`/c/${company.id}/artifacts/${artifactIdFilter}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-300 hover:text-purple-200 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded-lg transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                View artifact
+              </Link>
+              <button
+                onClick={clearArtifactFilter}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-300 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700 rounded-lg transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+                Clear filter
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Empty state: No work yet */}
-      {!hasAnyWork && !artifactIdFilter && (
-        <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-5">
-          <div className="flex items-start gap-3">
-            <Info className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-blue-300">Work begins after deliverables are approved</p>
-              <p className="text-xs text-blue-400/80 mt-1">
-                Create deliverables in the Deliver phase, then committed programs will appear here for tracking.
-              </p>
+      {/* Strategy Filter Banner */}
+      {strategyIdFilter && (
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-500/20 rounded-lg">
+                <Layers className="w-4 h-4 text-blue-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-blue-300">
+                  {loadingStrategy ? 'Loading...' : strategyTitle ? `Work from Strategy: ${strategyTitle}` : 'Filtering by strategy'}
+                </p>
+                <p className="text-xs text-blue-400/80 mt-0.5">
+                  Showing {filteredWorkItems.length} work item{filteredWorkItems.length !== 1 ? 's' : ''} committed from this strategy
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
               <Link
-                href={`/c/${company.id}/deliver`}
-                className="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-lg hover:bg-blue-500/30 transition-colors"
+                href={`/c/${company.id}/strategy?id=${strategyIdFilter}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-300 hover:text-blue-200 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded-lg transition-colors"
               >
-                Go to Deliver
-                <ChevronRight className="w-3.5 h-3.5" />
+                <ExternalLink className="w-3.5 h-3.5" />
+                View strategy
               </Link>
+              <button
+                onClick={clearStrategyFilter}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-300 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700 rounded-lg transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+                Clear filter
+              </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Empty state: No work yet - concise, confident */}
+      {!hasAnyWork && !artifactIdFilter && !strategyIdFilter && (
+        <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-6 text-center">
+          <Layers className="w-8 h-8 text-slate-500 mx-auto mb-3" />
+          <p className="text-sm font-medium text-slate-300">No active work</p>
+          <p className="text-xs text-slate-500 mt-1 mb-4">
+            Commit a Program from Deliver to start tracking work.
+          </p>
+          <Link
+            href={`/c/${company.id}/deliver`}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-500 transition-colors"
+          >
+            <ArrowRight className="w-3.5 h-3.5" />
+            Go to Deliver
+          </Link>
         </div>
       )}
 

@@ -30,7 +30,6 @@ import {
 import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
 import {
   type CompetitorProfile,
-  type FeatureMatrixEntry,
   type PricingModel,
   type MessageOverlap,
   type MarketCluster,

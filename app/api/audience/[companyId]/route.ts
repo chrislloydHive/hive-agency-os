@@ -13,9 +13,8 @@ import {
   saveAudienceModel,
   setAudienceModelCanonical,
   listAudienceModels,
-  getOrCreateAudienceModel,
 } from '@/lib/audience/storage';
-import { AudienceModel, validateAudienceModel } from '@/lib/audience/model';
+import { validateAudienceModel } from '@/lib/audience/model';
 import { loadAudienceSignalsForCompany, getSignalsSummary } from '@/lib/audience/signals';
 import { seedAudienceModelFromSignals, expandSegmentFromSeed } from '@/lib/audience/aiSeed';
 import { updateGraphFromAudienceModel } from '@/lib/contextGraph/updateFromAudience';

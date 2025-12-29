@@ -1,7 +1,7 @@
 // app/api/os/companies/[companyId]/strategy/[strategyId]/route.ts
 // CRUD operations for a specific strategy record
 //
-// PATCH - Update strategy fields (including goalStatement)
+// PATCH - Update strategy fields (including goalStatement, pillars, plays, objectives)
 // GET - Retrieve strategy by ID
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -12,12 +12,57 @@ import { getStrategyById, updateStrategy } from '@/lib/os/strategy';
 // Validation Schemas
 // ============================================================================
 
+// Objective schema
+const ObjectiveSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  status: z.enum(['draft', 'active', 'completed', 'archived']).optional(),
+  priority: z.number().optional(),
+  kpis: z.array(z.string()).optional(),
+});
+
+// Pillar (Strategic Bet) schema
+const PillarSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().optional(),
+  status: z.enum(['draft', 'proposed', 'accepted', 'rejected', 'archived']).optional(),
+  priority: z.number().optional(),
+  isPinned: z.boolean().optional(),
+  linkedObjectiveIds: z.array(z.string()).optional(),
+  linkedPlayIds: z.array(z.string()).optional(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+});
+
+// Play (Tactic) schema
+const PlaySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().optional(),
+  channel: z.string().optional(),
+  status: z.enum(['proposed', 'active', 'narrowed', 'completed', 'archived']).optional(),
+  priority: z.number().optional(),
+  isPinned: z.boolean().optional(),
+  linkedPillarIds: z.array(z.string()).optional(),
+  impact: z.enum(['high', 'medium', 'low']).optional(),
+  effort: z.enum(['high', 'medium', 'low']).optional(),
+  owner: z.string().optional(),
+  deadline: z.string().optional(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+});
+
 const PatchBodySchema = z.object({
   // Goal Statement (plain-language, 0-400 chars)
   goalStatement: z.string().trim().max(400).optional(),
   // Other updatable fields can be added here
   title: z.string().trim().min(1).max(200).optional(),
   summary: z.string().trim().max(1000).optional(),
+  // Strategy content
+  objectives: z.array(ObjectiveSchema).optional(),
+  pillars: z.array(PillarSchema).optional(),
+  plays: z.array(PlaySchema).optional(),
 });
 
 type PatchBody = z.infer<typeof PatchBodySchema>;
@@ -83,6 +128,9 @@ export async function GET(
  * - goalStatement (plain-language goal, 0-400 chars)
  * - title
  * - summary
+ * - objectives (array of StrategyObjective)
+ * - pillars (array of StrategyPillar / Strategic Bets)
+ * - plays (array of StrategyPlay / Tactics)
  *
  * goalStatementUpdatedAt is automatically set when goalStatement changes
  */
@@ -141,6 +189,15 @@ export async function PATCH(
     }
     if (body.summary !== undefined) {
       updates.summary = body.summary;
+    }
+    if (body.objectives !== undefined) {
+      updates.objectives = body.objectives;
+    }
+    if (body.pillars !== undefined) {
+      updates.pillars = body.pillars;
+    }
+    if (body.plays !== undefined) {
+      updates.plays = body.plays;
     }
 
     // Check if there's anything to update

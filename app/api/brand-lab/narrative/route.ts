@@ -7,6 +7,13 @@ import { getLatestRunForCompanyAndTool, updateDiagnosticRun } from '@/lib/os/dia
 import { generateBrandNarrativeReport } from '@/lib/gap-heavy/modules/brand-narrative-engine';
 import type { BrandDiagnosticResult, BrandActionPlan, BrandNarrativeReport } from '@/lib/gap-heavy/modules/brandLab';
 
+// Type for raw JSON data from Brand Lab runs
+interface BrandLabRawJson {
+  diagnostic?: BrandDiagnosticResult;
+  actionPlan?: BrandActionPlan;
+  narrativeReport?: BrandNarrativeReport;
+}
+
 export const maxDuration = 120; // 2 minutes timeout
 
 export async function POST(request: NextRequest) {
@@ -51,7 +58,7 @@ export async function POST(request: NextRequest) {
       targetRunId = latestRun.id;
 
       // Check if narrative already exists and we're not forcing regeneration
-      const rawData = latestRun.rawJson as any;
+      const rawData = latestRun.rawJson as BrandLabRawJson | undefined;
       if (rawData?.narrativeReport && !forceRegenerate) {
         console.log('[API] Returning existing narrative report');
         return NextResponse.json({
@@ -85,7 +92,7 @@ export async function POST(request: NextRequest) {
       try {
         const latestRun = await getLatestRunForCompanyAndTool(companyId, 'brandLab');
         if (latestRun && latestRun.id === targetRunId) {
-          const rawData = latestRun.rawJson as any;
+          const rawData = latestRun.rawJson as BrandLabRawJson | undefined;
           await updateDiagnosticRun(targetRunId, {
             rawJson: {
               ...rawData,
@@ -138,8 +145,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const rawData = latestRun.rawJson as any;
-    const narrative = rawData?.narrativeReport as BrandNarrativeReport | undefined;
+    const rawData = latestRun.rawJson as BrandLabRawJson | undefined;
+    const narrative = rawData?.narrativeReport;
 
     if (!narrative) {
       return NextResponse.json({

@@ -148,8 +148,8 @@ export async function loadContextOverview(companyId: string): Promise<ContextOve
   // Calculate field counts by status
   let okCount = 0;
   let staleCount = 0;
-  let lowConfidenceCount = 0;
-  let conflictedCount = 0;
+  const lowConfidenceCount = 0;
+  const conflictedCount = 0;
   let missingCount = 0;
 
   for (const field of fields) {

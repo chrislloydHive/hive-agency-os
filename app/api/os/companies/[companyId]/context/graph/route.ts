@@ -7,7 +7,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   buildContextGraphV3Snapshot,
-  listAvailableSnapshots,
 } from '@/lib/contextGraph/contextGraphV3Engine';
 
 interface RouteParams {
@@ -55,8 +54,8 @@ export async function GET(
  * Returns list of available snapshots for the company
  */
 export async function OPTIONS(
-  req: NextRequest,
-  { params }: RouteParams
+  _req: NextRequest,
+  { params: _params }: RouteParams
 ) {
   // For CORS preflight
   return new NextResponse(null, {

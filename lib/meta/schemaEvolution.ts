@@ -10,7 +10,6 @@
 import type { CompanyContextGraph, DomainName } from '../contextGraph/companyContextGraph';
 import type {
   SchemaEvolutionProposal,
-  SchemaChangeType,
   SchemaEvolutionEvidence,
   MigrationPlan,
   MigrationStep,

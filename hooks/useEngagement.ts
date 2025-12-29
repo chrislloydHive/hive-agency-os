@@ -12,8 +12,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type {
   CompanyEngagement,
-  EngagementType,
-  ProjectType,
   CreateEngagementInput,
 } from '@/lib/types/engagement';
 import type { LabId } from '@/lib/contextGraph/labContext';
@@ -345,7 +343,7 @@ export function useLabProgress(
   // Initialize with selected labs when they change
   useEffect(() => {
     setLabProgress(labsRef.current.map((labId) => ({ labId, status: 'pending' })));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [labsKey]); // Use stable string key instead of array reference
 
   // Poll for progress

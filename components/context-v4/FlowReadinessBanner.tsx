@@ -25,12 +25,9 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type { V4HealthResponse, V4HealthStatus } from '@/lib/types/contextV4Health';
-import { V4_HEALTH_STATUS_LABELS, V4_HEALTH_REASON_LABELS } from '@/lib/types/contextV4Health';
 import type {
   FlowReadinessResolved,
   FlowReadinessStatus,
-  FlowReadinessSignal,
-  RankedReason,
 } from '@/lib/types/flowReadiness';
 import { STATUS_COLORS, STATUS_LABELS } from '@/lib/types/flowReadiness';
 import { resolveFlowReadiness, getAllCtas } from '@/lib/flowReadiness/resolveFlowReadiness';
@@ -84,7 +81,7 @@ export type FlowReadinessBannerProps = HealthProps | ReadinessProps;
 // Status Styles (for legacy compatibility)
 // ============================================================================
 
-const STATUS_STYLES: Record<V4HealthStatus, {
+const _STATUS_STYLES: Record<V4HealthStatus, {
   bg: string;
   border: string;
   text: string;
@@ -206,10 +203,10 @@ function DetailsDropdownMulti({
   onRetriggerProposal,
   retriggerLoading,
   inspectorHref,
-  onClickHandlers,
+  onClickHandlers: _onClickHandlers,
 }: DetailsDropdownMultiProps) {
   const style = STATUS_COLORS[readiness.status];
-  const allCtas = getAllCtas(readiness);
+  const _allCtas = getAllCtas(readiness);
 
   // Default inspector href (use health if available)
   const inspectorUrl = inspectorHref || (health
@@ -399,7 +396,7 @@ function FullBanner(props: FlowReadinessBannerProps) {
     showDetails = true,
     onContinue,
     showContinueButton = true,
-    onClickHandlers,
+    onClickHandlers: _onClickHandlers,
   } = props;
 
   const [detailsExpanded, setDetailsExpanded] = useState(false);

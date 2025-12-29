@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     let result: Record<string, unknown>;
 
     switch (mode) {
-      case 'fill_empty':
+      case 'fill_empty': {
         // Generate predictions for empty fields
         console.log('[predict] Generating predictions for companyId:', companyId, 'domain filter:', domain);
         const predictionResult = await generatePredictions(graphRecord.graph, {
@@ -73,8 +73,9 @@ export async function POST(request: NextRequest) {
           averageConfidence: predictionResult.averageConfidence,
         };
         break;
+      }
 
-      case 'field_value':
+      case 'field_value': {
         // Predict a specific field value
         if (!path) {
           return NextResponse.json(
@@ -85,8 +86,9 @@ export async function POST(request: NextRequest) {
         const fieldPrediction = await predictFieldValue(graphRecord.graph, path);
         result = { prediction: fieldPrediction };
         break;
+      }
 
-      case 'predict_changes':
+      case 'predict_changes': {
         // Predict future field changes
         const targetDomains = domain ? [domain as DomainName] : undefined;
         const futureChanges = await predictFutureChanges(graphRecord.graph, targetDomains);
@@ -95,8 +97,9 @@ export async function POST(request: NextRequest) {
           totalPredictions: futureChanges.length,
         };
         break;
+      }
 
-      case 'detect_patterns':
+      case 'detect_patterns': {
         // Detect evolution patterns
         const patterns = await detectEvolutionPatterns(companyId, graphRecord.graph);
         result = {
@@ -104,6 +107,7 @@ export async function POST(request: NextRequest) {
           totalPatterns: patterns.length,
         };
         break;
+      }
 
       default:
         return NextResponse.json(

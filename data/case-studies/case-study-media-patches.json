@@ -1,0 +1,2106 @@
+[
+  {
+    "caseId": "moe-brand-internal",
+    "visuals": [
+      {
+        "id": "moe-brand-internal-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-brand-internal-hero-1a2c2b33",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/uG34BagWvcf12CXbKZKWmssK4.png",
+        "order": 1,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-brand-internal-hero-e2688eba",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/D09xxeH4yflmPu8Tqaaq2A8.png",
+        "order": 2,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-brand-internal-campaign-e06f784f",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/7uxLVnG9BfVqfc5eVCObAMLSYk.png",
+        "order": 3,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-brand-internal-detail-8dfa9897",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/wWebAEfIJcRFBdEtNFFnK4MrLo.png",
+        "order": 4,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-brand-internal-detail-68d998b8",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-06.png",
+        "originalUrl": "https://framerusercontent.com/images/tw6KcGQhlZwXrR7CtWoVNtl0UI.png",
+        "order": 5,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-brand-internal-detail-aa59dac0",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-07.svg",
+        "originalUrl": "https://framerusercontent.com/images/6tTbkXggWgQCAJ4DO2QEdXXmgM.svg",
+        "order": 6,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-brand-internal-detail-4cf4a880",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-08.svg",
+        "originalUrl": "https://framerusercontent.com/images/11KSGbIZoRSg4pjdnUoif6MKHI.svg",
+        "order": 7,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-brand-internal-detail-c3bde5f9",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-09.png",
+        "originalUrl": "https://framerusercontent.com/images/WF7GZs38w5dJdIBwWJis7HCww.png",
+        "order": 8,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-brand-internal-detail-f82cd9b9",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-10.png",
+        "originalUrl": "https://framerusercontent.com/images/suKgsNo0EReZTdh8SPNP8zy1sY.png",
+        "order": 9,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-brand-internal-detail-06181e75",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-11.png",
+        "originalUrl": "https://framerusercontent.com/images/SOec6OCsPrrZ4t4ROGspvqVV4.png",
+        "order": 10,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-brand-internal-detail-be824b98",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-12.png",
+        "originalUrl": "https://framerusercontent.com/images/WiJOvcZdrUMOYRDogjYwV3QJwuc.png",
+        "order": 11,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-brand-internal-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-13.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 12,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-brand-internal-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-14.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 13,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-brand-internal-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-15.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 14,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-brand-internal-video-703a76ed",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "",
+        "originalUrl": "https://framerusercontent.com/assets/eMGhn51XXTgVpwnyZktphAdlnSI.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/eMGhn51XXTgVpwnyZktphAdlnSI.mp4",
+        "order": 15,
+        "visibility": "internal"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/moe/logo.png",
+      "alt": "Mutual of Enumclaw logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "internal"
+    }
+  },
+  {
+    "caseId": "moe-brand-public",
+    "visuals": [
+      {
+        "id": "moe-brand-public-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-brand-public-hero-1a2c2b33",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/uG34BagWvcf12CXbKZKWmssK4.png",
+        "order": 1,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-brand-public-hero-e2688eba",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/D09xxeH4yflmPu8Tqaaq2A8.png",
+        "order": 2,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-brand-public-campaign-e06f784f",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/7uxLVnG9BfVqfc5eVCObAMLSYk.png",
+        "order": 3,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-brand-public-detail-8dfa9897",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/wWebAEfIJcRFBdEtNFFnK4MrLo.png",
+        "order": 4,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-brand-public-detail-68d998b8",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-06.png",
+        "originalUrl": "https://framerusercontent.com/images/tw6KcGQhlZwXrR7CtWoVNtl0UI.png",
+        "order": 5,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-brand-public-detail-aa59dac0",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-07.svg",
+        "originalUrl": "https://framerusercontent.com/images/6tTbkXggWgQCAJ4DO2QEdXXmgM.svg",
+        "order": 6,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-brand-public-detail-4cf4a880",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-08.svg",
+        "originalUrl": "https://framerusercontent.com/images/11KSGbIZoRSg4pjdnUoif6MKHI.svg",
+        "order": 7,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-brand-public-detail-c3bde5f9",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-09.png",
+        "originalUrl": "https://framerusercontent.com/images/WF7GZs38w5dJdIBwWJis7HCww.png",
+        "order": 8,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-brand-public-detail-f82cd9b9",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-10.png",
+        "originalUrl": "https://framerusercontent.com/images/suKgsNo0EReZTdh8SPNP8zy1sY.png",
+        "order": 9,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-brand-public-detail-06181e75",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-11.png",
+        "originalUrl": "https://framerusercontent.com/images/SOec6OCsPrrZ4t4ROGspvqVV4.png",
+        "order": 10,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-brand-public-detail-be824b98",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-12.png",
+        "originalUrl": "https://framerusercontent.com/images/WiJOvcZdrUMOYRDogjYwV3QJwuc.png",
+        "order": 11,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-brand-public-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-13.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 12,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-brand-public-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-14.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 13,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-brand-public-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe/visual-15.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 14,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-brand-public-video-703a76ed",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "",
+        "originalUrl": "https://framerusercontent.com/assets/eMGhn51XXTgVpwnyZktphAdlnSI.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/eMGhn51XXTgVpwnyZktphAdlnSI.mp4",
+        "order": 15,
+        "visibility": "public"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/moe/logo.png",
+      "alt": "Mutual of Enumclaw logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "public"
+    }
+  },
+  {
+    "caseId": "moe-content-internal",
+    "visuals": [
+      {
+        "id": "moe-content-internal-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-content-internal-hero-1a2c2b33",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/uG34BagWvcf12CXbKZKWmssK4.png",
+        "order": 1,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-content-internal-hero-d4c96153",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/ppEc20l4TG3h6gIxFLlgMCLkHY.png",
+        "order": 2,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-content-internal-campaign-b0d3e09c",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/7jV1gNTvccAlk7dx3KATR5efUY.png",
+        "order": 3,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-content-internal-detail-9f14ee84",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/Bx4FgvVOYaWcVeXU2szJCZXqCA.png",
+        "order": 4,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-content-internal-detail-acb8b3be",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-06.png",
+        "originalUrl": "https://framerusercontent.com/images/6aKrYXOvuRzsicUqLYMvahNBo.png",
+        "order": 5,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-content-internal-detail-71e8e2c5",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-07.png",
+        "originalUrl": "https://framerusercontent.com/images/tmbeagmTTPqAH3iqqYwiocs3k.png",
+        "order": 6,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-content-internal-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-08.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 7,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-content-internal-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-09.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 8,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-content-internal-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-10.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 9,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-content-internal-video-4d851ad9",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "/case-studies/moe-content/video-poster-11.png",
+        "originalUrl": "https://framerusercontent.com/assets/2DHKr8j6Gg9SjyP8QePbKdFOg.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/2DHKr8j6Gg9SjyP8QePbKdFOg.mp4",
+        "posterUrl": "/case-studies/moe-content/video-poster-11.png",
+        "order": 10,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-content-internal-video-6643181f",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "/case-studies/moe-content/video-poster-12.png",
+        "originalUrl": "https://framerusercontent.com/assets/khxHqnUNH7HoC1i8DguhoXzEM.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/khxHqnUNH7HoC1i8DguhoXzEM.mp4",
+        "posterUrl": "/case-studies/moe-content/video-poster-12.png",
+        "order": 11,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-content-internal-video-e99b7e2b",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "",
+        "originalUrl": "https://framerusercontent.com/assets/cWEL87EDkRX1zqP6kGzXQx0PNr4.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/cWEL87EDkRX1zqP6kGzXQx0PNr4.mp4",
+        "order": 12,
+        "visibility": "internal"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/moe-content/logo.png",
+      "alt": "MOE logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "internal"
+    }
+  },
+  {
+    "caseId": "moe-content-public",
+    "visuals": [
+      {
+        "id": "moe-content-public-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-content-public-hero-1a2c2b33",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/uG34BagWvcf12CXbKZKWmssK4.png",
+        "order": 1,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-content-public-hero-d4c96153",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/ppEc20l4TG3h6gIxFLlgMCLkHY.png",
+        "order": 2,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-content-public-campaign-b0d3e09c",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/7jV1gNTvccAlk7dx3KATR5efUY.png",
+        "order": 3,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-content-public-detail-9f14ee84",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/Bx4FgvVOYaWcVeXU2szJCZXqCA.png",
+        "order": 4,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-content-public-detail-acb8b3be",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-06.png",
+        "originalUrl": "https://framerusercontent.com/images/6aKrYXOvuRzsicUqLYMvahNBo.png",
+        "order": 5,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-content-public-detail-71e8e2c5",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-07.png",
+        "originalUrl": "https://framerusercontent.com/images/tmbeagmTTPqAH3iqqYwiocs3k.png",
+        "order": 6,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-content-public-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-08.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 7,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-content-public-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-09.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 8,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-content-public-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-content/visual-10.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 9,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-content-public-video-4d851ad9",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "/case-studies/moe-content/video-poster-11.png",
+        "originalUrl": "https://framerusercontent.com/assets/2DHKr8j6Gg9SjyP8QePbKdFOg.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/2DHKr8j6Gg9SjyP8QePbKdFOg.mp4",
+        "posterUrl": "/case-studies/moe-content/video-poster-11.png",
+        "order": 10,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-content-public-video-6643181f",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "/case-studies/moe-content/video-poster-12.png",
+        "originalUrl": "https://framerusercontent.com/assets/khxHqnUNH7HoC1i8DguhoXzEM.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/khxHqnUNH7HoC1i8DguhoXzEM.mp4",
+        "posterUrl": "/case-studies/moe-content/video-poster-12.png",
+        "order": 11,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-content-public-video-e99b7e2b",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "",
+        "originalUrl": "https://framerusercontent.com/assets/cWEL87EDkRX1zqP6kGzXQx0PNr4.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/cWEL87EDkRX1zqP6kGzXQx0PNr4.mp4",
+        "order": 12,
+        "visibility": "public"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/moe-content/logo.png",
+      "alt": "MOE logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "public"
+    }
+  },
+  {
+    "caseId": "fctg-brand-internal",
+    "visuals": [
+      {
+        "id": "fctg-brand-internal-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "internal"
+      },
+      {
+        "id": "fctg-brand-internal-hero-9db85a1d",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/zq1ePEwkkjUf1tSCwKfHrvFQBZ0.png",
+        "order": 1,
+        "visibility": "internal"
+      },
+      {
+        "id": "fctg-brand-internal-hero-dd878317",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/ksGXtOneVwc8nbw7IDBy4esT1g.png",
+        "order": 2,
+        "visibility": "internal"
+      },
+      {
+        "id": "fctg-brand-internal-campaign-6fd60958",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/eRlniWJgwt3RL3TqhSYEnTSrBZs.png",
+        "order": 3,
+        "visibility": "internal"
+      },
+      {
+        "id": "fctg-brand-internal-detail-d2aaf088",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/C0xExQO2igSpi8VDJnl0KANaJNA.png",
+        "order": 4,
+        "visibility": "internal"
+      },
+      {
+        "id": "fctg-brand-internal-detail-aa59dac0",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-06.svg",
+        "originalUrl": "https://framerusercontent.com/images/6tTbkXggWgQCAJ4DO2QEdXXmgM.svg",
+        "order": 5,
+        "visibility": "internal"
+      },
+      {
+        "id": "fctg-brand-internal-detail-4cf4a880",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-07.svg",
+        "originalUrl": "https://framerusercontent.com/images/11KSGbIZoRSg4pjdnUoif6MKHI.svg",
+        "order": 6,
+        "visibility": "internal"
+      },
+      {
+        "id": "fctg-brand-internal-detail-488c24e8",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-08.png",
+        "originalUrl": "https://framerusercontent.com/images/DNces2IrY1TOlyI693zPeSE5Rk.png",
+        "order": 7,
+        "visibility": "internal"
+      },
+      {
+        "id": "fctg-brand-internal-detail-515b9491",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-09.png",
+        "originalUrl": "https://framerusercontent.com/images/SrAlKXIvF2tL2RA7uBJokLxljF4.png",
+        "order": 8,
+        "visibility": "internal"
+      },
+      {
+        "id": "fctg-brand-internal-detail-9bdd3a8d",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-10.png",
+        "originalUrl": "https://framerusercontent.com/images/RM304R8d52IUaQ8mzPI5LTDuXfo.png",
+        "order": 9,
+        "visibility": "internal"
+      },
+      {
+        "id": "fctg-brand-internal-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-11.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 10,
+        "visibility": "internal"
+      },
+      {
+        "id": "fctg-brand-internal-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-12.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 11,
+        "visibility": "internal"
+      },
+      {
+        "id": "fctg-brand-internal-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-13.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 12,
+        "visibility": "internal"
+      },
+      {
+        "id": "fctg-brand-internal-video-ae3ed77d",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "",
+        "originalUrl": "https://framerusercontent.com/assets/ips2xWqdI5gpvYTz4xD1EtypJI.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/ips2xWqdI5gpvYTz4xD1EtypJI.mp4",
+        "order": 13,
+        "visibility": "internal"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/fctg/logo.png",
+      "alt": "FCTG logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "internal"
+    }
+  },
+  {
+    "caseId": "fctg-brand-public",
+    "visuals": [
+      {
+        "id": "fctg-brand-public-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "public"
+      },
+      {
+        "id": "fctg-brand-public-hero-9db85a1d",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/zq1ePEwkkjUf1tSCwKfHrvFQBZ0.png",
+        "order": 1,
+        "visibility": "public"
+      },
+      {
+        "id": "fctg-brand-public-hero-dd878317",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/ksGXtOneVwc8nbw7IDBy4esT1g.png",
+        "order": 2,
+        "visibility": "public"
+      },
+      {
+        "id": "fctg-brand-public-campaign-6fd60958",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/eRlniWJgwt3RL3TqhSYEnTSrBZs.png",
+        "order": 3,
+        "visibility": "public"
+      },
+      {
+        "id": "fctg-brand-public-detail-d2aaf088",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/C0xExQO2igSpi8VDJnl0KANaJNA.png",
+        "order": 4,
+        "visibility": "public"
+      },
+      {
+        "id": "fctg-brand-public-detail-aa59dac0",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-06.svg",
+        "originalUrl": "https://framerusercontent.com/images/6tTbkXggWgQCAJ4DO2QEdXXmgM.svg",
+        "order": 5,
+        "visibility": "public"
+      },
+      {
+        "id": "fctg-brand-public-detail-4cf4a880",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-07.svg",
+        "originalUrl": "https://framerusercontent.com/images/11KSGbIZoRSg4pjdnUoif6MKHI.svg",
+        "order": 6,
+        "visibility": "public"
+      },
+      {
+        "id": "fctg-brand-public-detail-488c24e8",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-08.png",
+        "originalUrl": "https://framerusercontent.com/images/DNces2IrY1TOlyI693zPeSE5Rk.png",
+        "order": 7,
+        "visibility": "public"
+      },
+      {
+        "id": "fctg-brand-public-detail-515b9491",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-09.png",
+        "originalUrl": "https://framerusercontent.com/images/SrAlKXIvF2tL2RA7uBJokLxljF4.png",
+        "order": 8,
+        "visibility": "public"
+      },
+      {
+        "id": "fctg-brand-public-detail-9bdd3a8d",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-10.png",
+        "originalUrl": "https://framerusercontent.com/images/RM304R8d52IUaQ8mzPI5LTDuXfo.png",
+        "order": 9,
+        "visibility": "public"
+      },
+      {
+        "id": "fctg-brand-public-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-11.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 10,
+        "visibility": "public"
+      },
+      {
+        "id": "fctg-brand-public-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-12.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 11,
+        "visibility": "public"
+      },
+      {
+        "id": "fctg-brand-public-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/fctg/visual-13.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 12,
+        "visibility": "public"
+      },
+      {
+        "id": "fctg-brand-public-video-ae3ed77d",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "",
+        "originalUrl": "https://framerusercontent.com/assets/ips2xWqdI5gpvYTz4xD1EtypJI.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/ips2xWqdI5gpvYTz4xD1EtypJI.mp4",
+        "order": 13,
+        "visibility": "public"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/fctg/logo.png",
+      "alt": "FCTG logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "public"
+    }
+  },
+  {
+    "caseId": "microsoft-brand-internal",
+    "visuals": [
+      {
+        "id": "microsoft-brand-internal-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "internal"
+      },
+      {
+        "id": "microsoft-brand-internal-hero-b3bb977c",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/L2axZHdOCWuqGiOAQgORKOHjU.png",
+        "order": 1,
+        "visibility": "internal"
+      },
+      {
+        "id": "microsoft-brand-internal-hero-f47f4b2c",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/2reFsUvnwo1e50yRCAUTtGku7gs.png",
+        "order": 2,
+        "visibility": "internal"
+      },
+      {
+        "id": "microsoft-brand-internal-campaign-42b4dbcc",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/vHJTkurzUtppuk2orIzql41n1HM.png",
+        "order": 3,
+        "visibility": "internal"
+      },
+      {
+        "id": "microsoft-brand-internal-detail-bbaa9936",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/zVeebWZmlpFfi50ZXNR0pRCiCI.png",
+        "order": 4,
+        "visibility": "internal"
+      },
+      {
+        "id": "microsoft-brand-internal-detail-35090b3f",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-06.png",
+        "originalUrl": "https://framerusercontent.com/images/P0sJBMOB06XX9af5zM9YEKPMx4.png",
+        "order": 5,
+        "visibility": "internal"
+      },
+      {
+        "id": "microsoft-brand-internal-detail-19b81c85",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-07.png",
+        "originalUrl": "https://framerusercontent.com/images/VW5JUrr8ZVTiqSdSVktuaEFTNYw.png",
+        "order": 6,
+        "visibility": "internal"
+      },
+      {
+        "id": "microsoft-brand-internal-detail-4cfb600f",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-08.png",
+        "originalUrl": "https://framerusercontent.com/images/2IQjs4T5oHAAl4nhKB1EdbSO8U.png",
+        "order": 7,
+        "visibility": "internal"
+      },
+      {
+        "id": "microsoft-brand-internal-detail-e39da4c5",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-09.png",
+        "originalUrl": "https://framerusercontent.com/images/yScAeJQPc3cNDaoK1Y5LOtA20.png",
+        "order": 8,
+        "visibility": "internal"
+      },
+      {
+        "id": "microsoft-brand-internal-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-10.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 9,
+        "visibility": "internal"
+      },
+      {
+        "id": "microsoft-brand-internal-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-11.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 10,
+        "visibility": "internal"
+      },
+      {
+        "id": "microsoft-brand-internal-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-12.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 11,
+        "visibility": "internal"
+      },
+      {
+        "id": "microsoft-brand-internal-video-b0fc58c3",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "/case-studies/microsoft/video-poster-13.png",
+        "originalUrl": "https://framerusercontent.com/assets/Y7JnNjqob0jYHB7DoNDJhYoXLpw.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/Y7JnNjqob0jYHB7DoNDJhYoXLpw.mp4",
+        "posterUrl": "/case-studies/microsoft/video-poster-13.png",
+        "order": 12,
+        "visibility": "internal"
+      },
+      {
+        "id": "microsoft-brand-internal-video-8cca809c",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "/case-studies/microsoft/video-poster-14.png",
+        "originalUrl": "https://framerusercontent.com/assets/Yh7dJrG3S7O5EYefmdBsVhEJhEY.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/Yh7dJrG3S7O5EYefmdBsVhEJhEY.mp4",
+        "posterUrl": "/case-studies/microsoft/video-poster-14.png",
+        "order": 13,
+        "visibility": "internal"
+      },
+      {
+        "id": "microsoft-brand-internal-video-cc1213bb",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "",
+        "originalUrl": "https://framerusercontent.com/assets/HIG89ZTBpBvD61BZ5v6w4SE.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/HIG89ZTBpBvD61BZ5v6w4SE.mp4",
+        "order": 14,
+        "visibility": "internal"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/microsoft/logo.png",
+      "alt": "Microsoft logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "internal"
+    }
+  },
+  {
+    "caseId": "microsoft-brand-public",
+    "visuals": [
+      {
+        "id": "microsoft-brand-public-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "public"
+      },
+      {
+        "id": "microsoft-brand-public-hero-b3bb977c",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/L2axZHdOCWuqGiOAQgORKOHjU.png",
+        "order": 1,
+        "visibility": "public"
+      },
+      {
+        "id": "microsoft-brand-public-hero-f47f4b2c",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/2reFsUvnwo1e50yRCAUTtGku7gs.png",
+        "order": 2,
+        "visibility": "public"
+      },
+      {
+        "id": "microsoft-brand-public-campaign-42b4dbcc",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/vHJTkurzUtppuk2orIzql41n1HM.png",
+        "order": 3,
+        "visibility": "public"
+      },
+      {
+        "id": "microsoft-brand-public-detail-bbaa9936",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/zVeebWZmlpFfi50ZXNR0pRCiCI.png",
+        "order": 4,
+        "visibility": "public"
+      },
+      {
+        "id": "microsoft-brand-public-detail-35090b3f",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-06.png",
+        "originalUrl": "https://framerusercontent.com/images/P0sJBMOB06XX9af5zM9YEKPMx4.png",
+        "order": 5,
+        "visibility": "public"
+      },
+      {
+        "id": "microsoft-brand-public-detail-19b81c85",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-07.png",
+        "originalUrl": "https://framerusercontent.com/images/VW5JUrr8ZVTiqSdSVktuaEFTNYw.png",
+        "order": 6,
+        "visibility": "public"
+      },
+      {
+        "id": "microsoft-brand-public-detail-4cfb600f",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-08.png",
+        "originalUrl": "https://framerusercontent.com/images/2IQjs4T5oHAAl4nhKB1EdbSO8U.png",
+        "order": 7,
+        "visibility": "public"
+      },
+      {
+        "id": "microsoft-brand-public-detail-e39da4c5",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-09.png",
+        "originalUrl": "https://framerusercontent.com/images/yScAeJQPc3cNDaoK1Y5LOtA20.png",
+        "order": 8,
+        "visibility": "public"
+      },
+      {
+        "id": "microsoft-brand-public-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-10.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 9,
+        "visibility": "public"
+      },
+      {
+        "id": "microsoft-brand-public-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-11.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 10,
+        "visibility": "public"
+      },
+      {
+        "id": "microsoft-brand-public-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/microsoft/visual-12.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 11,
+        "visibility": "public"
+      },
+      {
+        "id": "microsoft-brand-public-video-b0fc58c3",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "/case-studies/microsoft/video-poster-13.png",
+        "originalUrl": "https://framerusercontent.com/assets/Y7JnNjqob0jYHB7DoNDJhYoXLpw.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/Y7JnNjqob0jYHB7DoNDJhYoXLpw.mp4",
+        "posterUrl": "/case-studies/microsoft/video-poster-13.png",
+        "order": 12,
+        "visibility": "public"
+      },
+      {
+        "id": "microsoft-brand-public-video-8cca809c",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "/case-studies/microsoft/video-poster-14.png",
+        "originalUrl": "https://framerusercontent.com/assets/Yh7dJrG3S7O5EYefmdBsVhEJhEY.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/Yh7dJrG3S7O5EYefmdBsVhEJhEY.mp4",
+        "posterUrl": "/case-studies/microsoft/video-poster-14.png",
+        "order": 13,
+        "visibility": "public"
+      },
+      {
+        "id": "microsoft-brand-public-video-cc1213bb",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "",
+        "originalUrl": "https://framerusercontent.com/assets/HIG89ZTBpBvD61BZ5v6w4SE.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/HIG89ZTBpBvD61BZ5v6w4SE.mp4",
+        "order": 14,
+        "visibility": "public"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/microsoft/logo.png",
+      "alt": "Microsoft logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "public"
+    }
+  },
+  {
+    "caseId": "optum-content-internal",
+    "visuals": [
+      {
+        "id": "optum-content-internal-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "internal"
+      },
+      {
+        "id": "optum-content-internal-hero-320cf918",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/cpnnHyN7qsc8gIyJ0kV1Yc5YD6E.png",
+        "order": 1,
+        "visibility": "internal"
+      },
+      {
+        "id": "optum-content-internal-hero-f40cc99f",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/bzCtW8lsHrsqKutrdT5SXvSEdNE.png",
+        "order": 2,
+        "visibility": "internal"
+      },
+      {
+        "id": "optum-content-internal-campaign-c63a5598",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/H6dKL8PFSxm8fk81TtyhJc1Zc.png",
+        "order": 3,
+        "visibility": "internal"
+      },
+      {
+        "id": "optum-content-internal-detail-fa9ddb91",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/8YpCLxpzG9OAmlzmyI3EyWQiVQ.png",
+        "order": 4,
+        "visibility": "internal"
+      },
+      {
+        "id": "optum-content-internal-detail-6ace0db1",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-06.png",
+        "originalUrl": "https://framerusercontent.com/images/Vzq16LJZEvIaDKwTxchh5eYTS0.png",
+        "order": 5,
+        "visibility": "internal"
+      },
+      {
+        "id": "optum-content-internal-detail-1cebc2f2",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-07.png",
+        "originalUrl": "https://framerusercontent.com/images/X3OXXra7UBhgGFUpWKShmzu3wQ.png",
+        "order": 6,
+        "visibility": "internal"
+      },
+      {
+        "id": "optum-content-internal-detail-aa59dac0",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-08.svg",
+        "originalUrl": "https://framerusercontent.com/images/6tTbkXggWgQCAJ4DO2QEdXXmgM.svg",
+        "order": 7,
+        "visibility": "internal"
+      },
+      {
+        "id": "optum-content-internal-detail-4cf4a880",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-09.svg",
+        "originalUrl": "https://framerusercontent.com/images/11KSGbIZoRSg4pjdnUoif6MKHI.svg",
+        "order": 8,
+        "visibility": "internal"
+      },
+      {
+        "id": "optum-content-internal-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-10.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 9,
+        "visibility": "internal"
+      },
+      {
+        "id": "optum-content-internal-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-11.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 10,
+        "visibility": "internal"
+      },
+      {
+        "id": "optum-content-internal-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-12.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 11,
+        "visibility": "internal"
+      },
+      {
+        "id": "optum-content-internal-video-70f1770d",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "/case-studies/optum/video-poster-13.png",
+        "originalUrl": "https://framerusercontent.com/assets/dwCNQKccCMpcXflZz9GkRkxBb8U.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/dwCNQKccCMpcXflZz9GkRkxBb8U.mp4",
+        "posterUrl": "/case-studies/optum/video-poster-13.png",
+        "order": 12,
+        "visibility": "internal"
+      },
+      {
+        "id": "optum-content-internal-video-d708a053",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "/case-studies/optum/video-poster-14.png",
+        "originalUrl": "https://framerusercontent.com/assets/l27X2qhENSX1Sk6Kayhe3xBfpCM.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/l27X2qhENSX1Sk6Kayhe3xBfpCM.mp4",
+        "posterUrl": "/case-studies/optum/video-poster-14.png",
+        "order": 13,
+        "visibility": "internal"
+      },
+      {
+        "id": "optum-content-internal-video-0ccc3d29",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "/case-studies/optum/video-poster-15.png",
+        "originalUrl": "https://framerusercontent.com/assets/P6aAti7qhyMZ9m6NHJfctemoH0c.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/P6aAti7qhyMZ9m6NHJfctemoH0c.mp4",
+        "posterUrl": "/case-studies/optum/video-poster-15.png",
+        "order": 14,
+        "visibility": "internal"
+      },
+      {
+        "id": "optum-content-internal-video-639a5532",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "",
+        "originalUrl": "https://framerusercontent.com/assets/Vr7dSQhPfXSoI715cUDZVYKsLc.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/Vr7dSQhPfXSoI715cUDZVYKsLc.mp4",
+        "order": 15,
+        "visibility": "internal"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/optum/logo.png",
+      "alt": "Optum logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "internal"
+    }
+  },
+  {
+    "caseId": "optum-content-public",
+    "visuals": [
+      {
+        "id": "optum-content-public-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "public"
+      },
+      {
+        "id": "optum-content-public-hero-320cf918",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/cpnnHyN7qsc8gIyJ0kV1Yc5YD6E.png",
+        "order": 1,
+        "visibility": "public"
+      },
+      {
+        "id": "optum-content-public-hero-f40cc99f",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/bzCtW8lsHrsqKutrdT5SXvSEdNE.png",
+        "order": 2,
+        "visibility": "public"
+      },
+      {
+        "id": "optum-content-public-campaign-c63a5598",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/H6dKL8PFSxm8fk81TtyhJc1Zc.png",
+        "order": 3,
+        "visibility": "public"
+      },
+      {
+        "id": "optum-content-public-detail-fa9ddb91",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/8YpCLxpzG9OAmlzmyI3EyWQiVQ.png",
+        "order": 4,
+        "visibility": "public"
+      },
+      {
+        "id": "optum-content-public-detail-6ace0db1",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-06.png",
+        "originalUrl": "https://framerusercontent.com/images/Vzq16LJZEvIaDKwTxchh5eYTS0.png",
+        "order": 5,
+        "visibility": "public"
+      },
+      {
+        "id": "optum-content-public-detail-1cebc2f2",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-07.png",
+        "originalUrl": "https://framerusercontent.com/images/X3OXXra7UBhgGFUpWKShmzu3wQ.png",
+        "order": 6,
+        "visibility": "public"
+      },
+      {
+        "id": "optum-content-public-detail-aa59dac0",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-08.svg",
+        "originalUrl": "https://framerusercontent.com/images/6tTbkXggWgQCAJ4DO2QEdXXmgM.svg",
+        "order": 7,
+        "visibility": "public"
+      },
+      {
+        "id": "optum-content-public-detail-4cf4a880",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-09.svg",
+        "originalUrl": "https://framerusercontent.com/images/11KSGbIZoRSg4pjdnUoif6MKHI.svg",
+        "order": 8,
+        "visibility": "public"
+      },
+      {
+        "id": "optum-content-public-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-10.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 9,
+        "visibility": "public"
+      },
+      {
+        "id": "optum-content-public-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-11.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 10,
+        "visibility": "public"
+      },
+      {
+        "id": "optum-content-public-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/optum/visual-12.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 11,
+        "visibility": "public"
+      },
+      {
+        "id": "optum-content-public-video-70f1770d",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "/case-studies/optum/video-poster-13.png",
+        "originalUrl": "https://framerusercontent.com/assets/dwCNQKccCMpcXflZz9GkRkxBb8U.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/dwCNQKccCMpcXflZz9GkRkxBb8U.mp4",
+        "posterUrl": "/case-studies/optum/video-poster-13.png",
+        "order": 12,
+        "visibility": "public"
+      },
+      {
+        "id": "optum-content-public-video-d708a053",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "/case-studies/optum/video-poster-14.png",
+        "originalUrl": "https://framerusercontent.com/assets/l27X2qhENSX1Sk6Kayhe3xBfpCM.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/l27X2qhENSX1Sk6Kayhe3xBfpCM.mp4",
+        "posterUrl": "/case-studies/optum/video-poster-14.png",
+        "order": 13,
+        "visibility": "public"
+      },
+      {
+        "id": "optum-content-public-video-0ccc3d29",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "/case-studies/optum/video-poster-15.png",
+        "originalUrl": "https://framerusercontent.com/assets/P6aAti7qhyMZ9m6NHJfctemoH0c.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/P6aAti7qhyMZ9m6NHJfctemoH0c.mp4",
+        "posterUrl": "/case-studies/optum/video-poster-15.png",
+        "order": 14,
+        "visibility": "public"
+      },
+      {
+        "id": "optum-content-public-video-639a5532",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "",
+        "originalUrl": "https://framerusercontent.com/assets/Vr7dSQhPfXSoI715cUDZVYKsLc.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/Vr7dSQhPfXSoI715cUDZVYKsLc.mp4",
+        "order": 15,
+        "visibility": "public"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/optum/logo.png",
+      "alt": "Optum logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "public"
+    }
+  },
+  {
+    "caseId": "reviver-brand-internal",
+    "visuals": [
+      {
+        "id": "reviver-brand-internal-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "internal"
+      },
+      {
+        "id": "reviver-brand-internal-hero-9a5f01ef",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/cJCAqH4xU5TwPJt7RpuOOYpbdMs.png",
+        "order": 1,
+        "visibility": "internal"
+      },
+      {
+        "id": "reviver-brand-internal-hero-19000c2a",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/B8m4PGjb4sWTYiqhFVhdQwIxGoc.png",
+        "order": 2,
+        "visibility": "internal"
+      },
+      {
+        "id": "reviver-brand-internal-campaign-570df4b5",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/YsEGasqQi0J3ZeporlzOs6wTc.png",
+        "order": 3,
+        "visibility": "internal"
+      },
+      {
+        "id": "reviver-brand-internal-detail-10acb9e5",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/kuoCHB0eIWOe8BcmlWvKyruq5Xw.png",
+        "order": 4,
+        "visibility": "internal"
+      },
+      {
+        "id": "reviver-brand-internal-detail-34c0019b",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-06.png",
+        "originalUrl": "https://framerusercontent.com/images/7tjJTXT0L1CuVUNBaIy7D0pPI.png",
+        "order": 5,
+        "visibility": "internal"
+      },
+      {
+        "id": "reviver-brand-internal-detail-fc378ceb",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-07.png",
+        "originalUrl": "https://framerusercontent.com/images/x0AobcGRAg8ShO7Dm5SMMT4ypoI.png",
+        "order": 6,
+        "visibility": "internal"
+      },
+      {
+        "id": "reviver-brand-internal-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-08.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 7,
+        "visibility": "internal"
+      },
+      {
+        "id": "reviver-brand-internal-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-09.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 8,
+        "visibility": "internal"
+      },
+      {
+        "id": "reviver-brand-internal-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-10.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 9,
+        "visibility": "internal"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/reviver/logo.png",
+      "alt": "Reviver logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "internal"
+    }
+  },
+  {
+    "caseId": "reviver-brand-public",
+    "visuals": [
+      {
+        "id": "reviver-brand-public-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "public"
+      },
+      {
+        "id": "reviver-brand-public-hero-9a5f01ef",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/cJCAqH4xU5TwPJt7RpuOOYpbdMs.png",
+        "order": 1,
+        "visibility": "public"
+      },
+      {
+        "id": "reviver-brand-public-hero-19000c2a",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/B8m4PGjb4sWTYiqhFVhdQwIxGoc.png",
+        "order": 2,
+        "visibility": "public"
+      },
+      {
+        "id": "reviver-brand-public-campaign-570df4b5",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/YsEGasqQi0J3ZeporlzOs6wTc.png",
+        "order": 3,
+        "visibility": "public"
+      },
+      {
+        "id": "reviver-brand-public-detail-10acb9e5",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/kuoCHB0eIWOe8BcmlWvKyruq5Xw.png",
+        "order": 4,
+        "visibility": "public"
+      },
+      {
+        "id": "reviver-brand-public-detail-34c0019b",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-06.png",
+        "originalUrl": "https://framerusercontent.com/images/7tjJTXT0L1CuVUNBaIy7D0pPI.png",
+        "order": 5,
+        "visibility": "public"
+      },
+      {
+        "id": "reviver-brand-public-detail-fc378ceb",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-07.png",
+        "originalUrl": "https://framerusercontent.com/images/x0AobcGRAg8ShO7Dm5SMMT4ypoI.png",
+        "order": 6,
+        "visibility": "public"
+      },
+      {
+        "id": "reviver-brand-public-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-08.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 7,
+        "visibility": "public"
+      },
+      {
+        "id": "reviver-brand-public-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-09.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 8,
+        "visibility": "public"
+      },
+      {
+        "id": "reviver-brand-public-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/reviver/visual-10.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 9,
+        "visibility": "public"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/reviver/logo.png",
+      "alt": "Reviver logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "public"
+    }
+  },
+  {
+    "caseId": "portagebank-brand-internal",
+    "visuals": [
+      {
+        "id": "portagebank-brand-internal-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "internal"
+      },
+      {
+        "id": "portagebank-brand-internal-hero-510e819f",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/4jjQJ4FctHLedsGisTLvwAzMc.png",
+        "order": 1,
+        "visibility": "internal"
+      },
+      {
+        "id": "portagebank-brand-internal-hero-ded19950",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/BW57oUd0covKzcFhxcf6beSRY.png",
+        "order": 2,
+        "visibility": "internal"
+      },
+      {
+        "id": "portagebank-brand-internal-campaign-9a8fc925",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/8SOVRU6TDaD6fc3PzTe1EWZUR8.png",
+        "order": 3,
+        "visibility": "internal"
+      },
+      {
+        "id": "portagebank-brand-internal-detail-13b56cec",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/fonv2OEGu1kqxSLPwrjZuSlovg.png",
+        "order": 4,
+        "visibility": "internal"
+      },
+      {
+        "id": "portagebank-brand-internal-detail-70a243f3",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-06.png",
+        "originalUrl": "https://framerusercontent.com/images/aU0j5ykFwrkDHwcgpUHkMdDMg.png",
+        "order": 5,
+        "visibility": "internal"
+      },
+      {
+        "id": "portagebank-brand-internal-detail-1651913e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-07.png",
+        "originalUrl": "https://framerusercontent.com/images/al3k1WbinTnFuWrB3C7gVEhtCXM.png",
+        "order": 6,
+        "visibility": "internal"
+      },
+      {
+        "id": "portagebank-brand-internal-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-08.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 7,
+        "visibility": "internal"
+      },
+      {
+        "id": "portagebank-brand-internal-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-09.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 8,
+        "visibility": "internal"
+      },
+      {
+        "id": "portagebank-brand-internal-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-10.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 9,
+        "visibility": "internal"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/portagebank/logo.png",
+      "alt": "Portage Bank logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "internal"
+    }
+  },
+  {
+    "caseId": "portagebank-brand-public",
+    "visuals": [
+      {
+        "id": "portagebank-brand-public-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "public"
+      },
+      {
+        "id": "portagebank-brand-public-hero-510e819f",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/4jjQJ4FctHLedsGisTLvwAzMc.png",
+        "order": 1,
+        "visibility": "public"
+      },
+      {
+        "id": "portagebank-brand-public-hero-ded19950",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/BW57oUd0covKzcFhxcf6beSRY.png",
+        "order": 2,
+        "visibility": "public"
+      },
+      {
+        "id": "portagebank-brand-public-campaign-9a8fc925",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/8SOVRU6TDaD6fc3PzTe1EWZUR8.png",
+        "order": 3,
+        "visibility": "public"
+      },
+      {
+        "id": "portagebank-brand-public-detail-13b56cec",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/fonv2OEGu1kqxSLPwrjZuSlovg.png",
+        "order": 4,
+        "visibility": "public"
+      },
+      {
+        "id": "portagebank-brand-public-detail-70a243f3",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-06.png",
+        "originalUrl": "https://framerusercontent.com/images/aU0j5ykFwrkDHwcgpUHkMdDMg.png",
+        "order": 5,
+        "visibility": "public"
+      },
+      {
+        "id": "portagebank-brand-public-detail-1651913e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-07.png",
+        "originalUrl": "https://framerusercontent.com/images/al3k1WbinTnFuWrB3C7gVEhtCXM.png",
+        "order": 6,
+        "visibility": "public"
+      },
+      {
+        "id": "portagebank-brand-public-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-08.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 7,
+        "visibility": "public"
+      },
+      {
+        "id": "portagebank-brand-public-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-09.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 8,
+        "visibility": "public"
+      },
+      {
+        "id": "portagebank-brand-public-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/portagebank/visual-10.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 9,
+        "visibility": "public"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/portagebank/logo.png",
+      "alt": "Portage Bank logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "public"
+    }
+  },
+  {
+    "caseId": "moe-website-internal",
+    "visuals": [
+      {
+        "id": "moe-website-internal-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-website-internal-hero-1a2c2b33",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/uG34BagWvcf12CXbKZKWmssK4.png",
+        "order": 1,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-website-internal-hero-4182ba57",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/RNWixmPiPJYlJiZnEL4Phg7c1M.png",
+        "order": 2,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-website-internal-campaign-a784a54a",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/5sYyh8IMpZ5GJH2MjajoQlaNHk.png",
+        "order": 3,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-website-internal-detail-dbb3fa1c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/UwQBybANvixs8jdZWuWr9sPoP7Y.png",
+        "order": 4,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-website-internal-detail-865fe6a2",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-06.png",
+        "originalUrl": "https://framerusercontent.com/images/coXxpQtItdCo7e7TaI5PK75uSY.png",
+        "order": 5,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-website-internal-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-07.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 6,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-website-internal-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-08.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 7,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-website-internal-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-09.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 8,
+        "visibility": "internal"
+      },
+      {
+        "id": "moe-website-internal-video-f19766ad",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "",
+        "originalUrl": "https://framerusercontent.com/assets/KocfHyKPE9Qt6ATzBXOsrbz5l8A.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/KocfHyKPE9Qt6ATzBXOsrbz5l8A.mp4",
+        "order": 9,
+        "visibility": "internal"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/moe-website/logo.png",
+      "alt": "MOE logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "internal"
+    }
+  },
+  {
+    "caseId": "moe-website-public",
+    "visuals": [
+      {
+        "id": "moe-website-public-hero-1be91426",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-01.png",
+        "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+        "order": 0,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-website-public-hero-1a2c2b33",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-02.png",
+        "originalUrl": "https://framerusercontent.com/images/uG34BagWvcf12CXbKZKWmssK4.png",
+        "order": 1,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-website-public-hero-4182ba57",
+        "type": "hero",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-03.png",
+        "originalUrl": "https://framerusercontent.com/images/RNWixmPiPJYlJiZnEL4Phg7c1M.png",
+        "order": 2,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-website-public-campaign-a784a54a",
+        "type": "campaign",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-04.png",
+        "originalUrl": "https://framerusercontent.com/images/5sYyh8IMpZ5GJH2MjajoQlaNHk.png",
+        "order": 3,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-website-public-detail-dbb3fa1c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-05.png",
+        "originalUrl": "https://framerusercontent.com/images/UwQBybANvixs8jdZWuWr9sPoP7Y.png",
+        "order": 4,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-website-public-detail-865fe6a2",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-06.png",
+        "originalUrl": "https://framerusercontent.com/images/coXxpQtItdCo7e7TaI5PK75uSY.png",
+        "order": 5,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-website-public-detail-978a0dd4",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-07.png",
+        "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+        "order": 6,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-website-public-detail-3613e84e",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-08.png",
+        "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+        "order": 7,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-website-public-detail-d5dae84c",
+        "type": "detail",
+        "mediaType": "image",
+        "assetUrl": "/case-studies/moe-website/visual-09.png",
+        "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+        "order": 8,
+        "visibility": "public"
+      },
+      {
+        "id": "moe-website-public-video-f19766ad",
+        "type": "campaign",
+        "mediaType": "video",
+        "assetUrl": "",
+        "originalUrl": "https://framerusercontent.com/assets/KocfHyKPE9Qt6ATzBXOsrbz5l8A.mp4",
+        "linkUrl": "https://framerusercontent.com/assets/KocfHyKPE9Qt6ATzBXOsrbz5l8A.mp4",
+        "order": 9,
+        "visibility": "public"
+      }
+    ],
+    "clientLogo": {
+      "assetUrl": "/case-studies/moe-website/logo.png",
+      "alt": "MOE logo",
+      "theme": "dark",
+      "variant": "full",
+      "visibility": "public"
+    }
+  }
+]

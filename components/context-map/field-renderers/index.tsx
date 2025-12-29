@@ -4,8 +4,14 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { X, Plus, ExternalLink } from 'lucide-react';
+import { X, Plus, ExternalLink, ChevronLeft } from 'lucide-react';
 import type { UnifiedFieldEntry, SelectOption } from '@/lib/contextGraph/unifiedRegistry';
+import {
+  CANONICAL_CONVERSION_ACTIONS,
+  CATEGORY_ORDER,
+  CATEGORY_LABELS,
+  type ConversionActionCategory,
+} from '@/lib/constants/conversionActions';
 
 // ============================================================================
 // Types
@@ -61,8 +67,25 @@ export function TextFieldRenderer({
 }
 
 // ============================================================================
-// Select Field Renderer (Single Selection)
+// Select Field Renderer (Single Selection with Optional "Other" Support)
 // ============================================================================
+
+// Helper to check if a field is the conversion action field (for special UX)
+function isConversionActionField(field: UnifiedFieldEntry): boolean {
+  return field.key === 'gtm.conversionAction' || field.legacyPath === 'primaryConversionAction';
+}
+
+// Get grouped options for conversion action field
+function getGroupedConversionActions(): Map<ConversionActionCategory, typeof CANONICAL_CONVERSION_ACTIONS> {
+  const grouped = new Map<ConversionActionCategory, typeof CANONICAL_CONVERSION_ACTIONS>();
+  for (const category of CATEGORY_ORDER) {
+    const actions = CANONICAL_CONVERSION_ACTIONS.filter(a => a.category === category);
+    if (actions.length > 0) {
+      grouped.set(category, actions);
+    }
+  }
+  return grouped;
+}
 
 export function SelectFieldRenderer({
   field,
@@ -72,21 +95,120 @@ export function SelectFieldRenderer({
 }: FieldRendererProps) {
   const stringValue = typeof value === 'string' ? value : '';
   const options = field.options || [];
+  const isConversionField = isConversionActionField(field);
 
+  // Check if the current value is a custom value (not in preset options)
+  const isCustomValue = stringValue && stringValue !== 'custom' && !options.some(opt => opt.value === stringValue);
+  const [showCustomInput, setShowCustomInput] = useState(stringValue === 'custom' || isCustomValue);
+  const [customValue, setCustomValue] = useState(isCustomValue ? stringValue : '');
+
+  // Handle select change
+  const handleSelectChange = (newValue: string) => {
+    if (newValue === 'custom') {
+      setShowCustomInput(true);
+      // Don't change the stored value yet - wait for custom input
+    } else {
+      setShowCustomInput(false);
+      setCustomValue('');
+      onChange(newValue);
+    }
+  };
+
+  // Handle custom input change
+  const handleCustomChange = (newValue: string) => {
+    setCustomValue(newValue);
+    onChange(newValue);
+  };
+
+  // If allowCustomOptions and showing custom input
+  if (field.allowCustomOptions && showCustomInput) {
+    return (
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => {
+            setShowCustomInput(false);
+            setCustomValue('');
+            onChange('');
+          }}
+          className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-cyan-400 transition-colors"
+        >
+          <ChevronLeft className="w-3 h-3" />
+          Back to options
+        </button>
+        <div>
+          <input
+            type="text"
+            value={customValue}
+            onChange={(e) => handleCustomChange(e.target.value)}
+            disabled={readOnly}
+            placeholder={isConversionField
+              ? "Enter custom action (e.g., 'Subscribe to newsletter')"
+              : `Enter custom ${field.label.toLowerCase()}...`}
+            className="w-full px-3 py-2.5 text-sm bg-slate-800 border border-purple-500/50 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            autoFocus
+          />
+          <p className="mt-1 text-[10px] text-slate-500">
+            {isConversionField
+              ? 'Enter a verb phrase describing the action (e.g., "Subscribe to newsletter", "Join waitlist")'
+              : `Enter a custom value for ${field.label.toLowerCase()}`}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // For conversion action field, show grouped options
+  if (isConversionField) {
+    const groupedActions = getGroupedConversionActions();
+
+    return (
+      <div className="space-y-2">
+        <select
+          value={stringValue}
+          onChange={(e) => handleSelectChange(e.target.value)}
+          disabled={readOnly}
+          className="w-full px-3 py-2.5 text-sm bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:border-cyan-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <option value="">Select conversion action...</option>
+          {Array.from(groupedActions.entries()).map(([category, actions]) => (
+            <optgroup key={category} label={CATEGORY_LABELS[category]}>
+              {actions.map((action) => (
+                <option key={action.key} value={action.key}>
+                  {action.label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        {/* Description of selected action */}
+        {stringValue && stringValue !== 'custom' && (
+          <p className="text-[10px] text-slate-500">
+            {CANONICAL_CONVERSION_ACTIONS.find(a => a.key === stringValue)?.description ||
+              'Example tracking: GA4 event generate_lead / form_submit / booking_completed'}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // Default select for non-conversion action fields
   return (
-    <select
-      value={stringValue}
-      onChange={(e) => onChange(e.target.value)}
-      disabled={readOnly}
-      className="w-full px-3 py-2.5 text-sm bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:border-cyan-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
-    >
-      <option value="">Select {field.label.toLowerCase()}...</option>
-      {options.map((opt) => (
-        <option key={opt.value} value={opt.value}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
+    <div className="space-y-2">
+      <select
+        value={stringValue}
+        onChange={(e) => handleSelectChange(e.target.value)}
+        disabled={readOnly}
+        className="w-full px-3 py-2.5 text-sm bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:border-cyan-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <option value="">Select {field.label.toLowerCase()}...</option>
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 

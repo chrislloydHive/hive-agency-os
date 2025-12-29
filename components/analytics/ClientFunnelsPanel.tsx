@@ -44,6 +44,13 @@ export function ClientFunnelsPanel({
   const domain = snapshot?.domain || '';
   const isTrainrhub = isTrainrhubCompany(companyName, domain);
 
+  // Build client funnels from snapshot (for non-TrainrHub companies)
+  // Hook must be called unconditionally, before any early returns
+  const funnels = useMemo(() => {
+    if (!snapshot || isTrainrhub) return [];
+    return getClientFunnelsFromSnapshot(snapshot, companyName);
+  }, [snapshot, companyName, isTrainrhub]);
+
   // For TrainrHub, render the specialized funnels panel
   if (isTrainrhub) {
     return (
@@ -56,12 +63,6 @@ export function ClientFunnelsPanel({
       />
     );
   }
-
-  // Build client funnels from snapshot (for non-TrainrHub companies)
-  const funnels = useMemo(() => {
-    if (!snapshot) return [];
-    return getClientFunnelsFromSnapshot(snapshot, companyName);
-  }, [snapshot, companyName]);
 
   // Check if GA4 is connected
   const hasGa4 = snapshot?.ga4 && snapshot.ga4.metrics?.sessions !== undefined;

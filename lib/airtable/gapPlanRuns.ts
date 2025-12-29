@@ -469,6 +469,13 @@ export async function listRecentGapPlanRuns(limit: number = 20): Promise<GapPlan
         }
       }
 
+      // Use Airtable's automatic createdTime metadata (always present on every record)
+      // Fall back to 'Created At' field, then 'Created' field, then current time
+      const createdAt = record.createdTime ||
+                        fields['Created At'] ||
+                        fields['Created'] ||
+                        new Date().toISOString();
+
       return {
         id: record.id,
         companyId: Array.isArray(fields['Company']) ? fields['Company'][0] : undefined,
@@ -482,7 +489,7 @@ export async function listRecentGapPlanRuns(limit: number = 20): Promise<GapPlan
         seoScore: fields['SEO Score'] as number | undefined,
         authorityScore: fields['Authority Score'] as number | undefined,
         maturityStage: fields['Maturity Stage'] as string | undefined,
-        createdAt: fields['Created At'] || new Date().toISOString(),
+        createdAt,
         completedAt: fields['Completed At'] as string | undefined,
         errorMessage: fields['Error Message'] as string | undefined,
         dataJson,
@@ -542,6 +549,12 @@ export async function getGapPlanRunsForCompany(
         }
       }
 
+      // Use Airtable's automatic createdTime metadata
+      const createdAt = record.createdTime ||
+                        fields['Created At'] ||
+                        fields['Created'] ||
+                        new Date().toISOString();
+
       return {
         id: record.id,
         companyId: Array.isArray(fields['Company']) ? fields['Company'][0] : undefined,
@@ -555,7 +568,7 @@ export async function getGapPlanRunsForCompany(
         seoScore: fields['SEO Score'] as number | undefined,
         authorityScore: fields['Authority Score'] as number | undefined,
         maturityStage: fields['Maturity Stage'] as string | undefined,
-        createdAt: fields['Created At'] || new Date().toISOString(),
+        createdAt,
         completedAt: fields['Completed At'] as string | undefined,
         errorMessage: fields['Error Message'] as string | undefined,
         dataJson,
@@ -643,6 +656,13 @@ export async function getGapPlanRunsForCompanyOrDomain(
       // Prefer Company ID text field, fall back to linked record
       const resolvedCompanyId = fields['Company ID'] as string | undefined
         || (Array.isArray(fields['Company']) ? fields['Company'][0] : undefined);
+
+      // Use Airtable's automatic createdTime metadata
+      const createdAt = record.createdTime ||
+                        fields['Created At'] ||
+                        fields['Created'] ||
+                        new Date().toISOString();
+
       return {
         id: record.id,
         companyId: resolvedCompanyId,
@@ -656,7 +676,7 @@ export async function getGapPlanRunsForCompanyOrDomain(
         seoScore: fields['SEO Score'] as number | undefined,
         authorityScore: fields['Authority Score'] as number | undefined,
         maturityStage: fields['Maturity Stage'] as string | undefined,
-        createdAt: fields['Created At'] || new Date().toISOString(),
+        createdAt,
         completedAt: fields['Completed At'] as string | undefined,
         errorMessage: fields['Error Message'] as string | undefined,
       } as GapPlanRun;
@@ -688,6 +708,12 @@ export async function getGapPlanRunById(runId: string): Promise<GapPlanRun | nul
     const fields = record.fields || {};
     console.log('[GAP-Plan Run] Found record:', { id: record.id, status: fields['Status'] });
 
+    // Use Airtable's automatic createdTime metadata
+    const createdAt = (record as any).createdTime ||
+                      fields['Created At'] ||
+                      fields['Created'] ||
+                      new Date().toISOString();
+
     return {
       id: record.id,
       companyId: Array.isArray(fields['Company']) ? fields['Company'][0] : undefined,
@@ -701,7 +727,7 @@ export async function getGapPlanRunById(runId: string): Promise<GapPlanRun | nul
       seoScore: fields['SEO Score'] as number | undefined,
       authorityScore: fields['Authority Score'] as number | undefined,
       maturityStage: fields['Maturity Stage'] as string | undefined,
-      createdAt: fields['Created At'] || new Date().toISOString(),
+      createdAt,
       completedAt: fields['Completed At'] as string | undefined,
       errorMessage: fields['Error Message'] as string | undefined,
     } as GapPlanRun;

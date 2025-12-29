@@ -92,8 +92,7 @@ export async function analyzeDemandInputs(
   const adScent = analyzeAdScentSignals(pages);
 
   // Try to get GA4 analytics directly (not via API)
-  let analyticsSnapshot: DemandAnalyticsSnapshot | undefined;
-  analyticsSnapshot = await fetchGa4AnalyticsDirect(workspaceId);
+  const analyticsSnapshot: DemandAnalyticsSnapshot | undefined = await fetchGa4AnalyticsDirect(workspaceId);
 
   if (analyticsSnapshot) {
     console.log('[DemandAnalyzer] GA4 data retrieved:', {

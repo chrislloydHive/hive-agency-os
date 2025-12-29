@@ -83,10 +83,10 @@ export const diagnosticModulesImporter: DomainImporter = {
       });
 
       // Process each completed module
-      for (const module of runWithModules.evidencePack.modules) {
-        if (module.status !== 'completed') continue;
+      for (const mod of runWithModules.evidencePack.modules) {
+        if (mod.status !== 'completed') continue;
 
-        const moduleImport = importFromModule(graph, module, provenance);
+        const moduleImport = importFromModule(graph, mod, provenance);
         result.fieldsUpdated += moduleImport.count;
         result.updatedPaths.push(...moduleImport.paths);
       }
@@ -328,7 +328,7 @@ function importOpsModule(
   provenance: ReturnType<typeof createProvenance>
 ): { count: number; paths: string[] } {
   const paths: string[] = [];
-  let count = 0;
+  const count = 0;
 
   // Ops summary can inform operational constraints
   if (module.summary) {

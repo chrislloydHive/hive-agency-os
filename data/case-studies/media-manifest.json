@@ -1,0 +1,681 @@
+{
+  "generatedAt": "2025-12-27T21:34:52.571Z",
+  "sources": {
+    "moe": {
+      "pageUrl": "https://www.hiveadagency.com/moe-brand",
+      "assets": [
+        {
+          "originalUrl": "https://framerusercontent.com/images/DPV4U6ft6DFrVMAdASwl2EkHjAU.png",
+          "uploadedUrl": "/case-studies/moe/logo.png",
+          "type": "logo",
+          "classification": "logo"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+          "uploadedUrl": "/case-studies/moe/visual-01.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/uG34BagWvcf12CXbKZKWmssK4.png",
+          "uploadedUrl": "/case-studies/moe/visual-02.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/D09xxeH4yflmPu8Tqaaq2A8.png",
+          "uploadedUrl": "/case-studies/moe/visual-03.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/7uxLVnG9BfVqfc5eVCObAMLSYk.png",
+          "uploadedUrl": "/case-studies/moe/visual-04.png",
+          "type": "image",
+          "classification": "campaign"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/wWebAEfIJcRFBdEtNFFnK4MrLo.png",
+          "uploadedUrl": "/case-studies/moe/visual-05.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/tw6KcGQhlZwXrR7CtWoVNtl0UI.png",
+          "uploadedUrl": "/case-studies/moe/visual-06.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/6tTbkXggWgQCAJ4DO2QEdXXmgM.svg",
+          "uploadedUrl": "/case-studies/moe/visual-07.svg",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/11KSGbIZoRSg4pjdnUoif6MKHI.svg",
+          "uploadedUrl": "/case-studies/moe/visual-08.svg",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/WF7GZs38w5dJdIBwWJis7HCww.png",
+          "uploadedUrl": "/case-studies/moe/visual-09.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/suKgsNo0EReZTdh8SPNP8zy1sY.png",
+          "uploadedUrl": "/case-studies/moe/visual-10.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/SOec6OCsPrrZ4t4ROGspvqVV4.png",
+          "uploadedUrl": "/case-studies/moe/visual-11.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/WiJOvcZdrUMOYRDogjYwV3QJwuc.png",
+          "uploadedUrl": "/case-studies/moe/visual-12.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+          "uploadedUrl": "/case-studies/moe/visual-13.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+          "uploadedUrl": "/case-studies/moe/visual-14.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+          "uploadedUrl": "/case-studies/moe/visual-15.png",
+          "type": "image",
+          "classification": "detail"
+        }
+      ]
+    },
+    "moe-content": {
+      "pageUrl": "https://www.hiveadagency.com/moe-content",
+      "assets": [
+        {
+          "originalUrl": "https://framerusercontent.com/images/OYPnWqXxNzyETBc9Qffpi5KA4.png",
+          "uploadedUrl": "/case-studies/moe-content/logo.png",
+          "type": "logo",
+          "classification": "logo"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+          "uploadedUrl": "/case-studies/moe-content/visual-01.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/uG34BagWvcf12CXbKZKWmssK4.png",
+          "uploadedUrl": "/case-studies/moe-content/visual-02.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/ppEc20l4TG3h6gIxFLlgMCLkHY.png",
+          "uploadedUrl": "/case-studies/moe-content/visual-03.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/7jV1gNTvccAlk7dx3KATR5efUY.png",
+          "uploadedUrl": "/case-studies/moe-content/visual-04.png",
+          "type": "image",
+          "classification": "campaign"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/Bx4FgvVOYaWcVeXU2szJCZXqCA.png",
+          "uploadedUrl": "/case-studies/moe-content/visual-05.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/6aKrYXOvuRzsicUqLYMvahNBo.png",
+          "uploadedUrl": "/case-studies/moe-content/visual-06.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/tmbeagmTTPqAH3iqqYwiocs3k.png",
+          "uploadedUrl": "/case-studies/moe-content/visual-07.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+          "uploadedUrl": "/case-studies/moe-content/visual-08.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+          "uploadedUrl": "/case-studies/moe-content/visual-09.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+          "uploadedUrl": "/case-studies/moe-content/visual-10.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/1F4QATluzJaw7dyofxwFKOhDB0s.png",
+          "uploadedUrl": "/case-studies/moe-content/video-poster-11.png",
+          "type": "video",
+          "classification": "campaign"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/2xzehe83sBqenwwDLsxggvvqNwI.png",
+          "uploadedUrl": "/case-studies/moe-content/video-poster-12.png",
+          "type": "video",
+          "classification": "campaign"
+        }
+      ]
+    },
+    "fctg": {
+      "pageUrl": "https://www.hiveadagency.com/fctg",
+      "assets": [
+        {
+          "originalUrl": "https://framerusercontent.com/images/vbrAUno7Y2FfnOoYEuTgviVyghw.png",
+          "uploadedUrl": "/case-studies/fctg/logo.png",
+          "type": "logo",
+          "classification": "logo"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+          "uploadedUrl": "/case-studies/fctg/visual-01.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/zq1ePEwkkjUf1tSCwKfHrvFQBZ0.png",
+          "uploadedUrl": "/case-studies/fctg/visual-02.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/ksGXtOneVwc8nbw7IDBy4esT1g.png",
+          "uploadedUrl": "/case-studies/fctg/visual-03.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/eRlniWJgwt3RL3TqhSYEnTSrBZs.png",
+          "uploadedUrl": "/case-studies/fctg/visual-04.png",
+          "type": "image",
+          "classification": "campaign"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/C0xExQO2igSpi8VDJnl0KANaJNA.png",
+          "uploadedUrl": "/case-studies/fctg/visual-05.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/6tTbkXggWgQCAJ4DO2QEdXXmgM.svg",
+          "uploadedUrl": "/case-studies/fctg/visual-06.svg",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/11KSGbIZoRSg4pjdnUoif6MKHI.svg",
+          "uploadedUrl": "/case-studies/fctg/visual-07.svg",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/DNces2IrY1TOlyI693zPeSE5Rk.png",
+          "uploadedUrl": "/case-studies/fctg/visual-08.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/SrAlKXIvF2tL2RA7uBJokLxljF4.png",
+          "uploadedUrl": "/case-studies/fctg/visual-09.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/RM304R8d52IUaQ8mzPI5LTDuXfo.png",
+          "uploadedUrl": "/case-studies/fctg/visual-10.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+          "uploadedUrl": "/case-studies/fctg/visual-11.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+          "uploadedUrl": "/case-studies/fctg/visual-12.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+          "uploadedUrl": "/case-studies/fctg/visual-13.png",
+          "type": "image",
+          "classification": "detail"
+        }
+      ]
+    },
+    "microsoft": {
+      "pageUrl": "https://www.hiveadagency.com/microsoft",
+      "assets": [
+        {
+          "originalUrl": "https://framerusercontent.com/images/ppEc20l4TG3h6gIxFLlgMCLkHY.png",
+          "uploadedUrl": "/case-studies/microsoft/logo.png",
+          "type": "logo",
+          "classification": "logo"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+          "uploadedUrl": "/case-studies/microsoft/visual-01.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/L2axZHdOCWuqGiOAQgORKOHjU.png",
+          "uploadedUrl": "/case-studies/microsoft/visual-02.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/2reFsUvnwo1e50yRCAUTtGku7gs.png",
+          "uploadedUrl": "/case-studies/microsoft/visual-03.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/vHJTkurzUtppuk2orIzql41n1HM.png",
+          "uploadedUrl": "/case-studies/microsoft/visual-04.png",
+          "type": "image",
+          "classification": "campaign"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/zVeebWZmlpFfi50ZXNR0pRCiCI.png",
+          "uploadedUrl": "/case-studies/microsoft/visual-05.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/P0sJBMOB06XX9af5zM9YEKPMx4.png",
+          "uploadedUrl": "/case-studies/microsoft/visual-06.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/VW5JUrr8ZVTiqSdSVktuaEFTNYw.png",
+          "uploadedUrl": "/case-studies/microsoft/visual-07.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/2IQjs4T5oHAAl4nhKB1EdbSO8U.png",
+          "uploadedUrl": "/case-studies/microsoft/visual-08.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/yScAeJQPc3cNDaoK1Y5LOtA20.png",
+          "uploadedUrl": "/case-studies/microsoft/visual-09.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+          "uploadedUrl": "/case-studies/microsoft/visual-10.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+          "uploadedUrl": "/case-studies/microsoft/visual-11.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+          "uploadedUrl": "/case-studies/microsoft/visual-12.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/lvK1JKacGiCI6qX78jn6vqbLnY.png",
+          "uploadedUrl": "/case-studies/microsoft/video-poster-13.png",
+          "type": "video",
+          "classification": "campaign"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/6KKWvCHeTImAN9bwGiHDrrD4Nl4.png",
+          "uploadedUrl": "/case-studies/microsoft/video-poster-14.png",
+          "type": "video",
+          "classification": "campaign"
+        }
+      ]
+    },
+    "optum": {
+      "pageUrl": "https://www.hiveadagency.com/optum",
+      "assets": [
+        {
+          "originalUrl": "https://framerusercontent.com/images/ppEc20l4TG3h6gIxFLlgMCLkHY.png",
+          "uploadedUrl": "/case-studies/optum/logo.png",
+          "type": "logo",
+          "classification": "logo"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+          "uploadedUrl": "/case-studies/optum/visual-01.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/cpnnHyN7qsc8gIyJ0kV1Yc5YD6E.png",
+          "uploadedUrl": "/case-studies/optum/visual-02.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/bzCtW8lsHrsqKutrdT5SXvSEdNE.png",
+          "uploadedUrl": "/case-studies/optum/visual-03.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/H6dKL8PFSxm8fk81TtyhJc1Zc.png",
+          "uploadedUrl": "/case-studies/optum/visual-04.png",
+          "type": "image",
+          "classification": "campaign"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/8YpCLxpzG9OAmlzmyI3EyWQiVQ.png",
+          "uploadedUrl": "/case-studies/optum/visual-05.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/Vzq16LJZEvIaDKwTxchh5eYTS0.png",
+          "uploadedUrl": "/case-studies/optum/visual-06.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/X3OXXra7UBhgGFUpWKShmzu3wQ.png",
+          "uploadedUrl": "/case-studies/optum/visual-07.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/6tTbkXggWgQCAJ4DO2QEdXXmgM.svg",
+          "uploadedUrl": "/case-studies/optum/visual-08.svg",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/11KSGbIZoRSg4pjdnUoif6MKHI.svg",
+          "uploadedUrl": "/case-studies/optum/visual-09.svg",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+          "uploadedUrl": "/case-studies/optum/visual-10.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+          "uploadedUrl": "/case-studies/optum/visual-11.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+          "uploadedUrl": "/case-studies/optum/visual-12.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/PCJQtvwQTD27SLNT0nTmg0Uzs.png",
+          "uploadedUrl": "/case-studies/optum/video-poster-13.png",
+          "type": "video",
+          "classification": "campaign"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/qXzRrPhYgZdNY97reZeCNqvJMzg.png",
+          "uploadedUrl": "/case-studies/optum/video-poster-14.png",
+          "type": "video",
+          "classification": "campaign"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/CE0THczT0zkoO5c3bGK6raHNI.png",
+          "uploadedUrl": "/case-studies/optum/video-poster-15.png",
+          "type": "video",
+          "classification": "campaign"
+        }
+      ]
+    },
+    "reviver": {
+      "pageUrl": "https://www.hiveadagency.com/reviver",
+      "assets": [
+        {
+          "originalUrl": "https://framerusercontent.com/images/erd6j1w2sMXp2eN69fOgRQ8WuM.png",
+          "uploadedUrl": "/case-studies/reviver/logo.png",
+          "type": "logo",
+          "classification": "logo"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+          "uploadedUrl": "/case-studies/reviver/visual-01.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/cJCAqH4xU5TwPJt7RpuOOYpbdMs.png",
+          "uploadedUrl": "/case-studies/reviver/visual-02.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/B8m4PGjb4sWTYiqhFVhdQwIxGoc.png",
+          "uploadedUrl": "/case-studies/reviver/visual-03.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/YsEGasqQi0J3ZeporlzOs6wTc.png",
+          "uploadedUrl": "/case-studies/reviver/visual-04.png",
+          "type": "image",
+          "classification": "campaign"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/kuoCHB0eIWOe8BcmlWvKyruq5Xw.png",
+          "uploadedUrl": "/case-studies/reviver/visual-05.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/7tjJTXT0L1CuVUNBaIy7D0pPI.png",
+          "uploadedUrl": "/case-studies/reviver/visual-06.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/x0AobcGRAg8ShO7Dm5SMMT4ypoI.png",
+          "uploadedUrl": "/case-studies/reviver/visual-07.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+          "uploadedUrl": "/case-studies/reviver/visual-08.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+          "uploadedUrl": "/case-studies/reviver/visual-09.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+          "uploadedUrl": "/case-studies/reviver/visual-10.png",
+          "type": "image",
+          "classification": "detail"
+        }
+      ]
+    },
+    "portagebank": {
+      "pageUrl": "https://www.hiveadagency.com/portagebank",
+      "assets": [
+        {
+          "originalUrl": "https://framerusercontent.com/images/wKa5C1GdVeFwFe2AqPXywBBTQ.png",
+          "uploadedUrl": "/case-studies/portagebank/logo.png",
+          "type": "logo",
+          "classification": "logo"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+          "uploadedUrl": "/case-studies/portagebank/visual-01.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/4jjQJ4FctHLedsGisTLvwAzMc.png",
+          "uploadedUrl": "/case-studies/portagebank/visual-02.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/BW57oUd0covKzcFhxcf6beSRY.png",
+          "uploadedUrl": "/case-studies/portagebank/visual-03.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/8SOVRU6TDaD6fc3PzTe1EWZUR8.png",
+          "uploadedUrl": "/case-studies/portagebank/visual-04.png",
+          "type": "image",
+          "classification": "campaign"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/fonv2OEGu1kqxSLPwrjZuSlovg.png",
+          "uploadedUrl": "/case-studies/portagebank/visual-05.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/aU0j5ykFwrkDHwcgpUHkMdDMg.png",
+          "uploadedUrl": "/case-studies/portagebank/visual-06.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/al3k1WbinTnFuWrB3C7gVEhtCXM.png",
+          "uploadedUrl": "/case-studies/portagebank/visual-07.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+          "uploadedUrl": "/case-studies/portagebank/visual-08.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+          "uploadedUrl": "/case-studies/portagebank/visual-09.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+          "uploadedUrl": "/case-studies/portagebank/visual-10.png",
+          "type": "image",
+          "classification": "detail"
+        }
+      ]
+    },
+    "moe-website": {
+      "pageUrl": "https://www.hiveadagency.com/moe-website",
+      "assets": [
+        {
+          "originalUrl": "https://framerusercontent.com/images/r076w3J6JWrOBNXoeFZCVgHgME.png",
+          "uploadedUrl": "/case-studies/moe-website/logo.png",
+          "type": "logo",
+          "classification": "logo"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/9QwE6aw2WMxVg8QxSn013mIBs8Q.png?width=2250&height=1250",
+          "uploadedUrl": "/case-studies/moe-website/visual-01.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/uG34BagWvcf12CXbKZKWmssK4.png",
+          "uploadedUrl": "/case-studies/moe-website/visual-02.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/RNWixmPiPJYlJiZnEL4Phg7c1M.png",
+          "uploadedUrl": "/case-studies/moe-website/visual-03.png",
+          "type": "image",
+          "classification": "hero"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/5sYyh8IMpZ5GJH2MjajoQlaNHk.png",
+          "uploadedUrl": "/case-studies/moe-website/visual-04.png",
+          "type": "image",
+          "classification": "campaign"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/UwQBybANvixs8jdZWuWr9sPoP7Y.png",
+          "uploadedUrl": "/case-studies/moe-website/visual-05.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/coXxpQtItdCo7e7TaI5PK75uSY.png",
+          "uploadedUrl": "/case-studies/moe-website/visual-06.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/yRU1Ko6N4E7U0AiC3wOWxEj1CB4.png",
+          "uploadedUrl": "/case-studies/moe-website/visual-07.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/1HeG6GZdGsGdo7MxUGeyXEo6TPg.png",
+          "uploadedUrl": "/case-studies/moe-website/visual-08.png",
+          "type": "image",
+          "classification": "detail"
+        },
+        {
+          "originalUrl": "https://framerusercontent.com/images/pHDFjafMZdTBjRL9G6enGxz1rZY.png",
+          "uploadedUrl": "/case-studies/moe-website/visual-09.png",
+          "type": "image",
+          "classification": "detail"
+        }
+      ]
+    }
+  }
+}

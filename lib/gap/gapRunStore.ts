@@ -236,7 +236,7 @@ export async function updateGapRun(id: string, patch: Partial<GapRun>): Promise<
   const now = new Date();
 
   // Find the record by ID (GAP-Plan Run schema)
-  let records = await base(GAP_RUNS_TABLE)
+  const records = await base(GAP_RUNS_TABLE)
     .select({
       filterByFormula: `{Company ID} = "${id}"`,
       maxRecords: 1,
@@ -368,7 +368,7 @@ export async function getGapRun(id: string): Promise<GapRun | null> {
 
   try {
     // Try Company ID first (GAP-Plan Run schema)
-    let records = await base(GAP_RUNS_TABLE)
+    const records = await base(GAP_RUNS_TABLE)
       .select({
         filterByFormula: `{Company ID} = "${id}"`,
         maxRecords: 1,

@@ -242,7 +242,7 @@ function buildAnalyticsContext(overview: WorkspaceAnalyticsOverview): object {
 function generateFallbackInsights(
   overview: WorkspaceAnalyticsOverview
 ): WorkspaceAIInsights {
-  const { ga4, gsc, funnel, alerts } = overview;
+  const { ga4, gsc, alerts } = overview;
   const traffic = ga4.traffic;
 
   // Build headline metrics

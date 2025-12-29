@@ -891,6 +891,35 @@ export function playToTactic(play: StrategyPlay, linkedBetIds: string[] = []): T
 }
 
 /**
+ * Convert Tactic to StrategyPlay (for persistence)
+ */
+export function tacticToPlay(tactic: Tactic): StrategyPlay {
+  // Map Tactic status to StrategyPlayStatus
+  // Tactic: 'proposed' | 'active' | 'completed' | 'rejected'
+  // StrategyPlay: 'proposed' | 'active' | 'paused' | 'proven'
+  const statusMap: Record<NonNullable<Tactic['status']>, StrategyPlayStatus> = {
+    proposed: 'proposed',
+    active: 'active',
+    completed: 'proven',  // completed maps to proven
+    rejected: 'paused',   // rejected maps to paused
+  };
+
+  return {
+    id: tactic.id,
+    title: tactic.title,
+    description: tactic.description,
+    priorityIds: tactic.linkedBetIds,
+    channels: tactic.channels,
+    impact: tactic.impact,
+    effort: tactic.effort,
+    timeframe: tactic.timeline,
+    status: statusMap[tactic.status ?? 'proposed'],
+    provenance: tactic.provenance,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
  * Get all linked objective IDs for a play (handles legacy single ID)
  */
 export function getPlayObjectiveIds(play: StrategyPlay): string[] {

@@ -251,40 +251,40 @@ export async function fetchHTMLHint(url: string, returnUrls?: boolean): Promise<
     
     if (linkedinUrls.length > 0) {
       enhancedHint += '\n\nLINKEDIN COMPANY PAGE URLs DETECTED:\n' + linkedinUrls.slice(0, 5).join('\n');
-      // eslint-disable-next-line no-console
+       
       console.log(`🔗 Found ${linkedinUrls.length} LinkedIn URL(s):`, linkedinUrls.slice(0, 5));
     }
     
     if (facebookUrls.length > 0) {
       enhancedHint += '\n\nFACEBOOK PAGE URLs DETECTED:\n' + facebookUrls.slice(0, 5).join('\n');
-      // eslint-disable-next-line no-console
+       
       console.log(`📘 Found ${facebookUrls.length} Facebook URL(s):`, facebookUrls.slice(0, 5));
     }
     
     if (instagramUrls.length > 0) {
       enhancedHint += '\n\nINSTAGRAM PROFILE URLs DETECTED:\n' + instagramUrls.slice(0, 5).join('\n');
-      // eslint-disable-next-line no-console
+       
       console.log(`📷 Found ${instagramUrls.length} Instagram URL(s):`, instagramUrls.slice(0, 5));
     }
     
     if (gbpUrls.length > 0) {
       enhancedHint += '\n\nGOOGLE BUSINESS PROFILE URLs DETECTED:\n' + gbpUrls.slice(0, 5).join('\n');
-      // eslint-disable-next-line no-console
+       
       console.log(`📍 Found ${gbpUrls.length} GBP URL(s):`, gbpUrls.slice(0, 5));
     }
     
     if (blogUrls.length > 0) {
-      // eslint-disable-next-line no-console
+       
       console.log(`📝 Found ${blogUrls.length} blog URL(s):`, blogUrls.slice(0, 5));
     }
     
     if (facebookUrls.length > 0) {
-      // eslint-disable-next-line no-console
+       
       console.log(`📘 Found ${facebookUrls.length} Facebook URL(s):`, facebookUrls.slice(0, 5));
     }
     
     if (instagramUrls.length > 0) {
-      // eslint-disable-next-line no-console
+       
       console.log(`📷 Found ${instagramUrls.length} Instagram URL(s):`, instagramUrls.slice(0, 5));
     }
     

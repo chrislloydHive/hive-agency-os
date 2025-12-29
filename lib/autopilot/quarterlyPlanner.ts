@@ -59,7 +59,7 @@ export async function generateQuarterlyPlan(
     (graph.budgetOps?.mediaSpendBudget?.value as number || 50000) * 3;
   const activeChannels = graph.performanceMedia?.activeChannels?.value as string[] || [];
   const primaryGoal = graph.objectives?.primaryObjective?.value as string || 'growth';
-  const targetAudiences = graph.audience?.coreSegments?.value as string[] || [];
+  const _targetAudiences = graph.audience?.coreSegments?.value as string[] || [];
   const seasonalNotes = graph.identity?.seasonalityNotes?.value as string || '';
   const peakSeasons = graph.identity?.peakSeasons?.value as string[] || [];
 

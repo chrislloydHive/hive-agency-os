@@ -29,7 +29,7 @@ export async function POST(
     console.log('[API] Health check request for company:', companyId);
 
     // Parse optional options from body
-    let options: QuickHealthCheckOptions = {};
+    const options: QuickHealthCheckOptions = {};
     try {
       const body = await request.json();
       if (body.reuseRecentGapSnapshot !== undefined) {

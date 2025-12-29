@@ -94,7 +94,7 @@ export async function buildSignalsBundle(
   // Get competition data
   let competitionSnapshot: CompetitionSnapshot | null = null;
   let competitionV4Snapshot: CompetitionV4Snapshot | null = null;
-  let competitionSummary = await getCompetitionSummaryForCompany(companyId);
+  const competitionSummary = await getCompetitionSummaryForCompany(companyId);
   let competitors: Competitor[] = [];
   let competitorSource: 'v3' | 'v4' = 'v3';
 

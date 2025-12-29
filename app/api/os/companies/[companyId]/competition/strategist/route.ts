@@ -9,7 +9,7 @@ import { getLatestCompetitionRunV3 } from '@/lib/competition-v3/store';
 import { buildCompetitionStrategistModel } from '@/lib/competition-v3/strategist-orchestrator';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
 import { getCompanyById } from '@/lib/airtable/companies';
-import type { CompetitionRunV3Response, CompetitionCompetitor } from '@/lib/competition-v3/ui-types';
+import type { CompetitionRunV3Response, CompetitionCompetitor, GeoScope } from '@/lib/competition-v3/ui-types';
 
 interface RouteParams {
   params: Promise<{ companyId: string }>;
@@ -18,10 +18,13 @@ interface RouteParams {
 /**
  * Helper to extract string value from context graph field
  */
-function extractValue(field: any): string | undefined {
+function extractValue(field: unknown): string | undefined {
   if (!field) return undefined;
   if (typeof field === 'string') return field;
-  if (typeof field.value === 'string') return field.value;
+  if (typeof field === 'object' && field !== null && 'value' in field) {
+    const fieldObj = field as { value: unknown };
+    if (typeof fieldObj.value === 'string') return fieldObj.value;
+  }
   return undefined;
 }
 
@@ -104,7 +107,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         whyCompetitor: c.analysis.whyCompetitor || undefined,
       },
       // V3.5 signals for alignment with Data view
-      geoScope: (c as any).geoScope,
+      geoScope: 'geoScope' in c ? (c as { geoScope?: GeoScope }).geoScope : undefined,
       signals: {
         businessModelCategory: c.businessModelCategory,
         jtbdMatches: c.jtbdMatches,
@@ -112,7 +115,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         signalsVerified: c.signalsVerified,
         geoScore: c.geoScore,
       },
-      offerGraph: (c as any).offerGraph,
+      offerGraph: 'offerGraph' in c ? (c as { offerGraph?: string[] }).offerGraph : undefined,
     }));
 
     // Build insights

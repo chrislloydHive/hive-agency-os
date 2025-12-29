@@ -19,60 +19,11 @@ import {
   canArchive,
   canEditContent,
 } from '@/lib/os/artifacts/lifecycle';
-import type { Artifact, ArtifactStatus, UpdateArtifactInput } from '@/lib/types/artifact';
+import type { ArtifactStatus, UpdateArtifactInput } from '@/lib/types/artifact';
+import { createArtifact } from '@/tests/helpers/factories';
 
-// ============================================================================
-// Test Helpers
-// ============================================================================
-
-function createMockArtifact(overrides: Partial<Artifact> = {}): Artifact {
-  return {
-    id: 'artifact-123',
-    companyId: 'company-123',
-    title: 'Test Artifact',
-    type: 'strategy_doc',
-    status: 'draft',
-    source: 'ai_generated',
-    googleFileId: null,
-    googleFileType: null,
-    googleFileUrl: null,
-    googleFolderId: null,
-    googleModifiedAt: null,
-    sourceStrategyId: null,
-    sourceQbrStoryId: null,
-    sourceBriefId: null,
-    sourceMediaPlanId: null,
-    sourceContentPlanId: null,
-    engagementId: null,
-    projectId: null,
-    contextVersionAtCreation: null,
-    strategyVersionAtCreation: null,
-    snapshotId: null,
-    isStale: false,
-    stalenessReason: null,
-    stalenessCheckedAt: null,
-    lastSyncedAt: null,
-    generatedContent: { sections: ['intro', 'body'] },
-    generatedMarkdown: '# Test',
-    generatedFormat: 'hybrid',
-    inputsUsedHash: 'abc123',
-    includedTacticIds: null,
-    finalizedAt: null,
-    finalizedBy: null,
-    archivedAt: null,
-    archivedBy: null,
-    archivedReason: null,
-    createdBy: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    updatedBy: null,
-    lastEditedAt: null,
-    lastEditedBy: null,
-    description: null,
-    tags: [],
-    ...overrides,
-  };
-}
+// Alias for cleaner test code
+const createMockArtifact = createArtifact;
 
 // ============================================================================
 // isValidStatusTransition Tests

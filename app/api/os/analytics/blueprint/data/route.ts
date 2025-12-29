@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
       ga4PropertyId: company?.ga4PropertyId,
       searchConsoleSiteUrl: company?.searchConsoleSiteUrl,
       hasBlueprint: !!company?.analyticsBlueprint,
-      blueprintMetrics: company?.analyticsBlueprint?.primaryMetrics?.map((m: any) => m.id),
+      blueprintMetrics: company?.analyticsBlueprint?.primaryMetrics?.map((m) => m.id),
     });
 
     if (!company) {

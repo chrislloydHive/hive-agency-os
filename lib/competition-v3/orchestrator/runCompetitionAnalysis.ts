@@ -86,7 +86,7 @@ export async function runCompetitionV3(
   const runId = `comp-v3-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   // Initialize run state
-  let run: CompetitionRunV3 = {
+  const run: CompetitionRunV3 = {
     id: runId,
     companyId,
     version: 3,

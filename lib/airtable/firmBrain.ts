@@ -11,6 +11,9 @@ import type {
   TeamMemberInput,
   CaseStudy,
   CaseStudyInput,
+  CaseStudyPermission,
+  CaseStudyVisual,
+  CaseStudyClientLogo,
   Reference,
   ReferenceInput,
   PricingTemplate,
@@ -19,6 +22,7 @@ import type {
   PlanTemplateInput,
   FirmBrainSnapshot,
 } from '@/lib/types/firmBrain';
+import { normalizePermissionLevel } from '@/lib/types/firmBrain';
 
 // ============================================================================
 // Agency Profile
@@ -219,31 +223,133 @@ export async function deleteTeamMember(id: string): Promise<boolean> {
 // Case Studies
 // ============================================================================
 
-export async function getCaseStudies(): Promise<CaseStudy[]> {
+/** Options for listing case studies */
+export interface ListCaseStudiesOptions {
+  permission?: CaseStudyPermission;
+  search?: string;
+}
+
+/** Parse metrics from Airtable - handles both array and object formats */
+function parseMetrics(value: unknown): CaseStudy['metrics'] {
+  if (!value) return {};
+  // If it's a string, try to parse as JSON
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed as Array<{ label: string; value: string; context?: string }>;
+      }
+      if (typeof parsed === 'object' && parsed !== null) {
+        return parsed as Record<string, string | number | boolean | null>;
+      }
+    } catch {
+      return {};
+    }
+  }
+  // If it's already an object (not array), return as record
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, string | number | boolean | null>;
+  }
+  // If it's an array, return as-is
+  if (Array.isArray(value)) {
+    return value as Array<{ label: string; value: string; context?: string }>;
+  }
+  return {};
+}
+
+/** Parse visuals array from Airtable JSON */
+function parseVisuals(value: unknown): CaseStudyVisual[] {
+  if (!value) return [];
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed as CaseStudyVisual[];
+      }
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(value)) {
+    return value as CaseStudyVisual[];
+  }
+  return [];
+}
+
+/** Parse clientLogo from Airtable JSON */
+function parseClientLogo(value: unknown): CaseStudyClientLogo | null {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === 'object' && 'assetUrl' in parsed) {
+        return parsed as CaseStudyClientLogo;
+      }
+    } catch {
+      return null;
+    }
+  }
+  if (value && typeof value === 'object' && 'assetUrl' in value) {
+    return value as CaseStudyClientLogo;
+  }
+  return null;
+}
+
+/** Convert record to CaseStudy with normalized permission */
+function recordToCaseStudy(record: { id: string; get: (field: string) => unknown }): CaseStudy {
+  const rawPermission = record.get('permissionLevel') as string | null;
+  const permission = normalizePermissionLevel(rawPermission);
+
+  return {
+    id: record.id,
+    title: (record.get('title') as string) || '',
+    client: (record.get('client') as string) || '',
+    industry: record.get('industry') as string | null,
+    services: parseJsonArray(record.get('services')),
+    summary: record.get('summary') as string | null,
+    problem: record.get('problem') as string | null,
+    approach: record.get('approach') as string | null,
+    outcome: record.get('outcome') as string | null,
+    metrics: parseMetrics(record.get('metrics')),
+    assets: parseJsonArray(record.get('assets')),
+    tags: parseJsonArray(record.get('tags')),
+    permissionLevel: permission,
+    visibility: permission, // Same as permissionLevel
+    caseStudyUrl: record.get('caseStudyUrl') as string | null,
+    visuals: parseVisuals(record.get('visuals')),
+    clientLogo: parseClientLogo(record.get('clientLogo')),
+    createdAt: record.get('createdAt') as string | null,
+    updatedAt: record.get('updatedAt') as string | null,
+  };
+}
+
+export async function getCaseStudies(options?: ListCaseStudiesOptions): Promise<CaseStudy[]> {
   try {
     const base = getAirtableBase();
     const records = await base(AIRTABLE_TABLES.CASE_STUDIES)
       .select({ sort: [{ field: 'title', direction: 'asc' }] })
       .all();
 
-    return records.map((record) => ({
-      id: record.id,
-      title: (record.get('title') as string) || '',
-      client: (record.get('client') as string) || '',
-      industry: record.get('industry') as string | null,
-      services: parseJsonArray(record.get('services')),
-      summary: record.get('summary') as string | null,
-      problem: record.get('problem') as string | null,
-      approach: record.get('approach') as string | null,
-      outcome: record.get('outcome') as string | null,
-      metrics: parseJsonArray(record.get('metrics')),
-      assets: parseJsonArray(record.get('assets')),
-      tags: parseJsonArray(record.get('tags')),
-      permissionLevel: (record.get('permissionLevel') as CaseStudy['permissionLevel']) || 'internal_only',
-      caseStudyUrl: record.get('caseStudyUrl') as string | null,
-      createdAt: record.get('createdAt') as string | null,
-      updatedAt: record.get('updatedAt') as string | null,
-    }));
+    let caseStudies = records.map(recordToCaseStudy);
+
+    // Filter by permission level
+    if (options?.permission) {
+      caseStudies = caseStudies.filter(cs => cs.permissionLevel === options.permission);
+    }
+
+    // Search filter
+    if (options?.search) {
+      const searchLower = options.search.toLowerCase();
+      caseStudies = caseStudies.filter(cs =>
+        cs.title.toLowerCase().includes(searchLower) ||
+        cs.client.toLowerCase().includes(searchLower) ||
+        (cs.industry?.toLowerCase().includes(searchLower)) ||
+        cs.services.some(s => s.toLowerCase().includes(searchLower)) ||
+        cs.tags.some(t => t.toLowerCase().includes(searchLower))
+      );
+    }
+
+    return caseStudies;
   } catch (error) {
     console.error('[firmBrain] Failed to get case studies:', error);
     return [];
@@ -254,25 +360,7 @@ export async function getCaseStudyById(id: string): Promise<CaseStudy | null> {
   try {
     const base = getAirtableBase();
     const record = await base(AIRTABLE_TABLES.CASE_STUDIES).find(id);
-
-    return {
-      id: record.id,
-      title: (record.get('title') as string) || '',
-      client: (record.get('client') as string) || '',
-      industry: record.get('industry') as string | null,
-      services: parseJsonArray(record.get('services')),
-      summary: record.get('summary') as string | null,
-      problem: record.get('problem') as string | null,
-      approach: record.get('approach') as string | null,
-      outcome: record.get('outcome') as string | null,
-      metrics: parseJsonArray(record.get('metrics')),
-      assets: parseJsonArray(record.get('assets')),
-      tags: parseJsonArray(record.get('tags')),
-      permissionLevel: (record.get('permissionLevel') as CaseStudy['permissionLevel']) || 'internal_only',
-      caseStudyUrl: record.get('caseStudyUrl') as string | null,
-      createdAt: record.get('createdAt') as string | null,
-      updatedAt: record.get('updatedAt') as string | null,
-    };
+    return recordToCaseStudy(record);
   } catch (error) {
     console.error('[firmBrain] Failed to get case study:', error);
     return null;
@@ -282,24 +370,28 @@ export async function getCaseStudyById(id: string): Promise<CaseStudy | null> {
 export async function createCaseStudy(input: CaseStudyInput): Promise<CaseStudy> {
   const base = getAirtableBase();
   const now = new Date().toISOString();
+  const nowDate = now.split('T')[0]; // YYYY-MM-DD for Airtable Date fields
+  const permission = input.permissionLevel || 'internal';
 
   const records = await base(AIRTABLE_TABLES.CASE_STUDIES).create([{
     fields: {
       title: input.title,
       client: input.client,
       industry: input.industry || undefined,
-      services: JSON.stringify(input.services || []),
+      services: input.services || [], // Multi-select in Airtable
       summary: input.summary || undefined,
       problem: input.problem || undefined,
       approach: input.approach || undefined,
       outcome: input.outcome || undefined,
-      metrics: JSON.stringify(input.metrics || []),
+      metrics: JSON.stringify(input.metrics || {}), // Flexible: array or object
       assets: JSON.stringify(input.assets || []),
-      tags: JSON.stringify(input.tags || []),
-      permissionLevel: input.permissionLevel || 'internal_only',
+      tags: input.tags || [], // Multi-select in Airtable
+      permissionLevel: permission,
       caseStudyUrl: input.caseStudyUrl || undefined,
-      createdAt: now,
-      updatedAt: now,
+      visuals: JSON.stringify(input.visuals || []),
+      clientLogo: input.clientLogo ? JSON.stringify(input.clientLogo) : undefined,
+      createdAt: nowDate,
+      updatedAt: nowDate,
     }
   }]) as unknown as Array<{ id: string }>;
   const created = records[0];
@@ -308,10 +400,13 @@ export async function createCaseStudy(input: CaseStudyInput): Promise<CaseStudy>
     id: created.id,
     ...input,
     services: input.services || [],
-    metrics: input.metrics || [],
+    metrics: input.metrics || {},
     assets: input.assets || [],
     tags: input.tags || [],
-    permissionLevel: input.permissionLevel || 'internal_only',
+    permissionLevel: permission,
+    visibility: permission,
+    visuals: input.visuals || [],
+    clientLogo: input.clientLogo || null,
     createdAt: now,
     updatedAt: now,
   };
@@ -319,25 +414,43 @@ export async function createCaseStudy(input: CaseStudyInput): Promise<CaseStudy>
 
 export async function updateCaseStudy(id: string, input: Partial<CaseStudyInput>): Promise<CaseStudy | null> {
   const base = getAirtableBase();
-  const now = new Date().toISOString();
+  const nowDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD for Airtable
 
-  const fields: Record<string, any> = { updatedAt: now };
+  const fields: Record<string, unknown> = { updatedAt: nowDate };
   if (input.title !== undefined) fields.title = input.title;
   if (input.client !== undefined) fields.client = input.client;
   if (input.industry !== undefined) fields.industry = input.industry;
-  if (input.services !== undefined) fields.services = JSON.stringify(input.services);
+  if (input.services !== undefined) fields.services = input.services; // Multi-select
   if (input.summary !== undefined) fields.summary = input.summary;
   if (input.problem !== undefined) fields.problem = input.problem;
   if (input.approach !== undefined) fields.approach = input.approach;
   if (input.outcome !== undefined) fields.outcome = input.outcome;
   if (input.metrics !== undefined) fields.metrics = JSON.stringify(input.metrics);
   if (input.assets !== undefined) fields.assets = JSON.stringify(input.assets);
-  if (input.tags !== undefined) fields.tags = JSON.stringify(input.tags);
+  if (input.tags !== undefined) fields.tags = input.tags; // Multi-select
   if (input.permissionLevel !== undefined) fields.permissionLevel = input.permissionLevel;
   if (input.caseStudyUrl !== undefined) fields.caseStudyUrl = input.caseStudyUrl;
+  if (input.visuals !== undefined) fields.visuals = JSON.stringify(input.visuals);
+  if (input.clientLogo !== undefined) fields.clientLogo = JSON.stringify(input.clientLogo);
 
   await base(AIRTABLE_TABLES.CASE_STUDIES).update([{ id, fields }] as any);
   return getCaseStudyById(id);
+}
+
+/** Upsert a case study - create if not exists, update if exists (matches by title + client) */
+export async function upsertCaseStudy(input: CaseStudyInput): Promise<CaseStudy> {
+  // Try to find existing case study by title and client
+  const existing = await getCaseStudies();
+  const match = existing.find(cs =>
+    cs.title === input.title && cs.client === input.client
+  );
+
+  if (match) {
+    const updated = await updateCaseStudy(match.id, input);
+    if (updated) return updated;
+  }
+
+  return createCaseStudy(input);
 }
 
 export async function deleteCaseStudy(id: string): Promise<boolean> {
@@ -469,27 +582,93 @@ export async function deleteReference(id: string): Promise<boolean> {
 }
 
 // ============================================================================
-// Pricing Templates
+// Pricing Templates (Simplified - Airtable Fields)
 // ============================================================================
 
-export async function getPricingTemplates(): Promise<PricingTemplate[]> {
+import type {
+  ListPricingTemplatesOptions,
+  AirtableAttachment,
+  LinkedOpportunity,
+} from '@/lib/types/firmBrain';
+
+/** Parse Airtable attachments array */
+function parseAttachments(value: unknown): AirtableAttachment[] {
+  if (!value || !Array.isArray(value)) return [];
+  return value.map((att: Record<string, unknown>) => ({
+    id: (att.id as string) || '',
+    url: (att.url as string) || '',
+    filename: (att.filename as string) || '',
+    size: att.size as number | undefined,
+    type: att.type as string | undefined,
+    thumbnails: att.thumbnails as AirtableAttachment['thumbnails'],
+  }));
+}
+
+/** Parse linked record IDs and names */
+function parseLinkedRecords(ids: unknown, names: unknown): LinkedOpportunity[] {
+  const idArray = Array.isArray(ids) ? ids : [];
+  const nameArray = Array.isArray(names) ? names : [];
+
+  return idArray.map((id: string, i: number) => ({
+    id,
+    name: nameArray[i] || `Opportunity ${i + 1}`,
+  }));
+}
+
+/** Convert Airtable record to PricingTemplate */
+function recordToPricingTemplate(record: { id: string; get: (field: string) => unknown }): PricingTemplate {
+  // Get linked agency (first ID if exists)
+  const linkedAgencyIds = record.get('Linked Agency') as string[] | undefined;
+  const linkedAgencyId = linkedAgencyIds?.[0] || null;
+
+  // Get relevant opportunities (linked records)
+  const oppIds = record.get('Relevant Opportunities') as string[] | undefined;
+  const oppNames = record.get('Relevant Opportunities Names') as string[] | undefined; // Lookup field
+  const relevantOpportunities = parseLinkedRecords(oppIds, oppNames);
+
+  return {
+    id: record.id,
+    name: (record.get('Template Name') as string) || '',
+    description: (record.get('Description') as string) || '',
+    linkedAgencyId,
+    examplePricingFiles: parseAttachments(record.get('Example Pricing File')),
+    relevantOpportunities,
+    createdAt: record.get('Created') as string | null,
+    updatedAt: record.get('Last Modified') as string | null,
+  };
+}
+
+export async function getPricingTemplates(options?: ListPricingTemplatesOptions): Promise<PricingTemplate[]> {
   try {
     const base = getAirtableBase();
     const records = await base(AIRTABLE_TABLES.PRICING_TEMPLATES)
-      .select({ sort: [{ field: 'templateName', direction: 'asc' }] })
+      .select({ sort: [{ field: 'Template Name', direction: 'asc' }] })
       .all();
 
-    return records.map((record) => ({
-      id: record.id,
-      templateName: (record.get('templateName') as string) || '',
-      useCase: record.get('useCase') as string | null,
-      lineItems: parseJsonArray(record.get('lineItems')),
-      assumptions: parseJsonArray(record.get('assumptions')),
-      exclusions: parseJsonArray(record.get('exclusions')),
-      optionSets: parseJsonArray(record.get('optionSets')),
-      createdAt: record.get('createdAt') as string | null,
-      updatedAt: record.get('updatedAt') as string | null,
-    }));
+    let templates = records.map(recordToPricingTemplate);
+
+    // Apply filters
+    if (options?.hasFile !== undefined) {
+      templates = templates.filter(t =>
+        options.hasFile ? t.examplePricingFiles.length > 0 : t.examplePricingFiles.length === 0
+      );
+    }
+
+    if (options?.hasOpportunities !== undefined) {
+      templates = templates.filter(t =>
+        options.hasOpportunities ? t.relevantOpportunities.length > 0 : t.relevantOpportunities.length === 0
+      );
+    }
+
+    if (options?.q) {
+      const qLower = options.q.toLowerCase();
+      templates = templates.filter(t =>
+        t.name.toLowerCase().includes(qLower) ||
+        t.description.toLowerCase().includes(qLower)
+      );
+    }
+
+    return templates;
   } catch (error) {
     console.error('[firmBrain] Failed to get pricing templates:', error);
     return [];
@@ -500,18 +679,7 @@ export async function getPricingTemplateById(id: string): Promise<PricingTemplat
   try {
     const base = getAirtableBase();
     const record = await base(AIRTABLE_TABLES.PRICING_TEMPLATES).find(id);
-
-    return {
-      id: record.id,
-      templateName: (record.get('templateName') as string) || '',
-      useCase: record.get('useCase') as string | null,
-      lineItems: parseJsonArray(record.get('lineItems')),
-      assumptions: parseJsonArray(record.get('assumptions')),
-      exclusions: parseJsonArray(record.get('exclusions')),
-      optionSets: parseJsonArray(record.get('optionSets')),
-      createdAt: record.get('createdAt') as string | null,
-      updatedAt: record.get('updatedAt') as string | null,
-    };
+    return recordToPricingTemplate(record);
   } catch (error) {
     console.error('[firmBrain] Failed to get pricing template:', error);
     return null;
@@ -520,48 +688,67 @@ export async function getPricingTemplateById(id: string): Promise<PricingTemplat
 
 export async function createPricingTemplate(input: PricingTemplateInput): Promise<PricingTemplate> {
   const base = getAirtableBase();
-  const now = new Date().toISOString();
 
-  const records = await base(AIRTABLE_TABLES.PRICING_TEMPLATES).create([{
-    fields: {
-      templateName: input.templateName,
-      useCase: input.useCase || undefined,
-      lineItems: JSON.stringify(input.lineItems || []),
-      assumptions: JSON.stringify(input.assumptions || []),
-      exclusions: JSON.stringify(input.exclusions || []),
-      optionSets: JSON.stringify(input.optionSets || []),
-      createdAt: now,
-      updatedAt: now,
-    }
-  }]) as unknown as Array<{ id: string }>;
+  const fields: {
+    'Template Name': string;
+    'Description': string;
+    'Linked Agency'?: string[];
+  } = {
+    'Template Name': input.name,
+    'Description': input.description || '',
+  };
+
+  // Only add linked agency if provided
+  if (input.linkedAgencyId) {
+    fields['Linked Agency'] = [input.linkedAgencyId];
+  }
+
+  const records = await base(AIRTABLE_TABLES.PRICING_TEMPLATES).create([{ fields }]) as unknown as Array<{ id: string }>;
   const created = records[0];
 
   return {
     id: created.id,
-    ...input,
-    lineItems: input.lineItems || [],
-    assumptions: input.assumptions || [],
-    exclusions: input.exclusions || [],
-    optionSets: input.optionSets || [],
-    createdAt: now,
-    updatedAt: now,
+    name: input.name,
+    description: input.description || '',
+    linkedAgencyId: input.linkedAgencyId || null,
+    examplePricingFiles: [], // Attachments are uploaded separately
+    relevantOpportunities: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
 }
 
 export async function updatePricingTemplate(id: string, input: Partial<PricingTemplateInput>): Promise<PricingTemplate | null> {
   const base = getAirtableBase();
-  const now = new Date().toISOString();
 
-  const fields: Record<string, any> = { updatedAt: now };
-  if (input.templateName !== undefined) fields.templateName = input.templateName;
-  if (input.useCase !== undefined) fields.useCase = input.useCase;
-  if (input.lineItems !== undefined) fields.lineItems = JSON.stringify(input.lineItems);
-  if (input.assumptions !== undefined) fields.assumptions = JSON.stringify(input.assumptions);
-  if (input.exclusions !== undefined) fields.exclusions = JSON.stringify(input.exclusions);
-  if (input.optionSets !== undefined) fields.optionSets = JSON.stringify(input.optionSets);
+  const fields: Record<string, unknown> = {};
+
+  if (input.name !== undefined) fields['Template Name'] = input.name;
+  if (input.description !== undefined) fields['Description'] = input.description;
+  if (input.linkedAgencyId !== undefined) {
+    fields['Linked Agency'] = input.linkedAgencyId ? [input.linkedAgencyId] : [];
+  }
 
   await base(AIRTABLE_TABLES.PRICING_TEMPLATES).update([{ id, fields }] as any);
   return getPricingTemplateById(id);
+}
+
+export async function upsertPricingTemplate(input: PricingTemplateInput, agencyId?: string): Promise<PricingTemplate> {
+  // Try to find existing template by name (and optionally agency)
+  const existing = await getPricingTemplates();
+  const match = existing.find(t => {
+    if (t.name !== input.name) return false;
+    // If agencyId provided, match on that too
+    if (agencyId && t.linkedAgencyId !== agencyId) return false;
+    return true;
+  });
+
+  if (match) {
+    const updated = await updatePricingTemplate(match.id, input);
+    if (updated) return updated;
+  }
+
+  return createPricingTemplate(input);
 }
 
 export async function deletePricingTemplate(id: string): Promise<boolean> {
@@ -571,6 +758,69 @@ export async function deletePricingTemplate(id: string): Promise<boolean> {
     return true;
   } catch (error) {
     console.error('[firmBrain] Failed to delete pricing template:', error);
+    return false;
+  }
+}
+
+/**
+ * Link a pricing template to an opportunity
+ * This updates the "Relevant Opportunities" linked record field
+ */
+export async function linkTemplateToOpportunity(templateId: string, opportunityId: string): Promise<boolean> {
+  try {
+    const base = getAirtableBase();
+
+    // Get current linked opportunities
+    const template = await getPricingTemplateById(templateId);
+    if (!template) return false;
+
+    // Check if already linked (idempotent)
+    const existingIds = template.relevantOpportunities.map(o => o.id);
+    if (existingIds.includes(opportunityId)) {
+      return true; // Already linked
+    }
+
+    // Add the new opportunity to the linked records
+    const newIds = [...existingIds, opportunityId];
+
+    await base(AIRTABLE_TABLES.PRICING_TEMPLATES).update([{
+      id: templateId,
+      fields: {
+        'Relevant Opportunities': newIds,
+      }
+    }] as any);
+
+    return true;
+  } catch (error) {
+    console.error('[firmBrain] Failed to link template to opportunity:', error);
+    return false;
+  }
+}
+
+/**
+ * Unlink a pricing template from an opportunity
+ */
+export async function unlinkTemplateFromOpportunity(templateId: string, opportunityId: string): Promise<boolean> {
+  try {
+    const base = getAirtableBase();
+
+    const template = await getPricingTemplateById(templateId);
+    if (!template) return false;
+
+    const newIds = template.relevantOpportunities
+      .map(o => o.id)
+      .filter(id => id !== opportunityId);
+
+    await base(AIRTABLE_TABLES.PRICING_TEMPLATES).update([{
+      id: templateId,
+      fields: {
+        'Relevant Opportunities': newIds,
+      }
+    }] as any);
+
+    return true;
+  } catch (error) {
+    console.error('[firmBrain] Failed to unlink template from opportunity:', error);
     return false;
   }
 }

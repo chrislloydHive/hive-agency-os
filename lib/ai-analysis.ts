@@ -102,7 +102,7 @@ export interface HiveAnalysisResult {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function performHiveAnalysis(leadData: any): Promise<HiveAnalysisResult> {
   try {
-    // eslint-disable-next-line no-console
+     
     console.log('Starting Hive service-specific analysis for:', leadData.companyName);
     
     // Use the enhanced Master Analyzer for comprehensive analysis
@@ -111,7 +111,7 @@ export async function performHiveAnalysis(leadData: any): Promise<HiveAnalysisRe
     
     return analysis;
   } catch (error) {
-    // eslint-disable-next-line no-console
+     
     console.error('Hive analysis failed:', error);
     throw new Error(`Hive analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
@@ -122,7 +122,7 @@ export async function performHiveAnalysis(leadData: any): Promise<HiveAnalysisRe
  */
 export async function analyzeWebsite(websiteUrl: string): Promise<WebsiteAnalysis> {
   try {
-    // eslint-disable-next-line no-console
+     
     console.log('Starting AI analysis for:', websiteUrl);
 
     // Use Anthropic Claude for website analysis
@@ -144,7 +144,7 @@ export async function analyzeWebsite(websiteUrl: string): Promise<WebsiteAnalysi
       Provide specific, actionable insights that a marketing agency could use to improve results.
     `;
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+     
     const anthropic = getAnthropic();
     const _response = await anthropic.messages.create({
       model: 'claude-3-sonnet-20240229',
@@ -202,7 +202,7 @@ export async function analyzeWebsite(websiteUrl: string): Promise<WebsiteAnalysi
       ]
     };
   } catch (error) {
-    // eslint-disable-next-line no-console
+     
     console.error('Website analysis failed:', error);
     throw new Error(`Website analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
@@ -211,13 +211,13 @@ export async function analyzeWebsite(websiteUrl: string): Promise<WebsiteAnalysi
 /**
  * Generate marketing assessment based on form data and analysis
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export async function generateMarketingAssessment(
   formData: any, 
   websiteAnalysis?: WebsiteAnalysis
 ): Promise<MarketingAssessment> {
   try {
-    // eslint-disable-next-line no-console
+     
     console.log('Generating marketing assessment for:', formData.companyName);
 
     // Calculate qualification score based on form data
@@ -251,7 +251,7 @@ export async function generateMarketingAssessment(
       nextSteps
     };
   } catch (error) {
-    // eslint-disable-next-line no-console
+     
     console.error('Marketing assessment generation failed:', error);
     throw new Error(`Marketing assessment generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
@@ -437,14 +437,14 @@ function generateNextSteps(formData: any, priorityLevel: 'Low' | 'Medium' | 'Hig
 /**
  * Generate a comprehensive marketing report
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export async function generateMarketingReport(
   formData: any,
   _websiteAnalysis: WebsiteAnalysis,
   _marketingAssessment: MarketingAssessment
 ): Promise<string> {
   try {
-    // eslint-disable-next-line no-console
+     
     console.log('Generating marketing report for:', formData.email);
 
     const reportPrompt = `
@@ -484,7 +484,7 @@ export async function generateMarketingReport(
     return response.choices[0]?.message?.content || 'Report generation failed';
 
   } catch (error) {
-    // eslint-disable-next-line no-console
+     
     console.error('Error generating marketing report:', error);
     throw new Error(`Failed to generate report: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }

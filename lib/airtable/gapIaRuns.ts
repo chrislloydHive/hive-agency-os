@@ -250,8 +250,14 @@ function airtableRecordToGapIaRun(record: any): any {
             (dataJson.status as GapIaStatus) ||
             (fields['Domain'] && fields['Data JSON'] ? 'completed' : 'pending'),
 
-    createdAt: (fields['Created At'] as string) || new Date().toISOString(),
-    updatedAt: dataJson.updatedAt || (fields['Created At'] as string) || new Date().toISOString(),
+    // Use Airtable's automatic createdTime metadata as primary source
+    createdAt: record.createdTime ||
+               (fields['Created At'] as string) ||
+               new Date().toISOString(),
+    updatedAt: dataJson.updatedAt ||
+               record.createdTime ||
+               (fields['Created At'] as string) ||
+               new Date().toISOString(),
 
     // Legacy fields
     core: (() => {

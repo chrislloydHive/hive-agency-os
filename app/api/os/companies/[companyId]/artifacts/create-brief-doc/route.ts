@@ -10,7 +10,7 @@ import { createArtifact, linkArtifactToGoogleFile } from '@/lib/airtable/artifac
 import { createGoogleDriveClient, isGoogleDriveAvailable } from '@/lib/integrations/googleDrive';
 import type { DocumentContent, DocumentSection } from '@/lib/integrations/googleDrive';
 import { FEATURE_FLAGS, FEATURE_DISABLED_RESPONSE } from '@/lib/config/featureFlags';
-import type { Brief, BriefCore } from '@/lib/types/brief';
+import type { Brief } from '@/lib/types/brief';
 
 type Params = { params: Promise<{ companyId: string }> };
 

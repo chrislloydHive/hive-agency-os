@@ -1,5 +1,4 @@
 // components/gap/SectionAnalyses.tsx
-// @ts-nocheck - Legacy component with loose typing
 
 import React from "react";
 import clsx from "clsx";
@@ -7,6 +6,14 @@ import clsx from "clsx";
 import type { GrowthAccelerationPlan } from "@/lib/growth-plan/growthActionPlanSchema";
 import type { SocialSignals } from "@/lib/growth-plan/types";
 import { getDimensionColors } from "@/lib/ui/dimensionColors";
+
+/** Section analysis structure from the plan */
+interface SectionAnalysis {
+  summary?: string;
+  keyFindings?: string[];
+  quickWins?: string[];
+  deeperInitiatives?: string[];
+}
 
 const LABELS: Record<string, string> = {
   websiteAndConversion: "Website & Conversion",
@@ -36,7 +43,7 @@ interface SignalChip {
  */
 function deriveSignals(
   sectionKey: string,
-  section: { summary?: string; keyFindings?: string[] }
+  section: SectionAnalysis
 ): SignalChip[] {
   const chips: SignalChip[] = [];
   const summary = (section.summary || "").toLowerCase();
@@ -185,12 +192,6 @@ const AuthoritySocialCard: React.FC<{ social?: SocialSignals }> = ({ social }) =
         </ul>
       )}
 
-      {/* Optional notes field - for future AI-generated social context */}
-      {(social as any).notes && (
-        <p className="mt-2 text-xs text-neutral-300">
-          {(social as any).notes}
-        </p>
-      )}
     </div>
   );
 };
@@ -264,7 +265,7 @@ const SocialPresenceCard: React.FC<{ socialSignals: SocialSignals }> = ({ social
 };
 
 export const SectionAnalysesView: React.FC<Props> = ({ plan }) => {
-  const sections = plan.sectionAnalyses ?? {};
+  const sections = (plan.sectionAnalyses ?? {}) as Record<string, SectionAnalysis>;
   const scorecard = plan.scorecard;
   const socialSignals = plan.socialSignals;
   const authorityScore = scorecard?.authority;
@@ -295,7 +296,7 @@ export const SectionAnalysesView: React.FC<Props> = ({ plan }) => {
           const score = scoreKey && scorecard ? scorecard[scoreKey] : undefined;
 
           // Derive signal chips
-          const chips = deriveSignals(key, section as { summary?: string; keyFindings?: string[] });
+          const chips = deriveSignals(key, section);
 
           return (
             <div
@@ -365,7 +366,7 @@ export const SectionAnalysesView: React.FC<Props> = ({ plan }) => {
                     Recommended focus
                   </div>
                   <ul className="space-y-1.5">
-                    {section.quickWins.slice(0, 3).map((q, i) => (
+                    {section.quickWins!.slice(0, 3).map((q, i) => (
                       <li key={i} className="flex gap-2 text-xs leading-relaxed text-gray-300 sm:text-sm">
                         <span
                           className={`mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full ${pillClass}`}

@@ -55,7 +55,9 @@ export async function GET(request: NextRequest) {
             ? JSON.parse(latestRun.rawJson)
             : latestRun.rawJson;
           benchmarkLabel = parsed?.benchmarkLabel || parsed?.maturityStage || parsed?.diagnostic?.benchmarkLabel;
-        } catch {}
+        } catch {
+          // Ignore parse errors - benchmarkLabel remains undefined
+        }
       }
 
       return NextResponse.json({

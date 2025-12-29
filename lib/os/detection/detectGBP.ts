@@ -146,7 +146,7 @@ function scoreGBPConfidence(sources: SignalSource[]): number {
  * Detect GBP from HTML and optional search
  */
 export async function detectGBP(options: DetectGBPOptions): Promise<GBPSignal> {
-  const { html, domain, businessName, city } = options;
+  const { html, domain: _domain, businessName, city: _city } = options;
   const sources: SignalSource[] = [];
   const failureReasons: string[] = [];
   let bestUrl: string | null = null;

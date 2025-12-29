@@ -5,9 +5,9 @@
 // standardized format for the ToolReportLayout component.
 
 import * as React from 'react';
-import type { DiagnosticToolId, DiagnosticRun } from './runs';
+import type { DiagnosticRun } from './runs';
 import type { ScoreItem, ReportSection, DiagnosticIssue, DiagnosticIssueSeverity } from '@/lib/types/toolReport';
-import { normalizeBrandLab, DIMENSION_LABELS } from '@/lib/brandLab/normalizeBrandLab';
+import { normalizeBrandLab } from '@/lib/brandLab/normalizeBrandLab';
 
 // ============================================================================
 // Types
@@ -39,7 +39,7 @@ interface GroupedIssues {
 /**
  * Group GAP IA breakdown bullets by category and order by impact level
  */
-function groupIssuesByCategory(bullets: GapIaIssueBullet[] = []): GroupedIssues[] {
+function _groupIssuesByCategory(bullets: GapIaIssueBullet[] = []): GroupedIssues[] {
   const map = new Map<string, GroupedIssues>();
 
   for (const b of bullets) {
@@ -1150,7 +1150,7 @@ function createTrustSectionNormalized(trust: ReturnType<typeof normalizeBrandLab
 /**
  * Create Identity Section for V1 Brand Lab reports
  */
-function createIdentitySection(identity: any): React.ReactNode {
+function _createIdentitySection(identity: any): React.ReactNode {
   const items: string[] = [];
 
   if (identity.tagline) {
@@ -1178,7 +1178,7 @@ function createIdentitySection(identity: any): React.ReactNode {
 /**
  * Create Trust Section for V1 Brand Lab reports (legacy)
  */
-function createTrustSection(trust: any): React.ReactNode {
+function _createTrustSection(trust: any): React.ReactNode {
   const items: string[] = [];
 
   if (trust.trustArchetype) {
@@ -1206,7 +1206,7 @@ function createTrustSection(trust: any): React.ReactNode {
 /**
  * Create enhanced Identity Section for Brand Lab V2
  */
-function createIdentitySectionEnhanced(identity: any): React.ReactNode {
+function _createIdentitySectionEnhanced(identity: any): React.ReactNode {
   const tagline = identity.tagline;
   const corePromise = identity.corePromise;
   const toneOfVoice = identity.toneOfVoice;
@@ -1274,7 +1274,7 @@ function createIdentitySectionEnhanced(identity: any): React.ReactNode {
 /**
  * Create enhanced Trust Section for Brand Lab V2
  */
-function createTrustSectionEnhanced(trust: any): React.ReactNode {
+function _createTrustSectionEnhanced(trust: any): React.ReactNode {
   const trustArchetype = trust.trustArchetype;
   const trustSignals = trust.trustSignalsScore;
   const humanPresence = trust.humanPresenceScore;
@@ -1331,7 +1331,7 @@ function createTrustSectionEnhanced(trust: any): React.ReactNode {
 /**
  * Create Brand Maturity Section for V2 reports
  */
-function createBrandMaturitySection(content: any): React.ReactNode {
+function _createBrandMaturitySection(content: any): React.ReactNode {
   const maturityLabels: Record<string, string> = {
     unproven: 'Unproven',
     emerging: 'Emerging',
@@ -2635,7 +2635,7 @@ function createInitiativesSection(initiatives: any[]): React.ReactNode {
   );
 }
 
-function createModuleSection(moduleData: any, moduleName: string): React.ReactNode {
+function createModuleSection(moduleData: any, _moduleName: string): React.ReactNode {
   const findings = moduleData.findings || moduleData.keyFindings || [];
   const score = moduleData.score;
 
@@ -2685,7 +2685,7 @@ function createPageDetailsSection(pages: any[]): React.ReactNode {
   );
 }
 
-function createPositioningSection(positioning: any, audienceFit?: any): React.ReactNode {
+function _createPositioningSection(positioning: any, audienceFit?: any): React.ReactNode {
   // Support both V1 (positioningTheme, competitiveAngle) and V2 (statement, category) field names
   const theme = positioning.positioningTheme || positioning.statement;
   const angle = positioning.competitiveAngle || positioning.category;
@@ -2759,7 +2759,7 @@ function createPositioningSection(positioning: any, audienceFit?: any): React.Re
   );
 }
 
-function createMessagingSection(messaging: any): React.ReactNode {
+function _createMessagingSection(messaging: any): React.ReactNode {
   // Support V1 Brand Lab fields: headlinePatterns, valueProps, differentiators, messagingFocusScore
   const headlines = messaging.headlinePatterns || [];
   const valueProps = messaging.valueProps || [];
@@ -2868,7 +2868,7 @@ function createTopicCoverageSection(topics: any[]): React.ReactNode {
   );
 }
 
-function createKeywordSection(keywords: any): React.ReactNode {
+function _createKeywordSection(keywords: any): React.ReactNode {
   if (Array.isArray(keywords)) {
     return React.createElement('div', { className: 'flex flex-wrap gap-2' },
       keywords.slice(0, 10).map((kw, idx) => {
@@ -2880,7 +2880,7 @@ function createKeywordSection(keywords: any): React.ReactNode {
   return React.createElement('p', { className: 'text-sm text-slate-400' }, 'No keyword data available');
 }
 
-function createTechnicalAuditSection(audit: any): React.ReactNode {
+function _createTechnicalAuditSection(audit: any): React.ReactNode {
   return React.createElement('div', { className: 'space-y-2' },
     audit.score != null && React.createElement('p', { className: 'text-sm text-slate-400' },
       'Technical Score: ', React.createElement('span', { className: 'font-semibold text-slate-200' }, audit.score)

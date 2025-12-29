@@ -13,6 +13,7 @@ import {
   getAlertConfig,
 } from '@/lib/autopilot/signalMonitor';
 import { loadContextGraph } from '@/lib/contextGraph';
+import type { SignalType, SignalSeverity } from '@/lib/autopilot/types';
 
 export async function GET(request: NextRequest) {
   try {
@@ -41,8 +42,8 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({
           signals: getSignalHistory(companyId, {
             limit,
-            type: signalType as any,
-            severity: severity as any,
+            type: signalType as SignalType | undefined,
+            severity: severity as SignalSeverity | undefined,
             since: since || undefined,
           }),
         });

@@ -12,16 +12,12 @@ import { ProvenanceTag, WithMetaType, WithMetaArrayType } from './types';
 import { saveContextGraph } from './storage';
 import {
   canSourceOverwrite,
-  isHumanSource,
   type PriorityCheckResult,
 } from './sourcePriority';
 import { isValidFieldPath } from './schema';
 import {
-  getDomainForField,
-  isSourceAllowedForDomain,
   validateWrite,
   type WriteSource,
-  type DomainKey,
 } from '@/lib/os/context/domainAuthority';
 import {
   logWriteBlockedAuthority,
@@ -172,13 +168,13 @@ function stripEmptyFields<T extends Record<string, unknown>>(obj: T): Partial<T>
 }
 
 // Legacy function for backwards compatibility
-function isCompetitiveField(domain: string, field: string): boolean {
+function _isCompetitiveField(domain: string, _field: string): boolean {
   if (domain !== 'competitive') return false;
   return true;
 }
 
 // Legacy function for backwards compatibility
-function isCompetitiveAuthorizedSource(source: string): boolean {
+function _isCompetitiveAuthorizedSource(source: string): boolean {
   return source === 'competition_lab' || source === 'user';
 }
 
@@ -1034,7 +1030,7 @@ export function unconfirmField(
   }
 
   // Remove humanConfirmed flag
-  const { humanConfirmed, confirmedAt, confirmedBy, ...restProvenance } = latestProvenance;
+  const { humanConfirmed: _humanConfirmed, confirmedAt: _confirmedAt, confirmedBy: _confirmedBy, ...restProvenance } = latestProvenance;
 
   domainObj[field] = {
     ...fieldData,

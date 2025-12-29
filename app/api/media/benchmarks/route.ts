@@ -14,7 +14,6 @@ import {
   DEFAULT_LSA_ASSUMPTIONS,
   DEFAULT_MAPS_ASSUMPTIONS,
   CAR_AUDIO_BENCHMARKS,
-  LOCAL_SERVICES_BENCHMARKS,
 } from '@/lib/media/assumptions';
 
 // ============================================================================

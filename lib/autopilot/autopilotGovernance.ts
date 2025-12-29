@@ -237,17 +237,20 @@ export function getApprovalHistory(
 
 function generateApprovalTitle(type: ApprovalRequest['type'], change: unknown): string {
   switch (type) {
-    case 'budget':
+    case 'budget': {
       const budgetChange = change as BudgetChange;
       return `Budget ${budgetChange.type}: ${budgetChange.totalDelta}% change requested`;
+    }
     case 'creative':
       return 'Creative change requested';
-    case 'audience':
+    case 'audience': {
       const audienceChange = change as TargetingChange;
       return `Audience ${audienceChange.type}: ${audienceChange.segments.length} segments`;
-    case 'experiment':
+    }
+    case 'experiment': {
       const exp = change as ExperimentPlan;
       return `New experiment: ${exp.name}`;
+    }
     case 'autonomy_change':
       return 'Autonomy level change requested';
     default:
@@ -257,18 +260,22 @@ function generateApprovalTitle(type: ApprovalRequest['type'], change: unknown): 
 
 function generateApprovalDescription(type: ApprovalRequest['type'], change: unknown): string {
   switch (type) {
-    case 'budget':
+    case 'budget': {
       const budgetChange = change as BudgetChange;
       return `Proposed budget ${budgetChange.type} of ${budgetChange.totalDelta}% across channels`;
-    case 'creative':
+    }
+    case 'creative': {
       const creative = change as CreativeRecommendation;
       return creative.recommendation;
-    case 'audience':
+    }
+    case 'audience': {
       const audience = change as TargetingChange;
       return `${audience.type} ${audience.segments.length} audience segments`;
-    case 'experiment':
+    }
+    case 'experiment': {
       const exp = change as ExperimentPlan;
       return exp.description;
+    }
     default:
       return 'Autopilot is requesting approval for a change';
   }

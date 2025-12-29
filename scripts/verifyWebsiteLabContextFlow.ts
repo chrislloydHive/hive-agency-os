@@ -231,7 +231,7 @@ async function main() {
   if (shouldHydrate) {
     header('6. TRIGGERING HYDRATION');
 
-    let graph = contextGraphBefore || createEmptyContextGraph(companyId, company.name);
+    const graph = contextGraphBefore || createEmptyContextGraph(companyId, company.name);
 
     info('Running websiteLabImporter.importAll()...');
     const importResult = await websiteLabImporter.importAll(graph, companyId, 'website');

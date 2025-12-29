@@ -9,9 +9,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { formatDistanceToNow } from 'date-fns';
 import {
-  COMPANY_TOOL_DEFS,
-  getEnabledTools,
-  getComingSoonTools,
   getToolById,
   type CompanyToolDefinition,
   type CompanyToolId,
@@ -20,7 +17,6 @@ import {
   type BlueprintToolMeta,
 } from '@/lib/tools/registry';
 import {
-  OS_TOOL_DEFINITIONS,
   getAvailableOsTools,
   getComingSoonOsTools,
   osToolIdToCompanyToolId,
@@ -34,14 +30,11 @@ import type { PerformancePulse } from '@/lib/os/analytics/performancePulse';
 import type {
   BlueprintPipelineData,
   ToolRunStatus,
-  DiagnosticIssue,
-  DiagnosticRecommendation,
 } from '@/lib/blueprint/pipeline';
 import type {
   StrategySynthesis,
   StrategicFocusArea,
   PrioritizedAction,
-  SuggestedTool,
 } from '@/lib/blueprint/synthesizer';
 import type {
   BlueprintAnalyticsSummary,
@@ -149,12 +142,6 @@ function getScoreColor(score: number | null): string {
   return 'text-red-400';
 }
 
-function getScoreBgColor(score: number | null): string {
-  if (score === null) return 'bg-slate-500/20';
-  if (score >= 80) return 'bg-emerald-500/20';
-  if (score >= 60) return 'bg-amber-500/20';
-  return 'bg-red-500/20';
-}
 
 function formatRelativeTime(dateStr: string | null | undefined): string {
   if (!dateStr) return '';
@@ -264,7 +251,7 @@ export function BlueprintClient({
   company,
   strategySnapshot,
   recentDiagnostics,
-  alerts,
+  alerts: _alerts,
   performancePulse,
   brainSummary,
   pipelineData,
@@ -667,7 +654,6 @@ export function BlueprintClient({
   );
 
   const hasGa4 = !!company.ga4PropertyId;
-  const enabledTools = getEnabledTools();
   const toolStatuses = pipelineData?.diagnostics?.toolStatuses || [];
 
   // Find last updated timestamp from recent diagnostics

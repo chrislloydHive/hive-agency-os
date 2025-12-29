@@ -12,13 +12,10 @@ import { getCurrentAudienceModel } from '@/lib/audience/storage';
 import {
   getPersonaSet,
   savePersonaSet,
-  getOrCreatePersonaSet,
   listPersonaSets,
   deletePersonaSet,
 } from '@/lib/audience/personaStorage';
 import {
-  PersonaSet,
-  Persona,
   validatePersonaSet,
   addPersonaToSet,
   updatePersonaInSet,
@@ -477,7 +474,7 @@ export async function DELETE(
   context: RouteContext
 ) {
   try {
-    const { companyId } = await context.params;
+    const { companyId: _companyId } = await context.params;
     const { searchParams } = new URL(request.url);
     const setId = searchParams.get('setId');
 

@@ -72,7 +72,7 @@ export async function POST(request: Request) {
     // Determine company ID
     // For company context, require companyId
     // For dma/workspace, use default if not provided
-    let companyId = body.companyId || DEFAULT_COMPANY_ID;
+    const companyId = body.companyId || DEFAULT_COMPANY_ID;
     if (body.funnelContext === 'company' && !body.companyId) {
       return NextResponse.json(
         { error: 'Company ID is required for company funnel context' },

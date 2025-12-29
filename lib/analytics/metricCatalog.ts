@@ -441,15 +441,17 @@ export function formatMetricValue(value: number | undefined, format: MetricDefin
   switch (format) {
     case 'number':
       return value.toLocaleString('en-US', { maximumFractionDigits: 0 });
-    case 'percent':
+    case 'percent': {
       // Values from GA4/GSC might already be in percentage form or decimal
       const percentValue = value > 1 ? value : value * 100;
       return `${percentValue.toFixed(1)}%`;
-    case 'duration':
+    }
+    case 'duration': {
       // Assume value is in seconds
       const minutes = Math.floor(value / 60);
       const seconds = Math.floor(value % 60);
       return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+    }
     case 'decimal':
       return value.toFixed(2);
     default:

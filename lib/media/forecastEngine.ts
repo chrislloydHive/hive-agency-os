@@ -166,7 +166,7 @@ function forecastLSAChannel(
   }
 
   // Base calculations (pay-per-lead)
-  let grossLeads = budget / lsa.costPerLead;
+  const grossLeads = budget / lsa.costPerLead;
 
   // Adjust for disputed leads
   const netLeads = grossLeads * (1 - lsa.disputeRate);
@@ -220,10 +220,10 @@ function forecastDisplayChannel(
   let clicks = impressions * display.ctr;
 
   // Click-through conversions
-  let clickLeads = clicks * display.conversionRate;
+  const clickLeads = clicks * display.conversionRate;
 
   // View-through conversions
-  let viewThroughLeads = impressions * display.viewThroughRate;
+  const viewThroughLeads = impressions * display.viewThroughRate;
 
   let leads = clickLeads + viewThroughLeads;
 

@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Compose comprehensive summaries for each option
-    const planSummaries = result.options.map((option, index) => {
+    const planSummaries = result.options.map((option, _index) => {
       const planName = `${option.label} Plan`;
       const summary = composeComprehensivePlanSummary(option, inputs, planName);
 

@@ -10,10 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getCompanyById } from '@/lib/airtable/companies';
-import {
-  getNextBestActionsForCompany,
-  type ExtendedNextBestAction,
-} from '@/lib/os/companies/nextBestAction';
+import { getNextBestActionsForCompany } from '@/lib/os/companies/nextBestAction';
 
 // ============================================================================
 // API Handler

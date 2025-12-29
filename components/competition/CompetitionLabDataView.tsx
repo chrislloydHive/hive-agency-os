@@ -449,11 +449,12 @@ function CompetitorTableV35({
           aVal = a.name.toLowerCase();
           bVal = b.name.toLowerCase();
           break;
-        case 'type':
+        case 'type': {
           const typeOrder = { direct: 0, partial: 1, fractional: 2, platform: 3, internal: 4, irrelevant: 5 };
           aVal = typeOrder[a.type];
           bVal = typeOrder[b.type];
           break;
+        }
         case 'threat':
           aVal = a.scores.threat;
           bVal = b.scores.threat;
@@ -470,11 +471,12 @@ function CompetitorTableV35({
           aVal = a.signals?.signalsVerified ?? 0;
           bVal = b.signals?.signalsVerified ?? 0;
           break;
-        case 'geo':
+        case 'geo': {
           const geoOrder = { local: 0, regional: 1, national: 2, 'online-only': 3 };
           aVal = a.geoScope ? geoOrder[a.geoScope] : 4;
           bVal = b.geoScope ? geoOrder[b.geoScope] : 4;
           break;
+        }
         default:
           aVal = 0;
           bVal = 0;

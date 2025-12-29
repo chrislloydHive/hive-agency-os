@@ -15,7 +15,7 @@ import {
   analyzeExperimentResults,
 } from '@/lib/autopilot/optimizationEngine';
 import { loadContextGraph } from '@/lib/contextGraph';
-import type { Hypothesis, ExperimentResults } from '@/lib/autopilot/types';
+import type { Hypothesis } from '@/lib/autopilot/types';
 
 export async function POST(request: NextRequest) {
   try {

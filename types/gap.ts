@@ -21,6 +21,7 @@ import type { SiteFeatures } from '@/lib/eval/siteFeatures';
 import type { SiteElementContext } from '@/lib/growth-plan/html-context';
 import type { ContentInventory } from '@/lib/growth-plan/analyzeContentInventory';
 import type { TechnicalSeoSignals } from '@/lib/growth-plan/types';
+import type { WebsiteConversionAnalysis } from '@/lib/growth-plan/generateGrowthActionPlan';
 
 export type GapRunStatus = 'pending' | 'running' | 'completed' | 'failed';
 
@@ -111,7 +112,7 @@ export interface GapRunState {
   seoSectionAnalysis?: SectionAnalysis;
   contentSectionAnalysis?: SectionAnalysis;
   brandSectionAnalysis?: SectionAnalysis;
-  websiteConversionAnalysis?: any; // WebsiteConversionAnalysis type
+  websiteConversionAnalysis?: WebsiteConversionAnalysis;
 
   // Step: Competitor/Market/Positioning
   competitorAnalysis?: CompetitorAnalysis;
@@ -170,7 +171,7 @@ export interface WebsiteAssessmentResult {
   id: string;
   status: AssessmentStatus;
   reason?: string; // e.g., 'timeout'
-  data: any | null; // Full assessment data if status === 'ok', null if partial
+  data: unknown; // Full assessment data if status === 'ok', null if partial
   createdAt: string;
 }
 
@@ -181,7 +182,7 @@ export interface ContentAssessmentResult {
   id: string;
   status: AssessmentStatus;
   reason?: string;
-  data: any | null;
+  data: unknown;
   createdAt: string;
 }
 
@@ -192,7 +193,7 @@ export interface SeoAssessmentResult {
   id: string;
   status: AssessmentStatus;
   reason?: string;
-  data: any | null;
+  data: unknown;
   createdAt: string;
 }
 
@@ -203,7 +204,7 @@ export interface BrandAssessmentResult {
   id: string;
   status: AssessmentStatus;
   reason?: string;
-  data: any | null;
+  data: unknown;
   createdAt: string;
 }
 

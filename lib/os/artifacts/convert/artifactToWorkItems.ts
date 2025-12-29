@@ -409,7 +409,7 @@ export async function convertArtifactToWorkItems(
   }
 
   // Combine and filter by tactics if requested
-  let allWorkItems = [...workItemsFromSections, ...workItemsFromAi];
+  const allWorkItems = [...workItemsFromSections, ...workItemsFromAi];
 
   if (selectedTacticIds && selectedTacticIds.length > 0) {
     // Filter work items that mention selected tactics

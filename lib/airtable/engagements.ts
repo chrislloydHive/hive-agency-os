@@ -432,7 +432,7 @@ export async function updateEngagement(
       fieldsToUpdate[ENGAGEMENT_FIELDS.CONTEXT_APPROVED_AT] = updates.contextApprovedAt;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const updatedRecords = await base(AIRTABLE_TABLES.COMPANY_ENGAGEMENTS).update([
       {
         id: airtableRecordId,

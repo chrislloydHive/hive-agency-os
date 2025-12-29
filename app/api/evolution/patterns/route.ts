@@ -6,10 +6,8 @@ import {
   getPatterns,
   getPattern,
   updatePatternStatus,
-  captureLearning,
-  getLearnings,
 } from '@/lib/evolution/patternDiscovery';
-import type { PatternType, Pattern, LearningType } from '@/lib/evolution/types';
+import type { PatternType, Pattern } from '@/lib/evolution/types';
 
 export async function GET(request: NextRequest) {
   try {

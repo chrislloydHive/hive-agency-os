@@ -12,6 +12,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { loadContextFieldsV4, getFieldCountsV4 } from '@/lib/contextGraph/fieldStoreV4';
 import { getLatestRunForCompanyAndTool } from '@/lib/os/diagnostics/runs';
+import { loadContextGraph } from '@/lib/contextGraph/storage';
+import { hydrateContextGraph } from '@/lib/contextGraph/nodes/hydration';
 import {
   isContextV4Enabled,
   isContextV4IngestWebsiteLabEnabled,
@@ -20,9 +22,7 @@ import {
   extractWebsiteLabResult,
   buildWebsiteLabCandidates,
 } from '@/lib/contextGraph/v4/websiteLabCandidates';
-import type { ProposalReason } from '@/lib/types/contextV4Debug';
 import type {
-  V4HealthStatus,
   V4HealthReason,
   V4HealthResponse,
 } from '@/lib/types/contextV4Health';
@@ -47,30 +47,10 @@ function computeAgeMinutes(createdAt: string | null): number | null {
 }
 
 /**
- * Map ProposalReason to V4HealthReason
- */
-function mapProposalReasonToHealthReason(reason: ProposalReason): V4HealthReason | null {
-  switch (reason) {
-    case 'NO_CANDIDATES':
-      return 'PROPOSE_ZERO_NO_CANDIDATES';
-    case 'EXTRACT_PATH_MISSING':
-      return 'PROPOSE_ZERO_EXTRACT_MISSING';
-    case 'ALL_DUPLICATES':
-      return 'PROPOSE_ZERO_ALL_DUPLICATES';
-    case 'STORE_WRITE_FAILED':
-      return 'PROPOSE_ZERO_STORE_WRITE_FAILED';
-    case 'FLAG_DISABLED':
-      return 'FLAG_DISABLED';
-    default:
-      return null;
-  }
-}
-
-/**
  * GET /api/os/companies/[companyId]/context/v4/health
  * Returns V4 health status
  */
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(_request: NextRequest, { params }: RouteParams) {
   const { companyId } = await params;
   const now = new Date().toISOString();
 
@@ -137,11 +117,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // Check 2: V4 Store (RED if unavailable)
     // ========================================================================
     let storeAvailable = false;
+    let v4ConfirmedCount = 0;
     try {
       const store = await loadContextFieldsV4(companyId);
       if (store) {
         storeAvailable = true;
         const counts = await getFieldCountsV4(companyId);
+        v4ConfirmedCount = counts.confirmed;
         response.store = {
           total: counts.total,
           proposed: counts.proposed,
@@ -156,6 +138,39 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     } catch (storeError) {
       console.error('[V4 Health] Store error:', storeError);
       reasons.push('NO_V4_STORE');
+    }
+
+    // ========================================================================
+    // Check 2b: Legacy ContextGraphs fallback for confirmed count
+    // If V4 store has 0 confirmed, check legacy ContextGraphs for user's
+    // confirmed context fields. This ensures Strategy tab is available
+    // when user has confirmed context via the legacy system.
+    // ========================================================================
+    if (v4ConfirmedCount === 0) {
+      try {
+        const legacyGraph = await loadContextGraph(companyId);
+        if (legacyGraph) {
+          const nodeMap = await hydrateContextGraph(legacyGraph);
+          const allNodes = Array.from(nodeMap.values());
+          // Count nodes that are 'confirmed' status (not 'proposed' or 'missing')
+          const confirmedNodes = allNodes.filter(
+            node => node.status === 'confirmed' && node.value !== null
+          );
+          if (confirmedNodes.length > 0) {
+            // Use legacy confirmed count as fallback
+            response.store = {
+              total: allNodes.length,
+              proposed: allNodes.filter(n => n.status === 'proposed').length,
+              confirmed: confirmedNodes.length,
+              rejected: 0,
+            };
+            console.log(`[V4 Health] Using legacy fallback: ${confirmedNodes.length} confirmed from ContextGraphs`);
+          }
+        }
+      } catch (legacyError) {
+        console.warn('[V4 Health] Legacy fallback failed:', legacyError);
+        // Continue without fallback - V4 counts remain
+      }
     }
 
     if (!storeAvailable && !reasons.includes('NO_V4_STORE')) {

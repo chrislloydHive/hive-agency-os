@@ -12,8 +12,6 @@
 
 import type { MediaCockpitSnapshot, MediaKpiSnapshot } from './cockpit';
 import type { MediaInsight } from './alerts';
-import type { MediaChannel } from './types';
-import type { MediaEventChannel, AggregatedMediaMetrics } from './performanceTypes';
 import type { CreativeBrief } from './creativeLab';
 
 // ============================================================================
@@ -289,7 +287,7 @@ function analyzeChannelPerformance(
  */
 function analyzeCreativeThemes(
   briefs?: CreativeBrief[],
-  kpi?: MediaKpiSnapshot
+  _kpi?: MediaKpiSnapshot
 ): {
   winningThemes: CreativeThemeMemory[];
   losingThemes: CreativeThemeMemory[];
@@ -348,7 +346,7 @@ function analyzeCreativeThemes(
  */
 function calculateBaselineAdjustments(
   kpi: MediaKpiSnapshot,
-  history?: MediaKpiSnapshot[]
+  _history?: MediaKpiSnapshot[]
 ): Record<string, number> {
   const adjustments: Record<string, number> = {};
 
@@ -494,7 +492,7 @@ function generateMemoryRecommendations(
  */
 export async function getMediaMemoryContext(
   companyId: string,
-  lookbackPeriods: number = 6
+  _lookbackPeriods: number = 6
 ): Promise<MediaMemoryContext> {
   // TODO: Fetch from Airtable
   // const entries = await getMediaMemoryEntries(companyId, lookbackPeriods);
@@ -561,7 +559,7 @@ export function getChannelRecommendationFromMemory(
  */
 export function getCreativeThemeRecommendation(
   memory: MediaMemoryContext,
-  objective: string
+  _objective: string
 ): {
   recommendedThemes: string[];
   avoidThemes: string[];
@@ -580,7 +578,7 @@ export function getCreativeThemeRecommendation(
  * Save memory entry to Airtable
  * TODO: Implement with actual Airtable integration
  */
-async function saveMediaMemoryToAirtable(entry: MediaMemoryEntry): Promise<void> {
+async function _saveMediaMemoryToAirtable(entry: MediaMemoryEntry): Promise<void> {
   console.log('[MediaMemory] Would save entry:', entry.id, entry.period);
   // Implementation will use getBase() and create record in MediaMemory table
 }
@@ -589,7 +587,7 @@ async function saveMediaMemoryToAirtable(entry: MediaMemoryEntry): Promise<void>
  * Get memory entries from Airtable
  * TODO: Implement with actual Airtable integration
  */
-async function getMediaMemoryEntries(
+async function _getMediaMemoryEntries(
   companyId: string,
   limit: number
 ): Promise<MediaMemoryEntry[]> {

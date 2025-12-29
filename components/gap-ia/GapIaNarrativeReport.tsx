@@ -303,32 +303,6 @@ export function GapIaNarrativeReport({ run }: Props) {
               </>
             )}
 
-            {/* V2 Summary - Narrative (rendered as markdown) - HIDDEN IF V3 EXISTS */}
-            {false && summary?.narrative && summary?.narrative !== core?.quickSummary && (
-              <div className="prose prose-invert prose-sm max-w-none">
-                <ReactMarkdown
-                  components={{
-                    h2: ({ node, ...props }) => <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400 mt-4" {...props} />,
-                    h3: ({ node, ...props }) => <h4 className="text-sm font-medium text-slate-200 mt-3 mb-2" {...props} />,
-                    p: ({ node, ...props }) => <p className="text-sm leading-relaxed text-slate-300 mb-3" {...props} />,
-                    ul: ({ node, ...props }) => <ul className="space-y-1 text-sm text-slate-300 mb-3" {...props} />,
-                    ol: ({ node, ...props }) => <ol className="space-y-1 text-sm text-slate-300 mb-3 list-decimal list-inside" {...props} />,
-                    li: ({ node, ...props }) => <li className="text-sm text-slate-300" {...props} />,
-                    blockquote: ({ node, ...props }) => <blockquote className="border-l-4 border-slate-600 pl-4 italic text-slate-400 my-3" {...props} />,
-                    code: ({ node, ...props }) => <code className="bg-slate-800 px-1.5 py-0.5 rounded text-xs text-slate-300" {...props} />,
-                    pre: ({ node, ...props }) => <pre className="bg-slate-800 p-3 rounded text-xs text-slate-300 overflow-x-auto mb-3" {...props} />,
-                    table: ({ node, ...props }) => <table className="w-full text-sm border-collapse mb-3" {...props} />,
-                    thead: ({ node, ...props }) => <thead className="border-b border-slate-600" {...props} />,
-                    tbody: ({ node, ...props }) => <tbody {...props} />,
-                    tr: ({ node, ...props }) => <tr className="border-b border-slate-700" {...props} />,
-                    th: ({ node, ...props }) => <th className="text-left py-2 px-3 font-semibold text-slate-300" {...props} />,
-                    td: ({ node, ...props }) => <td className="py-2 px-3 text-slate-300" {...props} />,
-                  }}
-                >
-                  {summary?.narrative}
-                </ReactMarkdown>
-              </div>
-            )}
 
             {/* Maturity Stage */}
             {core?.marketingMaturity && (

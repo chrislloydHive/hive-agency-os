@@ -396,7 +396,7 @@ function selectHypotheses(
   config: AutopilotConfig
 ): Hypothesis[] {
   // Filter by allowed domains
-  let filtered = hypotheses.filter(h =>
+  const filtered = hypotheses.filter(h =>
     config.allowedDomains.includes(h.domain as typeof config.allowedDomains[number])
   );
 

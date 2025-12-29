@@ -136,6 +136,16 @@ export interface UnifiedStrategyHelpers {
   isReadyForAI: boolean;
 }
 
+/** Fields that can be updated via updateStrategy */
+export interface StrategyUpdatePayload {
+  objectives?: StrategyObjective[];
+  pillars?: StrategyPillar[];
+  plays?: StrategyPlay[];
+  goalStatement?: string;
+  title?: string;
+  summary?: string;
+}
+
 export interface UseUnifiedStrategyViewModelResult {
   // Data
   data: UnifiedStrategyViewModelData | null;
@@ -148,6 +158,9 @@ export interface UseUnifiedStrategyViewModelResult {
   // Actions
   refresh: () => Promise<void>;
   setStrategyId: (id: string | null) => void;
+
+  // Update strategy content (persists to backend)
+  updateStrategy: (updates: StrategyUpdatePayload) => Promise<boolean>;
 
   // Draft actions
   applyDraft: (draft: StrategyDraft) => Promise<boolean>;
@@ -178,7 +191,7 @@ export function useUnifiedStrategyViewModel(
   const [strategyId, setStrategyId] = useState<string | null>(initialStrategyId ?? null);
   const [isProposing, setIsProposing] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [_isRefreshing, setIsRefreshing] = useState(false);
 
   // Fetch view model from unified endpoint
   const fetchViewModel = useCallback(async (isRefresh = false) => {
@@ -420,6 +433,38 @@ export function useUnifiedStrategyViewModel(
     }
   }, [companyId, data?.activeStrategyId, fetchViewModel]);
 
+  // Update strategy content (pillars, plays, objectives, etc.)
+  const updateStrategy = useCallback(async (updates: StrategyUpdatePayload): Promise<boolean> => {
+    if (!data?.activeStrategyId) {
+      console.warn('[updateStrategy] No active strategy ID');
+      return false;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/os/companies/${companyId}/strategy/${data.activeStrategyId}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('[updateStrategy] Failed:', errorData);
+        return false;
+      }
+
+      // Optionally refresh to sync state (but for optimistic updates, caller may skip this)
+      // await fetchViewModel(true);
+      return true;
+    } catch (error) {
+      console.error('[updateStrategy] Error:', error);
+      return false;
+    }
+  }, [companyId, data?.activeStrategyId]);
+
   return {
     data,
     helpers,
@@ -427,6 +472,7 @@ export function useUnifiedStrategyViewModel(
     error,
     refresh,
     setStrategyId,
+    updateStrategy,
     applyDraft,
     discardDraft,
     proposeObjectives,

@@ -147,14 +147,14 @@ export async function GET(request: NextRequest) {
     // Fetch funnel dataset based on source type
     let dataset: FunnelDataset | null = null;
     let companyName: string | undefined;
-    let workspaceName: string | undefined = 'Hive OS Workspace';
+    const workspaceName: string | undefined = 'Hive OS Workspace';
 
     switch (sourceType) {
       case 'dma':
         dataset = await getDmaFunnelDataset(period.startDate, period.endDate, period.preset);
         break;
 
-      case 'workspace':
+      case 'workspace': {
         const workspaceRange: WorkspaceDateRange = {
           startDate: period.startDate,
           endDate: period.endDate,
@@ -162,8 +162,9 @@ export async function GET(request: NextRequest) {
         };
         dataset = await getWorkspaceFunnelDataset(workspaceRange);
         break;
+      }
 
-      case 'company':
+      case 'company': {
         if (!companyId) {
           return NextResponse.json(
             { ok: false, error: 'companyId required for company source' },
@@ -181,6 +182,7 @@ export async function GET(request: NextRequest) {
         companyName = company.name;
         dataset = await getCompanyFunnelDataset(companyId, period.startDate, period.endDate, period.preset);
         break;
+      }
 
       case 'gap':
         // GAP blueprint not yet implemented - would pull from GAP analysis

@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { brandLabImporter } from '@/lib/contextGraph/importers/brandLabImporter';
 import { createEmptyContextGraph } from '@/lib/contextGraph/companyContextGraph';
+import { makeDiagnosticRun, makeHeavyGapRunState, makeEvidencePack } from '@/tests/helpers/contextFactories';
 
 // Mock the Airtable layer calls
 vi.mock('@/lib/os/diagnostics/runs', () => ({
@@ -49,25 +50,23 @@ describe('Brand Lab Importer', () => {
 
       // Setup: DIAGNOSTIC_RUNS has data
       vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([
-        {
+        makeDiagnosticRun({
           id: 'diag-run-123',
           companyId: 'test-company',
           toolId: 'brandLab',
           status: 'complete',
           rawJson: { rawEvidence: { labResultV4: { positioning: 'Test positioning' } } },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any);
+        }),
+      ]);
 
       // GAP_HEAVY_RUNS also has data (should not be called)
       vi.mocked(getHeavyGapRunsByCompanyId).mockResolvedValue([
-        {
+        makeHeavyGapRunState({
           id: 'heavy-run-456',
           status: 'completed',
-          evidencePack: { brandLab: { positioning: 'Heavy positioning' } },
-        },
-      ] as any);
+          evidencePack: makeEvidencePack({ brandLab: { positioning: 'Heavy positioning' } }),
+        }),
+      ]);
 
       const result = await brandLabImporter.supports('test-company', 'brand');
 
@@ -93,12 +92,12 @@ describe('Brand Lab Importer', () => {
 
       // GAP_HEAVY_RUNS has data
       vi.mocked(getHeavyGapRunsByCompanyId).mockResolvedValue([
-        {
+        makeHeavyGapRunState({
           id: 'heavy-run-456',
           status: 'completed',
-          evidencePack: { brandLab: { positioning: 'Heavy positioning' } },
-        },
-      ] as any);
+          evidencePack: makeEvidencePack({ brandLab: { positioning: 'Heavy positioning' } }),
+        }),
+      ]);
 
       const result = await brandLabImporter.supports('test-company', 'brand');
 
@@ -124,7 +123,7 @@ describe('Brand Lab Importer', () => {
 
       // New format: rawEvidence.labResultV4
       vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([
-        {
+        makeDiagnosticRun({
           id: 'new-format-run',
           companyId: 'test-company',
           toolId: 'brandLab',
@@ -134,10 +133,8 @@ describe('Brand Lab Importer', () => {
               labResultV4: mockLabResult,
             },
           },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any);
+        }),
+      ]);
 
       const graph = createEmptyContextGraph('test-company', 'Test Company');
       const result = await brandLabImporter.importAll(graph, 'test-company', 'brand');
@@ -161,7 +158,7 @@ describe('Brand Lab Importer', () => {
       process.env.DEBUG_CONTEXT_PROOF = '1';
 
       vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([
-        {
+        makeDiagnosticRun({
           id: 'proof-test-run',
           companyId: 'test-company',
           toolId: 'brandLab',
@@ -174,10 +171,8 @@ describe('Brand Lab Importer', () => {
               },
             },
           },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any);
+        }),
+      ]);
 
       // Prevent fallback to GAP Heavy
       vi.mocked(getHeavyGapRunsByCompanyId).mockResolvedValue([]);
@@ -207,7 +202,7 @@ describe('Brand Lab Importer', () => {
       };
 
       vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([
-        {
+        makeDiagnosticRun({
           id: 'keys-test-run',
           companyId: 'test-company',
           toolId: 'brandLab',
@@ -217,10 +212,8 @@ describe('Brand Lab Importer', () => {
               labResultV4: mockLabResult,
             },
           },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any);
+        }),
+      ]);
 
       const graph = createEmptyContextGraph('test-company', 'Test Company');
       const result = await brandLabImporter.importAll(graph, 'test-company', 'brand');
@@ -235,7 +228,7 @@ describe('Brand Lab Importer', () => {
       process.env.DEBUG_CONTEXT_PROOF = '1';
 
       vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([
-        {
+        makeDiagnosticRun({
           id: 'writes-test-run',
           companyId: 'test-company',
           toolId: 'brandLab',
@@ -247,10 +240,8 @@ describe('Brand Lab Importer', () => {
               },
             },
           },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any);
+        }),
+      ]);
 
       const graph = createEmptyContextGraph('test-company', 'Test Company');
       const result = await brandLabImporter.importAll(graph, 'test-company', 'brand');
@@ -266,7 +257,7 @@ describe('Brand Lab Importer', () => {
       process.env.DEBUG_CONTEXT_PROOF = '1';
 
       vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([
-        {
+        makeDiagnosticRun({
           id: 'structure-test-run',
           companyId: 'test-company',
           toolId: 'brandLab',
@@ -278,10 +269,8 @@ describe('Brand Lab Importer', () => {
               },
             },
           },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any);
+        }),
+      ]);
 
       const graph = createEmptyContextGraph('test-company', 'Test Company');
       const result = await brandLabImporter.importAll(graph, 'test-company', 'brand');
@@ -314,7 +303,7 @@ describe('Brand Lab Importer', () => {
       process.env.DEBUG_CONTEXT_PROOF = '1';
 
       vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([
-        {
+        makeDiagnosticRun({
           id: 'fields-test-run',
           companyId: 'test-company',
           toolId: 'brandLab',
@@ -328,24 +317,22 @@ describe('Brand Lab Importer', () => {
               },
             },
           },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any);
+        }),
+      ]);
 
       // Mock GAP Heavy with data so importer has data to work with
       vi.mocked(getHeavyGapRunsByCompanyId).mockResolvedValue([
-        {
+        makeHeavyGapRunState({
           id: 'heavy-run-456',
           status: 'completed',
-          evidencePack: {
+          evidencePack: makeEvidencePack({
             brandLab: {
               positioning: 'Heavy positioning',
               differentiators: ['Unique'],
             },
-          },
-        },
-      ] as any);
+          }),
+        }),
+      ]);
 
       const graph = createEmptyContextGraph('test-company', 'Test Company');
       const result = await brandLabImporter.importAll(graph, 'test-company', 'brand');
@@ -368,7 +355,7 @@ describe('Brand Lab Importer', () => {
       process.env.DEBUG_CONTEXT_PROOF = '1';
 
       vi.mocked(listDiagnosticRunsForCompany).mockResolvedValue([
-        {
+        makeDiagnosticRun({
           id: 'match-test-run',
           companyId: 'test-company',
           toolId: 'brandLab',
@@ -381,23 +368,21 @@ describe('Brand Lab Importer', () => {
               },
             },
           },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any);
+        }),
+      ]);
 
       // Mock GAP Heavy with data so importer has data to work with
       vi.mocked(getHeavyGapRunsByCompanyId).mockResolvedValue([
-        {
+        makeHeavyGapRunState({
           id: 'heavy-run-789',
           status: 'completed',
-          evidencePack: {
+          evidencePack: makeEvidencePack({
             brandLab: {
               positioning: 'Heavy positioning',
             },
-          },
-        },
-      ] as any);
+          }),
+        }),
+      ]);
 
       const graph = createEmptyContextGraph('test-company', 'Test Company');
       const result = await brandLabImporter.importAll(graph, 'test-company', 'brand');

@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
         secondaryMetrics: parsed.secondaryMetrics || [],
         generatedAt: new Date().toISOString(),
       };
-    } catch (parseError) {
+    } catch {
       console.error('[Analytics Blueprint API] Failed to parse AI response:', rawContent);
       return NextResponse.json(
         { ok: false, error: 'Failed to parse AI response' },
@@ -192,7 +192,7 @@ export async function POST(request: NextRequest) {
 // Helper: Build User Prompt
 // ============================================================================
 
-function buildUserPrompt(company: any): string {
+function buildUserPrompt(company: Record<string, unknown>): string {
   const parts: string[] = [];
 
   parts.push(`Company Name: ${company.name}`);

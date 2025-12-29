@@ -55,9 +55,10 @@ describe('sectionConfidence', () => {
     });
 
     test('returns medium confidence for moderate FB readiness', () => {
+      // Score calculation: FB 60 (≥50) = 20pts + 4 inputs (≥4) = 30pts = 50 total → medium
       const factors: ConfidenceFactors = {
         firmBrainReadiness: 60,
-        inputsUsedCount: 2,
+        inputsUsedCount: 4,
         isHumanEdited: false,
         isFromLibrary: false,
         fromWonDeal: false,
@@ -65,6 +66,8 @@ describe('sectionConfidence', () => {
 
       const result = calculateSectionConfidence(factors);
       expect(result.confidence).toBe('medium');
+      expect(result.score).toBeGreaterThanOrEqual(40);
+      expect(result.score).toBeLessThan(70);
     });
 
     test('returns low confidence for poor inputs', () => {

@@ -5,7 +5,6 @@
  * Both Snapshot and Full Report use this function to ensure consistent scoring.
  */
 
-import { env } from './env';
 import { DEFAULT_RUBRIC, normalizeRubricWeights, getMaturityStage, getMaturityDescription, type ExtractionData, type Scorecard } from './rubric';
 import { detectCompetitors } from './competitor-detection';
 import { captureScreenshotsWithDetection, type ScreenshotData } from './screenshot-capture';
@@ -13,11 +12,10 @@ import { getPageSpeedScore, fetchHTMLHint } from './ai';
 import { analyzeGoogleBusiness, analyzeLinkedIn } from './profile-analyzer';
 import type { BlogAnalysis, AnalyticsAnalysis, BrandAuthority } from './extraction-utils';
 import type { PriorityRoadmapItem, CopyRewrite, CompetitorAnalysis, ServiceReportBlock } from './full-report-analysis';
-import { 
-  extractWebsiteDataWithScreenshots, 
-  scoreWebsite,
-  safeScoreWebsite, 
-  generateInsights, 
+import {
+  extractWebsiteDataWithScreenshots,
+  safeScoreWebsite,
+  generateInsights,
   generateCompetitorAnalysis,
   calculateServiceScore,
   getServiceForPillar,
@@ -261,7 +259,8 @@ export async function generateFullAssessment(
   
   // Log analysis results with improved messaging
   if (googleBusiness.found) {
-    console.log(`✅ Google Business Profile analyzed: ${(googleBusiness as any).insights?.length || 0} insights`);
+    const gbInsights = (googleBusiness as { insights?: string[] }).insights;
+    console.log(`✅ Google Business Profile analyzed: ${gbInsights?.length ?? 0} insights`);
   } else {
     // Check if we discovered GBP URLs but didn't analyze them
     if (discoveredUrls.gbpUrls.length > 0) {
@@ -272,7 +271,8 @@ export async function generateFullAssessment(
   }
   
   if (linkedin.found) {
-    console.log(`✅ LinkedIn profile analyzed: ${(linkedin as any).insights?.length || 0} insights`);
+    const liInsights = (linkedin as { insights?: string[] }).insights;
+    console.log(`✅ LinkedIn profile analyzed: ${liInsights?.length ?? 0} insights`);
   } else {
     // Check if we discovered LinkedIn URLs but didn't analyze them
     if (discoveredUrls.linkedinUrls.length > 0) {
@@ -964,8 +964,8 @@ export async function generateFullAssessment(
       screenshots: screenshots ? {
         aboveFoldUrl: screenshots.aboveFold,
         midPageUrl: screenshots.midPage,
-        aboveFoldDescription: (extraction.screenshots as any)?.above_fold_description,
-        midPageDescription: (extraction.screenshots as any)?.mid_page_description,
+        aboveFoldDescription: extraction.screenshots?.above_fold_description,
+        midPageDescription: extraction.screenshots?.mid_page_description,
       } : undefined,
       analyticsAnalysis: extraction.analyticsAnalysis || null,
     } as ServiceReportBlock,
@@ -1010,8 +1010,8 @@ export async function generateFullAssessment(
     screenshots: screenshots ? {
       aboveFoldUrl: screenshots.aboveFold,
       midPageUrl: screenshots.midPage,
-      aboveFoldDescription: (extraction.screenshots as any)?.above_fold_description,
-      midPageDescription: (extraction.screenshots as any)?.mid_page_description,
+      aboveFoldDescription: extraction.screenshots?.above_fold_description,
+      midPageDescription: extraction.screenshots?.mid_page_description,
     } : undefined,
     websiteScoringAvailable,
     // Brand strength classification (optional, backward compatible)

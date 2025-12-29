@@ -290,7 +290,7 @@ export async function runBaselineContextBuild(
 
   // Result containers
   let fcbResult: FCBRunResult | null = null;
-  let labsResults: BaselineBuildResult['labsResults'] = {
+  const labsResults: BaselineBuildResult['labsResults'] = {
     audience: null,
     brand: null,
     creative: null,

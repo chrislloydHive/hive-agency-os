@@ -131,6 +131,17 @@ export function FieldCard({
     }
   }, [canEditField]);
 
+  // Handle card click for selection
+  // Hook must be called unconditionally, before any early returns
+  const handleCardClick = useCallback((e: React.MouseEvent) => {
+    // Don't select if clicking on interactive elements
+    const target = e.target as HTMLElement;
+    if (target.closest('button') || target.closest('a') || target.closest('input')) {
+      return;
+    }
+    onSelect?.();
+  }, [onSelect]);
+
   // If in editing mode, show the inline editor
   if (isEditing && onSave) {
     return (
@@ -146,16 +157,6 @@ export function FieldCard({
       />
     );
   }
-
-  // Handle card click for selection
-  const handleCardClick = useCallback((e: React.MouseEvent) => {
-    // Don't select if clicking on interactive elements
-    const target = e.target as HTMLElement;
-    if (target.closest('button') || target.closest('a') || target.closest('input')) {
-      return;
-    }
-    onSelect?.();
-  }, [onSelect]);
 
   return (
     <div

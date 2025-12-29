@@ -62,8 +62,8 @@ export async function POST(request: NextRequest) {
     // Load data for all companies
     const companyData: Array<{
       companyId: string;
-      graph: any;
-      experiments: any[];
+      graph: NonNullable<Awaited<ReturnType<typeof loadContextGraph>>>;
+      experiments: ReturnType<typeof getActiveExperiments>;
       performance: {
         cpa: number;
         ctr: number;

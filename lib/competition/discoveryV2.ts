@@ -8,13 +8,11 @@
 // - Domain normalization and deduplication
 // - Price tier derivation
 
-import { z } from 'zod';
 import { aiSimple } from '@/lib/ai-gateway';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
 import {
   createCompetitionRun,
   updateCompetitionRun,
-  updateRunStatus,
   calculateDataConfidence,
 } from './store';
 import {
@@ -23,8 +21,6 @@ import {
   type ScoredCompetitor,
   type CompetitorSearchSource,
   type SimplePriceTier,
-  type CompetitionRunStats,
-  DiscoveredCandidatesSchema,
   generateCompetitorId,
   startStep,
   completeStep,

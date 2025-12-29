@@ -3,42 +3,44 @@
 // app/c/[companyId]/deliver/DeliverClient.tsx
 // Deliver Phase Client Component
 //
-// Landing page for Phase 3: Deliver
-// Shows deliverables with creation/update actions
+// Execution-focused surface for approved tactics.
+// Three-section IA:
+// 1. Execution (Primary) - Active programs and committed work
+// 2. Supporting Assets (Secondary) - Plans that support execution
+// 3. Reference & Admin (Tertiary) - Strategy docs, historical artifacts
 //
-// UI state is derived from a single selector: getDeliverUIState()
+// Sales-stage artifacts (RFPs, proposals, pricing) are NOT shown here.
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import {
   AlertCircle,
   ChevronRight,
   ChevronDown,
+  ChevronUp,
   Loader2,
   CheckCircle2,
   AlertTriangle,
-  FileOutput,
-  Sparkles,
-  Star,
+  FileText,
+  Rocket,
+  Target,
+  Plus,
+  FolderOpen,
+  ExternalLink,
 } from 'lucide-react';
-import { StrategyDocCard } from '@/components/os/overview/StrategyDocCard';
-import { RfpDeliverablesCard } from '@/components/os/overview/RfpDeliverablesCard';
 import { ArtifactsList } from '@/components/os/overview/ArtifactsList';
 import { PlansSection } from '@/components/os/plans';
+import { ProgramsSection } from '@/components/os/programs';
 import type { V4HealthResponse } from '@/lib/types/contextV4Health';
 import type { Artifact } from '@/lib/types/artifact';
+import type { PlanningProgram } from '@/lib/types/program';
+import type { StrategyPlay } from '@/lib/types/strategy';
 import {
   getDeliverUIState,
   type DeliverUIState,
   type DeliverDataInput,
 } from '@/lib/os/ui/deliverUiState';
-import {
-  getArtifactRecommendations,
-  type ScoredRecommendation,
-} from '@/lib/os/artifacts/recommendations';
-import { getArtifactViewerHref } from '@/lib/os/artifacts/navigation';
-import { findExistingArtifact } from '@/lib/os/artifacts/findExistingArtifact';
 
 // ============================================================================
 // Types
@@ -57,12 +59,27 @@ interface DeliverClientProps {
 const INPUTS_CONFIRMED_THRESHOLD = 3;
 
 export function DeliverClient({ companyId, companyName }: DeliverClientProps) {
+  const searchParams = useSearchParams();
+  const focusedProgramId = searchParams.get('programId');
+
   const [contextHealth, setContextHealth] = useState<V4HealthResponse | null>(null);
   const [strategyId, setStrategyId] = useState<string | null>(null);
+  const [strategyGoal, setStrategyGoal] = useState<string | null>(null);
+  const [strategyDocUrl, setStrategyDocUrl] = useState<string | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [programs, setPrograms] = useState<PlanningProgram[]>([]);
+  const [acceptedTactics, setAcceptedTactics] = useState<StrategyPlay[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showUpdatesInfo, setShowUpdatesInfo] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
+
+  // Toast state for program creation feedback
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [creatingProgramFromTactic, setCreatingProgramFromTactic] = useState<string | null>(null);
+  const [autoCreatedProgram, setAutoCreatedProgram] = useState(false);
+
+  // Collapsed accordion states for sections
+  const [tacticsAccordionOpen, setTacticsAccordionOpen] = useState(false);
+  const [supportingAssetsOpen, setSupportingAssetsOpen] = useState(false);
+  const [referenceOpen, setReferenceOpen] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -83,15 +100,41 @@ export function DeliverClient({ companyId, companyName }: DeliverClientProps) {
         setContextHealth(health);
       }
 
+      let fetchedStrategyId: string | null = null;
       if (strategyRes?.ok) {
         const data = await strategyRes.json();
         // Use activeStrategyId (top-level) or strategy.id as fallback
-        setStrategyId(data.activeStrategyId ?? data.strategy?.id ?? null);
+        fetchedStrategyId = data.activeStrategyId ?? data.strategy?.id ?? null;
+        setStrategyId(fetchedStrategyId);
+        // Extract strategy goal for header
+        setStrategyGoal(data.strategy?.goal ?? data.strategy?.goalStatement ?? null);
+        // Extract accepted tactics (active status) for program creation affordance
+        const plays = (data.strategy?.plays || []) as StrategyPlay[];
+        const accepted = plays.filter(p => p.status === 'active' || p.status === 'proven');
+        setAcceptedTactics(accepted);
+        // Get strategy doc URL if available
+        setStrategyDocUrl(data.strategy?.strategyDocUrl ?? null);
       }
 
       if (artifactsRes?.ok) {
         const data = await artifactsRes.json();
         setArtifacts(data.artifacts || []);
+      }
+
+      // Fetch programs for this strategy (use same endpoint as ProgramsSection)
+      if (fetchedStrategyId) {
+        try {
+          const programsRes = await fetch(
+            `/api/os/companies/${companyId}/strategy/${fetchedStrategyId}/programs`,
+            { cache: 'no-store' }
+          );
+          if (programsRes.ok) {
+            const programsData = await programsRes.json();
+            setPrograms(programsData.programs || []);
+          }
+        } catch (err) {
+          console.error('[DeliverClient] Error fetching programs:', err);
+        }
       }
     } catch (err) {
       console.error('[DeliverClient] Error fetching data:', err);
@@ -112,61 +155,125 @@ export function DeliverClient({ companyId, companyName }: DeliverClientProps) {
   };
   const uiState: DeliverUIState = getDeliverUIState(dataInput, companyId);
 
-  // Controlled props for StrategyDocCard - single source of truth from uiState
-  const confirmedCount = contextHealth?.store.confirmed ?? 0;
-  const canCreateStrategyDoc = uiState.debug.inputsConfirmed && !!strategyId;
-  const strategyDocBlockedReason = !uiState.debug.inputsConfirmed
-    ? `Need ${INPUTS_CONFIRMED_THRESHOLD - confirmedCount} more confirmed Context V4 fields`
-    : !strategyId
-    ? 'Strategy required to create document'
-    : undefined;
-
-  // Handler for creating strategy doc
-  const handleCreateStrategyDoc = useCallback(async () => {
-    if (!strategyId) {
-      throw new Error('Strategy ID required');
-    }
-    setCreateError(null);
-
-    const response = await fetch(
-      `/api/os/companies/${companyId}/artifacts/create-strategy-doc`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ strategyId }),
-      }
-    );
-    const data = await response.json();
-
-    if (!response.ok || data.error) {
-      const errorMessage = data.error || 'Failed to create Strategy Document';
-      setCreateError(errorMessage);
-      throw new Error(errorMessage);
-    }
-
-    // Refresh data to update UI
-    await fetchData();
-  }, [companyId, strategyId, fetchData]);
-
-  // Sync showUpdatesInfo with selector's recommendation
+  // Auto-dismiss toast after 4 seconds
   useEffect(() => {
-    if (uiState.showUpdatesHelp === 'expanded') {
-      setShowUpdatesInfo(true);
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 4000);
+      return () => clearTimeout(timer);
     }
-  }, [uiState.showUpdatesHelp]);
+  }, [toast]);
+
+  // Handler to create program from tactic
+  const handleCreateProgramFromTactic = useCallback(async (tactic: StrategyPlay, scrollToPrograms = false) => {
+    if (!strategyId || creatingProgramFromTactic) return;
+
+    setCreatingProgramFromTactic(tactic.id);
+    try {
+      const response = await fetch(
+        `/api/os/companies/${companyId}/strategy/${strategyId}/programs`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tacticId: tactic.id,
+            tacticTitle: tactic.title,
+            tacticDescription: tactic.description || '',
+            workstreams: tactic.channels || [],
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create program');
+      }
+
+      // Show success toast with tactic title
+      setToast({
+        message: data.created
+          ? `Program created from "${tactic.title}". You can edit or add more.`
+          : `Program already exists for "${tactic.title}"`,
+        type: 'success',
+      });
+
+      // Refresh programs (use same endpoint as ProgramsSection)
+      const programsRes = await fetch(
+        `/api/os/companies/${companyId}/strategy/${strategyId}/programs`,
+        { cache: 'no-store' }
+      );
+      if (programsRes.ok) {
+        const programsData = await programsRes.json();
+        setPrograms(programsData.programs || []);
+      }
+
+      // Scroll to programs section after creation
+      if (scrollToPrograms) {
+        setTimeout(() => {
+          document.getElementById('programs')?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+      }
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : 'Failed to create program',
+        type: 'error',
+      });
+    } finally {
+      setCreatingProgramFromTactic(null);
+    }
+  }, [companyId, strategyId, creatingProgramFromTactic]);
+
+  // Auto-create first program when conditions are met
+  useEffect(() => {
+    const autoCreateKey = `hive-auto-program-${companyId}-${strategyId}`;
+    const hasDeclinedAutoCreate = localStorage.getItem(autoCreateKey) === 'declined';
+
+    if (
+      !loading &&
+      strategyId &&
+      programs.length === 0 &&
+      acceptedTactics.length > 0 &&
+      !autoCreatedProgram &&
+      !hasDeclinedAutoCreate &&
+      !creatingProgramFromTactic
+    ) {
+      // Auto-create from first accepted tactic
+      const firstTactic = acceptedTactics[0];
+      setAutoCreatedProgram(true);
+      handleCreateProgramFromTactic(firstTactic);
+    }
+  }, [loading, strategyId, programs.length, acceptedTactics, autoCreatedProgram, creatingProgramFromTactic, handleCreateProgramFromTactic, companyId]);
+
+  // Programs gate: artifacts only available after at least one program exists
+  const hasPrograms = programs.length > 0;
+  const showArtifacts = hasPrograms && uiState.showPrimaryDeliverables;
+
+  // Planning progress stats
+  const programStats = useMemo(() => {
+    const draft = programs.filter(p => p.status === 'draft').length;
+    const ready = programs.filter(p => p.status === 'ready').length;
+    const committed = programs.filter(p => p.status === 'committed').length;
+    return { total: programs.length, draft, ready, committed };
+  }, [programs]);
+
+  // Tactics that don't yet have programs
+  const tacticsWithoutPrograms = useMemo(() => {
+    const programTacticIds = new Set(programs.map(p => p.origin.tacticId));
+    return acceptedTactics.filter(t => !programTacticIds.has(t.id));
+  }, [acceptedTactics, programs]);
 
   if (loading) {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-white">Deliver</h1>
-          <p className="text-xs text-purple-400/80 mt-0.5">Phase 3</p>
-          <p className="text-sm text-slate-400 mt-1">
-            Create deliverables from confirmed decisions.
+          <p className="text-xs text-cyan-400/80 uppercase tracking-wider">Deliver</p>
+          <h1 className="text-2xl font-bold text-white mt-1">Loading...</h1>
+          <p className="text-sm text-slate-400 mt-2">
+            Preparing your execution workspace.
           </p>
         </div>
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
+          <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
         </div>
       </div>
     );
@@ -174,13 +281,49 @@ export function DeliverClient({ companyId, companyName }: DeliverClientProps) {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg transition-all animate-in slide-in-from-top-2 ${
+            toast.type === 'success'
+              ? 'bg-emerald-500/90 text-white'
+              : 'bg-red-500/90 text-white'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 className="w-5 h-5" />
+          ) : (
+            <AlertCircle className="w-5 h-5" />
+          )}
+          <span className="text-sm font-medium">{toast.message}</span>
+          <button
+            onClick={() => setToast(null)}
+            className="ml-2 text-white/70 hover:text-white"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Header - execution focused */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Deliver</h1>
-        <p className="text-xs text-purple-400/80 mt-0.5">Phase 3</p>
-        <p className="text-sm text-slate-400 mt-1">
-          Create deliverables from confirmed decisions.
-        </p>
+        {strategyGoal ? (
+          <>
+            <p className="text-xs text-cyan-400/80 uppercase tracking-wider">Delivering</p>
+            <h1 className="text-2xl font-bold text-white mt-1">{strategyGoal}</h1>
+            <p className="text-sm text-slate-400 mt-2">
+              You&apos;re executing approved tactics. Track delivery and progress.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-xs text-cyan-400/80 uppercase tracking-wider">Deliver</p>
+            <h1 className="text-2xl font-bold text-white mt-1">Execution Workspace</h1>
+            <p className="text-sm text-slate-400 mt-2">
+              You&apos;re executing approved tactics. Track delivery and progress.
+            </p>
+          </>
+        )}
       </div>
 
       {/* Dev-only UI state debug indicator */}
@@ -188,135 +331,310 @@ export function DeliverClient({ companyId, companyName }: DeliverClientProps) {
         <div className="text-[10px] font-mono text-slate-500 bg-slate-900/50 border border-slate-800/50 rounded px-2 py-1">
           <span className="text-cyan-400">{uiState.state}</span>
           <span className="mx-2">|</span>
-          primary: {uiState.preferredPrimary ?? 'none'}
-          <span className="mx-2">|</span>
-          stale: {uiState.staleSummary.staleCount}
-          <span className="mx-2">|</span>
-          CTA: &quot;{uiState.primaryCTA.label}&quot;
+          programs: {programs.length} (committed: {programStats.committed})
         </div>
       )}
 
-      {/* Banner (always shown) */}
-      <DeliverBanner
-        tone={uiState.banner.tone}
-        title={uiState.banner.title}
-        body={uiState.banner.body}
-        primaryCTA={uiState.primaryCTA}
-        secondaryCTA={uiState.secondaryCTA}
-      />
+      {/* ================================================================== */}
+      {/* SECTION 1: EXECUTION (Primary) */}
+      {/* ================================================================== */}
 
-      {/* Next Recommended Artifact - shown when we have strategy and deliverables enabled */}
-      {uiState.showPrimaryDeliverables && strategyId && (
-        <NextRecommendedArtifactCard
+      {/* First Program Affordance - when no programs exist */}
+      {!hasPrograms && strategyId && acceptedTactics.length > 0 && (
+        <div id="create-program" className="bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border-2 border-cyan-500/40 rounded-xl p-6">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-cyan-500/30 rounded-lg shrink-0">
+              <Rocket className="w-6 h-6 text-cyan-300" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-white mb-2">
+                Start your first Program
+              </h3>
+              <p className="text-sm text-slate-300 mb-2">
+                Programs turn approved tactics into executable work.
+              </p>
+              <p className="text-xs text-slate-400 mb-4">
+                You&apos;ll define deliverables and milestones next.
+              </p>
+
+              {/* Tactic Buttons - show up to 3 */}
+              <div className="flex flex-wrap gap-2">
+                {tacticsWithoutPrograms.slice(0, 3).map((tactic) => (
+                  <button
+                    key={tactic.id}
+                    onClick={() => handleCreateProgramFromTactic(tactic)}
+                    disabled={!!creatingProgramFromTactic}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                  >
+                    {creatingProgramFromTactic === tactic.id ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4" />
+                        {tactic.title}
+                      </>
+                    )}
+                  </button>
+                ))}
+              </div>
+              {tacticsWithoutPrograms.length > 3 && (
+                <p className="text-xs text-slate-500 mt-3">
+                  +{tacticsWithoutPrograms.length - 3} more tactics available
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Execution Status Banner - only show when programs exist */}
+      {hasPrograms && (
+        <ExecutionBanner
+          programStats={programStats}
           companyId={companyId}
-          strategyId={strategyId}
-          artifacts={artifacts}
         />
       )}
 
-      {/* Plans Section */}
-      {uiState.showPrimaryDeliverables && (
-        <div id="plans">
-          <PlansSection
+      {/* Execution Progress - shows when programs exist */}
+      {hasPrograms && strategyId && (
+        <div className="flex items-center gap-4 text-xs text-slate-400">
+          <span className="font-medium text-slate-300">Execution status:</span>
+          <span>{programStats.total} Program{programStats.total !== 1 ? 's' : ''}</span>
+          {programStats.ready > 0 && (
+            <span className="text-emerald-400">{programStats.ready} Ready to start</span>
+          )}
+          {programStats.committed > 0 && (
+            <span className="text-cyan-400">{programStats.committed} In execution</span>
+          )}
+          {programStats.draft > 0 && (
+            <span className="text-slate-500">{programStats.draft} Planning</span>
+          )}
+        </div>
+      )}
+
+      {/* Programs Section - the hero of Deliver */}
+      {strategyId && (
+        <div id="programs" className="space-y-3">
+          <ProgramsSection
             companyId={companyId}
             strategyId={strategyId}
+            focusedProgramId={focusedProgramId}
+            onProgramsChange={setPrograms}
           />
-        </div>
-      )}
 
-      {/* Primary Deliverables Section */}
-      {uiState.showPrimaryDeliverables && (
-        <>
-          <div className="space-y-4">
-            <h2 className="text-sm font-medium text-slate-400">Strategy Document</h2>
-            <StrategyDocCard
-              companyId={companyId}
-              strategyId={strategyId ?? undefined}
-              controlled={{
-                canCreate: canCreateStrategyDoc,
-                blockedReason: strategyDocBlockedReason,
-                confirmedCount,
-                requiredCount: INPUTS_CONFIRMED_THRESHOLD,
-                onCreate: handleCreateStrategyDoc,
-              }}
-            />
-            {createError && (
-              <div className="flex items-center gap-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
-                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                {createError}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-4">
-            <h2 className="text-sm font-medium text-slate-400">RFP Responses</h2>
-            <Link
-              href={`/c/${companyId}/deliver/rfp`}
-              className="block bg-slate-900/50 border border-slate-800 hover:border-purple-500/50 rounded-xl p-4 transition-colors group"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-purple-500/10 rounded-lg">
-                    <FileOutput className="w-4 h-4 text-purple-400" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-white group-hover:text-purple-300 transition-colors">
-                      RFP Response Builder
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      Create structured proposal responses with AI assistance
-                    </p>
+          {/* Collapsed Accordion: Add another program from remaining tactics */}
+          {hasPrograms && tacticsWithoutPrograms.length > 0 && (
+            <div className="bg-slate-900/30 border border-slate-800/50 rounded-lg overflow-hidden">
+              <button
+                onClick={() => setTacticsAccordionOpen(!tacticsAccordionOpen)}
+                className="w-full px-4 py-2.5 flex items-center justify-between text-left hover:bg-slate-800/30 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Plus className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="text-sm text-slate-400">
+                    Add a Program
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    ({tacticsWithoutPrograms.length} tactic{tacticsWithoutPrograms.length !== 1 ? 's' : ''} available)
+                  </span>
+                </div>
+                {tacticsAccordionOpen ? (
+                  <ChevronUp className="w-4 h-4 text-slate-500" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-slate-500" />
+                )}
+              </button>
+              {tacticsAccordionOpen && (
+                <div className="px-4 pb-4 space-y-2">
+                  <p className="text-xs text-slate-500 mb-3">
+                    You&apos;ll define deliverables and milestones next.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {tacticsWithoutPrograms.map((tactic) => (
+                      <button
+                        key={tactic.id}
+                        onClick={() => handleCreateProgramFromTactic(tactic, true)}
+                        disabled={!!creatingProgramFromTactic}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 hover:border-slate-600/50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-300 rounded-lg transition-colors"
+                      >
+                        {creatingProgramFromTactic === tactic.id ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Creating...
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="w-3.5 h-3.5" />
+                            {tactic.title}
+                          </>
+                        )}
+                      </button>
+                    ))}
                   </div>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-purple-400 transition-colors" />
-              </div>
-            </Link>
-          </div>
-
-          <div className="space-y-4">
-            <h2 className="text-sm font-medium text-slate-400">Quick Artifacts</h2>
-            <RfpDeliverablesCard companyId={companyId} />
-          </div>
-        </>
-      )}
-
-      {/* Other Artifacts */}
-      {uiState.showArtifactsList && (
-        <div className="space-y-4">
-          <h2 className="text-sm font-medium text-slate-400">Other Artifacts</h2>
-          <ArtifactsList
-            companyId={companyId}
-            showStaleBanner={true}
-            maxItems={10}
-          />
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Keeping deliverables current - collapsible */}
-      {uiState.showUpdatesHelp !== 'hidden' && (
-        <div className="bg-slate-800/30 border border-slate-700/50 rounded-lg overflow-hidden">
+      {/* Empty state: No accepted tactics */}
+      {!hasPrograms && strategyId && acceptedTactics.length === 0 && (
+        <div className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-slate-700/50 rounded-xl p-6">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-slate-700/50 rounded-lg shrink-0">
+              <Target className="w-6 h-6 text-slate-400" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-white mb-2">
+                No approved tactics yet
+              </h3>
+              <p className="text-sm text-slate-300 mb-4">
+                Programs are created from approved tactics.
+                Activate at least one tactic in Strategy to continue.
+              </p>
+              <Link
+                href={`/c/${companyId}/strategy?focus=tactics`}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                Go to Strategy
+                <ChevronRight className="w-4 h-4" />
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================== */}
+      {/* SECTION 2: SUPPORTING EXECUTION ASSETS (Secondary, collapsed) */}
+      {/* ================================================================== */}
+      {showArtifacts && (
+        <div className="bg-slate-900/30 border border-slate-800/50 rounded-lg overflow-hidden">
           <button
-            onClick={() => setShowUpdatesInfo(!showUpdatesInfo)}
+            onClick={() => setSupportingAssetsOpen(!supportingAssetsOpen)}
             className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-slate-800/30 transition-colors"
           >
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-              How Updates Work
-            </span>
-            {showUpdatesInfo ? (
-              <ChevronDown className="w-4 h-4 text-slate-500" />
+            <div className="flex items-center gap-2">
+              <FolderOpen className="w-4 h-4 text-slate-400" />
+              <span className="text-sm font-medium text-slate-300">
+                Supporting Execution Assets
+              </span>
+              <span className="text-xs text-slate-500">
+                (Optional)
+              </span>
+            </div>
+            {supportingAssetsOpen ? (
+              <ChevronUp className="w-4 h-4 text-slate-500" />
             ) : (
-              <ChevronRight className="w-4 h-4 text-slate-500" />
+              <ChevronDown className="w-4 h-4 text-slate-500" />
             )}
           </button>
-          {showUpdatesInfo && (
-            <div className="px-4 pb-4">
-              <p className="text-sm text-slate-300">
-                When context or strategy changes, deliverables will show an &quot;Out of Date&quot; indicator.
-                Use &quot;Insert Updates&quot; to keep documents aligned with your latest decisions.
+          {supportingAssetsOpen && (
+            <div className="px-4 pb-4 space-y-4">
+              <p className="text-xs text-slate-500">
+                Optional assets that support execution of approved programs.
               </p>
-              <p className="text-xs text-slate-500 mt-2">
-                Updates happen naturally as your business evolves—no separate phase needed.
+
+              {/* Plans Section (Media Plan + Content Plan) */}
+              <div id="plans">
+                <PlansSection
+                  companyId={companyId}
+                  strategyId={strategyId}
+                  showHeader={false}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ================================================================== */}
+      {/* SECTION 3: REFERENCE & ADMIN (Tertiary, collapsed by default) */}
+      {/* ================================================================== */}
+      {uiState.showPrimaryDeliverables && (
+        <div className="bg-slate-900/20 border border-slate-800/30 rounded-lg overflow-hidden">
+          <button
+            onClick={() => setReferenceOpen(!referenceOpen)}
+            className="w-full px-4 py-2.5 flex items-center justify-between text-left hover:bg-slate-800/20 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <FileText className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-sm text-slate-500">
+                Reference &amp; Admin
+              </span>
+              <span className="text-xs text-slate-600">
+                (Read-only)
+              </span>
+            </div>
+            {referenceOpen ? (
+              <ChevronUp className="w-4 h-4 text-slate-600" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-slate-600" />
+            )}
+          </button>
+          {referenceOpen && (
+            <div className="px-4 pb-4 space-y-3">
+              <p className="text-xs text-slate-600">
+                Read-only reference and historical artifacts. No actions available here.
               </p>
+
+              {/* Strategy Document - READ ONLY reference */}
+              {strategyDocUrl && (
+                <div className="bg-slate-800/20 border border-slate-700/20 rounded-lg p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-1.5 bg-slate-800/50 rounded">
+                        <FileText className="w-3.5 h-3.5 text-slate-500" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-slate-400">Strategy Document</p>
+                        <p className="text-xs text-slate-600">View only</p>
+                      </div>
+                    </div>
+                    <a
+                      href={strategyDocUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-500 hover:text-slate-400 bg-slate-800/30 hover:bg-slate-800/50 border border-slate-700/30 rounded transition-colors"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      Open
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {/* Link to Documents page */}
+              <Link
+                href={`/c/${companyId}/documents`}
+                className="flex items-center justify-between bg-slate-800/20 border border-slate-700/20 rounded-lg p-3 hover:border-slate-600/30 transition-colors group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-1.5 bg-slate-800/50 rounded">
+                    <FolderOpen className="w-3.5 h-3.5 text-slate-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-400 group-hover:text-slate-300">All Documents</p>
+                    <p className="text-xs text-slate-600">Browse all artifacts</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-slate-500" />
+              </Link>
+
+              {/* Historical Artifacts */}
+              {uiState.showArtifactsList && (
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-600">Historical Artifacts</p>
+                  <ArtifactsList
+                    companyId={companyId}
+                    showStaleBanner={false}
+                    maxItems={5}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -326,290 +644,82 @@ export function DeliverClient({ companyId, companyName }: DeliverClientProps) {
 }
 
 // ============================================================================
-// Banner Component
+// Execution Status Banner
 // ============================================================================
 
-interface DeliverBannerProps {
-  tone: 'blocked' | 'ready' | 'warning' | 'status';
-  title: string;
-  body: string;
-  primaryCTA: {
-    label: string;
-    href: string;
-    variant: 'primary' | 'secondary';
+interface ExecutionBannerProps {
+  programStats: {
+    total: number;
+    draft: number;
+    ready: number;
+    committed: number;
   };
-  secondaryCTA?: {
-    label: string;
-    href: string;
-    variant: 'primary' | 'secondary';
-  } | null;
+  companyId: string;
 }
 
-function DeliverBanner({ tone, title, body, primaryCTA, secondaryCTA }: DeliverBannerProps) {
-  const toneStyles = {
-    blocked: {
-      container: 'bg-amber-500/10 border-amber-500/30',
-      icon: <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0" />,
-      title: 'text-amber-300',
-      body: 'text-amber-400/80',
-      link: 'text-amber-400 hover:text-amber-300',
-    },
-    ready: {
-      container: 'bg-emerald-500/10 border-emerald-500/30',
-      icon: <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />,
-      title: 'text-emerald-300',
-      body: 'text-emerald-400/80',
-      link: 'text-emerald-400 hover:text-emerald-300',
-    },
-    warning: {
-      container: 'bg-amber-500/10 border-amber-500/30',
-      icon: <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />,
-      title: 'text-amber-300',
-      body: 'text-amber-400/80',
-      link: 'text-amber-400 hover:text-amber-300',
-    },
-    status: {
-      container: 'bg-purple-500/5 border-purple-500/20',
-      icon: <FileOutput className="w-5 h-5 text-purple-400 flex-shrink-0" />,
-      title: 'text-purple-300',
-      body: 'text-purple-300/80',
-      link: 'text-purple-400 hover:text-purple-300',
-    },
-  };
+function ExecutionBanner({ programStats, companyId }: ExecutionBannerProps) {
+  // Determine banner state based on program stats
+  const hasCommitted = programStats.committed > 0;
+  const hasReady = programStats.ready > 0;
 
-  const styles = toneStyles[tone];
-  const isExternal = primaryCTA.href.startsWith('http');
-  const isAnchor = primaryCTA.href.startsWith('#');
-
-  // Handle anchor link click with smooth scroll
-  const handleAnchorClick = (e: React.MouseEvent, anchor: string) => {
-    e.preventDefault();
-    const elementId = anchor.replace('#', '');
-    document.getElementById(elementId)?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  return (
-    <div className={`border rounded-xl p-4 ${styles.container}`}>
-      <div className="flex items-start gap-3">
-        {styles.icon}
-        <div className="flex-1">
-          <p className={`text-sm font-medium ${styles.title}`}>{title}</p>
-          <p className={`text-xs mt-1 ${styles.body}`}>{body}</p>
-          <div className="flex items-center gap-3 mt-2">
-            {isExternal ? (
-              <a
-                href={primaryCTA.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`inline-flex items-center gap-1.5 text-xs font-medium ${styles.link}`}
-              >
-                {primaryCTA.label}
-                <ChevronRight className="w-3.5 h-3.5" />
-              </a>
-            ) : isAnchor ? (
-              <button
-                onClick={(e) => handleAnchorClick(e, primaryCTA.href)}
-                className={`inline-flex items-center gap-1.5 text-xs font-medium ${styles.link}`}
-              >
-                {primaryCTA.label}
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            ) : (
-              <Link
-                href={primaryCTA.href}
-                className={`inline-flex items-center gap-1.5 text-xs font-medium ${styles.link}`}
-              >
-                {primaryCTA.label}
-                <ChevronRight className="w-3.5 h-3.5" />
-              </Link>
-            )}
-            {secondaryCTA && (
-              secondaryCTA.href.startsWith('#') ? (
-                <button
-                  onClick={(e) => handleAnchorClick(e, secondaryCTA.href)}
-                  className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-300"
-                >
-                  {secondaryCTA.label}
-                </button>
-              ) : (
-                <Link
-                  href={secondaryCTA.href}
-                  className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-300"
-                >
-                  {secondaryCTA.label}
-                </Link>
-              )
-            )}
+  if (hasCommitted) {
+    // Active execution state
+    return (
+      <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-4">
+        <div className="flex items-start gap-3">
+          <CheckCircle2 className="w-5 h-5 text-cyan-400 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-cyan-300">
+              {programStats.committed} program{programStats.committed !== 1 ? 's' : ''} in execution
+            </p>
+            <p className="text-xs mt-1 text-cyan-400/80">
+              Track progress and manage work items for active programs.
+            </p>
+            <Link
+              href={`/c/${companyId}/work`}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-cyan-400 hover:text-cyan-300 mt-2"
+            >
+              View Work
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
           </div>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-// ============================================================================
-// Next Recommended Artifact Card
-// ============================================================================
-
-interface NextRecommendedArtifactCardProps {
-  companyId: string;
-  strategyId: string;
-  artifacts: Artifact[];
-}
-
-function NextRecommendedArtifactCard({
-  companyId,
-  strategyId,
-  artifacts,
-}: NextRecommendedArtifactCardProps) {
-  const router = useRouter();
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Get top recommendation
-  const recommendation = useMemo<ScoredRecommendation | null>(() => {
-    const recommendations = getArtifactRecommendations({
-      sourceType: 'strategy',
-      existingArtifacts: artifacts,
-    });
-    // Return first high-priority recommendation, or null if none
-    const highPriority = recommendations.find(r => r.priority === 'high');
-    return highPriority ?? recommendations[0] ?? null;
-  }, [artifacts]);
-
-  // Check if this artifact already exists
-  const existingArtifact = useMemo(() => {
-    if (!recommendation) return null;
-    const result = findExistingArtifact({
-      artifactTypeId: recommendation.type.id,
-      sourceType: 'strategy',
-      sourceId: strategyId,
-      artifacts,
-    });
-    return result.artifact;
-  }, [recommendation, strategyId, artifacts]);
-
-  const handleGenerate = async () => {
-    if (!recommendation) return;
-
-    // If artifact exists, navigate to it
-    if (existingArtifact) {
-      router.push(getArtifactViewerHref(companyId, existingArtifact.id));
-      return;
-    }
-
-    // Otherwise, generate new artifact
-    setIsGenerating(true);
-    setError(null);
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000);
-
-      const response = await fetch(`/api/os/companies/${companyId}/artifacts/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          artifactTypeId: recommendation.type.id,
-          source: {
-            sourceType: 'strategy',
-            sourceId: strategyId,
-          },
-          mode: 'create',
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        let errorMessage = 'Failed to generate artifact';
-        try {
-          const data = await response.json();
-          errorMessage = data.error || errorMessage;
-        } catch {
-          errorMessage = `Server error: ${response.status} ${response.statusText}`;
-        }
-        throw new Error(errorMessage);
-      }
-
-      const data = await response.json();
-      router.push(getArtifactViewerHref(companyId, data.artifact.id));
-    } catch (err) {
-      console.error('[NextRecommendedArtifactCard] Generation error:', err);
-      if (err instanceof Error && err.name === 'AbortError') {
-        setError('Generation timed out. Please try again.');
-      } else {
-        setError(err instanceof Error ? err.message : 'Generation failed');
-      }
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  // Don't render if no recommendation
-  if (!recommendation) return null;
-
-  return (
-    <div className="bg-gradient-to-r from-purple-500/10 to-cyan-500/10 border border-purple-500/30 rounded-xl p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-4">
-          <div className="p-3 bg-purple-500/20 rounded-lg">
-            <Sparkles className="w-5 h-5 text-purple-400" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <p className="text-xs text-purple-400/80 uppercase tracking-wider">
-                Next Recommended
-              </p>
-              {recommendation.priority === 'high' && (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-purple-500/20 text-purple-400 rounded">
-                  <Star className="w-2.5 h-2.5" />
-                  High Priority
-                </span>
-              )}
-            </div>
-            <h3 className="text-lg font-semibold text-white">
-              {recommendation.type.label}
-            </h3>
-            <p className="text-sm text-slate-400 mt-1 max-w-md">
-              {recommendation.type.description}
+  if (hasReady) {
+    // Ready to start execution
+    return (
+      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4">
+        <div className="flex items-start gap-3">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-emerald-300">
+              {programStats.ready} program{programStats.ready !== 1 ? 's' : ''} ready to start
             </p>
-            {recommendation.reasons.length > 0 && (
-              <p className="text-xs text-purple-400/60 mt-2">
-                {recommendation.reasons.slice(0, 2).join(' • ')}
-              </p>
-            )}
-            {error && (
-              <p className="text-xs text-red-400 mt-2 flex items-center gap-1">
-                <AlertCircle className="w-3 h-3" />
-                {error}
-              </p>
-            )}
+            <p className="text-xs mt-1 text-emerald-400/80">
+              Start execution to create work items and begin tracking progress.
+            </p>
           </div>
         </div>
-        <button
-          onClick={handleGenerate}
-          disabled={isGenerating}
-          className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm rounded-lg transition-colors"
-        >
-          {isGenerating ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Generating...
-            </>
-          ) : existingArtifact ? (
-            <>
-              Open
-              <ChevronRight className="w-4 h-4" />
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-4 h-4" />
-              Generate
-            </>
-          )}
-        </button>
+      </div>
+    );
+  }
+
+  // Still in planning
+  return (
+    <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-4">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="w-5 h-5 text-slate-400 flex-shrink-0" />
+        <div className="flex-1">
+          <p className="text-sm font-medium text-slate-300">
+            Programs in planning
+          </p>
+          <p className="text-xs mt-1 text-slate-400">
+            Complete program planning to start execution.
+          </p>
+        </div>
       </div>
     </div>
   );

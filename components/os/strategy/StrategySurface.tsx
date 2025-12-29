@@ -60,6 +60,7 @@ import {
   pillarToStrategicBet,
   strategicBetToPillar,
   playToTactic,
+  tacticToPlay,
   normalizeFrame,
   normalizeObjectives,
 } from '@/lib/types/strategy';
@@ -339,6 +340,7 @@ export function StrategySurface({
     error,
     refresh,
     setStrategyId,
+    updateStrategy,
     applyDraft,
     discardDraft,
     proposeObjectives,
@@ -356,10 +358,16 @@ export function StrategySurface({
   const [localGoalStatement, setLocalGoalStatement] = useState<string | null>(null);
 
   // Debounce refs for saves
+  const objectivesDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const betsDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const tacticsDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const frameDebounceRef = useRef<NodeJS.Timeout | null>(null);
   // Ref for scrolling to goal editor
   const goalEditorRef = useRef<HTMLDivElement>(null);
+  // Ref for scrolling to tactics panel
+  const tacticsPanelRef = useRef<HTMLDivElement>(null);
+  // Focus highlight state
+  const [tacticsFocused, setTacticsFocused] = useState(false);
 
   // Context V4 Health (using unified hook)
   const {
@@ -452,6 +460,21 @@ export function StrategySurface({
     };
   }, []);
 
+  // Handle focus=tactics deep-link (scroll + highlight)
+  useEffect(() => {
+    const focusParam = searchParams.get('focus');
+    if (focusParam === 'tactics' && tacticsPanelRef.current && !loading) {
+      // Scroll tactics panel into view
+      setTimeout(() => {
+        tacticsPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+      // Add temporary highlight
+      setTacticsFocused(true);
+      const timer = setTimeout(() => setTacticsFocused(false), 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams, loading]);
+
   // Handle view change
   const handleViewChange = useCallback((view: StrategyViewMode) => {
     setCurrentView(view);
@@ -531,11 +554,22 @@ export function StrategySurface({
     });
   }, [companyId, data?.strategy?.id]);
 
-  // Objectives update handler
+  // Objectives update handler - saves to server with debounce
   const handleObjectivesUpdate = useCallback((objectives: StrategyObjective[]) => {
     setLocalObjectives(objectives);
-    // TODO: Sync to server
-  }, []);
+
+    // Debounce server sync
+    if (objectivesDebounceRef.current) {
+      clearTimeout(objectivesDebounceRef.current);
+    }
+
+    objectivesDebounceRef.current = setTimeout(async () => {
+      const success = await updateStrategy({ objectives });
+      if (!success) {
+        console.error('[StrategySurface] Failed to save objectives');
+      }
+    }, 500);
+  }, [updateStrategy]);
 
   // Bets update handler - saves to server with debounce
   const handleBetsUpdate = useCallback((bets: StrategicBet[]) => {
@@ -547,38 +581,33 @@ export function StrategySurface({
     }
 
     betsDebounceRef.current = setTimeout(async () => {
-      if (!data?.strategy?.id) return;
-
-      try {
-        // Convert bets back to pillars format for storage
-        const pillars = bets.map(strategicBetToPillar);
-
-        const response = await fetch(`/api/os/companies/${companyId}/strategy/apply`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'apply_field',
-            strategyId: data.strategy.id,
-            fieldPath: 'pillars',
-            newValue: pillars,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          console.error('[StrategySurface] Failed to save bets:', errorData.error || 'Unknown error');
-        }
-      } catch (error) {
-        console.error('[StrategySurface] Error saving bets:', error);
+      // Convert bets back to pillars format for storage
+      const pillars = bets.map(strategicBetToPillar);
+      const success = await updateStrategy({ pillars });
+      if (!success) {
+        console.error('[StrategySurface] Failed to save bets');
       }
-    }, 500); // 500ms debounce
-  }, [companyId, data?.strategy?.id]);
+    }, 500);
+  }, [updateStrategy]);
 
-  // Tactics update handler
+  // Tactics update handler - saves to server with debounce
   const handleTacticsUpdate = useCallback((tactics: Tactic[]) => {
     setLocalTactics(tactics);
-    // TODO: Sync to server
-  }, []);
+
+    // Debounce server sync
+    if (tacticsDebounceRef.current) {
+      clearTimeout(tacticsDebounceRef.current);
+    }
+
+    tacticsDebounceRef.current = setTimeout(async () => {
+      // Convert tactics back to plays format for storage
+      const plays = tactics.map(tacticToPlay);
+      const success = await updateStrategy({ plays });
+      if (!success) {
+        console.error('[StrategySurface] Failed to save tactics');
+      }
+    }, 500);
+  }, [updateStrategy]);
 
   // AI Generate handler
   const handleAIGenerate = useCallback(async (
@@ -948,8 +977,11 @@ export function StrategySurface({
           goalStatement={localGoalStatement || undefined}
           onGoalStatementChange={handleGoalStatementChange}
           goalEditorRef={goalEditorRef}
+          tacticsPanelRef={tacticsPanelRef}
+          tacticsFocused={tacticsFocused}
           drafts={data.drafts}
           draftsRecord={data.draftsRecord}
+          confirmedContextCount={v4Health?.store?.confirmed ?? 0}
           onFrameUpdate={handleFrameUpdate}
           onObjectivesUpdate={handleObjectivesUpdate}
           onBetsUpdate={handleBetsUpdate}

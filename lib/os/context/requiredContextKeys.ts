@@ -159,17 +159,19 @@ export const REQUIRED_CONTEXT_KEYS: RequiredContextKey[] = [
   // Go-to-Market Zone - How we sell
   // ============================================================================
   {
-    key: 'productOffer.primaryConversionAction',
+    key: 'gtm.conversionAction',
     zoneId: 'go-to-market',
     label: 'Primary Conversion Action',
     shortLabel: 'Conversion',
-    description: 'Main action you want users to take (buy, signup, contact)',
+    description: 'The single action a user must take for marketing to be considered successful',
     type: 'string',
     requiredFor: ['demandProgram'],
     priority: 7,
     reason: 'Demand strategy needs to optimize for a specific action',
     domain: 'productOffer',
     fieldName: 'primaryConversionAction',
+    // Backward compat: accept the legacy key as well
+    alternatives: ['productOffer.primaryConversionAction'],
   },
 
   // ============================================================================

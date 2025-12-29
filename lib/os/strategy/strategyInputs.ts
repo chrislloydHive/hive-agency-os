@@ -11,10 +11,9 @@
 
 import { loadContextGraph } from '@/lib/contextGraph/storage';
 import { getSnapshotById } from '@/lib/contextGraph/snapshots';
-import { getHiveGlobalContextGraph, HIVE_BRAIN_DOMAINS } from '@/lib/contextGraph/globalGraph';
+import { getHiveGlobalContextGraph } from '@/lib/contextGraph/globalGraph';
 import {
   selectCompetitionSource,
-  type CompetitionSourceSelection,
   type CompetitionRunInfo,
 } from '@/lib/os/competition';
 import { getOSGlobalContext } from '@/lib/os/globalContext';

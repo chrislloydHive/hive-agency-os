@@ -10,13 +10,12 @@
 
 import type { CompanyContextGraph } from './companyContextGraph';
 import type { WithMetaType, WithMetaArrayType } from './types';
-import { getFieldFreshness, type FreshnessScore } from './freshness';
+import { getFieldFreshness } from './freshness';
 import { getNeedsRefreshReport } from './needsRefresh';
 import {
   getHiveGlobalContextGraph,
   mergeWithHiveBrain,
   getValueSource,
-  HIVE_BRAIN_DOMAINS,
 } from './globalGraph';
 import {
   CAPABILITY_CATEGORIES,
@@ -24,21 +23,17 @@ import {
   CAPABILITY_LABELS,
   CATEGORY_LABELS,
   type CapabilitiesDomain,
-  type CapabilityCategory,
   type Capability,
 } from './domains/capabilities';
 import {
   getDoctrineVersion,
   buildOperatingPrinciplesPrompt,
   buildFullDoctrinePrompt,
-  buildToneRulesPrompt,
-  buildStrategyDoctrinePrompt,
 } from '@/lib/os/globalContext';
 import {
   SRM_FIELDS,
   SRM_FIELD_LABELS,
   isStrategyReady,
-  type StrategyReadinessResult,
 } from './readiness/strategyReady';
 
 // ============================================================================
@@ -207,7 +202,7 @@ function extractValue<T>(field: WithMetaType<T> | undefined | null): T | null {
 /**
  * Safely extract array value from a WithMetaArray field
  */
-function extractArray<T>(field: WithMetaArrayType<T> | undefined | null): T[] {
+function _extractArray<T>(field: WithMetaArrayType<T> | undefined | null): T[] {
   if (!field) return [];
   return field.value ?? [];
 }

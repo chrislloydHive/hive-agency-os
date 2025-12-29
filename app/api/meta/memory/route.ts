@@ -6,7 +6,7 @@ import {
   recallMemories,
   queryMemories,
   getMemory,
-  useMemory,
+  recordMemoryUsage,
   validateMemory,
   deprecateMemory,
   findSimilarMemories,
@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
     // Use a memory (track access)
     if (action === 'use' && id) {
       const validOutcome = outcome === 'success' || outcome === 'failure' ? outcome : 'neutral';
-      const memory = await useMemory(id, validOutcome);
+      const memory = await recordMemoryUsage(id, validOutcome);
 
       if (!memory) {
         return NextResponse.json(

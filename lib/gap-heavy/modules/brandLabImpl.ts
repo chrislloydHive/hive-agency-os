@@ -12,16 +12,11 @@ import type { CompanyRecord } from '@/lib/airtable/companies';
 import type {
   BrandLabResult,
   BrandDiagnosticResult,
-  BrandActionPlan,
-  BrandCompetitiveLandscape,
-  BrandCompetitorSummary,
   BrandDiagnosticResultWithCompetitive,
 } from './brandLab';
 import {
   BrandDiagnosticResultSchema,
   BrandDiagnosticResultWithCompetitiveSchema,
-  BrandCompetitiveLandscapeSchema,
-  getBenchmarkLabel,
 } from './brandLab';
 import { buildBrandActionPlan } from './brandActionPlanBuilder';
 import { getOpenAI } from '@/lib/openai';
@@ -549,7 +544,7 @@ Provide a comprehensive brand diagnostic in valid JSON format.`;
 // FALLBACK DIAGNOSTIC
 // ============================================================================
 
-function getFallbackDiagnostic(siteContent: SiteContentForBrand, company: CompanyRecord): BrandDiagnosticResult {
+function getFallbackDiagnostic(siteContent: SiteContentForBrand, _company: CompanyRecord): BrandDiagnosticResult {
   return {
     score: 50,
     benchmarkLabel: 'developing',

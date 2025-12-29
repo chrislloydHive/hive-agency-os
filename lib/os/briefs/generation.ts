@@ -11,7 +11,7 @@
 // - Reject unknown keys or paragraph advice
 
 import Anthropic from '@anthropic-ai/sdk';
-import { validateBriefGeneration, type BriefValidationResult } from './validation';
+import { validateBriefGeneration } from './validation';
 import { loadBriefInputs, buildGenerationContext, deriveCoreSuggestions, type MappedBriefInputs } from './inputMapping';
 import { parseAndValidateBriefResponse } from './schemas';
 import {

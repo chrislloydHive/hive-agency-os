@@ -16,7 +16,6 @@ import { CHANNEL_LABELS, CHANNEL_COLORS, type MediaChannel } from '@/lib/media/t
 import type { MediaCockpitSnapshot, ComparativeMetric } from '@/lib/media/cockpit';
 import type { MediaInsight } from '@/lib/media/alerts';
 import { getAlertsSummary } from '@/lib/media/alerts';
-import type { MediaEventChannel, AggregatedMediaMetrics } from '@/lib/media/performanceTypes';
 
 // ============================================================================
 // Types
@@ -124,7 +123,7 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
-function formatNumber(value: number): string {
+function _formatNumber(value: number): string {
   if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
   if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
   return value.toLocaleString();
@@ -537,7 +536,7 @@ function AlertsPanel({ insights }: { insights: MediaInsight[] }) {
 // Comparison Delta Display
 // ============================================================================
 
-function DeltaIndicator({ metric, lowerIsBetter = false }: { metric: ComparativeMetric | null; lowerIsBetter?: boolean }) {
+function _DeltaIndicator({ metric, lowerIsBetter = false }: { metric: ComparativeMetric | null; lowerIsBetter?: boolean }) {
   if (!metric || metric.deltaPct === null) return null;
 
   const isPositive = lowerIsBetter ? metric.deltaPct < 0 : metric.deltaPct > 0;
@@ -558,11 +557,11 @@ function DeltaIndicator({ metric, lowerIsBetter = false }: { metric: Comparative
 // ============================================================================
 
 export function MediaDashboard({
-  companyId,
-  companyName,
+  companyId: _companyId,
+  companyName: _companyName,
   program,
   snapshot,
-  comparisons,
+  comparisons: _comparisons,
   insights,
   onEditProgram
 }: MediaDashboardProps) {
@@ -572,7 +571,6 @@ export function MediaDashboard({
 
   // Determine if we have real data
   const hasRealData = !!snapshot;
-  const hasAlerts = insights && insights.length > 0;
   const alertsSummary = insights ? getAlertsSummary(insights) : null;
 
   return (

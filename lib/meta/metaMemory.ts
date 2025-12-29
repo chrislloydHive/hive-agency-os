@@ -271,7 +271,7 @@ export async function getMemory(id: string): Promise<MetaMemoryEntry | null> {
 /**
  * Update memory status and usage
  */
-export async function useMemory(
+export async function recordMemoryUsage(
   id: string,
   outcome: 'success' | 'failure' | 'neutral'
 ): Promise<MetaMemoryEntry | null> {

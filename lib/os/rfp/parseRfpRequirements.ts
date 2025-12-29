@@ -4,9 +4,8 @@
 // Uses LLM parsing with strong grounding rules to prevent hallucination.
 // Returns validated ParsedRfpRequirements with safe fallbacks on failure.
 
-import { z } from 'zod';
 import { openai } from '@/lib/openai';
-import { safeAiCall, extractTextFromMessage, parseJsonFromAi } from '@/lib/ai/safeCall';
+import { safeAiCall, parseJsonFromAi } from '@/lib/ai/safeCall';
 import {
   ParsedRfpRequirementsSchema,
   type ParsedRfpRequirements,

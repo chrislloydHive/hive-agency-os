@@ -26,12 +26,8 @@ export function MediaStoreSelector({
   const [search, setSearch] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Don't render for single-location companies
-  if (stores.length <= 1) {
-    return null;
-  }
-
   // Close dropdown when clicking outside
+  // Hook must be called unconditionally, before any early returns
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -43,6 +39,11 @@ export function MediaStoreSelector({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Don't render for single-location companies
+  if (stores.length <= 1) {
+    return null;
+  }
 
   // Filter stores by search
   const filteredStores = stores.filter(

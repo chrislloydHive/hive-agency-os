@@ -12,7 +12,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   runGoldenDiagnostics,
   formatGoldenSummary,
-  type GoldenRunSummary,
 } from '@/lib/testing/runGoldenDiagnostics';
 import { GOLDEN_COMPANIES } from '@/lib/testing/goldenCompanies';
 

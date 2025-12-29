@@ -269,14 +269,18 @@ export interface WorkSourceStrategyHandoff {
   initiativeTitle?: string;
   /** Initiative key for deduplication */
   initiativeKey?: string;
+  /** Work key for deduplication (e.g., "program123::del::0") */
+  workKey?: string;
   /** Linked objective IDs */
-  linkedObjectiveIds: string[];
+  linkedObjectiveIds?: string[];
   /** Linked priority IDs */
-  linkedPriorityIds: string[];
+  linkedPriorityIds?: string[];
   /** Linked tactic IDs */
-  linkedTacticIds: string[];
+  linkedTacticIds?: string[];
   /** Handoff timestamp */
-  handoffAt: string;
+  handoffAt?: string;
+  /** Created timestamp (alias for handoffAt) */
+  createdAt?: string;
 }
 
 /**
@@ -454,6 +458,35 @@ export type WorkItemArea =
 export type WorkItemSeverity = 'Critical' | 'High' | 'Medium' | 'Low' | 'Info';
 
 /**
+ * Strategy link for work items committed from Strategy tactics
+ */
+export interface StrategyLink {
+  strategyId: string;
+  objectiveId?: string;
+  betId?: string;
+  tacticId?: string;
+  tacticTitle?: string;
+}
+
+/**
+ * Workstream type classification for tactics/work items
+ * Used to determine which downstream artifacts (e.g., Media Plan) are relevant
+ */
+export type WorkstreamType =
+  | 'content'
+  | 'website'
+  | 'seo'
+  | 'email'
+  | 'partnerships'
+  | 'paid_media'
+  | 'social'
+  | 'brand'
+  | 'analytics'
+  | 'conversion'
+  | 'ops'
+  | 'other';
+
+/**
  * Complete Work Item interface with PM-focused fields
  */
 export interface WorkItem {
@@ -482,6 +515,10 @@ export interface WorkItem {
   effort?: WorkEffort | string; // S/M/L effort estimate (or free text from Airtable)
   impact?: 'high' | 'medium' | 'low' | string; // Expected impact
   category?: WorkCategory; // Normalized category slug
+
+  // Strategy → Work Bridge fields
+  strategyLink?: StrategyLink; // Link to strategy tactic that originated this work
+  workstreamType?: WorkstreamType; // Classification for downstream artifact generation
 
   // Attached artifacts (snapshot references)
   artifacts?: WorkItemArtifact[];
@@ -656,6 +693,26 @@ export function isHeavyPlanSource(source?: WorkSource): source is WorkSourceHeav
  */
 export function isArtifactSource(source?: WorkSource): source is WorkSourceArtifact {
   return source?.sourceType === 'artifact';
+}
+
+/**
+ * Check if a work source is from a program (either direct or via handoff)
+ */
+export function isProgramSource(source?: WorkSource): boolean {
+  if (!source) return false;
+  if (source.sourceType === 'program') return true;
+  if (source.sourceType === 'strategy_handoff' && (source as WorkSourceStrategyHandoff).programId) return true;
+  return false;
+}
+
+/**
+ * Extract programId from a work source if present
+ */
+export function extractProgramId(source?: WorkSource): string | undefined {
+  if (!source) return undefined;
+  if (source.sourceType === 'program') return (source as WorkSourceProgram).programId;
+  if (source.sourceType === 'strategy_handoff') return (source as WorkSourceStrategyHandoff).programId;
+  return undefined;
 }
 
 // ============================================================================

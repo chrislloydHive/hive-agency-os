@@ -180,7 +180,6 @@ export function useContextNodes(
  * Call this after context updates, accepts, rejects
  */
 export function invalidateContextNodes(companyId: string): void {
-  const cacheKey = getContextNodesCacheKey(companyId);
   mutate((key) => typeof key === 'string' && key.includes(`companyId=${companyId}`));
 }
 

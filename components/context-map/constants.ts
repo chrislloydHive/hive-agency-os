@@ -106,6 +106,7 @@ export const FIELD_TO_ZONE: Record<string, ZoneId> = {
 
   // Go-to-Market zone - how we sell
   'productOffer.primaryConversionAction': 'go-to-market',
+  'gtm.conversionAction': 'go-to-market',
 
   // Constraints zone - explicit budget fields
   'operationalConstraints.minBudget': 'constraints',
@@ -305,7 +306,7 @@ export const CORE_NODE_KEYS: string[] = [
  */
 export const RECOMMENDED_NODE_KEYS: string[] = [
   // Go-to-Market zone
-  'productOffer.primaryConversionAction',
+  'gtm.conversionAction',
   // Competitive zone - Informational gaps
   'competitive.competitors',
 ];
@@ -390,7 +391,7 @@ export const FIELD_LABEL_SHORT: Record<string, string> = {
   'productOffer.productsServices': 'Products/Services',
   'productOffer.heroProducts': 'Hero Products',
   // Go-to-Market
-  'productOffer.primaryConversionAction': 'Conversion Action',
+  'gtm.conversionAction': 'Primary Conversion Action',
   // Constraints
   'operationalConstraints.minBudget': 'Min Budget',
   'operationalConstraints.maxBudget': 'Max Budget',

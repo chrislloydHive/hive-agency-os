@@ -2,11 +2,24 @@
 
 // app/my-companies/MyCompaniesClient.tsx
 // Client component for My Companies using the unified CompanySummary system
+// V4: Attention-focused cards with signals, actionable status, CTAs, and sorting
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { CompanySummary, DimensionScoreWithChange, CompanyType } from '@/lib/os/companySummary';
+import {
+  computeAttentionSignal,
+  computeActivityStatus,
+  getCompanyCTA,
+  computeAttentionSummary,
+  sortCompanies,
+  SORT_OPTIONS,
+  type AttentionSignal,
+  type ActivityStatus,
+  type CompanyCTA,
+  type SortOption,
+} from '@/lib/os/companies/attentionSignal';
 
 // ============================================================================
 // Local Storage for Pinned Companies
@@ -210,6 +223,46 @@ function MediaIndicator({ media }: { media: CompanySummary['media'] }) {
         <span className="text-purple-300">{formatBudget(media.monthlySpend)}/mo</span>
       )}
     </div>
+  );
+}
+
+// Attention Signal Badge - Primary status indicator
+function AttentionSignalBadge({ signal }: { signal: AttentionSignal }) {
+  return (
+    <div className={`flex items-center gap-1.5 text-[11px] ${signal.colorClass}`}>
+      <span>{signal.icon}</span>
+      <span className="text-slate-400">{signal.label}</span>
+    </div>
+  );
+}
+
+// Activity Status Line - Replaces "No activity" text
+function ActivityStatusLine({ status }: { status: ActivityStatus }) {
+  return (
+    <span className={`text-[10px] ${status.isActive ? 'text-slate-400' : 'text-slate-500'}`}>
+      {status.label}
+    </span>
+  );
+}
+
+// Card CTA - Single action per card
+function CardCTA({ cta }: { cta: CompanyCTA }) {
+  const router = useRouter();
+
+  return (
+    <button
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        router.push(cta.href);
+      }}
+      className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+    >
+      {cta.label}
+      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+      </svg>
+    </button>
   );
 }
 
@@ -427,6 +480,11 @@ function CompanyCard({ summary, onRemove }: CompanyCardProps) {
   const hasDimensionScores = dimensionScores.some(d => d.score !== null);
   const hasAnalytics = analytics.sessions !== null || analytics.conversions !== null || analytics.clicks !== null;
 
+  // Compute attention signal, activity status, and CTA
+  const attentionSignal = useMemo(() => computeAttentionSignal(summary), [summary]);
+  const activityStatus = useMemo(() => computeActivityStatus(summary), [summary]);
+  const cta = useMemo(() => getCompanyCTA(summary, attentionSignal), [summary, attentionSignal]);
+
   return (
     <div className="group relative rounded-lg bg-slate-800/50 border border-amber-500/30 hover:border-amber-500/50 transition-all overflow-hidden">
       {/* Remove Button (shown on hover) */}
@@ -444,6 +502,11 @@ function CompanyCard({ summary, onRemove }: CompanyCardProps) {
       </button>
 
       <Link href={`/c/${summary.companyId}/blueprint`} className="block p-3">
+        {/* ===== ATTENTION SIGNAL (Primary Status) ===== */}
+        <div className="mb-2">
+          <AttentionSignalBadge signal={attentionSignal} />
+        </div>
+
         {/* ===== HEADER SECTION ===== */}
         <div className="flex items-start justify-between mb-2">
           <div className="flex items-start gap-2.5 min-w-0 flex-1">
@@ -467,7 +530,7 @@ function CompanyCard({ summary, onRemove }: CompanyCardProps) {
               <h4 className="text-sm font-medium text-slate-200 truncate">{meta.name}</h4>
               <div className="flex items-center gap-1.5 mt-0.5">
                 {meta.stage && <StageBadge stage={meta.stage} />}
-                <span className="text-[10px] text-slate-500">{meta.lastActivityLabel || 'No activity'}</span>
+                <ActivityStatusLine status={activityStatus} />
               </div>
             </div>
           </div>
@@ -542,9 +605,8 @@ function CompanyCard({ summary, onRemove }: CompanyCardProps) {
               <span>{recentWork.openTasksCount} tasks</span>
             )}
           </div>
-          <svg className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
+          {/* Primary CTA */}
+          <CardCTA cta={cta} />
         </div>
       </Link>
     </div>
@@ -613,6 +675,7 @@ export function MyCompaniesClient() {
   const [companies, setCompanies] = useState<CompanySummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'clients' | 'prospects'>('all');
+  const [sortBy, setSortBy] = useState<SortOption>('attention');
 
   // Load pinned companies from localStorage and fetch their data
   useEffect(() => {
@@ -642,26 +705,28 @@ export function MyCompaniesClient() {
   }, [pinnedIds]);
 
   // Filter companies
-  const filteredCompanies = companies.filter(c => {
-    switch (filter) {
-      case 'clients':
-        return c.meta.stage === 'Client';
-      case 'prospects':
-        return c.meta.stage === 'Prospect';
-      default:
-        return true;
-    }
-  });
+  const filteredCompanies = useMemo(() => {
+    return companies.filter(c => {
+      switch (filter) {
+        case 'clients':
+          return c.meta.stage === 'Client';
+        case 'prospects':
+          return c.meta.stage === 'Prospect';
+        default:
+          return true;
+      }
+    });
+  }, [companies, filter]);
 
-  // Sort by last activity date (most recent first), then by name
-  const sortedCompanies = [...filteredCompanies].sort((a, b) => {
-    if (a.meta.lastActivityAt && b.meta.lastActivityAt) {
-      return new Date(b.meta.lastActivityAt).getTime() - new Date(a.meta.lastActivityAt).getTime();
-    }
-    if (a.meta.lastActivityAt && !b.meta.lastActivityAt) return -1;
-    if (!a.meta.lastActivityAt && b.meta.lastActivityAt) return 1;
-    return a.meta.name.localeCompare(b.meta.name);
-  });
+  // Sort companies using the attention-aware sorting
+  const sortedCompanies = useMemo(() => {
+    return sortCompanies(filteredCompanies, sortBy);
+  }, [filteredCompanies, sortBy]);
+
+  // Compute attention summary for page header
+  const attentionSummary = useMemo(() => {
+    return computeAttentionSummary(companies);
+  }, [companies]);
 
   const clientCount = companies.filter(c => c.meta.stage === 'Client').length;
   const prospectCount = companies.filter(c => c.meta.stage === 'Prospect').length;
@@ -693,7 +758,7 @@ export function MyCompaniesClient() {
     <div className="min-h-screen bg-slate-950">
       <div className="max-w-7xl mx-auto p-6">
         {/* Header */}
-        <div className="mb-8">
+        <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
             <h1 className="text-2xl font-bold text-slate-100">My Companies</h1>
             <Link
@@ -706,51 +771,81 @@ export function MyCompaniesClient() {
               </svg>
             </Link>
           </div>
-          <p className="text-sm text-slate-500">
-            Companies you've pinned for quick access. Pin companies from the{' '}
-            <Link href="/companies" className="text-blue-400 hover:text-blue-300">
-              company directory
-            </Link>.
-          </p>
+
+          {/* Attention Summary - Page-level status */}
+          {companies.length > 0 && (
+            <p className="text-sm text-slate-400">
+              {attentionSummary.label}
+            </p>
+          )}
+
+          {companies.length === 0 && (
+            <p className="text-sm text-slate-500">
+              Pin companies from the{' '}
+              <Link href="/companies" className="text-blue-400 hover:text-blue-300">
+                company directory
+              </Link>{' '}
+              for quick access.
+            </p>
+          )}
         </div>
 
-        {/* Filter Tabs - only show if there are companies */}
-        {companies.length > 0 && (clientCount > 0 || prospectCount > 0) && (
-          <div className="flex items-center gap-2 mb-6">
-            <button
-              onClick={() => setFilter('all')}
-              className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                filter === 'all'
-                  ? 'bg-slate-800 text-slate-100'
-                  : 'text-slate-400 hover:text-slate-300 hover:bg-slate-800/50'
-              }`}
-            >
-              All ({companies.length})
-            </button>
-            {clientCount > 0 && (
+        {/* Controls Row - Filter Tabs & Sort */}
+        {companies.length > 0 && (
+          <div className="flex items-center justify-between mb-6">
+            {/* Filter Tabs */}
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => setFilter('clients')}
+                onClick={() => setFilter('all')}
                 className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  filter === 'clients'
-                    ? 'bg-blue-500/20 text-blue-400'
+                  filter === 'all'
+                    ? 'bg-slate-800 text-slate-100'
                     : 'text-slate-400 hover:text-slate-300 hover:bg-slate-800/50'
                 }`}
               >
-                Clients ({clientCount})
+                All ({companies.length})
               </button>
-            )}
-            {prospectCount > 0 && (
-              <button
-                onClick={() => setFilter('prospects')}
-                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  filter === 'prospects'
-                    ? 'bg-amber-500/20 text-amber-400'
-                    : 'text-slate-400 hover:text-slate-300 hover:bg-slate-800/50'
-                }`}
+              {clientCount > 0 && (
+                <button
+                  onClick={() => setFilter('clients')}
+                  className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                    filter === 'clients'
+                      ? 'bg-blue-500/20 text-blue-400'
+                      : 'text-slate-400 hover:text-slate-300 hover:bg-slate-800/50'
+                  }`}
+                >
+                  Clients ({clientCount})
+                </button>
+              )}
+              {prospectCount > 0 && (
+                <button
+                  onClick={() => setFilter('prospects')}
+                  className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                    filter === 'prospects'
+                      ? 'bg-amber-500/20 text-amber-400'
+                      : 'text-slate-400 hover:text-slate-300 hover:bg-slate-800/50'
+                  }`}
+                >
+                  Prospects ({prospectCount})
+                </button>
+              )}
+            </div>
+
+            {/* Sort Control */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Sort by</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortOption)}
+                className="text-xs bg-slate-800 border border-slate-700 text-slate-300 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
-                Prospects ({prospectCount})
-              </button>
-            )}
+                {SORT_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         )}
 

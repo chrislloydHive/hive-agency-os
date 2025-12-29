@@ -1,7 +1,7 @@
 // lib/os/detection/detectSchemaSameAs.ts
 // Schema.org sameAs parser and extractor
 
-import type { SchemaSignal, SocialPlatform, SignalSource, PLATFORM_DOMAINS } from './types';
+import type { SchemaSignal, SocialPlatform, SignalSource } from './types';
 
 /**
  * Schema types that commonly contain sameAs
@@ -207,7 +207,7 @@ export function getSocialFromSameAs(sameAsUrls: { url: string; schemaType: strin
     source: SignalSource;
   }[] = [];
 
-  for (const { url, schemaType, confidence } of sameAsUrls) {
+  for (const { url, schemaType: _schemaType, confidence } of sameAsUrls) {
     const classification = classifyUrl(url);
 
     if (classification.platform !== 'gbp' && classification.platform !== 'other') {

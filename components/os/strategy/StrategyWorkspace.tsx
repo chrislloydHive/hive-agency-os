@@ -33,6 +33,10 @@ import {
   MoreHorizontal,
   Scale,
   Sparkles,
+  Loader2,
+  CheckCircle,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import type {
   StrategyObjective,
@@ -80,9 +84,16 @@ interface StrategyWorkspaceProps {
   onGoalStatementChange?: (goalStatement: string) => void;
   /** Ref for scrolling to goal editor from Inputs row */
   goalEditorRef?: React.RefObject<HTMLDivElement | null>;
+  /** Ref for scrolling to tactics panel from deep-link */
+  tacticsPanelRef?: React.RefObject<HTMLDivElement | null>;
+  /** Whether tactics panel should show focus highlight */
+  tacticsFocused?: boolean;
   // Drafts (AI-generated items pending approval)
   drafts?: StrategyDraft[];
   draftsRecord?: Record<string, StrategyDraft>;
+  // Context readiness
+  /** Number of confirmed context fields (for AI generation gating) */
+  confirmedContextCount?: number;
   // State
   isLoading?: boolean;
   // Callbacks
@@ -374,6 +385,7 @@ interface ObjectivesColumnProps {
   onAIFieldAction: StrategyWorkspaceProps['onAIFieldAction'];
   isGenerating: boolean;
   frameComplete: boolean;
+  confirmedContextCount?: number;
 }
 
 function ObjectivesColumn({
@@ -386,6 +398,7 @@ function ObjectivesColumn({
   onAIFieldAction,
   isGenerating,
   frameComplete,
+  confirmedContextCount,
 }: ObjectivesColumnProps) {
   const handleAdd = () => {
     const newObjective: StrategyObjective = {
@@ -423,6 +436,7 @@ function ObjectivesColumn({
             onGenerate={onAIGenerate}
             isGenerating={isGenerating}
             inputsAvailable={{ frame: frameComplete, objectives: true, bets: false }}
+            confirmedContextCount={confirmedContextCount}
             existingCount={objectives.length}
           />
           <button
@@ -627,6 +641,7 @@ interface BetsColumnProps {
   isGenerating: boolean;
   frameComplete: boolean;
   hasObjectives: boolean;
+  confirmedContextCount?: number;
 }
 
 function BetsColumn({
@@ -641,6 +656,7 @@ function BetsColumn({
   isGenerating,
   frameComplete,
   hasObjectives,
+  confirmedContextCount,
 }: BetsColumnProps) {
   const acceptedCount = bets.filter((b) => b.status === 'accepted').length;
   const draftCount = bets.filter((b) => b.status === 'draft').length;
@@ -690,6 +706,7 @@ function BetsColumn({
             onGenerate={onAIGenerate}
             isGenerating={isGenerating}
             inputsAvailable={{ frame: frameComplete, objectives: hasObjectives, bets: false }}
+            confirmedContextCount={confirmedContextCount}
             existingCount={bets.length}
             acceptedCount={acceptedCount}
           />
@@ -1101,6 +1118,7 @@ interface TacticsColumnProps {
   frameComplete: boolean;
   hasObjectives: boolean;
   hasAcceptedBets: boolean;
+  confirmedContextCount?: number;
 }
 
 function TacticsColumn({
@@ -1116,6 +1134,7 @@ function TacticsColumn({
   frameComplete,
   hasObjectives,
   hasAcceptedBets,
+  confirmedContextCount,
 }: TacticsColumnProps) {
   const acceptedBets = bets.filter((b) => b.status === 'accepted');
 
@@ -1161,6 +1180,7 @@ function TacticsColumn({
             onGenerate={onAIGenerate}
             isGenerating={isGenerating}
             inputsAvailable={{ frame: frameComplete, objectives: hasObjectives, bets: hasAcceptedBets }}
+            confirmedContextCount={confirmedContextCount}
             existingCount={tactics.length}
             disabled={!hasAcceptedBets}
           />
@@ -1232,6 +1252,14 @@ function TacticsColumn({
   );
 }
 
+// Status configuration for tactics
+const TACTIC_STATUS_CONFIG: Record<string, { label: string; color: string; bgColor: string }> = {
+  proposed: { label: 'Proposed', color: 'text-slate-400', bgColor: 'bg-slate-500/10 border-slate-500/30' },
+  active: { label: 'Active', color: 'text-emerald-400', bgColor: 'bg-emerald-500/10 border-emerald-500/30' },
+  completed: { label: 'Completed', color: 'text-blue-400', bgColor: 'bg-blue-500/10 border-blue-500/30' },
+  rejected: { label: 'Rejected', color: 'text-red-400', bgColor: 'bg-red-500/10 border-red-500/30' },
+};
+
 interface TacticCardProps {
   tactic: Tactic;
   bets: StrategicBet[];
@@ -1243,6 +1271,19 @@ interface TacticCardProps {
 
 function TacticCard({ tactic, bets, onUpdate, onDelete, onTogglePin, onAIFieldAction }: TacticCardProps) {
   const [isEditing, setIsEditing] = useState(!tactic.title);
+  const [isActivating, setIsActivating] = useState(false);
+
+  const status = tactic.status || 'proposed';
+  const statusConfig = TACTIC_STATUS_CONFIG[status] || TACTIC_STATUS_CONFIG.proposed;
+  const isActive = status === 'active' || status === 'completed';
+
+  const handleActivate = useCallback(async () => {
+    setIsActivating(true);
+    // Small delay to show loading state
+    await new Promise(resolve => setTimeout(resolve, 200));
+    onUpdate({ status: 'active' });
+    setIsActivating(false);
+  }, [onUpdate]);
 
   const handleAIFetch = useCallback(
     async (action: FieldAIAction, guidance?: string) => {
@@ -1261,108 +1302,165 @@ function TacticCard({ tactic, bets, onUpdate, onDelete, onTogglePin, onAIFieldAc
     [onUpdate]
   );
 
+  // Card border based on state
+  const cardBorder = tactic.isPinned
+    ? 'border-purple-500/40 hover:border-purple-500/60'
+    : isActive
+    ? 'border-emerald-500/30 hover:border-emerald-500/50'
+    : 'border-slate-700 hover:border-slate-600';
+
   return (
     <div
-      className={`p-3 rounded-lg border transition-colors ${
-        tactic.isPinned
-          ? 'border-purple-500/30 bg-purple-500/5'
-          : tactic.isDerived && !tactic.isCustomized
-          ? 'border-slate-700 bg-slate-800/30'
-          : 'border-slate-700 bg-slate-800/50'
-      }`}
+      className={`
+        bg-slate-800/60 border rounded-xl overflow-hidden
+        transition-all duration-200 hover:shadow-lg hover:shadow-slate-900/50
+        ${cardBorder}
+      `}
     >
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          {isEditing ? (
-            <input
-              type="text"
-              value={tactic.title}
-              onChange={(e) => onUpdate({ title: e.target.value })}
-              placeholder="Tactic title..."
-              className="w-full px-2 py-1 text-sm bg-slate-900 border border-slate-600 rounded text-white focus:border-purple-500 focus:outline-none"
-              autoFocus
+      {/* Card Header */}
+      <div className="p-4 pb-3">
+        {/* Title row with status badge */}
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <div className="flex-1 min-w-0">
+            {isEditing ? (
+              <input
+                type="text"
+                value={tactic.title}
+                onChange={(e) => onUpdate({ title: e.target.value })}
+                placeholder="Tactic title..."
+                className="w-full px-2 py-1.5 text-sm bg-slate-900 border border-slate-600 rounded-lg text-white focus:border-purple-500 focus:outline-none"
+                autoFocus
+              />
+            ) : (
+              <h4 className="text-sm font-semibold text-white leading-tight line-clamp-2">
+                {tactic.title || 'New Tactic'}
+              </h4>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Status Badge */}
+            <span className={`text-xs px-2 py-0.5 rounded-full border ${statusConfig.bgColor} ${statusConfig.color}`}>
+              {statusConfig.label}
+            </span>
+            {tactic.isPinned && <Pin className="w-3.5 h-3.5 text-purple-400" />}
+          </div>
+        </div>
+
+        {/* Description */}
+        {isEditing ? (
+          <div className="space-y-2">
+            <textarea
+              value={tactic.description}
+              onChange={(e) => onUpdate({ description: e.target.value })}
+              placeholder="Describe this tactic..."
+              className="w-full px-2 py-1.5 text-xs bg-slate-900 border border-slate-600 rounded-lg text-white focus:border-purple-500 focus:outline-none resize-none"
+              rows={2}
             />
-          ) : (
-            <div className="flex items-center gap-2">
-              <h4 className="text-sm font-medium text-slate-200">{tactic.title || 'New Tactic'}</h4>
-              {tactic.isPinned && <Pin className="w-3 h-3 text-purple-400" />}
-              {tactic.isDerived && !tactic.isCustomized && (
-                <span className="text-[10px] px-1.5 py-0.5 bg-slate-700 text-slate-400 rounded">
-                  AI-derived
-                </span>
-              )}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  if (!tactic.title) onDelete();
+                  else setIsEditing(false);
+                }}
+                className="px-3 py-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  onUpdate({ isCustomized: true });
+                  setIsEditing(false);
+                }}
+                className="px-3 py-1.5 text-xs bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors"
+              >
+                Save
+              </button>
             </div>
-          )}
-        </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <FieldAIHelper
-            fieldType={`tactic.${tactic.id}.description`}
-            currentValue={tactic.description}
-            onApply={handleAIApply}
-            onFetch={handleAIFetch}
-          />
-          <button
-            onClick={onTogglePin}
-            className={`p-1 rounded ${tactic.isPinned ? 'text-purple-400' : 'text-slate-400 hover:text-white'}`}
-            title={tactic.isPinned ? 'Unpin' : 'Pin (preserve during regen)'}
-          >
-            <Pin className="w-3 h-3" />
-          </button>
-        </div>
+          </div>
+        ) : (
+          <>
+            {tactic.description && (
+              <p className="text-xs text-slate-400 line-clamp-2 mb-2">{tactic.description}</p>
+            )}
+            {tactic.isDerived && !tactic.isCustomized && (
+              <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 bg-slate-700/50 text-slate-500 rounded">
+                <Sparkles className="w-2.5 h-2.5" />
+                AI-derived
+              </span>
+            )}
+          </>
+        )}
       </div>
 
-      {/* Description */}
-      {isEditing ? (
-        <div className="mt-2 space-y-2">
-          <textarea
-            value={tactic.description}
-            onChange={(e) => onUpdate({ description: e.target.value })}
-            placeholder="Describe this tactic..."
-            className="w-full px-2 py-1.5 text-xs bg-slate-900 border border-slate-600 rounded text-white focus:border-purple-500 focus:outline-none resize-none"
-            rows={2}
-          />
-          <div className="flex justify-end gap-2">
+      {/* Card Footer - Actions */}
+      {!isEditing && (
+        <div className="px-4 pb-4 pt-2 border-t border-slate-700/50">
+          {/* Primary CTA based on status */}
+          {status === 'proposed' ? (
             <button
-              onClick={() => {
-                if (!tactic.title) onDelete();
-                else setIsEditing(false);
-              }}
-              className="px-2 py-1 text-xs text-slate-400 hover:text-white"
+              onClick={handleActivate}
+              disabled={isActivating}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-emerald-500/20"
             >
-              Cancel
+              {isActivating ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Activating...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="w-4 h-4" />
+                  Activate Tactic
+                </>
+              )}
             </button>
-            <button
-              onClick={() => {
-                onUpdate({ isCustomized: true });
-                setIsEditing(false);
-              }}
-              className="px-2 py-1 text-xs bg-purple-600 hover:bg-purple-500 text-white rounded"
-            >
-              Save
-            </button>
+          ) : status === 'active' ? (
+            <div className="flex items-center gap-2 p-2 bg-emerald-500/10 rounded-lg">
+              <CheckCircle className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs text-emerald-400">Approved for execution</span>
+            </div>
+          ) : null}
+
+          {/* Secondary actions */}
+          <div className="flex items-center justify-between mt-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsEditing(true)}
+                className="flex items-center gap-1 px-2 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-700/50 rounded transition-colors"
+              >
+                <Pencil className="w-3 h-3" />
+                Edit
+              </button>
+              <button
+                onClick={onTogglePin}
+                className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
+                  tactic.isPinned
+                    ? 'text-purple-400 bg-purple-500/10'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                }`}
+                title={tactic.isPinned ? 'Unpin' : 'Pin (preserve during regen)'}
+              >
+                <Pin className="w-3 h-3" />
+                {tactic.isPinned ? 'Pinned' : 'Pin'}
+              </button>
+            </div>
+            <div className="flex items-center gap-1">
+              <FieldAIHelper
+                fieldType={`tactic.${tactic.id}.description`}
+                currentValue={tactic.description}
+                onApply={handleAIApply}
+                onFetch={handleAIFetch}
+              />
+              <button
+                onClick={onDelete}
+                className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
+                title="Delete tactic"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
-      ) : (
-        <>
-          {tactic.description && (
-            <p className="text-xs text-slate-400 mt-1">{tactic.description}</p>
-          )}
-          <div className="flex items-center gap-2 mt-2">
-            <button
-              onClick={() => setIsEditing(true)}
-              className="text-xs text-slate-400 hover:text-white"
-            >
-              Edit
-            </button>
-            <button
-              onClick={onDelete}
-              className="text-xs text-red-400 hover:text-red-300"
-            >
-              Delete
-            </button>
-          </div>
-        </>
       )}
     </div>
   );
@@ -1421,8 +1519,11 @@ export function StrategyWorkspace({
   goalStatement,
   onGoalStatementChange,
   goalEditorRef,
+  tacticsPanelRef,
+  tacticsFocused = false,
   drafts = [],
   draftsRecord = {},
+  confirmedContextCount,
   isLoading,
   onFrameUpdate,
   onObjectivesUpdate,
@@ -1488,6 +1589,7 @@ export function StrategyWorkspace({
           onAIFieldAction={onAIFieldAction}
           isGenerating={isGenerating}
           frameComplete={frameComplete}
+          confirmedContextCount={confirmedContextCount}
         />
 
         {/* Strategic Bets */}
@@ -1503,34 +1605,45 @@ export function StrategyWorkspace({
           isGenerating={isGenerating}
           frameComplete={frameComplete}
           hasObjectives={hasObjectives}
+          confirmedContextCount={confirmedContextCount}
         />
 
         {/* Tactics */}
-        <TacticsColumn
-          tactics={tactics}
-          bets={bets}
-          drafts={tacticDrafts}
-          onUpdate={onTacticsUpdate}
-          onApplyDraft={onApplyDraft}
-          onDiscardDraft={onDiscardDraft}
-          onAIGenerate={(mode, guidance) => onAIGenerate('tactics', mode, guidance)}
-          onAIFieldAction={onAIFieldAction}
-          isGenerating={isGenerating}
-          frameComplete={frameComplete}
-          hasObjectives={hasObjectives}
-          hasAcceptedBets={hasAcceptedBets}
-        />
+        <div
+          ref={tacticsPanelRef}
+          className={`transition-all duration-300 ${
+            tacticsFocused
+              ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-slate-900 rounded-xl'
+              : ''
+          }`}
+        >
+          <TacticsColumn
+            tactics={tactics}
+            bets={bets}
+            drafts={tacticDrafts}
+            onUpdate={onTacticsUpdate}
+            onApplyDraft={onApplyDraft}
+            onDiscardDraft={onDiscardDraft}
+            onAIGenerate={(mode, guidance) => onAIGenerate('tactics', mode, guidance)}
+            onAIFieldAction={onAIFieldAction}
+            isGenerating={isGenerating}
+            frameComplete={frameComplete}
+            hasObjectives={hasObjectives}
+            hasAcceptedBets={hasAcceptedBets}
+            confirmedContextCount={confirmedContextCount}
+          />
+        </div>
       </div>
 
       {/* Next Step Hint */}
       <div className="text-center py-4">
         <p className="text-sm text-slate-500">
-          Next step: Generate briefs, summaries, and playbooks from this strategy in{' '}
+          Next step: Design Programs from tactics in{' '}
           <Link
-            href={`/c/${companyId}/deliver/artifacts`}
+            href={`/c/${companyId}/deliver`}
             className="text-purple-400 hover:text-purple-300 underline underline-offset-2"
           >
-            Deliver → Artifacts
+            Deliver
           </Link>
           .
         </p>

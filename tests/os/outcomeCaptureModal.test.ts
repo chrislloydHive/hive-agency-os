@@ -6,6 +6,7 @@ import {
   LOSS_REASON_TAGS,
   type LossReasonTag,
   type OutcomeCaptureData,
+  type RfpStatus,
 } from '@/lib/types/rfp';
 
 describe('LOSS_REASON_TAGS', () => {
@@ -76,8 +77,8 @@ describe('Outcome capture integration scenarios', () => {
     it('should trigger modal on won status selection', () => {
       // Simulates the behavior: when user selects "won" status,
       // the OutcomeCaptureModal should open
-      const previousStatus = 'submitted';
-      const newStatus = 'won';
+      const previousStatus: RfpStatus = 'submitted';
+      const newStatus: RfpStatus = 'won';
 
       const shouldTriggerModal = newStatus === 'won' || newStatus === 'lost';
       expect(shouldTriggerModal).toBe(true);
@@ -85,7 +86,7 @@ describe('Outcome capture integration scenarios', () => {
 
     it('should allow skip without blocking status change', () => {
       // When user clicks "Skip for now", status should still update
-      const newStatus = 'won';
+      const newStatus: RfpStatus = 'won';
       const skipped = true;
 
       // Status should be updated regardless of skip
@@ -113,15 +114,18 @@ describe('Outcome capture integration scenarios', () => {
 
   describe('Lost status transition', () => {
     it('should trigger modal on lost status selection', () => {
-      const previousStatus = 'submitted';
-      const newStatus = 'lost';
+      const previousStatus: RfpStatus = 'submitted';
+      const newStatus: RfpStatus = 'lost';
 
-      const shouldTriggerModal = newStatus === 'won' || newStatus === 'lost';
+      // Use a function to check status change to avoid literal narrowing
+      const isOutcomeStatus = (status: RfpStatus): boolean =>
+        status === 'won' || status === 'lost';
+      const shouldTriggerModal = isOutcomeStatus(newStatus);
       expect(shouldTriggerModal).toBe(true);
     });
 
     it('should not trigger modal on non-outcome status changes', () => {
-      const statusTransitions = [
+      const statusTransitions: Array<{ from: RfpStatus; to: RfpStatus }> = [
         { from: 'intake', to: 'assembling' },
         { from: 'assembling', to: 'review' },
         { from: 'review', to: 'submitted' },

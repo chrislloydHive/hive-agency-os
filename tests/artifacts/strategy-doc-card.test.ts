@@ -9,59 +9,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Artifact } from '@/lib/types/artifact';
 import type { StrategyDocStatusResponse } from '@/app/api/os/companies/[companyId]/documents/strategy/status/route';
+import { createArtifact } from '@/tests/helpers/factories';
 
 // ============================================================================
 // Mock Data
 // ============================================================================
 
-function createMockArtifact(overrides: Partial<Artifact> = {}): Artifact {
-  return {
-    id: 'artifact-123',
-    companyId: 'company-123',
-    title: 'Test Strategy Doc',
-    type: 'strategy_doc',
-    status: 'draft',
-    source: 'strategy_handoff',
-    googleFileId: 'file-123',
-    googleFileType: 'document',
-    googleFileUrl: 'https://docs.google.com/document/d/file-123',
-    googleFolderId: 'folder-123',
-    googleModifiedAt: new Date().toISOString(),
-    sourceStrategyId: 'strategy-123',
-    sourceQbrStoryId: null,
-    sourceBriefId: null,
-    sourceMediaPlanId: null,
-    sourceContentPlanId: null,
-    engagementId: null,
-    projectId: null,
-    contextVersionAtCreation: 1,
-    strategyVersionAtCreation: 1,
-    snapshotId: null,
-    isStale: false,
-    stalenessReason: null,
-    stalenessCheckedAt: null,
-    lastSyncedAt: null,
-    generatedContent: null,
-    generatedMarkdown: null,
-    generatedFormat: null,
-    inputsUsedHash: null,
-    includedTacticIds: null,
-    finalizedAt: null,
-    finalizedBy: null,
-    archivedAt: null,
-    archivedBy: null,
-    archivedReason: null,
-    createdBy: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    updatedBy: null,
-    lastEditedAt: null,
-    lastEditedBy: null,
-    description: null,
-    tags: [],
-    ...overrides,
-  };
-}
+// Alias for cleaner test code
+const createMockArtifact = createArtifact;
 
 function createMockFallbackStatus(overrides: Partial<StrategyDocStatusResponse> = {}): StrategyDocStatusResponse {
   return {

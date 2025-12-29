@@ -21,8 +21,6 @@ import {
   formatMediaBudget,
   formatDateRange,
   getChannelLabel,
-  getObjectiveLabel,
-  getSeasonLabel,
   MEDIA_CHANNEL_LABELS,
   MEDIA_CHANNEL_COLORS,
   MEDIA_PLAN_STATUS_CONFIG,
@@ -34,13 +32,10 @@ import {
 import {
   type MediaProvider,
   type MediaDataSourceType,
-  type AttributionModel,
   MEDIA_PROVIDER_OPTIONS,
   MEDIA_PROVIDER_CONFIG,
   MEDIA_DATASOURCE_OPTIONS,
   MEDIA_DATASOURCE_CONFIG,
-  ATTRIBUTION_MODEL_OPTIONS,
-  ATTRIBUTION_MODEL_CONFIG,
 } from '@/lib/types/media';
 import { PlanningWorkspace } from '@/components/mediaLab/PlanningWorkspace';
 
@@ -679,7 +674,7 @@ export function MediaLabClient({
 // Header Component
 // ============================================================================
 
-function PageHeader({ companyId, companyName }: { companyId: string; companyName: string }) {
+function PageHeader({ companyId, companyName: _companyName }: { companyId: string; companyName: string }) {
   return (
     <div className="border-b border-slate-800 bg-slate-900/50">
       <div className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between">
@@ -1101,7 +1096,7 @@ function EditableChannelRow({
   const providerConfig = channel.provider ? MEDIA_PROVIDER_CONFIG[channel.provider] : null;
   const dataSourceConfig = channel.dataSourceType ? MEDIA_DATASOURCE_CONFIG[channel.dataSourceType] : null;
 
-  const [isEditing, setIsEditing] = useState(false);
+  const [_isEditing, setIsEditing] = useState(false);
   const [budgetPct, setBudgetPct] = useState(channel.budgetSharePct?.toString() || '');
   const [budgetAmt, setBudgetAmt] = useState(channel.budgetAmount?.toString() || '');
   const [expectedVol, setExpectedVol] = useState(channel.expectedVolume?.toString() || '');
@@ -1300,7 +1295,7 @@ function SeasonalFlightsCard({
 
 function EditableFlightRow({
   flight,
-  plan,
+  plan: _plan,
   onUpdate,
   onDelete,
 }: {

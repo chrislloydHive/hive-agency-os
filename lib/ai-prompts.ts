@@ -356,7 +356,7 @@ Output:
   "insights": [
     {
       "issue": "Specific issue identified",
-      "evidence": "EXACT QUOTE from extraction - e.g., 'Your hero headline is: \"Taking banking forward\".'",
+      "evidence": "EXACT QUOTE from extraction - e.g., 'Your hero headline is: "Taking banking forward".'",
       "why_it_matters": "Why this issue impacts marketing performance",
       "recommendation": "Specific, actionable recommendation",
       "pillar": "pillar_id",

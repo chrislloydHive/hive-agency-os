@@ -225,7 +225,7 @@ export async function discoverPages(options: DiscoverPagesOptions): Promise<Disc
 
   // Check for missing expected pages
   const missingPages: MissingPage[] = [];
-  const foundPaths = discoveredPages.map(p => {
+  const _foundPaths = discoveredPages.map(p => {
     try {
       return new URL(p.url).pathname;
     } catch {

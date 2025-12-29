@@ -7,7 +7,7 @@ import {
   assessDigitalPresence,
   type DetectionResult,
 } from './index';
-import type { GBPSignal, SocialSignal, SchemaSignal, DiscoveryResult } from './types';
+import type { SocialSignal, SchemaSignal, DiscoveryResult } from './types';
 
 /**
  * Detection result formatted for GAP compatibility

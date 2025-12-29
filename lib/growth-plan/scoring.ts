@@ -578,7 +578,8 @@ export function applyScoreFloors(
   contentInventory: ContentInventory,
   assessment: AssessmentResult
 ): Record<string, number> {
-  let { websiteAndConversion, contentDepthAndVelocity, seoAndVisibility, brandAndPositioning, authorityAndTrust } = rubricScores;
+  const { websiteAndConversion, seoAndVisibility, brandAndPositioning } = rubricScores;
+  let { contentDepthAndVelocity, authorityAndTrust } = rubricScores;
 
   // Extract signal counts from SiteFeatures (preferred) or fallback to legacy sources
   const blogPostCount = features.content.blogPostCount || contentInventory.blogPostsFound || 0;

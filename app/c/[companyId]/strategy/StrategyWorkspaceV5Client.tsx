@@ -11,6 +11,7 @@
 // in any direction, always as drafts requiring explicit Apply.
 
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import Link from 'next/link';
 import {
   Target,
   Layers,
@@ -22,7 +23,11 @@ import {
   X,
   Save,
   Loader2,
+  Rocket,
+  ArrowRight,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import type { PlanningProgram } from '@/lib/types/program';
 import type { CompanyStrategy } from '@/lib/types/strategy';
 import { StrategySwitcher } from '@/components/os/strategy/StrategySwitcher';
 import {
@@ -73,6 +78,13 @@ import {
 import { HandoffButton } from '@/components/strategy/HandoffButton';
 import { ProgramsSummaryCard } from '@/components/os/strategy/ProgramsSummaryCard';
 import { GoalStatementCard, GoalBadge } from '@/components/os/strategy/GoalStatementCard';
+import { LearningsPanel } from '@/components/os/strategy/LearningsPanel';
+import { GuidedRevisionPanel } from '@/components/os/strategy/GuidedRevisionPanel';
+import { StrategyAttributionPanel } from '@/components/os/strategy/StrategyAttributionPanel';
+import { StrategyInsightsPanel } from '@/components/os/strategy/StrategyInsightsPanel';
+import type { OutcomeSignal, ArtifactSignalContext } from '@/lib/types/outcomeSignal';
+import { generateArtifactSignals } from '@/lib/os/outcomes/generateSignals';
+import type { Artifact } from '@/lib/types/artifact';
 
 // ============================================================================
 // Types
@@ -252,6 +264,143 @@ export function StrategyWorkspaceV5Client({
   // Goal statement (stored in strategy record)
   const [goalStatement, setGoalStatement] = useState<string>(strategy.goalStatement || '');
 
+  // Outcome signals for learnings panel
+  const [outcomeSignals, setOutcomeSignals] = useState<OutcomeSignal[]>([]);
+
+  // Dev-only demo seeding state
+  const [demoSeeding, setDemoSeeding] = useState(false);
+  const [demoSeedResult, setDemoSeedResult] = useState<{
+    status: string;
+    seedRunId?: string;
+    signalsCreated?: number;
+    appliedProposalId?: string | null;
+  } | null>(null);
+
+  // Program-first workflow state
+  const [programsByTacticId, setProgramsByTacticId] = useState<Map<string, PlanningProgram>>(new Map());
+  const [designingProgramForTacticId, setDesigningProgramForTacticId] = useState<string | null>(null);
+  const [activatingTacticId, setActivatingTacticId] = useState<string | null>(null);
+  const router = useRouter();
+
+  // -------------------------------------------------------------------------
+  // Fetch Outcome Signals
+  // -------------------------------------------------------------------------
+
+  // Fetch artifacts linked to this strategy and derive signals
+  React.useEffect(() => {
+    async function fetchStrategySignals() {
+      try {
+        // Fetch artifacts linked to this strategy
+        const response = await fetch(
+          `/api/os/companies/${companyId}/artifacts?strategyId=${strategy.id}`
+        );
+
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const artifacts: Artifact[] = data.artifacts || [];
+
+        // Generate signals from artifacts
+        const signals: OutcomeSignal[] = [];
+        for (const artifact of artifacts) {
+          if (artifact.status === 'draft') continue;
+
+          const usage = artifact.usage;
+          if (!usage) continue;
+
+          const daysSinceCreation = Math.floor(
+            (Date.now() - new Date(artifact.createdAt).getTime()) / (1000 * 60 * 60 * 24)
+          );
+
+          const feedbackRatings = { helpful: 0, neutral: 0, not_helpful: 0 };
+          if (artifact.feedback) {
+            for (const entry of artifact.feedback) {
+              if (entry.rating === 'helpful') feedbackRatings.helpful++;
+              else if (entry.rating === 'neutral') feedbackRatings.neutral++;
+              else if (entry.rating === 'not_helpful') feedbackRatings.not_helpful++;
+            }
+          }
+
+          const context: ArtifactSignalContext = {
+            artifactId: artifact.id,
+            artifactType: artifact.type,
+            artifactTitle: artifact.title,
+            artifactStatus: artifact.status,
+            workItemsCreated: usage.attachedWorkCount,
+            workItemsCompleted: usage.completedWorkCount,
+            daysSinceCreation,
+            feedbackRatings,
+            strategyId: strategy.id,
+            tacticIds: artifact.includedTacticIds ?? undefined,
+          };
+
+          signals.push(...generateArtifactSignals(context));
+        }
+
+        setOutcomeSignals(signals);
+      } catch (err) {
+        console.error('[StrategyWorkspace] Failed to fetch outcome signals:', err);
+      }
+    }
+
+    fetchStrategySignals();
+  }, [companyId, strategy.id]);
+
+  // -------------------------------------------------------------------------
+  // Dev-Only Demo Seeding (non-production only)
+  // -------------------------------------------------------------------------
+
+  const handleSeedDemoData = useCallback(async () => {
+    if (process.env.NODE_ENV === 'production') return;
+
+    setDemoSeeding(true);
+    setDemoSeedResult(null);
+
+    try {
+      const response = await fetch('/api/os/dev/seed-strategy-demo', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-demo-seed-key': 'dev', // Default key for local dev
+        },
+        body: JSON.stringify({
+          companyId,
+          strategyId: strategy.id,
+          mode: 'reset',
+        }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setDemoSeedResult({
+          status: 'success',
+          seedRunId: result.seedRunId,
+          signalsCreated: result.createdCounts?.signalsCreated,
+          appliedProposalId: result.appliedProposalId,
+        });
+
+        // Refresh panels after seeding
+        refreshViewModel();
+
+        // Re-fetch signals after a short delay
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      } else {
+        setDemoSeedResult({
+          status: 'error',
+        });
+        console.error('[DemoSeed] Failed:', result);
+      }
+    } catch (err) {
+      console.error('[DemoSeed] Error:', err);
+      setDemoSeedResult({ status: 'error' });
+    } finally {
+      setDemoSeeding(false);
+    }
+  }, [companyId, strategy.id, refreshViewModel]);
+
   // -------------------------------------------------------------------------
   // Field Draft Handlers
   // -------------------------------------------------------------------------
@@ -351,6 +500,12 @@ export function StrategyWorkspaceV5Client({
   const healthSignals = useMemo(
     () => calculateHealthSignals(objectives, priorities, tactics),
     [objectives, priorities, tactics]
+  );
+
+  // Count of approved/active tactics (for execution readiness)
+  const activeTacticsCount = useMemo(
+    () => tactics.filter(t => t.status === 'active' || t.status === 'proven').length,
+    [tactics]
   );
 
   const groupedProposals = useMemo(
@@ -536,6 +691,119 @@ export function StrategyWorkspaceV5Client({
       setPromotionLoading(false);
     }
   }, [tactics, companyId, strategy.id]);
+
+  // -------------------------------------------------------------------------
+  // Design Program Handlers (Program-first workflow)
+  // -------------------------------------------------------------------------
+
+  // Load programs for this strategy on mount
+  useEffect(() => {
+    async function fetchStrategyPrograms() {
+      try {
+        const response = await fetch(
+          `/api/os/companies/${companyId}/strategy/${strategy.id}/programs`
+        );
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const programs: PlanningProgram[] = data.programs || [];
+
+        // Build a map of tacticId -> program for quick lookup
+        const tacticProgramMap = new Map<string, PlanningProgram>();
+        for (const program of programs) {
+          if (program.origin.tacticId) {
+            tacticProgramMap.set(program.origin.tacticId, program);
+          }
+        }
+        setProgramsByTacticId(tacticProgramMap);
+      } catch (err) {
+        console.error('[StrategyWorkspaceV5Client] Failed to load programs:', err);
+      }
+    }
+
+    fetchStrategyPrograms();
+  }, [companyId, strategy.id]);
+
+  // Design Program: Creates a PlanningProgram from a tactic and navigates to Deliver
+  const handleDesignProgram = useCallback(async (tacticId: string, tactic: StrategyTacticV6) => {
+    setDesigningProgramForTacticId(tacticId);
+
+    try {
+      const response = await fetch(
+        `/api/os/companies/${companyId}/strategy/${strategy.id}/programs`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tacticId,
+            tactic: {
+              id: tactic.id,
+              title: tactic.title,
+              description: tactic.description,
+              channels: tactic.channels,
+              impact: tactic.expectedImpact,
+              effort: tactic.effortSize,
+              status: tactic.status,
+            },
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        throw new Error(errorBody.error || 'Failed to create program');
+      }
+
+      const data = await response.json();
+      const program: PlanningProgram = data.program;
+      console.log('[StrategyWorkspaceV5Client] Created program from tactic:', program);
+
+      // Update program map
+      setProgramsByTacticId(prev => new Map(prev).set(tacticId, program));
+
+      // Navigate to Deliver page with program detail view
+      router.push(`/c/${companyId}/deliver?programId=${program.id}`);
+    } catch (err) {
+      console.error('[StrategyWorkspaceV5Client] Design Program error:', err);
+      alert(`Failed to design program: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setDesigningProgramForTacticId(null);
+    }
+  }, [companyId, strategy.id, router]);
+
+  // Activate Tactic: Updates tactic status to 'active' for execution approval
+  const handleActivateTactic = useCallback(async (tacticId: string, tactic: StrategyTacticV6) => {
+    setActivatingTacticId(tacticId);
+
+    try {
+      // Update tactic status to 'active'
+      const updatedTactic: StrategyTacticV6 = {
+        ...tactic,
+        status: 'active',
+      };
+
+      // Update local state
+      setTactics(prev => prev.map(t => t.id === tacticId ? updatedTactic : t));
+
+      // Note: The save will happen when user clicks Save button
+      // or we could auto-save here if desired
+      console.log('[StrategyWorkspaceV5Client] Activated tactic:', tacticId);
+    } catch (err) {
+      console.error('[StrategyWorkspaceV5Client] Activate Tactic error:', err);
+    } finally {
+      setActivatingTacticId(null);
+    }
+  }, []);
+
+  // Open Program: Navigate to Deliver page with program detail view
+  const handleOpenProgram = useCallback((programId: string) => {
+    router.push(`/c/${companyId}/deliver?programId=${programId}`);
+  }, [companyId, router]);
+
+  // View Work: Navigate to Work page (for committed programs)
+  const handleViewWork = useCallback((programId: string) => {
+    router.push(`/c/${companyId}/work?programId=${programId}`);
+  }, [companyId, router]);
 
   // -------------------------------------------------------------------------
   // AI Proposal Handlers
@@ -872,6 +1140,97 @@ export function StrategyWorkspaceV5Client({
         </div>
       )}
 
+      {/* What We've Learned - Outcome Signals Panel (collapsed by default) */}
+      {outcomeSignals.length > 0 && (
+        <div className="px-4 py-2">
+          <LearningsPanel
+            signals={outcomeSignals}
+            companyId={companyId}
+            defaultCollapsed={true}
+            maxVisible={5}
+          />
+        </div>
+      )}
+
+      {/* Guided Revision - Draft suggestions from learnings (collapsed by default) */}
+      <div className="px-4 py-2">
+        <GuidedRevisionPanel
+          companyId={companyId}
+          strategyId={strategy.id}
+          defaultCollapsed={true}
+          onProposalApplied={() => {
+            // Refresh strategy after proposal is applied
+            refreshViewModel();
+          }}
+        />
+      </div>
+
+      {/* DEV ONLY: Seed Demo Data Button */}
+      {process.env.NODE_ENV !== 'production' && (
+        <div className="px-4 py-2">
+          <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg p-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded">
+                  DEV
+                </span>
+                <span className="text-sm text-amber-300">
+                  Seed real demo data for strategy loop testing
+                </span>
+              </div>
+              <button
+                onClick={handleSeedDemoData}
+                disabled={demoSeeding}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-amber-600 hover:bg-amber-500 disabled:bg-amber-800 disabled:cursor-not-allowed text-white rounded transition-colors"
+              >
+                {demoSeeding ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Seeding...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-3 h-3" />
+                    Seed Real Demo Data
+                  </>
+                )}
+              </button>
+            </div>
+            {demoSeedResult && (
+              <div className={`mt-2 text-xs ${demoSeedResult.status === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>
+                {demoSeedResult.status === 'success' ? (
+                  <>
+                    Created {demoSeedResult.signalsCreated} signals
+                    {demoSeedResult.appliedProposalId && ` • Applied proposal ${demoSeedResult.appliedProposalId}`}
+                    {' • Refreshing...'}
+                  </>
+                ) : (
+                  'Failed to seed demo data. Check console.'
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Impact & Attribution - Link outcome signals to strategy changes (collapsed by default) */}
+      <div className="px-4 py-2">
+        <StrategyAttributionPanel
+          companyId={companyId}
+          strategyId={strategy.id}
+          defaultCollapsed={true}
+        />
+      </div>
+
+      {/* Insights & Next Actions - Deterministic insights from attribution + evolution (collapsed by default) */}
+      <div className="px-4 py-2">
+        <StrategyInsightsPanel
+          companyId={companyId}
+          strategyId={strategy.id}
+          defaultCollapsed={true}
+        />
+      </div>
+
       {/* Three-Column Layout */}
       <div className="flex-1 flex overflow-hidden">
         {/* LEFT: Strategy Frame + Objectives */}
@@ -1012,7 +1371,13 @@ export function StrategyWorkspaceV5Client({
             onRemoveTactic={handleRemoveTactic}
             onLockTactic={handleLockTactic}
             onUnlockTactic={handleUnlockTactic}
-            onPromoteTactic={handlePromoteTactic}
+            onActivateTactic={handleActivateTactic}
+            activatingTacticId={activatingTacticId}
+            onDesignProgram={handleDesignProgram}
+            designingProgramForTacticId={designingProgramForTacticId}
+            programsByTacticId={programsByTacticId}
+            onOpenProgram={handleOpenProgram}
+            onViewWork={handleViewWork}
             companyId={companyId}
             strategyId={strategy.id}
             fieldDrafts={fieldDrafts}
@@ -1022,8 +1387,101 @@ export function StrategyWorkspaceV5Client({
             contextPayload={buildContextPayload()}
           />
 
-          {/* Programs Summary - promote tactics to programs */}
-          <div ref={programsCardRef}>
+          {/* Strategy Readiness Indicator */}
+          {tactics.length > 0 && programsByTacticId.size === 0 && (
+            <div className={`mt-6 p-5 border-2 rounded-xl ${
+              activeTacticsCount > 0
+                ? 'bg-gradient-to-br from-purple-500/15 to-blue-500/10 border-purple-500/40'
+                : 'bg-gradient-to-br from-amber-500/10 to-slate-800/50 border-amber-500/30'
+            }`}>
+              <div className="flex items-start gap-4">
+                <div className={`p-2.5 rounded-lg shrink-0 ${
+                  activeTacticsCount > 0 ? 'bg-purple-500/20' : 'bg-amber-500/20'
+                }`}>
+                  {activeTacticsCount > 0 ? (
+                    <Rocket className="w-5 h-5 text-purple-400" />
+                  ) : (
+                    <AlertTriangle className="w-5 h-5 text-amber-400" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  {activeTacticsCount > 0 ? (
+                    <>
+                      {/* Has active tactics - ready to design programs */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span className="text-sm text-emerald-400">Strategy defined</span>
+                        <span className="text-slate-500">•</span>
+                        <span className="text-sm text-emerald-400">{activeTacticsCount} tactic{activeTacticsCount !== 1 ? 's' : ''} approved</span>
+                      </div>
+                      <h3 className="text-base font-semibold text-white mb-1">
+                        Ready to design Programs
+                      </h3>
+                      <p className="text-sm text-slate-300 leading-relaxed mb-4">
+                        Approved tactics become Programs in Deliver, where you&apos;ll plan execution details.
+                      </p>
+                      <Link
+                        href={`/c/${companyId}/deliver?strategyId=${strategy.id}`}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors shadow-lg shadow-purple-500/20"
+                      >
+                        Design Programs
+                        <ArrowRight className="w-4 h-4" />
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      {/* No active tactics - needs approval first */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span className="text-sm text-emerald-400">Strategy defined</span>
+                      </div>
+                      <h3 className="text-base font-semibold text-amber-300 mb-1">
+                        Execution not approved
+                      </h3>
+                      <p className="text-sm text-slate-300 leading-relaxed mb-2">
+                        Activate at least one tactic to approve it for execution.
+                        Activated tactics can become Programs in Deliver.
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Click &quot;Activate tactic&quot; on any tactic card above to approve it.
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Programs Designed Summary - shows when programs exist */}
+          {programsByTacticId.size > 0 && (
+            <div className="mt-4 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-1.5 bg-emerald-500/20 rounded">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-emerald-300">
+                      {programsByTacticId.size} program{programsByTacticId.size !== 1 ? 's' : ''} designed
+                    </span>
+                    <p className="text-xs text-emerald-400/70">
+                      Continue in Deliver to commit programs to work
+                    </p>
+                  </div>
+                </div>
+                <Link
+                  href={`/c/${companyId}/deliver?strategyId=${strategy.id}`}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-lg transition-colors"
+                >
+                  Continue in Deliver
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {/* Hidden Programs Summary Card for legacy compatibility */}
+          <div ref={programsCardRef} className="hidden">
             <ProgramsSummaryCard
               key={promotingTacticIds.join(',') || 'default'}
               companyId={companyId}

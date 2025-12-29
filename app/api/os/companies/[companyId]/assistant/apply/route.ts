@@ -10,7 +10,7 @@ import { isValidFieldPath } from '@/lib/contextGraph/schema';
 import { isHumanSource } from '@/lib/contextGraph/sourcePriority';
 import { createWorkItem } from '@/lib/work/workItems';
 import { getStoredChanges, removeStoredChanges } from '@/lib/assistant/changeStore';
-import type { ApplyRequest, ApplyResult, ProposedChanges } from '@/lib/assistant/types';
+import type { ApplyRequest, ApplyResult } from '@/lib/assistant/types';
 
 interface RouteParams {
   params: Promise<{ companyId: string }>;

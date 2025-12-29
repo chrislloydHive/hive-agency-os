@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getCompanyById } from '@/lib/airtable/companies';
-import { fetchMetrics, fetchMetricsFromConfigs } from '@/lib/analytics/fetchers';
+import { fetchMetrics } from '@/lib/analytics/fetchers';
 import { isSupportedMetric, type SupportedMetricId } from '@/lib/analytics/metricCatalog';
 import { getCacheStats, clearCache } from '@/lib/analytics/cache';
 
@@ -121,7 +121,7 @@ export async function GET(
     });
 
     // Build response
-    const metrics: Record<string, any> = {};
+    const metrics: Record<string, unknown> = {};
     const errors: string[] = [];
     let cacheHits = 0;
     let cacheMisses = 0;
@@ -265,7 +265,7 @@ export async function POST(
     });
 
     // Build response
-    const metrics: Record<string, any> = {};
+    const metrics: Record<string, unknown> = {};
     const errors: string[] = [];
 
     for (const [metricId, result] of results.entries()) {

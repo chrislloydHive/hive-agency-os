@@ -101,7 +101,7 @@ describe('DMA Normalize Layer', () => {
       const runs = await fetchRecentDMARuns({ days: 7, runType: 'GAP_FULL' });
 
       // GAP-IA should not be fetched when filtering for GAP_FULL
-      expect(listRecentGapIaRuns).not.toHaveBeenCalled;
+      expect(listRecentGapIaRuns).not.toHaveBeenCalled();
     });
 
     it('should respect limit parameter', async () => {

@@ -145,13 +145,13 @@ export default function SiteNav() {
             </div>
 
             {/* Run Audit Button */}
-            <a
+            <Link
               href="/#run-audit"
               onClick={handleRunAuditClick}
               className="px-5 py-2 bg-yellow-400 hover:bg-yellow-300 text-slate-900 text-sm font-semibold rounded-lg transition-all duration-200 hover:shadow-lg hover:shadow-yellow-400/20"
             >
               Run Audit
-            </a>
+            </Link>
           </div>
 
           {/* Mobile Menu Button */}
@@ -250,13 +250,13 @@ export default function SiteNav() {
                 </Link>
               </div>
 
-              <a
+              <Link
                 href="/#run-audit"
                 onClick={handleRunAuditClick}
                 className="inline-block text-center px-5 py-2 bg-yellow-400 hover:bg-yellow-300 text-slate-900 text-sm font-semibold rounded-lg transition-all duration-200"
               >
                 Run Audit
-              </a>
+              </Link>
             </div>
           </div>
         )}

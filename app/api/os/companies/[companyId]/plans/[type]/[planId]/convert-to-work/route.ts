@@ -88,7 +88,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     }
 
     // Validate artifact IDs belong to company (if provided)
-    let artifactsToAttach: Artifact[] = [];
+    const artifactsToAttach: Artifact[] = [];
     if (attachArtifactIds.length > 0 && !dryRun) {
       for (const artifactId of attachArtifactIds) {
         const artifact = await getArtifactById(artifactId);
@@ -213,7 +213,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     });
 
     // Attach artifacts to created work items (if any)
-    let attachedArtifacts: { workItemId: string; artifactId: string }[] = [];
+    const attachedArtifacts: { workItemId: string; artifactId: string }[] = [];
     if (artifactsToAttach.length > 0 && createdWorkItems.length > 0) {
       for (const workItem of createdWorkItems) {
         for (const artifact of artifactsToAttach) {

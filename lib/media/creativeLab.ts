@@ -241,10 +241,7 @@ function generateChannelCreative(params: {
     format,
     objective,
     template,
-    profile,
-    targetAudience,
     promotionContext,
-    brandVoice,
     competitorDifferentiators,
   } = params;
 
@@ -344,7 +341,7 @@ function generateConcepts(
 function generateMessaging(
   objective: CreativeObjective,
   template: typeof OBJECTIVE_TEMPLATES[CreativeObjective],
-  competitorDifferentiators?: string[]
+  _competitorDifferentiators?: string[]
 ): ChannelCreative['messaging'] {
   const valuePropsMap: Record<CreativeObjective, string[]> = {
     awareness: [
@@ -421,11 +418,11 @@ function generateMessaging(
 }
 
 function generateAdCopy(
-  channel: MediaChannel,
+  _channel: MediaChannel,
   format: CreativeFormat,
-  objective: CreativeObjective,
+  _objective: CreativeObjective,
   template: typeof OBJECTIVE_TEMPLATES[CreativeObjective],
-  promotionContext?: string
+  _promotionContext?: string
 ): AdCopySet {
   // Headlines by format
   const headlinesMap: Record<CreativeFormat, string[]> = {
@@ -514,8 +511,8 @@ function generateScripts(
 
 function generateImagePrompts(
   channel: MediaChannel,
-  objective: CreativeObjective,
-  promotionContext?: string
+  _objective: CreativeObjective,
+  _promotionContext?: string
 ): string[] {
   const styleMap: Record<MediaChannel, string> = {
     display: 'clean, professional, brand colors prominent',

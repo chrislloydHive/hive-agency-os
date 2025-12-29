@@ -95,7 +95,7 @@ export function CanonicalFieldsSection({
 
   // Calculate stats
   const stats = useMemo(() => {
-    let total = fieldDefs.length;
+    const total = fieldDefs.length;
     let confirmed = 0;
     let proposed = 0;
     let missing = 0;

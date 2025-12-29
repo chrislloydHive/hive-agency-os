@@ -115,25 +115,25 @@ export interface DetectionResult {
  */
 export const PLATFORM_PATTERNS: Record<SocialPlatform, RegExp[]> = {
   facebook: [
-    /(?:https?:\/\/)?(?:www\.)?facebook\.com\/(?:pages\/)?([^\/\?]+)/i,
-    /(?:https?:\/\/)?(?:www\.)?fb\.com\/([^\/\?]+)/i,
+    /(?:https?:\/\/)?(?:www\.)?facebook\.com\/(?:pages\/)?([^/?]+)/i,
+    /(?:https?:\/\/)?(?:www\.)?fb\.com\/([^/?]+)/i,
   ],
   instagram: [
-    /(?:https?:\/\/)?(?:www\.)?instagram\.com\/([^\/\?]+)/i,
-    /(?:https?:\/\/)?(?:www\.)?instagr\.am\/([^\/\?]+)/i,
+    /(?:https?:\/\/)?(?:www\.)?instagram\.com\/([^/?]+)/i,
+    /(?:https?:\/\/)?(?:www\.)?instagr\.am\/([^/?]+)/i,
   ],
   tiktok: [
-    /(?:https?:\/\/)?(?:www\.)?tiktok\.com\/@([^\/\?]+)/i,
+    /(?:https?:\/\/)?(?:www\.)?tiktok\.com\/@([^/?]+)/i,
   ],
   youtube: [
-    /(?:https?:\/\/)?(?:www\.)?youtube\.com\/(?:c\/|channel\/|user\/|@)?([^\/\?]+)/i,
-    /(?:https?:\/\/)?(?:www\.)?youtu\.be\/([^\/\?]+)/i,
+    /(?:https?:\/\/)?(?:www\.)?youtube\.com\/(?:c\/|channel\/|user\/|@)?([^/?]+)/i,
+    /(?:https?:\/\/)?(?:www\.)?youtu\.be\/([^/?]+)/i,
   ],
   linkedin: [
-    /(?:https?:\/\/)?(?:www\.)?linkedin\.com\/(?:company|in)\/([^\/\?]+)/i,
+    /(?:https?:\/\/)?(?:www\.)?linkedin\.com\/(?:company|in)\/([^/?]+)/i,
   ],
   x: [
-    /(?:https?:\/\/)?(?:www\.)?(?:twitter|x)\.com\/([^\/\?]+)/i,
+    /(?:https?:\/\/)?(?:www\.)?(?:twitter|x)\.com\/([^/?]+)/i,
   ],
 };
 
@@ -153,10 +153,10 @@ export const PLATFORM_DOMAINS: Record<SocialPlatform, string[]> = {
  * GBP URL patterns
  */
 export const GBP_PATTERNS = [
-  /(?:https?:\/\/)?(?:www\.)?google\.com\/maps\/place\/[^\/]+/i,
+  /(?:https?:\/\/)?(?:www\.)?google\.com\/maps\/place\/[^/]+/i,
   /(?:https?:\/\/)?maps\.google\.com\/[^\s]+/i,
-  /(?:https?:\/\/)?g\.page\/([^\/\?]+)/i,
-  /(?:https?:\/\/)?goo\.gl\/maps\/([^\/\?]+)/i,
+  /(?:https?:\/\/)?g\.page\/([^/?]+)/i,
+  /(?:https?:\/\/)?goo\.gl\/maps\/([^/?]+)/i,
   /(?:https?:\/\/)?(?:www\.)?google\.com\/maps\?cid=(\d+)/i,
 ];
 

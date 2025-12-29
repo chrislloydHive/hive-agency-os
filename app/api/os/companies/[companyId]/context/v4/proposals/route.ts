@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
-import type { ContextProposal, ListProposalsResponse } from '@/lib/types/contextProposal';
+import type { ContextProposal, ContextProposalStatus, ListProposalsResponse } from '@/lib/types/contextProposal';
 import type { PromotionSourceType } from '@/lib/contextGraph/v4/promotion/promotableFields';
 
 // ============================================================================
@@ -60,7 +60,7 @@ export async function GET(
       companyId: (record.fields['Company ID'] as string) || companyId,
       fieldKey: (record.fields['Field Key'] as string) || '',
       proposedValue: (record.fields['Proposed Value'] as string) || '',
-      status: (record.fields['Status'] as any) || 'proposed',
+      status: ((record.fields['Status'] as string) || 'proposed') as ContextProposalStatus,
       sourceType: (record.fields['Source Type'] as PromotionSourceType) || 'manual',
       sourceRunId: (record.fields['Source Run ID'] as string) || undefined,
       evidence: (record.fields['Evidence'] as string) || '',

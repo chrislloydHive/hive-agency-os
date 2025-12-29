@@ -15,7 +15,6 @@ import {
   createEmptyArtifact,
 } from '@/lib/types/artifact';
 import type {
-  Artifact,
   ArtifactType,
   ArtifactStatus,
   ArtifactSource,
@@ -27,6 +26,7 @@ import {
   isRfpArtifactType,
 } from '@/lib/artifacts/stalenessDetection';
 import type { StalenessContext } from '@/lib/artifacts/stalenessDetection';
+import { createArtifact } from '@/tests/helpers/factories';
 
 // ============================================================================
 // Type Helpers
@@ -126,42 +126,8 @@ describe('Artifact Type Helpers', () => {
 // ============================================================================
 
 describe('Staleness Detection', () => {
-  function createTestArtifact(overrides: Partial<Artifact> = {}): Artifact {
-    const now = new Date();
-    return {
-      id: 'artifact-123',
-      companyId: 'company-123',
-      title: 'Test Artifact',
-      type: 'strategy_doc',
-      status: 'draft',
-      source: 'strategy_handoff',
-      googleFileId: null,
-      googleFileType: null,
-      googleFileUrl: null,
-      googleFolderId: null,
-      googleModifiedAt: null,
-      sourceStrategyId: 'strategy-123',
-      sourceQbrStoryId: null,
-      sourceBriefId: null,
-      sourceMediaPlanId: null,
-      engagementId: null,
-      projectId: null,
-      contextVersionAtCreation: null,
-      strategyVersionAtCreation: 1,
-      snapshotId: null,
-      isStale: false,
-      stalenessReason: null,
-      stalenessCheckedAt: null,
-      lastSyncedAt: null,
-      createdBy: null,
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-      updatedBy: null,
-      description: null,
-      tags: [],
-      ...overrides,
-    };
-  }
+  // Use the shared factory
+  const createTestArtifact = createArtifact;
 
   describe('checkArtifactStaleness', () => {
     it('returns fresh for new artifact with current strategy version', () => {

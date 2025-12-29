@@ -24,11 +24,17 @@ import {
 } from 'lucide-react';
 
 // ============================================================================
-// Types
+// Types & Constants
 // ============================================================================
 
 export type GenerateType = 'objectives' | 'bets' | 'tactics';
 export type GenerateMode = 'create' | 'replace' | 'improve';
+
+/**
+ * Minimum confirmed context fields required for AI generation.
+ * Must match INPUTS_CONFIRMED_THRESHOLD in strategy/fields/suggest/route.ts
+ */
+export const CONFIRMED_CONTEXT_THRESHOLD = 3;
 
 interface ColumnAIGenerateButtonProps {
   /** Column type */
@@ -43,6 +49,8 @@ interface ColumnAIGenerateButtonProps {
     objectives: boolean;
     bets: boolean;
   };
+  /** Number of confirmed context fields (from Context V4 store) */
+  confirmedContextCount?: number;
   /** Number of existing items */
   existingCount?: number;
   /** Number of accepted items (for bets) */
@@ -116,6 +124,7 @@ interface GenerateModalProps {
     objectives: boolean;
     bets: boolean;
   };
+  confirmedContextCount?: number;
   existingCount?: number;
   acceptedCount?: number;
   isGenerating: boolean;
@@ -126,6 +135,7 @@ interface GenerateModalProps {
 function GenerateModal({
   type,
   inputsAvailable,
+  confirmedContextCount,
   existingCount = 0,
   acceptedCount = 0,
   isGenerating,
@@ -138,6 +148,10 @@ function GenerateModal({
   const config = TYPE_CONFIG[type];
   const Icon = config.icon;
 
+  // Check confirmed context threshold
+  const hasEnoughContext = (confirmedContextCount ?? 0) >= CONFIRMED_CONTEXT_THRESHOLD;
+  const contextNeeded = CONFIRMED_CONTEXT_THRESHOLD - (confirmedContextCount ?? 0);
+
   // Determine which inputs are needed and available
   const inputStatus = {
     Frame: inputsAvailable?.frame ?? false,
@@ -149,7 +163,9 @@ function GenerateModal({
   const missingInputs = config.requiredInputs.filter(
     (input) => !inputStatus[input as keyof typeof inputStatus]
   );
-  const canGenerate = missingInputs.length === 0;
+
+  // Must have enough confirmed context AND all required strategy inputs
+  const canGenerate = hasEnoughContext && missingInputs.length === 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -177,9 +193,30 @@ function GenerateModal({
 
         {/* Content */}
         <div className="p-4 space-y-4">
+          {/* Context Status */}
+          <div>
+            <p className="text-xs text-slate-400 mb-2">Context readiness:</p>
+            <div className="flex items-center gap-2">
+              <span
+                className={`text-xs px-2 py-1 rounded flex items-center gap-1 ${
+                  hasEnoughContext
+                    ? 'bg-emerald-500/10 text-emerald-400'
+                    : 'bg-amber-500/10 text-amber-400'
+                }`}
+              >
+                {hasEnoughContext ? (
+                  <Check className="w-3 h-3" />
+                ) : (
+                  <AlertTriangle className="w-3 h-3" />
+                )}
+                {confirmedContextCount ?? 0}/{CONFIRMED_CONTEXT_THRESHOLD} confirmed
+              </span>
+            </div>
+          </div>
+
           {/* Inputs Status */}
           <div>
-            <p className="text-xs text-slate-400 mb-2">Inputs used:</p>
+            <p className="text-xs text-slate-400 mb-2">Strategy inputs:</p>
             <div className="flex flex-wrap gap-2">
               {Object.entries(inputStatus).map(([key, available]) => (
                 <span
@@ -201,8 +238,26 @@ function GenerateModal({
             </div>
           </div>
 
-          {/* Missing Inputs Warning */}
-          {!canGenerate && (
+          {/* Insufficient Context Warning */}
+          {!hasEnoughContext && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs text-amber-400 font-medium">
+                    Insufficient confirmed context
+                  </p>
+                  <p className="text-xs text-amber-300/70 mt-0.5">
+                    Confirm {contextNeeded} more context field{contextNeeded > 1 ? 's' : ''} to enable AI generation.
+                    Go to the Context page to review and confirm proposed values.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Missing Strategy Inputs Warning */}
+          {hasEnoughContext && missingInputs.length > 0 && (
             <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
@@ -341,6 +396,7 @@ export function ColumnAIGenerateButton({
   onGenerate,
   isGenerating = false,
   inputsAvailable,
+  confirmedContextCount,
   existingCount,
   acceptedCount,
   disabled = false,
@@ -385,6 +441,7 @@ export function ColumnAIGenerateButton({
         <GenerateModal
           type={type}
           inputsAvailable={inputsAvailable}
+          confirmedContextCount={confirmedContextCount}
           existingCount={existingCount}
           acceptedCount={acceptedCount}
           isGenerating={isGenerating}

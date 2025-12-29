@@ -1,7 +1,7 @@
 // lib/os/recommendations/types.ts
 // Core types for the Unified Recommendations Engine
 
-import type { Finding, FindingCategory, FindingSeverity } from '../findings/types';
+import type { FindingCategory } from '../findings/types';
 
 /**
  * Action priority levels

@@ -162,11 +162,12 @@ export function sortNodes(
       case 'label':
         comparison = a.key.localeCompare(b.key);
         break;
-      case 'value':
+      case 'value': {
         const aVal = a.value?.toString() || '';
         const bVal = b.value?.toString() || '';
         comparison = aVal.localeCompare(bVal);
         break;
+      }
       case 'status':
         comparison = a.status.localeCompare(b.status);
         break;
@@ -179,11 +180,12 @@ export function sortNodes(
       case 'lastUpdated':
         comparison = new Date(a.lastUpdated).getTime() - new Date(b.lastUpdated).getTime();
         break;
-      case 'zone':
+      case 'zone': {
         const aZone = getZoneForField(a.key);
         const bZone = getZoneForField(b.key);
         comparison = aZone.localeCompare(bZone);
         break;
+      }
     }
 
     return direction === 'asc' ? comparison : -comparison;

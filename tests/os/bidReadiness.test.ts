@@ -16,6 +16,7 @@ import {
 import type { FirmBrainReadiness } from '@/lib/os/ai/firmBrainReadiness';
 import type { StrategyHealth } from '@/lib/types/rfpWinStrategy';
 import type { RubricCoverageResult, CriterionCoverage, SectionCoverage } from '@/lib/os/rfp/computeRubricCoverage';
+import { createRfpSection, createRfpWinStrategy } from '@/tests/helpers/factories';
 
 // ============================================================================
 // Test Helpers
@@ -134,7 +135,7 @@ function createMockInputs(
     firmBrainReadiness: createMockFirmBrainReadiness(firmBrainScore),
     strategyHealth: createMockStrategyHealth(strategyScore),
     rubricCoverage: createMockRubricCoverage(coverageScore),
-    strategy: {
+    strategy: createRfpWinStrategy({
       evaluationCriteria: [
         { label: 'Technical Approach', weight: 0.3 },
         { label: 'Team Experience', weight: 0.2 },
@@ -142,13 +143,14 @@ function createMockInputs(
       ],
       winThemes: [],
       proofPlan: [],
+      competitiveAssumptions: [],
       landmines: [],
       locked: false,
-    },
+    }),
     sections: [
-      { sectionKey: 'approach', title: 'Approach', content: 'Content', status: 'approved' },
-      { sectionKey: 'team', title: 'Team', content: 'Content', status: 'approved' },
-      { sectionKey: 'pricing', title: 'Pricing', content: 'Content', status: 'approved' },
+      createRfpSection({ sectionKey: 'approach', title: 'Approach', contentWorking: 'Content', status: 'approved' }),
+      createRfpSection({ sectionKey: 'team', title: 'Team', contentWorking: 'Content', status: 'approved' }),
+      createRfpSection({ sectionKey: 'pricing', title: 'Pricing', contentWorking: 'Content', status: 'approved' }),
     ],
   };
 }
@@ -824,7 +826,7 @@ describe('Integration Scenarios', () => {
       firmBrainReadiness: createMockFirmBrainReadiness(85),
       strategyHealth: createMockStrategyHealth(90),
       rubricCoverage: createMockRubricCoverage(85, { personaMismatchCount: 0 }),
-      strategy: {
+      strategy: createRfpWinStrategy({
         evaluationCriteria: [
           { label: 'Approach', weight: 0.3, alignmentScore: 5 },
           { label: 'Experience', weight: 0.3, alignmentScore: 4 },
@@ -837,13 +839,14 @@ describe('Integration Scenarios', () => {
           { type: 'case_study', id: 'cs1', priority: 5 },
           { type: 'reference', id: 'ref1', priority: 4 },
         ],
+        competitiveAssumptions: [],
         landmines: [],
         locked: true,
-      },
+      }),
       sections: [
-        { sectionKey: 'approach', title: 'Approach', content: 'Content', status: 'approved' },
-        { sectionKey: 'team', title: 'Team', content: 'Content', status: 'approved' },
-        { sectionKey: 'pricing', title: 'Pricing', content: 'Content', status: 'approved' },
+        createRfpSection({ sectionKey: 'approach', title: 'Approach', contentWorking: 'Content', status: 'approved' }),
+        createRfpSection({ sectionKey: 'team', title: 'Team', contentWorking: 'Content', status: 'approved' }),
+        createRfpSection({ sectionKey: 'pricing', title: 'Pricing', contentWorking: 'Content', status: 'approved' }),
       ],
     };
 
@@ -871,13 +874,14 @@ describe('Integration Scenarios', () => {
           }),
         ],
       }),
-      strategy: {
+      strategy: createRfpWinStrategy({
         evaluationCriteria: [{ label: 'Technical', weight: 0.3 }],
         winThemes: [],
         proofPlan: [],
+        competitiveAssumptions: [],
         landmines: [],
         locked: false,
-      },
+      }),
       sections: [],
     };
 

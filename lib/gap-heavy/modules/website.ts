@@ -4,7 +4,6 @@
 import type { CompanyRecord } from '@/lib/airtable/companies';
 import type { DiagnosticModuleResult, EvidencePack } from '../types';
 import * as cheerio from 'cheerio';
-import { getPageSpeedScore } from '@/lib/ai';
 import { openai } from '@/lib/openai';
 import puppeteer from 'puppeteer';
 
@@ -1052,12 +1051,11 @@ export async function runWebsiteModule(input: {
  * Detects the website platform/framework from HTML signals.
  * Returns platform name, confidence, and detection signals.
  */
-function detectTechStack(rawHtml: string, $: cheerio.CheerioAPI): {
+function detectTechStack(rawHtml: string, _$: cheerio.CheerioAPI): {
   platform: string | null;
   confidence: number;
   signals: string[];
 } {
-  const signals: string[] = [];
   const html = rawHtml.toLowerCase();
 
   // Platform detection patterns with weights
@@ -1626,7 +1624,6 @@ export async function extractWebsiteEvidenceV3(url: string): Promise<WebsiteEvid
         heroCtaTexts.push(text);
 
         // Simple above-fold heuristic: if in first section or first 800px of DOM
-        const parent = $(el).parent();
         const isInFirstSection = heroSection.find(el).length > 0;
         if (isInFirstSection && ctaAboveFold === null) {
           ctaAboveFold = true;
@@ -1769,9 +1766,9 @@ export async function extractWebsiteEvidenceV3(url: string): Promise<WebsiteEvid
 
       // Match patterns like "500+ companies", "4.9/5", "10,000 users", etc.
       const proofPatterns = [
-        /\d+[\+k]?\s*(companies|customers|users|clients)/i,
+        /\d+[+k]?\s*(companies|customers|users|clients)/i,
         /\d+\.\d+\s*\/\s*\d+\s*(stars?|rating)/i,
-        /\d+[\+k]?\s*(downloads?|installs?)/i,
+        /\d+[+k]?\s*(downloads?|installs?)/i,
         /(trusted by|used by|loved by)\s+\d+/i,
         /\d+%\s*(increase|improvement|growth)/i,
       ];
@@ -2216,7 +2213,7 @@ export async function extractWebsiteEvidenceV3(url: string): Promise<WebsiteEvid
 /**
  * LEGACY V2: Extract WebsiteEvidenceV2 from homepage HTML
  */
-async function extractWebsiteEvidenceV2(url: string): Promise<WebsiteEvidenceV2> {
+async function _extractWebsiteEvidenceV2(url: string): Promise<WebsiteEvidenceV2> {
   try {
     const response = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; HiveGapBot/1.0)' },
@@ -2847,7 +2844,7 @@ async function generateWebsiteUXAssessmentV3(
 /**
  * Analyze a page for conversion elements
  */
-async function analyzePageForConversion(url: string): Promise<{
+async function _analyzePageForConversion(url: string): Promise<{
   hasPrimaryCta: boolean;
   ctaText: string[];
   ctaCount: number;
@@ -2921,7 +2918,7 @@ async function analyzePageForConversion(url: string): Promise<{
     // Social proof (numbers, stats, customer counts)
     const socialProof = $('[class*="stat"], [class*="metric"], [class*="count"]').filter((_, el) => {
       const text = $(el).text();
-      return /\d+[k|m|\+]?\s*(customer|user|client|compan)/i.test(text);
+      return /\d+[km+]?\s*(customer|user|client|compan)/i.test(text);
     }).length;
 
     return {
@@ -2949,7 +2946,7 @@ async function analyzePageForConversion(url: string): Promise<{
 /**
  * Check for conversion paths (contact, demo, pricing pages)
  */
-async function checkConversionPaths(websiteUrl: string): Promise<{
+async function _checkConversionPaths(websiteUrl: string): Promise<{
   hasContactForm: boolean;
   hasPricing: boolean;
   conversionPaths: string[];
@@ -3013,7 +3010,7 @@ async function checkConversionPaths(websiteUrl: string): Promise<{
 /**
  * Compute website score based on UX and conversion factors (0-100)
  */
-function computeWebsiteScore(metrics: {
+function _computeWebsiteScore(metrics: {
   hasPrimaryCtaOnHome: boolean;
   hasContactOrDemoForm: boolean;
   hasPricingPage: boolean;
@@ -3048,7 +3045,7 @@ function computeWebsiteScore(metrics: {
 /**
  * Generate summary, issues, and recommendations
  */
-function generateWebsiteInsights(data: {
+function _generateWebsiteInsights(data: {
   hasPrimaryCtaOnHome: boolean;
   ctaCount: number;
   hasContactOrDemoForm: boolean;

@@ -14,11 +14,11 @@
 // This replaces the diagnostics-centric dashboard with a user-intent-first hub.
 
 import { useState, useCallback } from 'react';
-import { CompanySnapshotHeader, deriveCompanyLifecycle, type CompanyLifecycle } from './CompanySnapshotHeader';
-import { BusinessNeedSelector, useBusinessNeed, DEFAULT_BUSINESS_NEEDS, type ActiveBusinessNeed, type BusinessNeed } from './BusinessNeedSelector';
+import { CompanySnapshotHeader, deriveCompanyLifecycle } from './CompanySnapshotHeader';
+import { BusinessNeedSelector, useBusinessNeed, DEFAULT_BUSINESS_NEEDS, type BusinessNeed } from './BusinessNeedSelector';
 import { BestPathForward, deriveStrategyState, type StrategyState } from './BestPathForward';
 import { CurrentDirectionCard } from './CurrentDirectionCard';
-import { KeySignals, extractKeySignals, type KeySignal } from './KeySignals';
+import { KeySignals, extractKeySignals } from './KeySignals';
 import { StrategyAwareActions } from './StrategyAwareActions';
 import type { CompanyStrategy, StrategyPlay } from '@/lib/types/strategy';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
@@ -68,13 +68,13 @@ export function CompanyOverviewV3({
   companyId,
   companyName,
   strategy,
-  plays,
-  strategySnapshot,
+  plays: _plays,
+  strategySnapshot: _strategySnapshot,
   recentDiagnostics,
   alerts,
-  scoreTrends,
-  workSummary,
-  performancePulse,
+  scoreTrends: _scoreTrends,
+  workSummary: _workSummary,
+  performancePulse: _performancePulse,
   contextCompleteness = 0,
   hasContextGaps = false,
   industry,
@@ -308,7 +308,7 @@ function deriveAiRecommendedNeed(data: {
   contextCompleteness: number;
   alerts: CompanyAlert[];
 }): { need: BusinessNeed; reason: string } {
-  const { strategyState, hasDiagnostics, latestScore, hasContextGaps, contextCompleteness, alerts } = data;
+  const { strategyState, hasDiagnostics, latestScore, hasContextGaps: _hasContextGaps, contextCompleteness: _contextCompleteness, alerts } = data;
 
   // If no diagnostics, suggest diagnosing
   if (!hasDiagnostics) {

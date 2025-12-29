@@ -285,7 +285,7 @@ export async function DELETE(request: NextRequest) {
 }
 
 // Also support GET for dry-run preview
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   // Guard: Only allow in development
   if (process.env.NODE_ENV !== 'development') {
     return NextResponse.json(

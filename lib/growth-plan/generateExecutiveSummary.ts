@@ -16,8 +16,6 @@ import type {
   DataAvailability,
   FullGapPlanResponse,
   RoadmapInitiative,
-  SectionAnalysisCardLevel,
-  SectionAnalysisDeepDive,
 } from './types';
 import type { Opportunity } from './types';
 import type { ContentInventory } from './analyzeContentInventory';
@@ -203,8 +201,6 @@ async function rewriteExecutiveSummary(
   console.log('🔄 Rewriting executive summary to enforce completeness...');
 
   const {
-    companyName,
-    websiteUrl,
     scorecard,
     sectionAnalyses,
     marketAnalysis,
@@ -489,14 +485,12 @@ export async function generateExecutiveSummary(
     companyName,
     websiteUrl,
     scorecard,
-    sectionAnalyses,
+    sectionAnalyses: _sectionAnalyses,
     marketAnalysis,
-    positioningAnalysis,
     dataAvailability,
     contentInventory,
     technicalSeoSignals,
-    competitorAnalysis,
-    topOpportunities = [],
+    competitorAnalysis: _competitorAnalysis,
     features,
   } = context;
 
@@ -1142,8 +1136,6 @@ Generate the GAP only according to this schema.`;
   const safeMetaDescription = metaDescription === 'Not available' ? '(Meta description not found in HTML snippet)' : metaDescription;
 
   // Navigation and structure
-  const navItems = extraction?.navigation ? JSON.stringify(extraction.navigation, null, 2) : 'Not available';
-  const ctaButtons = extraction?.ctas ? JSON.stringify(extraction.ctas, null, 2) : 'Not available';
   const links = extraction?.links ? extraction.links.slice(0, 30) : [];
 
   // Content signals
@@ -1169,22 +1161,12 @@ Generate the GAP only according to this schema.`;
   const caseStudyCount = contentSignals?.caseStudyCount || 0;
 
   // Social profiles
-  const socialProfiles = extraction?.external_profiles ? JSON.stringify(extraction.external_profiles, null, 2) : 'Not available';
   const hasLinkedInProfile = extraction?.external_profiles?.linkedin_raw ? extraction.external_profiles.linkedin_raw.length > 0 : false;
   const hasInstagramProfile = extraction?.external_profiles?.instagram_raw ? extraction.external_profiles.instagram_raw.length > 0 : false;
   const hasFacebookProfile = extraction?.external_profiles?.facebook_raw ? extraction.external_profiles.facebook_raw.length > 0 : false;
   const hasGoogleBusinessProfile = extraction?.external_profiles?.gbp_raw ? extraction.external_profiles.gbp_raw.length > 0 : false;
 
-  // Competitor analysis
-  const competitorAnalysisAny = competitorAnalysis as any;
-  const competitorUrls = competitorAnalysisAny?.competitorsIdentified ? JSON.stringify(competitorAnalysisAny.competitorsIdentified) : '[]';
-
-  // Data availability
-  const snapshotFlags = dataAvailability ? JSON.stringify({
-    coverageLevel: dataAvailability.siteCrawl.coverageLevel,
-    overallConfidence: dataAvailability.overallConfidence,
-    evaluatedDimensions: scorecard.evaluatedDimensions,
-  }) : '{}';
+  // Competitor analysis is available in competitorAnalysis variable but not currently used in the rich snapshot
 
   const industry = marketAnalysis?.category || 'Not specified';
   const evidenceJson = technicalSeoSignals ? JSON.stringify(technicalSeoSignals, null, 2) : '';
