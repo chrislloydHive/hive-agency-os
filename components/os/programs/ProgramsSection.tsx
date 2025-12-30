@@ -6,6 +6,7 @@
 // Shows Planning Programs for a strategy with status management and commit actions.
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Loader2,
   CheckCircle2,
@@ -21,6 +22,7 @@ import {
   Pencil,
   Eye,
   Trash2,
+  Plus,
 } from 'lucide-react';
 import type { PlanningProgram, PlanningProgramStatus } from '@/lib/types/program';
 import { PLANNING_PROGRAM_STATUS_LABELS, PLANNING_PROGRAM_STATUS_COLORS } from '@/lib/types/program';
@@ -191,14 +193,17 @@ interface ProgramCardProps {
   onCommit?: (programId: string, workItemIds: string[]) => void;
   onUpdate?: (programId: string, updates: Partial<PlanningProgram>) => Promise<void>;
   onDelete?: (programId: string) => void;
+  onWorkCreated?: (programId: string, workItemIds: string[]) => void;
 }
 
 // ============================================================================
 // Program Card Component
 // ============================================================================
 
-function ProgramCard({ program, companyId, isFocused, isExpanded, onExpand, onStatusChange, onCommit, onUpdate, onDelete }: ProgramCardProps) {
+function ProgramCard({ program, companyId, isFocused, isExpanded, onExpand, onStatusChange, onCommit, onUpdate, onDelete, onWorkCreated }: ProgramCardProps) {
+  const router = useRouter();
   const [isCommitting, setIsCommitting] = useState(false);
+  const [isCreatingWork, setIsCreatingWork] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -288,6 +293,57 @@ function ProgramCard({ program, companyId, isFocused, isExpanded, onExpand, onSt
       setError(err instanceof Error ? err.message : 'Delete failed');
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  /**
+   * Create Work from a committed program that has no work items yet.
+   * Calls the commit API with resync: true to materialize work items,
+   * then navigates to the Work page.
+   */
+  const handleCreateWork = async () => {
+    setIsCreatingWork(true);
+    setError(null);
+
+    try {
+      console.log('[ProgramCard] Creating work for program:', program.id);
+
+      const response = await fetch(`/api/os/programs/${program.id}/commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resync: true }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to create work');
+      }
+
+      const data = await response.json();
+      const workItemIds = data.workItemIds || [];
+
+      console.log('[ProgramCard] Work created:', {
+        programId: program.id,
+        workItemCount: workItemIds.length,
+        counts: data.counts,
+      });
+
+      // Notify parent of work creation
+      onWorkCreated?.(program.id, workItemIds);
+
+      // Update local program state
+      onStatusChange?.({
+        ...program,
+        commitment: { ...program.commitment, workItemIds },
+      });
+
+      // Navigate to Work page filtered by this program
+      router.push(`/c/${companyId}/work?programId=${program.id}`);
+    } catch (err) {
+      console.error('[ProgramCard] Create work failed:', err);
+      setError(err instanceof Error ? err.message : 'Failed to create work');
+    } finally {
+      setIsCreatingWork(false);
     }
   };
 
@@ -384,7 +440,7 @@ function ProgramCard({ program, companyId, isFocused, isExpanded, onExpand, onSt
           </>
         )}
 
-        {/* Committed: View Work */}
+        {/* Committed: View Work or Create Work */}
         {program.status === 'committed' && (
           <>
             {(program.commitment.workItemIds?.length || 0) > 0 ? (
@@ -396,13 +452,18 @@ function ProgramCard({ program, companyId, isFocused, isExpanded, onExpand, onSt
                 View Work ({program.commitment.workItemIds?.length})
               </a>
             ) : (
-              <a
-                href={`/c/${companyId}/work?programId=${program.id}`}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 bg-slate-700/30 hover:bg-slate-700/50 border border-slate-600/30 rounded-md transition-colors"
+              <button
+                onClick={handleCreateWork}
+                disabled={isCreatingWork}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-md transition-colors disabled:opacity-50"
               >
-                <Eye className="w-3 h-3" />
-                Create Work
-              </a>
+                {isCreatingWork ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Plus className="w-3 h-3" />
+                )}
+                {isCreatingWork ? 'Creating...' : 'Create Work'}
+              </button>
             )}
             <button
               onClick={onExpand}

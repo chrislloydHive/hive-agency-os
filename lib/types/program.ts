@@ -572,6 +572,24 @@ export const PlanningProgramCommitmentSchema = z.object({
 export type PlanningProgramCommitment = z.infer<typeof PlanningProgramCommitmentSchema>;
 
 // ============================================================================
+// Service Coverage (for services-aware planning)
+// ============================================================================
+
+/**
+ * Service Coverage Schema - tracks which Hive services are used by the program
+ */
+export const ServiceCoverageSchema = z.object({
+  /** Services from Hive Brain that are used by this program's deliverables */
+  servicesUsed: z.array(z.string()).default([]),
+  /** Enabled services that are NOT leveraged by this program */
+  unusedServices: z.array(z.string()).default([]),
+  /** Capabilities needed but not available in Hive Brain */
+  gaps: z.array(z.string()).default([]),
+});
+
+export type ServiceCoverage = z.infer<typeof ServiceCoverageSchema>;
+
+// ============================================================================
 // Planning Program (Main Entity)
 // ============================================================================
 
@@ -588,6 +606,8 @@ export const PlanningProgramSchema = z.object({
   commitment: PlanningProgramCommitmentSchema.default({ workItemIds: [] }),
   linkedArtifacts: z.array(ProgramArtifactLinkSchema).default([]), // Outputs/inputs/references
   stableKey: z.string().optional(), // For idempotent creation from tactics
+  // Service coverage (for services-aware planning)
+  serviceCoverage: ServiceCoverageSchema.optional(),
   // Work plan materialization tracking
   /** JSON-encoded work plan (for change detection) */
   workPlanJson: z.string().nullable().optional(),
@@ -976,6 +996,8 @@ export const FullProgramDraftPayloadSchema = z.object({
   dependencies: z.array(ProposedDependencySchema).default([]),
   risks: z.array(ProposedRiskSchema).default([]),
   executionPlan: z.array(ProposedPhaseSchema).default([]),
+  // Service coverage (only included when services context is available)
+  serviceCoverage: ServiceCoverageSchema.optional(),
 });
 export type FullProgramDraftPayload = z.infer<typeof FullProgramDraftPayloadSchema>;
 

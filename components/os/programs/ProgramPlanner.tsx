@@ -64,6 +64,7 @@ import { AICoPlannerPanel } from './AICoPlannerPanel';
 import { ExecutionStatusPanel } from './ExecutionStatusPanel';
 import { ProgramOutputsPanel } from './ProgramOutputsPanel';
 import { ProgramLearningsPanel } from './ProgramLearningsPanel';
+import { ServiceCoveragePanel } from './ServiceCoveragePanel';
 import { ArtifactPickerModal } from './ArtifactPickerModal';
 import type { Artifact } from '@/lib/types/artifact';
 import type { ProgramArtifactLinkType } from '@/lib/types/program';
@@ -1109,6 +1110,16 @@ export function ProgramPlanner({
             <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
             <p className="text-sm text-red-400">{error}</p>
           </div>
+        )}
+
+        {/* ============================================================== */}
+        {/* Service Coverage (Show when AI planning has been done) */}
+        {/* ============================================================== */}
+        {localProgram.serviceCoverage && (
+          localProgram.serviceCoverage.servicesUsed.length > 0 ||
+          localProgram.serviceCoverage.gaps.length > 0
+        ) && (
+          <ServiceCoveragePanel serviceCoverage={localProgram.serviceCoverage} />
         )}
 
         {/* ============================================================== */}

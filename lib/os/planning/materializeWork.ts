@@ -14,8 +14,43 @@ import {
   type CreateWorkItemInput,
   type WorkItemRecord,
 } from '@/lib/airtable/workItems';
+import { getCompanyByCanonicalId } from '@/lib/airtable/companies';
 import type { PlanningProgram } from '@/lib/types/program';
 import type { WorkSource, StrategyLink } from '@/lib/types/work';
+
+// ============================================================================
+// Helper: Resolve Airtable Record ID for Company
+// ============================================================================
+
+/**
+ * Resolve the Airtable record ID for a company.
+ *
+ * If companyId looks like an Airtable rec ID (starts with "rec"), return as-is.
+ * Otherwise, look up the company by canonical ID and return its Airtable record ID.
+ */
+async function resolveCompanyRecordId(companyId: string): Promise<string | null> {
+  // If it already looks like an Airtable record ID, return it
+  if (companyId.startsWith('rec')) {
+    return companyId;
+  }
+
+  // Look up the company by canonical ID
+  console.log('[Materialize] Looking up company by canonical ID:', companyId);
+  const company = await getCompanyByCanonicalId(companyId);
+
+  if (!company) {
+    console.error('[Materialize] Company not found by canonical ID:', companyId);
+    return null;
+  }
+
+  console.log('[Materialize] Resolved company canonical ID to Airtable ID:', {
+    canonicalId: companyId,
+    airtableId: company.id,
+    companyName: company.name,
+  });
+
+  return company.id; // This is the Airtable record ID
+}
 
 // ============================================================================
 // Types
@@ -134,10 +169,36 @@ export async function materializeWorkFromProgram(
   const workPlan = buildProgramWorkPlan(program);
   const workPlanJson = JSON.stringify(workPlan);
 
+  // Resolve company Airtable record ID (handles both rec IDs and canonical IDs)
+  const companyRecordId = await resolveCompanyRecordId(program.companyId);
+  if (!companyRecordId) {
+    console.error('[Materialize] Failed to resolve company ID:', program.companyId);
+    return {
+      success: false,
+      programId,
+      workPlanVersion: 0,
+      syncMode: mode,
+      counts: { created: 0, updated: 0, unchanged: 0, removed: 0, skipped: 0 },
+      workItemIds: [],
+      errors: [{ workKey: '', error: `Company not found: ${program.companyId}` }],
+    };
+  }
+
+  // Log deliverable/milestone status for debugging
+  const deliverableStatuses = program.scope.deliverables.map(d => ({ title: d.title, status: d.status }));
+  const milestoneStatuses = program.planDetails.milestones.map(m => ({ title: m.title, status: m.status }));
+
   console.log('[Materialize] Built work plan:', {
     programId,
     itemCount: workPlan.items.length,
     inputHash: workPlan.inputHash,
+    deliverableCount: program.scope.deliverables.length,
+    milestoneCount: program.planDetails.milestones.length,
+    deliverableStatuses,
+    milestoneStatuses,
+    workPlanItems: workPlan.items.map(i => i.workKey),
+    companyId: program.companyId,
+    companyRecordId,
   });
 
   // 3. Fetch existing work items for this program
@@ -168,7 +229,7 @@ export async function materializeWorkFromProgram(
       // Create new work item
       const input: CreateWorkItemInput = {
         title: planItem.title,
-        companyId: program.companyId,
+        companyId: companyRecordId, // Use resolved Airtable record ID
         notes: planItem.notes,
         area: planItem.area,
         workstreamType: planItem.workstreamType,
@@ -178,9 +239,16 @@ export async function materializeWorkFromProgram(
         programWorkKey: planItem.workKey,
         source: buildWorkSource(program, planItem.workKey, planItem.workstreamType),
         strategyLink: buildStrategyLink(program),
+        // Note: serviceCoverageSnapshot omitted - field may not exist in Airtable
       };
 
       try {
+        console.log('[Materialize] Creating work item:', {
+          workKey: planItem.workKey,
+          title: planItem.title,
+          companyId: companyRecordId,
+          programId: programId,
+        });
         const newItem = await createWorkItem(input);
         if (newItem) {
           allWorkItemIds.push(newItem.id);
@@ -190,7 +258,9 @@ export async function materializeWorkFromProgram(
             workKey: planItem.workKey,
           });
         } else {
-          errors.push({ workKey: planItem.workKey, error: 'Failed to create work item' });
+          const errorMsg = 'Failed to create work item - createWorkItem returned null. Check Airtable has "Program ID" and "Program Work Key" fields.';
+          errors.push({ workKey: planItem.workKey, error: errorMsg });
+          console.error('[Materialize] createWorkItem returned null for:', planItem.workKey);
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';

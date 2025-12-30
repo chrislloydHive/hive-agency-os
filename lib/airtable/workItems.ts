@@ -9,6 +9,7 @@ import { base } from './client';
 import type { PriorityItem } from './fullReports';
 import type { PlanInitiative } from '@/lib/gap/types';
 import type { WorkSource, WorkSourceAnalytics, WorkItemArtifact, StrategyLink, WorkstreamType } from '@/lib/types/work';
+import type { ServiceCoverage } from '@/lib/types/program';
 
 /**
  * Work Items table field names (matching Airtable schema exactly)
@@ -38,6 +39,7 @@ const WORK_ITEMS_FIELDS = {
   WORKSTREAM_TYPE: 'Workstream Type', // Classification for downstream artifacts
   PROGRAM_ID: 'Program ID', // Program this work item was materialized from
   PROGRAM_WORK_KEY: 'Program Work Key', // Stable key within the program
+  SERVICE_COVERAGE_SNAPSHOT_JSON: 'Service Coverage Snapshot JSON', // Snapshot of services at materialization
 } as const;
 
 /**
@@ -101,6 +103,7 @@ interface WorkItemFields {
   'Workstream Type'?: string; // WorkstreamType classification
   'Program ID'?: string; // Program this was materialized from
   'Program Work Key'?: string; // Stable key within the program
+  'Service Coverage Snapshot JSON'?: string; // JSON-encoded ServiceCoverage snapshot
 }
 
 /**
@@ -132,6 +135,7 @@ export interface WorkItemRecord {
   workstreamType?: WorkstreamType; // Classification for downstream artifacts
   programId?: string; // Program this was materialized from
   programWorkKey?: string; // Stable key within the program
+  serviceCoverageSnapshot?: ServiceCoverage; // Snapshot of services at materialization
 }
 
 /**
@@ -178,6 +182,19 @@ function parseArtifactsJson(artifactsJson: string | undefined): WorkItemArtifact
 }
 
 /**
+ * Parse Service Coverage Snapshot JSON from Airtable field
+ */
+function parseServiceCoverageSnapshotJson(json: string | undefined): ServiceCoverage | undefined {
+  if (!json) return undefined;
+  try {
+    return JSON.parse(json) as ServiceCoverage;
+  } catch (error) {
+    console.warn('[Work Items] Failed to parse Service Coverage Snapshot JSON:', error);
+    return undefined;
+  }
+}
+
+/**
  * Map Airtable record to WorkItemRecord
  */
 function mapWorkItemRecord(record: any): WorkItemRecord {
@@ -214,6 +231,7 @@ function mapWorkItemRecord(record: any): WorkItemRecord {
     workstreamType: fields['Workstream Type'] as WorkstreamType | undefined,
     programId: fields['Program ID'],
     programWorkKey: fields['Program Work Key'],
+    serviceCoverageSnapshot: parseServiceCoverageSnapshotJson(fields['Service Coverage Snapshot JSON']),
   };
 }
 
@@ -823,6 +841,7 @@ export interface CreateWorkItemInput {
   workstreamType?: WorkstreamType; // Classification for downstream artifacts
   programId?: string; // Program this work item was materialized from
   programWorkKey?: string; // Stable key within the program
+  serviceCoverageSnapshot?: ServiceCoverage; // Snapshot of services at materialization
 }
 
 /**
@@ -848,16 +867,20 @@ export async function createWorkItem(
     workstreamType,
     programId,
     programWorkKey,
+    serviceCoverageSnapshot,
   } = input;
 
   console.log('[Work Items] Creating generic work item:', {
     title,
     companyId,
+    companyIdLooksLikeRecId: companyId.startsWith('rec'),
     area,
     severity,
     status,
     hasSource: !!source,
     hasStrategyLink: !!strategyLink,
+    programId,
+    programWorkKey,
   });
 
   // Build Airtable fields
@@ -901,12 +924,24 @@ export async function createWorkItem(
     fields[WORK_ITEMS_FIELDS.PROGRAM_WORK_KEY] = programWorkKey;
   }
 
+  if (serviceCoverageSnapshot) {
+    fields[WORK_ITEMS_FIELDS.SERVICE_COVERAGE_SNAPSHOT_JSON] = JSON.stringify(serviceCoverageSnapshot);
+  }
+
   try {
+    console.log('[Work Items] Calling Airtable create with fields:', {
+      fieldNames: Object.keys(fields),
+      companyId,
+      companyFieldValue: fields[WORK_ITEMS_FIELDS.COMPANY],
+      programId,
+      programWorkKey,
+    });
+
     // Create the record in Airtable
     const records = await base('Work Items').create([{ fields }]);
 
     if (!records || records.length === 0) {
-      console.error('[Work Items] No record returned from Airtable create');
+      console.error('[Work Items] No record returned from Airtable create - this should not happen');
       return null;
     }
 
@@ -919,8 +954,19 @@ export async function createWorkItem(
 
     // Map to WorkItemRecord
     return mapWorkItemRecord(record);
-  } catch (error) {
-    console.error('[Work Items] Error creating work item:', error);
+  } catch (error: unknown) {
+    // Log full error details for debugging - Airtable errors have specific structure
+    console.error('[Work Items] AIRTABLE CREATE FAILED:', {
+      title,
+      companyId,
+      programId,
+      programWorkKey,
+      error: error,
+      errorString: String(error),
+      errorMessage: (error as any)?.message,
+      errorError: (error as any)?.error,
+      statusCode: (error as any)?.statusCode,
+    });
     return null;
   }
 }

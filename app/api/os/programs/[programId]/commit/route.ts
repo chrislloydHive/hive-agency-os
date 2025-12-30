@@ -134,9 +134,26 @@ export async function POST(request: NextRequest, { params }: Params) {
     console.log('[commit] Materializing work items for program:', programId, 'mode:', syncMode);
     const result = await materializeWorkFromProgram(programId, { mode: syncMode as SyncMode });
 
+    console.log('[commit] Materialization result:', {
+      success: result.success,
+      counts: result.counts,
+      errorCount: result.errors.length,
+      workItemCount: result.workItemIds.length,
+    });
+
     if (!result.success && result.errors.length > 0) {
       // Partial success - some items may have been created
       console.warn('[commit] Materialization completed with errors:', result.errors);
+    }
+
+    // If no work items were created and there are errors, return error response
+    if (result.workItemIds.length === 0 && result.errors.length > 0) {
+      return NextResponse.json({
+        success: false,
+        error: 'Failed to create work items. Check Airtable schema has "Program ID" and "Program Work Key" fields in Work Items table.',
+        errors: result.errors,
+        counts: result.counts,
+      }, { status: 500 });
     }
 
     console.log('[commit] Materialization complete:', {

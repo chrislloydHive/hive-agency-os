@@ -3,16 +3,15 @@
 // app/c/[companyId]/work/WorkClient.tsx
 // Work Hub - Tasks, Experiments, and Backlog
 //
-// This component manages the Work section with sub-tabs:
-// - Tasks: Active work items (In Progress, Planned, Done)
-// - Experiments: A/B tests and growth experiments
-// - Backlog: Suggested work from diagnostics
+// Master-detail layout with:
+// - Left pane: WorkListPanel (search, filters, compact list)
+// - Right pane: WorkDetailsPanel (details, AI guide, tabs)
+// - Sub-tabs: Tasks (master-detail), Experiments, Backlog
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import ReactMarkdown from 'react-markdown';
-import { Lightbulb, Zap, Plus, Loader2, ArrowRight, Target, Clock, FileText, X, ExternalLink, Layers, Activity } from 'lucide-react';
+import { Lightbulb, Zap, Plus, Loader2, ArrowRight, Target, Clock, FileText, X, ExternalLink, Layers, Activity, ChevronDown, ChevronRight } from 'lucide-react';
 import type { ExtendedNextBestAction } from '@/lib/os/companies/nextBestAction.types';
 import type {
   WorkItemRecord,
@@ -24,11 +23,11 @@ import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySna
 import type { Workstream, Task } from '@/lib/types/workMvp';
 import { STATUS_LABELS, STATUS_COLORS } from '@/lib/types/workMvp';
 import PriorityCardWithAction from './PriorityCardWithAction';
-import WorkItemCardWithStatus from './WorkItemCardWithStatus';
 import { ExperimentsClient } from '@/components/experiments/ExperimentsClient';
-import { WorkItemArtifactsSection } from '@/components/os/work/WorkItemArtifactsSection';
-import type { WorkItemArtifact } from '@/lib/types/work';
+import { WorkListPanel } from '@/components/os/work/WorkListPanel';
+import { WorkDetailsPanel } from '@/components/os/work/WorkDetailsPanel';
 import { isArtifactSource } from '@/lib/types/work';
+import type { WorkItemArtifact } from '@/lib/types/work';
 
 // ============================================================================
 // Types
@@ -72,7 +71,7 @@ export function WorkClient({
   const searchParams = useSearchParams();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ActiveTab>('tasks');
-  const [selectedWorkItem, setSelectedWorkItem] = useState<WorkItemRecord | null>(null);
+  const [selectedWorkItemId, setSelectedWorkItemId] = useState<string | null>(null);
   const [aiAdditionalInfo, setAiAdditionalInfo] = useState<string | null>(null);
   const [loadingAI, setLoadingAI] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -85,6 +84,22 @@ export function WorkClient({
 
   // Check for program filter from URL
   const programIdFilter = searchParams.get('programId');
+
+  // Check for workItemId from URL (for deep-linking)
+  const workItemIdFromUrl = searchParams.get('workItemId');
+
+  // Initialize selection from URL
+  useEffect(() => {
+    if (workItemIdFromUrl && !selectedWorkItemId) {
+      setSelectedWorkItemId(workItemIdFromUrl);
+    }
+  }, [workItemIdFromUrl, selectedWorkItemId]);
+
+  // Get selected work item from ID
+  const selectedWorkItem = useMemo(() => {
+    if (!selectedWorkItemId) return null;
+    return workItems.find(item => item.id === selectedWorkItemId) || null;
+  }, [selectedWorkItemId, workItems]);
 
   // Artifact details for filter display
   const [artifactTitle, setArtifactTitle] = useState<string | null>(null);
@@ -209,33 +224,38 @@ export function WorkClient({
     router.push(`/c/${company.id}/work`);
   }, [router, company.id]);
 
-  // Group work items by status
-  const grouped = {
-    'In Progress': filteredWorkItems.filter((item) => item.status === 'In Progress'),
-    'Planned': filteredWorkItems.filter((item) => item.status === 'Planned'),
-    'Backlog': filteredWorkItems.filter((item) => item.status === 'Backlog'),
-    'Done': filteredWorkItems.filter((item) => item.status === 'Done'),
-  };
-
+  // Active items (non-Done) for initial suggestions collapse logic
   const activeItems = filteredWorkItems.filter((w) => w.status !== 'Done');
-  const doneItems = filteredWorkItems.filter((w) => w.status === 'Done');
 
-  // Handle selecting a work item
+  // Handle selecting a work item (updates URL shallowly)
   const handleSelectWorkItem = useCallback((item: WorkItemRecord | null) => {
-    if (item && selectedWorkItem?.id === item.id) {
-      setSelectedWorkItem(null);
+    if (item && selectedWorkItemId === item.id) {
+      // Deselect if clicking same item
+      setSelectedWorkItemId(null);
       setAiAdditionalInfo(null);
       setAiError(null);
+      // Update URL to remove workItemId
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete('workItemId');
+      router.replace(`/c/${company.id}/work${params.toString() ? `?${params.toString()}` : ''}`, { scroll: false });
     } else if (item) {
-      setSelectedWorkItem(item);
+      setSelectedWorkItemId(item.id);
       setAiAdditionalInfo(item.aiAdditionalInfo || null);
       setAiError(null);
+      // Update URL with workItemId (preserve other filters)
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('workItemId', item.id);
+      router.replace(`/c/${company.id}/work?${params.toString()}`, { scroll: false });
     } else {
-      setSelectedWorkItem(null);
+      setSelectedWorkItemId(null);
       setAiAdditionalInfo(null);
       setAiError(null);
+      // Update URL to remove workItemId
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete('workItemId');
+      router.replace(`/c/${company.id}/work${params.toString() ? `?${params.toString()}` : ''}`, { scroll: false });
     }
-  }, [selectedWorkItem?.id]);
+  }, [selectedWorkItemId, searchParams, router, company.id]);
 
   // Fetch AI additional info
   const handleAdditionalInfo = useCallback(async () => {
@@ -258,7 +278,6 @@ export function WorkClient({
       }
 
       setAiAdditionalInfo(data.markdown);
-      setSelectedWorkItem((prev) => prev ? { ...prev, aiAdditionalInfo: data.markdown } : null);
     } catch (err) {
       setAiError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -266,179 +285,93 @@ export function WorkClient({
     }
   }, [selectedWorkItem]);
 
-  // Check if there's any work at all
-  const hasAnyWork = filteredWorkItems.length > 0 || (!artifactIdFilter && (mvpWorkstreams.length > 0 || mvpTasks.length > 0));
-
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">Work</h1>
-        <p className="text-sm text-slate-400 mt-1">
-          Track execution of committed programs.
-        </p>
+    <div className="space-y-4">
+      {/* Compact Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-white">Work</h1>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Track execution of committed programs.
+          </p>
+        </div>
       </div>
 
-      {/* Artifact Filter Banner */}
+      {/* Artifact Filter Banner - Compact */}
       {artifactIdFilter && (
-        <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-500/20 rounded-lg">
-                <FileText className="w-4 h-4 text-purple-400" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-purple-300">
-                  {loadingArtifact ? 'Loading...' : artifactTitle ? `Work generated from: ${artifactTitle}` : 'Filtering by artifact'}
-                </p>
-                <p className="text-xs text-purple-400/80 mt-0.5">
-                  Showing {filteredWorkItems.length} work item{filteredWorkItems.length !== 1 ? 's' : ''} linked to this artifact
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Link
-                href={`/c/${company.id}/artifacts/${artifactIdFilter}`}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-300 hover:text-purple-200 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded-lg transition-colors"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                View artifact
-              </Link>
-              <button
-                onClick={clearArtifactFilter}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-300 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700 rounded-lg transition-colors"
-              >
-                <X className="w-3.5 h-3.5" />
-                Clear filter
-              </button>
-            </div>
+        <div className="flex items-center justify-between bg-purple-500/10 border border-purple-500/30 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4 text-purple-400" />
+            <span className="text-sm text-purple-300">
+              {loadingArtifact ? 'Loading...' : artifactTitle || 'Artifact filter'}
+            </span>
+            <span className="text-xs text-purple-400/70">
+              ({filteredWorkItems.length} item{filteredWorkItems.length !== 1 ? 's' : ''})
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/c/${company.id}/artifacts/${artifactIdFilter}`}
+              className="text-xs text-purple-300 hover:text-purple-200"
+            >
+              View
+            </Link>
+            <button onClick={clearArtifactFilter} className="text-slate-400 hover:text-slate-300">
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}
 
-      {/* Strategy Filter Banner */}
+      {/* Strategy Filter Banner - Compact */}
       {strategyIdFilter && (
-        <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-500/20 rounded-lg">
-                <Layers className="w-4 h-4 text-blue-400" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-blue-300">
-                  {loadingStrategy ? 'Loading...' : strategyTitle ? `Work from Strategy: ${strategyTitle}` : 'Filtering by strategy'}
-                </p>
-                <p className="text-xs text-blue-400/80 mt-0.5">
-                  Showing {filteredWorkItems.length} work item{filteredWorkItems.length !== 1 ? 's' : ''} committed from this strategy
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Link
-                href={`/c/${company.id}/strategy?id=${strategyIdFilter}`}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-300 hover:text-blue-200 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded-lg transition-colors"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                View strategy
-              </Link>
-              <button
-                onClick={clearStrategyFilter}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-300 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700 rounded-lg transition-colors"
-              >
-                <X className="w-3.5 h-3.5" />
-                Clear filter
-              </button>
-            </div>
+        <div className="flex items-center justify-between bg-blue-500/10 border border-blue-500/30 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2">
+            <Layers className="w-4 h-4 text-blue-400" />
+            <span className="text-sm text-blue-300">
+              {loadingStrategy ? 'Loading...' : strategyTitle || 'Strategy filter'}
+            </span>
+            <span className="text-xs text-blue-400/70">
+              ({filteredWorkItems.length} item{filteredWorkItems.length !== 1 ? 's' : ''})
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/c/${company.id}/strategy?id=${strategyIdFilter}`}
+              className="text-xs text-blue-300 hover:text-blue-200"
+            >
+              View
+            </Link>
+            <button onClick={clearStrategyFilter} className="text-slate-400 hover:text-slate-300">
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}
 
-      {/* Program Filter Banner */}
+      {/* Program Filter Banner - Compact */}
       {programIdFilter && (
-        <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-cyan-500/20 rounded-lg">
-                <Activity className="w-4 h-4 text-cyan-400" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-cyan-300">
-                  {loadingProgram ? 'Loading...' : programTitle ? `Work from Program: ${programTitle}` : 'Filtering by program'}
-                </p>
-                <p className="text-xs text-cyan-400/80 mt-0.5">
-                  Showing {filteredWorkItems.length} work item{filteredWorkItems.length !== 1 ? 's' : ''} from this program
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Link
-                href={`/c/${company.id}/deliver?programId=${programIdFilter}`}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-cyan-300 hover:text-cyan-200 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/30 rounded-lg transition-colors"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                View program
-              </Link>
-              <button
-                onClick={clearProgramFilter}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-300 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700 rounded-lg transition-colors"
-              >
-                <X className="w-3.5 h-3.5" />
-                Clear filter
-              </button>
-            </div>
+        <div className="flex items-center justify-between bg-cyan-500/10 border border-cyan-500/30 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-cyan-400" />
+            <span className="text-sm text-cyan-300">
+              {loadingProgram ? 'Loading...' : programTitle || 'Program filter'}
+            </span>
+            <span className="text-xs text-cyan-400/70">
+              ({filteredWorkItems.length} item{filteredWorkItems.length !== 1 ? 's' : ''})
+            </span>
           </div>
-        </div>
-      )}
-
-      {/* Empty state: No work yet - concise, confident */}
-      {!hasAnyWork && !artifactIdFilter && !strategyIdFilter && !programIdFilter && (
-        <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-6 text-center">
-          <Layers className="w-8 h-8 text-slate-500 mx-auto mb-3" />
-          <p className="text-sm font-medium text-slate-300">No active work</p>
-          <p className="text-xs text-slate-500 mt-1 mb-4">
-            Commit a Program from Deliver to start tracking work.
-          </p>
-          <Link
-            href={`/c/${company.id}/deliver`}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-500 transition-colors"
-          >
-            <ArrowRight className="w-3.5 h-3.5" />
-            Go to Deliver
-          </Link>
-        </div>
-      )}
-
-      {/* Empty state: Artifact filter has no results */}
-      {artifactIdFilter && filteredWorkItems.length === 0 && (
-        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 text-center">
-          <FileText className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-          <p className="text-sm font-medium text-slate-300">No work items linked to this artifact</p>
-          <p className="text-xs text-slate-500 mt-1 mb-4">
-            Work items created from or attached to this artifact will appear here.
-          </p>
-          <button
-            onClick={clearArtifactFilter}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-slate-300 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-lg transition-colors"
-          >
-            View all work items
-          </button>
-        </div>
-      )}
-
-      {/* Empty state: Program filter has no results */}
-      {programIdFilter && filteredWorkItems.length === 0 && (
-        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 text-center">
-          <Activity className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-          <p className="text-sm font-medium text-slate-300">No work items from this program</p>
-          <p className="text-xs text-slate-500 mt-1 mb-4">
-            Work items created when this program was committed will appear here.
-          </p>
-          <button
-            onClick={clearProgramFilter}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-slate-300 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-lg transition-colors"
-          >
-            View all work items
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/c/${company.id}/deliver?programId=${programIdFilter}`}
+              className="text-xs text-cyan-300 hover:text-cyan-200"
+            >
+              View
+            </Link>
+            <button onClick={clearProgramFilter} className="text-slate-400 hover:text-slate-300">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -504,12 +437,10 @@ export function WorkClient({
       {/* Tab Content */}
       {activeTab === 'tasks' && (
         <TasksSection
-          grouped={grouped}
+          workItems={filteredWorkItems}
           activeItems={activeItems}
-          doneItems={doneItems}
-          mvpWorkstreams={mvpWorkstreams}
-          mvpTasks={mvpTasks}
           selectedWorkItem={selectedWorkItem}
+          selectedWorkItemId={selectedWorkItemId}
           onSelectWorkItem={handleSelectWorkItem}
           aiAdditionalInfo={aiAdditionalInfo}
           loadingAI={loadingAI}
@@ -580,12 +511,10 @@ function TabButton({
 }
 
 function TasksSection({
-  grouped,
+  workItems,
   activeItems,
-  doneItems,
-  mvpWorkstreams,
-  mvpTasks,
   selectedWorkItem,
+  selectedWorkItemId,
   onSelectWorkItem,
   aiAdditionalInfo,
   loadingAI,
@@ -593,12 +522,10 @@ function TasksSection({
   onAdditionalInfo,
   companyId,
 }: {
-  grouped: Record<WorkItemStatus, WorkItemRecord[]>;
+  workItems: WorkItemRecord[];
   activeItems: WorkItemRecord[];
-  doneItems: WorkItemRecord[];
-  mvpWorkstreams: Workstream[];
-  mvpTasks: Task[];
   selectedWorkItem: WorkItemRecord | null;
+  selectedWorkItemId: string | null;
   onSelectWorkItem: (item: WorkItemRecord | null) => void;
   aiAdditionalInfo: string | null;
   loadingAI: boolean;
@@ -606,14 +533,14 @@ function TasksSection({
   onAdditionalInfo: () => void;
   companyId: string;
 }) {
-  const hasWorkItems = activeItems.length > 0 || doneItems.length > 0;
-  const hasMvpWork = mvpWorkstreams.length > 0 || mvpTasks.length > 0;
+  const hasWorkItems = workItems.length > 0;
 
   // Suggested Actions state
   const [suggestedActions, setSuggestedActions] = useState<ExtendedNextBestAction[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
   const [addingActionId, setAddingActionId] = useState<string | null>(null);
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
+  const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(activeItems.length > 0);
 
   // Fetch suggested actions
   useEffect(() => {
@@ -667,449 +594,108 @@ function TasksSection({
   // Filter out added actions
   const displaySuggestions = suggestedActions.filter(a => !addedIds.has(a.id));
 
+  // Empty state for no work items
+  if (!hasWorkItems) {
+    return (
+      <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl p-6 text-center">
+        <Layers className="w-8 h-8 text-slate-500 mx-auto mb-3" />
+        <p className="text-sm font-medium text-slate-300">No active work</p>
+        <p className="text-xs text-slate-500 mt-1 mb-4">
+          Commit a Program from Deliver to start tracking work.
+        </p>
+        <Link
+          href={`/c/${companyId}/deliver`}
+          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-500 transition-colors"
+        >
+          <ArrowRight className="w-3.5 h-3.5" />
+          Go to Deliver
+        </Link>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
-      {/* Suggested Actions Panel */}
+    <div className="space-y-4">
+      {/* Suggested Actions Panel - Collapsible */}
       {!loadingSuggestions && displaySuggestions.length > 0 && (
-        <div className="bg-slate-900/70 border border-purple-500/20 rounded-xl p-5">
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-purple-500/15 flex items-center justify-center">
-                <Lightbulb className="w-4 h-4 text-purple-400" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-white">Suggested Actions</h3>
-                <p className="text-xs text-slate-500 mt-0.5">AI-recommended opportunities (not yet scheduled)</p>
-              </div>
+        <div className="bg-slate-900/70 border border-purple-500/20 rounded-lg overflow-hidden">
+          <button
+            onClick={() => setSuggestionsCollapsed(!suggestionsCollapsed)}
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-800/30 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <Lightbulb className="w-4 h-4 text-purple-400" />
+              <span className="text-sm font-medium text-slate-200">Suggested Actions</span>
+              <span className="text-xs text-slate-500">({displaySuggestions.length})</span>
             </div>
-            <Link
-              href={`/c/${companyId}/findings`}
-              className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
-            >
-              View all
-              <ArrowRight className="w-3 h-3" />
-            </Link>
-          </div>
-
-          <div className="space-y-3">
-            {displaySuggestions.map(action => (
-              <div
-                key={action.id}
-                className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 hover:border-slate-700 transition-colors"
-              >
-                <div className="flex items-start justify-between gap-3">
+            {suggestionsCollapsed ? (
+              <ChevronRight className="w-4 h-4 text-slate-500" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-slate-500" />
+            )}
+          </button>
+          {!suggestionsCollapsed && (
+            <div className="px-4 pb-4 space-y-2">
+              {displaySuggestions.map(action => (
+                <div
+                  key={action.id}
+                  className="flex items-center justify-between gap-3 p-3 rounded-lg border border-slate-800 bg-slate-900/50"
+                >
                   <div className="flex-1 min-w-0">
-                    {/* Type indicator row */}
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/10 text-purple-300 border border-purple-500/30">
-                        Suggested Action
-                      </span>
+                    <div className="flex items-center gap-2 mb-1">
                       {action.isQuickWin && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          <Zap className="w-3 h-3" />
-                          Quick win
-                        </span>
+                        <Zap className="w-3 h-3 text-emerald-400 shrink-0" />
                       )}
-                      {action.theme && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-700/50 text-slate-400 border border-slate-600/50">
-                          {action.theme}
-                        </span>
-                      )}
+                      <span className="text-sm text-slate-200 truncate">{action.action}</span>
                     </div>
-
-                    {/* Title (action) */}
-                    <h4 className="text-sm font-medium text-slate-100 leading-snug mb-1">
-                      {action.action}
-                    </h4>
-
-                    {/* Reason (why) */}
-                    {action.reason && (
-                      <p className="text-xs text-slate-400 line-clamp-1 mb-2">
-                        {action.reason}
-                      </p>
+                    {action.expectedImpact && (
+                      <p className="text-xs text-slate-500 truncate">{action.expectedImpact}</p>
                     )}
-
-                    {/* Impact & Effort Chips */}
-                    <div className="flex items-center gap-2 text-[10px]">
-                      {action.expectedImpact && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">
-                          <Target className="w-3 h-3" />
-                          {action.expectedImpact.length > 25
-                            ? action.expectedImpact.slice(0, 22) + '...'
-                            : action.expectedImpact}
-                        </span>
-                      )}
-                      {action.effort && (
-                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${
-                          action.effort === 'quick-win'
-                            ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
-                            : action.effort === 'moderate'
-                            ? 'bg-blue-500/10 text-blue-300 border-blue-500/20'
-                            : 'bg-slate-700/50 text-slate-400 border-slate-600/50'
-                        }`}>
-                          <Clock className="w-3 h-3" />
-                          {action.effort === 'quick-win' ? 'Quick' : action.effort === 'moderate' ? 'Moderate' : 'Significant'}
-                          {action.estimatedHours && ` (~${action.estimatedHours}h)`}
-                        </span>
-                      )}
-                      {!action.effort && action.estimatedHours && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-700/50 text-slate-400 border border-slate-600/50">
-                          <Clock className="w-3 h-3" />
-                          ~{action.estimatedHours}h
-                        </span>
-                      )}
-                    </div>
                   </div>
-
-                  {/* Schedule Task Button */}
                   <button
                     onClick={() => handleAddSuggestionToWork(action)}
                     disabled={addingActionId === action.id}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 transition-colors disabled:opacity-50 flex-shrink-0"
+                    className="shrink-0 px-2.5 py-1.5 text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30 rounded-md hover:bg-amber-500/20 disabled:opacity-50"
                   >
                     {addingActionId === action.id ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : (
                       <Plus className="w-3.5 h-3.5" />
                     )}
-                    Schedule Task
                   </button>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Strategy Workstreams (from finalized strategy) */}
-      {hasMvpWork && (
-        <div className="bg-slate-900/70 border border-blue-500/20 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
-                Strategy Workstreams ({mvpWorkstreams.length})
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Generated from your finalized strategy
-              </p>
+              ))}
             </div>
-            <Link
-              href={`/c/${companyId}/strategy`}
-              className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-            >
-              View Strategy
-              <ArrowRight className="w-3 h-3" />
-            </Link>
-          </div>
-
-          <div className="space-y-4">
-            {mvpWorkstreams.map(workstream => {
-              const workstreamTasks = mvpTasks.filter(t => t.workstreamId === workstream.id);
-              const completedTasks = workstreamTasks.filter(t => t.status === 'complete').length;
-              const progress = workstreamTasks.length > 0
-                ? Math.round((completedTasks / workstreamTasks.length) * 100)
-                : 0;
-
-              return (
-                <div
-                  key={workstream.id}
-                  className="rounded-lg border border-slate-700 bg-slate-800/30 p-4"
-                >
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4 className="text-sm font-medium text-slate-100">
-                          {workstream.title}
-                        </h4>
-                        {workstream.service && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-700/50 text-slate-400 capitalize">
-                            {workstream.service}
-                          </span>
-                        )}
-                      </div>
-                      {workstream.description && (
-                        <p className="text-xs text-slate-400 line-clamp-2">
-                          {workstream.description}
-                        </p>
-                      )}
-                    </div>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${STATUS_COLORS[workstream.status]}`}>
-                      {STATUS_LABELS[workstream.status]}
-                    </span>
-                  </div>
-
-                  {/* Progress bar */}
-                  <div className="mb-3">
-                    <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1">
-                      <span>{completedTasks} of {workstreamTasks.length} tasks</span>
-                      <span>{progress}%</span>
-                    </div>
-                    <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-blue-500 rounded-full transition-all"
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Task list */}
-                  {workstreamTasks.length > 0 && (
-                    <div className="space-y-1.5">
-                      {workstreamTasks.slice(0, 5).map(task => (
-                        <div
-                          key={task.id}
-                          className="flex items-center gap-2 py-1.5 px-2 rounded bg-slate-800/50"
-                        >
-                          <div className={`w-1.5 h-1.5 rounded-full ${
-                            task.status === 'complete' ? 'bg-emerald-500' :
-                            task.status === 'in_progress' ? 'bg-blue-500' :
-                            task.status === 'blocked' ? 'bg-red-500' :
-                            'bg-slate-500'
-                          }`} />
-                          <span className={`text-xs flex-1 ${
-                            task.status === 'complete' ? 'text-slate-500 line-through' : 'text-slate-300'
-                          }`}>
-                            {task.title}
-                          </span>
-                          <span className="text-[10px] text-slate-500">
-                            {STATUS_LABELS[task.status]}
-                          </span>
-                        </div>
-                      ))}
-                      {workstreamTasks.length > 5 && (
-                        <p className="text-[10px] text-slate-500 text-center pt-1">
-                          + {workstreamTasks.length - 5} more tasks
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          )}
         </div>
       )}
 
-      {/* Active Work */}
-      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
-              Active Tasks ({activeItems.length})
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">Click a row to see implementation details</p>
-          </div>
-          <button className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-900 font-medium rounded-lg transition-colors text-xs">
-            Add Task
-          </button>
-        </div>
-
-        {!hasWorkItems ? (
-          <EmptyState
-            title="No Tasks Yet"
-            description="Tasks represent committed initiatives. Suggested work from diagnostics appears in the Opportunities tab."
+      {/* Master-Detail Layout */}
+      <div className="flex gap-0 h-[calc(100vh-320px)] min-h-[500px] bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden">
+        {/* Left: Work List Panel */}
+        <div className="w-[380px] shrink-0 border-r border-slate-800">
+          <WorkListPanel
+            workItems={workItems}
+            selectedWorkItemId={selectedWorkItemId}
+            onSelectWorkItem={onSelectWorkItem}
+            companyId={companyId}
           />
-        ) : (
-          <div className="space-y-6">
-            {(Object.keys(grouped) as WorkItemStatus[])
-              .filter(status => status !== 'Done')
-              .map((status) => {
-                const items = grouped[status];
-                if (items.length === 0) return null;
-
-                return (
-                  <div key={status}>
-                    <h4 className="text-xs font-medium uppercase tracking-wide text-slate-500 mb-2">
-                      {status} ({items.length})
-                    </h4>
-                    <div className="space-y-2">
-                      {items.map((item) => (
-                        <WorkItemCardWithStatus
-                          key={item.id}
-                          item={item}
-                          companyId={companyId}
-                          isSelected={selectedWorkItem?.id === item.id}
-                          onClick={() => onSelectWorkItem(item)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-          </div>
-        )}
-      </div>
-
-      {/* Work Item Detail Panel */}
-      {selectedWorkItem && (
-        <WorkItemDetailPanel
-          item={selectedWorkItem}
-          companyId={companyId}
-          aiAdditionalInfo={aiAdditionalInfo}
-          loadingAI={loadingAI}
-          aiError={aiError}
-          onAdditionalInfo={onAdditionalInfo}
-          onClose={() => onSelectWorkItem(null)}
-        />
-      )}
-
-      {/* Completed Work */}
-      {doneItems.length > 0 && (
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
-          <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">
-            Completed ({doneItems.length})
-          </h3>
-          <div className="space-y-2">
-            {doneItems.slice(0, 5).map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg opacity-70 cursor-pointer hover:opacity-100"
-                onClick={() => onSelectWorkItem(item)}
-              >
-                <span className="text-sm text-slate-400 line-through">{item.title}</span>
-                <span className="text-xs text-emerald-500">Done</span>
-              </div>
-            ))}
-            {doneItems.length > 5 && (
-              <p className="text-xs text-slate-500 text-center pt-2">
-                + {doneItems.length - 5} more completed
-              </p>
-            )}
-          </div>
         </div>
-      )}
+
+        {/* Right: Work Details Panel */}
+        <div className="flex-1 min-w-0">
+          <WorkDetailsPanel
+            workItem={selectedWorkItem}
+            companyId={companyId}
+            aiAdditionalInfo={aiAdditionalInfo}
+            loadingAI={loadingAI}
+            aiError={aiError}
+            onGenerateAI={onAdditionalInfo}
+            onClose={() => onSelectWorkItem(null)}
+          />
+        </div>
+      </div>
     </div>
-  );
-}
-
-function WorkItemDetailPanel({
-  item,
-  companyId,
-  aiAdditionalInfo,
-  loadingAI,
-  aiError,
-  onAdditionalInfo,
-  onClose,
-  onArtifactsChange,
-}: {
-  item: WorkItemRecord;
-  companyId: string;
-  aiAdditionalInfo: string | null;
-  loadingAI: boolean;
-  aiError: string | null;
-  onAdditionalInfo: () => void;
-  onClose: () => void;
-  onArtifactsChange?: (artifacts: WorkItemArtifact[]) => void;
-}) {
-  const formatDate = (dateStr?: string | null) => {
-    if (!dateStr) return '—';
-    try {
-      return new Date(dateStr).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
-    } catch {
-      return '—';
-    }
-  };
-
-  return (
-    <>
-      <div className="bg-slate-900/80 border border-amber-500/30 rounded-xl p-6">
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <div>
-            <h3 className="text-base font-semibold text-slate-100">{item.title}</h3>
-            <p className="mt-1 text-xs text-slate-500">
-              Source: {item.notes?.includes('Analytics AI') ? 'Analytics AI' : 'Manual'}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-xs text-slate-500 hover:text-slate-300 px-2 py-1 rounded hover:bg-slate-800"
-          >
-            Close
-          </button>
-        </div>
-
-        <div className="flex flex-wrap gap-2 mb-4 text-[11px]">
-          {item.area && (
-            <span className="px-2 py-0.5 rounded bg-slate-700 text-slate-300">
-              {item.area}
-            </span>
-          )}
-          {item.status && (
-            <span className={`px-2 py-0.5 rounded ${
-              item.status === 'In Progress'
-                ? 'bg-blue-500/20 text-blue-300'
-                : item.status === 'Planned'
-                ? 'bg-purple-500/20 text-purple-300'
-                : item.status === 'Done'
-                ? 'bg-emerald-500/20 text-emerald-300'
-                : 'bg-slate-500/20 text-slate-300'
-            }`}>
-              {item.status}
-            </span>
-          )}
-          {item.severity && (
-            <span className={`px-2 py-0.5 rounded ${
-              item.severity === 'High'
-                ? 'bg-red-500/20 text-red-300'
-                : item.severity === 'Medium'
-                ? 'bg-amber-500/20 text-amber-300'
-                : 'bg-slate-500/20 text-slate-300'
-            }`}>
-              {item.severity} priority
-            </span>
-          )}
-        </div>
-
-        <div className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed prose prose-invert prose-sm max-w-none">
-          {item.notes || 'No additional details provided.'}
-        </div>
-
-        {item.dueDate && (
-          <div className="mt-4 pt-4 border-t border-slate-700">
-            <p className="text-xs text-slate-400">Due: {formatDate(item.dueDate)}</p>
-          </div>
-        )}
-
-        {/* Additional Information Button */}
-        <div className="mt-4 pt-4 border-t border-slate-700">
-          <button
-            onClick={onAdditionalInfo}
-            disabled={loadingAI}
-            className="inline-flex items-center rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-800 disabled:opacity-60"
-          >
-            {loadingAI ? 'Generating...' : aiAdditionalInfo ? 'Regenerate Info' : 'Additional Information'}
-          </button>
-          {aiError && <p className="mt-2 text-xs text-red-400">{aiError}</p>}
-        </div>
-
-        {/* Attached Artifacts Section */}
-        <WorkItemArtifactsSection
-          companyId={companyId}
-          workItemId={item.id}
-          artifacts={(item.artifacts as WorkItemArtifact[]) ?? []}
-          onArtifactsChange={onArtifactsChange}
-        />
-      </div>
-
-      {/* AI Additional Information Card */}
-      {aiAdditionalInfo && (
-        <div className="bg-slate-900/70 border border-slate-700 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">
-              AI Implementation Guide
-            </h4>
-            <span className="text-xs text-slate-500">Generated by AI</span>
-          </div>
-          <div className="prose prose-invert prose-sm max-w-none text-slate-200">
-            <ReactMarkdown>{aiAdditionalInfo}</ReactMarkdown>
-          </div>
-        </div>
-      )}
-    </>
   );
 }
 

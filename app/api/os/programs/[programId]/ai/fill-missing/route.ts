@@ -18,6 +18,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getPlanningProgram, updatePlanningProgram } from '@/lib/airtable/planningPrograms';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
 import { getActiveStrategy } from '@/lib/os/strategy';
+import { getStrategyInputs } from '@/lib/os/strategy/strategyInputs';
 import {
   generatePlanningDeliverableId,
   generatePlanningMilestoneId,
@@ -76,7 +77,7 @@ const GeneratedDependenciesSchema = z.array(z.object({
 // System Prompt
 // ============================================================================
 
-function getSystemPrompt(missing: string[]): string {
+function getSystemPrompt(missing: string[], hasServices: boolean): string {
   const sections = missing.map(m => {
     switch (m) {
       case 'deliverables':
@@ -97,6 +98,11 @@ function getSystemPrompt(missing: string[]): string {
     }
   }).filter(Boolean).join('\n');
 
+  const servicesRule = hasServices ? `
+- SERVICES-AWARE: Only generate deliverables that can be executed using the Hive Services listed
+- Prefer using "elite" or "strong" tier services when available
+- If needed capabilities aren't available, note it in assumptions or constraints` : '';
+
   return `You are a senior program manager filling in missing sections of a program plan.
 
 Generate ONLY the requested sections. Be specific to the program context provided.
@@ -111,7 +117,7 @@ RULES:
 - Don't be generic - tailor everything to this specific program
 - Keep deliverables actionable and clear
 - Milestones should be meaningful checkpoints
-- KPIs should be measurable with specific targets
+- KPIs should be measurable with specific targets${servicesRule}
 - Return valid JSON only, no markdown code blocks`;
 }
 
@@ -151,14 +157,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Load context in parallel
-    const [contextGraph, strategy] = await Promise.all([
+    // Load context in parallel (including strategy inputs for services)
+    const [contextGraph, strategy, strategyInputs] = await Promise.all([
       loadContextGraph(program.companyId).catch(() => null),
       getActiveStrategy(program.companyId).catch(() => null),
+      getStrategyInputs(program.companyId).catch(() => null),
     ]);
 
-    // Build prompt
-    const prompt = buildPrompt(program, contextGraph, strategy, missing);
+    // Extract available services from strategy inputs
+    const availableServices = strategyInputs?.executionCapabilities?.serviceTaxonomy ?? [];
+
+    // Build prompt (services section added FIRST)
+    const prompt = buildPrompt(program, contextGraph, strategy, availableServices, missing);
 
     // Call Anthropic
     const client = new Anthropic();
@@ -166,7 +176,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       model: 'claude-sonnet-4-20250514',
       max_tokens: 2048,
       messages: [{ role: 'user', content: prompt }],
-      system: getSystemPrompt(missing),
+      system: getSystemPrompt(missing, availableServices.length > 0),
     });
 
     // Extract content
@@ -207,9 +217,23 @@ function buildPrompt(
   program: PlanningProgram,
   context: unknown,
   strategy: unknown,
+  availableServices: string[],
   missing: string[]
 ): string {
   const parts: string[] = [];
+
+  // ========== HIVE SERVICES (FIRST - Most Important) ==========
+  if (availableServices.length > 0) {
+    parts.push('HIVE SERVICES (What We Can Deliver)');
+    parts.push('='.repeat(40));
+    parts.push('The following services are enabled and available for this client:');
+    for (const service of availableServices) {
+      parts.push(`• ${service}`);
+    }
+    parts.push('');
+    parts.push('IMPORTANT: Only generate deliverables that leverage these services.');
+    parts.push('');
+  }
 
   parts.push('PROGRAM TO COMPLETE');
   parts.push('='.repeat(40));

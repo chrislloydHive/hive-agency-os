@@ -13,13 +13,15 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { getPlanningProgram } from '@/lib/airtable/planningPrograms';
+import { getPlanningProgram, updatePlanningProgram } from '@/lib/airtable/planningPrograms';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
 import { getActiveStrategy } from '@/lib/os/strategy';
+import { getStrategyInputs } from '@/lib/os/strategy/strategyInputs';
 import { createProposal } from '@/lib/os/programs/proposals';
 import {
   FullProgramDraftPayloadSchema,
   type PlanningProgram,
+  type ServiceCoverage,
 } from '@/lib/types/program';
 import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
 import type { CompanyStrategy } from '@/lib/types/strategy';
@@ -50,6 +52,19 @@ A Program sits between Strategy and Execution:
 - Work Items are created when the program is committed (not by you)
 
 Your job is to create a comprehensive, actionable program plan.
+
+================================
+SERVICES-AWARE PLANNING
+================================
+
+When Hive Services are provided in the context:
+1. ONLY generate deliverables that leverage the available services
+2. Prefer services marked as "elite" or "strong" tier
+3. Note any gaps where needed capabilities aren't available
+4. Unused services are fine - not every program uses everything
+5. If a deliverable requires capabilities we don't have, either:
+   - Propose an alternative using available services
+   - Flag it as a gap in serviceCoverage
 
 ================================
 OUTPUT CONTRACT (STRICT JSON)
@@ -119,7 +134,12 @@ Return a JSON object with this EXACT structure:
       "goal": "What this phase accomplishes",
       "deliverablesLinked": ["Deliverable titles in this phase"]
     }
-  ]
+  ],
+  "serviceCoverage": {
+    "servicesUsed": ["Service names from Hive Services that this program uses"],
+    "unusedServices": ["Available services NOT used by this program"],
+    "gaps": ["Capabilities needed but NOT available in Hive Services"]
+  }
 }
 
 ================================
@@ -184,17 +204,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Load all context in parallel
-    const [contextGraph, strategy] = await Promise.all([
+    // Load all context in parallel (including strategy inputs for services)
+    const [contextGraph, strategy, strategyInputs] = await Promise.all([
       loadContextGraph(program.companyId),
       getActiveStrategy(program.companyId).catch(() => null),
+      getStrategyInputs(program.companyId).catch(() => null),
     ]);
 
-    // Build comprehensive prompt
+    // Extract available services from strategy inputs
+    const availableServices = strategyInputs?.executionCapabilities?.serviceTaxonomy ?? [];
+
+    // Build comprehensive prompt (services section added FIRST)
     const prompt = buildFullPrompt(
       program,
       contextGraph,
       strategy,
+      availableServices,
       body.instructions
     );
 
@@ -237,6 +262,23 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       body.instructions
     );
 
+    // Extract and persist serviceCoverage if available
+    const serviceCoverage: ServiceCoverage | undefined = validation.data.serviceCoverage;
+    if (serviceCoverage && (serviceCoverage.servicesUsed.length > 0 || serviceCoverage.gaps.length > 0)) {
+      try {
+        await updatePlanningProgram(programId, { serviceCoverage });
+        console.log('[ai/draft-full] Persisted serviceCoverage:', {
+          programId,
+          servicesUsed: serviceCoverage.servicesUsed.length,
+          unusedServices: serviceCoverage.unusedServices.length,
+          gaps: serviceCoverage.gaps.length,
+        });
+      } catch (err) {
+        console.error('[ai/draft-full] Failed to persist serviceCoverage:', err);
+        // Non-fatal - continue with proposal
+      }
+    }
+
     // Add stats for UI
     const stats = {
       deliverables: validation.data.deliverables.length,
@@ -246,11 +288,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       dependencies: validation.data.dependencies.length,
       assumptions: validation.data.assumptions.length,
       constraints: validation.data.constraints.length,
+      serviceCoverage: serviceCoverage ? {
+        servicesUsed: serviceCoverage.servicesUsed.length,
+        unusedServices: serviceCoverage.unusedServices.length,
+        gaps: serviceCoverage.gaps.length,
+      } : undefined,
     };
 
     return NextResponse.json({
       proposal,
       stats,
+      serviceCoverage,
       message: 'Full program draft generated. Review each section and apply when ready.',
     });
   } catch (error) {
@@ -270,9 +318,26 @@ function buildFullPrompt(
   program: PlanningProgram,
   context: CompanyContextGraph | null,
   strategy: CompanyStrategy | null,
+  availableServices: string[],
   instructions?: string
 ): string {
   const parts: string[] = [];
+
+  // ========== HIVE SERVICES (FIRST - Most Important) ==========
+  if (availableServices.length > 0) {
+    parts.push('='.repeat(50));
+    parts.push('HIVE SERVICES (What We Can Deliver)');
+    parts.push('='.repeat(50));
+    parts.push('The following services are enabled and available for this client:');
+    parts.push('');
+    for (const service of availableServices) {
+      parts.push(`• ${service}`);
+    }
+    parts.push('');
+    parts.push('IMPORTANT: Only generate deliverables that leverage these services.');
+    parts.push('If the program requires capabilities not listed above, flag them as gaps.');
+    parts.push('');
+  }
 
   // ========== PROGRAM INFO ==========
   parts.push('='.repeat(50));

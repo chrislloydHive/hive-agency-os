@@ -3,6 +3,7 @@
 // This file should NOT import any server-only code (Airtable, etc.)
 
 import type { CompanyStage } from '@/lib/types/company';
+import type { ServiceCoverage } from '@/lib/types/program';
 
 // ============================================================================
 // PM-Focused Work Enums
@@ -528,6 +529,8 @@ export interface WorkItem {
   programId?: string;
   /** Stable work key within the program (e.g., "del::0", "milestone::1", "setup") */
   programWorkKey?: string;
+  /** Service coverage snapshot from program at time of creation - keeps execution grounded */
+  serviceCoverageSnapshot?: ServiceCoverage;
 }
 
 /**
