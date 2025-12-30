@@ -3,6 +3,12 @@
 //
 // Single source of truth for Decide page state derivation.
 // Maps raw API data → discrete UI state → visibility rules.
+//
+// PHILOSOPHY (V11+):
+// - Labs are OPTIONAL enrichment, never gating
+// - Manual context entry is ALWAYS available
+// - Only strategy existence gates proceeding to Deliver
+// - AI guardrails live in prompts (provenance/confidence), not UI gating
 
 import type { V4HealthResponse } from '@/lib/types/contextV4Health';
 
@@ -12,14 +18,16 @@ import type { V4HealthResponse } from '@/lib/types/contextV4Health';
 
 /**
  * Discrete states for the Decide experience
+ *
+ * V11+: Simplified states. Labs never block. Context always editable.
+ * - no_strategy: No strategy exists yet (context editing always available)
+ * - strategy_draft: Strategy exists but not locked
+ * - strategy_locked: Strategy finalized, ready for Deliver
  */
 export type DecideState =
-  | 'blocked_no_labs'     // Labs haven't run → block all, CTA: "Go to Discover" → /diagnostics
-  | 'context_proposed'    // Labs run, proposals exist but 0 confirmed
-  | 'context_confirming'  // Some confirmed but < inputsConfirmed threshold
-  | 'inputs_confirmed'    // All required inputs confirmed, ready for strategy
-  | 'strategy_framing'    // Strategy draft exists, not locked
-  | 'strategy_locked';    // Strategy finalized
+  | 'no_strategy'      // No strategy yet → can add context, create strategy
+  | 'strategy_draft'   // Strategy exists, not locked → can edit, proceed to review
+  | 'strategy_locked'; // Strategy finalized → ready for Deliver
 
 /**
  * Sub-view within the Decide phase
@@ -71,6 +79,15 @@ export interface DecideCTA {
 }
 
 /**
+ * Informational banner for context status
+ */
+export interface ContextStatusBanner {
+  type: 'info' | 'warning' | 'success';
+  message: string;
+  showLabsCTA: boolean;
+}
+
+/**
  * Full UI state derived from data
  */
 export interface DecideUIState {
@@ -84,6 +101,12 @@ export interface DecideUIState {
   statusSummary: string;
   showStrategyLink: boolean;
   showContextChecklist: boolean;
+  /** Informational banner about context status (non-blocking) */
+  contextBanner: ContextStatusBanner | null;
+  /** Whether labs have been run (informational only) */
+  hasLabsRun: boolean;
+  /** Whether strategy origin is imported */
+  isImported: boolean;
 }
 
 /**
@@ -93,17 +116,15 @@ export interface DecideDataInput {
   contextHealth: V4HealthResponse | null;
   strategyExists: boolean;
   strategyLocked?: boolean;
+  /** Strategy origin: imported strategies show special banner */
+  strategyOrigin?: 'generated' | 'imported' | 'hybrid';
+  /** Whether strategy frame has minimal content (intent or optimizationScope) */
+  hasMinimalFrame?: boolean;
 }
 
 // ============================================================================
 // Constants
 // ============================================================================
-
-/**
- * Minimum confirmed fields to consider "inputs confirmed"
- * Maps to SRM (Strategy-Ready Minimum) requirements
- */
-const INPUTS_CONFIRMED_THRESHOLD = 3;
 
 /**
  * Tab definitions with labels
@@ -121,36 +142,23 @@ const TAB_DEFINITIONS: Record<TabConfig['id'], string> = {
 
 /**
  * Derive the discrete DecideState from raw data
+ *
+ * V11+: Simplified logic. Labs never block.
+ * State is based purely on strategy existence and lock status.
  */
 export function deriveDecideState(input: DecideDataInput): DecideState {
-  const { contextHealth, strategyExists, strategyLocked } = input;
+  const { strategyExists, strategyLocked } = input;
 
-  const hasLabs = contextHealth?.websiteLab?.hasRun ?? false;
-  const confirmedCount = contextHealth?.store?.confirmed ?? 0;
-  const inputsConfirmed = confirmedCount >= INPUTS_CONFIRMED_THRESHOLD;
-
-  // State resolution (exact order matters)
-  if (!hasLabs) {
-    return 'blocked_no_labs';
+  // Simple state machine: strategy existence and lock status only
+  if (!strategyExists) {
+    return 'no_strategy';
   }
 
-  if (!inputsConfirmed && confirmedCount === 0) {
-    return 'context_proposed';
+  if (strategyLocked) {
+    return 'strategy_locked';
   }
 
-  if (!inputsConfirmed) {
-    return 'context_confirming';
-  }
-
-  if (inputsConfirmed && !strategyExists) {
-    return 'inputs_confirmed';
-  }
-
-  if (strategyExists && !strategyLocked) {
-    return 'strategy_framing';
-  }
-
-  return 'strategy_locked';
+  return 'strategy_draft';
 }
 
 // ============================================================================
@@ -160,58 +168,39 @@ export function deriveDecideState(input: DecideDataInput): DecideState {
 /**
  * Get tab visibility for a given state
  *
- * Authoritative visibility matrix:
- * | State              | Map | Table | Fields | Review |
- * |--------------------|-----|-------|--------|--------|
- * | blocked_no_labs    | ❌  | ❌    | ❌     | ❌     |
- * | context_proposed   | ❌  | ✅    | ⚪     | ❌     |
- * | context_confirming | ⚪  | ✅    | ✅     | ❌     |
- * | inputs_confirmed   | ❌  | ❌    | ❌     | ✅     |
- * | strategy_framing   | ❌  | ❌    | ❌     | ✅     |
- * | strategy_locked    | ❌  | ❌    | ❌     | 🔒     |
+ * V11+: All context tabs always visible (context editing never blocked)
  *
- * Flow: Table/Fields (confirm) → Review (commit) → Deliver
- * Map only appears in context_confirming as secondary/optional.
+ * Authoritative visibility matrix:
+ * | State           | Map | Table | Fields | Review |
+ * |-----------------|-----|-------|--------|--------|
+ * | no_strategy     | ⚪  | ✅    | ✅     | ❌     |
+ * | strategy_draft  | ⚪  | ⚪    | ✅     | ✅     |
+ * | strategy_locked | ⚪  | ⚪    | ⚪     | 🔒     |
+ *
+ * Context tabs (map, table, fields) are always available for editing.
+ * Review tab appears when strategy exists.
  */
 function getTabVisibility(
   state: DecideState,
   tabId: TabConfig['id']
 ): TabVisibility {
   const matrix: Record<DecideState, Record<TabConfig['id'], TabVisibility>> = {
-    blocked_no_labs: {
-      map: 'hidden',
-      table: 'hidden',
-      fields: 'hidden',
-      review: 'hidden',
-    },
-    context_proposed: {
-      map: 'hidden',
-      table: 'primary',
-      fields: 'secondary',
-      review: 'hidden',
-    },
-    context_confirming: {
+    no_strategy: {
       map: 'secondary',
       table: 'primary',
       fields: 'primary',
-      review: 'hidden',
+      review: 'hidden', // No strategy yet
     },
-    inputs_confirmed: {
-      map: 'hidden',
-      table: 'hidden',
-      fields: 'hidden',
-      review: 'primary',
-    },
-    strategy_framing: {
-      map: 'hidden',
-      table: 'hidden',
-      fields: 'hidden',
+    strategy_draft: {
+      map: 'secondary',
+      table: 'secondary',
+      fields: 'primary',
       review: 'primary',
     },
     strategy_locked: {
-      map: 'hidden',
-      table: 'hidden',
-      fields: 'hidden',
+      map: 'secondary',
+      table: 'secondary',
+      fields: 'secondary',
       review: 'readonly',
     },
   };
@@ -234,22 +223,12 @@ function buildTabs(state: DecideState): TabConfig[] {
 
 /**
  * Get the default active tab for a state
- *
- * Explicit defaults per state:
- * - context_proposed → table
- * - context_confirming → fields
- * - inputs_confirmed → review
- * - strategy_framing → review
- * - strategy_locked → review
  */
 function getDefaultTab(state: DecideState, tabs: TabConfig[]): TabConfig['id'] {
   // Explicit state-based defaults
   const stateDefaults: Record<DecideState, TabConfig['id']> = {
-    blocked_no_labs: 'table', // Fallback, all hidden anyway
-    context_proposed: 'table',
-    context_confirming: 'fields',
-    inputs_confirmed: 'review',
-    strategy_framing: 'review',
+    no_strategy: 'fields',    // Start with manual context entry
+    strategy_draft: 'review', // Focus on review when strategy exists
     strategy_locked: 'review',
   };
 
@@ -266,7 +245,7 @@ function getDefaultTab(state: DecideState, tabs: TabConfig[]): TabConfig['id'] {
   if (visible) return visible.id;
 
   // Ultimate fallback
-  return 'table';
+  return 'fields';
 }
 
 // ============================================================================
@@ -276,52 +255,24 @@ function getDefaultTab(state: DecideState, tabs: TabConfig[]): TabConfig['id'] {
 /**
  * Get the primary CTA for a state
  *
- * Authoritative CTAs:
- * - blocked_no_labs → "Go to Discover" → /diagnostics
- * - context_proposed → "Confirm Inputs" → /context
- * - context_confirming → "Confirm Remaining Inputs" → /context
- * - inputs_confirmed → "Save Strategy Framing" → /strategy
- * - strategy_framing → "Finalize Strategy" → /strategy
- * - strategy_locked → "Go to Deliver" → /deliver
+ * V11+: Simplified CTAs. No blocking states.
  */
 function getPrimaryCTA(
   state: DecideState,
-  companyId: string,
-  _contextHealth: V4HealthResponse | null
+  companyId: string
 ): DecideCTA | null {
   switch (state) {
-    case 'blocked_no_labs':
+    case 'no_strategy':
       return {
-        label: 'Go to Discover',
-        href: `/c/${companyId}/diagnostics`,
-        variant: 'primary',
-      };
-
-    case 'context_proposed':
-      return {
-        label: 'Confirm Inputs',
-        href: `/c/${companyId}/context`,
-        variant: 'primary',
-      };
-
-    case 'context_confirming':
-      return {
-        label: 'Confirm Remaining Inputs',
-        href: `/c/${companyId}/context`,
-        variant: 'primary',
-      };
-
-    case 'inputs_confirmed':
-      return {
-        label: 'Save Strategy Framing',
+        label: 'Create Strategy',
         href: `/c/${companyId}/strategy`,
         variant: 'primary',
       };
 
-    case 'strategy_framing':
+    case 'strategy_draft':
       return {
-        label: 'Finalize Strategy',
-        href: `/c/${companyId}/strategy`,
+        label: 'Review & Finalize',
+        href: `/c/${companyId}/decide#review`,
         variant: 'primary',
       };
 
@@ -339,30 +290,81 @@ function getPrimaryCTA(
  */
 function getStatusSummary(
   state: DecideState,
-  contextHealth: V4HealthResponse | null
+  contextHealth: V4HealthResponse | null,
+  isImported: boolean
 ): string {
   const confirmedCount = contextHealth?.store?.confirmed ?? 0;
   const proposedCount = contextHealth?.store?.proposed ?? 0;
 
   switch (state) {
-    case 'blocked_no_labs':
-      return 'Run labs to extract context';
+    case 'no_strategy':
+      if (proposedCount > 0) {
+        return `${proposedCount} proposal${proposedCount !== 1 ? 's' : ''} ready for review`;
+      }
+      if (confirmedCount > 0) {
+        return `${confirmedCount} context field${confirmedCount !== 1 ? 's' : ''} confirmed`;
+      }
+      return 'Add context to improve AI quality';
 
-    case 'context_proposed':
-      return `${proposedCount} proposal${proposedCount !== 1 ? 's' : ''} ready for review`;
-
-    case 'context_confirming':
-      return `${confirmedCount}/${INPUTS_CONFIRMED_THRESHOLD} inputs confirmed`;
-
-    case 'inputs_confirmed':
-      return 'Ready to generate strategy';
-
-    case 'strategy_framing':
-      return 'Strategy draft in progress';
+    case 'strategy_draft':
+      if (isImported) {
+        return 'Strategy anchored — review before proceeding';
+      }
+      return 'Strategy draft ready for review';
 
     case 'strategy_locked':
-      return 'Strategy finalized';
+      return 'Strategy finalized — ready for Deliver';
   }
+}
+
+/**
+ * Get informational banner about context status (non-blocking)
+ */
+function getContextBanner(
+  contextHealth: V4HealthResponse | null,
+  isImported: boolean
+): ContextStatusBanner | null {
+  const hasLabs = contextHealth?.websiteLab?.hasRun ?? false;
+  const confirmedCount = contextHealth?.store?.confirmed ?? 0;
+  const proposedCount = contextHealth?.store?.proposed ?? 0;
+
+  // Imported strategy banner
+  if (isImported) {
+    return {
+      type: 'info',
+      message: 'Strategy imported. Labs optional — run later to enrich context.',
+      showLabsCTA: true,
+    };
+  }
+
+  // No context at all
+  if (!hasLabs && confirmedCount === 0 && proposedCount === 0) {
+    return {
+      type: 'info',
+      message: 'No baseline context yet. Add key facts manually or run a lab to enrich.',
+      showLabsCTA: true,
+    };
+  }
+
+  // Has proposals to review
+  if (proposedCount > 0) {
+    return {
+      type: 'warning',
+      message: `${proposedCount} AI proposal${proposedCount !== 1 ? 's' : ''} waiting for review.`,
+      showLabsCTA: false,
+    };
+  }
+
+  // Labs run, context confirmed
+  if (hasLabs && confirmedCount > 0) {
+    return {
+      type: 'success',
+      message: `${confirmedCount} context field${confirmedCount !== 1 ? 's' : ''} confirmed from labs.`,
+      showLabsCTA: false,
+    };
+  }
+
+  return null;
 }
 
 // ============================================================================
@@ -372,21 +374,12 @@ function getStatusSummary(
 /**
  * Derive the default sub-view from DecideState
  *
- * State → Default Sub-View:
- * - blocked_no_labs → context (shows blocked CTA)
- * - context_proposed → context
- * - context_confirming → context
- * - inputs_confirmed → strategy
- * - strategy_framing → strategy
- * - strategy_locked → review
+ * V11+: All sub-views available. No blocking.
  */
 function getDefaultSubView(state: DecideState): DecideSubView {
   const stateToSubView: Record<DecideState, DecideSubView> = {
-    blocked_no_labs: 'context',
-    context_proposed: 'context',
-    context_confirming: 'context',
-    inputs_confirmed: 'strategy',
-    strategy_framing: 'strategy',
+    no_strategy: 'context',   // Start with context entry
+    strategy_draft: 'review', // Focus on review when strategy exists
     strategy_locked: 'review',
   };
   return stateToSubView[state];
@@ -395,34 +388,14 @@ function getDefaultSubView(state: DecideState): DecideSubView {
 /**
  * Derive sub-view availability from DecideState
  *
- * Availability Matrix:
- * | State              | Context | Strategy | Review |
- * |--------------------|---------|----------|--------|
- * | blocked_no_labs    | ✅*     | ❌       | ❌     |
- * | context_proposed   | ✅      | ❌       | ❌     |
- * | context_confirming | ✅      | ❌       | ❌     |
- * | inputs_confirmed   | ✅      | ✅       | ❌     |
- * | strategy_framing   | ✅      | ✅       | ✅     |
- * | strategy_locked    | ✅      | ✅       | ✅     |
- *
- * *Context is always available, but content shows blocked CTA when no labs
+ * V11+: Context and Strategy always available.
+ * Review available when strategy exists.
  */
 function getSubViewAvailability(state: DecideState): SubNavState['available'] {
-  const inputsConfirmedOrLater = [
-    'inputs_confirmed',
-    'strategy_framing',
-    'strategy_locked',
-  ].includes(state);
-
-  const strategyFramingOrLater = [
-    'strategy_framing',
-    'strategy_locked',
-  ].includes(state);
-
   return {
-    context: true, // Always available (shows blocked CTA if no labs)
-    strategy: inputsConfirmedOrLater,
-    review: strategyFramingOrLater,
+    context: true,  // Always available
+    strategy: true, // Always available (AI quality varies with context)
+    review: state !== 'no_strategy', // Available when strategy exists
   };
 }
 
@@ -433,11 +406,8 @@ function getSubViewBlockedReason(
   state: DecideState,
   availability: SubNavState['available']
 ): string | undefined {
-  if (!availability.strategy) {
-    return 'Confirm inputs first';
-  }
   if (!availability.review) {
-    return 'Complete strategy framing first';
+    return 'Create a strategy first';
   }
   return undefined;
 }
@@ -490,6 +460,8 @@ export function sanitizeActiveSubView(
  * This is the single source of truth for all Decide page UI decisions.
  * All conditional rendering should flow from this selector.
  *
+ * V11+: No blocking states. Labs are informational only.
+ *
  * @param input - Raw data from APIs
  * @param companyId - Company ID for building URLs
  * @returns Complete UI state configuration
@@ -498,23 +470,24 @@ export function getDecideUIState(
   input: DecideDataInput,
   companyId: string
 ): DecideUIState {
+  const { contextHealth, strategyOrigin } = input;
+
   const state = deriveDecideState(input);
   const subNav = buildSubNavState(state);
   const tabs = buildTabs(state);
   const visibleTabs = tabs.filter((t) => t.visibility !== 'hidden');
   const defaultTab = getDefaultTab(state, tabs);
-  const primaryCTA = getPrimaryCTA(state, companyId, input.contextHealth);
-  const statusSummary = getStatusSummary(state, input.contextHealth);
+  const isImported = strategyOrigin === 'imported';
+  const hasLabsRun = contextHealth?.websiteLab?.hasRun ?? false;
+  const primaryCTA = getPrimaryCTA(state, companyId);
+  const statusSummary = getStatusSummary(state, contextHealth, isImported);
+  const contextBanner = getContextBanner(contextHealth, isImported);
 
-  // Show strategy link only when inputs are confirmed
-  const showStrategyLink = [
-    'inputs_confirmed',
-    'strategy_framing',
-    'strategy_locked',
-  ].includes(state);
+  // Strategy link always available (AI quality varies with context)
+  const showStrategyLink = true;
 
-  // Show checklist when not blocked
-  const showContextChecklist = state !== 'blocked_no_labs';
+  // Context checklist always shown
+  const showContextChecklist = true;
 
   return {
     state,
@@ -526,6 +499,9 @@ export function getDecideUIState(
     statusSummary,
     showStrategyLink,
     showContextChecklist,
+    contextBanner,
+    hasLabsRun,
+    isImported,
   };
 }
 
@@ -541,5 +517,36 @@ export function sanitizeActiveTab(
 
   // Fall back to default (first primary or first visible)
   const primary = visibleTabs.find((t) => t.visibility === 'primary');
-  return primary?.id ?? visibleTabs[0]?.id ?? 'map';
+  return primary?.id ?? visibleTabs[0]?.id ?? 'fields';
+}
+
+// ============================================================================
+// Legacy Compatibility (deprecated, will be removed)
+// ============================================================================
+
+/**
+ * @deprecated Use DecideState instead. These are mapped for backward compatibility.
+ */
+export type LegacyDecideState =
+  | 'blocked_no_labs'
+  | 'imported_ready'
+  | 'context_proposed'
+  | 'context_confirming'
+  | 'inputs_confirmed'
+  | 'strategy_framing'
+  | 'strategy_locked';
+
+/**
+ * Map new state to legacy state for backward compatibility
+ * @deprecated Will be removed in next version
+ */
+export function toLegacyState(state: DecideState): LegacyDecideState {
+  switch (state) {
+    case 'no_strategy':
+      return 'inputs_confirmed'; // Closest equivalent
+    case 'strategy_draft':
+      return 'strategy_framing';
+    case 'strategy_locked':
+      return 'strategy_locked';
+  }
 }

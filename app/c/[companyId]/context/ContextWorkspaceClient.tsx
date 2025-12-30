@@ -20,7 +20,8 @@
 
 import { useCallback, useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { BookOpen, Map, FileText, Loader2, Play, Trash2, ListChecks, Database, RefreshCw, ClipboardCheck } from 'lucide-react';
+import Link from 'next/link';
+import { BookOpen, Map, FileText, Loader2, Play, Trash2, ListChecks, Database, RefreshCw, ClipboardCheck, PlusCircle, Search, AlertCircle } from 'lucide-react';
 import type { CompanyContext } from '@/lib/types/context';
 import type { DraftableState } from '@/lib/os/draft/types';
 import type { DiagnosticsDebugInfo } from '@/lib/os/diagnostics/debugInfo';
@@ -63,6 +64,62 @@ interface ViewModeToggleProps {
   v4Enabled: boolean;
   v4ProposalCount: number;
 }
+
+// ============================================================================
+// Empty State Banner Component
+// ============================================================================
+
+interface EmptyStateBannerProps {
+  companyId: string;
+  onAddKeyFacts: () => void;
+  hasExistingData?: boolean;
+  existingDataSummary?: string;
+}
+
+function EmptyStateBanner({ companyId, onAddKeyFacts, hasExistingData, existingDataSummary }: EmptyStateBannerProps) {
+  return (
+    <div className="bg-gradient-to-r from-purple-500/5 to-indigo-500/5 border border-purple-500/20 rounded-xl p-5 mb-4">
+      <div className="flex items-start gap-4">
+        <div className="p-2.5 bg-purple-500/10 rounded-lg text-purple-400 shrink-0">
+          <AlertCircle className="w-5 h-5" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-base font-semibold text-white mb-1">
+            No context yet
+          </h3>
+          <p className="text-sm text-slate-400 mb-4">
+            Add what you know about this company, or run labs to extract context automatically.
+            {hasExistingData && existingDataSummary && (
+              <span className="block mt-1 text-xs text-slate-500">
+                Existing data available: {existingDataSummary}
+              </span>
+            )}
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={onAddKeyFacts}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors"
+            >
+              <PlusCircle className="w-4 h-4" />
+              Add key facts
+            </button>
+            <Link
+              href={`/c/${companyId}/diagnostics`}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-slate-700/50 text-slate-300 border border-slate-600/50 rounded-lg hover:bg-slate-700 transition-colors"
+            >
+              <Search className="w-4 h-4" />
+              Run diagnostics
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// View Mode Toggle Component (shared across all views)
+// ============================================================================
 
 function ViewModeToggle({ currentView, onViewChange, v4Enabled, v4ProposalCount }: ViewModeToggleProps) {
   const views: Array<{ id: ViewMode; label: string; icon: React.ReactNode; requiresV4?: boolean }> = [
@@ -673,120 +730,17 @@ export function ContextWorkspaceClient({
   // Build a summary of what data is available
   const existingDataSummary = baselineSignals?.signalSources?.join(', ') || '';
 
-  if (shouldShowGenerateButton) {
-    return (
-      <div className="space-y-6">
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-8 text-center">
-          <h1 className="text-xl font-semibold text-white mb-2">
-            Context for {companyName}
-          </h1>
+  // V11+: Context is ALWAYS viewable/editable. No blocking early returns.
+  // Instead, show an informational empty state banner ABOVE the context graph.
+  const showEmptyBanner = nodes.length === 0 && !isGenerating;
 
-          {error && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-left max-w-md mx-auto">
-              <p className="text-sm text-red-400">{error}</p>
-            </div>
-          )}
-
-          {hasExistingData ? (
-            // Show two options when existing data is available
-            <>
-              <p className="text-sm text-slate-400 max-w-lg mx-auto mb-6">
-                Existing data found: <span className="text-slate-300">{existingDataSummary}</span>
-              </p>
-
-              <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
-                <button
-                  onClick={handleGenerate}
-                  disabled={isGenerating}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-cyan-500 text-slate-900 rounded-lg hover:bg-cyan-400 transition-colors disabled:opacity-50 disabled:cursor-wait"
-                >
-                  {isGenerating ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Building Context...
-                    </>
-                  ) : (
-                    <>
-                      <Database className="w-4 h-4" />
-                      Build from Existing Data
-                    </>
-                  )}
-                </button>
-
-                <span className="text-slate-500 text-sm">or</span>
-
-                <button
-                  onClick={handleGenerate}
-                  disabled={isGenerating}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-slate-700 text-slate-200 rounded-lg hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-wait"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  Re-run Diagnostics
-                </button>
-              </div>
-
-              {isGenerating && (
-                <p className="text-xs text-slate-500 mt-3">
-                  Building context from existing data...
-                </p>
-              )}
-            </>
-          ) : (
-            // No existing data - show single Run Diagnostics button
-            <>
-              <p className="text-sm text-slate-400 max-w-md mx-auto mb-6">
-                Run diagnostics to analyze your digital footprint, competitors, and auto-generate context.
-              </p>
-
-              <button
-                onClick={handleGenerate}
-                disabled={isGenerating}
-                className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-cyan-500 text-slate-900 rounded-lg hover:bg-cyan-400 transition-colors disabled:opacity-50 disabled:cursor-wait"
-              >
-                {isGenerating ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Running Diagnostics...
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4" />
-                    Run Diagnostics
-                  </>
-                )}
-              </button>
-
-              {isGenerating && (
-                <p className="text-xs text-slate-500 mt-3">
-                  This may take 1-2 minutes...
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ============================================================================
-  // Render: Loading state (auto-generating or regenerating without content)
-  // ============================================================================
-
-  if ((isRegenerating || isGenerating) && !context.businessModel && !context.primaryAudience) {
-    return (
-      <div className="space-y-6">
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-8 text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-cyan-400 mx-auto mb-4" />
-          <h1 className="text-xl font-semibold text-white mb-2">
-            Generating Context...
-          </h1>
-          <p className="text-sm text-slate-400">
-            Analyzing baseline data and building your context draft.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  // Handler to open the quick add modal for "Add key facts" CTA
+  const handleQuickAddKeyFacts = useCallback(() => {
+    // Open the add node modal with identity zone (most common starting point)
+    setAddNodeZoneId('identity' as ZoneId);
+    setPreSelectedFieldKey(null);
+    setAddNodeModalOpen(true);
+  }, []);
 
   // ============================================================================
   // Render: Fields View (Canonical Context Fields)
@@ -795,6 +749,16 @@ export function ContextWorkspaceClient({
   if (viewMode === 'fields') {
     return (
       <div className="space-y-4">
+        {/* Empty State Banner (shown when no context exists) */}
+        {showEmptyBanner && (
+          <EmptyStateBanner
+            companyId={companyId}
+            onAddKeyFacts={handleQuickAddKeyFacts}
+            hasExistingData={hasExistingData}
+            existingDataSummary={existingDataSummary}
+          />
+        )}
+
         {/* Header with View Toggle */}
         <div className="flex items-center justify-between">
           <div>
@@ -807,6 +771,13 @@ export function ContextWorkspaceClient({
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleQuickAddKeyFacts}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              Add key facts
+            </button>
             <ViewModeToggle
               currentView={viewMode}
               onViewChange={handleViewModeChange}
@@ -831,6 +802,22 @@ export function ContextWorkspaceClient({
             />
           )}
         </div>
+
+        {/* Add Node Modal */}
+        {addNodeZoneId && (
+          <AddNodeModal
+            isOpen={addNodeModalOpen}
+            zoneId={addNodeZoneId}
+            existingNodeKeys={existingNodeKeys}
+            preSelectedFieldKey={preSelectedFieldKey}
+            onClose={() => {
+              setAddNodeModalOpen(false);
+              setAddNodeZoneId(null);
+              setPreSelectedFieldKey(null);
+            }}
+            onSubmit={handleManualNodeSubmit}
+          />
+        )}
       </div>
     );
   }
@@ -842,6 +829,16 @@ export function ContextWorkspaceClient({
   if (viewMode === 'review') {
     return (
       <div className="space-y-4">
+        {/* Empty State Banner (shown when no context exists) */}
+        {showEmptyBanner && (
+          <EmptyStateBanner
+            companyId={companyId}
+            onAddKeyFacts={handleQuickAddKeyFacts}
+            hasExistingData={hasExistingData}
+            existingDataSummary={existingDataSummary}
+          />
+        )}
+
         {/* Header with View Toggle */}
         <div className="flex items-center justify-between">
           <div>
@@ -854,6 +851,13 @@ export function ContextWorkspaceClient({
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleQuickAddKeyFacts}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              Add key facts
+            </button>
             <ViewModeToggle
               currentView={viewMode}
               onViewChange={handleViewModeChange}
@@ -868,6 +872,22 @@ export function ContextWorkspaceClient({
           companyId={companyId}
           companyName={companyName}
         />
+
+        {/* Add Node Modal */}
+        {addNodeZoneId && (
+          <AddNodeModal
+            isOpen={addNodeModalOpen}
+            zoneId={addNodeZoneId}
+            existingNodeKeys={existingNodeKeys}
+            preSelectedFieldKey={preSelectedFieldKey}
+            onClose={() => {
+              setAddNodeModalOpen(false);
+              setAddNodeZoneId(null);
+              setPreSelectedFieldKey(null);
+            }}
+            onSubmit={handleManualNodeSubmit}
+          />
+        )}
       </div>
     );
   }
@@ -879,6 +899,16 @@ export function ContextWorkspaceClient({
   if (viewMode === 'map') {
     return (
       <div className="space-y-4">
+        {/* Empty State Banner (shown when no context exists) */}
+        {showEmptyBanner && (
+          <EmptyStateBanner
+            companyId={companyId}
+            onAddKeyFacts={handleQuickAddKeyFacts}
+            hasExistingData={hasExistingData}
+            existingDataSummary={existingDataSummary}
+          />
+        )}
+
         {/* Header with View Toggle */}
         <div className="flex items-center justify-between">
           <div>
@@ -907,6 +937,13 @@ export function ContextWorkspaceClient({
                 Cleanup
               </button>
             )}
+            <button
+              onClick={handleQuickAddKeyFacts}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              Add key facts
+            </button>
             <ViewModeToggle
               currentView={viewMode}
               onViewChange={handleViewModeChange}
@@ -975,6 +1012,16 @@ export function ContextWorkspaceClient({
 
   return (
     <div className="space-y-4">
+      {/* Empty State Banner (shown when no context exists) */}
+      {showEmptyBanner && (
+        <EmptyStateBanner
+          companyId={companyId}
+          onAddKeyFacts={handleQuickAddKeyFacts}
+          hasExistingData={hasExistingData}
+          existingDataSummary={existingDataSummary}
+        />
+      )}
+
       {/* Header with View Toggle */}
       <div className="flex items-center justify-between">
         <div>
@@ -1003,6 +1050,13 @@ export function ContextWorkspaceClient({
               Cleanup
             </button>
           )}
+          <button
+            onClick={handleQuickAddKeyFacts}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
+          >
+            <PlusCircle className="w-3.5 h-3.5" />
+            Add key facts
+          </button>
           <ViewModeToggle
             currentView={viewMode}
             onViewChange={handleViewModeChange}

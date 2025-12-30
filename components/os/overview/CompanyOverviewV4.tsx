@@ -114,6 +114,7 @@ export function CompanyOverviewV4({
       <section id="whats-next">
         <WhatsNextCard
           companyId={companyId}
+          companyName={companyName}
           recentDiagnostics={phaseGuideDiagnostics}
         />
       </section>

@@ -1,10 +1,34 @@
 // lib/os/strategy/prompts/contextQualityPrompt.ts
 // Context Quality Prompts for LLM Strategy Generation
 //
+// V11+: Labs are optional enrichment. Manual context is equally valid.
+// AI guardrails respect provenance/confidence, not whether labs were run.
+//
 // Generates context quality preambles and instructions for LLMs
 // to ensure strategy generation respects canonical context values.
 
 import type { StrategyInputsMeta } from '../strategyInputsHelpers';
+
+// ============================================================================
+// Provenance Types
+// ============================================================================
+
+/**
+ * Source of context value
+ * - user: Manually entered by user (authoritative but unverified by evidence)
+ * - lab: Extracted by AI from labs (verified by evidence)
+ * - ai_proposal: AI-suggested, not yet confirmed
+ * - confirmed: User-confirmed value (from any source)
+ */
+export type ContextProvenance = 'user' | 'lab' | 'ai_proposal' | 'confirmed';
+
+export interface ProvenanceStats {
+  user: number;      // Manual entries
+  lab: number;       // Lab-extracted
+  aiProposal: number; // Pending proposals
+  confirmed: number;  // User-confirmed
+  total: number;
+}
 
 // ============================================================================
 // Types
@@ -198,4 +222,122 @@ export function formatSnapshotReference(snapshotId: string | null): string {
   // Format: snap_xxxx -> Snapshot xxxx
   const shortId = snapshotId.replace(/^snap_/, '').slice(0, 8);
   return `Generated from Canonical Context Snapshot ${shortId}`;
+}
+
+// ============================================================================
+// Provenance-Aware Guardrails (V11+)
+// ============================================================================
+
+/**
+ * Generate provenance-aware AI guardrails
+ *
+ * V11+: Labs are optional. Manual context is authoritative but unverified.
+ * These guardrails ensure AI respects the difference between sources.
+ */
+export function generateProvenanceGuardrails(stats?: ProvenanceStats): string {
+  const lines: string[] = [];
+
+  lines.push('## Context Provenance Guardrails');
+  lines.push('');
+  lines.push('Follow these rules when using context:');
+  lines.push('');
+  lines.push('1. **User-confirmed values are authoritative**: Treat confirmed context as ground truth.');
+  lines.push('   Do not contradict, modify, or "improve" confirmed positioning, ICP, or value propositions.');
+  lines.push('');
+  lines.push('2. **Manual entries are authoritative but unverified**: User-entered context represents');
+  lines.push('   what they know about their business. Treat as fact, even without lab evidence.');
+  lines.push('');
+  lines.push('3. **AI proposals require caution**: Unconfirmed AI proposals are working assumptions.');
+  lines.push('   Flag when recommendations rely heavily on unconfirmed context.');
+  lines.push('');
+  lines.push('4. **Never invent missing context**: If key information is missing, ask for it or');
+  lines.push('   proceed with explicit assumptions labeled as such. Example:');
+  lines.push("   > \"I'm assuming your target market is [X]. Please confirm.\"");
+  lines.push('');
+  lines.push('5. **Do not overwrite user decisions**: If a user has manually entered or confirmed');
+  lines.push('   a value, do not suggest changing it unless they explicitly ask.');
+  lines.push('');
+  lines.push('6. **Prefer confirmed over proposed**: When context has both confirmed and proposed');
+  lines.push('   values for the same field, use the confirmed value.');
+  lines.push('');
+
+  if (stats) {
+    lines.push('**Context Source Breakdown:**');
+    lines.push(`- User-entered: ${stats.user} fields`);
+    lines.push(`- Lab-extracted: ${stats.lab} fields`);
+    lines.push(`- Confirmed: ${stats.confirmed} fields`);
+    if (stats.aiProposal > 0) {
+      lines.push(`- Pending review: ${stats.aiProposal} proposals`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Generate minimal context instruction when context is sparse
+ *
+ * V11+: Even with no labs, users can proceed. This guides AI when context is limited.
+ */
+export function generateSparseContextInstructions(): string {
+  return `## Working with Limited Context
+
+You have limited confirmed context to work with. Follow these guidelines:
+
+1. **Be explicit about assumptions**: When you must make assumptions, clearly label them:
+   > "Assumption: Based on your industry, I'm assuming [X]."
+
+2. **Focus on what you know**: Base recommendations on the context you have, not general knowledge.
+
+3. **Suggest what would help**: If critical context is missing, note what information would improve recommendations:
+   > "To refine this recommendation, it would help to know your target audience demographics."
+
+4. **Avoid generic advice**: Don't fall back to industry-generic recommendations just to fill gaps.
+   It's better to say "more context needed" than to provide unhelpful generalities.
+
+5. **Quality over quantity**: A focused strategy based on limited but confirmed context is better
+   than a comprehensive strategy built on guesses.
+`;
+}
+
+/**
+ * Generate strategy generation preamble that respects provenance
+ *
+ * This is the main function to call when generating strategy prompts.
+ * It combines context quality, provenance, and any missing field notices.
+ */
+export function generateStrategyPromptPreamble(
+  meta: StrategyInputsMeta,
+  options?: {
+    missingFields?: MissingField[];
+    provenanceStats?: ProvenanceStats;
+    isSparseContext?: boolean;
+  }
+): string {
+  const { missingFields = [], provenanceStats, isSparseContext = false } = options || {};
+  const sections: string[] = [];
+
+  // Add context quality preamble
+  sections.push(generateContextQualityPreamble(meta));
+
+  // Add provenance guardrails
+  sections.push(generateProvenanceGuardrails(provenanceStats));
+
+  // Add sparse context instructions if applicable
+  if (isSparseContext) {
+    sections.push(generateSparseContextInstructions());
+  }
+
+  // Add missing context notice if applicable
+  if (missingFields.length > 0) {
+    sections.push(generateMissingContextNotice(missingFields));
+  }
+
+  // Add canonical value instructions for confirmed-only mode
+  if (meta.confirmedOnlyMode) {
+    sections.push(generateCanonicalValueInstructions());
+  }
+
+  return sections.join('\n');
 }

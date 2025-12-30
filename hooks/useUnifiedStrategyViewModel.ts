@@ -56,6 +56,8 @@ export interface UnifiedStrategyViewModelData {
     };
     /** Goal statement for AI alignment (strategy-scoped) */
     goalStatement?: string;
+    /** Origin tracking (V10+): how this strategy was created */
+    origin?: 'generated' | 'imported' | 'hybrid';
   };
 
   // Multi-strategy support

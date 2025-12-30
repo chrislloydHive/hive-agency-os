@@ -16,6 +16,7 @@ import type {
   StrategyListItem,
   StrategyFrame,
   StrategyEngagementType,
+  StrategyOrigin,
 } from '@/lib/types/strategy';
 import {
   createStrategySummary,
@@ -111,7 +112,7 @@ export async function getStrategySummary(companyId: string): Promise<StrategySum
  * Create a new draft strategy
  */
 export async function createDraftStrategy(request: CreateStrategyRequest): Promise<CompanyStrategy> {
-  const { companyId, title, summary, objectives, pillars } = request;
+  const { companyId, title, summary, objectives, pillars, origin, strategyFrame, status } = request;
 
   try {
     const base = getBase();
@@ -125,16 +126,21 @@ export async function createDraftStrategy(request: CreateStrategyRequest): Promi
       priority: p.priority || 'medium',
     }));
 
+    // Build fields object
     const fields = {
       companyId,
       title: title || 'Untitled Strategy',
       summary: summary || '',
       objectives: JSON.stringify(objectives || []),
       pillars: JSON.stringify(pillarsWithIds),
-      status: 'draft',
+      status: status || 'draft',
       version: 1,
       createdAt: now,
       updatedAt: now,
+      // Optional fields
+      ...(origin && { origin }),
+      ...(strategyFrame && { strategyFrame: JSON.stringify(strategyFrame) }),
+      ...(origin === 'imported' && { isActive: true }),
     };
 
     const record = await base(STRATEGY_TABLE).create(fields);
@@ -541,6 +547,8 @@ function mapRecordToStrategy(record: {
   return {
     id: record.id,
     companyId: fields.companyId as string,
+    // Origin tracking (V10+)
+    origin: (fields.origin as CompanyStrategy['origin']) || undefined,
     // Engagement scoping (V8+)
     engagementType: (fields.engagementType as CompanyStrategy['engagementType']) || undefined,
     engagementId: fields.engagementId as string | undefined,

@@ -954,6 +954,27 @@ export function StrategySurface({
         </div>
       )}
 
+      {/* Imported Strategy Banner */}
+      {data.strategy.origin === 'imported' && (
+        <div className="flex items-center justify-between gap-4 px-4 py-3 bg-cyan-500/5 border border-cyan-500/20 rounded-lg">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-5 h-5 text-cyan-400 shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-cyan-300">Imported Strategy</p>
+              <p className="text-xs text-slate-400">
+                Strategy anchored. Diagnostics optional — run later to enrich context.
+              </p>
+            </div>
+          </div>
+          <Link
+            href={`/c/${companyId}/deliver`}
+            className="shrink-0 px-3 py-1.5 text-xs font-medium text-slate-300 border border-slate-600 rounded-lg hover:bg-slate-800 transition-colors"
+          >
+            Go to Deliver
+          </Link>
+        </div>
+      )}
+
       {/* Staleness/Status Banners */}
       {data.staleness && (
         <StrategyStatusBanner

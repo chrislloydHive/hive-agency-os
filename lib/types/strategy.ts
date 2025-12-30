@@ -295,6 +295,10 @@ export interface StrategyFrame {
   successMetrics?: string[];   // How we measure success
   nonGoals?: string[];         // What we're explicitly NOT doing
 
+  // Imported strategy fields (V10+)
+  intent?: string;             // Brief bullets describing strategic intent (for imported strategies)
+  optimizationScope?: string;  // What we're optimizing for (e.g., "brand awareness", "lead gen")
+
   // Legacy field mappings (for backward compat)
   targetAudience?: string;     // @deprecated - use audience
   primaryOffering?: string;    // @deprecated - use offering
@@ -396,11 +400,23 @@ export interface StrategyTradeoffs {
 export type StrategyEngagementType = 'company' | 'project';
 
 /**
+ * Strategy origin - how the strategy was created
+ * - 'generated': Created via AI generation from labs/context (default)
+ * - 'imported': Manually imported from an existing approved strategy
+ * - 'hybrid': Started as import, enriched with generated content
+ */
+export type StrategyOrigin = 'generated' | 'imported' | 'hybrid';
+
+/**
  * Company marketing strategy
  */
 export interface CompanyStrategy {
   id: string;
   companyId: string;
+
+  // Origin tracking (V10+)
+  /** How this strategy was created: 'generated' (default), 'imported', or 'hybrid' */
+  origin?: StrategyOrigin;
 
   // Engagement scoping (V8+)
   /** Type of engagement: 'company' (default) or 'project' */
@@ -526,6 +542,12 @@ export interface CreateStrategyRequest {
   summary?: string;
   objectives?: string[];
   pillars?: Omit<StrategyPillar, 'id'>[];
+  // Origin tracking (V10+)
+  origin?: StrategyOrigin;
+  // Strategy frame (for imported strategies with intent/constraints)
+  strategyFrame?: StrategyFrame;
+  // Status override (for imported strategies that are pre-approved)
+  status?: 'draft' | 'finalized';
   // Version metadata (for traceability)
   baseContextRevisionId?: string;
   hiveBrainRevisionId?: string;

@@ -1,5 +1,7 @@
 // tests/os/decideUiState.test.ts
 // Unit tests for Decide UI state selector
+//
+// V11+: Labs are NEVER blocking. State is based on strategy existence only.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -59,221 +61,200 @@ function makeHealth(overrides: Partial<{
 }
 
 // ============================================================================
-// State Derivation Tests
+// State Derivation Tests (V11+ simplified states)
 // ============================================================================
 
 describe('deriveDecideState', () => {
-  it('returns blocked_no_labs when labs have not run', () => {
-    const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: false }),
-      strategyExists: false,
-    };
-    expect(deriveDecideState(input)).toBe('blocked_no_labs');
+  describe('V11+ simplified state machine', () => {
+    it('returns no_strategy when no strategy exists (regardless of labs)', () => {
+      const input: DecideDataInput = {
+        contextHealth: makeHealth({ hasRun: false }),
+        strategyExists: false,
+      };
+      expect(deriveDecideState(input)).toBe('no_strategy');
+    });
+
+    it('returns no_strategy even when labs have run but no strategy', () => {
+      const input: DecideDataInput = {
+        contextHealth: makeHealth({ hasRun: true, confirmed: 5 }),
+        strategyExists: false,
+      };
+      expect(deriveDecideState(input)).toBe('no_strategy');
+    });
+
+    it('returns strategy_draft when strategy exists but not locked', () => {
+      const input: DecideDataInput = {
+        contextHealth: makeHealth({ hasRun: false }),
+        strategyExists: true,
+        strategyLocked: false,
+      };
+      expect(deriveDecideState(input)).toBe('strategy_draft');
+    });
+
+    it('returns strategy_draft when strategy exists with labs (not locked)', () => {
+      const input: DecideDataInput = {
+        contextHealth: makeHealth({ hasRun: true, confirmed: 10 }),
+        strategyExists: true,
+        strategyLocked: false,
+      };
+      expect(deriveDecideState(input)).toBe('strategy_draft');
+    });
+
+    it('returns strategy_locked when strategy is locked', () => {
+      const input: DecideDataInput = {
+        contextHealth: makeHealth({ hasRun: true, confirmed: 3 }),
+        strategyExists: true,
+        strategyLocked: true,
+      };
+      expect(deriveDecideState(input)).toBe('strategy_locked');
+    });
+
+    it('returns strategy_locked regardless of labs status', () => {
+      const input: DecideDataInput = {
+        contextHealth: makeHealth({ hasRun: false }),
+        strategyExists: true,
+        strategyLocked: true,
+      };
+      expect(deriveDecideState(input)).toBe('strategy_locked');
+    });
+
+    it('handles null contextHealth without blocking', () => {
+      const input: DecideDataInput = {
+        contextHealth: null,
+        strategyExists: false,
+      };
+      expect(deriveDecideState(input)).toBe('no_strategy');
+    });
+
+    it('handles null contextHealth with strategy', () => {
+      const input: DecideDataInput = {
+        contextHealth: null,
+        strategyExists: true,
+        strategyLocked: false,
+      };
+      expect(deriveDecideState(input)).toBe('strategy_draft');
+    });
   });
 
-  it('returns context_proposed when labs run but 0 confirmed', () => {
-    const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 0, proposed: 5 }),
-      strategyExists: false,
-    };
-    expect(deriveDecideState(input)).toBe('context_proposed');
-  });
+  describe('imported strategy (V11+ no special bypass needed)', () => {
+    it('returns strategy_draft for imported strategy (not locked)', () => {
+      const input: DecideDataInput = {
+        contextHealth: makeHealth({ hasRun: false }),
+        strategyExists: true,
+        strategyOrigin: 'imported',
+      };
+      expect(deriveDecideState(input)).toBe('strategy_draft');
+    });
 
-  it('returns context_confirming when some confirmed but < 3', () => {
-    const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 2, proposed: 3 }),
-      strategyExists: false,
-    };
-    expect(deriveDecideState(input)).toBe('context_confirming');
-  });
-
-  it('returns inputs_confirmed when >= 3 confirmed and no strategy', () => {
-    const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
-      strategyExists: false,
-    };
-    expect(deriveDecideState(input)).toBe('inputs_confirmed');
-  });
-
-  it('returns strategy_framing when strategy exists but not locked', () => {
-    const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
-      strategyExists: true,
-      strategyLocked: false,
-    };
-    expect(deriveDecideState(input)).toBe('strategy_framing');
-  });
-
-  it('returns strategy_locked when strategy is locked', () => {
-    const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
-      strategyExists: true,
-      strategyLocked: true,
-    };
-    expect(deriveDecideState(input)).toBe('strategy_locked');
-  });
-
-  it('handles null contextHealth as blocked', () => {
-    const input: DecideDataInput = {
-      contextHealth: null,
-      strategyExists: false,
-    };
-    expect(deriveDecideState(input)).toBe('blocked_no_labs');
+    it('returns strategy_locked for imported strategy (locked)', () => {
+      const input: DecideDataInput = {
+        contextHealth: makeHealth({ hasRun: false }),
+        strategyExists: true,
+        strategyLocked: true,
+        strategyOrigin: 'imported',
+      };
+      expect(deriveDecideState(input)).toBe('strategy_locked');
+    });
   });
 });
 
 // ============================================================================
-// Tab Visibility Tests (Authoritative Matrix)
+// Tab Visibility Tests (V11+ all context tabs always visible)
 // ============================================================================
 
 describe('getDecideUIState tabs', () => {
-  it('hides all tabs when blocked', () => {
+  it('shows context tabs (map, table, fields) when no strategy', () => {
     const input: DecideDataInput = {
       contextHealth: makeHealth({ hasRun: false }),
       strategyExists: false,
     };
     const state = getDecideUIState(input, 'test-company');
-    expect(state.visibleTabs).toHaveLength(0);
+    const visibleIds = state.visibleTabs.map(t => t.id);
+    expect(visibleIds).toContain('map');
+    expect(visibleIds).toContain('table');
+    expect(visibleIds).toContain('fields');
+    expect(visibleIds).not.toContain('review'); // No strategy yet
   });
 
-  it('shows table and fields when context_proposed, default table', () => {
+  it('shows context tabs even without labs', () => {
     const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 0, proposed: 5 }),
+      contextHealth: makeHealth({ hasRun: false, confirmed: 0 }),
       strategyExists: false,
     };
     const state = getDecideUIState(input, 'test-company');
-    expect(state.visibleTabs.map(t => t.id)).toEqual(['table', 'fields']);
-    expect(state.defaultTab).toBe('table');
+    expect(state.visibleTabs.length).toBeGreaterThan(0);
+    expect(state.visibleTabs.map(t => t.id)).toContain('fields');
   });
 
-  it('shows map, table, fields when context_confirming, default fields', () => {
+  it('shows review tab when strategy exists', () => {
     const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 2, proposed: 3 }),
-      strategyExists: false,
-    };
-    const state = getDecideUIState(input, 'test-company');
-    expect(state.visibleTabs.map(t => t.id)).toEqual(['map', 'table', 'fields']);
-    expect(state.defaultTab).toBe('fields');
-  });
-
-  it('shows only review when inputs_confirmed, default review', () => {
-    const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
-      strategyExists: false,
-    };
-    const state = getDecideUIState(input, 'test-company');
-    expect(state.visibleTabs.map(t => t.id)).toEqual(['review']);
-    expect(state.defaultTab).toBe('review');
-  });
-
-  it('shows only review when strategy_framing, default review', () => {
-    const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
+      contextHealth: makeHealth({ hasRun: false }),
       strategyExists: true,
       strategyLocked: false,
     };
     const state = getDecideUIState(input, 'test-company');
-    expect(state.visibleTabs.map(t => t.id)).toEqual(['review']);
+    expect(state.visibleTabs.map(t => t.id)).toContain('review');
+  });
+
+  it('default tab is fields when no strategy', () => {
+    const input: DecideDataInput = {
+      contextHealth: makeHealth({ hasRun: false }),
+      strategyExists: false,
+    };
+    const state = getDecideUIState(input, 'test-company');
+    expect(state.defaultTab).toBe('fields');
+  });
+
+  it('default tab is review when strategy exists', () => {
+    const input: DecideDataInput = {
+      contextHealth: makeHealth({ hasRun: true, confirmed: 3 }),
+      strategyExists: true,
+      strategyLocked: false,
+    };
+    const state = getDecideUIState(input, 'test-company');
     expect(state.defaultTab).toBe('review');
   });
 
-  it('shows only review (readonly) when strategy_locked, default review', () => {
+  it('review tab is readonly when strategy is locked', () => {
     const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
+      contextHealth: makeHealth({ hasRun: true, confirmed: 3 }),
       strategyExists: true,
       strategyLocked: true,
     };
     const state = getDecideUIState(input, 'test-company');
-    expect(state.visibleTabs.map(t => t.id)).toEqual(['review']);
-    expect(state.visibleTabs[0].visibility).toBe('readonly');
-    expect(state.defaultTab).toBe('review');
-  });
-
-  it('map only appears in context_confirming as secondary', () => {
-    // context_proposed: no map
-    const proposed: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 0, proposed: 5 }),
-      strategyExists: false,
-    };
-    expect(getDecideUIState(proposed, 'c').visibleTabs.map(t => t.id)).not.toContain('map');
-
-    // context_confirming: map is secondary
-    const confirming: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 1, proposed: 5 }),
-      strategyExists: false,
-    };
-    const confirmingState = getDecideUIState(confirming, 'c');
-    const mapTab = confirmingState.tabs.find(t => t.id === 'map');
-    expect(mapTab?.visibility).toBe('secondary');
-
-    // inputs_confirmed: no map
-    const confirmed: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
-      strategyExists: false,
-    };
-    expect(getDecideUIState(confirmed, 'c').visibleTabs.map(t => t.id)).not.toContain('map');
+    const reviewTab = state.tabs.find(t => t.id === 'review');
+    expect(reviewTab?.visibility).toBe('readonly');
   });
 });
 
 // ============================================================================
-// CTA Tests (Authoritative CTAs)
+// CTA Tests (V11+ no blocking CTAs)
 // ============================================================================
 
 describe('getDecideUIState primaryCTA', () => {
-  it('returns "Go to Discover" when blocked', () => {
+  it('returns "Create Strategy" when no strategy exists', () => {
     const input: DecideDataInput = {
       contextHealth: makeHealth({ hasRun: false }),
       strategyExists: false,
     };
     const state = getDecideUIState(input, 'test-company');
-    expect(state.primaryCTA?.label).toBe('Go to Discover');
-    expect(state.primaryCTA?.href).toBe('/c/test-company/diagnostics');
-  });
-
-  it('returns "Confirm Inputs" when context_proposed', () => {
-    const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 0, proposed: 5 }),
-      strategyExists: false,
-    };
-    const state = getDecideUIState(input, 'test-company');
-    expect(state.primaryCTA?.label).toBe('Confirm Inputs');
-    expect(state.primaryCTA?.href).toBe('/c/test-company/context');
-  });
-
-  it('returns "Confirm Remaining Inputs" when context_confirming', () => {
-    const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 1, proposed: 5 }),
-      strategyExists: false,
-    };
-    const state = getDecideUIState(input, 'test-company');
-    expect(state.primaryCTA?.label).toBe('Confirm Remaining Inputs');
-    expect(state.primaryCTA?.href).toBe('/c/test-company/context');
-  });
-
-  it('returns "Save Strategy Framing" when inputs_confirmed', () => {
-    const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
-      strategyExists: false,
-    };
-    const state = getDecideUIState(input, 'test-company');
-    expect(state.primaryCTA?.label).toBe('Save Strategy Framing');
+    expect(state.primaryCTA?.label).toBe('Create Strategy');
     expect(state.primaryCTA?.href).toBe('/c/test-company/strategy');
   });
 
-  it('returns "Finalize Strategy" when strategy_framing', () => {
+  it('returns "Review & Finalize" when strategy is draft', () => {
     const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
+      contextHealth: makeHealth({ hasRun: true, confirmed: 3 }),
       strategyExists: true,
       strategyLocked: false,
     };
     const state = getDecideUIState(input, 'test-company');
-    expect(state.primaryCTA?.label).toBe('Finalize Strategy');
-    expect(state.primaryCTA?.href).toBe('/c/test-company/strategy');
+    expect(state.primaryCTA?.label).toBe('Review & Finalize');
   });
 
-  it('returns "Go to Deliver" when strategy_locked', () => {
+  it('returns "Go to Deliver" when strategy is locked', () => {
     const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
+      contextHealth: makeHealth({ hasRun: true, confirmed: 3 }),
       strategyExists: true,
       strategyLocked: true,
     };
@@ -281,56 +262,125 @@ describe('getDecideUIState primaryCTA', () => {
     expect(state.primaryCTA?.label).toBe('Go to Deliver');
     expect(state.primaryCTA?.href).toBe('/c/test-company/deliver');
   });
-});
 
-// ============================================================================
-// UI Flags Tests
-// ============================================================================
-
-describe('getDecideUIState flags', () => {
-  it('hides strategy link when blocked', () => {
+  it('no blocking CTA even without labs', () => {
     const input: DecideDataInput = {
       contextHealth: makeHealth({ hasRun: false }),
       strategyExists: false,
     };
     const state = getDecideUIState(input, 'test-company');
-    expect(state.showStrategyLink).toBe(false);
+    // Should have a CTA, not be blocked
+    expect(state.primaryCTA).not.toBeNull();
+    expect(state.primaryCTA?.label).not.toBe('Go to Discover');
   });
+});
 
-  it('hides strategy link when context_proposed', () => {
-    const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 0, proposed: 5 }),
-      strategyExists: false,
-    };
-    const state = getDecideUIState(input, 'test-company');
-    expect(state.showStrategyLink).toBe(false);
-  });
+// ============================================================================
+// UI Flags Tests (V11+ always available)
+// ============================================================================
 
-  it('shows strategy link when inputs_confirmed', () => {
+describe('getDecideUIState flags', () => {
+  it('strategy link always shown', () => {
     const input: DecideDataInput = {
-      contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
+      contextHealth: makeHealth({ hasRun: false }),
       strategyExists: false,
     };
     const state = getDecideUIState(input, 'test-company');
     expect(state.showStrategyLink).toBe(true);
   });
 
-  it('hides checklist when blocked', () => {
+  it('context checklist always shown', () => {
     const input: DecideDataInput = {
       contextHealth: makeHealth({ hasRun: false }),
       strategyExists: false,
     };
     const state = getDecideUIState(input, 'test-company');
-    expect(state.showContextChecklist).toBe(false);
+    expect(state.showContextChecklist).toBe(true);
   });
 
-  it('shows checklist when not blocked', () => {
+  it('hasLabsRun is informational only', () => {
+    const noLabs: DecideDataInput = {
+      contextHealth: makeHealth({ hasRun: false }),
+      strategyExists: false,
+    };
+    const withLabs: DecideDataInput = {
+      contextHealth: makeHealth({ hasRun: true }),
+      strategyExists: false,
+    };
+
+    const noLabsState = getDecideUIState(noLabs, 'test-company');
+    const withLabsState = getDecideUIState(withLabs, 'test-company');
+
+    expect(noLabsState.hasLabsRun).toBe(false);
+    expect(withLabsState.hasLabsRun).toBe(true);
+
+    // Both should have same state - labs don't affect state
+    expect(noLabsState.state).toBe(withLabsState.state);
+  });
+
+  it('isImported flag is set correctly', () => {
+    const imported: DecideDataInput = {
+      contextHealth: makeHealth({ hasRun: false }),
+      strategyExists: true,
+      strategyOrigin: 'imported',
+    };
+    const generated: DecideDataInput = {
+      contextHealth: makeHealth({ hasRun: true }),
+      strategyExists: true,
+      strategyOrigin: 'generated',
+    };
+
+    const importedState = getDecideUIState(imported, 'test-company');
+    const generatedState = getDecideUIState(generated, 'test-company');
+
+    expect(importedState.isImported).toBe(true);
+    expect(generatedState.isImported).toBe(false);
+  });
+});
+
+// ============================================================================
+// Context Banner Tests (V11+ informational)
+// ============================================================================
+
+describe('getDecideUIState contextBanner', () => {
+  it('shows info banner when no context and no labs', () => {
+    const input: DecideDataInput = {
+      contextHealth: makeHealth({ hasRun: false, confirmed: 0, proposed: 0 }),
+      strategyExists: false,
+    };
+    const state = getDecideUIState(input, 'test-company');
+    expect(state.contextBanner?.type).toBe('info');
+    expect(state.contextBanner?.showLabsCTA).toBe(true);
+  });
+
+  it('shows warning banner when proposals pending', () => {
     const input: DecideDataInput = {
       contextHealth: makeHealth({ hasRun: true, confirmed: 0, proposed: 5 }),
       strategyExists: false,
     };
     const state = getDecideUIState(input, 'test-company');
-    expect(state.showContextChecklist).toBe(true);
+    expect(state.contextBanner?.type).toBe('warning');
+    expect(state.contextBanner?.message).toContain('5 AI proposals');
+  });
+
+  it('shows success banner when context confirmed', () => {
+    const input: DecideDataInput = {
+      contextHealth: makeHealth({ hasRun: true, confirmed: 5, proposed: 0 }),
+      strategyExists: false,
+    };
+    const state = getDecideUIState(input, 'test-company');
+    expect(state.contextBanner?.type).toBe('success');
+  });
+
+  it('shows imported banner for imported strategies', () => {
+    const input: DecideDataInput = {
+      contextHealth: makeHealth({ hasRun: false }),
+      strategyExists: true,
+      strategyOrigin: 'imported',
+    };
+    const state = getDecideUIState(input, 'test-company');
+    expect(state.contextBanner?.type).toBe('info');
+    expect(state.contextBanner?.message).toContain('imported');
   });
 });
 
@@ -352,7 +402,7 @@ describe('sanitizeActiveTab', () => {
       { id: 'table' as const, label: 'Table', visibility: 'primary' as const },
       { id: 'fields' as const, label: 'Fields', visibility: 'secondary' as const },
     ];
-    expect(sanitizeActiveTab('map', visibleTabs)).toBe('table');
+    expect(sanitizeActiveTab('review', visibleTabs)).toBe('table');
   });
 
   it('falls back to first visible if no primary', () => {
@@ -360,24 +410,17 @@ describe('sanitizeActiveTab', () => {
       { id: 'table' as const, label: 'Table', visibility: 'secondary' as const },
       { id: 'fields' as const, label: 'Fields', visibility: 'secondary' as const },
     ];
-    expect(sanitizeActiveTab('map', visibleTabs)).toBe('table');
-  });
-
-  it('handles review-only state', () => {
-    const visibleTabs = [
-      { id: 'review' as const, label: 'Review', visibility: 'primary' as const },
-    ];
-    expect(sanitizeActiveTab('table', visibleTabs)).toBe('review');
+    expect(sanitizeActiveTab('review', visibleTabs)).toBe('table');
   });
 });
 
 // ============================================================================
-// Sub-Navigation Tests
+// Sub-Navigation Tests (V11+ simplified)
 // ============================================================================
 
 describe('getDecideUIState subNav', () => {
   describe('defaultSubView derivation', () => {
-    it('returns context as default when blocked_no_labs', () => {
+    it('returns context as default when no strategy', () => {
       const input: DecideDataInput = {
         contextHealth: makeHealth({ hasRun: false }),
         strategyExists: false,
@@ -386,46 +429,19 @@ describe('getDecideUIState subNav', () => {
       expect(state.subNav.default).toBe('context');
     });
 
-    it('returns context as default when context_proposed', () => {
+    it('returns review as default when strategy exists', () => {
       const input: DecideDataInput = {
-        contextHealth: makeHealth({ hasRun: true, confirmed: 0, proposed: 5 }),
-        strategyExists: false,
-      };
-      const state = getDecideUIState(input, 'test-company');
-      expect(state.subNav.default).toBe('context');
-    });
-
-    it('returns context as default when context_confirming', () => {
-      const input: DecideDataInput = {
-        contextHealth: makeHealth({ hasRun: true, confirmed: 1, proposed: 5 }),
-        strategyExists: false,
-      };
-      const state = getDecideUIState(input, 'test-company');
-      expect(state.subNav.default).toBe('context');
-    });
-
-    it('returns strategy as default when inputs_confirmed', () => {
-      const input: DecideDataInput = {
-        contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
-        strategyExists: false,
-      };
-      const state = getDecideUIState(input, 'test-company');
-      expect(state.subNav.default).toBe('strategy');
-    });
-
-    it('returns strategy as default when strategy_framing', () => {
-      const input: DecideDataInput = {
-        contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
+        contextHealth: makeHealth({ hasRun: false }),
         strategyExists: true,
         strategyLocked: false,
       };
       const state = getDecideUIState(input, 'test-company');
-      expect(state.subNav.default).toBe('strategy');
+      expect(state.subNav.default).toBe('review');
     });
 
-    it('returns review as default when strategy_locked', () => {
+    it('returns review as default when strategy locked', () => {
       const input: DecideDataInput = {
-        contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
+        contextHealth: makeHealth({ hasRun: true, confirmed: 3 }),
         strategyExists: true,
         strategyLocked: true,
       };
@@ -435,109 +451,47 @@ describe('getDecideUIState subNav', () => {
   });
 
   describe('availability derivation', () => {
-    it('only context available when blocked_no_labs', () => {
+    it('context and strategy always available', () => {
       const input: DecideDataInput = {
         contextHealth: makeHealth({ hasRun: false }),
         strategyExists: false,
       };
       const state = getDecideUIState(input, 'test-company');
-      expect(state.subNav.available).toEqual({
-        context: true,
-        strategy: false,
-        review: false,
-      });
+      expect(state.subNav.available.context).toBe(true);
+      expect(state.subNav.available.strategy).toBe(true);
     });
 
-    it('only context available when context_proposed', () => {
-      const input: DecideDataInput = {
-        contextHealth: makeHealth({ hasRun: true, confirmed: 0, proposed: 5 }),
+    it('review only available when strategy exists', () => {
+      const noStrategy: DecideDataInput = {
+        contextHealth: makeHealth({ hasRun: false }),
         strategyExists: false,
       };
-      const state = getDecideUIState(input, 'test-company');
-      expect(state.subNav.available).toEqual({
-        context: true,
-        strategy: false,
-        review: false,
-      });
-    });
-
-    it('only context available when context_confirming', () => {
-      const input: DecideDataInput = {
-        contextHealth: makeHealth({ hasRun: true, confirmed: 1, proposed: 5 }),
-        strategyExists: false,
-      };
-      const state = getDecideUIState(input, 'test-company');
-      expect(state.subNav.available).toEqual({
-        context: true,
-        strategy: false,
-        review: false,
-      });
-    });
-
-    it('context and strategy available when inputs_confirmed', () => {
-      const input: DecideDataInput = {
-        contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
-        strategyExists: false,
-      };
-      const state = getDecideUIState(input, 'test-company');
-      expect(state.subNav.available).toEqual({
-        context: true,
-        strategy: true,
-        review: false,
-      });
-    });
-
-    it('all sub-views available when strategy_framing', () => {
-      const input: DecideDataInput = {
-        contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
+      const withStrategy: DecideDataInput = {
+        contextHealth: makeHealth({ hasRun: false }),
         strategyExists: true,
-        strategyLocked: false,
       };
-      const state = getDecideUIState(input, 'test-company');
-      expect(state.subNav.available).toEqual({
-        context: true,
-        strategy: true,
-        review: true,
-      });
-    });
 
-    it('all sub-views available when strategy_locked', () => {
-      const input: DecideDataInput = {
-        contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
-        strategyExists: true,
-        strategyLocked: true,
-      };
-      const state = getDecideUIState(input, 'test-company');
-      expect(state.subNav.available).toEqual({
-        context: true,
-        strategy: true,
-        review: true,
-      });
+      const noStrategyState = getDecideUIState(noStrategy, 'test-company');
+      const withStrategyState = getDecideUIState(withStrategy, 'test-company');
+
+      expect(noStrategyState.subNav.available.review).toBe(false);
+      expect(withStrategyState.subNav.available.review).toBe(true);
     });
   });
 
   describe('reasonIfBlocked', () => {
-    it('returns "Confirm inputs first" when strategy unavailable', () => {
+    it('returns reason when review unavailable', () => {
       const input: DecideDataInput = {
-        contextHealth: makeHealth({ hasRun: true, confirmed: 1, proposed: 5 }),
+        contextHealth: makeHealth({ hasRun: false }),
         strategyExists: false,
       };
       const state = getDecideUIState(input, 'test-company');
-      expect(state.subNav.reasonIfBlocked).toBe('Confirm inputs first');
+      expect(state.subNav.reasonIfBlocked).toBe('Create a strategy first');
     });
 
-    it('returns "Complete strategy framing first" when only review unavailable', () => {
+    it('returns undefined when all available', () => {
       const input: DecideDataInput = {
-        contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
-        strategyExists: false,
-      };
-      const state = getDecideUIState(input, 'test-company');
-      expect(state.subNav.reasonIfBlocked).toBe('Complete strategy framing first');
-    });
-
-    it('returns undefined when all sub-views available', () => {
-      const input: DecideDataInput = {
-        contextHealth: makeHealth({ hasRun: true, confirmed: 3, proposed: 0 }),
+        contextHealth: makeHealth({ hasRun: true, confirmed: 3 }),
         strategyExists: true,
         strategyLocked: false,
       };
@@ -568,21 +522,10 @@ describe('sanitizeActiveSubView', () => {
       subNav: {
         active: 'context' as DecideSubView,
         default: 'context' as DecideSubView,
-        available: { context: true, strategy: false, review: false },
-      },
-    };
-    expect(sanitizeActiveSubView('strategy', uiState)).toBe('context');
-  });
-
-  it('falls back to default if review is unavailable', () => {
-    const uiState = {
-      subNav: {
-        active: 'strategy' as DecideSubView,
-        default: 'strategy' as DecideSubView,
         available: { context: true, strategy: true, review: false },
       },
     };
-    expect(sanitizeActiveSubView('review', uiState)).toBe('strategy');
+    expect(sanitizeActiveSubView('review', uiState)).toBe('context');
   });
 
   it('keeps context when navigating back from strategy', () => {

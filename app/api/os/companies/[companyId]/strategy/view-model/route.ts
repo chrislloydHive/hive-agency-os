@@ -60,6 +60,8 @@ interface StrategyViewModelResponse {
     tradeoffs?: unknown;
     /** Goal statement for AI alignment (strategy-scoped) */
     goalStatement?: string;
+    /** Origin tracking (V10+): how this strategy was created */
+    origin?: 'generated' | 'imported' | 'hybrid';
   };
 
   // Multi-strategy support
@@ -268,6 +270,7 @@ export async function GET(
         plays: strategy?.plays || [],
         tradeoffs: strategy?.tradeoffs,
         goalStatement: strategy?.goalStatement,
+        origin: strategy?.origin,
       },
       strategies: strategiesSummary,
       activeStrategyId: strategy?.id || null,
