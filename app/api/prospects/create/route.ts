@@ -25,7 +25,23 @@ interface CreateProspectRequest {
 
 export async function POST(request: NextRequest) {
   try {
-    const body: CreateProspectRequest = await request.json();
+    // Handle empty or malformed request body
+    let body: CreateProspectRequest;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { error: 'Invalid or empty request body' },
+        { status: 400 }
+      );
+    }
+
+    if (!body || !body.name) {
+      return NextResponse.json(
+        { error: 'name is required' },
+        { status: 400 }
+      );
+    }
 
     // Map to generic company create API
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';

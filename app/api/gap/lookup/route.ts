@@ -151,10 +151,11 @@ async function searchGapPlanRuns(domain: string): Promise<GapLookupResult> {
 
 async function searchGapIaRuns(domain: string): Promise<GapLookupResult> {
   try {
-    // Search for completed GAP-IA runs with matching domain
+    // Search for GAP-IA runs with matching domain
+    // Note: GAP-IA Run table may not have a Status field, so we just search by domain
     const records = await base('GAP-IA Run')
       .select({
-        filterByFormula: `AND({Status} = 'completed', FIND('${domain}', {Website URL}))`,
+        filterByFormula: `FIND('${domain}', {Website URL})`,
         sort: [{ field: 'Created At', direction: 'desc' }],
         maxRecords: 1,
       })
