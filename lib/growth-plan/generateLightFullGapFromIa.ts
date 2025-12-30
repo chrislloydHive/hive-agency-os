@@ -9,7 +9,7 @@ import {
   GAP_SHARED_REASONING_PROMPT,
 } from '@/lib/gap/prompts/sharedPrompts';
 import { FULL_GAP_OUTPUT_PROMPT_V4 } from '@/lib/gap/prompts/fullGapOutputPromptV4';
-import { FullGapOutputSchema, type FullGapOutput } from '@/lib/gap/outputTemplates';
+import { validateFullGapOutput, type FullGapOutput } from '@/lib/gap/outputTemplates';
 import { mapFullGapToApiResponse } from '@/lib/gap/outputMappers';
 
 // ============================================================================
@@ -123,8 +123,21 @@ ${iaBriefing}`,
 
     console.log('[Light Full GAP/V4] Validating Full GAP structure...');
 
-    // Validate using V4 schema (same structure as V3, but with V4 prompt expectations)
-    const validatedV4 = FullGapOutputSchema.parse(parsed);
+    // Build scores from GAP-IA for validation
+    const gapIaScores = {
+      overall: gapIa.summary?.overallScore || 0,
+      dimensions: {
+        brand: gapIa.dimensions?.brand?.score || 0,
+        content: gapIa.dimensions?.content?.score || 0,
+        seo: gapIa.dimensions?.seo?.score || 0,
+        website: gapIa.dimensions?.website?.score || 0,
+        digitalFootprint: gapIa.dimensions?.digitalFootprint?.score || 0,
+        authority: gapIa.dimensions?.authority?.score || 0,
+      } as Record<'brand' | 'content' | 'seo' | 'website' | 'digitalFootprint' | 'authority', number>,
+    };
+
+    // Validate using V4 schema with repair/normalization (handles LLM variations like "Developing" → "Emerging")
+    const validatedV4 = validateFullGapOutput(parsed, gapIaScores, { strict: false });
 
     console.log('[Light Full GAP/V4] ✅ Schema validation successful:', {
       overallScore: validatedV4.overallScore,
