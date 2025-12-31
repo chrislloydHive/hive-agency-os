@@ -28,6 +28,7 @@ import type {
   WebsiteUxDimensionKey,
 } from './websiteLab';
 import type { WebsiteEvidenceV3 as _WebsiteEvidenceV3 } from './website';
+import { runV5Diagnostic, type V5DiagnosticOutput } from './websiteLabV5';
 
 // ============================================================================
 // MULTI-PAGE SPIDER (V4.0)
@@ -1963,6 +1964,25 @@ export async function runWebsiteLab(
     console.log(`[WebsiteLab V4] ✓ Heuristic evaluation complete: ${heuristics.findings.length} findings`);
 
     // ========================================================================
+    // STEP 5.5: Run V5 Strict Diagnostic (MANDATORY)
+    // ========================================================================
+    // V5 is NOT optional. If V5 fails, the entire lab run fails.
+    // This ensures outputs always include v5Diagnostic with specific,
+    // page-anchored issues rather than generic V4 phrases.
+    console.log('[WebsiteLab V5] Step 5.5: Running V5 strict diagnostic...');
+    const v5Diagnostic: V5DiagnosticOutput = await runV5Diagnostic(siteGraph, heuristics, options?.brainContext);
+
+    // HARD ASSERTION: V5 must produce valid output
+    if (!v5Diagnostic || !v5Diagnostic.observations || !v5Diagnostic.blockingIssues) {
+      throw new Error('[WebsiteLab V5] ASSERTION FAILED: V5 diagnostic returned invalid structure. v5Diagnostic must exist with observations and blockingIssues.');
+    }
+
+    console.log(`[WebsiteLab V5] ✓ V5 diagnostic complete: score=${v5Diagnostic.score}/100`);
+    console.log(`[WebsiteLab V5]   - Observations: ${v5Diagnostic.observations.length} pages`);
+    console.log(`[WebsiteLab V5]   - Persona journeys: ${v5Diagnostic.personaJourneys.length}`);
+    console.log(`[WebsiteLab V5]   - Blocking issues: ${v5Diagnostic.blockingIssues.length}`);
+
+    // ========================================================================
     // STEP 6: Simulate Personas
     // ========================================================================
     console.log('[WebsiteLab V4] Step 6/8: Simulating persona behaviors...');
@@ -2093,16 +2113,31 @@ export async function runWebsiteLab(
       // Phase 2 Strategist Views + Analytics
       strategistViews,
       analyticsIntegrations,
+      // V5 Strict Diagnostic (MANDATORY - page observations, persona journeys, blocking issues)
+      // This is now guaranteed to exist due to the hard assertion in Step 5.5
+      v5Diagnostic: {
+        observations: v5Diagnostic.observations,
+        personaJourneys: v5Diagnostic.personaJourneys,
+        blockingIssues: v5Diagnostic.blockingIssues,
+        quickWins: v5Diagnostic.quickWins,
+        structuralChanges: v5Diagnostic.structuralChanges,
+        score: v5Diagnostic.score,
+        scoreJustification: v5Diagnostic.scoreJustification,
+      },
     };
 
-    console.log('[WebsiteLab V4] ============================================');
-    console.log('[WebsiteLab V4] UX LAB COMPLETE');
-    console.log(`[WebsiteLab V4] Score: ${siteAssessment.score}/100 (${siteAssessment.benchmarkLabel?.toUpperCase()})`);
-    console.log(`[WebsiteLab V4] Pages: ${siteGraph.pages.length}`);
-    console.log(`[WebsiteLab V4] Funnel Health: ${siteAssessment.funnelHealthScore}/100`);
-    console.log(`[WebsiteLab V4] Consistency: ${siteAssessment.multiPageConsistencyScore}/100`);
-    console.log(`[WebsiteLab V4] Personas Succeeded: ${personas.filter(p => p.success).length}/${personas.length}`);
-    console.log('[WebsiteLab V4] ============================================');
+    console.log('[WebsiteLab V4/V5] ============================================');
+    console.log('[WebsiteLab V4/V5] UX LAB COMPLETE');
+    console.log(`[WebsiteLab V4/V5] Score: ${siteAssessment.score}/100 (${siteAssessment.benchmarkLabel?.toUpperCase()})`);
+    console.log(`[WebsiteLab V4/V5] Pages: ${siteGraph.pages.length}`);
+    console.log(`[WebsiteLab V4/V5] Funnel Health: ${siteAssessment.funnelHealthScore}/100`);
+    console.log(`[WebsiteLab V4/V5] Consistency: ${siteAssessment.multiPageConsistencyScore}/100`);
+    console.log(`[WebsiteLab V4/V5] Personas Succeeded: ${personas.filter(p => p.success).length}/${personas.length}`);
+    // V5 is MANDATORY - always log V5 output
+    console.log(`[WebsiteLab V5] V5 Score: ${v5Diagnostic.score}/100`);
+    console.log(`[WebsiteLab V5] Blocking Issues: ${v5Diagnostic.blockingIssues.length}`);
+    console.log(`[WebsiteLab V5] Quick Wins: ${v5Diagnostic.quickWins.length}`);
+    console.log('[WebsiteLab V4/V5] ============================================');
 
     return labResult;
   } catch (error) {

@@ -1232,6 +1232,72 @@ export interface WebsiteUXLabResultV4 {
   analyticsIntegrations?: AnalyticsIntegrations;
 
   // ========================================================================
+  // V5 STRICT DIAGNOSTIC (NEW)
+  // ========================================================================
+
+  /** V5 strict diagnostic output with page observations, persona journeys, and blocking issues */
+  v5Diagnostic?: {
+    /** Phase 1: Page Observations (no opinions, just facts) */
+    observations: Array<{
+      pagePath: string;
+      pageType: string;
+      aboveFoldElements: string[];
+      primaryCTAs: Array<{
+        text: string;
+        position: 'above_fold' | 'mid_page' | 'below_fold';
+        destination: string | null;
+      }>;
+      trustProofElements: string[];
+      missingUnclearElements: string[];
+    }>;
+
+    /** Phase 2: Persona Journey Simulations with exact failure points */
+    personaJourneys: Array<{
+      persona: 'first_time' | 'ready_to_buy' | 'comparison_shopper';
+      startingPage: string;
+      intendedGoal: string;
+      actualPath: string[];
+      failurePoint: { page: string; reason: string } | null;
+      confidenceScore: number;
+      succeeded: boolean;
+    }>;
+
+    /** Phase 3: Top 5 blocking issues with specific pages and fixes */
+    blockingIssues: Array<{
+      id: number;
+      severity: 'high' | 'medium' | 'low';
+      affectedPersonas: Array<'first_time' | 'ready_to_buy' | 'comparison_shopper'>;
+      page: string;
+      whyItBlocks: string;
+      concreteFix: { what: string; where: string };
+    }>;
+
+    /** Phase 4: Quick wins (exactly 3) */
+    quickWins: Array<{
+      addressesIssueId: number;
+      title: string;
+      action: string;
+      page: string;
+      expectedImpact: string;
+    }>;
+
+    /** Phase 4: Structural changes (exactly 2) */
+    structuralChanges: Array<{
+      addressesIssueIds: number[];
+      title: string;
+      description: string;
+      pagesAffected: string[];
+      rationale: string;
+    }>;
+
+    /** Overall V5 score (0-100) */
+    score: number;
+
+    /** Brief justification (≤5 lines) */
+    scoreJustification: string;
+  };
+
+  // ========================================================================
   // PHASE 3: GRADE HISTORY (V5.13)
   // ========================================================================
 

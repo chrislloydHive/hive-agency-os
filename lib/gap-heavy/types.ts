@@ -417,4 +417,18 @@ export interface EvidencePack {
    * Lab outputs should not exceed this confidence level
    */
   labConfidenceCap?: number;
+
+  // ========================================================================
+  // Event Tracking (Idempotency)
+  // ========================================================================
+
+  /**
+   * Tracks which events have been emitted for this run.
+   * Used for idempotency - prevents duplicate event emission.
+   * Keys are event names, values are ISO timestamps of emission.
+   */
+  _eventsEmitted?: {
+    websiteLabV5CompletedAt?: string;
+    [key: string]: string | undefined;
+  };
 }

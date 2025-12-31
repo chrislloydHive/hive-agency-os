@@ -14,7 +14,13 @@ import {
   Target,
   Lightbulb,
   BarChart3,
+  Zap,
 } from 'lucide-react';
+import { V5BlockingIssues } from '@/components/website/v5/V5BlockingIssues';
+import { V5PersonaJourneys } from '@/components/website/v5/V5PersonaJourneys';
+import { V5PageObservations } from '@/components/website/v5/V5PageObservations';
+import { V5Recommendations } from '@/components/website/v5/V5Recommendations';
+import type { WebsiteUXLabResultV4 } from '@/lib/gap-heavy/modules/websiteLab';
 
 // ============================================================================
 // Types
@@ -357,6 +363,12 @@ export function LabReportRenderer({ report }: LabReportRendererProps) {
   const websiteLabData = data as any;
   const siteAssessment = websiteLabData?.siteAssessment || websiteLabData?.rawEvidence?.labResultV4?.siteAssessment;
 
+  // Check for V5 diagnostic data (preferred over V4)
+  const v5Diagnostic = websiteLabData?.v5Diagnostic ||
+    websiteLabData?.rawEvidence?.labResultV4?.v5Diagnostic ||
+    null;
+  const hasV5Diagnostic = v5Diagnostic !== null;
+
   // Determine which data to render
   const hasLabOutputContract = labOutput !== null;
   const hasBrandLabStructure = brandDimensions.length > 0 || brandLabData?.maturityStage;
@@ -376,8 +388,61 @@ export function LabReportRenderer({ report }: LabReportRendererProps) {
         </>
       )}
 
-      {/* Website Lab specific rendering */}
-      {hasWebsiteLabStructure && !hasBrandLabStructure && (
+      {/* Website Lab V5 rendering (preferred when available) */}
+      {hasV5Diagnostic && !hasBrandLabStructure && (
+        <>
+          {/* V5 Score Banner */}
+          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Zap className="w-5 h-5 text-amber-400" />
+                <h3 className="text-lg font-semibold text-white">Website Lab V5 Analysis</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold text-white">{v5Diagnostic.score}</span>
+                <span className="text-sm text-slate-400">/100</span>
+              </div>
+            </div>
+            {v5Diagnostic.scoreJustification && (
+              <p className="text-sm text-slate-400">{v5Diagnostic.scoreJustification}</p>
+            )}
+          </div>
+
+          {/* V5 Blocking Issues */}
+          {v5Diagnostic.blockingIssues?.length > 0 && (
+            <div className="mb-6">
+              <V5BlockingIssues issues={v5Diagnostic.blockingIssues} />
+            </div>
+          )}
+
+          {/* V5 Persona Journeys */}
+          {v5Diagnostic.personaJourneys?.length > 0 && (
+            <div className="mb-6">
+              <V5PersonaJourneys journeys={v5Diagnostic.personaJourneys} />
+            </div>
+          )}
+
+          {/* V5 Page Observations */}
+          {v5Diagnostic.observations?.length > 0 && (
+            <div className="mb-6">
+              <V5PageObservations observations={v5Diagnostic.observations} />
+            </div>
+          )}
+
+          {/* V5 Recommendations (Quick Wins + Structural Changes) */}
+          {(v5Diagnostic.quickWins?.length > 0 || v5Diagnostic.structuralChanges?.length > 0) && (
+            <div className="mb-6">
+              <V5Recommendations
+                quickWins={v5Diagnostic.quickWins || []}
+                structuralChanges={v5Diagnostic.structuralChanges || []}
+              />
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Website Lab V4 fallback (only when V5 is not available) */}
+      {hasWebsiteLabStructure && !hasV5Diagnostic && !hasBrandLabStructure && (
         <>
           {siteAssessment?.dimensions && <DimensionsSection dimensions={siteAssessment.dimensions} />}
           {siteAssessment?.issues && <IssuesSection issues={siteAssessment.issues} />}
