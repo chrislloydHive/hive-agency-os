@@ -80,7 +80,10 @@ export type ArtifactType =
   | 'execution_playbook'
   | 'experiment_roadmap'
   | 'channel_analysis'
-  | 'competitive_positioning';
+  | 'competitive_positioning'
+  // Diagnostic report types (from lab/GAP runs)
+  | 'lab_report'        // Lab diagnostic output (website, brand, seo, etc.)
+  | 'gap_report';       // GAP analysis output (IA or Full)
 
 /**
  * Lifecycle status of the artifact
@@ -101,7 +104,8 @@ export type ArtifactSource =
   | 'media_plan_export' // Created from media plan export
   | 'rfp_export'        // Created from RFP/proposal workflow
   | 'ai_generated'      // Created by AI artifact generator
-  | 'manual';           // Manually created by user
+  | 'manual'            // Manually created by user
+  | 'diagnostic_run';   // Created from completed lab/GAP diagnostic run
 
 /**
  * Google Drive file type
@@ -172,6 +176,15 @@ export interface Artifact {
 
   /** Media Plan ID this artifact was created from (if source=media_plan_export) */
   sourceMediaPlanId: string | null;
+
+  /** Diagnostic Run ID this artifact was created from (if source=diagnostic_run) */
+  sourceDiagnosticRunId: string | null;
+
+  /** Lab slug for filtering diagnostic artifacts (website, brand, gap, etc.) */
+  labSlug: string | null;
+
+  /** Raw diagnostic output data (full JSON from lab/GAP run) */
+  rawData: unknown | null;
 
   /** Engagement ID for scoping */
   engagementId: string | null;
@@ -313,8 +326,13 @@ export interface CreateArtifactInput {
   sourceBriefId?: string;
   sourceMediaPlanId?: string;
   sourceContentPlanId?: string;
+  sourceDiagnosticRunId?: string;
   engagementId?: string;
   projectId?: string;
+
+  // Diagnostic artifact fields
+  labSlug?: string;
+  rawData?: unknown;
 
   // Optional Google Drive fields (if file already exists)
   googleFileId?: string;
@@ -461,6 +479,8 @@ export function getGoogleFileTypeForArtifact(artifactType: ArtifactType): Google
     case 'brief_doc':
     case 'rfp_response_doc':
     case 'custom':
+    case 'lab_report':
+    case 'gap_report':
       return 'document';
     case 'qbr_slides':
     case 'proposal_slides':
@@ -494,6 +514,10 @@ export function getArtifactTypeLabel(type: ArtifactType): string {
       return 'Pricing Sheet';
     case 'custom':
       return 'Custom Document';
+    case 'lab_report':
+      return 'Lab Report';
+    case 'gap_report':
+      return 'GAP Report';
     default:
       return 'Document';
   }
@@ -553,6 +577,8 @@ export function getArtifactSourceLabel(source: ArtifactSource): string {
       return 'AI Generated';
     case 'manual':
       return 'Manual Creation';
+    case 'diagnostic_run':
+      return 'Diagnostic Run';
     default:
       return 'Unknown';
   }
@@ -578,6 +604,9 @@ export function createEmptyArtifact(companyId: string, type: ArtifactType): Part
     sourceBriefId: null,
     sourceMediaPlanId: null,
     sourceContentPlanId: null,
+    sourceDiagnosticRunId: null,
+    labSlug: null,
+    rawData: null,
     engagementId: null,
     projectId: null,
     contextVersionAtCreation: null,

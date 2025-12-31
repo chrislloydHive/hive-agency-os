@@ -26,6 +26,11 @@ import { isContextV4IngestWebsiteLabEnabled, isContextV4IngestBrandLabEnabled } 
 import { buildWebsiteLabCandidates, proposeFromLabResult } from '@/lib/contextGraph/v4';
 import { buildBrandLabCandidates } from '@/lib/contextGraph/v4/brandLabCandidates';
 import { autoProposeBaselineIfNeeded } from '@/lib/contextGraph/v4/autoProposeBaseline';
+import { createArtifactFromDiagnosticRun } from './artifactCreation';
+import { updateDiagnosticRun } from './runs';
+import { inngest } from '@/lib/inngest/client';
+import { buildV5CompletedPayload } from '@/lib/gap-heavy/modules/websiteLabEvents';
+import { indexArtifactsForRun } from '@/lib/os/artifacts/indexer';
 
 import {
   createSocialLocalWorkItemsFromSnapshot,
@@ -206,6 +211,55 @@ export async function processDiagnosticRunCompletion(
   } catch (error) {
     console.error('[postRunHooks] Failed to save findings:', error);
     // Don't throw - findings extraction is supplementary
+  }
+
+  // 7. Create Artifact from diagnostic run (for Documents tab)
+  try {
+    console.log('[postRunHooks] Creating artifact from diagnostic run...');
+    const artifactId = await createArtifactFromDiagnosticRun(companyId, run);
+    if (artifactId) {
+      console.log('[postRunHooks] Artifact created:', artifactId);
+    } else {
+      console.log('[postRunHooks] No artifact created (may be expected for some run types)');
+    }
+  } catch (error) {
+    console.error('[postRunHooks] Failed to create artifact:', error);
+    // Don't throw - artifact creation is supplementary
+  }
+
+  // 8. Emit Website Lab V5 Completed Event (if applicable)
+  // =========================================================================
+  // ARCHITECTURAL BOUNDARY:
+  // This is the SINGLE SOURCE OF TRUTH for emitting website_lab.v5.completed.
+  // Both sync (UI route) and async (Inngest pipeline) paths call this hook.
+  // Idempotency is enforced via metadata.eventsEmitted.websiteLabV5CompletedAt.
+  // =========================================================================
+  if (run.toolId === 'websiteLab') {
+    await emitWebsiteLabV5CompletedEvent(companyId, run);
+  }
+
+  // 9. Index artifacts for Documents UI (CompanyArtifactIndex)
+  // =========================================================================
+  // ARCHITECTURAL BOUNDARY:
+  // This is the SINGLE SOURCE OF TRUTH for artifact indexing.
+  // All diagnostic run artifacts are indexed here via indexArtifactsForRun().
+  // The index enables the Documents UI to show ALL artifacts in one query.
+  // Idempotent: safe to call multiple times for the same run.
+  // =========================================================================
+  try {
+    console.log('[postRunHooks] Indexing artifacts for Documents UI...');
+    // Note: artifactId was captured in step 7 but isn't available here.
+    // The indexer will create the index entry without linking to the Artifact record.
+    // Future: Pass artifactId through to link diagnostic index to Artifact record.
+    const indexResult = await indexArtifactsForRun(companyId, run);
+    console.log('[postRunHooks] Artifact indexing complete:', {
+      indexed: indexResult.indexed,
+      skipped: indexResult.skipped,
+      errors: indexResult.errors.length,
+    });
+  } catch (error) {
+    console.error('[postRunHooks] Failed to index artifacts:', error);
+    // Don't throw - artifact indexing is supplementary
   }
 
   console.log('[postRunHooks] Completed processing for run:', run.id);
@@ -671,4 +725,175 @@ async function extractAndSaveFindings(
     savedIds,
     worstSeverity,
   };
+}
+
+// ============================================================================
+// Website Lab V5 Event Emission
+// ============================================================================
+
+/**
+ * Metadata structure for tracking emitted events
+ */
+interface EventsEmittedMetadata {
+  websiteLabV5CompletedAt?: string;
+}
+
+/**
+ * Extract v5Diagnostic from rawJson
+ *
+ * The v5Diagnostic may be at:
+ * 1. rawJson.v5Diagnostic (direct)
+ * 2. rawJson.rawEvidence.labResultV4.v5Diagnostic (nested)
+ * 3. rawJson.siteGraph exists alongside v5Diagnostic
+ */
+function extractV5Diagnostic(rawJson: unknown): WebsiteUXLabResultV4['v5Diagnostic'] | null {
+  if (!rawJson || typeof rawJson !== 'object') {
+    return null;
+  }
+
+  const data = rawJson as Record<string, unknown>;
+
+  // Direct path: rawJson.v5Diagnostic
+  if (data.v5Diagnostic) {
+    return data.v5Diagnostic as WebsiteUXLabResultV4['v5Diagnostic'];
+  }
+
+  // Nested path: rawEvidence.labResultV4.v5Diagnostic
+  const rawEvidence = data.rawEvidence as Record<string, unknown> | undefined;
+  if (rawEvidence?.labResultV4) {
+    const labResult = rawEvidence.labResultV4 as Record<string, unknown>;
+    if (labResult.v5Diagnostic) {
+      return labResult.v5Diagnostic as WebsiteUXLabResultV4['v5Diagnostic'];
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extract page paths from rawJson
+ */
+function extractPagePaths(rawJson: unknown): string[] {
+  if (!rawJson || typeof rawJson !== 'object') {
+    return [];
+  }
+
+  const data = rawJson as Record<string, unknown>;
+
+  // Try siteGraph.pages
+  const siteGraph = data.siteGraph as Record<string, unknown> | undefined;
+  if (siteGraph?.pages && Array.isArray(siteGraph.pages)) {
+    return (siteGraph.pages as Array<{ path?: string }>)
+      .map(p => p.path)
+      .filter((p): p is string => typeof p === 'string');
+  }
+
+  // Try rawEvidence.labResultV4.siteGraph.pages
+  const rawEvidence = data.rawEvidence as Record<string, unknown> | undefined;
+  if (rawEvidence?.labResultV4) {
+    const labResult = rawEvidence.labResultV4 as Record<string, unknown>;
+    const nestedGraph = labResult.siteGraph as Record<string, unknown> | undefined;
+    if (nestedGraph?.pages && Array.isArray(nestedGraph.pages)) {
+      return (nestedGraph.pages as Array<{ path?: string }>)
+        .map(p => p.path)
+        .filter((p): p is string => typeof p === 'string');
+    }
+  }
+
+  return [];
+}
+
+/**
+ * Emit website_lab.v5.completed event with idempotency
+ *
+ * This is the SINGLE SOURCE OF TRUTH for V5 event emission.
+ * Idempotency is enforced via metadata.eventsEmitted.websiteLabV5CompletedAt.
+ *
+ * Emits only if:
+ * 1. Run is a websiteLab run
+ * 2. v5Diagnostic exists in rawJson
+ * 3. Event has not already been emitted (idempotency check)
+ */
+async function emitWebsiteLabV5CompletedEvent(
+  companyId: string,
+  run: DiagnosticRun
+): Promise<void> {
+  const logPrefix = '[postRunHooks:V5Event]';
+
+  // Guard: Check if already emitted (idempotency)
+  const existingMetadata = (run.metadata || {}) as Record<string, unknown>;
+  const eventsEmitted = (existingMetadata.eventsEmitted || {}) as EventsEmittedMetadata;
+
+  if (eventsEmitted.websiteLabV5CompletedAt) {
+    console.log(`${logPrefix} website_lab.v5.completed SKIPPED (already emitted)`, {
+      runId: run.id,
+      emittedAt: eventsEmitted.websiteLabV5CompletedAt,
+    });
+    return;
+  }
+
+  // Guard: Check if v5Diagnostic exists
+  const v5Diagnostic = extractV5Diagnostic(run.rawJson);
+
+  if (!v5Diagnostic) {
+    console.log(`${logPrefix} website_lab.v5.completed SKIPPED (no v5Diagnostic)`, {
+      runId: run.id,
+    });
+    return;
+  }
+
+  // Extract page paths for the payload
+  const pagesAnalyzed = extractPagePaths(run.rawJson);
+
+  try {
+    // Build the minimal payload
+    const payload = buildV5CompletedPayload(
+      companyId,
+      run.id,
+      {
+        observations: v5Diagnostic.observations,
+        personaJourneys: v5Diagnostic.personaJourneys,
+        blockingIssues: v5Diagnostic.blockingIssues,
+        quickWins: v5Diagnostic.quickWins,
+        structuralChanges: v5Diagnostic.structuralChanges,
+        score: v5Diagnostic.score,
+        scoreJustification: v5Diagnostic.scoreJustification,
+      },
+      pagesAnalyzed
+    );
+
+    // Emit the event
+    await inngest.send({
+      name: 'website_lab.v5.completed',
+      data: payload,
+    });
+
+    console.log(`${logPrefix} website_lab.v5.completed EMITTED`, {
+      runId: run.id,
+      v5Score: payload.v5Score,
+      blockingIssueCount: payload.blockingIssueCount,
+      pagesAnalyzed: payload.pagesAnalyzed.length,
+    });
+
+    // Mark as emitted (idempotency marker)
+    const updatedMetadata = {
+      ...existingMetadata,
+      eventsEmitted: {
+        ...eventsEmitted,
+        websiteLabV5CompletedAt: new Date().toISOString(),
+      },
+    };
+
+    await updateDiagnosticRun(run.id, {
+      metadata: updatedMetadata,
+    });
+
+    console.log(`${logPrefix} Idempotency marker set for run:`, run.id);
+  } catch (error) {
+    // Log but don't throw - event emission failure should not break the flow
+    console.error(`${logPrefix} Failed to emit website_lab.v5.completed`, {
+      runId: run.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }

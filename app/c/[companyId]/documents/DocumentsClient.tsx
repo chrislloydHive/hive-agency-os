@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import type { Artifact, ArtifactType, ArtifactStatus } from '@/lib/types/artifact';
 import { getArtifactTypeLabel, getArtifactStatusLabel, createDefaultUsage } from '@/lib/types/artifact';
+import type { CompanyArtifactIndex, ArtifactPhase } from '@/lib/types/artifactIndex';
 import { ArtifactUsageBadge } from '@/components/os/artifacts/ArtifactUsageIndicators';
 import {
   getDocumentsUIState,
@@ -51,6 +52,7 @@ interface DocumentsClientProps {
   companyId: string;
   companyName: string;
   initialArtifacts: Artifact[];
+  initialIndexedArtifacts?: CompanyArtifactIndex[];
 }
 
 type FilterType = 'all' | ArtifactType;
@@ -65,25 +67,50 @@ export function DocumentsClient({
   companyId,
   companyName,
   initialArtifacts,
+  initialIndexedArtifacts = [],
 }: DocumentsClientProps) {
   const [artifacts, setArtifacts] = useState<Artifact[]>(initialArtifacts);
+  const [indexedArtifacts, setIndexedArtifacts] = useState<CompanyArtifactIndex[]>(initialIndexedArtifacts);
   const [loading, setLoading] = useState(false);
   const [filterType, setFilterType] = useState<FilterType>('all');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('active');
   const [filterUsage, setFilterUsage] = useState<FilterUsage>('all');
 
+  // Log for debugging
+  console.log('[DocumentsClient] Rendering with:', {
+    legacyArtifacts: artifacts.length,
+    indexedArtifacts: indexedArtifacts.length,
+  });
+
   // Derive UI state from selector
   const dataInput: DocumentsDataInput = { artifacts };
   const uiState: DocumentsUIState = getDocumentsUIState(dataInput, companyId);
+
+  // Check if truly empty (both sources have no data)
+  const isTrulyEmpty = artifacts.length === 0 && indexedArtifacts.length === 0;
+  const hasIndexedArtifacts = indexedArtifacts.length > 0;
 
   // Refresh artifacts
   const refreshArtifacts = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/os/companies/${companyId}/artifacts`);
-      if (response.ok) {
-        const data = await response.json();
+      const [artifactsRes, indexedRes] = await Promise.all([
+        fetch(`/api/os/companies/${companyId}/artifacts`),
+        fetch(`/api/os/companies/${companyId}/artifact-index?flat=true`),
+      ]);
+
+      if (artifactsRes.ok) {
+        const data = await artifactsRes.json();
         setArtifacts(data.artifacts || []);
+      }
+
+      if (indexedRes.ok) {
+        const data = await indexedRes.json();
+        // Show ALL indexed artifacts, not just lab reports
+        setIndexedArtifacts(data.artifacts || []);
+        console.log('[DocumentsClient] Indexed artifacts refreshed:', {
+          count: (data.artifacts || []).length,
+        });
       }
     } catch (err) {
       console.error('[DocumentsClient] Refresh error:', err);
@@ -166,26 +193,35 @@ export function DocumentsClient({
         </div>
       )}
 
-      {/* Empty State */}
-      {uiState.state === 'empty' && (
+      {/* Empty State - Only show if BOTH sources are empty */}
+      {isTrulyEmpty && (
         <div className="bg-slate-900/50 border border-slate-800 border-dashed rounded-xl p-12 text-center">
           <FileText className="w-12 h-12 text-slate-600 mx-auto mb-4" />
           <p className="text-lg font-medium text-slate-400">No documents yet</p>
           <p className="text-sm text-slate-500 mt-1 mb-6">
-            Create deliverables in the Deliver phase to see them here.
+            Run diagnostics in Discover, create a strategy in Decide, or generate deliverables in Deliver.
           </p>
-          <Link
-            href={uiState.primaryCTA.href}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-purple-500 hover:bg-purple-400 text-white font-semibold text-sm transition-colors"
-          >
-            {uiState.primaryCTA.label}
-            <ChevronRight className="w-4 h-4" />
-          </Link>
+          <div className="flex items-center justify-center gap-3">
+            <Link
+              href={`/c/${companyId}/blueprint`}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-semibold text-sm transition-colors"
+            >
+              Run Diagnostics
+              <ChevronRight className="w-4 h-4" />
+            </Link>
+            <Link
+              href={`/c/${companyId}/deliver`}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-purple-500 hover:bg-purple-400 text-white font-semibold text-sm transition-colors"
+            >
+              Go to Deliver
+              <ChevronRight className="w-4 h-4" />
+            </Link>
+          </div>
         </div>
       )}
 
-      {/* Has Documents */}
-      {uiState.state !== 'empty' && (
+      {/* Has Documents - Show if either source has data */}
+      {!isTrulyEmpty && (
         <>
           {/* Pinned Primary Card */}
           {uiState.primaryArtifact && (
@@ -329,6 +365,53 @@ export function DocumentsClient({
             })}
           </div>
 
+          {/* Indexed Artifacts Section (from ArtifactIndex - canonical source) */}
+          {indexedArtifacts.length > 0 && (
+            <div className="space-y-6">
+              {/* Group indexed artifacts by phase */}
+              {(() => {
+                // Group by phase
+                const byPhase = indexedArtifacts.reduce((acc, a) => {
+                  const phase = a.phase || 'Other';
+                  if (!acc[phase]) acc[phase] = [];
+                  acc[phase].push(a);
+                  return acc;
+                }, {} as Record<string, CompanyArtifactIndex[]>);
+
+                // Phase order
+                const phaseOrder = ['Discover', 'Decide', 'Deliver', 'Work', 'Report', 'Other'];
+
+                return phaseOrder.map(phase => {
+                  const phaseArtifacts = byPhase[phase] || [];
+                  if (phaseArtifacts.length === 0) return null;
+
+                  return (
+                    <div key={phase}>
+                      <div className="flex items-center justify-between mb-3">
+                        <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+                          <PhaseIcon phase={phase} />
+                          {phase} Phase
+                        </h2>
+                        <span className="text-xs text-slate-500">
+                          {phaseArtifacts.length} artifact{phaseArtifacts.length === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {phaseArtifacts.map(indexed => (
+                          <IndexedArtifactRow
+                            key={indexed.id}
+                            artifact={indexed}
+                            companyId={companyId}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          )}
+
           {/* Create New CTA */}
           <div className="pt-4 border-t border-slate-800">
             <Link
@@ -441,6 +524,165 @@ function ArtifactRow({
 }
 
 // ============================================================================
+// Indexed Artifact Row (for CompanyArtifactIndex)
+// ============================================================================
+
+function IndexedArtifactRow({
+  artifact,
+  companyId,
+}: {
+  artifact: CompanyArtifactIndex;
+  companyId: string;
+}) {
+  const router = useRouter();
+
+  const handleRowClick = () => {
+    // Navigate to the artifact URL (could be internal or external)
+    if (artifact.url.startsWith('http')) {
+      window.open(artifact.url, '_blank');
+    } else {
+      router.push(artifact.url);
+    }
+  };
+
+  const stopPropagation = (e: React.MouseEvent) => {
+    e.stopPropagation();
+  };
+
+  return (
+    <div
+      onClick={handleRowClick}
+      className="bg-slate-900/50 border border-slate-800 rounded-lg p-4 flex items-center justify-between cursor-pointer hover:border-slate-700 transition-colors"
+    >
+      <div className="flex items-center gap-3">
+        {/* Type icon */}
+        <div className={`p-2 rounded-lg ${getIndexedTypeIconStyle(artifact.artifactType)}`}>
+          {getIndexedTypeIcon(artifact.fileType)}
+        </div>
+
+        {/* Title and metadata */}
+        <div>
+          <p className="text-sm font-medium text-slate-300">
+            {artifact.title}
+          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-xs text-slate-500">
+              {getIndexedArtifactTypeLabel(artifact.artifactType)}
+            </span>
+            <IndexedStatusBadge status={artifact.status} />
+            <span className="text-xs text-slate-600">
+              {new Date(artifact.createdAt).toLocaleDateString()}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-2" onClick={stopPropagation}>
+        {artifact.googleFileId && (
+          <a
+            href={artifact.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-2 text-slate-400 hover:text-slate-300 hover:bg-slate-800 rounded-lg transition-colors"
+            title="Open in Google Drive"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </a>
+        )}
+        {!artifact.googleFileId && artifact.storage === 'internal' && (
+          <Link
+            href={artifact.url}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-lg transition-colors"
+          >
+            View
+            <ChevronRight className="w-3 h-3" />
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function getIndexedTypeIcon(fileType: string) {
+  switch (fileType) {
+    case 'slides':
+      return <Presentation className="w-4 h-4" />;
+    case 'sheet':
+      return <Table className="w-4 h-4" />;
+    case 'doc':
+    case 'json':
+    default:
+      return <FileText className="w-4 h-4" />;
+  }
+}
+
+function getIndexedTypeIconStyle(artifactType: string) {
+  switch (artifactType) {
+    case 'lab_report':
+      return 'bg-cyan-500/10 text-cyan-400';
+    case 'gap_report':
+      return 'bg-purple-500/10 text-purple-400';
+    case 'competition_report':
+      return 'bg-amber-500/10 text-amber-400';
+    default:
+      return 'bg-slate-500/10 text-slate-400';
+  }
+}
+
+function getIndexedArtifactTypeLabel(artifactType: string): string {
+  switch (artifactType) {
+    case 'lab_report':
+      return 'Lab Report';
+    case 'gap_report':
+      return 'GAP Analysis';
+    case 'competition_report':
+      return 'Competition Analysis';
+    case 'strategy_doc':
+      return 'Strategy Doc';
+    case 'qbr_slides':
+      return 'QBR Slides';
+    default:
+      return artifactType.replace(/_/g, ' ');
+  }
+}
+
+function IndexedStatusBadge({ status }: { status: string }) {
+  switch (status) {
+    case 'final':
+      return (
+        <span className="flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded">
+          <CheckCircle className="w-3 h-3" />
+          Final
+        </span>
+      );
+    case 'draft':
+      return (
+        <span className="flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium bg-slate-500/10 text-slate-400 border border-slate-500/30 rounded">
+          <PencilLine className="w-3 h-3" />
+          Draft
+        </span>
+      );
+    case 'stale':
+      return (
+        <span className="flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded">
+          <AlertTriangle className="w-3 h-3" />
+          Stale
+        </span>
+      );
+    case 'archived':
+      return (
+        <span className="flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium bg-slate-600/10 text-slate-500 border border-slate-600/30 rounded">
+          <Archive className="w-3 h-3" />
+          Archived
+        </span>
+      );
+    default:
+      return null;
+  }
+}
+
+// ============================================================================
 // Status Badge
 // ============================================================================
 
@@ -487,6 +729,23 @@ function GroupIcon({ groupKey }: { groupKey: DocumentGroupKey }) {
     case 'sheets':
       return <Table className="w-4 h-4 text-green-400" />;
     case 'other':
+    default:
+      return <FileText className="w-4 h-4 text-slate-400" />;
+  }
+}
+
+function PhaseIcon({ phase }: { phase: string }) {
+  switch (phase) {
+    case 'Discover':
+      return <FileText className="w-4 h-4 text-cyan-400" />;
+    case 'Decide':
+      return <FileText className="w-4 h-4 text-purple-400" />;
+    case 'Deliver':
+      return <Presentation className="w-4 h-4 text-blue-400" />;
+    case 'Work':
+      return <Table className="w-4 h-4 text-green-400" />;
+    case 'Report':
+      return <FileText className="w-4 h-4 text-amber-400" />;
     default:
       return <FileText className="w-4 h-4 text-slate-400" />;
   }
