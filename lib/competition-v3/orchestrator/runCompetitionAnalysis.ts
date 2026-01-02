@@ -40,6 +40,8 @@ import type {
   VerticalCategory,
   CompanyArchetype,
   ScoringDebug,
+  DiscoveryCandidate,
+  BusinessArchetype,
 } from '../types';
 import {
   detectVerticalCategory,
@@ -68,6 +70,16 @@ export interface CompetitionV3Result {
 
 // Version stamp for tracking which code version is running
 const COMPETITION_V3_VERSION = '2025-12-11-marketplace-fix';
+
+export function getBusinessArchetypeStatus(
+  graph: CompanyContextGraph | null
+): { value: BusinessArchetype | null; confirmed: boolean; provenance?: string } {
+  const meta = (graph as any)?.identity?.businessArchetype;
+  const value = (meta?.value || null) as BusinessArchetype | null;
+  const provenance = meta?.provenance?.[0]?.source;
+  const confirmed = !!value && provenance === 'user';
+  return { value, confirmed, provenance };
+}
 
 /**
  * Run the full V3 competition analysis pipeline
@@ -119,7 +131,12 @@ export async function runCompetitionV3(
       loadContextGraph(companyId),
       getCompanyById(companyId),
     ]);
+    const archetypeStatus = getBusinessArchetypeStatus(graph);
+    if (!archetypeStatus.confirmed) {
+      throw new Error('Business Archetype is required and must be confirmed before running Competition Lab.');
+    }
     const context = buildQueryContext(graph, companyId, company);
+    console.log(`[competition-v3] Business archetype: ${context.businessArchetype || 'missing'}`);
 
     // Step 1.5: BUSINESS TYPE SANITY GATE
     // Compute business profile with confidence scoring
@@ -241,6 +258,7 @@ export async function runCompetitionV3(
     run.steps.discovery.startedAt = new Date().toISOString();
 
     let candidates = await runDiscovery(context, queries);
+    candidates = applyArchetypeCompetitionLogic(candidates, context);
 
     // Exclude durable invalid competitors
     if (context.invalidCompetitors && context.invalidCompetitors.length > 0) {
@@ -500,10 +518,10 @@ function buildQueryContext(graph: any, companyId: string, company?: { name: stri
   // Handle null/undefined graph - use empty object for safe property access
   const safeGraph = graph || {};
   const identity = safeGraph.identity || {};
-  const offer = safeGraph.offer || {};
-  const icp = safeGraph.icp || {};
-  const positioning = safeGraph.positioning || {};
-  const pricing = safeGraph.pricing || {};
+  // Use correct domain names from the context graph schema
+  const productOffer = safeGraph.productOffer || {};
+  const audience = safeGraph.audience || {};
+  const brand = safeGraph.brand || {};
   const competitive = safeGraph.competitive || {};
 
   // Extract business name (with fallback to Airtable company data)
@@ -520,17 +538,17 @@ function buildQueryContext(graph: any, companyId: string, company?: { name: stri
     (company?.domain ? extractDomain(company.domain) : null) ||
     (company?.website ? extractDomain(company.website) : null);
 
-  // Extract ICP description
+  // Extract ICP description from audience domain
   const icpParts = [
-    icp.targetAudience?.value,
-    icp.idealCustomerProfile?.value,
-    icp.primaryPersona?.value,
+    audience.icpDescription?.value,
+    audience.primaryAudience?.value,
   ].filter(Boolean);
   const icpDescription = icpParts.join('. ') || null;
 
-  // Determine ICP stage
+  // Determine ICP stage from audience.companyProfile
   let icpStage: QueryContext['icpStage'] = null;
-  const companySize = icp.companySize?.value?.toLowerCase() || '';
+  const companyProfile = audience.companyProfile?.value;
+  const companySize = (companyProfile?.sizeRange || companyProfile?.stage || '').toLowerCase();
   if (companySize.includes('startup') || companySize.includes('early')) {
     icpStage = 'startup';
   } else if (companySize.includes('growth') || companySize.includes('scale')) {
@@ -541,49 +559,60 @@ function buildQueryContext(graph: any, companyId: string, company?: { name: stri
     icpStage = 'enterprise';
   }
 
-  // Extract target industries
+  // Extract target industries from audience.companyProfile
   const targetIndustries: string[] = [];
-  if (icp.industries?.value) {
-    if (Array.isArray(icp.industries.value)) {
-      targetIndustries.push(...icp.industries.value);
-    } else if (typeof icp.industries.value === 'string') {
-      targetIndustries.push(...icp.industries.value.split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean));
+  const profileIndustries = companyProfile?.industries;
+  if (profileIndustries) {
+    if (Array.isArray(profileIndustries)) {
+      targetIndustries.push(...profileIndustries);
+    } else if (typeof profileIndustries === 'string') {
+      targetIndustries.push(...profileIndustries.split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean));
     }
   }
 
-  // Extract primary offers
+  // Extract primary offers from productOffer domain
   const primaryOffers: string[] = [];
-  if (offer.coreServices?.value) {
-    if (Array.isArray(offer.coreServices.value)) {
-      primaryOffers.push(...offer.coreServices.value);
-    } else if (typeof offer.coreServices.value === 'string') {
-      primaryOffers.push(...offer.coreServices.value.split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean));
+  // Check services first
+  if (productOffer.services?.value) {
+    if (Array.isArray(productOffer.services.value)) {
+      primaryOffers.push(...productOffer.services.value);
+    } else if (typeof productOffer.services.value === 'string') {
+      primaryOffers.push(...productOffer.services.value.split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean));
     }
   }
-  if (offer.serviceCategories?.value && Array.isArray(offer.serviceCategories.value)) {
-    primaryOffers.push(...offer.serviceCategories.value);
+  // Also check primaryProducts
+  if (productOffer.primaryProducts?.value && Array.isArray(productOffer.primaryProducts.value)) {
+    primaryOffers.push(...productOffer.primaryProducts.value);
+  }
+  // And product categories
+  if (productOffer.productCategories?.value && Array.isArray(productOffer.productCategories.value)) {
+    primaryOffers.push(...productOffer.productCategories.value);
   }
 
-  // Extract value proposition
-  const valueProposition = positioning.valueProposition?.value ||
-    offer.mainBenefit?.value ||
+  // Extract value proposition from productOffer or brand domain
+  const valueProposition = productOffer.valueProposition?.value ||
+    (brand.valueProps?.value && Array.isArray(brand.valueProps.value) ? brand.valueProps.value.join('. ') : null) ||
     null;
 
-  // Extract differentiators
+  // Extract differentiators from brand or productOffer domain
   const differentiators: string[] = [];
-  if (positioning.differentiators?.value) {
-    if (Array.isArray(positioning.differentiators.value)) {
-      differentiators.push(...positioning.differentiators.value);
-    } else if (typeof positioning.differentiators.value === 'string') {
-      differentiators.push(...positioning.differentiators.value.split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean));
+  if (brand.differentiators?.value) {
+    if (Array.isArray(brand.differentiators.value)) {
+      differentiators.push(...brand.differentiators.value);
+    } else if (typeof brand.differentiators.value === 'string') {
+      differentiators.push(...brand.differentiators.value.split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean));
     }
+  }
+  // Also check productOffer.keyDifferentiators
+  if (productOffer.keyDifferentiators?.value && Array.isArray(productOffer.keyDifferentiators.value)) {
+    differentiators.push(...productOffer.keyDifferentiators.value);
   }
 
   // Determine AI orientation
   let aiOrientation: QueryContext['aiOrientation'] = null;
   const aiMentions = [
-    positioning.technologyApproach?.value,
-    offer.serviceDelivery?.value,
+    brand.positioning?.value,
+    productOffer.pricingModel?.value,
     identity.brandPromise?.value,
   ].join(' ').toLowerCase();
 
@@ -604,8 +633,8 @@ function buildQueryContext(graph: any, companyId: string, company?: { name: stri
   let businessModelCategory: QueryContext['businessModelCategory'] = null;
   const businessModelText = [
     identity.businessModel?.value,
-    icp.customerType?.value,
-    icp.targetAudience?.value,
+    audience.primaryAudience?.value,
+    audience.icpDescription?.value,
     identity.industry?.value,
   ].join(' ').toLowerCase();
 
@@ -625,10 +654,12 @@ function buildQueryContext(graph: any, companyId: string, company?: { name: stri
   }
 
   // Build partial context for vertical detection
+  const businessArchetype = identity.businessArchetype?.value || null;
+
   const partialContext: Partial<QueryContext> = {
     businessName,
     domain,
-    industry: identity.industry?.value || positioning.industry?.value || null,
+    industry: identity.industry?.value || null,
     businessModel: identity.businessModel?.value || null,
     businessModelCategory,
     icpDescription,
@@ -639,7 +670,29 @@ function buildQueryContext(graph: any, companyId: string, company?: { name: stri
 
   // Detect archetype and vertical using combined classification
   const classification = classifyCompanyArchetypeAndVertical(partialContext);
-  const archetype: CompanyArchetype = classification.archetype.archetype;
+  const mapBusinessArchetypeToCompanyArchetype = (value: string | null | undefined): CompanyArchetype => {
+    switch (value) {
+      case 'local_service':
+      case 'regional_multi_location_service':
+        return 'local_service';
+      case 'national_retail_brand':
+        return 'ecommerce';
+      case 'ecommerce_only':
+        return 'ecommerce';
+      case 'marketplace':
+        return 'two_sided_marketplace';
+      case 'saas':
+        return 'saas';
+      default:
+        return 'unknown';
+    }
+  };
+
+  const archetypeFromBusinessReality = businessArchetype ? mapBusinessArchetypeToCompanyArchetype(businessArchetype) : null;
+
+  const archetype: CompanyArchetype = archetypeFromBusinessReality && archetypeFromBusinessReality !== 'unknown'
+    ? archetypeFromBusinessReality
+    : classification.archetype.archetype;
   const verticalCategory: VerticalCategory = classification.vertical.verticalCategory;
   const subVertical = classification.vertical.subVertical;
 
@@ -657,7 +710,7 @@ function buildQueryContext(graph: any, companyId: string, company?: { name: stri
     marketplaceVertical = detectMarketplaceVertical(textForMarketplace);
   }
 
-  console.log(`[competition-v3] Archetype detected: ${archetype} - confidence: ${classification.archetype.confidence}`);
+  console.log(`[competition-v3] Archetype detected: ${archetype} - confidence: ${classification.archetype.confidence}${businessArchetype ? ` (BusinessReality: ${businessArchetype})` : ''}`);
   console.log(`[competition-v3] Vertical detected: ${verticalCategory}${subVertical ? ` (${subVertical})` : ''}${marketplaceVertical ? ` [marketplace: ${marketplaceVertical}]` : ''} - confidence: ${classification.vertical.confidence}`);
   if (classification.archetype.signals.length > 0) {
     console.log(`[competition-v3] Archetype signals: ${classification.archetype.signals.slice(0, 3).join(', ')}`);
@@ -669,19 +722,20 @@ function buildQueryContext(graph: any, companyId: string, company?: { name: stri
   return {
     businessName,
     domain,
-    industry: identity.industry?.value || positioning.industry?.value || null,
+    industry: identity.industry?.value || null,
     businessModel: identity.businessModel?.value || null,
     businessModelCategory,
     verticalCategory,
     subVertical,
     archetype,
+    businessArchetype,
     marketplaceVertical,
     icpDescription,
     icpStage,
     targetIndustries,
     primaryOffers,
-    serviceModel: pricing.pricingModel?.value || null,
-    pricePositioning: positioning.pricePositioning?.value || null,
+    serviceModel: productOffer.pricingModel?.value || null,
+    pricePositioning: productOffer.priceRange?.value || null,
     valueProposition,
     differentiators,
     geography: identity.headquartersLocation?.value || identity.headquarters?.value || null,
@@ -704,6 +758,65 @@ function extractDomain(url: string): string | null {
   } catch {
     return null;
   }
+}
+
+// ============================================================================
+// Archetype-aware candidate injection
+// ============================================================================
+const REGIONAL_BIG_BOX: DiscoveryCandidate[] = [
+  {
+    name: 'Best Buy',
+    domain: 'bestbuy.com',
+    homepageUrl: 'https://www.bestbuy.com',
+    source: 'ai_inference',
+    sourceUrl: null,
+    sourceRank: 1,
+    queryMatched: 'regional substitution',
+    snippet: 'Big-box retailer with installation services (Geek Squad)',
+    frequency: 1,
+  },
+  {
+    name: 'Home Depot',
+    domain: 'homedepot.com',
+    homepageUrl: 'https://www.homedepot.com',
+    source: 'ai_inference',
+    sourceUrl: null,
+    sourceRank: 2,
+    queryMatched: 'regional substitution',
+    snippet: 'National retailer offering products with installation partners',
+    frequency: 1,
+  },
+  {
+    name: "Lowe's",
+    domain: 'lowes.com',
+    homepageUrl: 'https://www.lowes.com',
+    source: 'ai_inference',
+    sourceUrl: null,
+    sourceRank: 3,
+    queryMatched: 'regional substitution',
+    snippet: 'Home improvement retailer with install services',
+    frequency: 1,
+  },
+];
+
+function applyArchetypeCompetitionLogic(
+  candidates: DiscoveryCandidate[],
+  context: QueryContext
+): DiscoveryCandidate[] {
+  if (context.businessArchetype !== 'regional_multi_location_service') return candidates;
+
+  const existing = new Set(
+    candidates.map(c => (c.domain || c.name || '').toLowerCase()).filter(Boolean)
+  );
+
+  const extras = REGIONAL_BIG_BOX.filter(c => !existing.has((c.domain || c.name).toLowerCase()));
+
+  if (extras.length > 0) {
+    console.log(`[competition-v3] Archetype ${context.businessArchetype}: adding substitution competitors ${extras.map(e => e.name).join(', ')}`);
+    return [...candidates, ...extras];
+  }
+
+  return candidates;
 }
 
 // ============================================================================
@@ -779,4 +892,4 @@ async function storeResults(
 // Exports
 // ============================================================================
 
-export { buildQueryContext };
+export { buildQueryContext, applyArchetypeCompetitionLogic };

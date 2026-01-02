@@ -75,7 +75,7 @@ function parseJsonResponse<T>(response: string, stepName: string): ParseResult<T
 // ============================================================================
 
 async function runStep1Decomposition(
-  input: CompetitionV4Input
+  input: CompetitionV4Input & { approvedContext?: string }
 ): Promise<ParseResult<BusinessDecompositionResult>> {
   console.log('[competition-v4] Step 1: Business Decomposition...');
 
@@ -84,6 +84,7 @@ async function runStep1Decomposition(
     domain: input.domain,
     websiteText: input.websiteText,
     diagnosticsSummary: input.diagnosticsSummary,
+    approvedContext: input.approvedContext,
   });
 
   const response = await aiSimple({
@@ -98,11 +99,12 @@ async function runStep1Decomposition(
 }
 
 async function runStep2CategoryDefinition(
-  decomposition: BusinessDecompositionResult
+  decomposition: BusinessDecompositionResult,
+  approvedContext?: string
 ): Promise<ParseResult<CategoryDefinition>> {
   console.log('[competition-v4] Step 2: Category Definition...');
 
-  const taskPrompt = buildCategoryPrompt(decomposition);
+  const taskPrompt = buildCategoryPrompt(decomposition, approvedContext);
 
   const response = await aiSimple({
     systemPrompt: PROMPT_2_CATEGORY_DEFINITION,
@@ -117,11 +119,12 @@ async function runStep2CategoryDefinition(
 
 async function runStep3CompetitorDiscovery(
   category: CategoryDefinition,
-  companyName: string
+  companyName: string,
+  approvedContext?: string
 ): Promise<ParseResult<CompetitorDiscoveryResult>> {
   console.log('[competition-v4] Step 3: Competitor Discovery...');
 
-  const taskPrompt = buildDiscoveryPrompt(category, companyName);
+  const taskPrompt = buildDiscoveryPrompt(category, companyName, approvedContext);
 
   const response = await aiSimple({
     systemPrompt: PROMPT_3_COMPETITOR_DISCOVERY,
@@ -136,11 +139,12 @@ async function runStep3CompetitorDiscovery(
 
 async function runStep4CompetitorValidation(
   category: CategoryDefinition,
-  competitors: ProposedCompetitor[]
+  competitors: ProposedCompetitor[],
+  approvedContext?: string
 ): Promise<ParseResult<CompetitorValidationResult>> {
   console.log('[competition-v4] Step 4: Competitor Validation...');
 
-  const taskPrompt = buildValidationPrompt(category, competitors);
+  const taskPrompt = buildValidationPrompt(category, competitors, approvedContext);
 
   const response = await aiSimple({
     systemPrompt: PROMPT_4_COMPETITOR_VALIDATION,
@@ -155,11 +159,12 @@ async function runStep4CompetitorValidation(
 
 async function runStep5CompetitiveSummary(
   category: CategoryDefinition,
-  validatedCompetitors: ProposedCompetitor[]
+  validatedCompetitors: ProposedCompetitor[],
+  approvedContext?: string
 ): Promise<ParseResult<CompetitiveSummary>> {
   console.log('[competition-v4] Step 5: Competitive Summary...');
 
-  const taskPrompt = buildSummaryPrompt(category, validatedCompetitors);
+  const taskPrompt = buildSummaryPrompt(category, validatedCompetitors, approvedContext);
 
   const response = await aiSimple({
     systemPrompt: PROMPT_5_COMPETITIVE_SUMMARY,
@@ -260,29 +265,57 @@ export async function runCompetitionV4(
 
   companyName = companyName || 'Unknown Company';
 
-  // Get website text from context graph if not provided
+  // Get website text and approved context from context graph
   let websiteText = input.websiteText;
-  if (!websiteText) {
-    try {
-      const graph = await loadContextGraph(input.companyId);
-      if (graph) {
-        // Try to extract relevant text from context graph
-        const identity = (graph as any)?.identity || {};
-        const productOffer = (graph as any)?.productOffer || {};
-        const audience = (graph as any)?.audience || {};
+  let approvedContext: string | undefined;
+  try {
+    const graph = await loadContextGraph(input.companyId);
+    if (graph) {
+      // Build approved context summary
+      const identity = (graph as any)?.identity || {};
+      const productOffer = (graph as any)?.productOffer || {};
+      const audience = (graph as any)?.audience || {};
+      const competitive = (graph as any)?.competitive || {};
 
-        const parts: string[] = [];
-        if (identity.businessName?.value) parts.push(`Business: ${identity.businessName.value}`);
-        if (identity.industry?.value) parts.push(`Industry: ${identity.industry.value}`);
-        if (identity.businessModel?.value) parts.push(`Business Model: ${identity.businessModel.value}`);
-        if (productOffer.coreServices?.value) parts.push(`Services: ${JSON.stringify(productOffer.coreServices.value)}`);
-        if (audience.targetAudience?.value) parts.push(`Target Audience: ${audience.targetAudience.value}`);
+      const parts: string[] = [];
+      const pushVal = (label: string, val: unknown) => {
+        if (val === null || val === undefined) return;
+        if (Array.isArray(val) && val.length === 0) return;
+        if (typeof val === 'string' && !val.trim()) return;
+        parts.push(`${label}: ${typeof val === 'string' ? val : JSON.stringify(val)}`);
+      };
 
-        websiteText = parts.join('\n');
+      pushVal('Business Model', identity.businessModel?.value);
+      pushVal('Business Archetype', identity.businessArchetype?.value);
+      pushVal('Industry', identity.industry?.value);
+      pushVal('Geography', identity.geographicFootprint?.value || identity.headquartersLocation?.value);
+      pushVal('ICP Description', audience.icpDescription?.value);
+      pushVal('Primary Audience', audience.primaryAudience?.value);
+      pushVal('Primary Products', productOffer.primaryProducts?.value);
+      pushVal('Services', productOffer.services?.value || productOffer.coreServices?.value);
+      pushVal('Product Categories', productOffer.productCategories?.value);
+      pushVal('Value Proposition', productOffer.valueProposition?.value);
+      pushVal('Differentiators', productOffer.keyDifferentiators?.value);
+      pushVal('Competitive Notes', competitive.competitiveNotes?.value);
+      pushVal('Category Alternatives', competitive.categoryAlternatives?.value);
+      pushVal('Replacement Alternatives', competitive.replacementAlternatives?.value);
+      pushVal('Approved Competitors', competitive.competitors?.value);
+
+      approvedContext = parts.length > 0 ? parts.join('\n') : undefined;
+
+      // If no websiteText provided, synthesize from context
+      if (!websiteText) {
+        const synthParts: string[] = [];
+        if (identity.businessName?.value) synthParts.push(`Business: ${identity.businessName.value}`);
+        if (identity.industry?.value) synthParts.push(`Industry: ${identity.industry.value}`);
+        if (identity.businessModel?.value) synthParts.push(`Business Model: ${identity.businessModel.value}`);
+        if (productOffer.coreServices?.value) synthParts.push(`Services: ${JSON.stringify(productOffer.coreServices.value)}`);
+        if (audience.targetAudience?.value) synthParts.push(`Target Audience: ${audience.targetAudience.value}`);
+        websiteText = synthParts.join('\n');
       }
-    } catch (error) {
-      console.warn('[competition-v4] Failed to load context graph:', error);
     }
+  } catch (error) {
+    console.warn('[competition-v4] Failed to load context graph:', error);
   }
 
   // Initialize result with defaults
@@ -317,6 +350,7 @@ export async function runCompetitionV4(
       companyName,
       domain,
       websiteText,
+      approvedContext,
     });
 
     if (!step1Result.success || !step1Result.data) {
@@ -329,7 +363,7 @@ export async function runCompetitionV4(
     console.log(`[competition-v4] Decomposition: ${decomposition.economic_model} / ${decomposition.primary_vertical}`);
 
     // Step 2: Category Definition
-    const step2Result = await runStep2CategoryDefinition(decomposition);
+    const step2Result = await runStep2CategoryDefinition(decomposition, approvedContext);
 
     if (!step2Result.success || !step2Result.data) {
       stepErrors.push({ step: 'category', error: step2Result.error || 'Unknown error' });
@@ -345,7 +379,7 @@ export async function runCompetitionV4(
     console.log(`[competition-v4] Category: ${category.category_name} (${category.category_slug})`);
 
     // Step 3: Competitor Discovery
-    const step3Result = await runStep3CompetitorDiscovery(category, companyName);
+    const step3Result = await runStep3CompetitorDiscovery(category, companyName, approvedContext);
 
     if (!step3Result.success || !step3Result.data) {
       stepErrors.push({ step: 'discovery', error: step3Result.error || 'Unknown error' });
@@ -358,7 +392,7 @@ export async function runCompetitionV4(
 
     // Step 4: Competitor Validation
     if (discoveredCompetitors.length > 0) {
-      const step4Result = await runStep4CompetitorValidation(category, discoveredCompetitors);
+      const step4Result = await runStep4CompetitorValidation(category, discoveredCompetitors, approvedContext);
 
       if (!step4Result.success || !step4Result.data) {
         stepErrors.push({ step: 'validation', error: step4Result.error || 'Unknown error' });
@@ -376,7 +410,7 @@ export async function runCompetitionV4(
 
     // Step 5: Competitive Summary (optional)
     if (!input.skipSummary && validatedCompetitors.length > 0) {
-      const step5Result = await runStep5CompetitiveSummary(category, validatedCompetitors);
+      const step5Result = await runStep5CompetitiveSummary(category, validatedCompetitors, approvedContext);
 
       if (step5Result.success && step5Result.data) {
         summary = step5Result.data;

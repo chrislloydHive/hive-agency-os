@@ -73,6 +73,16 @@ function computeCoordinates(
 }
 
 /**
+ * Safely get score value, defaulting to 50 if undefined/NaN
+ */
+function safeScore(value: number | undefined | null, defaultValue = 50): number {
+  if (value === undefined || value === null || Number.isNaN(value)) {
+    return defaultValue;
+  }
+  return value;
+}
+
+/**
  * Compute X-axis value (Value Model Alignment)
  */
 function computeValueModelAlignment(scores: CompetitorScores): number {
@@ -85,10 +95,10 @@ function computeValueModelAlignment(scores: CompetitorScores): number {
   };
 
   const weighted =
-    scores.businessModelFit * weights.businessModelFit +
-    scores.valueModelFit * weights.valueModelFit +
-    scores.serviceOverlap * weights.serviceOverlap +
-    scores.aiOrientation * weights.aiOrientation;
+    safeScore(scores.businessModelFit) * weights.businessModelFit +
+    safeScore(scores.valueModelFit) * weights.valueModelFit +
+    safeScore(scores.serviceOverlap) * weights.serviceOverlap +
+    safeScore(scores.aiOrientation) * weights.aiOrientation;
 
   return Math.round(weighted);
 }
@@ -105,9 +115,9 @@ function computeICPAlignment(scores: CompetitorScores): number {
   };
 
   const weighted =
-    scores.icpFit * weights.icpFit +
-    scores.icpStageMatch * weights.icpStageMatch +
-    scores.geographyFit * weights.geographyFit;
+    safeScore(scores.icpFit) * weights.icpFit +
+    safeScore(scores.icpStageMatch) * weights.icpStageMatch +
+    safeScore(scores.geographyFit) * weights.geographyFit;
 
   return Math.round(weighted);
 }

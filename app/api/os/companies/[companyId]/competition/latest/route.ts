@@ -53,8 +53,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       type: c.classification.type,
       summary: c.summary,
       coordinates: {
-        valueModelFit: c.positioning.x,
-        icpFit: c.positioning.y,
+        // Ensure coordinates are valid numbers (fallback to 50 if missing/NaN)
+        valueModelFit: typeof c.positioning?.x === 'number' && !Number.isNaN(c.positioning.x) ? c.positioning.x : 50,
+        icpFit: typeof c.positioning?.y === 'number' && !Number.isNaN(c.positioning.y) ? c.positioning.y : 50,
       },
       scores: {
         icp: c.scores.icpFit,
@@ -145,7 +146,14 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       queryContext,
     };
 
+    // Debug: Log coordinate distribution
+    const coordStats = competitors.map(c => ({
+      name: c.name,
+      x: c.coordinates.valueModelFit,
+      y: c.coordinates.icpFit,
+    }));
     console.log(`[competition/latest] Returning full V3 data: ${competitors.length} competitors`);
+    console.log(`[competition/latest] Coordinate distribution:`, JSON.stringify(coordStats.slice(0, 5)));
 
     return NextResponse.json({
       success: true,

@@ -31,6 +31,15 @@ export type VerticalCategory =
 // Company Archetype Intelligence
 // ============================================================================
 
+// Competition-required archetype (confirmed by operator)
+export type BusinessArchetype =
+  | 'local_service'
+  | 'regional_multi_location_service'
+  | 'national_retail_brand'
+  | 'ecommerce_only'
+  | 'marketplace'
+  | 'saas';
+
 /**
  * Company archetype based on business model structure
  * Provides higher-level classification than vertical for understanding competitive dynamics
@@ -181,6 +190,8 @@ export interface QueryContext {
   // V3.6: Company Archetype Intelligence
   archetype?: CompanyArchetype;
   marketplaceVertical?: string | null;  // For marketplaces: fitness, services, rentals, etc.
+  // V4 Archetype (confirmed)
+  businessArchetype?: BusinessArchetype | null;
 
   // Audience
   icpDescription: string | null;

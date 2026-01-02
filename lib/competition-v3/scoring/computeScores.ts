@@ -96,6 +96,7 @@ export function scoreCompetitors(
 ): Array<EnrichedCandidate & { classification: ClassificationResult; scores: CompetitorScores }> {
   const startTime = Date.now();
   const isB2C = isB2CCompany(context);
+  const isRegionalMultiLocation = context.businessArchetype === 'regional_multi_location_service';
   const notes: string[] = [];
   const missingInputs: string[] = [];
 
@@ -116,8 +117,15 @@ export function scoreCompetitors(
   }
 
   // Score each candidate
+  let appliedGeoBonus = false;
+
   const scored = candidates.map(candidate => {
     const scores = computeDeterministicScores(candidate, context, isB2C);
+    if (isRegionalMultiLocation && candidate.classification.signals.sameMarket) {
+      scores.threatScore = Math.min(100, scores.threatScore + 5);
+      scores.relevanceScore = Math.min(100, scores.relevanceScore + 3);
+      appliedGeoBonus = true;
+    }
     return { ...candidate, scores };
   });
 
@@ -155,6 +163,10 @@ export function scoreCompetitors(
     relevanceScoreMax: Math.max(...relevanceScores, 0),
     relevanceScoreAvg: relevanceScores.length > 0 ? Math.round(relevanceScores.reduce((a, b) => a + b, 0) / relevanceScores.length) : 0,
   };
+
+  if (appliedGeoBonus) {
+    notes.push('Applied regional multi-location geography weighting (sameMarket bonus)');
+  }
 
   notes.push(`Scored ${scored.length} candidates in ${Date.now() - startTime}ms`);
   notes.push(`Signal coverage: businessModelMatch=${signalCoverage.businessModelMatch.toFixed(0)}%, icpOverlap=${signalCoverage.icpOverlap.toFixed(0)}%`);

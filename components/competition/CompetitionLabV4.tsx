@@ -221,7 +221,10 @@ export function CompetitionLabV4({ companyId, companyName }: Props) {
           ) : strategistError || !strategist ? (
             <StrategistViewError message={strategistResponse?.error} />
           ) : (
-            <CompetitionLabStrategistView strategist={strategist} />
+            <CompetitionLabStrategistView
+              strategist={strategist}
+              verticalCategory={runData?.queryContext?.verticalCategory}
+            />
           )
         ) : (
           <CompetitionLabDataView

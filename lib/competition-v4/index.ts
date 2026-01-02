@@ -1,9 +1,14 @@
 // lib/competition-v4/index.ts
 // Competition V4 - Classification Tree Approach
 //
-// Export main orchestrator and types
+// Export main orchestrator, store, and types
 
 export { runCompetitionV4 } from './runCompetitionV4';
+export {
+  saveCompetitionRunV4,
+  updateCompetitionRunV4,
+  getLatestCompetitionRunV4,
+} from './store';
 
 export type {
   CompetitionV4Input,

@@ -3,6 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { runCompetitionV3 } from '@/lib/competition-v3';
+import { loadContextGraph } from '@/lib/contextGraph/storage';
 
 interface RouteParams {
   params: Promise<{ companyId: string }>;
@@ -17,6 +18,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { companyId } = await params;
 
     console.log(`[competition/api] Starting Competition Discovery V3 for company: ${companyId}`);
+
+    // Require confirmed business archetype before running
+    const graph = await loadContextGraph(companyId);
+    const archetypeMeta = (graph as any)?.identity?.businessArchetype;
+    const archetypeValue: string | null = archetypeMeta?.value || null;
+    const provenanceSource = archetypeMeta?.provenance?.[0]?.source;
+    const isConfirmed = provenanceSource === 'user';
+
+    if (!archetypeValue || !isConfirmed) {
+      const message = 'Business Archetype is required and must be confirmed before running Competition Lab. Set Business Archetype under Business Reality (e.g., Local Service, Regional / Multi-location Service, National Retail Brand, E-commerce Only, Marketplace, SaaS) and confirm it.';
+      console.warn(`[competition/api] BLOCKED - missing confirmed businessArchetype for ${companyId}`);
+      return NextResponse.json(
+        { success: false, error: message },
+        { status: 400 }
+      );
+    }
 
     // Run the V3 competition discovery pipeline
     const result = await runCompetitionV3({ companyId });

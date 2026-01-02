@@ -197,12 +197,11 @@ export interface DecompositionInput {
   domain?: string;
   websiteText?: string;
   diagnosticsSummary?: string;
+  approvedContext?: string;
 }
 
 export function buildDecompositionPrompt(input: DecompositionInput): string {
-  const parts: string[] = [
-    `Company Name: ${input.companyName}`,
-  ];
+  const parts: string[] = [`Company Name: ${input.companyName}`];
 
   if (input.domain) {
     parts.push(`Domain: ${input.domain}`);
@@ -219,30 +218,63 @@ export function buildDecompositionPrompt(input: DecompositionInput): string {
     parts.push(`\nDiagnostics Summary:\n${truncated}`);
   }
 
+  if (input.approvedContext) {
+    const truncated = input.approvedContext.slice(0, 4000);
+    parts.push(`\nApproved Context (confirmed facts):\n${truncated}`);
+  }
+
   return parts.join('\n');
 }
 
-export function buildCategoryPrompt(decomposition: object): string {
-  return `Business Decomposition Result:\n${JSON.stringify(decomposition, null, 2)}`;
+export function buildCategoryPrompt(decomposition: object, approvedContext?: string): string {
+  const parts = [`Business Decomposition Result:\n${JSON.stringify(decomposition, null, 2)}`];
+  if (approvedContext) {
+    parts.push(`Approved Context (confirmed facts):\n${approvedContext.slice(0, 2000)}`);
+  }
+  return parts.join('\n\n');
 }
 
 export function buildDiscoveryPrompt(
   category: object,
-  companyName: string
+  companyName: string,
+  approvedContext?: string
 ): string {
-  return `Category Definition:\n${JSON.stringify(category, null, 2)}\n\nCompany Name (for reference): ${companyName}`;
+  const parts = [
+    `Category Definition:\n${JSON.stringify(category, null, 2)}`,
+    `Company Name (for reference): ${companyName}`,
+  ];
+  if (approvedContext) {
+    parts.push(`Approved Context (confirmed facts):\n${approvedContext.slice(0, 2000)}`);
+  }
+  return parts.join('\n\n');
 }
 
 export function buildValidationPrompt(
   category: object,
-  competitors: object[]
+  competitors: object[],
+  approvedContext?: string
 ): string {
-  return `Category Definition:\n${JSON.stringify(category, null, 2)}\n\nProposed Competitors:\n${JSON.stringify(competitors, null, 2)}`;
+  const parts = [
+    `Category Definition:\n${JSON.stringify(category, null, 2)}`,
+    `Proposed Competitors:\n${JSON.stringify(competitors, null, 2)}`,
+  ];
+  if (approvedContext) {
+    parts.push(`Approved Context (confirmed facts):\n${approvedContext.slice(0, 2000)}`);
+  }
+  return parts.join('\n\n');
 }
 
 export function buildSummaryPrompt(
   category: object,
-  validatedCompetitors: object[]
+  validatedCompetitors: object[],
+  approvedContext?: string
 ): string {
-  return `Category Definition:\n${JSON.stringify(category, null, 2)}\n\nValidated Competitors:\n${JSON.stringify(validatedCompetitors, null, 2)}`;
+  const parts = [
+    `Category Definition:\n${JSON.stringify(category, null, 2)}`,
+    `Validated Competitors:\n${JSON.stringify(validatedCompetitors, null, 2)}`,
+  ];
+  if (approvedContext) {
+    parts.push(`Approved Context (confirmed facts):\n${approvedContext.slice(0, 2000)}`);
+  }
+  return parts.join('\n\n');
 }

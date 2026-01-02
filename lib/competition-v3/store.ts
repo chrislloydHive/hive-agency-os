@@ -221,15 +221,16 @@ export async function getLatestCompetitionRunV3(
     );
 
     // Check if this is a V3 run (has the V3 data structure)
-    if (!runData.runId || !runData.competitors) {
+    // competitors must be an array (not object or other type)
+    if (!runData.runId || !Array.isArray(runData.competitors)) {
       console.log('[competition-v3/store] Latest run is not V3 format');
       return null;
     }
 
     console.log('[competition-v3/store] Latest run found:', {
       runId: runData.runId,
-      competitorCount: runData.competitors?.length ?? 0,
-      topDomains: runData.competitors?.slice(0, 3).map(c => c.domain),
+      competitorCount: runData.competitors.length,
+      topDomains: runData.competitors.slice(0, 3).map(c => c.domain),
       createdAt: runData.createdAt,
       airtableRecordId: record.id,
       airtableCreatedAt: record.fields['Created At'],

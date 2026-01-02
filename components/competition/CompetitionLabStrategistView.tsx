@@ -20,13 +20,34 @@ import type { CompetitionStrategistModel, StrategistCompetitorSummary } from '@/
 
 interface Props {
   strategist: CompetitionStrategistModel;
+  /** Vertical category for hiding agency-only sections */
+  verticalCategory?: string | null;
 }
+
+/**
+ * Verticals where fractional/internal/platform don't make sense.
+ * These are the "non-agency" verticals.
+ */
+const HIDE_AGENCY_ALTERNATIVES = new Set([
+  'retail',
+  'automotive',
+  'consumer-dtc',
+  'manufacturing',
+  'software',
+  'marketplace',
+  'financial-services',
+]);
 
 // ============================================================================
 // Main Component
 // ============================================================================
 
-export function CompetitionLabStrategistView({ strategist }: Props) {
+export function CompetitionLabStrategistView({ strategist, verticalCategory }: Props) {
+  // Determine if we should hide agency-only sections
+  const hideAgencyAlternatives = verticalCategory
+    ? HIDE_AGENCY_ALTERNATIVES.has(verticalCategory.toLowerCase())
+    : false;
+
   // Group competitors by type for better display
   const competitorGroups = useMemo(() => {
     const direct = strategist.primaryCompetitors.filter(c => c.type.toLowerCase().includes('direct'));
@@ -147,64 +168,67 @@ export function CompetitionLabStrategistView({ strategist }: Props) {
           </div>
 
           {/* Right Column: Platforms / Alternatives / Internal */}
-          <div className="space-y-3">
-            {/* Platforms */}
-            {competitorGroups.platforms.items.length > 0 && (
-              <Card
-                title="Platforms"
-                subtitle={`${competitorGroups.platforms.items.length} tools`}
-                accent="amber"
-                compact
-              >
-                <div className="space-y-2">
-                  {competitorGroups.platforms.items.slice(0, 3).map((comp) => (
-                    <CompetitorRowCompact key={comp.id} competitor={comp} />
-                  ))}
-                </div>
-              </Card>
-            )}
+          {/* Hidden for non-agency verticals (retail, automotive, etc.) where these categories don't apply */}
+          {!hideAgencyAlternatives && (
+            <div className="space-y-3">
+              {/* Platforms */}
+              {competitorGroups.platforms.items.length > 0 && (
+                <Card
+                  title="Platforms"
+                  subtitle={`${competitorGroups.platforms.items.length} tools`}
+                  accent="amber"
+                  compact
+                >
+                  <div className="space-y-2">
+                    {competitorGroups.platforms.items.slice(0, 3).map((comp) => (
+                      <CompetitorRowCompact key={comp.id} competitor={comp} />
+                    ))}
+                  </div>
+                </Card>
+              )}
 
-            {/* Internal Hire */}
-            {competitorGroups.internal.items.length > 0 && (
-              <Card
-                title="Internal Hire"
-                subtitle="Build vs buy"
-                accent="blue"
-                compact
-              >
-                <div className="space-y-2">
-                  {competitorGroups.internal.items.slice(0, 2).map((comp) => (
-                    <CompetitorRowCompact key={comp.id} competitor={comp} />
-                  ))}
-                </div>
-              </Card>
-            )}
+              {/* Internal Hire */}
+              {competitorGroups.internal.items.length > 0 && (
+                <Card
+                  title="Internal Hire"
+                  subtitle="Build vs buy"
+                  accent="blue"
+                  compact
+                >
+                  <div className="space-y-2">
+                    {competitorGroups.internal.items.slice(0, 2).map((comp) => (
+                      <CompetitorRowCompact key={comp.id} competitor={comp} />
+                    ))}
+                  </div>
+                </Card>
+              )}
 
-            {/* Fractional Alternatives */}
-            {competitorGroups.fractional.items.length > 0 && (
-              <Card
-                title="Fractional"
-                subtitle="Alternative path"
-                accent="sky"
-                compact
-              >
-                <div className="space-y-2">
-                  {competitorGroups.fractional.items.slice(0, 2).map((comp) => (
-                    <CompetitorRowCompact key={comp.id} competitor={comp} />
-                  ))}
-                </div>
-              </Card>
-            )}
+              {/* Fractional Alternatives */}
+              {competitorGroups.fractional.items.length > 0 && (
+                <Card
+                  title="Fractional"
+                  subtitle="Alternative path"
+                  accent="sky"
+                  compact
+                >
+                  <div className="space-y-2">
+                    {competitorGroups.fractional.items.slice(0, 2).map((comp) => (
+                      <CompetitorRowCompact key={comp.id} competitor={comp} />
+                    ))}
+                  </div>
+                </Card>
+              )}
 
-            {/* Empty state if no alternatives */}
-            {competitorGroups.platforms.items.length === 0 &&
-             competitorGroups.internal.items.length === 0 &&
-             competitorGroups.fractional.items.length === 0 && (
-              <Card title="Alternatives" accent="slate" compact>
-                <p className="text-xs text-slate-500 italic">No platform or internal alternatives identified</p>
-              </Card>
-            )}
-          </div>
+              {/* Empty state if no alternatives */}
+              {competitorGroups.platforms.items.length === 0 &&
+               competitorGroups.internal.items.length === 0 &&
+               competitorGroups.fractional.items.length === 0 && (
+                <Card title="Alternatives" accent="slate" compact>
+                  <p className="text-xs text-slate-500 italic">No platform or internal alternatives identified</p>
+                </Card>
+              )}
+            </div>
+          )}
         </div>
       </section>
 
