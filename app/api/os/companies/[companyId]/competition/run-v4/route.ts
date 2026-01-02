@@ -99,12 +99,13 @@ export async function POST(
         const v4Competitors = result.competitors.validated.map((c) => {
           const category = categoryMap[c.type] || 'direct';
 
+          const confidence = (c.confidence ?? 50) / 100;
           return {
             ...createDefaultCompetitorProfile(c.name),
             domain: c.domain,
             website: c.domain,
             category,
-            confidence: c.confidence / 100,
+            confidence,
             autoSeeded: true,
             notes: c.reason || null,
             provenance: [
@@ -112,7 +113,7 @@ export async function POST(
                 field: 'competitor',
                 source: 'competition_v4',
                 updatedAt: new Date().toISOString(),
-                confidence: c.confidence / 100,
+                confidence,
               },
             ],
           };
@@ -164,12 +165,16 @@ export async function POST(
       `[competition/run-v4] Completed: ${result.competitors.validated.length} competitors`
     );
 
+    // Return the FULL result so the UI can use it immediately
+    // This avoids race conditions with Airtable eventual consistency
     return NextResponse.json({
       success: result.execution.status === 'completed',
       runId: result.runId,
       status: result.execution.status,
       competitorCount: result.competitors.validated.length,
       category: result.category.category_name,
+      // Include full result for immediate UI update
+      run: result,
     });
   } catch (error) {
     console.error('[competition/run-v4] Error:', error);
