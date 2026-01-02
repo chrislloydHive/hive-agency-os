@@ -1,20 +1,31 @@
 // components/competition/CompetitionLabV5.tsx
-// Competition Lab V5 - Updated UI matching Website Lab V5 pattern
+// Competition Lab V5 - Full V4 Data Integration
+//
+// AUTHORITATIVE MODE:
+// - NO user toggles for competitor inclusion/exclusion
+// - System deterministically decides competitor placement
+// - Transparency via declarative copy, not user delegation
 //
 // Features:
-// - V5-style header summary with score gauge and stats
-// - Clean tab navigation matching V5ResultsPanel
-// - Strategist View (default): AI-generated strategic intelligence
-// - Data View: Full V3 positioning map and competitor list
+// - V4 data with tiered competitor buckets (primary, contextual, alternatives, excluded)
+// - Competitive Context Banner with authoritative modality inference
+// - Competitive Pressure Matrix (multi-dimensional, replaces single threat score)
+// - Tiered Competitor Sections with rich per-competitor details
+// - Strategic Narrative Panel with derived insights
+//
+// Product Principle: Hive OS explains competition — it does not ask users to define it.
 
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
-import useSWR from 'swr';
-import { CompetitionLabStrategistView, StrategistViewSkeleton, StrategistViewError } from './CompetitionLabStrategistView';
-import { CompetitionLabDataView } from './CompetitionLabDataView';
-import { useCompetitionV3 } from './useCompetitionV3';
-import type { CompetitionStrategistModel } from '@/lib/competition-v3/strategist-types';
+import { useState, useCallback } from 'react';
+import { useCompetitionV4, getCompetitorCounts } from './useCompetitionV4';
+import {
+  CompetitiveContextBanner,
+  TieredCompetitorSections,
+  CompetitivePressureMatrix,
+  StrategicNarrativePanel,
+  CompetitionPlotMap,
+} from './v4';
 
 // ============================================================================
 // Types
@@ -25,71 +36,19 @@ interface Props {
   companyName: string;
 }
 
-type LabTab = 'strategist' | 'data';
+type LabTab = 'overview' | 'competitors' | 'analysis' | 'plotmap';
 
-// Fetcher for SWR
-const fetcher = (url: string) => fetch(url).then(res => res.json());
+// Tab descriptions for narrative flow
+const TAB_DESCRIPTIONS: Record<LabTab, string> = {
+  overview: 'Key strategic questions answered',
+  competitors: 'Who competes and how they do it',
+  analysis: 'Where competition actually hurts',
+  plotmap: 'Spatial view of the landscape',
+};
 
 // ============================================================================
 // Sub-components
 // ============================================================================
-
-function ThreatGauge({ score }: { score: number }) {
-  // Calculate stroke dasharray for the circular progress
-  const circumference = 2 * Math.PI * 45; // radius = 45
-  const strokeDashoffset = circumference - (score / 100) * circumference;
-
-  // Determine color based on threat level
-  let colorClass = 'text-emerald-400';
-  if (score >= 70) colorClass = 'text-red-400';
-  else if (score >= 50) colorClass = 'text-amber-400';
-  else if (score >= 30) colorClass = 'text-yellow-400';
-
-  return (
-    <div className="relative w-28 h-28">
-      {/* Background circle */}
-      <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-        <circle
-          cx="50"
-          cy="50"
-          r="45"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="8"
-          className="text-slate-700"
-        />
-        <circle
-          cx="50"
-          cy="50"
-          r="45"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-          className={colorClass}
-          style={{ transition: 'stroke-dashoffset 0.5s ease-in-out' }}
-        />
-      </svg>
-
-      {/* Score text */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={`text-3xl font-bold ${colorClass}`}>{score}</span>
-        <span className="text-xs text-slate-500">/ 100</span>
-      </div>
-    </div>
-  );
-}
-
-function StatCard({ label, value, color }: { label: string; value: number | string; color: string }) {
-  return (
-    <div className="bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-center">
-      <div className={`text-2xl font-bold ${color}`}>{value}</div>
-      <div className="text-xs text-slate-400 mt-0.5">{label}</div>
-    </div>
-  );
-}
 
 function TabButton({
   id,
@@ -139,128 +98,45 @@ function Spinner() {
 }
 
 // ============================================================================
-// Header Summary Component
+// Quick Stats Bar
 // ============================================================================
 
-function CompetitionHeaderSummary({
-  totalCompetitors,
-  coreCompetitors,
-  avgThreatScore,
-  strategicSummary,
-  lastRunAt,
-  onRunAnalysis,
-  isRunning,
+function QuickStatsBar({
+  primary,
+  contextual,
+  alternatives,
+  excluded,
 }: {
-  totalCompetitors: number;
-  coreCompetitors: number;
-  avgThreatScore: number;
-  strategicSummary?: string;
-  lastRunAt?: string;
-  onRunAnalysis: () => void;
-  isRunning: boolean;
+  primary: number;
+  contextual: number;
+  alternatives: number;
+  excluded: number;
 }) {
-  // Determine threat level label
-  let threatLabel = 'Low Pressure';
-  let threatBgColor = 'bg-emerald-500/20';
-  let threatTextColor = 'text-emerald-400';
-  if (avgThreatScore >= 70) {
-    threatLabel = 'High Threat';
-    threatBgColor = 'bg-red-500/20';
-    threatTextColor = 'text-red-400';
-  } else if (avgThreatScore >= 50) {
-    threatLabel = 'Moderate Threat';
-    threatBgColor = 'bg-amber-500/20';
-    threatTextColor = 'text-amber-400';
-  } else if (avgThreatScore >= 30) {
-    threatLabel = 'Some Competition';
-    threatBgColor = 'bg-yellow-500/20';
-    threatTextColor = 'text-yellow-400';
-  }
-
   return (
-    <div className="border border-slate-700 rounded-lg bg-slate-800/30 overflow-hidden">
-      {/* Top section - Score and Summary */}
-      <div className="p-6 flex items-start gap-6">
-        {/* Threat gauge */}
-        <ThreatGauge score={avgThreatScore} />
-
-        {/* Summary and actions */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <div className="flex items-center gap-3">
-              <span className={`px-3 py-1 rounded-full text-sm font-semibold ${threatBgColor} ${threatTextColor}`}>
-                {threatLabel}
-              </span>
-              <span className="text-sm text-slate-500">
-                Average Threat Score
-              </span>
-            </div>
-
-            {/* Run button */}
-            <button
-              onClick={onRunAnalysis}
-              disabled={isRunning}
-              className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                isRunning
-                  ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white'
-              }`}
-            >
-              {isRunning ? (
-                <span className="flex items-center gap-2">
-                  <Spinner />
-                  Running...
-                </span>
-              ) : totalCompetitors > 0 ? (
-                'Re-run Analysis'
-              ) : (
-                'Run Analysis'
-              )}
-            </button>
-          </div>
-
-          <p className="text-sm text-slate-300 leading-relaxed">
-            {strategicSummary || 'Run competitive analysis to discover competitors, classify them by type, and generate strategic insights.'}
-          </p>
-        </div>
+    <div className="flex items-center gap-6 px-4 py-3 bg-slate-800/30 border border-slate-700 rounded-lg">
+      <div className="flex items-center gap-2">
+        <span className="w-3 h-3 rounded-full bg-red-500" />
+        <span className="text-sm text-slate-300">
+          <span className="font-semibold text-white">{primary}</span> Primary
+        </span>
       </div>
-
-      {/* Stats row */}
-      <div className="px-6 pb-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard
-            label="Total Competitors"
-            value={totalCompetitors}
-            color="text-slate-100"
-          />
-          <StatCard
-            label="Direct Threats"
-            value={coreCompetitors}
-            color={coreCompetitors > 0 ? 'text-red-400' : 'text-slate-400'}
-          />
-          <StatCard
-            label="Avg Threat"
-            value={`${avgThreatScore}/100`}
-            color={avgThreatScore >= 50 ? 'text-amber-400' : 'text-emerald-400'}
-          />
-          <StatCard
-            label="Market Position"
-            value={avgThreatScore >= 70 ? 'Crowded' : avgThreatScore >= 40 ? 'Competitive' : 'Open'}
-            color="text-indigo-400"
-          />
-        </div>
+      <div className="flex items-center gap-2">
+        <span className="w-3 h-3 rounded-full bg-amber-500" />
+        <span className="text-sm text-slate-300">
+          <span className="font-semibold text-white">{contextual}</span> Contextual
+        </span>
       </div>
-
-      {/* Footer with last run info */}
-      {lastRunAt && (
-        <div className="px-6 py-3 bg-slate-800/50 border-t border-slate-700/50 flex items-center justify-between text-xs text-slate-500">
-          <span>
-            Last updated: {new Date(lastRunAt).toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: '2-digit',
-            })}
+      <div className="flex items-center gap-2">
+        <span className="w-3 h-3 rounded-full bg-slate-500" />
+        <span className="text-sm text-slate-300">
+          <span className="font-semibold text-white">{alternatives}</span> Alternatives
+        </span>
+      </div>
+      {excluded > 0 && (
+        <div className="flex items-center gap-2 text-slate-500">
+          <span className="w-3 h-3 rounded-full bg-slate-700" />
+          <span className="text-sm">
+            <span className="font-medium">{excluded}</span> Excluded
           </span>
         </div>
       )}
@@ -281,7 +157,7 @@ function EmptyState({ onRunAnalysis, isRunning }: { onRunAnalysis: () => void; i
           <div>
             <h2 className="text-lg font-semibold text-white mb-1">Competitive Landscape</h2>
             <p className="text-sm text-slate-400">
-              Discover competitors, analyze threat levels, and generate strategic insights.
+              Discover competitors, classify them by tier, and generate strategic insights.
             </p>
           </div>
           <button
@@ -315,7 +191,7 @@ function EmptyState({ onRunAnalysis, isRunning }: { onRunAnalysis: () => void; i
           </div>
           <p className="text-slate-300 text-sm font-medium mb-2">No competitive analysis yet</p>
           <p className="text-slate-500 text-xs leading-relaxed">
-            Run Competition Analysis to discover competitors, classify them by type,
+            Run Competition Analysis to discover competitors, classify them by tier (primary, contextual, alternatives),
             and generate strategic insights for positioning.
           </p>
         </div>
@@ -325,65 +201,64 @@ function EmptyState({ onRunAnalysis, isRunning }: { onRunAnalysis: () => void; i
 }
 
 // ============================================================================
+// Loading Skeleton
+// ============================================================================
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-6 animate-pulse">
+      <div className="border border-slate-700 rounded-lg bg-slate-800/30 p-6">
+        <div className="flex items-start gap-6">
+          <div className="w-10 h-10 rounded-lg bg-slate-700" />
+          <div className="flex-1 space-y-3">
+            <div className="h-6 w-48 bg-slate-700 rounded" />
+            <div className="h-4 w-full bg-slate-700 rounded" />
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-4 gap-4">
+        {[1, 2, 3, 4].map(i => (
+          <div key={i} className="h-16 bg-slate-800/50 rounded-lg" />
+        ))}
+      </div>
+      <div className="h-64 bg-slate-800/30 rounded-lg" />
+    </div>
+  );
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
 export function CompetitionLabV5({ companyId, companyName }: Props) {
-  const [activeTab, setActiveTab] = useState<LabTab>('strategist');
+  const [activeTab, setActiveTab] = useState<LabTab>('overview');
 
-  // Fetch V3 data
+  // Fetch V4 data directly (no modality toggle needed)
   const {
-    data: runData,
-    isLoading: runLoading,
+    data,
+    isLoading,
     isRunning,
-    error: runError,
-    runError: runFailError,
-    refetch,
+    error,
+    runError,
     runDiscovery,
-  } = useCompetitionV3(companyId);
+  } = useCompetitionV4(companyId);
 
-  // Fetch strategist model (only when we have a run)
-  const {
-    data: strategistResponse,
-    isLoading: strategistLoading,
-    error: strategistError,
-    mutate: refetchStrategist,
-  } = useSWR<{ success: boolean; strategist?: CompetitionStrategistModel; error?: string }>(
-    runData ? `/api/os/companies/${companyId}/competition/strategist` : null,
-    fetcher,
-    {
-      revalidateOnFocus: false,
-      dedupingInterval: 60000, // Cache for 1 minute
-    }
-  );
+  // Get counts for display
+  const counts = getCompetitorCounts(data);
 
-  const strategist = strategistResponse?.success ? strategistResponse.strategist : null;
-
-  // Handle run discovery with refetch of strategist
+  // Handle run discovery
   const handleRunDiscovery = useCallback(async () => {
     await runDiscovery();
-    // After successful run, refetch strategist
-    refetchStrategist();
-  }, [runDiscovery, refetchStrategist]);
+  }, [runDiscovery]);
 
-  // Calculate direct/core competitors count
-  const coreCompetitorsCount = useMemo(() => {
-    if (!runData?.competitors) return 0;
-    return runData.competitors.filter(c => c.type === 'direct').length;
-  }, [runData?.competitors]);
-
-  // Get strategic summary from strategist (using elevator field)
-  const strategicSummary = useMemo(() => {
-    if (!strategist?.elevator) return undefined;
-    // Take first sentence or first 200 chars
-    const summary = strategist.elevator;
-    const firstSentence = summary.split('.')[0];
-    return firstSentence.length > 200 ? summary.slice(0, 200) + '...' : firstSentence + '.';
-  }, [strategist?.elevator]);
-
-  // If no run yet, show empty state
-  if (!runData && !runLoading && !isRunning) {
+  // If no data yet and not loading, show empty state
+  if (!data && !isLoading && !isRunning) {
     return <EmptyState onRunAnalysis={handleRunDiscovery} isRunning={isRunning} />;
+  }
+
+  // Loading state
+  if (isLoading && !data) {
+    return <LoadingSkeleton />;
   }
 
   return (
@@ -405,83 +280,126 @@ export function CompetitionLabV5({ companyId, companyName }: Props) {
       )}
 
       {/* Error Banner */}
-      {(runError || runFailError) && (
+      {(error || runError) && (
         <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-4 text-sm text-red-400">
-          <div className="font-medium">{runError ? 'Error loading data' : 'Analysis failed'}</div>
-          <div className="mt-1">{runError || runFailError}</div>
+          <div className="font-medium">{error ? 'Error loading data' : 'Analysis failed'}</div>
+          <div className="mt-1">{error || runError}</div>
         </div>
       )}
 
-      {/* Header Summary - V5 style */}
-      {runData && (
-        <CompetitionHeaderSummary
-          totalCompetitors={runData.summary.totalCompetitors}
-          coreCompetitors={coreCompetitorsCount}
-          avgThreatScore={runData.summary.avgThreatScore}
-          strategicSummary={strategicSummary}
-          lastRunAt={runData.completedAt}
-          onRunAnalysis={handleRunDiscovery}
-          isRunning={isRunning}
-        />
-      )}
-
-      {/* Loading skeleton for header */}
-      {runLoading && !runData && (
-        <div className="border border-slate-700 rounded-lg bg-slate-800/30 p-6 animate-pulse">
-          <div className="flex items-start gap-6">
-            <div className="w-28 h-28 rounded-full bg-slate-700" />
-            <div className="flex-1 space-y-3">
-              <div className="h-8 w-32 bg-slate-700 rounded-full" />
-              <div className="h-4 w-full bg-slate-700 rounded" />
-              <div className="h-4 w-3/4 bg-slate-700 rounded" />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Tab Navigation - V5 style */}
-      {runData && (
+      {data && (
         <>
-          <div className="border-b border-slate-700 flex items-center gap-1 overflow-x-auto">
-            <TabButton
-              id="strategist"
-              label="Strategic View"
-              isActive={activeTab === 'strategist'}
-              onClick={() => setActiveTab('strategist')}
-            />
-            <TabButton
-              id="data"
-              label="Competitor Data"
-              count={runData.summary.totalCompetitors}
-              isActive={activeTab === 'data'}
-              onClick={() => setActiveTab('data')}
-            />
+          {/* Competitive Context Banner (authoritative, no toggle) */}
+          <CompetitiveContextBanner data={data} />
+
+          {/* Quick Stats Bar */}
+          <QuickStatsBar
+            primary={counts.primary}
+            contextual={counts.contextual}
+            alternatives={counts.alternatives}
+            excluded={counts.excluded}
+          />
+
+          {/* Tab Navigation with helper text */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              {/* Tab Buttons */}
+              <div className="border-b border-slate-700 flex items-center gap-1">
+                <TabButton
+                  id="overview"
+                  label="Strategic Overview"
+                  isActive={activeTab === 'overview'}
+                  onClick={() => setActiveTab('overview')}
+                />
+                <TabButton
+                  id="competitors"
+                  label="Competitors"
+                  count={counts.total}
+                  isActive={activeTab === 'competitors'}
+                  onClick={() => setActiveTab('competitors')}
+                />
+                <TabButton
+                  id="analysis"
+                  label="Pressure Analysis"
+                  isActive={activeTab === 'analysis'}
+                  onClick={() => setActiveTab('analysis')}
+                />
+                <TabButton
+                  id="plotmap"
+                  label="Plot Map"
+                  isActive={activeTab === 'plotmap'}
+                  onClick={() => setActiveTab('plotmap')}
+                />
+              </div>
+
+              {/* Re-run Button */}
+              <button
+                onClick={handleRunDiscovery}
+                disabled={isRunning}
+                className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-colors ${
+                  isRunning
+                    ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                    : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+                }`}
+              >
+                {isRunning ? (
+                  <span className="flex items-center gap-2">
+                    <Spinner />
+                    Running...
+                  </span>
+                ) : (
+                  'Re-run Analysis'
+                )}
+              </button>
+            </div>
+
+            {/* Tab Description */}
+            <p className="text-xs text-slate-500 pl-1">
+              {TAB_DESCRIPTIONS[activeTab]}
+            </p>
           </div>
 
           {/* Tab Content */}
           <div className="min-h-[400px]">
-            {activeTab === 'strategist' ? (
-              strategistLoading ? (
-                <StrategistViewSkeleton />
-              ) : strategistError || !strategist ? (
-                <StrategistViewError message={strategistResponse?.error} />
-              ) : (
-                <CompetitionLabStrategistView
-                  strategist={strategist}
-                  verticalCategory={runData?.queryContext?.verticalCategory}
-                />
-              )
-            ) : (
-              <CompetitionLabDataView
-                companyId={companyId}
+            {activeTab === 'overview' && (
+              <StrategicNarrativePanel
+                data={data}
                 companyName={companyName}
-                data={runData}
-                isLoading={runLoading}
-                businessModelCategory={runData?.queryContext?.businessModelCategory ?? null}
-                verticalCategory={runData?.queryContext?.verticalCategory ?? null}
               />
             )}
+
+            {activeTab === 'competitors' && (
+              <TieredCompetitorSections
+                data={data}
+                subjectCompanyName={companyName}
+              />
+            )}
+
+            {activeTab === 'analysis' && (
+              <CompetitivePressureMatrix data={data} />
+            )}
+
+            {activeTab === 'plotmap' && (
+              <CompetitionPlotMap data={data} companyName={companyName} />
+            )}
           </div>
+
+          {/* Footer with metadata */}
+          {data.execution?.completedAt && (
+            <div className="px-4 py-3 bg-slate-800/30 border border-slate-700 rounded-lg flex items-center justify-between text-xs text-slate-500">
+              <span>
+                Analysis completed: {new Date(data.execution.completedAt).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })}
+              </span>
+              <span>
+                Duration: {Math.round((data.execution.durationMs || 0) / 1000)}s
+              </span>
+            </div>
+          )}
         </>
       )}
     </div>

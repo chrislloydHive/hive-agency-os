@@ -70,6 +70,13 @@ export default async function DiagnosticsPage({ params }: PageProps) {
       error = (run.metadata as { error?: string }).error || null;
     }
 
+    // Competition lab doesn't have per-run pages, just the main lab page
+    const reportPath = isComplete
+      ? run.toolId === 'competitionLab'
+        ? `/c/${companyId}/diagnostics/competition`
+        : `/c/${companyId}/diagnostics/${slug}/${run.id}`
+      : null;
+
     return {
       id: run.id,
       toolId: run.toolId,
@@ -77,7 +84,7 @@ export default async function DiagnosticsPage({ params }: PageProps) {
       status: (isComplete ? 'complete' : run.status) as 'complete' | 'running' | 'failed' | 'pending',
       score: run.score,
       completedAt: isComplete ? run.updatedAt : null,
-      reportPath: isComplete ? `/c/${companyId}/diagnostics/${slug}/${run.id}` : null,
+      reportPath,
       createdAt: run.createdAt,
       error,
     };

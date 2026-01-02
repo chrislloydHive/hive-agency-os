@@ -37,6 +37,96 @@ export function useCompetitionV3(companyId: string): UseCompetitionV3Result {
     setError(null);
 
     try {
+      // Check sessionStorage for fresh run data first (avoids Airtable eventual consistency issues)
+      // This is populated when running from Discover tab
+      const cachedKey = `competition-run-${companyId}`;
+      const cached = typeof window !== 'undefined' ? sessionStorage.getItem(cachedKey) : null;
+      if (cached) {
+        try {
+          const { run: cachedRun, timestamp } = JSON.parse(cached);
+          // Use cached data if less than 60 seconds old
+          if (Date.now() - timestamp < 60000 && cachedRun) {
+            sessionStorage.removeItem(cachedKey); // Clear after use
+            const v4 = cachedRun;
+            const validated = v4.competitors?.validated || [];
+            const run: CompetitionRunV3Response = {
+              runId: v4.runId,
+              companyId: v4.companyId,
+              status: v4.execution?.status === 'completed' ? 'completed' : 'failed',
+              createdAt: v4.execution?.startedAt || new Date().toISOString(),
+              completedAt: v4.execution?.completedAt || undefined,
+              competitors: validated.map((c: any, idx: number) => {
+                const typeNorm = (c.type || 'direct').toLowerCase();
+                const confidence = c.confidence || 50;
+                const spread = ((idx % 5) - 2) * 5;
+                let icpFit: number;
+                if (typeNorm === 'direct') {
+                  icpFit = Math.min(95, Math.max(60, 75 + spread + (confidence - 50) * 0.3));
+                } else if (typeNorm === 'indirect') {
+                  icpFit = Math.min(65, Math.max(35, 50 + spread));
+                } else {
+                  icpFit = Math.min(40, Math.max(10, 25 + spread));
+                }
+                const valueModelFit = Math.min(95, Math.max(20, confidence + spread));
+                return {
+                  id: `${v4.runId}-${idx}`,
+                  name: c.name,
+                  domain: c.domain,
+                  type: typeNorm,
+                  summary: c.reason || '',
+                  coordinates: { valueModelFit, icpFit },
+                  scores: {
+                    icp: Math.round(icpFit),
+                    businessModel: confidence,
+                    services: confidence,
+                    valueModel: Math.round(valueModelFit),
+                    aiOrientation: 50,
+                    geography: 50,
+                    threat: confidence,
+                    relevance: confidence,
+                  },
+                  classification: { confidence: confidence / 100 },
+                };
+              }),
+              insights: {
+                landscapeSummary:
+                  v4.summary?.competitive_positioning || `Analyzed ${validated.length} competitors.`,
+                categoryBreakdown: v4.category?.category_description || '',
+                keyRisks: v4.summary?.competitive_risks || [],
+                keyOpportunities: v4.summary?.key_differentiation_axes || [],
+                recommendedMoves: { now: [], next: [], later: [] },
+              },
+              summary: {
+                totalCandidates: validated.length,
+                totalCompetitors: validated.length,
+                byType: {
+                  direct: validated.filter((c: any) => c.type?.toLowerCase() === 'direct').length,
+                  partial: validated.filter(
+                    (c: any) => c.type?.toLowerCase() === 'indirect' || c.type?.toLowerCase() === 'adjacent'
+                  ).length,
+                  fractional: 0,
+                  platform: 0,
+                  internal: 0,
+                },
+                avgThreatScore:
+                  validated.length > 0
+                    ? Math.round(validated.reduce((sum: number, c: any) => sum + (c.confidence || 50), 0) / validated.length)
+                    : 50,
+              },
+              queryContext: {
+                businessModelCategory: v4.category?.category_name || null,
+                verticalCategory: v4.category?.category_name || null,
+              },
+            };
+            setData(run);
+            setIsLoading(false);
+            return;
+          }
+        } catch {
+          // Ignore cache parse errors, proceed to fetch
+        }
+      }
+
       // Try V4 first
       let response = await fetch(`/api/os/companies/${companyId}/competition/latest-v4`);
       let json = await response.json();
@@ -167,8 +257,88 @@ export function useCompetitionV3(companyId: string): UseCompetitionV3Result {
         throw new Error(json.error || 'Competition analysis failed');
       }
 
-      // Refetch data after successful run
-      await fetchData();
+      // Use the result returned directly from the API to avoid Airtable eventual consistency issues
+      // The run-v4 endpoint now returns the full result in json.run
+      if (json.run) {
+        const v4 = json.run;
+        const validated = v4.competitors?.validated || [];
+
+        const run: CompetitionRunV3Response = {
+          runId: v4.runId,
+          companyId: v4.companyId,
+          status: v4.execution?.status === 'completed' ? 'completed' : 'failed',
+          createdAt: v4.execution?.startedAt || new Date().toISOString(),
+          completedAt: v4.execution?.completedAt || undefined,
+          competitors: validated.map((c: any, idx: number) => {
+            const typeNorm = (c.type || 'direct').toLowerCase();
+            const confidence = c.confidence || 50;
+            const spread = ((idx % 5) - 2) * 5;
+            let icpFit: number;
+            if (typeNorm === 'direct') {
+              icpFit = Math.min(95, Math.max(60, 75 + spread + (confidence - 50) * 0.3));
+            } else if (typeNorm === 'indirect') {
+              icpFit = Math.min(65, Math.max(35, 50 + spread));
+            } else {
+              icpFit = Math.min(40, Math.max(10, 25 + spread));
+            }
+            const valueModelFit = Math.min(95, Math.max(20, confidence + spread));
+
+            return {
+              id: `${v4.runId}-${idx}`,
+              name: c.name,
+              domain: c.domain,
+              type: typeNorm,
+              summary: c.reason || '',
+              coordinates: { valueModelFit, icpFit },
+              scores: {
+                icp: Math.round(icpFit),
+                businessModel: confidence,
+                services: confidence,
+                valueModel: Math.round(valueModelFit),
+                aiOrientation: 50,
+                geography: 50,
+                threat: confidence,
+                relevance: confidence,
+              },
+              classification: { confidence: confidence / 100 },
+            };
+          }),
+          insights: {
+            landscapeSummary:
+              v4.summary?.competitive_positioning ||
+              `Analyzed ${validated.length} competitors in the ${v4.category?.category_name || 'market'} space.`,
+            categoryBreakdown: v4.category?.category_description || '',
+            keyRisks: v4.summary?.competitive_risks || [],
+            keyOpportunities: v4.summary?.key_differentiation_axes || [],
+            recommendedMoves: { now: [], next: [], later: [] },
+          },
+          summary: {
+            totalCandidates: validated.length,
+            totalCompetitors: validated.length,
+            byType: {
+              direct: validated.filter((c: any) => c.type?.toLowerCase() === 'direct').length,
+              partial: validated.filter(
+                (c: any) => c.type?.toLowerCase() === 'indirect' || c.type?.toLowerCase() === 'adjacent'
+              ).length,
+              fractional: 0,
+              platform: 0,
+              internal: 0,
+            },
+            avgThreatScore:
+              validated.length > 0
+                ? Math.round(validated.reduce((sum: number, c: any) => sum + (c.confidence || 50), 0) / validated.length)
+                : 50,
+          },
+          queryContext: {
+            businessModelCategory: v4.category?.category_name || null,
+            verticalCategory: v4.category?.category_name || null,
+          },
+        };
+        setData(run);
+      } else {
+        // Fallback to refetch if run not included (shouldn't happen)
+        await fetchData();
+      }
     } catch (err) {
       setRunError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
