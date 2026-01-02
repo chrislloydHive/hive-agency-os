@@ -713,19 +713,20 @@ export async function runBaselineContextBuild(
             };
             const category = categoryMap[c.type] || 'direct';
 
+            const confidence = (c.confidence ?? 50) / 100; // V4 uses 0-100, context graph uses 0-1
             return {
               ...createDefaultCompetitorProfile(c.name),
               domain: c.domain,
               website: c.domain,
               category,
-              confidence: c.confidence / 100, // V4 uses 0-100, context graph uses 0-1
+              confidence,
               autoSeeded: true,
               notes: c.reason || null,
               provenance: [{
                 field: 'competitor',
                 source: 'competition_v4',
                 updatedAt: new Date().toISOString(),
-                confidence: c.confidence / 100,
+                confidence,
               }],
             };
           });
