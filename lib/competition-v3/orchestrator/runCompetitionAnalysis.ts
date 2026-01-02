@@ -773,6 +773,8 @@ const REGIONAL_BIG_BOX: DiscoveryCandidate[] = [
     sourceRank: 1,
     queryMatched: 'regional substitution',
     snippet: 'Big-box retailer with installation services (Geek Squad)',
+    directoryRating: null,
+    directoryReviews: null,
     frequency: 1,
   },
   {
@@ -784,6 +786,8 @@ const REGIONAL_BIG_BOX: DiscoveryCandidate[] = [
     sourceRank: 2,
     queryMatched: 'regional substitution',
     snippet: 'National retailer offering products with installation partners',
+    directoryRating: null,
+    directoryReviews: null,
     frequency: 1,
   },
   {
@@ -795,6 +799,8 @@ const REGIONAL_BIG_BOX: DiscoveryCandidate[] = [
     sourceRank: 3,
     queryMatched: 'regional substitution',
     snippet: 'Home improvement retailer with install services',
+    directoryRating: null,
+    directoryReviews: null,
     frequency: 1,
   },
 ];
