@@ -27,6 +27,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   const { companyId } = await params;
 
   try {
+    const body = await request.json().catch(() => ({}));
+    const mode = (body?.mode as 'initialize' | 'upgrade' | undefined) || 'upgrade';
+    const force = body?.force === true;
+
     console.log(`[Company Provision API] Starting provisioning for company: ${companyId}`);
 
     // 1. Load company
@@ -38,8 +42,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // 2. Idempotency check: if already provisioned, return success
-    if (company.driveClientFolderId && company.driveProjectsFolderId) {
+    // 2. Eligibility gate (clients/opportunities only, unless forced)
+    const isEligible =
+      (company as any).isClient ||
+      (company as any).driveEligible ||
+      (company as any).driveProvisioningAllowed;
+    if (!isEligible && !force) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'Drive provisioning is restricted to clients/eligible opportunities. Set "Is Client" or "Drive Eligible" in Airtable, or pass force=true.',
+        },
+        { status: 400 }
+      );
+    }
+
+    // 3. Idempotency check: if already provisioned, return success (upgrade is safe)
+    if (company.driveClientFolderId && company.driveProjectsFolderId && mode === 'upgrade') {
       console.log(`[Company Provision API] Company ${company.name} already provisioned`);
       return NextResponse.json({
         ok: true,
@@ -55,10 +75,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       });
     }
 
-    // 3. Provision client folders using ADC-based service
+    // 4. Provision/upgrade client folders using ADC-based service
     const result = await provisionClientFolders({
       companyId,
       companyName: company.name,
+      mode: mode === 'initialize' ? 'initialize' : 'upgrade',
     });
 
     if (!result.ok) {

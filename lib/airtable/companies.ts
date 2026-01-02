@@ -195,6 +195,10 @@ function mapFieldsToCompanyRecord(record: any): CompanyRecord {
     // Health override fields
     healthOverride: (fields['Health Override'] as 'Healthy' | 'At Risk' | null) || undefined,
     atRiskFlag: (fields['At Risk Flag'] as boolean) || undefined,
+    // Drive eligibility flags (optional)
+    isClient: (fields['Is Client'] as boolean) || undefined,
+    driveEligible: (fields['Drive Eligible'] as boolean) || undefined,
+    driveProvisioningAllowed: (fields['Drive Provisioning Allowed'] as boolean) || undefined,
 
     // Analytics Blueprint (stored as JSON string in Airtable)
     analyticsBlueprint: parseAnalyticsBlueprint(fields['Analytics Blueprint JSON'] as string),
@@ -1006,6 +1010,8 @@ export async function updateCompanyDriveFolders(
   data: {
     driveClientFolderId?: string;
     driveProjectsFolderId?: string;
+    driveStructureVersion?: string;
+    driveFolderMap?: Record<string, unknown>;
   }
 ): Promise<CompanyRecord | null> {
   try {
@@ -1017,6 +1023,12 @@ export async function updateCompanyDriveFolders(
     }
     if (data.driveProjectsFolderId !== undefined) {
       fields['Drive Projects Folder ID'] = data.driveProjectsFolderId;
+    }
+    if (data.driveStructureVersion !== undefined) {
+      fields['Drive Structure Version'] = data.driveStructureVersion;
+    }
+    if (data.driveFolderMap !== undefined) {
+      fields['Drive Folder Map'] = JSON.stringify(data.driveFolderMap);
     }
 
     if (Object.keys(fields).length === 0) {

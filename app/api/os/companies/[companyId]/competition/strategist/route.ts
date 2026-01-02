@@ -100,30 +100,51 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       const v4 = v4Record.payload;
       const validated = v4.competitors?.validated || [];
 
-      const competitors: CompetitionCompetitor[] = validated.map((c, idx) => ({
-        id: `${v4.runId}-${idx}`,
-        name: c.name,
-        domain: c.domain,
-        type: mapV4TypeToCompetitorType(c.type),
-        summary: c.reason || '',
-        coordinates: { valueModelFit: 50, icpFit: 50 },
-        scores: {
-          icp: 50,
-          businessModel: 50,
-          services: 50,
-          valueModel: 50,
-          aiOrientation: 50,
-          geography: 50,
-          threat: c.confidence || 50,
-          relevance: c.confidence || 50,
-        },
-        classification: { confidence: (c.confidence || 50) / 100 },
-        analysis: {
-          strengths: [],
-          weaknesses: [],
-          whyCompetitor: c.reason || undefined,
-        },
-      }));
+      const competitors: CompetitionCompetitor[] = validated.map((c, idx) => {
+        // Derive positioning coordinates from V4 data
+        const typeNorm = (c.type || 'direct').toLowerCase();
+        const confidence = c.confidence || 50;
+
+        // ICP fit based on type (with slight spread using index)
+        const spread = ((idx % 5) - 2) * 5; // -10 to +10 spread
+        let icpFit: number;
+        if (typeNorm === 'direct') {
+          icpFit = Math.min(95, Math.max(60, 75 + spread + (confidence - 50) * 0.3));
+        } else if (typeNorm === 'indirect') {
+          icpFit = Math.min(65, Math.max(35, 50 + spread));
+        } else {
+          // Adjacent
+          icpFit = Math.min(40, Math.max(10, 25 + spread));
+        }
+
+        // Value model fit: confidence-based with spread
+        const valueModelFit = Math.min(95, Math.max(20, confidence + spread));
+
+        return {
+          id: `${v4.runId}-${idx}`,
+          name: c.name,
+          domain: c.domain,
+          type: mapV4TypeToCompetitorType(c.type),
+          summary: c.reason || '',
+          coordinates: { valueModelFit, icpFit },
+          scores: {
+            icp: Math.round(icpFit),
+            businessModel: confidence,
+            services: confidence,
+            valueModel: Math.round(valueModelFit),
+            aiOrientation: 50,
+            geography: 50,
+            threat: confidence,
+            relevance: confidence,
+          },
+          classification: { confidence: confidence / 100 },
+          analysis: {
+            strengths: [],
+            weaknesses: [],
+            whyCompetitor: c.reason || undefined,
+          },
+        };
+      });
 
       runResponse = {
         runId: v4.runId,

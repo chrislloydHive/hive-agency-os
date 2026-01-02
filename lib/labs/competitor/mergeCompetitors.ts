@@ -303,6 +303,11 @@ export function mergeCompetitorRecord(
     // Vertical classification
     verticalCategory: a.verticalCategory || b.verticalCategory || null,
     subVertical: pickString(a.subVertical, b.subVertical),
+    // V4 Overlap scoring
+    overlap: a.overlap || b.overlap || null,
+    competitorClassification: a.competitorClassification || b.competitorClassification || null,
+    hasInstallation: (a.hasInstallation ?? false) || (b.hasInstallation ?? false),
+    hasNationalReach: (a.hasNationalReach ?? false) || (b.hasNationalReach ?? false),
   };
 }
 
@@ -795,6 +800,11 @@ export function sanitizeCompetitorProfile(comp: Partial<CompetitorProfile>): Com
     // Vertical classification
     verticalCategory: comp.verticalCategory || null,
     subVertical: comp.subVertical || null,
+    // V4 Overlap scoring
+    overlap: comp.overlap || null,
+    competitorClassification: comp.competitorClassification || null,
+    hasInstallation: comp.hasInstallation ?? false,
+    hasNationalReach: comp.hasNationalReach ?? false,
   };
 }
 

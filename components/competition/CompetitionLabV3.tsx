@@ -125,7 +125,7 @@ export function CompetitionLabV3({ companyId, companyName }: Props) {
         <div className="flex items-center gap-3">
           {/* Run Button */}
           <button
-            onClick={runDiscovery}
+            onClick={() => runDiscovery()}
             disabled={isRunning}
             className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
               isRunning

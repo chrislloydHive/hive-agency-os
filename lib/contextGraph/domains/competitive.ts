@@ -20,6 +20,30 @@ import { WithMeta, WithMetaArray, ProvenanceTag } from '../types';
 // ============================================================================
 
 /**
+ * Competitive Modality - How customers compare and choose
+ * This determines what types of competitors are relevant
+ */
+export const CompetitiveModality = z.enum([
+  'Retail+Installation',      // Full-service retail with installation (e.g., Car Toys)
+  'InstallationOnly',         // Service-only installers (e.g., local car audio shops)
+  'RetailWithInstallAddon',   // Retail with optional installation (e.g., Best Buy)
+  'ProductOnly',              // Pure product/retail, no services (e.g., Crutchfield)
+  'InternalAlternative',      // DIY or in-house alternatives
+]);
+
+export type CompetitiveModality = z.infer<typeof CompetitiveModality>;
+
+/**
+ * Competitor classification for output grouping
+ */
+export const CompetitorClassification = z.enum([
+  'primary',       // Direct revenue threats - customers actively compare
+  'contextual',    // Comparison anchors - customers may reference but less direct
+]);
+
+export type CompetitorClassification = z.infer<typeof CompetitorClassification>;
+
+/**
  * Competitor category for grouping
  */
 export const CompetitorCategory = z.enum([
@@ -67,6 +91,47 @@ export const CompetitorProvenance = z.object({
 });
 
 export type CompetitorProvenance = z.infer<typeof CompetitorProvenance>;
+
+/**
+ * Overlap scoring dimensions for competitor relevance
+ * Each dimension is scored 0-100, with weights applied for final overlapScore
+ */
+export const OverlapScores = z.object({
+  /** Does competitor offer installation/service capability? */
+  installationCapability: z.number().min(0).max(100).default(0),
+  /** Geographic proximity or overlap */
+  geographicProximity: z.number().min(0).max(100).default(0),
+  /** Brand trust and recognition level */
+  brandTrust: z.number().min(0).max(100).default(0),
+  /** Market reach / volume (national vs local) */
+  marketReach: z.number().min(0).max(100).default(0),
+  /** Likelihood customers substitute this for subject */
+  serviceSubstitution: z.number().min(0).max(100).default(0),
+  /** Product/offering overlap */
+  productOverlap: z.number().min(0).max(100).default(0),
+  /** Price positioning similarity */
+  pricePositioning: z.number().min(0).max(100).default(0),
+});
+
+export type OverlapScores = z.infer<typeof OverlapScores>;
+
+/**
+ * Computed overall overlap with classification
+ */
+export const CompetitorOverlap = z.object({
+  /** Individual dimension scores */
+  scores: OverlapScores,
+  /** Weighted overall overlap score (0-100) */
+  overallScore: z.number().min(0).max(100),
+  /** Classification based on score threshold */
+  classification: CompetitorClassification,
+  /** Why this competitor was included despite category mismatch */
+  inclusionReason: z.string().nullable().default(null),
+  /** Special rules that applied (e.g., "best-buy-rule") */
+  rulesApplied: z.array(z.string()).default([]),
+});
+
+export type CompetitorOverlap = z.infer<typeof CompetitorOverlap>;
 
 /**
  * Enhanced competitor profile with positioning data, trajectory, and confidence
@@ -137,6 +202,16 @@ export const CompetitorProfile = z.object({
   // V3.5 Vertical category intelligence
   verticalCategory: z.enum(['retail', 'services', 'software', 'manufacturing', 'consumer-dtc', 'automotive', 'unknown']).nullable().default(null),
   subVertical: z.string().nullable().default(null),
+
+  // V4 Overlap scoring (replaces strict category matching)
+  /** Detailed overlap scoring across dimensions */
+  overlap: CompetitorOverlap.nullable().default(null),
+  /** Primary or contextual classification */
+  competitorClassification: CompetitorClassification.nullable().default(null),
+  /** Has installation/service capability */
+  hasInstallation: z.boolean().default(false),
+  /** Has national reach (Best Buy rule) */
+  hasNationalReach: z.boolean().default(false),
 });
 
 export type CompetitorProfile = z.infer<typeof CompetitorProfile>;
@@ -363,6 +438,20 @@ export type PositioningAxes = z.infer<typeof PositioningAxes>;
  * This informs competitive strategy and differentiation.
  */
 export const CompetitiveDomain = z.object({
+  // === COMPETITIVE MODALITY (V4) ===
+  /** How customers compare and choose - determines competitor relevance */
+  competitiveModality: WithMeta(CompetitiveModality),
+  /** Customer comparison modes selected in pre-run */
+  customerComparisonModes: WithMetaArray(z.enum([
+    'national_retailers',
+    'local_installers',
+    'diy_online',
+    'direct_competitors',
+    'big_box_stores',
+  ])),
+  /** Overlap score threshold for inclusion (default 40) */
+  overlapThreshold: WithMeta(z.number().min(0).max(100)),
+
   // === CONFIDENCE & FRESHNESS ===
   /** Overall data confidence score (0-1) */
   dataConfidence: WithMeta(z.number().min(0).max(1)),
@@ -478,6 +567,11 @@ export const CRITICAL_COMPETITIVE_FIELDS = [
  */
 export function createEmptyCompetitiveDomain(): CompetitiveDomain {
   return {
+    // Competitive Modality (V4)
+    competitiveModality: { value: null, provenance: [] },
+    customerComparisonModes: { value: [], provenance: [] },
+    overlapThreshold: { value: 40, provenance: [] }, // Default threshold
+
     // Confidence & Freshness
     dataConfidence: { value: null, provenance: [] },
     lastValidatedAt: { value: null, provenance: [] },
@@ -589,6 +683,11 @@ export function createDefaultCompetitorProfile(name: string): CompetitorProfile 
     // Vertical classification
     verticalCategory: null,
     subVertical: null,
+    // V4 Overlap scoring
+    overlap: null,
+    competitorClassification: null,
+    hasInstallation: false,
+    hasNationalReach: false,
   };
 }
 

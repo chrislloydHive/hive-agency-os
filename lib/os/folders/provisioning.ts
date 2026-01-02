@@ -4,18 +4,18 @@
 // Creates and manages folder structures for clients and jobs in Google Drive.
 // Uses ADC-based Drive client (no JSON keys required).
 //
-// Folder structure:
-// WORK (from env: GOOGLE_DRIVE_WORK_ROOT_FOLDER_ID)
+// Folder structure (V1):
+// WORK ROOT (from env: GOOGLE_DRIVE_WORK_ROOT_FOLDER_ID)
 // └── {Client Name}
-//     └── *Projects
-//         └── {JobCode} {ProjectName}
-//             ├── Client Brief-Comms
-//             ├── Estimate-Financials
-//             ├── Timeline-Schedule
-//             └── Creative
-//                 ├── Assets
-//                 ├── Working Files
-//                 └── Final Files
+//     ├── 00_Admin
+//     ├── 01_Contracts
+//     ├── 02_Strategy
+//     ├── 03_Programs
+//     ├── 04_Creative
+//     ├── 05_Media
+//     ├── 06_Analytics
+//     ├── 07_Deliverables
+//     └── 08_Archive
 
 import {
   ensureFolder,
@@ -28,6 +28,12 @@ import {
 import { getDriveConfig, isDriveIntegrationAvailable } from '@/lib/integrations/google/driveConfig';
 import { updateCompanyDriveFolders, getCompanyById } from '@/lib/airtable/companies';
 import type { CompanyRecord } from '@/lib/airtable/companies';
+import {
+  CLIENT_FOLDER_STRUCTURE,
+  PROGRAM_FOLDER_STRUCTURE,
+  FOLDER_STRUCTURE_VERSION,
+  type FolderNode,
+} from './structure';
 
 // ============================================================================
 // Environment Configuration
@@ -51,6 +57,9 @@ export interface ProvisionClientFoldersInput {
 
   /** Company name (used for folder name) */
   companyName: string;
+
+  /** Mode: initialize (default) or upgrade existing structure */
+  mode?: 'initialize' | 'upgrade';
 }
 
 export interface ProvisionClientFoldersResult {
@@ -122,20 +131,22 @@ export const CREATIVE_SUBFOLDER_NAMES = {
 // ============================================================================
 
 /**
- * Provision Drive folders for a client
+ * Provision / upgrade Drive folders for a client
  *
  * Creates:
- * - {ClientName} folder under CLIENTS_ROOT
- * - *Projects subfolder
+ * - Clients container under WORK (if not present)
+ * - {ClientName} folder under Clients
+ * - Full v1 structure under client folder (idempotent)
+ * - 03_Programs and subfolders on demand
  *
- * Updates the company record with the folder IDs.
+ * Updates the company record with folder IDs and structure version/map.
  *
  * Idempotent: If folders already exist, returns existing IDs.
  */
 export async function provisionClientFolders(
   input: ProvisionClientFoldersInput
 ): Promise<ProvisionClientFoldersResult> {
-  const { companyId, companyName } = input;
+  const { companyId, companyName, mode = 'initialize' } = input;
 
   console.log(`[FolderProvisioning] Provisioning client folders for: ${companyName} (${companyId})`);
 
@@ -166,26 +177,27 @@ export async function provisionClientFolders(
   }
 
   try {
-    // 3. Create or find client folder under WORK
+    // 3. Create or find client folder directly under WORK root (no Clients container)
     const clientFolder = await ensureFolder(workRootId, companyName);
     console.log(`[FolderProvisioning] Client folder: ${clientFolder.name} (${clientFolder.id})`);
 
-    // 4. Create or find *Projects subfolder
-    const projectsFolder = await ensureFolder(clientFolder.id, PROJECTS_FOLDER_NAME);
-    console.log(`[FolderProvisioning] Projects folder: ${projectsFolder.name} (${projectsFolder.id})`);
+    // 5. Ensure v1 structure (upgrade-safe)
+    const { folderMap, programsFolderId } = await ensureClientStructureV1(clientFolder.id, mode);
 
-    // 5. Update company record with folder IDs
+    // 6. Update company record with folder IDs + structure metadata
     await updateCompanyDriveFolders(companyId, {
       driveClientFolderId: clientFolder.id,
-      driveProjectsFolderId: projectsFolder.id,
+      driveProjectsFolderId: programsFolderId,
+      driveStructureVersion: FOLDER_STRUCTURE_VERSION,
+      driveFolderMap: folderMap,
     });
 
-    console.log(`[FolderProvisioning] ✅ Client folders provisioned for ${companyName}`);
+    console.log(`[FolderProvisioning] ✅ Client folders provisioned/upgraded for ${companyName}`);
 
     return {
       ok: true,
       clientFolderId: clientFolder.id,
-      projectsFolderId: projectsFolder.id,
+      projectsFolderId: programsFolderId,
     };
   } catch (error) {
     const driveError = mapDriveError(error);
@@ -238,6 +250,7 @@ export async function ensureClientFolders(companyId: string): Promise<{
   const result = await provisionClientFolders({
     companyId,
     companyName: company.name,
+    mode: 'initialize',
   });
 
   if (!result.ok) {
@@ -339,6 +352,67 @@ export async function provisionJobFolders(
       },
     };
   }
+}
+
+// ============================================================================
+// Structure creation helpers
+// ============================================================================
+
+type FolderMap = Record<string, { id: string; name: string; url: string; parentKey?: string }>;
+
+async function ensureClientStructureV1(
+  clientFolderId: string,
+  mode: 'initialize' | 'upgrade'
+): Promise<{ folderMap: FolderMap; programsFolderId: string | undefined }> {
+  const folderMap: FolderMap = {};
+
+  // Create top-level folders
+  for (const node of CLIENT_FOLDER_STRUCTURE) {
+    const folder = await ensureFolder(clientFolderId, node.name);
+    folderMap[node.key] = { id: folder.id, name: folder.name, url: folder.url };
+
+    if (node.children && node.children.length > 0) {
+      await ensureChildren(folder.id, node.children, folderMap, node.key);
+    }
+  }
+
+  const programs = folderMap['03_programs'];
+  return { folderMap, programsFolderId: programs?.id };
+}
+
+async function ensureChildren(
+  parentId: string,
+  children: FolderNode[],
+  folderMap: FolderMap,
+  parentKey: string
+): Promise<void> {
+  for (const child of children) {
+    const folder = await ensureFolder(parentId, child.name);
+    folderMap[child.key] = { id: folder.id, name: folder.name, url: folder.url, parentKey };
+    if (child.children && child.children.length > 0) {
+      await ensureChildren(folder.id, child.children, folderMap, child.key);
+    }
+  }
+}
+
+/**
+ * Create a program folder with standard substructure under 03_Programs
+ */
+export async function createProgramFolder(options: {
+  programsFolderId: string;
+  programName: string;
+}): Promise<{ id: string; url: string; subfolders: FolderMap }> {
+  const programRoot = await ensureFolder(options.programsFolderId, options.programName);
+  const subfolders: FolderMap = {
+    program_root: { id: programRoot.id, name: programRoot.name, url: programRoot.url },
+  };
+
+  for (const node of PROGRAM_FOLDER_STRUCTURE) {
+    const folder = await ensureFolder(programRoot.id, node.name);
+    subfolders[node.key] = { id: folder.id, name: folder.name, url: folder.url, parentKey: 'program_root' };
+  }
+
+  return { id: programRoot.id, url: programRoot.url, subfolders };
 }
 
 // ============================================================================

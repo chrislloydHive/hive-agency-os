@@ -13,7 +13,7 @@ import { createDiagnosticRun, updateDiagnosticRun } from '@/lib/os/diagnostics/r
 export const dynamic = 'force-dynamic';
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ companyId: string }> }
 ) {
   try {
@@ -23,7 +23,24 @@ export async function POST(
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
+    // Parse modality options from request body
+    let modalityOptions: {
+      competitiveModality?: string;
+      customerComparisonModes?: string[];
+      hasInstallation?: boolean;
+      geographicScope?: string;
+    } = {};
+    try {
+      const body = await req.json();
+      modalityOptions = body || {};
+    } catch {
+      // Empty body is fine, we'll use defaults
+    }
+
     console.log(`[competition/run-v4] Starting V4 for: ${company.name}`);
+    if (modalityOptions.competitiveModality) {
+      console.log(`[competition/run-v4] Modality: ${modalityOptions.competitiveModality}`);
+    }
 
     // Create diagnostic run record (pending)
     const diagnosticRun = await createDiagnosticRun({
@@ -40,6 +57,9 @@ export async function POST(
         companyId,
         companyName: company.name,
         domain: company.website || undefined,
+        competitiveModality: modalityOptions.competitiveModality as any,
+        customerComparisonModes: modalityOptions.customerComparisonModes as any,
+        hasInstallation: modalityOptions.hasInstallation,
       });
     } catch (runError) {
       // Update diagnostic run to failed

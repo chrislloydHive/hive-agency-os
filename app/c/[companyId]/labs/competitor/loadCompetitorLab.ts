@@ -228,6 +228,11 @@ export async function loadCompetitorLabContext(
     // Vertical classification
     verticalCategory: c.verticalCategory || null,
     subVertical: c.subVertical || null,
+    // V4 Overlap scoring
+    overlap: c.overlap ?? null,
+    competitorClassification: c.competitorClassification ?? null,
+    hasInstallation: c.hasInstallation ?? false,
+    hasNationalReach: c.hasNationalReach ?? false,
   }));
 
   // CRITICAL: Filter out self-competitors using 4-layer detection

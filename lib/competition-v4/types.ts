@@ -86,7 +86,24 @@ export interface ProposedCompetitor {
   domain: string;
   type: CompetitorType;
   reason: string;
-  confidence: number;
+  /** Confidence score for the competitor (0-100) */
+  confidence?: number;
+  /** Does competitor offer installation/service capability? */
+  hasInstallation?: boolean;
+  /** Does competitor have national reach? */
+  hasNationalReach?: boolean;
+  /** Is competitor a local/regional player? */
+  isLocal?: boolean;
+  /** Is this a major retailer (e.g., Best Buy, Walmart)? */
+  isMajorRetailer?: boolean;
+  /** Product categories offered */
+  productCategories?: string[];
+  /** Service categories offered */
+  serviceCategories?: string[];
+  /** Estimated brand trust score (0-100) */
+  brandTrustScore?: number;
+  /** Price positioning */
+  pricePositioning?: 'budget' | 'mid' | 'premium';
 }
 
 export interface CompetitorDiscoveryResult {
@@ -123,6 +140,99 @@ export interface CompetitiveSummary {
 // Combined V4 Result
 // ============================================================================
 
+/**
+ * Signals used for competitor classification (for UI transparency)
+ */
+export interface CompetitorSignalsUsed {
+  installationCapability?: boolean;
+  geographicOverlap?: 'local' | 'regional' | 'national';
+  productOverlap?: boolean;
+  serviceOverlap?: boolean;
+  marketReach?: 'local' | 'regional' | 'national';
+  pricePositioning?: 'budget' | 'mid' | 'premium' | 'unknown';
+}
+
+/** Competitor with overlap scoring applied */
+export interface ScoredCompetitor extends ProposedCompetitor {
+  /** Overlap scores computed by scoring model */
+  overlapScore: number;
+  /** Extended classification: primary | contextual | alternative | excluded */
+  classification: 'primary' | 'contextual' | 'alternative' | 'excluded';
+  /** Rules that were applied (trait-based, no hardcoded brands) */
+  rulesApplied: string[];
+  /** Reason for inclusion if exclusion was prevented */
+  inclusionReason?: string;
+  /** Confidence in scoring (0-100) based on signal completeness */
+  confidence?: number;
+  /** Human-readable explanation for UI */
+  whyThisMatters?: string;
+  /** Signals that drove the classification */
+  signalsUsed?: CompetitorSignalsUsed;
+  /** Short bullet reasons for inclusion */
+  reasons?: string[];
+}
+
+/**
+ * Excluded competitor record with explanation
+ */
+export interface ExcludedCompetitorRecord {
+  name: string;
+  domain: string;
+  reason: string;
+}
+
+/**
+ * Structured competitor buckets (canonical output shape)
+ */
+export interface CompetitorBucketsV4 {
+  /** Primary competitors - direct revenue threats */
+  primary: ScoredCompetitor[];
+  /** Contextual competitors - comparison anchors */
+  contextual: ScoredCompetitor[];
+  /** Alternative competitors - secondary considerations */
+  alternatives: ScoredCompetitor[];
+  /** Excluded competitors with reasons */
+  excluded: ExcludedCompetitorRecord[];
+}
+
+/**
+ * Modality inference result for UI transparency
+ */
+export interface ModalityInferenceInfo {
+  /** Inferred modality */
+  modality: CompetitiveModalityType;
+  /** Confidence in inference (0-100) */
+  confidence: number;
+  /** Signals that drove the inference */
+  signals: string[];
+  /** Explanation of inference */
+  explanation: string;
+  /** Service emphasis (0-1) */
+  serviceEmphasis: number;
+  /** Product emphasis (0-1) */
+  productEmphasis: number;
+  /** Missing signals that reduced confidence */
+  missingSignals?: string[];
+}
+
+/**
+ * Candidate expansion stats for debugging
+ */
+export interface CandidateExpansionStats {
+  /** Initial candidates before expansion */
+  initialCandidates: number;
+  /** Candidates after expansion */
+  expandedCandidates: number;
+  /** Candidates after deduplication */
+  dedupedCandidates: number;
+  /** Candidates kept after filtering */
+  keptAfterFilter: number;
+  /** Queries used for expansion */
+  expansionQueries?: string[];
+  /** Cities/regions used for expansion */
+  serviceAreas?: string[];
+}
+
 export interface CompetitionV4Result {
   /** Pipeline version */
   version: 4;
@@ -145,11 +255,44 @@ export interface CompetitionV4Result {
   /** Step 2: Category definition */
   category: CategoryDefinition;
 
-  /** Step 3 & 4: Competitors */
+  /** Step 3 & 4: Competitors (legacy format) */
   competitors: {
     validated: ProposedCompetitor[];
     removed: RemovedCompetitor[];
   };
+
+  /** V4.1: Scored and classified competitors (canonical buckets) */
+  scoredCompetitors?: {
+    /** Direct revenue threats - customers actively compare */
+    primary: ScoredCompetitor[];
+    /** Comparison anchors - customers may reference but less direct */
+    contextual: ScoredCompetitor[];
+    /** Secondary considerations */
+    alternatives: ScoredCompetitor[];
+    /** Excluded competitors with explanations */
+    excluded: ExcludedCompetitorRecord[];
+    /** Overlap threshold used */
+    threshold: number;
+    /** Competitive modality used for scoring */
+    modality: CompetitiveModalityType | null;
+    /** Confidence in modality inference (0-100) */
+    modalityConfidence?: number;
+    /** Clarifying question if modality confidence was low */
+    clarifyingQuestion?: {
+      question: string;
+      yesImplies: CompetitiveModalityType;
+      noImplies: CompetitiveModalityType;
+      context: string;
+    };
+    /** Top trait rules that drove inclusion */
+    topTraitRules?: string[];
+  };
+
+  /** V4.2: Modality inference details for UI */
+  modalityInference?: ModalityInferenceInfo;
+
+  /** V4.2: Candidate expansion stats */
+  candidateExpansion?: CandidateExpansionStats;
 
   /** Step 5: Optional summary */
   summary?: CompetitiveSummary;
@@ -173,6 +316,20 @@ export interface CompetitionV4Result {
 // Input Types
 // ============================================================================
 
+export type CustomerComparisonMode =
+  | 'national_retailers'
+  | 'local_installers'
+  | 'diy_online'
+  | 'direct_competitors'
+  | 'big_box_stores';
+
+export type CompetitiveModalityType =
+  | 'Retail+Installation'
+  | 'InstallationOnly'
+  | 'RetailWithInstallAddon'
+  | 'ProductOnly'
+  | 'InternalAlternative';
+
 export interface CompetitionV4Input {
   companyId: string;
   companyName?: string;
@@ -182,6 +339,24 @@ export interface CompetitionV4Input {
   baselineSignals?: Record<string, unknown>;
   /** Skip the summary step (faster) */
   skipSummary?: boolean;
+  /** Pre-selected competitive modality from context or UI */
+  competitiveModality?: CompetitiveModalityType;
+  /** How customers compare - selected in pre-run UI */
+  customerComparisonModes?: CustomerComparisonMode[];
+  /** Override overlap threshold (default 40) */
+  overlapThreshold?: number;
+  /** Subject's product categories for overlap scoring */
+  productCategories?: string[];
+  /** Subject's service categories for overlap scoring */
+  serviceCategories?: string[];
+  /** Subject offers installation? */
+  hasInstallation?: boolean;
+  /** Subject's geographic scope */
+  geographicScope?: 'local' | 'regional' | 'national';
+  /** Subject's price positioning */
+  pricePositioning?: 'budget' | 'mid' | 'premium';
+  /** Subject's service areas (cities, states, regions) */
+  serviceAreas?: string[];
 }
 
 // ============================================================================

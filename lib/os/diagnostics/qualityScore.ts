@@ -746,44 +746,126 @@ function extractCompetitionLabQualityData(
   let findingIndex = 0;
   let recIndex = 0;
 
-  // Competitors as findings
-  if (Array.isArray(raw.competitors)) {
-    for (const comp of raw.competitors) {
-      if (typeof comp === 'object' && comp) {
-        const c = comp as Record<string, unknown>;
-        findings.push({
-          id: `finding-${findingIndex++}`,
-          text: String(c.name || '') + ': ' + String(c.analysis || c.summary || ''),
-          pageUrl: c.website as string | undefined,
-          specificReference: c.name as string | undefined,
-          canonicalHash: generateSimpleHash(String(c.name || '') + String(c.analysis || '')),
+  // Check for V4 format (has scoredCompetitors with version: 4)
+  const isV4 = raw.version === 4 && raw.scoredCompetitors;
+
+  if (isV4) {
+    // V4 format: Extract from scoredCompetitors buckets
+    const scored = raw.scoredCompetitors as Record<string, unknown>;
+    const allCompetitors = [
+      ...((scored.primary || []) as Array<Record<string, unknown>>),
+      ...((scored.contextual || []) as Array<Record<string, unknown>>),
+      ...((scored.alternatives || []) as Array<Record<string, unknown>>),
+    ];
+
+    for (const comp of allCompetitors) {
+      // Create finding with rich evidence from V4 data
+      const reasons = Array.isArray(comp.reasons) ? (comp.reasons as string[]).join('; ') : '';
+      const whyThisMatters = comp.whyThisMatters as string | undefined;
+      const classification = comp.classification as string;
+      const overlapScore = comp.overlapScore as number;
+
+      const findingText = [
+        `${comp.name} (${classification}, ${overlapScore}% overlap)`,
+        whyThisMatters || '',
+        reasons,
+      ].filter(Boolean).join(' - ');
+
+      findings.push({
+        id: `finding-${findingIndex++}`,
+        text: findingText,
+        pageUrl: comp.domain as string | undefined,
+        specificReference: comp.name as string | undefined,
+        // V4 has structured signals as evidence
+        quotedText: comp.signalsUsed ? JSON.stringify(comp.signalsUsed) : undefined,
+        canonicalHash: generateSimpleHash(String(comp.name) + String(comp.domain || '')),
+      });
+    }
+
+    // Extract summary insights as recommendations
+    const summary = raw.summary as Record<string, unknown> | undefined;
+    if (summary) {
+      // Competitive positioning as recommendation
+      if (summary.competitive_positioning) {
+        recommendations.push({
+          id: `rec-${recIndex++}`,
+          text: String(summary.competitive_positioning),
         });
+      }
+
+      // Differentiation axes as recommendations
+      if (Array.isArray(summary.key_differentiation_axes)) {
+        for (const axis of summary.key_differentiation_axes) {
+          recommendations.push({
+            id: `rec-${recIndex++}`,
+            text: `Differentiation: ${String(axis)}`,
+          });
+        }
+      }
+
+      // Competitive risks as findings
+      if (Array.isArray(summary.competitive_risks)) {
+        for (const risk of summary.competitive_risks) {
+          findings.push({
+            id: `finding-${findingIndex++}`,
+            text: `Risk: ${String(risk)}`,
+            canonicalHash: generateSimpleHash(`risk:${String(risk)}`),
+          });
+        }
+      }
+    }
+
+    // Modality inference as a finding (quality signal)
+    const modalityInference = raw.modalityInference as Record<string, unknown> | undefined;
+    if (modalityInference && modalityInference.modality) {
+      findings.push({
+        id: `finding-${findingIndex++}`,
+        text: `Competitive Modality: ${modalityInference.modality} (${modalityInference.confidence}% confidence)`,
+        quotedText: modalityInference.explanation as string | undefined,
+        canonicalHash: generateSimpleHash(`modality:${modalityInference.modality}`),
+      });
+    }
+  } else {
+    // V3 format: Legacy extraction
+    // Competitors as findings
+    if (Array.isArray(raw.competitors)) {
+      for (const comp of raw.competitors) {
+        if (typeof comp === 'object' && comp) {
+          const c = comp as Record<string, unknown>;
+          findings.push({
+            id: `finding-${findingIndex++}`,
+            text: String(c.name || '') + ': ' + String(c.analysis || c.summary || ''),
+            pageUrl: c.website as string | undefined,
+            specificReference: c.name as string | undefined,
+            canonicalHash: generateSimpleHash(String(c.name || '') + String(c.analysis || '')),
+          });
+        }
+      }
+    }
+
+    // Insights as findings
+    if (Array.isArray(raw.insights)) {
+      for (const insight of raw.insights) {
+        if (typeof insight === 'object' && insight) {
+          const i = insight as Record<string, unknown>;
+          findings.push({
+            id: `finding-${findingIndex++}`,
+            text: String(i.text || i.insight || i.description || ''),
+            specificReference: i.competitor as string | undefined,
+            canonicalHash: generateSimpleHash(String(i.text || i.insight || '')),
+          });
+        } else if (typeof insight === 'string') {
+          findings.push({
+            id: `finding-${findingIndex++}`,
+            text: insight,
+            canonicalHash: generateSimpleHash(insight),
+          });
+        }
       }
     }
   }
 
-  // Insights as findings
-  if (Array.isArray(raw.insights)) {
-    for (const insight of raw.insights) {
-      if (typeof insight === 'object' && insight) {
-        const i = insight as Record<string, unknown>;
-        findings.push({
-          id: `finding-${findingIndex++}`,
-          text: String(i.text || i.insight || i.description || ''),
-          specificReference: i.competitor as string | undefined,
-          canonicalHash: generateSimpleHash(String(i.text || i.insight || '')),
-        });
-      } else if (typeof insight === 'string') {
-        findings.push({
-          id: `finding-${findingIndex++}`,
-          text: insight,
-          canonicalHash: generateSimpleHash(insight),
-        });
-      }
-    }
-  }
-
-  // Recommendations
+  // Recommendations (common to both V3 and V4)
   if (Array.isArray(raw.recommendations)) {
     for (const rec of raw.recommendations) {
       if (typeof rec === 'object' && rec) {

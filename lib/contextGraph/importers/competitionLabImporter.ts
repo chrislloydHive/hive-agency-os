@@ -151,6 +151,11 @@ function mapToCompetitorProfile(competitor: ScoredCompetitor): CompetitorProfile
     // Vertical classification
     verticalCategory: null,
     subVertical: null,
+    // V4 Overlap scoring
+    overlap: null,
+    competitorClassification: null,
+    hasInstallation: false,
+    hasNationalReach: false,
   };
 }
 

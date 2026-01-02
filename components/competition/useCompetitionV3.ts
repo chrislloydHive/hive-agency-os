@@ -5,6 +5,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import type { CompetitionRunV3Response } from '@/lib/competition-v3/ui-types';
+import type { CompetitiveModalityType, CustomerComparisonMode } from '@/lib/competition-v4/types';
+
+export interface DiscoveryOptions {
+  competitiveModality?: CompetitiveModalityType;
+  customerComparisonModes?: CustomerComparisonMode[];
+  hasInstallation?: boolean;
+  geographicScope?: 'local' | 'regional' | 'national';
+}
 
 interface UseCompetitionV3Result {
   data: CompetitionRunV3Response | null;
@@ -13,7 +21,7 @@ interface UseCompetitionV3Result {
   error: string | null;
   runError: string | null;
   refetch: () => Promise<void>;
-  runDiscovery: () => Promise<void>;
+  runDiscovery: (options?: DiscoveryOptions) => Promise<void>;
 }
 
 export function useCompetitionV3(companyId: string): UseCompetitionV3Result {
@@ -44,25 +52,48 @@ export function useCompetitionV3(companyId: string): UseCompetitionV3Result {
           status: v4.execution?.status === 'completed' ? 'completed' : 'failed',
           createdAt: v4.execution?.startedAt || new Date().toISOString(),
           completedAt: v4.execution?.completedAt || undefined,
-          competitors: validated.map((c: any, idx: number) => ({
-            id: `${v4.runId}-${idx}`,
-            name: c.name,
-            domain: c.domain,
-            type: (c.type || 'direct').toLowerCase(),
-            summary: c.reason || '',
-            coordinates: { valueModelFit: 50, icpFit: 50 },
-            scores: {
-              icp: 50,
-              businessModel: 50,
-              services: 50,
-              valueModel: 50,
-              aiOrientation: 50,
-              geography: 50,
-              threat: c.confidence || 50,
-              relevance: c.confidence || 50,
-            },
-            classification: { confidence: (c.confidence || 50) / 100 },
-          })),
+          competitors: validated.map((c: any, idx: number) => {
+            // Derive positioning coordinates from V4 data:
+            // X-axis (valueModelFit): Use confidence as proxy for value model similarity
+            // Y-axis (icpFit): Derive from competitor type
+            const typeNorm = (c.type || 'direct').toLowerCase();
+            const confidence = c.confidence || 50;
+
+            // ICP fit based on type (with slight spread using index)
+            const spread = ((idx % 5) - 2) * 5; // -10 to +10 spread
+            let icpFit: number;
+            if (typeNorm === 'direct') {
+              icpFit = Math.min(95, Math.max(60, 75 + spread + (confidence - 50) * 0.3));
+            } else if (typeNorm === 'indirect') {
+              icpFit = Math.min(65, Math.max(35, 50 + spread));
+            } else {
+              // Adjacent
+              icpFit = Math.min(40, Math.max(10, 25 + spread));
+            }
+
+            // Value model fit: confidence-based with spread
+            const valueModelFit = Math.min(95, Math.max(20, confidence + spread));
+
+            return {
+              id: `${v4.runId}-${idx}`,
+              name: c.name,
+              domain: c.domain,
+              type: typeNorm,
+              summary: c.reason || '',
+              coordinates: { valueModelFit, icpFit },
+              scores: {
+                icp: Math.round(icpFit),
+                businessModel: confidence,
+                services: confidence,
+                valueModel: Math.round(valueModelFit),
+                aiOrientation: 50,
+                geography: 50,
+                threat: confidence,
+                relevance: confidence,
+              },
+              classification: { confidence: confidence / 100 },
+            };
+          }),
           insights: {
             landscapeSummary:
               v4.summary?.competitive_positioning ||
@@ -118,8 +149,8 @@ export function useCompetitionV3(companyId: string): UseCompetitionV3Result {
     }
   }, [companyId]);
 
-  // Run discovery - use V4
-  const runDiscovery = useCallback(async () => {
+  // Run discovery - use V4 with optional modality options
+  const runDiscovery = useCallback(async (options?: DiscoveryOptions) => {
     setIsRunning(true);
     setRunError(null);
 
@@ -127,6 +158,7 @@ export function useCompetitionV3(companyId: string): UseCompetitionV3Result {
       const response = await fetch(`/api/os/companies/${companyId}/competition/run-v4`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(options || {}),
       });
 
       const json = await response.json();

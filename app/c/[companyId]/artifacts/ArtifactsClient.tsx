@@ -103,7 +103,11 @@ export function ArtifactsClient({
   const [showTemplateLibrary, setShowTemplateLibrary] = useState(false);
   const [instantiating, setInstantiating] = useState<string | null>(null);
   const [provisioning, setProvisioning] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
   const [driveReady, setDriveReady] = useState(hasDriveFolder);
+  const [programName, setProgramName] = useState('');
+  const [creatingProgram, setCreatingProgram] = useState(false);
+  const [forceProvision, setForceProvision] = useState(false);
 
   // Merge and dedupe artifacts from both sources
   const allArtifacts = mergeArtifactSources(artifacts, indexedArtifacts);
@@ -141,6 +145,8 @@ export function ArtifactsClient({
     try {
       const res = await fetch(`/api/os/companies/${companyId}/provision-drive`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'initialize', force: forceProvision }),
       });
 
       if (res.ok) {
@@ -156,6 +162,58 @@ export function ArtifactsClient({
       alert('Failed to provision Drive folders');
     } finally {
       setProvisioning(false);
+    }
+  };
+
+  const handleUpgradeDrive = async () => {
+    setUpgrading(true);
+    try {
+      const res = await fetch(`/api/os/companies/${companyId}/provision-drive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'upgrade' }),
+      });
+
+      if (res.ok) {
+        setDriveReady(true);
+        alert('Drive structure upgraded/verified successfully.');
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to upgrade Drive structure');
+      }
+    } catch (err) {
+      console.error('[ArtifactsClient] Upgrade error:', err);
+      alert('Failed to upgrade Drive structure');
+    } finally {
+      setUpgrading(false);
+    }
+  };
+
+  const handleCreateProgramFolder = async () => {
+    if (!programName.trim()) {
+      alert('Enter a program name');
+      return;
+    }
+    setCreatingProgram(true);
+    try {
+      const res = await fetch(`/api/os/companies/${companyId}/drive/programs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ programName: programName.trim() }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        alert(`Program folder created: ${data.programFolderUrl || data.programFolderId}`);
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to create program folder');
+      }
+    } catch (err) {
+      console.error('[ArtifactsClient] Program folder error:', err);
+      alert('Failed to create program folder');
+    } finally {
+      setCreatingProgram(false);
     }
   };
 
@@ -278,7 +336,7 @@ export function ArtifactsClient({
         </div>
 
         {!driveReady && (
-          <div className="mt-3 p-3 bg-amber-500/5 border border-amber-500/20 rounded-lg flex items-center justify-between">
+          <div className="mt-3 p-3 bg-amber-500/5 border border-amber-500/20 rounded-lg flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-xs text-amber-400/80 flex items-center gap-1.5">
                 <AlertTriangle className="w-3.5 h-3.5" />
@@ -288,23 +346,77 @@ export function ArtifactsClient({
                 Provision Google Drive folders to enable template creation.
               </p>
             </div>
-            <button
-              onClick={handleProvisionDrive}
-              disabled={provisioning}
-              className="px-4 py-2 text-xs font-medium text-white bg-amber-600 hover:bg-amber-500 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
-            >
-              {provisioning ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  Provisioning...
-                </>
-              ) : (
-                <>
-                  <FolderOpen className="w-3.5 h-3.5" />
-                  Provision Drive Folders
-                </>
-              )}
-            </button>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <label className="flex items-center gap-2 text-xs text-slate-400">
+                <input
+                  type="checkbox"
+                  className="rounded border-slate-600 bg-slate-900"
+                  checked={forceProvision}
+                  onChange={(e) => setForceProvision(e.target.checked)}
+                />
+                Force provision (override eligibility)
+              </label>
+              <button
+                onClick={handleProvisionDrive}
+                disabled={provisioning}
+                className="px-4 py-2 text-xs font-medium text-white bg-amber-600 hover:bg-amber-500 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {provisioning ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Provisioning...
+                  </>
+                ) : (
+                  <>
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    Provision Drive Folders
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {driveReady && (
+          <div className="mt-3 p-3 bg-slate-800/60 border border-slate-700 rounded-lg space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-400">Drive is ready</span>
+              <button
+                onClick={handleUpgradeDrive}
+                disabled={upgrading}
+                className="px-3 py-1.5 text-xs font-medium text-white bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {upgrading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
+                {upgrading ? 'Upgrading...' : 'Upgrade/Verify Structure'}
+              </button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <input
+                type="text"
+                value={programName}
+                onChange={(e) => setProgramName(e.target.value)}
+                placeholder="Program name (e.g., Q2 Campaign)"
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+              />
+              <button
+                onClick={handleCreateProgramFolder}
+                disabled={creatingProgram}
+                className="px-4 py-2 text-xs font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {creatingProgram ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    Create Program Folder
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
       </section>

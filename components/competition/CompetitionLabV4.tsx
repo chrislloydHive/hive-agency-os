@@ -13,8 +13,10 @@ import { useState, useCallback, useMemo } from 'react';
 import useSWR from 'swr';
 import { CompetitionLabStrategistView, StrategistViewSkeleton, StrategistViewError } from './CompetitionLabStrategistView';
 import { CompetitionLabDataView } from './CompetitionLabDataView';
-import { useCompetitionV3 } from './useCompetitionV3';
+import { useCompetitionV3, type DiscoveryOptions } from './useCompetitionV3';
+import { ModalitySelector } from './ModalitySelector';
 import type { CompetitionStrategistModel } from '@/lib/competition-v3/strategist-types';
+import type { CustomerComparisonMode, CompetitiveModalityType } from '@/lib/competition-v4/types';
 
 // ============================================================================
 // Types
@@ -66,11 +68,19 @@ export function CompetitionLabV4({ companyId, companyName }: Props) {
   const strategist = strategistResponse?.success ? strategistResponse.strategist : null;
 
   // Handle run discovery with refetch of strategist
-  const handleRunDiscovery = useCallback(async () => {
-    await runDiscovery();
+  const handleRunDiscovery = useCallback(async (options?: DiscoveryOptions) => {
+    await runDiscovery(options);
     // After successful run, refetch strategist
     refetchStrategist();
   }, [runDiscovery, refetchStrategist]);
+
+  // Handle modality selection from the pre-run selector
+  const handleModalitySelect = useCallback((modality: CompetitiveModalityType, modes: CustomerComparisonMode[]) => {
+    handleRunDiscovery({
+      competitiveModality: modality,
+      customerComparisonModes: modes,
+    });
+  }, [handleRunDiscovery]);
 
   // Handle refresh
   const handleRefresh = useCallback(async () => {
@@ -133,7 +143,7 @@ export function CompetitionLabV4({ companyId, companyName }: Props) {
 
           {/* Run Button */}
           <button
-            onClick={handleRunDiscovery}
+            onClick={() => handleRunDiscovery()}
             disabled={isRunning}
             className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
               isRunning
@@ -215,7 +225,11 @@ export function CompetitionLabV4({ companyId, companyName }: Props) {
       <div className="mt-4">
         {activeTab === 'strategist' ? (
           !runData ? (
-            <EmptyState />
+            <EmptyState
+              onSelect={handleModalitySelect}
+              onSkip={() => handleRunDiscovery()}
+              isLoading={isRunning}
+            />
           ) : strategistLoading ? (
             <StrategistViewSkeleton />
           ) : strategistError || !strategist ? (
@@ -242,23 +256,36 @@ export function CompetitionLabV4({ companyId, companyName }: Props) {
 }
 
 // ============================================================================
-// Empty State
+// Empty State with Modality Selector
 // ============================================================================
 
-function EmptyState() {
+interface EmptyStateProps {
+  onSelect: (modality: CompetitiveModalityType, modes: CustomerComparisonMode[]) => void;
+  onSkip: () => void;
+  isLoading: boolean;
+}
+
+function EmptyState({ onSelect, onSkip, isLoading }: EmptyStateProps) {
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/30 p-12 flex items-center justify-center">
-      <div className="text-center max-w-md">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-slate-800 flex items-center justify-center">
-          <svg className="w-8 h-8 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-          </svg>
+    <div className="rounded-lg border border-slate-800 bg-slate-900/30 p-8">
+      <div className="max-w-lg mx-auto">
+        <div className="text-center mb-8">
+          <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-slate-800 flex items-center justify-center">
+            <svg className="w-7 h-7 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+            </svg>
+          </div>
+          <p className="text-slate-300 text-sm font-medium mb-1">Discover your competitive landscape</p>
+          <p className="text-slate-500 text-xs">
+            Help us understand how customers compare your business
+          </p>
         </div>
-        <p className="text-slate-300 text-sm font-medium mb-2">No analysis yet</p>
-        <p className="text-slate-500 text-xs leading-relaxed">
-          Run Competition Analysis to discover competitors, classify them by type,
-          and generate strategic insights.
-        </p>
+
+        <ModalitySelector
+          onSelect={onSelect}
+          onSkip={onSkip}
+          isLoading={isLoading}
+        />
       </div>
     </div>
   );

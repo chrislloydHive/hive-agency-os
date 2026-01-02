@@ -27,7 +27,9 @@ import { isContextV4IngestBrandLabEnabled } from '@/lib/types/contextField';
 import { buildWebsiteLabCandidatesWithV5, proposeFromLabResult } from '@/lib/contextGraph/v4';
 import { buildBrandLabCandidates } from '@/lib/contextGraph/v4/brandLabCandidates';
 import { buildCompetitionCandidates } from '@/lib/contextGraph/v4/competitionCandidates';
+import { buildCompetitionCandidatesV4 } from '@/lib/contextGraph/v4/competitionCandidatesV4';
 import type { CompetitionRunV3Payload } from '@/lib/competition-v3/store';
+import type { CompetitionV4Result } from '@/lib/competition-v4/types';
 import { autoProposeBaselineIfNeeded } from '@/lib/contextGraph/v4/autoProposeBaseline';
 import { createArtifactFromDiagnosticRun } from './artifactCreation';
 import { updateDiagnosticRun } from './runs';
@@ -552,89 +554,180 @@ async function runDomainWriters(
       case 'competitionLab': {
         console.log('[postRunHooks] Running CompetitionLab hooks...');
 
-        // Extract the CompetitionRunV3Payload from rawJson
+        // Extract competition data from rawJson
         // The rawJson structure may be:
-        // 1. New format: { rawEvidence: { labResultV4: { competitors, ... } } }
-        // 2. Direct: { competitors, status, ... } (CompetitionRunV3Payload)
+        // 1. V4 format: { version: 4, scoredCompetitors: {...}, ... } (CompetitionV4Result)
+        // 2. New format: { rawEvidence: { labResultV4: { competitors, ... } } }
+        // 3. Direct V3: { competitors, status, ... } (CompetitionRunV3Payload)
         const rawData = run.rawJson as Record<string, unknown>;
-        let competitionRun: CompetitionRunV3Payload | null = null;
 
-        // Try new format first: rawEvidence.labResultV4
+        // ====================================================================
+        // V4 DETECTION: Check for Competition V4 run
+        // ====================================================================
+        // V4 runs have `version: 4` and `scoredCompetitors` object
+        const isV4Run = rawData.version === 4 && rawData.scoredCompetitors;
+
+        // Also check rawEvidence path for V4
         const rawEvidence = rawData.rawEvidence as Record<string, unknown> | undefined;
-        if (rawEvidence?.labResultV4) {
-          competitionRun = rawEvidence.labResultV4 as CompetitionRunV3Payload;
-          console.log('[postRunHooks] Found CompetitionLab data at rawEvidence.labResultV4');
-        } else if (rawData.competitors || rawData.status === 'completed') {
-          // Direct format: rawJson is the CompetitionRunV3Payload
-          competitionRun = rawData as unknown as CompetitionRunV3Payload;
-          console.log('[postRunHooks] Using direct CompetitionLab data format');
-        }
+        const nestedResult = rawEvidence?.labResultV4 as Record<string, unknown> | undefined;
+        const isNestedV4 = nestedResult?.version === 4 && nestedResult?.scoredCompetitors;
 
-        if (!competitionRun) {
-          console.warn('[postRunHooks] CompetitionLab rawJson missing expected structure, skipping proposal');
-          return;
-        }
+        if (isV4Run || isNestedV4) {
+          // ====================================================================
+          // V4 PROPOSAL PATH
+          // ====================================================================
+          console.log('[postRunHooks] [CompetitionLab] V4 run detected');
 
-        // Build candidates from competition run
-        const candidateResult = buildCompetitionCandidates(competitionRun, run.id);
+          const v4Result = isV4Run
+            ? (rawData as unknown as CompetitionV4Result)
+            : (nestedResult as unknown as CompetitionV4Result);
 
-        if (candidateResult.errorState?.isError) {
-          console.error('[postRunHooks] [CompetitionLab] Error state detected:', {
-            errorType: candidateResult.errorState.errorType,
-            errorMessage: candidateResult.errorState.errorMessage,
-          });
-          return;
-        }
+          // Build candidates from V4 run
+          const candidateResult = buildCompetitionCandidatesV4(v4Result);
 
-        if (candidateResult.candidates.length === 0) {
-          console.warn('[postRunHooks] [CompetitionLab] No candidates produced', {
-            extractionPath: candidateResult.extractionPath,
-            extractionFailureReason: candidateResult.extractionFailureReason,
-            debug: candidateResult.debug,
-          });
-          return;
-        }
-
-        console.log('[postRunHooks] [CompetitionLab] Candidates ready:', {
-          extractionPath: candidateResult.extractionPath,
-          candidateCount: candidateResult.candidates.length,
-          fieldKeys: candidateResult.candidates.map(c => c.key),
-          filteringStats: candidateResult.filteringStats?.afterFiltering,
-        });
-
-        // Propose fields to V4 Review Queue
-        try {
-          const proposalResult = await proposeFromLabResult({
-            companyId,
-            importerId: 'competitionLab',
-            source: 'lab',
-            sourceId: run.id,
-            extractionPath: candidateResult.extractionPath,
-            candidates: candidateResult.candidates,
-          });
-
-          console.log('[postRunHooks] [CompetitionLab] Proposals complete:', {
-            proposed: proposalResult.proposed,
-            blocked: proposalResult.blocked,
-            replaced: proposalResult.replaced,
-            errors: proposalResult.errors.length,
-            proposedKeys: proposalResult.proposedKeys,
-          });
-
-          // Auto-propose baseline if first proposal
-          if (proposalResult.proposed > 0) {
-            try {
-              await autoProposeBaselineIfNeeded({
-                companyId,
-                triggeredBy: 'competitionLab',
-                runId: run.id,
-              });
-            } catch (baselineErr) {
-              console.warn('[postRunHooks] CompetitionLab auto-propose baseline failed:', baselineErr);
-            }
+          if (candidateResult.errorState?.isError) {
+            console.error('[postRunHooks] [CompetitionLab V4] Error state detected:', {
+              errorType: candidateResult.errorState.errorType,
+              errorMessage: candidateResult.errorState.errorMessage,
+            });
+            return;
           }
-        } catch (proposeErr) {
-          console.error('[postRunHooks] CompetitionLab proposal failed:', proposeErr);
+
+          if (candidateResult.candidates.length === 0) {
+            console.warn('[postRunHooks] [CompetitionLab V4] No candidates produced', {
+              extractionPath: candidateResult.extractionPath,
+              debug: candidateResult.debug,
+            });
+            return;
+          }
+
+          console.log('[postRunHooks] [CompetitionLab V4] Candidates ready:', {
+            extractionPath: candidateResult.extractionPath,
+            candidateCount: candidateResult.candidates.length,
+            fieldKeys: candidateResult.candidates.map(c => c.key),
+            modality: v4Result.scoredCompetitors?.modality,
+            primaryCount: candidateResult.debug?.primaryCount,
+            contextualCount: candidateResult.debug?.contextualCount,
+          });
+
+          // Propose fields to V4 Review Queue
+          try {
+            const proposalResult = await proposeFromLabResult({
+              companyId,
+              importerId: 'competitionLabV4',
+              source: 'lab',
+              sourceId: run.id,
+              extractionPath: candidateResult.extractionPath,
+              candidates: candidateResult.candidates,
+            });
+
+            console.log('[postRunHooks] [CompetitionLab V4] Proposals complete:', {
+              proposed: proposalResult.proposed,
+              blocked: proposalResult.blocked,
+              replaced: proposalResult.replaced,
+              errors: proposalResult.errors.length,
+              proposedKeys: proposalResult.proposedKeys,
+            });
+
+            // Auto-propose baseline if first proposal
+            if (proposalResult.proposed > 0) {
+              try {
+                await autoProposeBaselineIfNeeded({
+                  companyId,
+                  triggeredBy: 'competitionLab',
+                  runId: run.id,
+                });
+              } catch (baselineErr) {
+                console.warn('[postRunHooks] CompetitionLab V4 auto-propose baseline failed:', baselineErr);
+              }
+            }
+          } catch (proposeErr) {
+            console.error('[postRunHooks] CompetitionLab V4 proposal failed:', proposeErr);
+          }
+        } else {
+          // ====================================================================
+          // V3 PROPOSAL PATH (legacy)
+          // ====================================================================
+          console.log('[postRunHooks] [CompetitionLab] V3 run detected (legacy)');
+
+          let competitionRun: CompetitionRunV3Payload | null = null;
+
+          // Try new format first: rawEvidence.labResultV4
+          if (rawEvidence?.labResultV4) {
+            competitionRun = rawEvidence.labResultV4 as CompetitionRunV3Payload;
+            console.log('[postRunHooks] Found CompetitionLab data at rawEvidence.labResultV4');
+          } else if (rawData.competitors || rawData.status === 'completed') {
+            // Direct format: rawJson is the CompetitionRunV3Payload
+            competitionRun = rawData as unknown as CompetitionRunV3Payload;
+            console.log('[postRunHooks] Using direct CompetitionLab data format');
+          }
+
+          if (!competitionRun) {
+            console.warn('[postRunHooks] CompetitionLab rawJson missing expected structure, skipping proposal');
+            return;
+          }
+
+          // Build candidates from competition run
+          const candidateResult = buildCompetitionCandidates(competitionRun, run.id);
+
+          if (candidateResult.errorState?.isError) {
+            console.error('[postRunHooks] [CompetitionLab] Error state detected:', {
+              errorType: candidateResult.errorState.errorType,
+              errorMessage: candidateResult.errorState.errorMessage,
+            });
+            return;
+          }
+
+          if (candidateResult.candidates.length === 0) {
+            console.warn('[postRunHooks] [CompetitionLab] No candidates produced', {
+              extractionPath: candidateResult.extractionPath,
+              extractionFailureReason: candidateResult.extractionFailureReason,
+              debug: candidateResult.debug,
+            });
+            return;
+          }
+
+          console.log('[postRunHooks] [CompetitionLab] Candidates ready:', {
+            extractionPath: candidateResult.extractionPath,
+            candidateCount: candidateResult.candidates.length,
+            fieldKeys: candidateResult.candidates.map(c => c.key),
+            filteringStats: candidateResult.filteringStats?.afterFiltering,
+          });
+
+          // Propose fields to V4 Review Queue
+          try {
+            const proposalResult = await proposeFromLabResult({
+              companyId,
+              importerId: 'competitionLab',
+              source: 'lab',
+              sourceId: run.id,
+              extractionPath: candidateResult.extractionPath,
+              candidates: candidateResult.candidates,
+            });
+
+            console.log('[postRunHooks] [CompetitionLab] Proposals complete:', {
+              proposed: proposalResult.proposed,
+              blocked: proposalResult.blocked,
+              replaced: proposalResult.replaced,
+              errors: proposalResult.errors.length,
+              proposedKeys: proposalResult.proposedKeys,
+            });
+
+            // Auto-propose baseline if first proposal
+            if (proposalResult.proposed > 0) {
+              try {
+                await autoProposeBaselineIfNeeded({
+                  companyId,
+                  triggeredBy: 'competitionLab',
+                  runId: run.id,
+                });
+              } catch (baselineErr) {
+                console.warn('[postRunHooks] CompetitionLab auto-propose baseline failed:', baselineErr);
+              }
+            }
+          } catch (proposeErr) {
+            console.error('[postRunHooks] CompetitionLab proposal failed:', proposeErr);
+          }
         }
 
         break;
