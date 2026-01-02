@@ -87,6 +87,7 @@ export const AIRTABLE_TABLES = {
 
   // Workspace Artifacts (Google Drive integration)
   ARTIFACTS: 'Artifacts', // First-class artifacts linked to Google Drive/Docs/Slides
+  ARTIFACT_INDEX: 'ArtifactIndex', // Canonical index of ALL company artifacts for Documents UI
 
   // Heavy Plans (structured planning objects - Decide → Deliver → Work bridge)
   HEAVY_MEDIA_PLANS: 'HeavyMediaPlans', // Heavy Media Plan entities
@@ -112,6 +113,13 @@ export const AIRTABLE_TABLES = {
 
   // Section Library (Reusable content - V3)
   SECTION_LIBRARY: 'SectionLibrary', // Reusable sections (company-scoped + global)
+
+  // Jobs System Tables
+  JOBS: 'Jobs', // Jobs with Drive folder provisioning
+  COUNTERS: 'Counters', // Global sequence counters (job numbering, etc.)
+  TEMPLATES: 'Templates', // Document templates (SOW, Brief, Timeline, MSA)
+  TEMPLATE_PACKS: 'TemplatePacks', // Template bundles for quick provisioning
+  JOB_DOCUMENTS: 'JobDocuments', // Documents created from templates per job
 
   // Legacy (use BRIEFS instead)
   CREATIVE_BRIEFS: 'CreativeBriefs', // Deprecated - use BRIEFS

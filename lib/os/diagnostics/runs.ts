@@ -401,7 +401,7 @@ function diagnosticRunToAirtableFields(
         essentialData.summary = raw.summary;
         essentialData.issues = raw.issues?.slice(0, 10);
         essentialData.recommendations = raw.recommendations?.slice(0, 10);
-        // Preserve siteAssessment for the page to use
+        // Preserve siteAssessment AND v5Diagnostic for the page to use
         essentialData.rawEvidence = {
           labResultV4: {
             siteAssessment: labResult.siteAssessment ? {
@@ -417,6 +417,17 @@ function diagnosticRunToAirtableFields(
               pageAssessments: labResult.siteAssessment.pageAssessments?.slice(0, 3),
               conversionFunnels: labResult.siteAssessment.conversionFunnels,
               consultantReport: labResult.siteAssessment.consultantReport,
+            } : null,
+            // V5 DIAGNOSTIC - MANDATORY for UI and postRunHooks
+            // This MUST be preserved during truncation
+            v5Diagnostic: labResult.v5Diagnostic ? {
+              observations: labResult.v5Diagnostic.observations?.slice(0, 10),
+              personaJourneys: labResult.v5Diagnostic.personaJourneys,
+              blockingIssues: labResult.v5Diagnostic.blockingIssues,
+              quickWins: labResult.v5Diagnostic.quickWins,
+              structuralChanges: labResult.v5Diagnostic.structuralChanges,
+              score: labResult.v5Diagnostic.score,
+              scoreJustification: labResult.v5Diagnostic.scoreJustification,
             } : null,
           },
         };
@@ -435,6 +446,18 @@ function diagnosticRunToAirtableFields(
           recommendations: raw.siteAssessment.recommendations?.slice(0, 10),
           consultantReport: raw.siteAssessment.consultantReport,
         };
+        // V5 DIAGNOSTIC - MANDATORY for UI and postRunHooks
+        if (raw.v5Diagnostic) {
+          essentialData.v5Diagnostic = {
+            observations: raw.v5Diagnostic.observations?.slice(0, 10),
+            personaJourneys: raw.v5Diagnostic.personaJourneys,
+            blockingIssues: raw.v5Diagnostic.blockingIssues,
+            quickWins: raw.v5Diagnostic.quickWins,
+            structuralChanges: raw.v5Diagnostic.structuralChanges,
+            score: raw.v5Diagnostic.score,
+            scoreJustification: raw.v5Diagnostic.scoreJustification,
+          };
+        }
       }
 
       // For GAP-IA results, extract summary and dimensions
@@ -830,17 +853,15 @@ export async function getRunsGroupedByTool(
       // Extract Website Lab results
       if (heavyRun.evidencePack.websiteLabV4 && grouped.websiteLab.length === 0) {
         const websiteResult = heavyRun.evidencePack.websiteLabV4;
-        const websiteScore = websiteResult.siteAssessment?.overallScore
-          ?? websiteResult.score
-          ?? websiteResult.siteAssessment?.score
-          ?? null;
-        console.log('[DiagnosticRuns] Website Lab score extraction:', { runId: heavyRun.id, score: websiteScore });
+        // V5 is the ONLY canonical source - no V4 fallback
+        const websiteScore = websiteResult.v5Diagnostic?.score ?? null;
+        console.log('[DiagnosticRuns] Website Lab score extraction:', { runId: heavyRun.id, score: websiteScore, hasV5: !!websiteResult.v5Diagnostic });
         grouped.websiteLab.push({
           id: `heavy-${heavyRun.id}-website`,
           companyId,
           toolId: 'websiteLab',
           status: 'complete',
-          summary: websiteResult.siteAssessment?.executiveSummary || null,
+          summary: websiteResult.v5Diagnostic?.scoreJustification || null,
           score: websiteScore,
           createdAt: heavyRun.createdAt,
           updatedAt: heavyRun.updatedAt,

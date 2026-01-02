@@ -383,11 +383,16 @@ export async function fetchDiagnosticsFromAirtable(
       seoScore,
       keyIssues,
     };
-  } catch (error) {
-    console.warn(
-      `[Hive OS] Failed to fetch diagnostics for company ${companyRecordId}:`,
-      error
-    );
+  } catch (error: any) {
+    // Silently return null for NOT_AUTHORIZED or TABLE_NOT_FOUND errors
+    // Full Reports table is optional/legacy
+    if (error?.statusCode !== 403 && error?.statusCode !== 404 &&
+        error?.error !== 'NOT_AUTHORIZED' && error?.error !== 'TABLE_NOT_FOUND') {
+      console.warn(
+        `[Hive OS] Failed to fetch diagnostics for company ${companyRecordId}:`,
+        error
+      );
+    }
     return null;
   }
 }
@@ -477,10 +482,15 @@ export async function fetchPrioritiesFromAirtable(
 
     return priorities;
   } catch (error) {
-    console.warn(
-      `[Hive OS] Failed to fetch priorities for company ${companyRecordId}:`,
-      error
-    );
+    // Silently return empty for NOT_AUTHORIZED or TABLE_NOT_FOUND errors
+    // Full Reports table is optional/legacy
+    if ((error as any)?.statusCode !== 403 && (error as any)?.statusCode !== 404 &&
+        (error as any)?.error !== 'NOT_AUTHORIZED' && (error as any)?.error !== 'TABLE_NOT_FOUND') {
+      console.warn(
+        `[Hive OS] Failed to fetch priorities for company ${companyRecordId}:`,
+        error
+      );
+    }
     return [];
   }
 }
@@ -581,11 +591,16 @@ export async function fetchGrowthPlanFromAirtable(
       recommendedFocusAreas,
       planSections,
     };
-  } catch (error) {
-    console.warn(
-      `[Hive OS] Failed to fetch growth plan for company ${companyRecordId}:`,
-      error
-    );
+  } catch (error: any) {
+    // Silently return null for NOT_AUTHORIZED or TABLE_NOT_FOUND errors
+    // Full Reports table is optional/legacy
+    if (error?.statusCode !== 403 && error?.statusCode !== 404 &&
+        error?.error !== 'NOT_AUTHORIZED' && error?.error !== 'TABLE_NOT_FOUND') {
+      console.warn(
+        `[Hive OS] Failed to fetch growth plan for company ${companyRecordId}:`,
+        error
+      );
+    }
     return null;
   }
 }

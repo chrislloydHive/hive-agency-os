@@ -21,11 +21,6 @@ import type {
   WebsiteUXLabResultV4,
   PersonaType,
   BenchmarkLabel,
-  PageLevelScore,
-  WebsiteQuickWin,
-  WebsiteStrategicInitiative,
-  WebsiteUxSectionAnalysis,
-  WebsiteUxDimensionKey,
 } from './websiteLab';
 import type { WebsiteEvidenceV3 as _WebsiteEvidenceV3 } from './website';
 import { runV5Diagnostic, type V5DiagnosticOutput } from './websiteLabV5';
@@ -1304,560 +1299,11 @@ function simulatePersona(
 }
 
 // ============================================================================
-// CONSULTANT REPORT CONTENT GENERATION (V5)
+// V4 SCORING FUNCTIONS REMOVED
 // ============================================================================
-
-/**
- * Generate consultant-style report content using LLM
- *
- * This creates the narrative-first content that makes Website diagnostics
- * feel like a business consultant's written report.
- */
-async function generateConsultantReportContent(
-  siteGraph: WebsiteSiteGraphV4,
-  personas: WebsiteUXLabPersonaResult[],
-  heuristics: HeuristicUxSummary,
-  funnelHealthScore: number,
-  multiPageConsistencyScore: number,
-  overallScore: number,
-  brainContext?: BrainContextForLab
-): Promise<{
-  executiveSummary: string;
-  strengths: string[];
-  keyIssues: string[];
-  quickWins: WebsiteQuickWin[];
-  strategicInitiatives: WebsiteStrategicInitiative[];
-  focusAreas: WebsiteUxDimensionKey[];
-  expectedOutcomes: {
-    thirtyDays: string[];
-    ninetyDays: string[];
-    sixMonths: string[];
-  };
-  sectionAnalyses: WebsiteUxSectionAnalysis[];
-}> {
-  console.log('[WebsiteLab V5] Generating consultant report content via LLM...');
-  if (brainContext) {
-    console.log('[WebsiteLab V5] Brain context loaded, integrity:', brainContext.contextIntegrity || 'unknown');
-  }
-
-  const { pages } = siteGraph;
-  const homePage = pages.find(p => p.type === 'home');
-
-  // Build Brain context section if available
-  const brainContextSection = brainContext ? `
-**Company Context from Brain:**
-${brainContext.identitySummary ? `Identity: ${brainContext.identitySummary}` : ''}
-${brainContext.objectivesSummary ? `Objectives: ${brainContext.objectivesSummary}` : ''}
-${brainContext.audienceSummary ? `Target Audience: ${brainContext.audienceSummary}` : ''}
-${brainContext.brandSummary ? `Brand: ${brainContext.brandSummary}` : ''}
-Context Integrity: ${brainContext.contextIntegrity || 'unknown'}
-${brainContext.contextIntegrity === 'low' || brainContext.contextIntegrity === 'none' ? '⚠️ LIMITED CONTEXT: Recommendations may need validation' : ''}
-`.trim() : '';
-
-  // Build evidence summary for LLM prompt
-  const evidenceSummary = `
-${brainContextSection ? brainContextSection + '\n\n' : ''}**Website Analysis Context:**
-- Pages Analyzed: ${pages.length}
-- Overall Score: ${overallScore}/100
-- Funnel Health: ${funnelHealthScore}/100
-- Multi-Page Consistency: ${multiPageConsistencyScore}/100
-- Persona Success Rate: ${(personas.filter(p => p.success).length / personas.length * 100).toFixed(0)}%
-
-**Homepage Evidence:**
-${homePage ? `
-- Hero CTA: ${homePage.evidenceV3.hero.hasPrimaryCta ? 'Present' : 'Missing'}
-- Value Prop: ${homePage.evidenceV3.valueProp.text || 'Not clear'}
-- Trust Signals: ${homePage.evidenceV3.trust.trustDensity} found
-- Navigation Links: ${homePage.evidenceV3.navigation.links.length}
-- Mobile Issues: ${homePage.evidenceV3.visual.mobileIssuesDetected.length}
-` : 'Homepage not analyzed'}
-
-**Heuristic Findings (${heuristics.findings.length} total):**
-${heuristics.findings.slice(0, 5).map(f => `- [${f.severity.toUpperCase()}] ${f.description}`).join('\n')}
-
-**Persona Journey Results:**
-${personas.map(p => `- ${p.persona}: ${p.success ? '✓ Succeeded' : '✗ Failed'} - ${p.frictionNotes[0] || 'N/A'}`).join('\n')}
-
-**Page-Level Highlights:**
-${pages.slice(0, 5).map(p => `- ${p.type} (${p.path}): CTA=${p.evidenceV3.hero.hasPrimaryCta ? 'Y' : 'N'}, Trust=${p.evidenceV3.trust.trustDensity}`).join('\n')}
-`.trim();
-
-  const systemPrompt = `You are a senior UX/conversion consultant writing a Website UX Diagnostics report for a client.
-
-Your task is to generate consultant-style narrative content based on the Website UX Lab analysis data provided.
-
-You MUST respond with ONLY a valid JSON object matching this exact structure (no markdown, no code blocks, pure JSON):
-
-{
-  "executiveSummary": "A 2-3 paragraph executive summary that explains WHY the score is what it is, what the key findings are, and what this means for the business. This should be a narrative overview of the diagnostic results written in a consultant's voice - explaining the score, highlighting the most important issues and opportunities, and providing context for why these findings matter.",
-  "strengths": ["strength 1", "strength 2", "strength 3"],
-  "keyIssues": ["issue 1", "issue 2", "issue 3"],
-  "quickWins": [
-    {
-      "title": "Fix missing homepage CTA",
-      "description": "Add a prominent primary CTA above the fold on the homepage to give first-time visitors a clear next step.",
-      "impact": "high",
-      "effort": "low",
-      "dimensions": ["hero_and_value_prop", "conversion_flow"],
-      "timeline": "1-2 days"
-    }
-  ],
-  "strategicInitiatives": [
-    {
-      "title": "Redesign multi-page conversion funnel",
-      "description": "Map and optimize the conversion journey across Product → Pricing → Contact pages to reduce friction and dead ends.",
-      "impact": "high",
-      "effort": "high",
-      "dimensions": ["navigation_and_structure", "conversion_flow"],
-      "timeHorizon": "4-6 weeks",
-      "rationale": "Current funnel has 3 dead ends and 40% of personas fail to reach conversion pages."
-    }
-  ],
-  "focusAreas": ["hero_and_value_prop", "conversion_flow"],
-  "expectedOutcomes": {
-    "thirtyDays": ["Improved homepage CTA clarity", "Reduced bounce rate by 10-15%"],
-    "ninetyDays": ["Streamlined conversion funnel", "20% increase in contact form submissions"],
-    "sixMonths": ["Consistent UX across all pages", "30-40% improvement in overall conversion rate"]
-  },
-  "sectionAnalyses": [
-    {
-      "title": "Hero & Value Proposition",
-      "dimension": "hero_and_value_prop",
-      "score": 65,
-      "verdict": "Value proposition is present but lacks differentiation and urgency",
-      "narrative": "The homepage hero section communicates the core service offering, but the value proposition lacks specificity and competitive differentiation. The headline is generic and doesn't immediately convey unique value. Trust signals are minimal in the hero area, which reduces credibility for first-time visitors.\\n\\nThe primary CTA is present but doesn't create urgency or communicate clear next-step value. Mobile analysis shows the hero section is functional but could benefit from tighter messaging.",
-      "keyFindings": [
-        "Hero CTA present but lacks urgency",
-        "Value proposition is generic, not differentiated",
-        "Missing trust signals above the fold",
-        "Mobile hero is functional but could be tighter"
-      ],
-      "quickWins": [],
-      "deeperInitiatives": []
-    }
-  ]
-}
-
-**Guidelines:**
-1. Strengths: 3-5 positive findings (be specific, evidence-based)
-2. Key Issues: 3-5 critical problems (prioritize high-severity issues)
-3. Quick Wins: 3-5 high-impact, low-effort actions (1-2 weeks max)
-4. Strategic Initiatives: 2-4 longer-horizon improvements (1-3 months)
-5. Focus Areas: 2-3 most critical dimensions to prioritize
-6. Expected Outcomes: Realistic, measurable outcomes at 30/90/180 days
-7. Section Analyses: Generate for ALL 8 dimensions with narrative-first approach
-
-**8 UX Dimensions (generate section analyses for ALL):**
-- overall_experience
-- hero_and_value_prop
-- navigation_and_structure
-- trust_and_social_proof
-- conversion_flow
-- content_and_clarity
-- visual_and_mobile
-- intent_alignment
-
-**Tone:**
-- Professional, consultative, evidence-based
-- Use narrative paragraphs (not just bullets)
-- Be specific (cite scores, findings, evidence)
-- Balance criticism with constructive recommendations
-
-${brainContext ? `**CRITICAL CONSTRAINTS (Brain-First):**
-- Use the company's existing positioning, ICP, and primary objectives from the provided context.
-- Do not change who they serve. Propose website improvements within this strategy.
-- All recommendations must align with the stated business model and target audience.
-- Do not suggest pivoting the business or changing the core value proposition.
-- If context integrity is low/none, flag recommendations as preliminary.` : ''}
-
-Respond with ONLY the JSON object. No explanatory text before or after.`;
-
-  const userPrompt = evidenceSummary;
-
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: 0.7,
-        max_tokens: 4000,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-
-    if (!content) {
-      throw new Error('No content in OpenAI response');
-    }
-
-    // Parse the JSON response
-    const parsed = JSON.parse(content.trim());
-
-    console.log('[WebsiteLab V5] ✓ Consultant report content generated');
-    console.log(`  - ${parsed.quickWins?.length || 0} quick wins`);
-    console.log(`  - ${parsed.strategicInitiatives?.length || 0} strategic initiatives`);
-    console.log(`  - ${parsed.sectionAnalyses?.length || 0} section analyses`);
-
-    return parsed;
-  } catch (error) {
-    console.warn('[WebsiteLab V5] Failed to generate consultant report content:', error);
-
-    // Return minimal fallback structure
-    return {
-      executiveSummary: 'Analysis data available. Detailed report generation pending.',
-      strengths: ['Analysis data available'],
-      keyIssues: ['Detailed analysis pending'],
-      quickWins: [],
-      strategicInitiatives: [],
-      focusAreas: ['overall_experience' as WebsiteUxDimensionKey],
-      expectedOutcomes: {
-        thirtyDays: [],
-        ninetyDays: [],
-        sixMonths: [],
-      },
-      sectionAnalyses: [],
-    };
-  }
-}
-
-// ============================================================================
-// SITE ASSESSMENT SYNTHESIS (V4.7)
-// ============================================================================
-
-/**
- * Generate final site assessment
- *
- * Synthesizes all V4/V5 analysis into a comprehensive site assessment:
- * - Aggregates page-level scores
- * - Calculates funnel health
- * - Measures multi-page consistency
- * - Assigns benchmark label
- * - Incorporates persona and heuristic insights
- *
- * @param siteGraph - Site graph with all pages
- * @param personas - Persona simulation results
- * @param heuristics - Heuristic UX summary
- * @returns Complete V4 assessment
- */
-export async function generateSiteAssessment(
-  siteGraph: WebsiteSiteGraphV4,
-  personas: WebsiteUXLabPersonaResult[],
-  heuristics: HeuristicUxSummary,
-  brainContext?: BrainContextForLab
-): Promise<WebsiteUXAssessmentV4> {
-  console.log(`[WebsiteLab V4] Generating final site assessment`);
-
-  const { pages } = siteGraph;
-
-  // ========================================================================
-  // 1. Calculate page-level scores
-  // ========================================================================
-
-  const pageLevelScores: PageLevelScore[] = [];
-
-  for (const page of pages) {
-    // Base score from V3 evidence quality
-    let pageScore = 60;
-
-    // Adjust based on V3 evidence signals
-    if (page.evidenceV3.hero.hasPrimaryCta) pageScore += 10;
-    if (page.evidenceV3.trust.trustDensity >= 3) pageScore += 10;
-    if (page.evidenceV3.visual.readabilityScore >= 70) pageScore += 10;
-    if (page.evidenceV3.valueProp.clarityFlags.length === 0) pageScore += 5;
-
-    // Penalize issues
-    if (page.evidenceV3.visual.contrastFlags.length > 0) pageScore -= 5;
-    if (page.evidenceV3.visual.mobileIssuesDetected.length > 0) pageScore -= 10;
-
-    // Clamp to 0-100
-    pageScore = Math.max(0, Math.min(100, pageScore));
-
-    // Identify strengths and weaknesses
-    const strengths: string[] = [];
-    const weaknesses: string[] = [];
-
-    if (page.evidenceV3.hero.hasPrimaryCta) {
-      strengths.push('Clear primary CTA');
-    } else {
-      weaknesses.push('Missing primary CTA');
-    }
-
-    if (page.evidenceV3.trust.trustDensity >= 3) {
-      strengths.push('Strong trust signals');
-    } else if (page.evidenceV3.trust.trustDensity === 0) {
-      weaknesses.push('Lacks trust signals');
-    }
-
-    if (page.evidenceV3.visual.readabilityScore >= 70) {
-      strengths.push('Good readability');
-    } else if (page.evidenceV3.visual.readabilityScore < 50) {
-      weaknesses.push('Poor readability');
-    }
-
-    if (page.evidenceV3.visual.mobileIssuesDetected.length > 0) {
-      weaknesses.push('Mobile UX issues');
-    }
-
-    pageLevelScores.push({
-      path: page.path,
-      type: page.type,
-      score: pageScore,
-      strengths,
-      weaknesses,
-    });
-  }
-
-  // ========================================================================
-  // 2. Calculate funnel health (from funnel mapper)
-  // ========================================================================
-
-  const { funnelHealthScore } = mapConversionFunnels(siteGraph);
-
-  // ========================================================================
-  // 3. Calculate multi-page consistency
-  // ========================================================================
-
-  // Consistency = variance in page scores (low variance = high consistency)
-  const scores = pageLevelScores.map(p => p.score);
-  const avgScore = scores.reduce((sum, s) => sum + s, 0) / scores.length;
-  const variance = scores.reduce((sum, s) => sum + Math.pow(s - avgScore, 2), 0) / scores.length;
-  const stdDev = Math.sqrt(variance);
-
-  // Map std dev to consistency score (lower std dev = higher consistency)
-  // If std dev is 0 (perfect consistency), score = 100
-  // If std dev is 30 (high variance), score = 40
-  let multiPageConsistencyScore = Math.max(40, 100 - stdDev * 2);
-  multiPageConsistencyScore = Math.round(multiPageConsistencyScore);
-
-  // ========================================================================
-  // 4. Calculate overall site score
-  // ========================================================================
-
-  // Weighted average of:
-  // - Average page score (40%)
-  // - Funnel health (20%)
-  // - Multi-page consistency (15%)
-  // - Heuristic score (15%)
-  // - Persona success rate (10%)
-
-  const personaSuccessRate =
-    (personas.filter(p => p.success).length / personas.length) * 100;
-
-  const overallScore = Math.round(
-    avgScore * 0.4 +
-      funnelHealthScore * 0.2 +
-      multiPageConsistencyScore * 0.15 +
-      heuristics.overallScore * 0.15 +
-      personaSuccessRate * 0.1
-  );
-
-  // ========================================================================
-  // 5. Assign benchmark label
-  // ========================================================================
-
-  let benchmarkLabel: BenchmarkLabel;
-  if (overallScore >= 90) benchmarkLabel = 'elite';
-  else if (overallScore >= 80) benchmarkLabel = 'strong';
-  else if (overallScore >= 60) benchmarkLabel = 'average';
-  else benchmarkLabel = 'weak';
-
-  // ========================================================================
-  // 6. Build V3-compatible assessment structure
-  // ========================================================================
-
-  // Get homepage for V3 compatibility
-  const homePage = pages.find(p => p.type === 'home')!;
-
-  // Aggregate issues from heuristics and persona friction
-  const issues = heuristics.findings.map(f => ({
-    id: f.id,
-    severity: f.severity,
-    tag: f.rule,
-    description: f.description,
-    evidence: f.pagePath || 'Site-wide',
-  }));
-
-  // Add persona friction as issues
-  for (const persona of personas) {
-    if (!persona.success) {
-      issues.push({
-        id: `persona-${persona.persona}`,
-        severity: 'medium' as const,
-        tag: 'User Journey',
-        description: `${persona.persona} persona failed: ${persona.frictionNotes[0] || 'unclear reason'}`,
-        evidence: `Persona: ${persona.persona}, Goal: ${persona.goal}`,
-      });
-    }
-  }
-
-  // Generate recommendations
-  const recommendations: WebsiteUXAssessmentV4['recommendations'] = [];
-
-  if (funnelHealthScore < 70) {
-    recommendations.push({
-      id: 'funnel-health',
-      priority: 'now',
-      tag: 'Conversion',
-      description: 'Strengthen conversion funnel paths and reduce dead ends',
-      evidence: `Funnel health score: ${funnelHealthScore}/100`,
-    });
-  }
-
-  if (multiPageConsistencyScore < 70) {
-    recommendations.push({
-      id: 'consistency',
-      priority: 'next',
-      tag: 'Consistency',
-      description: 'Improve consistency across pages (navigation, CTAs, visual design)',
-      evidence: `Consistency score: ${multiPageConsistencyScore}/100`,
-    });
-  }
-
-  // Add top heuristic findings as recommendations
-  const highSeverityFindings = heuristics.findings.filter(f => f.severity === 'high');
-  for (const finding of highSeverityFindings.slice(0, 3)) {
-    recommendations.push({
-      id: finding.id,
-      priority: 'now',
-      tag: finding.rule,
-      description: finding.description,
-      evidence: finding.pagePath || 'Site-wide',
-    });
-  }
-
-  // Generate work items from recommendations
-  const workItems = recommendations.slice(0, 5).map((rec, idx) => {
-    // Map priority 'now' -> 'P1', 'next' -> 'P2', 'later' -> 'P3'
-    const priorityMap = { now: 'P1' as const, next: 'P2' as const, later: 'P3' as const };
-    return {
-      id: `work-${idx + 1}`,
-      title: rec.description,
-      description: `${rec.tag}: ${rec.evidence}`,
-      priority: priorityMap[rec.priority],
-      reason: rec.evidence,
-    };
-  });
-
-  // Generate strategist view
-  const strategistView = `
-**Multi-Page UX Lab Analysis (V4/V5)**
-
-This website was analyzed across ${pages.length} pages using our flagship UX & Conversion Lab.
-
-**Overall Grade: ${benchmarkLabel.toUpperCase()}** (${overallScore}/100)
-
-**Key Findings:**
-- **Funnel Health:** ${funnelHealthScore}/100 - ${funnelHealthScore >= 80 ? 'Strong conversion paths detected' : funnelHealthScore >= 60 ? 'Moderate funnel clarity' : 'Weak conversion paths, multiple dead ends'}
-- **Multi-Page Consistency:** ${multiPageConsistencyScore}/100 - ${multiPageConsistencyScore >= 80 ? 'Excellent consistency' : multiPageConsistencyScore >= 60 ? 'Acceptable variance' : 'High inconsistency across pages'}
-- **Persona Success Rate:** ${Math.round(personaSuccessRate)}% of personas achieved their goals
-- **Heuristic Score:** ${heuristics.overallScore}/100 (${heuristics.findings.length} UX violations found)
-
-**Page-Level Performance:**
-${pageLevelScores
-  .slice(0, 5)
-  .map(p => `- ${p.type} (${p.path}): ${p.score}/100`)
-  .join('\n')}
-
-**Critical Actions:**
-${highSeverityFindings
-  .slice(0, 3)
-  .map(f => `- ${f.description}`)
-  .join('\n')}
-
-**What Makes This "Flagship":**
-Unlike single-page analysis, this V4/V5 assessment examined your entire conversion ecosystem:
-multi-page journeys, funnel dead-ends, cross-page consistency, and behavioral simulations
-for 5 different user personas. This is the most comprehensive UX diagnostic available.
-`.trim();
-
-  // Build section scores
-  const sectionScores = {
-    hierarchy: Math.round(avgScore * 0.9),
-    clarity: Math.round(avgScore * 0.95),
-    trust: Math.round((homePage.evidenceV3.trust.trustDensity / 5) * 100),
-    navigation: Math.round((10 - Math.min(homePage.evidenceV3.navigation.links.length, 10)) * 10),
-    conversion: funnelHealthScore,
-    visualDesign: Math.round(avgScore * 0.85),
-    mobile: homePage.evidenceV3.visual.mobileIssuesDetected.length === 0 ? 80 : 50,
-    intentAlignment: Math.round(avgScore * 0.88), // Intent classification across pages
-  };
-
-  // ========================================================================
-  // 7. Generate consultant report content (V5)
-  // ========================================================================
-
-  let consultantReport;
-  try {
-    consultantReport = await generateConsultantReportContent(
-      siteGraph,
-      personas,
-      heuristics,
-      funnelHealthScore,
-      multiPageConsistencyScore,
-      overallScore,
-      brainContext
-    );
-  } catch {
-    console.warn('[WebsiteLab V5] Failed to generate consultant report, using fallback');
-    consultantReport = {
-      executiveSummary: `Your website scored ${overallScore}/100 in our comprehensive analysis. This reflects the current state of your digital presence across multiple dimensions including user experience, conversion optimization, and technical implementation.`,
-      strengths: [],
-      keyIssues: [],
-      quickWins: [],
-      strategicInitiatives: [],
-      focusAreas: ['overall_experience' as WebsiteUxDimensionKey],
-      expectedOutcomes: { thirtyDays: [], ninetyDays: [], sixMonths: [] },
-      sectionAnalyses: [],
-    };
-  }
-
-  // ========================================================================
-  // 8. Return V4/V5 Assessment
-  // ========================================================================
-
-  const assessment: WebsiteUXAssessmentV4 = {
-    score: overallScore,
-    summary: `${benchmarkLabel.toUpperCase()} - Multi-page UX Lab analysis across ${pages.length} pages`,
-    strategistView,
-    sectionScores,
-    issues,
-    recommendations,
-    workItems,
-
-    // V4/V5 Enhancements
-    pageLevelScores,
-    funnelHealthScore,
-    multiPageConsistencyScore,
-    benchmarkLabel,
-
-    // V5 Consultant Report Enhancements
-    executiveSummary: consultantReport.executiveSummary,
-    strengths: consultantReport.strengths,
-    keyIssues: consultantReport.keyIssues,
-    quickWins: consultantReport.quickWins,
-    strategicInitiatives: consultantReport.strategicInitiatives,
-    focusAreas: consultantReport.focusAreas,
-    expectedOutcomes: consultantReport.expectedOutcomes,
-    sectionAnalyses: consultantReport.sectionAnalyses,
-  };
-
-  console.log(`[WebsiteLab V4/V5] Site assessment complete: ${overallScore}/100 (${benchmarkLabel})`);
-
-  return assessment;
-}
+// generateConsultantReportContent() and generateSiteAssessment() have been
+// removed. V5 is the ONLY canonical implementation.
+// siteAssessment is now built directly from v5Diagnostic in runWebsiteLab().
 
 // ============================================================================
 // MAIN ORCHESTRATOR (V4.8)
@@ -2073,14 +1519,92 @@ export async function runWebsiteLab(
     console.log('[WebsiteLab V5] ✓ Phase 2 complete');
 
     // ========================================================================
-    // STEP 7: Generate Site Assessment
+    // STEP 7: BUILD SITE ASSESSMENT FROM V5 (V5 IS SOLE SOURCE)
     // ========================================================================
-    console.log('[WebsiteLab V4] Step 7/8: Generating final site assessment...');
-    const siteAssessment = await generateSiteAssessment(siteGraph, personas, heuristics, options?.brainContext);
-    console.log(`[WebsiteLab V4] ✓ Site assessment complete: ${siteAssessment.score}/100 (${siteAssessment.benchmarkLabel})`);
+    // V4 scoring is REMOVED. V5 is the ONLY canonical implementation.
+    // siteAssessment is built entirely from V5 diagnostic output.
+    // Raw crawl data (siteGraph, heuristics) preserved as evidence only.
+    console.log('[WebsiteLab V5] Step 7/8: Building site assessment from V5...');
+
+    // Derive benchmark label from V5 score
+    const benchmarkLabel: 'elite' | 'strong' | 'average' | 'weak' =
+      v5Diagnostic.score >= 90 ? 'elite' :
+      v5Diagnostic.score >= 80 ? 'strong' :
+      v5Diagnostic.score >= 60 ? 'average' : 'weak';
+
+    // Build siteAssessment directly from V5 (NO V4 scoring)
+    const siteAssessment: WebsiteUXAssessmentV4 = {
+      // === V3 REQUIRED FIELDS ===
+      score: v5Diagnostic.score,
+      summary: `${v5Diagnostic.score >= 80 ? 'STRONG' : v5Diagnostic.score >= 50 ? 'MIXED' : 'WEAK'} - ${v5Diagnostic.scoreJustification}`,
+      strategistView: v5Diagnostic.scoreJustification,
+      sectionScores: {
+        hierarchy: v5Diagnostic.score,
+        clarity: v5Diagnostic.score,
+        trust: v5Diagnostic.score,
+        navigation: v5Diagnostic.score,
+        conversion: v5Diagnostic.score,
+        visualDesign: v5Diagnostic.score,
+        mobile: v5Diagnostic.score,
+        intentAlignment: v5Diagnostic.score,
+      },
+      issues: v5Diagnostic.blockingIssues.map(issue => ({
+        id: `v5-issue-${issue.id}`,
+        severity: issue.severity,
+        tag: `Blocking Issue #${issue.id}`,
+        description: issue.whyItBlocks,
+        evidence: `Page: ${issue.page} | Fix: ${issue.concreteFix.what} at ${issue.concreteFix.where}`,
+      })),
+      recommendations: v5Diagnostic.quickWins.map((win, idx) => ({
+        id: `v5-quickwin-${idx + 1}`,
+        priority: 'now' as const,
+        tag: win.title,
+        description: win.action,
+        evidence: `Page: ${win.page} | Expected impact: ${win.expectedImpact}`,
+      })),
+      workItems: v5Diagnostic.quickWins.map((win, idx) => ({
+        id: `v5-work-${idx + 1}`,
+        title: win.title,
+        description: win.action,
+        priority: 'P1' as const,
+        reason: win.expectedImpact,
+      })),
+
+      // === V4 REQUIRED FIELDS ===
+      pageLevelScores: siteGraph.pages.slice(0, 10).map(page => {
+        const obs = v5Diagnostic.observations.find(o => o.pagePath === page.path);
+        return {
+          path: page.path,
+          type: page.type,
+          score: v5Diagnostic.score,
+          strengths: obs?.primaryCTAs?.map(c => `CTA: ${c.text}`) || [],
+          weaknesses: obs?.missingUnclearElements || [],
+        };
+      }),
+      funnelHealthScore: Math.round(
+        (v5Diagnostic.personaJourneys.filter(j => j.succeeded).length / v5Diagnostic.personaJourneys.length) * 100
+      ),
+      multiPageConsistencyScore: v5Diagnostic.score,
+      benchmarkLabel,
+
+      // === V4 OPTIONAL FIELDS (from V5) ===
+      executiveSummary: v5Diagnostic.scoreJustification,
+      keyIssues: v5Diagnostic.blockingIssues
+        .filter(i => i.severity === 'high')
+        .map(i => `${i.page}: ${i.whyItBlocks}`),
+      quickWins: v5Diagnostic.quickWins.map(w => ({
+        title: w.title,
+        description: `${w.action} (Page: ${w.page})`,
+        impact: 'high' as const,
+        effort: 'low' as const,
+        dimensions: ['conversion_flow' as const],
+      })),
+    };
+
+    console.log(`[WebsiteLab V5] ✓ Site assessment built from V5: ${siteAssessment.score}/100 (${siteAssessment.benchmarkLabel})`);
 
     // ========================================================================
-    // STEP 7.5: Build Impact Matrix (V5.5)
+    // STEP 7.6: Build Impact Matrix (V5.5)
     // ========================================================================
     console.log('[WebsiteLab V5] Building Impact Matrix (V5.5)...');
     const impactMatrix = buildImpactMatrix(
@@ -2126,22 +1650,19 @@ export async function runWebsiteLab(
       },
     };
 
-    console.log('[WebsiteLab V4/V5] ============================================');
-    console.log('[WebsiteLab V4/V5] UX LAB COMPLETE');
-    console.log(`[WebsiteLab V4/V5] Score: ${siteAssessment.score}/100 (${siteAssessment.benchmarkLabel?.toUpperCase()})`);
-    console.log(`[WebsiteLab V4/V5] Pages: ${siteGraph.pages.length}`);
-    console.log(`[WebsiteLab V4/V5] Funnel Health: ${siteAssessment.funnelHealthScore}/100`);
-    console.log(`[WebsiteLab V4/V5] Consistency: ${siteAssessment.multiPageConsistencyScore}/100`);
-    console.log(`[WebsiteLab V4/V5] Personas Succeeded: ${personas.filter(p => p.success).length}/${personas.length}`);
-    // V5 is MANDATORY - always log V5 output
-    console.log(`[WebsiteLab V5] V5 Score: ${v5Diagnostic.score}/100`);
+    console.log('[WebsiteLab V5] ============================================');
+    console.log('[WebsiteLab V5] UX LAB COMPLETE (V5 ONLY)');
+    console.log(`[WebsiteLab V5] Score: ${v5Diagnostic.score}/100 (${siteAssessment.benchmarkLabel?.toUpperCase()})`);
+    console.log(`[WebsiteLab V5] Pages Analyzed: ${siteGraph.pages.length}`);
+    console.log(`[WebsiteLab V5] Persona Success Rate: ${siteAssessment.funnelHealthScore}%`);
     console.log(`[WebsiteLab V5] Blocking Issues: ${v5Diagnostic.blockingIssues.length}`);
     console.log(`[WebsiteLab V5] Quick Wins: ${v5Diagnostic.quickWins.length}`);
-    console.log('[WebsiteLab V4/V5] ============================================');
+    console.log(`[WebsiteLab V5] Structural Changes: ${v5Diagnostic.structuralChanges.length}`);
+    console.log('[WebsiteLab V5] ============================================');
 
     return labResult;
   } catch (error) {
-    console.error('[WebsiteLab V4] ERROR during UX Lab analysis:', error);
+    console.error('[WebsiteLab V5] ERROR during UX Lab analysis:', error);
     throw error;
   }
 }

@@ -18,11 +18,16 @@ import {
   classifyPageIntents,
   evaluateHeuristics,
   simulatePersonas,
-  generateSiteAssessment,
   runWebsiteLab,
 } from '@/lib/gap-heavy/modules/websiteLabImpl';
+import type { WebsiteUXAssessmentV4 } from '@/lib/gap-heavy/modules/websiteLab';
 import type { WebsiteUXLabResultV4 } from '@/lib/gap-heavy/modules/websiteLab';
 import { buildWebsiteActionPlan } from '@/lib/gap-heavy/modules/websiteActionPlanBuilder';
+import { runV5Diagnostic } from '@/lib/gap-heavy/modules/websiteLabV5';
+import {
+  buildV5CompletedPayload,
+  type WebsiteLabV5CompletedPayload,
+} from '@/lib/gap-heavy/modules/websiteLabEvents';
 
 // ============================================================================
 // EVENT TYPES
@@ -302,6 +307,43 @@ export const websiteDiagnostic = inngest.createFunction(
     });
 
     // ========================================================================
+    // STEP 5.5: Run V5 Strict Diagnostic (MANDATORY)
+    // ========================================================================
+    // ARCHITECTURAL NOTE:
+    // V5 is MANDATORY. If V5 fails, the entire pipeline fails.
+    // This ensures outputs always include v5Diagnostic with specific,
+    // page-anchored issues rather than generic V4 phrases.
+    // Event emission happens LATER, after results are persisted (Step 10).
+    const v5Diagnostic = await step.run('run-v5-diagnostic', async () => {
+      console.log('[WebsiteDiagnostic] Step 5.5: Running V5 strict diagnostic (MANDATORY)...');
+
+      await inngest.send({
+        name: 'website.diagnostic.updated',
+        data: {
+          companyId,
+          runId,
+          status: 'running',
+          currentStep: 'v5-diagnostic',
+          percent: 68,
+        },
+      });
+
+      // V5 is MANDATORY - no try/catch, failures propagate
+      const result = await runV5Diagnostic(siteGraph, heuristics);
+
+      // HARD ASSERTION: V5 must produce valid output
+      if (!result || !result.observations || !result.blockingIssues) {
+        throw new NonRetriableError('[WebsiteDiagnostic] ASSERTION FAILED: V5 diagnostic returned invalid structure. v5Diagnostic must exist with observations and blockingIssues.');
+      }
+
+      console.log(`[WebsiteDiagnostic] ✓ V5 diagnostic complete: score=${result.score}/100`);
+      console.log(`[WebsiteDiagnostic]   - Blocking issues: ${result.blockingIssues.length}`);
+      console.log(`[WebsiteDiagnostic]   - Quick wins: ${result.quickWins.length}`);
+      console.log(`[WebsiteDiagnostic]   - Structural changes: ${result.structuralChanges.length}`);
+      return result;
+    });
+
+    // ========================================================================
     // STEP 6: Simulate Personas
     // ========================================================================
     const personas = await step.run('simulate-personas', async () => {
@@ -374,8 +416,78 @@ export const websiteDiagnostic = inngest.createFunction(
       // Get analytics integrations (stub for now)
       const analyticsIntegrations = await getAnalyticsIntegrations({});
 
-      // Generate site assessment
-      const siteAssessment = await generateSiteAssessment(siteGraph, personas, heuristics);
+      // Build siteAssessment directly from V5 (NO V4 scoring)
+      // V5 is the ONLY canonical implementation
+      const benchmarkLabel: 'elite' | 'strong' | 'average' | 'weak' =
+        v5Diagnostic.score >= 90 ? 'elite' :
+        v5Diagnostic.score >= 80 ? 'strong' :
+        v5Diagnostic.score >= 60 ? 'average' : 'weak';
+
+      const siteAssessment: WebsiteUXAssessmentV4 = {
+        // V3 required fields
+        score: v5Diagnostic.score,
+        summary: `${v5Diagnostic.score >= 80 ? 'STRONG' : v5Diagnostic.score >= 50 ? 'MIXED' : 'WEAK'} - ${v5Diagnostic.scoreJustification}`,
+        strategistView: v5Diagnostic.scoreJustification,
+        sectionScores: {
+          hierarchy: v5Diagnostic.score,
+          clarity: v5Diagnostic.score,
+          trust: v5Diagnostic.score,
+          navigation: v5Diagnostic.score,
+          conversion: v5Diagnostic.score,
+          visualDesign: v5Diagnostic.score,
+          mobile: v5Diagnostic.score,
+          intentAlignment: v5Diagnostic.score,
+        },
+        issues: v5Diagnostic.blockingIssues.map(issue => ({
+          id: `v5-issue-${issue.id}`,
+          severity: issue.severity,
+          tag: `Blocking Issue #${issue.id}`,
+          description: issue.whyItBlocks,
+          evidence: `Page: ${issue.page} | Fix: ${issue.concreteFix.what} at ${issue.concreteFix.where}`,
+        })),
+        recommendations: v5Diagnostic.quickWins.map((win, idx) => ({
+          id: `v5-quickwin-${idx + 1}`,
+          priority: 'now' as const,
+          tag: win.title,
+          description: win.action,
+          evidence: `Page: ${win.page} | Expected impact: ${win.expectedImpact}`,
+        })),
+        workItems: v5Diagnostic.quickWins.map((win, idx) => ({
+          id: `v5-work-${idx + 1}`,
+          title: win.title,
+          description: win.action,
+          priority: 'P1' as const,
+          reason: win.expectedImpact,
+        })),
+        // V4 required fields
+        pageLevelScores: siteGraph.pages.slice(0, 10).map(page => {
+          const obs = v5Diagnostic.observations.find(o => o.pagePath === page.path);
+          return {
+            path: page.path,
+            type: page.type,
+            score: v5Diagnostic.score,
+            strengths: obs?.primaryCTAs?.map(c => `CTA: ${c.text}`) || [],
+            weaknesses: obs?.missingUnclearElements || [],
+          };
+        }),
+        funnelHealthScore: Math.round(
+          (v5Diagnostic.personaJourneys.filter(j => j.succeeded).length / v5Diagnostic.personaJourneys.length) * 100
+        ),
+        multiPageConsistencyScore: v5Diagnostic.score,
+        benchmarkLabel,
+        // V4 optional fields (from V5)
+        executiveSummary: v5Diagnostic.scoreJustification,
+        keyIssues: v5Diagnostic.blockingIssues
+          .filter(i => i.severity === 'high')
+          .map(i => `${i.page}: ${i.whyItBlocks}`),
+        quickWins: v5Diagnostic.quickWins.map(w => ({
+          title: w.title,
+          description: `${w.action} (Page: ${w.page})`,
+          impact: 'high' as const,
+          effort: 'low' as const,
+          dimensions: ['conversion_flow' as const],
+        })),
+      };
 
       // Build impact matrix
       const impactMatrix = buildImpactMatrix(
@@ -401,6 +513,16 @@ export const websiteDiagnostic = inngest.createFunction(
         scentTrailAnalysis,
         strategistViews,
         analyticsIntegrations,
+        // V5 Strict Diagnostic (MANDATORY - guaranteed to exist from Step 5.5)
+        v5Diagnostic: {
+          observations: v5Diagnostic.observations,
+          personaJourneys: v5Diagnostic.personaJourneys,
+          blockingIssues: v5Diagnostic.blockingIssues,
+          quickWins: v5Diagnostic.quickWins,
+          structuralChanges: v5Diagnostic.structuralChanges,
+          score: v5Diagnostic.score,
+          scoreJustification: v5Diagnostic.scoreJustification,
+        },
       };
 
       console.log('[WebsiteDiagnostic] ✓ Intelligence engines complete');
@@ -504,6 +626,69 @@ export const websiteDiagnostic = inngest.createFunction(
 
       console.log('[WebsiteDiagnostic] ✓ Results persisted');
       console.log('[WebsiteDiagnostic] ✓ Narrative available for on-demand generation');
+    });
+
+    // ========================================================================
+    // STEP 11: Emit V5 Completed Event (Idempotent)
+    // ========================================================================
+    // ARCHITECTURAL NOTE:
+    // Event emission with idempotency check via HeavyGapRun metadata.
+    // Uses eventsEmitted.websiteLabV5CompletedAt as the marker.
+    // This ensures the event is emitted exactly once, even on retry.
+    // V5 is MANDATORY - if we reach here, v5Diagnostic is guaranteed to exist.
+    await step.run('emit-v5-completed-event', async () => {
+      // Idempotency check: fetch current run state
+      const currentRun = await getHeavyGapRunById(runId);
+      const existingMetadata = (currentRun?.evidencePack || {}) as Record<string, unknown>;
+      const eventsEmitted = (existingMetadata._eventsEmitted || {}) as Record<string, unknown>;
+
+      if (eventsEmitted.websiteLabV5CompletedAt) {
+        console.log('[WebsiteDiagnostic] website_lab.v5.completed SKIPPED (already emitted)', {
+          runId,
+          emittedAt: eventsEmitted.websiteLabV5CompletedAt,
+        });
+        return;
+      }
+
+      console.log('[WebsiteDiagnostic] Emitting website_lab.v5.completed event...');
+
+      // Build minimal payload (no raw data, only metrics)
+      const pagesAnalyzed = siteGraph.pages.map(p => p.path);
+      const payload = buildV5CompletedPayload(
+        companyId,
+        runId,
+        v5Diagnostic,
+        pagesAnalyzed
+      );
+
+      // Emit the canonical event
+      await inngest.send({
+        name: 'website_lab.v5.completed',
+        data: payload,
+      });
+
+      console.log('[WebsiteDiagnostic] website_lab.v5.completed EMITTED', {
+        runId,
+        v5Score: payload.v5Score,
+        blockingIssueCount: payload.blockingIssueCount,
+        pagesAnalyzed: payload.pagesAnalyzed.length,
+      });
+
+      // Mark as emitted (idempotency marker)
+      if (currentRun) {
+        const existingPack = currentRun.evidencePack || { modules: [] };
+        await updateHeavyGapRunState({
+          ...currentRun,
+          evidencePack: {
+            ...existingPack,
+            _eventsEmitted: {
+              ...eventsEmitted,
+              websiteLabV5CompletedAt: new Date().toISOString(),
+            },
+          },
+        });
+        console.log('[WebsiteDiagnostic] Idempotency marker set for run:', runId);
+      }
     });
 
     // ========================================================================

@@ -213,6 +213,16 @@ function mapFieldsToCompanyRecord(record: any): CompanyRecord {
     isFromDMA: (fields['Is From DMA'] as boolean) || undefined,
     firstLeadSource: (fields['First Lead Source'] as string) || undefined,
     firstLeadAt: (fields['First Lead At'] as string) || undefined,
+
+    // Jobs Integration fields
+    clientCode: (fields['Client Code'] as string) || undefined,
+    driveClientFolderId: (fields['Drive Client Folder ID'] as string) || undefined,
+    driveProjectsFolderId: (fields['Drive Projects Folder ID'] as string) || undefined,
+
+    // MSA fields
+    msaDriveFileId: (fields['MSA Drive File ID'] as string) || undefined,
+    msaDriveUrl: (fields['MSA Drive URL'] as string) || undefined,
+    msaFolderId: (fields['MSA Folder ID'] as string) || undefined,
   };
 }
 
@@ -310,6 +320,22 @@ export type CompanyRecord = {
   mediaLabStatus?: 'none' | 'planning' | 'running' | 'paused'; // Media Lab status
   mediaPrimaryObjective?: 'installs' | 'leads' | 'store_visits' | 'calls' | 'awareness'; // Primary media objective
   mediaLabNotes?: string; // Freeform notes for media planning
+
+  // Jobs Integration Fields
+  /** 3-letter client code for job numbering (e.g., "CAR" for Car Toys) */
+  clientCode?: string;
+  /** Google Drive folder ID for client root folder: WORK/{Client Name} */
+  driveClientFolderId?: string;
+  /** Google Drive folder ID for projects folder: WORK/{Client Name}/*Projects */
+  driveProjectsFolderId?: string;
+
+  // MSA Fields (Master Services Agreement)
+  /** Google Drive file ID for the company's MSA document */
+  msaDriveFileId?: string;
+  /** Google Drive URL for the company's MSA document */
+  msaDriveUrl?: string;
+  /** Google Drive folder ID for MSA storage: WORK/{Client Name}/MSA */
+  msaFolderId?: string;
 };
 
 /**
@@ -949,10 +975,147 @@ export async function getCompaniesWithOsSummary(): Promise<CompanyWithOsSummary[
     });
 
     return companiesWithSummaries;
-  } catch (error) {
-    console.error('[Companies] Failed to fetch companies with OS summaries:', error);
+  } catch (error: any) {
+    // Silently fall back for NOT_AUTHORIZED or TABLE_NOT_FOUND errors
+    // Full Reports table is optional/legacy
+    if (error?.statusCode !== 403 && error?.statusCode !== 404 &&
+        error?.error !== 'NOT_AUTHORIZED' && error?.error !== 'TABLE_NOT_FOUND') {
+      console.error('[Companies] Failed to fetch companies with OS summaries:', error);
+    }
     // Return companies without OS summaries on error
     const companies = await getAllCompanies();
     return companies.map((company) => ({ ...company }));
+  }
+}
+
+// ============================================================================
+// Jobs Integration (Drive Folder Management)
+// ============================================================================
+
+/**
+ * Update company Drive folder IDs
+ *
+ * Used during job provisioning to cache folder IDs.
+ *
+ * @param companyId - Airtable record ID
+ * @param data - Drive folder IDs to update
+ * @returns Updated company record or null on error
+ */
+export async function updateCompanyDriveFolders(
+  companyId: string,
+  data: {
+    driveClientFolderId?: string;
+    driveProjectsFolderId?: string;
+  }
+): Promise<CompanyRecord | null> {
+  try {
+    const base = getBase();
+    const fields: Record<string, unknown> = {};
+
+    if (data.driveClientFolderId !== undefined) {
+      fields['Drive Client Folder ID'] = data.driveClientFolderId;
+    }
+    if (data.driveProjectsFolderId !== undefined) {
+      fields['Drive Projects Folder ID'] = data.driveProjectsFolderId;
+    }
+
+    if (Object.keys(fields).length === 0) {
+      return getCompanyById(companyId);
+    }
+
+    await base(COMPANIES_TABLE).update(companyId, fields as any);
+    console.log(`[Companies] Updated Drive folders for company ${companyId}`);
+    return getCompanyById(companyId);
+  } catch (error) {
+    console.error(`[Companies] Failed to update Drive folders for ${companyId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Get companies that have clientCode set (eligible for job creation)
+ */
+export async function getCompaniesWithClientCode(): Promise<CompanyRecord[]> {
+  try {
+    const base = getBase();
+    const records = await base(COMPANIES_TABLE)
+      .select({
+        filterByFormula: `AND({Client Code} != "", {Client Code} != BLANK())`,
+        sort: [{ field: 'Company Name', direction: 'asc' }],
+      })
+      .all();
+
+    return records.map(mapFieldsToCompanyRecord);
+  } catch (error) {
+    console.error('[Companies] Failed to get companies with client code:', error);
+    return [];
+  }
+}
+
+// ============================================================================
+// MSA (Master Services Agreement) Management
+// ============================================================================
+
+/**
+ * Update company MSA fields
+ *
+ * Used when provisioning MSA documents for a client.
+ *
+ * @param companyId - Airtable record ID
+ * @param data - MSA field data to update
+ * @returns Updated company record or null on error
+ */
+export async function updateCompanyMsa(
+  companyId: string,
+  data: {
+    msaDriveFileId?: string;
+    msaDriveUrl?: string;
+    msaFolderId?: string;
+  }
+): Promise<CompanyRecord | null> {
+  try {
+    const base = getBase();
+    const fields: Record<string, unknown> = {};
+
+    if (data.msaDriveFileId !== undefined) {
+      fields['MSA Drive File ID'] = data.msaDriveFileId;
+    }
+    if (data.msaDriveUrl !== undefined) {
+      fields['MSA Drive URL'] = data.msaDriveUrl;
+    }
+    if (data.msaFolderId !== undefined) {
+      fields['MSA Folder ID'] = data.msaFolderId;
+    }
+
+    if (Object.keys(fields).length === 0) {
+      return getCompanyById(companyId);
+    }
+
+    await base(COMPANIES_TABLE).update(companyId, fields as any);
+    console.log(`[Companies] Updated MSA fields for company ${companyId}`);
+    return getCompanyById(companyId);
+  } catch (error) {
+    console.error(`[Companies] Failed to update MSA fields for ${companyId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Get companies that have MSA provisioned
+ */
+export async function getCompaniesWithMsa(): Promise<CompanyRecord[]> {
+  try {
+    const base = getBase();
+    const records = await base(COMPANIES_TABLE)
+      .select({
+        filterByFormula: `AND({MSA Drive File ID} != "", {MSA Drive File ID} != BLANK())`,
+        sort: [{ field: 'Company Name', direction: 'asc' }],
+      })
+      .all();
+
+    return records.map(mapFieldsToCompanyRecord);
+  } catch (error) {
+    console.error('[Companies] Failed to get companies with MSA:', error);
+    return [];
   }
 }

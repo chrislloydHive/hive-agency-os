@@ -12,7 +12,7 @@
 import { summarizeDiagnosticRunForBrain } from './aiInsights';
 import { refreshCompanyStrategicSnapshot } from '@/lib/os/companies/strategySnapshot';
 import { runFusion } from '@/lib/contextGraph/fusion';
-import { writeWebsiteLabAndSave } from '@/lib/contextGraph/websiteLabWriter';
+// NOTE: writeWebsiteLabAndSave REMOVED - V5 is the only path (hard cutover)
 import { writeBrandLabAndSave } from '@/lib/contextGraph/brandLabWriter';
 import { writeGapIaAndSave } from '@/lib/contextGraph/gapIaWriter';
 import { processCompletedDiagnostic } from '@/lib/insights/engine';
@@ -22,9 +22,12 @@ import { extractFindingsForLab, getWorstSeverity } from './findingsExtractors';
 import { saveDiagnosticFindings, deleteUnconvertedFindingsForCompanyLab, type CreateDiagnosticFindingInput } from '@/lib/airtable/diagnosticDetails';
 import type { WebsiteUXLabResultV4 } from '@/lib/gap-heavy/modules/websiteLab';
 import type { BrandLabSummary } from '@/lib/media/diagnosticsInputs';
-import { isContextV4IngestWebsiteLabEnabled, isContextV4IngestBrandLabEnabled } from '@/lib/types/contextField';
-import { buildWebsiteLabCandidates, proposeFromLabResult } from '@/lib/contextGraph/v4';
+// NOTE: isContextV4IngestWebsiteLabEnabled no longer used - V5 is always enabled (hard cutover)
+import { isContextV4IngestBrandLabEnabled } from '@/lib/types/contextField';
+import { buildWebsiteLabCandidatesWithV5, proposeFromLabResult } from '@/lib/contextGraph/v4';
 import { buildBrandLabCandidates } from '@/lib/contextGraph/v4/brandLabCandidates';
+import { buildCompetitionCandidates } from '@/lib/contextGraph/v4/competitionCandidates';
+import type { CompetitionRunV3Payload } from '@/lib/competition-v3/store';
 import { autoProposeBaselineIfNeeded } from '@/lib/contextGraph/v4/autoProposeBaseline';
 import { createArtifactFromDiagnosticRun } from './artifactCreation';
 import { updateDiagnosticRun } from './runs';
@@ -284,108 +287,70 @@ async function runDomainWriters(
   try {
     switch (run.toolId) {
       case 'websiteLab': {
-        // Check if V4 ingestion is enabled for WebsiteLab
-        if (isContextV4IngestWebsiteLabEnabled()) {
-          console.log('[postRunHooks] Running WebsiteLab V4 proposal flow...');
+        // ====================================================================
+        // HARD CUTOVER: Website Lab V5 is the ONLY authoritative source
+        // ====================================================================
+        // V4 ingestion flag is ignored - V5 is always the only path.
+        // Legacy V4 domain writer is REMOVED.
+        // ====================================================================
 
-          // Build candidates from rawJson
-          const candidateResult = buildWebsiteLabCandidates(run.rawJson);
+        console.log('[postRunHooks] [WebsiteLab] V5 canonical path active');
 
-          if (candidateResult.candidates.length === 0) {
-            console.warn('[postRunHooks] No WebsiteLab candidates for V4 proposal');
-            console.warn('[postRunHooks] Extraction path:', candidateResult.extractionPath);
-            console.warn('[postRunHooks] Skipped:', candidateResult.skipped);
-            return;
-          }
+        // Build candidates from rawJson (V5 ONLY - no V4 fallback)
+        const candidateResult = buildWebsiteLabCandidatesWithV5(run.rawJson, run.id);
 
-          // Propose fields to V4 Review Queue
-          const proposalResult = await proposeFromLabResult({
-            companyId,
-            importerId: 'websiteLab',
-            source: 'lab',
-            sourceId: run.id,
-            extractionPath: candidateResult.extractionPath,
-            candidates: candidateResult.candidates,
+        // Check for V5_MISSING error
+        if (candidateResult.extractionPath === 'V5_MISSING_ERROR') {
+          console.error('[postRunHooks] [WebsiteLab] V5_MISSING: Cannot generate proposals', {
+            runId: run.id,
+            error: candidateResult.extractionFailureReason,
           });
-
-          console.log('[postRunHooks] WebsiteLab V4 proposal complete:', {
-            proposed: proposalResult.proposed,
-            blocked: proposalResult.blocked,
-            replaced: proposalResult.replaced,
-            errors: proposalResult.errors.length,
-            skippedWrongDomain: candidateResult.skipped.wrongDomain,
-          });
-
-          // Log skipped wrong-domain keys for debugging (these are cross-domain observations)
-          if (candidateResult.skippedWrongDomainKeys.length > 0) {
-            debugLog('websiteLab_v4_skipped_domains', {
-              skippedKeys: candidateResult.skippedWrongDomainKeys.slice(0, 10),
-            });
-          }
-
-          // Auto-propose baseline for required strategy fields (if enabled)
-          // This runs after lab proposals so required fields show as Proposed immediately
-          try {
-            await autoProposeBaselineIfNeeded({
-              companyId,
-              triggeredBy: 'websiteLab',
-              runId: run.id,
-            });
-          } catch (autoError) {
-            // Non-blocking: log but don't fail the lab run
-            console.error('[postRunHooks] Auto-propose baseline failed:', autoError);
-          }
-
-          // DO NOT call legacy writer - V4 proposal is the only path
-          break;
-        }
-
-        // LEGACY PATH: Direct graph write (when V4 ingestion is disabled)
-        console.log('[postRunHooks] Running WebsiteLab domain writer (legacy)...');
-
-        // Extract the WebsiteUXLabResultV4 from rawJson
-        // The rawJson structure may be:
-        // 1. Direct: { siteAssessment, siteGraph, ... }
-        // 2. Wrapped in result: { result: { siteAssessment, ... } }
-        // 3. New format: { rawEvidence: { labResultV4: { siteAssessment, ... } } }
-        const rawData = run.rawJson as Record<string, unknown>;
-        let websiteResult: WebsiteUXLabResultV4;
-
-        // Try new format first: rawEvidence.labResultV4
-        const rawEvidence = rawData.rawEvidence as Record<string, unknown> | undefined;
-        let extractionPath: 'rawEvidence.labResultV4' | 'legacy' = 'legacy';
-        if (rawEvidence?.labResultV4) {
-          websiteResult = rawEvidence.labResultV4 as WebsiteUXLabResultV4;
-          extractionPath = 'rawEvidence.labResultV4';
-          console.log('[postRunHooks] Found WebsiteLab data at rawEvidence.labResultV4');
-        } else {
-          // Fall back to legacy formats
-          websiteResult = (rawData.result || rawData) as WebsiteUXLabResultV4;
-          console.log('[postRunHooks] Using legacy WebsiteLab data format');
-        }
-        debugLog('websiteLab_extraction', { extractionPath, runId: run.id });
-
-        // Validate we have the expected structure
-        if (!websiteResult.siteAssessment && !websiteResult.siteGraph) {
-          console.warn('[postRunHooks] WebsiteLab rawJson missing expected structure, skipping writer');
-          console.warn('[postRunHooks] rawJson keys:', Object.keys(rawData));
-          if (rawEvidence) {
-            console.warn('[postRunHooks] rawEvidence keys:', Object.keys(rawEvidence));
-          }
+          // Don't throw - just skip proposal generation for this run
           return;
         }
 
-        const { summary } = await writeWebsiteLabAndSave(
-          companyId,
-          websiteResult,
-          run.id
-        );
+        if (candidateResult.candidates.length === 0) {
+          console.warn('[postRunHooks] [WebsiteLab] No candidates produced from V5 data', {
+            runId: run.id,
+            extractionPath: candidateResult.extractionPath,
+          });
+          return;
+        }
 
-        console.log('[postRunHooks] WebsiteLab domain writer complete:', {
-          fieldsUpdated: summary.fieldsUpdated,
-          updatedPaths: summary.updatedPaths.slice(0, 5),
-          errors: summary.errors.length,
+        console.log('[postRunHooks] [WebsiteLab] V5 candidates ready:', {
+          extractionPath: candidateResult.extractionPath,
+          candidateCount: candidateResult.candidates.length,
+          fieldKeys: candidateResult.candidates.map(c => c.key),
         });
+
+        // Propose fields to V4 Review Queue
+        const proposalResult = await proposeFromLabResult({
+          companyId,
+          importerId: 'websiteLab',
+          source: 'lab',
+          sourceId: run.id,
+          extractionPath: candidateResult.extractionPath,
+          candidates: candidateResult.candidates,
+        });
+
+        console.log('[postRunHooks] [WebsiteLab] Proposals complete:', {
+          proposed: proposalResult.proposed,
+          blocked: proposalResult.blocked,
+          replaced: proposalResult.replaced,
+          errors: proposalResult.errors.length,
+        });
+
+        // Auto-propose baseline for required strategy fields
+        try {
+          await autoProposeBaselineIfNeeded({
+            companyId,
+            triggeredBy: 'websiteLab',
+            runId: run.id,
+          });
+        } catch (autoError) {
+          console.error('[postRunHooks] Auto-propose baseline failed:', autoError);
+        }
+
         break;
       }
 
@@ -581,6 +546,97 @@ async function runDomainWriters(
             // Don't throw - work item creation is supplementary
           }
         }
+        break;
+      }
+
+      case 'competitionLab': {
+        console.log('[postRunHooks] Running CompetitionLab hooks...');
+
+        // Extract the CompetitionRunV3Payload from rawJson
+        // The rawJson structure may be:
+        // 1. New format: { rawEvidence: { labResultV4: { competitors, ... } } }
+        // 2. Direct: { competitors, status, ... } (CompetitionRunV3Payload)
+        const rawData = run.rawJson as Record<string, unknown>;
+        let competitionRun: CompetitionRunV3Payload | null = null;
+
+        // Try new format first: rawEvidence.labResultV4
+        const rawEvidence = rawData.rawEvidence as Record<string, unknown> | undefined;
+        if (rawEvidence?.labResultV4) {
+          competitionRun = rawEvidence.labResultV4 as CompetitionRunV3Payload;
+          console.log('[postRunHooks] Found CompetitionLab data at rawEvidence.labResultV4');
+        } else if (rawData.competitors || rawData.status === 'completed') {
+          // Direct format: rawJson is the CompetitionRunV3Payload
+          competitionRun = rawData as unknown as CompetitionRunV3Payload;
+          console.log('[postRunHooks] Using direct CompetitionLab data format');
+        }
+
+        if (!competitionRun) {
+          console.warn('[postRunHooks] CompetitionLab rawJson missing expected structure, skipping proposal');
+          return;
+        }
+
+        // Build candidates from competition run
+        const candidateResult = buildCompetitionCandidates(competitionRun, run.id);
+
+        if (candidateResult.errorState?.isError) {
+          console.error('[postRunHooks] [CompetitionLab] Error state detected:', {
+            errorType: candidateResult.errorState.errorType,
+            errorMessage: candidateResult.errorState.errorMessage,
+          });
+          return;
+        }
+
+        if (candidateResult.candidates.length === 0) {
+          console.warn('[postRunHooks] [CompetitionLab] No candidates produced', {
+            extractionPath: candidateResult.extractionPath,
+            extractionFailureReason: candidateResult.extractionFailureReason,
+            debug: candidateResult.debug,
+          });
+          return;
+        }
+
+        console.log('[postRunHooks] [CompetitionLab] Candidates ready:', {
+          extractionPath: candidateResult.extractionPath,
+          candidateCount: candidateResult.candidates.length,
+          fieldKeys: candidateResult.candidates.map(c => c.key),
+          filteringStats: candidateResult.filteringStats?.afterFiltering,
+        });
+
+        // Propose fields to V4 Review Queue
+        try {
+          const proposalResult = await proposeFromLabResult({
+            companyId,
+            importerId: 'competitionLab',
+            source: 'lab',
+            sourceId: run.id,
+            extractionPath: candidateResult.extractionPath,
+            candidates: candidateResult.candidates,
+          });
+
+          console.log('[postRunHooks] [CompetitionLab] Proposals complete:', {
+            proposed: proposalResult.proposed,
+            blocked: proposalResult.blocked,
+            replaced: proposalResult.replaced,
+            errors: proposalResult.errors.length,
+            proposedKeys: proposalResult.proposedKeys,
+          });
+
+          // Auto-propose baseline if first proposal
+          if (proposalResult.proposed > 0) {
+            try {
+              await autoProposeBaselineIfNeeded({
+                companyId,
+                triggeredBy: 'competitionLab',
+                runId: run.id,
+              });
+            } catch (baselineErr) {
+              console.warn('[postRunHooks] CompetitionLab auto-propose baseline failed:', baselineErr);
+            }
+          }
+        } catch (proposeErr) {
+          console.error('[postRunHooks] CompetitionLab proposal failed:', proposeErr);
+        }
+
         break;
       }
 

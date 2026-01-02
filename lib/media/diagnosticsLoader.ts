@@ -347,24 +347,61 @@ function transformDiagnosticRunToGapSummary(run: DiagnosticRun): GapRunSummary {
 
 /**
  * Transform a Website Lab run
+ *
+ * HARD CUTOVER: V5 is the ONLY authoritative source.
+ * We extract from v5Diagnostic first, falling back to siteAssessment only for
+ * backwards-compatible field mapping (siteAssessment is now derived from V5).
  */
 function transformWebsiteLabRun(run: DiagnosticRun): WebsiteLabSummary {
   const raw = run.rawJson as any;
   const meta = run.metadata as any;
+
+  // V5 PREFERRED: Extract v5Diagnostic first
+  const v5Diagnostic = raw?.v5Diagnostic ||
+    raw?.rawEvidence?.labResultV4?.v5Diagnostic ||
+    raw?.rawEvidence?.v5Diagnostic;
+
+  // Fallback to siteAssessment (which is now derived from V5)
   const siteAssessment = raw?.rawEvidence?.labResultV4?.siteAssessment || raw?.siteAssessment;
+
+  // Use V5 score and justification if available
+  const score = run.score ?? v5Diagnostic?.score ?? siteAssessment?.overallScore ?? siteAssessment?.score ?? undefined;
+  const executiveSummary = v5Diagnostic?.scoreJustification || siteAssessment?.executiveSummary || siteAssessment?.summary;
+
+  // Extract issues from V5 blockingIssues or fallback to siteAssessment
+  let conversionBlocks: string[] = [];
+  if (v5Diagnostic?.blockingIssues?.length) {
+    conversionBlocks = v5Diagnostic.blockingIssues
+      .filter((i: any) => i.whyItBlocks)
+      .map((i: any) => `${i.page}: ${i.whyItBlocks}`)
+      .slice(0, 5);
+  } else {
+    conversionBlocks = extractIssuesByCategory(siteAssessment?.issues, 'conversion');
+  }
+
+  // Extract recommendations from V5 quickWins or fallback to siteAssessment
+  let recommendations: string[] = [];
+  if (v5Diagnostic?.quickWins?.length) {
+    recommendations = v5Diagnostic.quickWins
+      .filter((w: any) => w.action || w.title)
+      .map((w: any) => w.action || w.title)
+      .slice(0, 10);
+  } else {
+    recommendations = siteAssessment?.recommendations?.slice(0, 10) || [];
+  }
 
   return {
     runId: run.id,
-    score: run.score ?? siteAssessment?.overallScore ?? siteAssessment?.score ?? undefined,
+    score,
     strategistView: run.summary ?? siteAssessment?.consultantReport ?? undefined,
-    executiveSummary: siteAssessment?.executiveSummary || siteAssessment?.summary,
+    executiveSummary,
     funnelIssues: extractIssuesByCategory(siteAssessment?.issues, 'funnel'),
-    conversionBlocks: extractIssuesByCategory(siteAssessment?.issues, 'conversion'),
+    conversionBlocks,
     infraNotes: extractInfraFromMetadata(meta),
     mobileNotes: meta?.mobileScore ? `Mobile score: ${meta.mobileScore}` : undefined,
     pageSpeedNotes: meta?.pageSpeedScore ? `PageSpeed score: ${meta.pageSpeedScore}` : undefined,
     coreWebVitals: meta?.coreWebVitals,
-    recommendations: siteAssessment?.recommendations?.slice(0, 10) || [],
+    recommendations,
     criticalIssues: siteAssessment?.criticalIssues?.slice(0, 5) || [],
     createdAt: run.createdAt,
   };

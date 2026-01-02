@@ -18,6 +18,7 @@ import {
   formatSignalsForAiPrompt,
   hasMinimalSignalsForSeeding,
 } from './signals';
+import { generateDemographicOverlays } from './demographicOverlays';
 import { MediaChannelId, MEDIA_CHANNEL_LABELS } from '@/lib/contextGraph/enums';
 
 // ============================================================================
@@ -42,6 +43,16 @@ export interface AISeedResult {
 
   /** Whether the ICP was inferred (no canonical ICP found) */
   isProvisionalICP: boolean;
+
+  /**
+   * Demographic overlays (behavior-first, guardrailed)
+   * These are OPTIONAL inferred overlays, never facts.
+   * Max 1 per segment, confidence capped at 70%.
+   */
+  demographicOverlays?: import('./demographicOverlays').DemographicOverlay[];
+
+  /** Segments that were rejected for demographic inference */
+  demographicRejections?: Array<{ segmentId: string; reason: string }>;
 }
 
 /**
@@ -356,6 +367,19 @@ export async function seedAudienceModelFromSignals(
       isProvisional,
     });
 
+    // Generate demographic overlays (behavior-first, guardrailed)
+    // These are OPTIONAL inferred overlays, never facts.
+    // Only generated if segments have strong behavioral signals.
+    const { overlays: demographicOverlays, rejections: demographicRejections } = generateDemographicOverlays(
+      validatedSegments,
+      signals
+    );
+
+    console.log('[AudienceSeed] Demographic overlays:', {
+      generated: demographicOverlays.length,
+      rejected: demographicRejections.length,
+    });
+
     return {
       success: true,
       model,
@@ -364,6 +388,8 @@ export async function seedAudienceModelFromSignals(
       hasCanonicalICP: signals.canonicalICP.hasCanonicalICP,
       canonicalAudienceDescription: icpDescription,
       isProvisionalICP: isProvisional,
+      demographicOverlays: demographicOverlays.length > 0 ? demographicOverlays : undefined,
+      demographicRejections: demographicRejections.length > 0 ? demographicRejections : undefined,
     };
   } catch (error) {
     console.error('[AudienceSeed] AI seeding failed:', error);

@@ -7,6 +7,10 @@ export * from './signals';
 export * from './aiSeed';
 export * from './packs';
 
+// Demographic Overlays (Behavior-First, Guardrailed)
+export * from './demographicOverlays';
+export * from './demographicProposals';
+
 // Persona System exports
 export * from './personas';
 export * from './personaStorage';

@@ -136,6 +136,7 @@ async function migrateWorkToPrograms(
         },
         linkedArtifacts: [],
         workPlanVersion: 0,
+        scopeEnforced: false, // Migrated programs don't enforce scope
       };
 
       if (dryRun) {

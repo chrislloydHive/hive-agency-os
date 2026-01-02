@@ -869,11 +869,11 @@ export async function runWebsiteLabV4(input: {
     };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error('[Website Lab V4] Error:', errorMsg);
+    console.error('[Website Lab V4/V5] FATAL Error:', errorMsg);
 
-    // Fallback to V3 if V4 fails
-    console.warn('[Website Lab V4] Falling back to V3 single-page analysis...');
-    return runWebsiteModule(input);
+    // NO FALLBACK TO V3: V5 is MANDATORY.
+    // If V4/V5 fails, the entire pipeline fails. No silent degradation.
+    throw new Error(`[V5 MANDATORY] Website Lab V4/V5 failed: ${errorMsg}`);
   }
 }
 

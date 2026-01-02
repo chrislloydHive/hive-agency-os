@@ -418,7 +418,13 @@ export async function getLatestOsFullReportForCompany(
     }
 
     return companyReports[0]; // Already sorted by date desc
-  } catch (error) {
+  } catch (error: any) {
+    // Silently return null for NOT_AUTHORIZED or TABLE_NOT_FOUND errors
+    // This table is optional/legacy - don't spam the console
+    if (error?.statusCode === 403 || error?.statusCode === 404 ||
+        error?.error === 'NOT_AUTHORIZED' || error?.error === 'TABLE_NOT_FOUND') {
+      return null;
+    }
     console.warn(
       `[Airtable] Failed to fetch OS Full Report for company ${companyId}:`,
       error
@@ -458,7 +464,13 @@ export async function getOsFullReportsForCompany(
       .slice(0, limit);
 
     return companyReports;
-  } catch (error) {
+  } catch (error: any) {
+    // Silently return empty for NOT_AUTHORIZED or TABLE_NOT_FOUND errors
+    // This table is optional/legacy - don't spam the console
+    if (error?.statusCode === 403 || error?.statusCode === 404 ||
+        error?.error === 'NOT_AUTHORIZED' || error?.error === 'TABLE_NOT_FOUND') {
+      return [];
+    }
     console.warn(
       `[Airtable] Failed to fetch OS Full Reports for company ${companyId}:`,
       error
