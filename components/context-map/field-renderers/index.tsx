@@ -346,11 +346,24 @@ export function ListFieldRenderer({
   const [newItem, setNewItem] = useState('');
   const items = Array.isArray(value) ? value as string[] : [];
 
+  // When newItem changes, include it as a "pending" item in the value
+  // This allows the parent form to submit even if user hasn't clicked "+"
+  const handleNewItemChange = useCallback((inputValue: string) => {
+    setNewItem(inputValue);
+    // Include pending input in value so form validation passes
+    if (inputValue.trim()) {
+      onChange([...items.filter(i => i !== inputValue.trim()), inputValue.trim()]);
+    } else if (items.length > 0) {
+      // Keep existing items if input is cleared
+      onChange(items);
+    }
+  }, [items, onChange]);
+
   const handleAdd = useCallback(() => {
     if (!newItem.trim() || readOnly) return;
-    onChange([...items, newItem.trim()]);
+    // Item is already in the array from handleNewItemChange, just clear input
     setNewItem('');
-  }, [newItem, items, onChange, readOnly]);
+  }, [newItem, readOnly]);
 
   const handleRemove = useCallback((index: number) => {
     if (readOnly) return;
@@ -387,7 +400,7 @@ export function ListFieldRenderer({
           <input
             type="text"
             value={newItem}
-            onChange={(e) => setNewItem(e.target.value)}
+            onChange={(e) => handleNewItemChange(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();

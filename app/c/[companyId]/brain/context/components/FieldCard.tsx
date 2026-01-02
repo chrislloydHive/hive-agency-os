@@ -105,10 +105,11 @@ export function FieldCard({
   const domainMeta = CONTEXT_DOMAIN_META[domain];
   const labLink = domainMeta?.labLink?.(companyId);
 
-  // Check lock status
+  // Check lock status (visual only - users can always edit)
   const isLocked = !!lock;
   const isHardLocked = lock?.severity === 'hard';
-  const canEditField = canEdit && (!isLocked || lock?.severity === 'soft');
+  // Users should ALWAYS be able to edit context - lock is just a visual indicator
+  const canEditField = canEdit;
 
   // Check if value is long and should be truncated
   const isLongValue = value && value.length > 200;

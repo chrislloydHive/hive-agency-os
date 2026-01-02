@@ -119,6 +119,19 @@ export const REQUIRED_CONTEXT_KEYS: RequiredContextKey[] = [
     domain: 'identity',
     fieldName: 'businessModel',
   },
+  {
+    key: 'identity.businessArchetype',
+    zoneId: 'business-reality',
+    label: 'Business Archetype',
+    shortLabel: 'Archetype',
+    description: 'How the company competes (local, regional service, retail, ecommerce, marketplace, SaaS)',
+    type: 'string',
+    requiredFor: ['strategy'],
+    priority: 3.5,
+    reason: 'Strategy and Competition require a confirmed archetype to select the right rivals',
+    domain: 'identity',
+    fieldName: 'businessArchetype',
+  },
   // ============================================================================
   // Brand Zone - REMOVED: Positioning is a strategic conclusion, not raw context
   // It lives in the Strategic Frame, not Context Map

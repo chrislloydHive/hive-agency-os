@@ -24,7 +24,7 @@ import { getFieldEntry } from '@/lib/contextMap/fieldRegistry';
 import { loadContextGraph, saveContextGraph, getOrCreateContextGraph } from '@/lib/contextGraph/storage';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { isRemovedField, getRegistryEntry, getSchemaV2Entry } from '@/lib/contextGraph/unifiedRegistry';
-import { isDeprecatedDomain } from '@/lib/contextGraph/companyContextGraph';
+import { isDeprecatedDomain, ensureDomain, type DomainName } from '@/lib/contextGraph/companyContextGraph';
 import { getActiveStrategy, updateStrategy } from '@/lib/os/strategy';
 
 /**
@@ -283,6 +283,9 @@ async function updateContextGraphField(
 
   const [domain, ...fieldParts] = parts;
   const fieldName = fieldParts.join('.');
+
+  // Ensure domain exists (may have been stripped during save)
+  ensureDomain(graph, domain as DomainName);
 
   // Update the field in the graph
   const domainObj = (graph as any)[domain];

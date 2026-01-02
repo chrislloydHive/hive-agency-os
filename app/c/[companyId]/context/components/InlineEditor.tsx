@@ -129,10 +129,8 @@ export function InlineEditor({
   }, [mode, onCancel]);
 
   const handleSave = async () => {
-    if (isLocked) {
-      setError('Field is locked and cannot be edited');
-      return;
-    }
+    // Users can always edit - lock status is informational only
+    // The user's edit will override the lock
 
     if (mode === 'json' && jsonError) {
       setError('Please fix JSON syntax errors before saving');

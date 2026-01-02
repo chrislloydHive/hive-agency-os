@@ -5,9 +5,9 @@
 // It writes extracted fields to the appropriate CompanyContextGraph domains
 // with proper provenance tracking.
 
-import type { CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
+import type { CompanyContextGraph, DomainName } from '@/lib/contextGraph/companyContextGraph';
 import { loadContextGraph, saveContextGraph } from '@/lib/contextGraph/storage';
-import { createEmptyContextGraph } from '@/lib/contextGraph/companyContextGraph';
+import { createEmptyContextGraph, ensureDomain } from '@/lib/contextGraph/companyContextGraph';
 import { createProvenance } from '@/lib/contextGraph/types';
 import type { ProvenanceTag, ContextSource } from '@/lib/contextGraph/types';
 import type {
@@ -187,6 +187,9 @@ function writeFieldToGraph(
   }
 
   const [domain, fieldPath] = location;
+
+  // Ensure domain exists (may have been stripped during save)
+  ensureDomain(graph, domain as DomainName);
 
   // Get domain object
   const domainObj = (graph as any)[domain];

@@ -4,10 +4,15 @@
 // Review Queue Client Component
 //
 // Shows proposed facts with confirm/reject actions.
+// Now includes:
+// - Lab Coverage Summary panel (shows which labs ran and findings)
+// - Lab Findings Viewer (drawer to view and promote findings)
+// - Improved triage UX (Accept/Needs Rewrite/Ignore)
+// - Dedupe grouping (shows "Used by X fields" for duplicate findings)
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Globe, Beaker, Sparkles, FileText, Database, User, AlertTriangle, Bug, CheckCircle, ChevronDown, ChevronRight, LayoutList, LayoutGrid, Eye, EyeOff, XCircle } from 'lucide-react';
+import { Globe, Beaker, Sparkles, FileText, Database, User, AlertTriangle, Bug, CheckCircle, ChevronDown, ChevronRight, LayoutList, LayoutGrid, Eye, EyeOff, XCircle, Pencil, Moon, ArrowUpRight, Copy, ShieldAlert } from 'lucide-react';
 import type {
   ReviewQueueResponseV4,
   ContextFieldV4,
@@ -19,9 +24,13 @@ import type {
   ProposeWebsiteLabResponse,
   InspectV4Response,
 } from '@/lib/types/contextV4Debug';
+import type { LabQualityResponse, QualityBand } from '@/lib/types/labQualityScore';
 import { PROPOSAL_REASON_LABELS } from '@/lib/types/contextV4Debug';
 import { useContextV4Health } from '@/hooks/useContextV4Health';
 import { FlowReadinessBanner } from './FlowReadinessBanner';
+import { LabCoverageSummary } from './LabCoverageSummary';
+import { LabFindingsDrawer } from './LabFindingsDrawer';
+import type { LabKey } from '@/lib/types/labSummary';
 
 interface ReviewQueueClientProps {
   companyId: string;
@@ -112,6 +121,9 @@ export function ReviewQueueClient({
   const [viewMode, setViewMode] = useState<'flat' | 'grouped'>('grouped');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [showLowConfidence, setShowLowConfidence] = useState(false);
+  const [labDrawerKey, setLabDrawerKey] = useState<LabKey | null>(null);
+  const [labFilter, setLabFilter] = useState<string | null>(null);
+  const [qualityData, setQualityData] = useState<LabQualityResponse | null>(null);
 
   // Confidence floor: hide proposals with confidence < 30% by default
   const CONFIDENCE_FLOOR = 0.3;
@@ -128,19 +140,23 @@ export function ReviewQueueClient({
       if (domain) params.set('domain', domain);
       if (source) params.set('source', source);
 
-      // Fetch review queue and inspect data in parallel
+      // Fetch review queue, inspect data, and quality data in parallel
       // Health data is fetched separately via useContextV4Health hook
-      const [reviewResponse, inspectResponse] = await Promise.all([
+      const [reviewResponse, inspectResponse, qualityResponse] = await Promise.all([
         fetch(`/api/os/companies/${companyId}/context/v4/review?${params}`, {
           cache: 'no-store',
         }),
         fetch(`/api/os/companies/${companyId}/context/v4/inspect`, {
           cache: 'no-store',
         }),
+        fetch(`/api/os/companies/${companyId}/labs/quality`, {
+          cache: 'no-store',
+        }),
       ]);
 
       const reviewJson = await reviewResponse.json();
       const inspectJson = await inspectResponse.json();
+      const qualityJson = await qualityResponse.json();
 
       if (!reviewJson.ok) {
         throw new Error(reviewJson.error || 'Failed to load review queue');
@@ -149,6 +165,9 @@ export function ReviewQueueClient({
       setData(reviewJson);
       if (inspectJson.ok) {
         setInspectData(inspectJson);
+      }
+      if (qualityJson.ok) {
+        setQualityData(qualityJson);
       }
       setSelectedKeys(new Set());
     } catch (err) {
@@ -187,12 +206,24 @@ export function ReviewQueueClient({
     };
   }, [data?.proposed, showLowConfidence, CONFIDENCE_FLOOR]);
 
+  // Filter proposals by lab if labFilter is set
+  const labFilteredProposals = useMemo(() => {
+    if (!labFilter) return filteredProposals;
+    return filteredProposals.filter(
+      f => f.importerId === labFilter || f.evidence?.importerId === labFilter
+    );
+  }, [filteredProposals, labFilter]);
+
+  // Use lab-filtered proposals for display when filter is active
+  const displayProposals = labFilter ? labFilteredProposals : filteredProposals;
+
   // Group proposals by domain for grouped view
+  // Uses displayProposals which respects lab filter
   const groupedProposals = useMemo(() => {
-    if (filteredProposals.length === 0) return new Map<string, ContextFieldV4[]>();
+    if (displayProposals.length === 0) return new Map<string, ContextFieldV4[]>();
 
     const groups = new Map<string, ContextFieldV4[]>();
-    for (const field of filteredProposals) {
+    for (const field of displayProposals) {
       const groupKey = field.domain;
       if (!groups.has(groupKey)) {
         groups.set(groupKey, []);
@@ -204,7 +235,7 @@ export function ReviewQueueClient({
     return new Map(
       [...groups.entries()].sort((a, b) => b[1].length - a[1].length)
     );
-  }, [filteredProposals]);
+  }, [displayProposals]);
 
   // Initialize expanded groups when data loads
   useEffect(() => {
@@ -423,8 +454,73 @@ export function ReviewQueueClient({
     return null;
   }
 
+  // Handler for lab filter from LabCoverageSummary
+  const handleFilterByLab = (labKey: LabKey) => {
+    // Map labKey to importerId
+    const importerMap: Record<LabKey, string> = {
+      websiteLab: 'websiteLab',
+      competitionLab: 'competitionLab',
+      brandLab: 'brandLab',
+      gapPlan: 'gapPlan',
+      audienceLab: 'audienceLab',
+    };
+    setLabFilter(importerMap[labKey]);
+  };
+
   return (
     <div className="max-w-4xl mx-auto px-6 py-6">
+      {/* Lab Coverage Summary Panel */}
+      <LabCoverageSummary
+        companyId={companyId}
+        onViewFindings={(labKey) => setLabDrawerKey(labKey)}
+        onFilterByLab={handleFilterByLab}
+        onRefresh={fetchData}
+      />
+
+      {/* Quality Guardrail Banner - shows if any lab has Poor quality */}
+      {qualityData && (() => {
+        const poorQualityLabs = Object.entries(qualityData.current)
+          .filter(([_, score]) => score?.qualityBand === 'Poor')
+          .map(([labKey]) => labKey);
+
+        if (poorQualityLabs.length === 0) return null;
+
+        return (
+          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-red-300 font-medium">
+                  Low Lab Quality Detected
+                </p>
+                <p className="text-red-400/80 text-sm mt-1">
+                  {poorQualityLabs.length === 1
+                    ? `${poorQualityLabs[0]} output quality is low.`
+                    : `${poorQualityLabs.join(', ')} outputs have low quality.`}
+                  {' '}Findings may be generic or under-evidenced. Review carefully before confirming.
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Lab Filter Badge */}
+      {labFilter && (
+        <div className="mb-4 flex items-center gap-2">
+          <span className="text-sm text-slate-400">Filtered by:</span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-500/20 text-purple-400 rounded-full text-sm">
+            {labFilter}
+            <button
+              onClick={() => setLabFilter(null)}
+              className="ml-1 hover:text-white"
+            >
+              <XCircle className="w-4 h-4" />
+            </button>
+          </span>
+        </div>
+      )}
+
       {/* Header Stats Row */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
@@ -935,7 +1031,7 @@ export function ReviewQueueClient({
       ) : (
         /* Flat View */
         <div className="space-y-3">
-          {filteredProposals.map((field) => (
+          {displayProposals.map((field) => (
             <ReviewItem
               key={field.key}
               field={field}
@@ -949,6 +1045,19 @@ export function ReviewQueueClient({
             />
           ))}
         </div>
+      )}
+
+      {/* Lab Findings Drawer */}
+      {labDrawerKey && (
+        <LabFindingsDrawer
+          companyId={companyId}
+          labKey={labDrawerKey}
+          onClose={() => setLabDrawerKey(null)}
+          onPromoted={() => {
+            // Refresh data when a finding is promoted
+            fetchData();
+          }}
+        />
       )}
     </div>
   );
@@ -1048,7 +1157,7 @@ function ReviewItem({
             )}
           </div>
 
-          <p className={`text-white ${compact ? 'text-sm' : ''} mt-1`}>{formatValue(field.value)}</p>
+          <p className={`text-white ${compact ? 'text-sm' : ''} mt-1`}>{formatValue(field.value, field.key)}</p>
 
           {/* Lineage Row */}
           <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-2 text-xs">
@@ -1172,7 +1281,7 @@ function ReviewItem({
             {field.alternatives!.map((alt, idx) => (
               <div key={alt.dedupeKey || idx} className="p-2 bg-slate-800/50 rounded text-sm">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-white">{formatValue(alt.value)}</span>
+                  <span className="text-white">{formatValue(alt.value, field.key)}</span>
                   <div className="flex items-center gap-2 text-xs">
                     <SourceBadge source={alt.source} importerId={alt.importerId} />
                     <span className="text-slate-500">{Math.round(alt.confidence * 100)}%</span>
@@ -1190,14 +1299,37 @@ function ReviewItem({
   );
 }
 
-function formatValue(value: unknown): string {
+function formatValue(value: unknown, fieldKey?: string): string {
   if (value === null || value === undefined) {
     return '—';
   }
   if (Array.isArray(value)) {
+    // Special handling for audience.segments - show summary
+    if (fieldKey === 'audience.segments' && value.length > 0) {
+      const segments = value as Array<{ label?: string; buyerMode?: string; confidence?: number }>;
+      return segments
+        .map(s => `${s.label || 'Unnamed'} (${s.buyerMode || 'Unknown'}, ${Math.round(s.confidence || 0)}%)`)
+        .join(' | ');
+    }
+    // For arrays of simple values
+    if (value.length > 0 && typeof value[0] === 'string') {
+      return value.join(', ');
+    }
+    // For arrays of objects, show count
+    if (value.length > 0 && typeof value[0] === 'object') {
+      return `${value.length} items`;
+    }
     return value.length > 0 ? value.join(', ') : '—';
   }
   if (typeof value === 'object') {
+    // Special handling for decision drivers
+    if ('trust' in value && 'proximity' in value) {
+      const drivers = value as Record<string, string>;
+      return Object.entries(drivers)
+        .filter(([, v]) => v !== 'UNCLEAR')
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(', ') || 'No clear drivers';
+    }
     return JSON.stringify(value);
   }
   return String(value);

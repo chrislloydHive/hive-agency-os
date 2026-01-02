@@ -1,41 +1,36 @@
 'use client';
 
 // app/c/[companyId]/decide/DecideClient.tsx
-// Decide Phase Client Component - Review & Confirm
+// Decide Phase Dashboard - Overview of Context & Strategy State
 //
-// V11+: Labs are NEVER blocking. Context editing always available.
-// Only strategy existence gates proceeding to Deliver.
+// This is the landing page for Phase 2. It shows:
+// 1. Labs summary - which labs have run, findings count
+// 2. Context summary - confirmed/pending fields
+// 3. Strategy summary - current state
 //
-// This component shows:
-// 1) Status banner (informational, not blocking)
-// 2) Readiness indicators (informational)
-// 3) Primary CTA to proceed
+// Users can click into Context or Strategy from here based on where they need to go.
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import {
   CheckCircle2,
   FileText,
   Sparkles,
   Loader2,
-  Settings2,
-  Search,
-  ChevronRight,
   ArrowRight,
-  ShieldCheck,
-  Info,
-  MoreHorizontal,
+  Beaker,
+  Globe,
+  Swords,
+  Clock,
+  AlertTriangle,
+  ChevronRight,
+  Lock,
   PlusCircle,
+  Users,
 } from 'lucide-react';
 import type { V4HealthResponse } from '@/lib/types/contextV4Health';
 import type { StrategyOrigin } from '@/lib/types/strategy';
-import {
-  getDecideUIState,
-  type DecideUIState,
-  type DecideDataInput,
-} from '@/lib/os/ui/decideUiState';
-import { DecideShell } from '@/components/os/decide/DecideShell';
+import type { LabCoverageSummaryResponse, LabRunSummary, LabKey } from '@/lib/types/labSummary';
 
 // ============================================================================
 // Types
@@ -47,26 +42,145 @@ interface DecideClientProps {
 }
 
 // ============================================================================
-// Component
+// Lab Icons
+// ============================================================================
+
+const LAB_ICONS: Record<LabKey, React.ReactNode> = {
+  websiteLab: <Globe className="w-4 h-4" />,
+  competitionLab: <Swords className="w-4 h-4" />,
+  brandLab: <Sparkles className="w-4 h-4" />,
+  gapPlan: <Beaker className="w-4 h-4" />,
+  audienceLab: <Users className="w-4 h-4" />,
+};
+
+const LAB_ROUTES: Record<LabKey, string> = {
+  websiteLab: 'diagnostics/website',
+  competitionLab: 'diagnostics/competition',
+  brandLab: 'diagnostics/brand',
+  gapPlan: 'diagnostics/gap',
+  audienceLab: 'diagnostics/audience',
+};
+
+// ============================================================================
+// Summary Card Components
+// ============================================================================
+
+function SectionCard({
+  title,
+  icon,
+  children,
+  href,
+  actionLabel,
+  status,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  href: string;
+  actionLabel: string;
+  status?: 'complete' | 'in-progress' | 'not-started';
+}) {
+  return (
+    <div className="bg-slate-800/30 border border-slate-700/50 rounded-xl overflow-hidden">
+      <div className="p-5">
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className={`p-2.5 rounded-lg ${
+              status === 'complete' ? 'bg-emerald-500/20 text-emerald-400' :
+              status === 'in-progress' ? 'bg-amber-500/20 text-amber-400' :
+              'bg-slate-700/50 text-slate-400'
+            }`}>
+              {icon}
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white">{title}</h3>
+              {status === 'complete' && (
+                <span className="text-xs text-emerald-400">Complete</span>
+              )}
+              {status === 'in-progress' && (
+                <span className="text-xs text-amber-400">In Progress</span>
+              )}
+              {status === 'not-started' && (
+                <span className="text-xs text-slate-500">Not Started</span>
+              )}
+            </div>
+          </div>
+        </div>
+        {children}
+      </div>
+      <Link
+        href={href}
+        className="flex items-center justify-between px-5 py-3 bg-slate-900/50 border-t border-slate-700/30 text-sm text-slate-400 hover:text-white hover:bg-slate-800/50 transition-colors"
+      >
+        <span>{actionLabel}</span>
+        <ChevronRight className="w-4 h-4" />
+      </Link>
+    </div>
+  );
+}
+
+function LabStatusRow({ lab, companyId }: { lab: LabRunSummary; companyId: string }) {
+  const route = LAB_ROUTES[lab.labKey];
+
+  return (
+    <Link
+      href={`/c/${companyId}/${route}`}
+      className="flex items-center justify-between py-2 px-3 -mx-3 rounded-lg hover:bg-slate-700/30 transition-colors group"
+    >
+      <div className="flex items-center gap-2.5">
+        <span className={
+          lab.status === 'completed' ? 'text-emerald-400' :
+          lab.status === 'running' ? 'text-amber-400' :
+          lab.status === 'failed' ? 'text-red-400' :
+          'text-slate-500'
+        }>
+          {lab.status === 'completed' ? <CheckCircle2 className="w-4 h-4" /> :
+           lab.status === 'running' ? <Clock className="w-4 h-4 animate-pulse" /> :
+           lab.status === 'failed' ? <AlertTriangle className="w-4 h-4" /> :
+           LAB_ICONS[lab.labKey]}
+        </span>
+        <span className={lab.status === 'not_run' ? 'text-slate-500' : 'text-slate-300'}>
+          {lab.displayName}
+        </span>
+      </div>
+      <div className="flex items-center gap-3">
+        {lab.status === 'completed' && lab.findingsCount > 0 && (
+          <span className="text-xs text-slate-500">
+            {lab.findingsCount} findings
+          </span>
+        )}
+        {lab.status === 'not_run' && (
+          <span className="text-xs text-slate-600">Not run</span>
+        )}
+        <ChevronRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400 transition-colors" />
+      </div>
+    </Link>
+  );
+}
+
+// ============================================================================
+// Main Component
 // ============================================================================
 
 export function DecideClient({ companyId, companyName }: DecideClientProps) {
-  const router = useRouter();
   const [contextHealth, setContextHealth] = useState<V4HealthResponse | null>(null);
+  const [labSummary, setLabSummary] = useState<LabCoverageSummaryResponse | null>(null);
   const [strategyExists, setStrategyExists] = useState(false);
   const [strategyLocked, setStrategyLocked] = useState(false);
   const [strategyOrigin, setStrategyOrigin] = useState<StrategyOrigin | undefined>(undefined);
+  const [strategyName, setStrategyName] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
-  const [showReadyPrompt, setShowReadyPrompt] = useState(false);
-  const [showDetailsMenu, setShowDetailsMenu] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
-      const [healthRes, strategyRes] = await Promise.all([
+      const [healthRes, strategyRes, labsRes] = await Promise.all([
         fetch(`/api/os/companies/${companyId}/context/v4/health`, {
           cache: 'no-store',
         }).catch(() => null),
         fetch(`/api/os/companies/${companyId}/strategy/view-model`, {
+          cache: 'no-store',
+        }).catch(() => null),
+        fetch(`/api/os/companies/${companyId}/labs/summary`, {
           cache: 'no-store',
         }).catch(() => null),
       ]);
@@ -81,6 +195,12 @@ export function DecideClient({ companyId, companyName }: DecideClientProps) {
         setStrategyExists(!!data.strategy?.id);
         setStrategyLocked(data.strategy?.locked ?? false);
         setStrategyOrigin(data.strategy?.origin);
+        setStrategyName(data.strategy?.name);
+      }
+
+      if (labsRes?.ok) {
+        const labs = await labsRes.json();
+        setLabSummary(labs);
       }
     } catch (err) {
       console.error('[DecideClient] Error fetching data:', err);
@@ -93,326 +213,261 @@ export function DecideClient({ companyId, companyName }: DecideClientProps) {
     fetchData();
   }, [fetchData]);
 
-  // Derive UI state from selector
-  const dataInput: DecideDataInput = {
-    contextHealth,
-    strategyExists,
-    strategyLocked,
-    strategyOrigin,
-  };
-  const uiState: DecideUIState = getDecideUIState(dataInput, companyId);
-
-  // Handle URL hash-based redirects on mount
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const hash = window.location.hash.replace('#', '').toLowerCase();
-      if (hash === 'context') {
-        router.replace(`/c/${companyId}/context`);
-      } else if (hash === 'strategy') {
-        router.replace(`/c/${companyId}/strategy`);
-      }
-    }
-  }, [companyId, router]);
-
-  // Navigate to context or strategy pages
-  const navigateToContext = useCallback(() => {
-    router.push(`/c/${companyId}/context`);
-  }, [companyId, router]);
-
-  const navigateToStrategy = useCallback(() => {
-    router.push(`/c/${companyId}/strategy`);
-  }, [companyId, router]);
-
-  // Derived values for UI (informational only)
+  // Derived values
   const confirmedCount = contextHealth?.store?.confirmed ?? 0;
   const proposedCount = contextHealth?.store?.proposed ?? 0;
-  const hasLabsRun = contextHealth?.websiteLab?.hasRun ?? false;
-  const isImported = strategyOrigin === 'imported';
+  const labsRun = labSummary?.labs.filter(l => l.status === 'completed').length ?? 0;
+  const totalFindings = labSummary?.totalFindings ?? 0;
 
-  // V11+: Ready to proceed when strategy exists (labs don't block)
-  const canProceed = strategyExists;
+  // Status derivation
+  const contextStatus: 'complete' | 'in-progress' | 'not-started' =
+    confirmedCount > 0 ? 'complete' :
+    proposedCount > 0 ? 'in-progress' :
+    'not-started';
 
-  // Show "Ready when you are" prompt after 2 seconds if strategy locked
-  useEffect(() => {
-    if (strategyLocked && !loading) {
-      const timer = setTimeout(() => setShowReadyPrompt(true), 2000);
-      return () => clearTimeout(timer);
-    } else {
-      setShowReadyPrompt(false);
-    }
-  }, [strategyLocked, loading]);
+  const strategyStatus: 'complete' | 'in-progress' | 'not-started' =
+    strategyLocked ? 'complete' :
+    strategyExists ? 'in-progress' :
+    'not-started';
+
+  const labsStatus: 'complete' | 'in-progress' | 'not-started' =
+    labsRun > 0 ? 'complete' : 'not-started';
 
   if (loading) {
     return (
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-white">Decide</h1>
-          <p className="text-xs text-purple-400/80 mt-0.5">Phase 2</p>
           <p className="text-sm text-slate-400 mt-1">
-            Confirm what&apos;s true and commit to a strategy.
+            Review discoveries and commit to a strategy
           </p>
         </div>
-        <div className="flex items-center justify-center py-12">
+        <div className="flex items-center justify-center py-16">
           <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
         </div>
       </div>
     );
   }
 
+  // Ready to proceed?
+  const canProceed = strategyExists;
+  const isFullyReady = strategyLocked;
+
   return (
-    <DecideShell companyId={companyId} activeSubView="review" preloadedUIState={uiState}>
-      {/* Status Banner */}
-      <div className={`rounded-xl p-6 ${
-        strategyLocked
-          ? 'bg-gradient-to-br from-emerald-500/15 to-emerald-600/5 border-2 border-emerald-500/40'
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Decide</h1>
+          <p className="text-sm text-slate-400 mt-1">
+            Review discoveries and commit to a strategy for {companyName}
+          </p>
+        </div>
+
+        {/* Proceed CTA when ready */}
+        {canProceed && (
+          <Link
+            href={`/c/${companyId}/deliver`}
+            className={`inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-lg transition-colors ${
+              isFullyReady
+                ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                : 'bg-purple-600 hover:bg-purple-500 text-white'
+            }`}
+          >
+            {isFullyReady ? 'Go to Deliver' : 'Continue to Deliver'}
+            <ArrowRight className="w-4 h-4" />
+          </Link>
+        )}
+      </div>
+
+      {/* Status Summary Banner */}
+      <div className={`rounded-xl p-5 border-2 ${
+        isFullyReady
+          ? 'bg-emerald-500/10 border-emerald-500/30'
           : canProceed
-            ? 'bg-gradient-to-br from-purple-500/10 to-purple-600/5 border-2 border-purple-500/30'
-            : 'bg-gradient-to-br from-slate-500/10 to-slate-600/5 border-2 border-slate-500/30'
+            ? 'bg-purple-500/10 border-purple-500/30'
+            : 'bg-slate-800/30 border-slate-700/30'
       }`}>
-        <div className="flex items-start gap-4">
+        <div className="flex items-center gap-4">
           <div className={`p-3 rounded-xl ${
-            strategyLocked
+            isFullyReady
               ? 'bg-emerald-500/20'
               : canProceed
                 ? 'bg-purple-500/20'
-                : 'bg-slate-500/20'
+                : 'bg-slate-700/50'
           }`}>
-            {strategyLocked ? (
-              <ShieldCheck className="w-6 h-6 text-emerald-400" />
+            {isFullyReady ? (
+              <Lock className="w-6 h-6 text-emerald-400" />
             ) : canProceed ? (
               <Sparkles className="w-6 h-6 text-purple-400" />
             ) : (
-              <Info className="w-6 h-6 text-slate-400" />
+              <FileText className="w-6 h-6 text-slate-400" />
             )}
           </div>
-          <div className="flex-1">
-            <h1 className={`text-xl font-bold ${
-              strategyLocked
-                ? 'text-emerald-300'
-                : canProceed
-                  ? 'text-purple-300'
-                  : 'text-slate-300'
+          <div>
+            <h2 className={`text-lg font-semibold ${
+              isFullyReady ? 'text-emerald-300' :
+              canProceed ? 'text-purple-300' :
+              'text-slate-300'
             }`}>
-              {strategyLocked
-                ? 'Strategy finalized'
+              {isFullyReady
+                ? 'Strategy finalized — ready for Deliver'
                 : canProceed
-                  ? isImported
-                    ? 'Strategy anchored'
-                    : 'Strategy ready for review'
-                  : 'No strategy yet'}
-            </h1>
-            <p className="text-sm text-slate-300 mt-1">
-              {strategyLocked
-                ? 'Everything downstream will be generated from these decisions.'
+                  ? 'Strategy created — review and finalize'
+                  : 'Build context and create strategy'}
+            </h2>
+            <p className="text-sm text-slate-400 mt-0.5">
+              {isFullyReady
+                ? 'Your decisions are locked. Activated tactics will become Programs.'
                 : canProceed
-                  ? isImported
-                    ? 'Your imported strategy is ready. Enrich context anytime.'
-                    : 'Review your strategy and proceed when ready.'
-                  : 'Create a strategy to proceed to Deliver.'}
+                  ? 'Review your strategy, then proceed to Deliver when ready.'
+                  : 'Enrich context with labs or manual entry, then create a strategy.'}
             </p>
-            {strategyLocked && (
-              <p className="text-xs text-slate-500 mt-2">
-                Changing strategy later may invalidate plans and work in progress.
-              </p>
-            )}
-
-            {/* Primary CTA */}
-            <div className="flex items-center gap-4 mt-5">
-              {strategyLocked ? (
-                <Link
-                  href={`/c/${companyId}/deliver`}
-                  className="inline-flex items-center gap-2 px-6 py-3 text-sm font-semibold bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors shadow-lg shadow-purple-500/20"
-                >
-                  Proceed to Deliver
-                  <ArrowRight className="w-4 h-4" />
-                </Link>
-              ) : canProceed ? (
-                <>
-                  <Link
-                    href={`/c/${companyId}/deliver`}
-                    className="inline-flex items-center gap-2 px-6 py-3 text-sm font-semibold bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors shadow-lg shadow-purple-500/20"
-                  >
-                    Proceed to Deliver
-                    <ArrowRight className="w-4 h-4" />
-                  </Link>
-                  <button
-                    onClick={navigateToStrategy}
-                    className="text-sm text-slate-400 hover:text-slate-300 transition-colors"
-                  >
-                    Review Strategy
-                  </button>
-                </>
-              ) : (
-                <>
-                  <Link
-                    href={`/c/${companyId}/strategy`}
-                    className="inline-flex items-center gap-2 px-6 py-3 text-sm font-semibold bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors"
-                  >
-                    Create Strategy
-                    <ArrowRight className="w-4 h-4" />
-                  </Link>
-                  <button
-                    onClick={navigateToContext}
-                    className="text-sm text-slate-400 hover:text-slate-300 transition-colors"
-                  >
-                    Add Context First
-                  </button>
-                </>
-              )}
-            </div>
-
-            {/* What happens next */}
-            {strategyLocked && (
-              <p className="text-xs text-slate-500 mt-3">
-                Next, activate which tactics you want to execute. Activated tactics become Programs in Deliver.
-              </p>
-            )}
-
-            {/* Ready prompt */}
-            {showReadyPrompt && strategyLocked && (
-              <p className="text-xs text-purple-400/80 mt-2 animate-in fade-in slide-in-from-bottom-1 duration-300">
-                Ready when you are → Proceed to Deliver
-              </p>
-            )}
           </div>
         </div>
       </div>
 
-      {/* Context Status (Informational) */}
-      <div className="bg-slate-800/20 border border-slate-700/30 rounded-lg p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-            Context Status
-          </h4>
-          <div className="relative">
-            <button
-              onClick={() => setShowDetailsMenu(!showDetailsMenu)}
-              className="p-1.5 text-slate-500 hover:text-slate-400 hover:bg-slate-700/50 rounded transition-colors"
-              title="Review details"
-            >
-              <MoreHorizontal className="w-4 h-4" />
-            </button>
-            {showDetailsMenu && (
-              <>
-                <div
-                  className="fixed inset-0 z-10"
-                  onClick={() => setShowDetailsMenu(false)}
-                />
-                <div className="absolute right-0 top-full mt-1 z-20 bg-slate-800 border border-slate-700 rounded-lg shadow-lg py-1 min-w-[140px]">
-                  <button
-                    onClick={() => {
-                      setShowDetailsMenu(false);
-                      navigateToContext();
-                    }}
-                    className="w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-700/50 flex items-center gap-2"
-                  >
-                    <FileText className="w-3.5 h-3.5 text-slate-500" />
-                    Open Context
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowDetailsMenu(false);
-                      navigateToStrategy();
-                    }}
-                    className="w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-700/50 flex items-center gap-2"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-slate-500" />
-                    Open Strategy
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
-        <ul className="space-y-2">
-          {/* Labs enrichment (optional) */}
-          <li className="flex items-center gap-2.5 text-xs">
-            <span className={hasLabsRun ? 'text-emerald-400' : 'text-slate-500'}>
-              {hasLabsRun ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Search className="w-3.5 h-3.5" />}
-            </span>
-            <span className={hasLabsRun ? 'text-slate-400' : 'text-slate-500'}>
-              Labs enrichment
-              {!hasLabsRun && (
-                <span className="ml-1.5 text-slate-500">— optional</span>
-              )}
-            </span>
-          </li>
-
-          {/* Context fields */}
-          <li className="flex items-center gap-2.5 text-xs">
-            <span className={confirmedCount > 0 ? 'text-emerald-400' : 'text-slate-500'}>
-              {confirmedCount > 0 ? <CheckCircle2 className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
-            </span>
-            <span className={confirmedCount > 0 ? 'text-slate-400' : 'text-slate-500'}>
-              {confirmedCount > 0
-                ? `${confirmedCount} context field${confirmedCount !== 1 ? 's' : ''} confirmed`
-                : 'No context fields confirmed yet'}
-              {proposedCount > 0 && (
-                <span className="ml-1.5 text-amber-400/70">
-                  ({proposedCount} pending review)
-                </span>
-              )}
-            </span>
-          </li>
-
-          {/* Strategy status */}
-          <li className="flex items-center gap-2.5 text-xs">
-            <span className={strategyExists ? 'text-emerald-400' : 'text-slate-500'}>
-              {strategyExists ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5" />}
-            </span>
-            <span className={strategyExists ? 'text-slate-400' : 'text-slate-500'}>
-              {strategyLocked
-                ? 'Strategy finalized'
-                : strategyExists
-                  ? isImported
-                    ? 'Strategy imported'
-                    : 'Strategy draft created'
-                  : 'No strategy created'}
-            </span>
-          </li>
-        </ul>
-
-        {/* Informational status */}
-        <p className="text-xs text-slate-600 mt-3 pt-3 border-t border-slate-700/30">
-          {!hasLabsRun && confirmedCount === 0
-            ? 'Add key facts manually or run a lab to enrich context.'
-            : confirmedCount > 0
-              ? 'Context enriches AI-generated content quality.'
-              : 'Review proposed context to improve AI quality.'}
-        </p>
-
-        {/* Add context CTA */}
-        <Link
-          href={`/c/${companyId}/context?view=fields`}
-          className="inline-flex items-center gap-1.5 mt-3 text-xs text-cyan-400/80 hover:text-cyan-400 transition-colors"
+      {/* Three-column grid of sections */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Labs Section */}
+        <SectionCard
+          title="Labs"
+          icon={<Beaker className="w-5 h-5" />}
+          status={labsStatus}
+          href={`/c/${companyId}/blueprint`}
+          actionLabel="Run Labs"
         >
-          <PlusCircle className="w-3.5 h-3.5" />
-          Add key facts
-        </Link>
+          <div className="space-y-1">
+            {labSummary?.labs.map(lab => (
+              <LabStatusRow key={lab.labKey} lab={lab} companyId={companyId} />
+            )) ?? (
+              <p className="text-sm text-slate-500">Loading labs...</p>
+            )}
+          </div>
+          {labsRun > 0 && totalFindings > 0 && (
+            <p className="text-xs text-slate-500 mt-3 pt-3 border-t border-slate-700/30">
+              {totalFindings} total findings from {labsRun} lab{labsRun !== 1 ? 's' : ''}
+            </p>
+          )}
+        </SectionCard>
+
+        {/* Context Section */}
+        <SectionCard
+          title="Context"
+          icon={<FileText className="w-5 h-5" />}
+          status={contextStatus}
+          href={`/c/${companyId}/context`}
+          actionLabel={confirmedCount > 0 ? 'Review Context' : 'Add Context'}
+        >
+          <div className="space-y-3">
+            {/* Confirmed */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-400">Confirmed fields</span>
+              <span className={`text-sm font-medium ${confirmedCount > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                {confirmedCount}
+              </span>
+            </div>
+
+            {/* Pending */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-400">Pending review</span>
+              <span className={`text-sm font-medium ${proposedCount > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
+                {proposedCount}
+              </span>
+            </div>
+
+            {/* Empty state hint */}
+            {confirmedCount === 0 && proposedCount === 0 && (
+              <p className="text-xs text-slate-500 pt-2">
+                Run labs to auto-generate context, or add key facts manually.
+              </p>
+            )}
+          </div>
+
+          {/* Quick add link */}
+          {confirmedCount === 0 && (
+            <Link
+              href={`/c/${companyId}/context?view=fields`}
+              className="inline-flex items-center gap-1.5 mt-4 text-xs text-cyan-400/80 hover:text-cyan-400 transition-colors"
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              Add key facts manually
+            </Link>
+          )}
+        </SectionCard>
+
+        {/* Strategy Section */}
+        <SectionCard
+          title="Strategy"
+          icon={<Sparkles className="w-5 h-5" />}
+          status={strategyStatus}
+          href={`/c/${companyId}/strategy`}
+          actionLabel={strategyExists ? 'Review Strategy' : 'Create Strategy'}
+        >
+          <div className="space-y-3">
+            {strategyExists ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-400">Status</span>
+                  <span className={`text-sm font-medium ${
+                    strategyLocked ? 'text-emerald-400' : 'text-purple-400'
+                  }`}>
+                    {strategyLocked ? 'Finalized' : 'Draft'}
+                  </span>
+                </div>
+                {strategyOrigin && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-400">Source</span>
+                    <span className="text-sm text-slate-300 capitalize">
+                      {strategyOrigin === 'imported' ? 'Imported' : 'AI Generated'}
+                    </span>
+                  </div>
+                )}
+                {strategyName && (
+                  <p className="text-xs text-slate-500 pt-2 border-t border-slate-700/30">
+                    "{strategyName}"
+                  </p>
+                )}
+              </>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-slate-500">No strategy created yet</p>
+                <p className="text-xs text-slate-600">
+                  Strategy uses your context to generate positioning, messaging, and tactics.
+                </p>
+              </div>
+            )}
+          </div>
+        </SectionCard>
       </div>
 
-      {/* AI Quality Link */}
-      <Link
-        href={`/c/${companyId}/readiness`}
-        className="block bg-slate-900/30 border border-slate-800/30 rounded-lg p-3 transition-all hover:border-slate-700/50"
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-slate-800/50 text-slate-500">
-              <Settings2 className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-slate-400">AI Quality</h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Advanced checks—most users won&apos;t need this.
-              </p>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-slate-600" />
+      {/* What happens next */}
+      {!canProceed && (
+        <div className="bg-slate-900/30 border border-slate-800/30 rounded-lg p-4">
+          <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
+            What happens next?
+          </h4>
+          <ol className="text-sm text-slate-400 space-y-1.5">
+            <li className="flex items-start gap-2">
+              <span className="text-slate-600">1.</span>
+              <span>Run labs or add context manually to capture key facts about your business</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-slate-600">2.</span>
+              <span>Review proposed context and confirm what's accurate</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-slate-600">3.</span>
+              <span>Generate a strategy from your confirmed context</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-slate-600">4.</span>
+              <span>Proceed to Deliver to activate tactics and create programs</span>
+            </li>
+          </ol>
         </div>
-      </Link>
-    </DecideShell>
+      )}
+    </div>
   );
 }
 

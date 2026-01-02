@@ -55,6 +55,7 @@ export type CanonicalFieldKey =
   | 'brand_tone'
   | 'execution_capabilities'
   | 'business_stage'
+  | 'business_archetype'
   | 'business_model'
   | 'industry';
 
@@ -357,6 +358,18 @@ export const CANONICAL_FIELD_DEFINITIONS: Record<CanonicalFieldKey, CanonicalFie
     populatedByLabs: ['brand'],
     populatedByGap: false, // Optional
   },
+  business_archetype: {
+    key: 'business_archetype',
+    dimension: 'BusinessReality',
+    label: 'Business Archetype',
+    description: 'How the business competes (local, regional service, retail, ecommerce, marketplace, SaaS)',
+    valueType: 'text',
+    requiredForStrategyFrame: true,
+    requiredFor: ['strategy'],
+    contextGraphPath: 'identity.businessArchetype',
+    populatedByLabs: [],
+    populatedByGap: false, // Must be confirmed by operator
+  },
   industry: {
     key: 'industry',
     dimension: 'BusinessReality',
@@ -513,6 +526,7 @@ export const FIELD_VALIDATION_OVERRIDES: Partial<Record<CanonicalFieldKey, Parti
   // Shorter fields allowed
   industry: { minLength: 3, maxLength: 100 },
   business_model: { minLength: 5, maxLength: 100 },
+  business_archetype: { minLength: 3, maxLength: 80 },
   business_stage: { minLength: 5, maxLength: 100 },
   gtm_sales_motion: { minLength: 5, maxLength: 100 },
   constraints_max_budget: { minLength: 3, maxLength: 50 },

@@ -26,6 +26,8 @@ export interface CanonicalFieldsPanelProps {
   companyId: string;
   records: ContextFieldRecord[];
   onRefresh?: () => Promise<void>;
+  /** Called after a field is saved, with the canonical key and new value */
+  onFieldSaved?: (canonicalKey: string, value: string) => void;
 }
 
 // ============================================================================
@@ -63,6 +65,7 @@ export function CanonicalFieldsPanel({
   companyId,
   records,
   onRefresh,
+  onFieldSaved,
 }: CanonicalFieldsPanelProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
@@ -139,6 +142,11 @@ export function CanonicalFieldsPanel({
           throw new Error(data.error || 'Failed to save field');
         }
 
+        // Notify parent that a field was saved (for syncing Map view)
+        if (onFieldSaved) {
+          onFieldSaved(key, value);
+        }
+
         // Refresh data
         if (onRefresh) {
           await onRefresh();
@@ -149,7 +157,7 @@ export function CanonicalFieldsPanel({
         throw err;
       }
     },
-    [companyId, onRefresh]
+    [companyId, onRefresh, onFieldSaved]
   );
 
   const handleConfirm = useCallback(

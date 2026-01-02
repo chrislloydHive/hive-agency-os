@@ -188,19 +188,20 @@ export const DEFAULT_SOURCE_PRIORITY: FieldSource[] = ['user', 'lab', 'ai', 'str
 // ============================================================================
 // CONTEXT SCHEMA V2 - STRICT PREDEFINED FIELDS
 // ============================================================================
-// The new schema has exactly 47 predefined fields across 8 zones.
+// The new schema has exactly 48 predefined fields across 8 zones.
 // No arbitrary "Notes" or free-form fields. AI can only populate these keys.
 // ============================================================================
 
 /**
  * Schema V2 field keys - the ONLY valid context fields
- * 47 total fields across 8 zones
+ * 48 total fields across 8 zones
  */
 export const CONTEXT_SCHEMA_V2_KEYS = [
-  // Zone A: Business Reality (7 fields)
+  // Zone A: Business Reality (8 fields)
   'businessReality.industry',
   'businessReality.marketStage',
   'businessReality.businessModel',
+  'businessReality.businessArchetype',
   'businessReality.seasonalityNotes',
   'businessReality.pricingRange',
   'businessReality.geoFocus',
@@ -279,6 +280,15 @@ export const MARKET_STAGE_OPTIONS: SelectOption[] = [
   { value: 'early', label: 'Early Stage' },
   { value: 'growth', label: 'Growth' },
   { value: 'mature', label: 'Mature' },
+];
+
+export const BUSINESS_ARCHETYPE_OPTIONS: SelectOption[] = [
+  { value: 'local_service', label: 'Local Service' },
+  { value: 'regional_multi_location_service', label: 'Regional / Multi-location Service' },
+  { value: 'national_retail_brand', label: 'National Retail Brand' },
+  { value: 'ecommerce_only', label: 'E-commerce Only' },
+  { value: 'marketplace', label: 'Marketplace / Platform' },
+  { value: 'saas', label: 'SaaS / Software' },
 ];
 
 export const BUSINESS_MODEL_OPTIONS: SelectOption[] = [
@@ -407,6 +417,25 @@ export const CONTEXT_SCHEMA_V2_REGISTRY: UnifiedFieldEntry[] = [
     isCritical: true,
     aiProposable: true,
     aiPromptHint: 'Select: subscription, marketplace, ecommerce, services, or other',
+  },
+  {
+    key: 'businessReality.businessArchetype',
+    label: 'Business Archetype',
+    shortLabel: 'Archetype',
+    description: 'How the business competes (local vs regional service, retail, ecommerce, marketplace, SaaS)',
+    domain: 'identity',
+    zoneId: 'business-reality',
+    category: 'businessReality',
+    strategySection: 'businessReality',
+    valueType: 'select',
+    options: BUSINESS_ARCHETYPE_OPTIONS,
+    legacyPath: 'businessArchetype',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: ['strategy', 'competition'],
+    isCritical: true,
+    aiProposable: true,
+    aiPromptHint: 'Select: local, regional service, national retail, ecommerce, marketplace, or SaaS',
   },
   {
     key: 'businessReality.seasonalityNotes',
@@ -1205,6 +1234,28 @@ export const UNIFIED_FIELD_REGISTRY: UnifiedFieldEntry[] = [
     readinessWeight: 1.0,
     aiProposable: true,
     aiPromptHint: 'Infer the business model from company description',
+  },
+  {
+    key: 'identity.businessArchetype',
+    label: 'Business Archetype',
+    shortLabel: 'Archetype',
+    description: 'How the company competes (local service, regional service, national retail, ecommerce, marketplace, SaaS)',
+    domain: 'identity',
+    graphPath: 'identity.businessArchetype',
+    zoneId: 'business-reality',
+    category: 'identity',
+    strategySection: 'businessReality',
+    strategyField: 'businessArchetype',
+    valueType: 'select',
+    options: BUSINESS_ARCHETYPE_OPTIONS,
+    legacyPath: 'businessArchetype',
+    defaultStatus: 'confirmed',
+    defaultSource: 'user',
+    requiredFor: ['strategy', 'competition'],
+    isCritical: true,
+    readinessWeight: 1,
+    aiProposable: true,
+    aiPromptHint: 'Select the archetype that best describes how this company competes',
   },
   {
     key: 'identity.businessName',

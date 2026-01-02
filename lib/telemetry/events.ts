@@ -50,7 +50,10 @@ export type HiveEventType =
   // Pipeline events
   | 'lead_converted_to_opportunity'
   | 'company_created_from_lead'
-  | 'opportunity_created_from_company';
+  | 'opportunity_created_from_company'
+  // Program Template System events (see lib/observability/operationalEvents.ts)
+  | 'bundle_instantiated'
+  | 'scope_violation';
 
 /**
  * Hive event structure

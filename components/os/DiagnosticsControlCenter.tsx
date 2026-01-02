@@ -345,7 +345,9 @@ function LabCard({
               Running...
             </span>
           ) : lastRun.status === 'complete' ? (
-            <span className="text-slate-500">Last run {formatRelativeTime(lastRun.completedAt)}</span>
+            <span className="text-slate-500" suppressHydrationWarning>
+              Last run {formatRelativeTime(lastRun.completedAt)}
+            </span>
           ) : lastRun.status === 'failed' ? (
             <div className="space-y-1">
               <span className="text-red-400 font-medium">Failed</span>

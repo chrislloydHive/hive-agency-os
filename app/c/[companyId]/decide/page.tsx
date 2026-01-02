@@ -1,10 +1,8 @@
 // app/c/[companyId]/decide/page.tsx
-// Decide Phase - Confirm context and generate strategy
+// Decide Phase Dashboard - Overview of Context & Strategy State
 //
-// Phase 2 of the workflow: Review discoveries and make decisions
-// - Context: Confirm extracted fields from labs
-// - Strategy: Generate strategy from confirmed context
-// - AI Quality: Advanced quality signals (linked, not prominent)
+// Phase 2 landing page: Shows current status of Labs, Context, and Strategy.
+// Users click into each section to make progress.
 
 import { Suspense } from 'react';
 import { getCompanyById } from '@/lib/airtable/companies';

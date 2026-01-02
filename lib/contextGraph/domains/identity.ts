@@ -3,7 +3,7 @@
 
 import { z } from 'zod';
 import { WithMeta, WithMetaArray } from '../types';
-import { BusinessModel, MarketMaturity } from '../enums';
+import { BusinessModel, BusinessArchetype, MarketMaturity } from '../enums';
 
 /**
  * Identity domain captures core business identity and context.
@@ -14,6 +14,7 @@ export const IdentityDomain = z.object({
   businessName: WithMeta(z.string()),
   industry: WithMeta(z.string()),
   businessModel: WithMeta(BusinessModel),
+  businessArchetype: WithMeta(BusinessArchetype),
   revenueModel: WithMeta(z.string()),
 
   // NOTE: icpDescription moved to audience domain (audience.icpDescription)
@@ -49,6 +50,7 @@ export function createEmptyIdentityDomain(): IdentityDomain {
     businessName: { value: null, provenance: [] },
     industry: { value: null, provenance: [] },
     businessModel: { value: null, provenance: [] },
+    businessArchetype: { value: null, provenance: [] },
     revenueModel: { value: null, provenance: [] },
     // icpDescription moved to audience domain
     marketMaturity: { value: null, provenance: [] },

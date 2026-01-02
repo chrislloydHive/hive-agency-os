@@ -53,6 +53,30 @@ export const BUSINESS_MODEL_LABELS: Record<BusinessModel, string> = {
 };
 
 // ============================================================================
+// Business Archetype (Competition/Strategy critical)
+// ============================================================================
+
+export const BusinessArchetype = z.enum([
+  'local_service',
+  'regional_multi_location_service',
+  'national_retail_brand',
+  'ecommerce_only',
+  'marketplace',
+  'saas',
+]);
+
+export type BusinessArchetype = z.infer<typeof BusinessArchetype>;
+
+export const BUSINESS_ARCHETYPE_LABELS: Record<BusinessArchetype, string> = {
+  local_service: 'Local Service',
+  regional_multi_location_service: 'Regional / Multi-location Service',
+  national_retail_brand: 'National Retail Brand',
+  ecommerce_only: 'E-commerce Only',
+  marketplace: 'Marketplace / Platform',
+  saas: 'SaaS / Software',
+};
+
+// ============================================================================
 // Market Maturity
 // ============================================================================
 
