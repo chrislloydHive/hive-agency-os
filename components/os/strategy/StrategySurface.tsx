@@ -38,6 +38,7 @@ import {
 import {
   FlowReadinessInlineWarningMulti,
 } from '@/components/context-v4/FlowReadinessBanner';
+import { ContextReadinessPanel } from '@/components/os/context/ContextReadinessPanel';
 import {
   resolveFlowReadiness,
   contextV4HealthToSignal,
@@ -946,6 +947,13 @@ export function StrategySurface({
           warningCount={warningCount}
         />
       </div>
+
+      {/* Context Readiness Panel (collapsible, shows strategy requirements) */}
+      <ContextReadinessPanel
+        companyId={companyId}
+        requiredFor="strategy"
+        compact
+      />
 
       {/* Flow Readiness Inline Warning (only if errors, not just warnings) */}
       {composedReadiness && composedReadiness.status === 'RED' && (

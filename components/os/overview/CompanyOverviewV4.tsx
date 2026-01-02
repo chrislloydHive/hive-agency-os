@@ -14,6 +14,7 @@ import { useMemo } from 'react';
 import { CompanySnapshotHeader, deriveCompanyLifecycle, type SituationMetrics } from './CompanySnapshotHeader';
 import { PhaseGuide } from './PhaseGuide';
 import { WhatsNextCard } from './WhatsNextCard';
+import { ContextReadinessPanel } from '@/components/os/context/ContextReadinessPanel';
 import type { CompanyStrategy } from '@/lib/types/strategy';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
 import type { RecentDiagnostic } from '@/components/os/blueprint/types';
@@ -105,6 +106,17 @@ export function CompanyOverviewV4({
         <PhaseGuide
           companyId={companyId}
           recentDiagnostics={phaseGuideDiagnostics}
+        />
+      </section>
+
+      {/* ================================================================== */}
+      {/* 2.5. CONTEXT READINESS - What context do we have? */}
+      {/* ================================================================== */}
+      <section id="context-readiness">
+        <ContextReadinessPanel
+          companyId={companyId}
+          requiredFor="overview"
+          compact
         />
       </section>
 

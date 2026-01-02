@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { DataConfidenceBadge, type DataSource } from '@/components/diagnostics/DataConfidenceBadge';
 import { CompanyDMATimeline } from '@/components/os/CompanyDMATimeline';
+import { ContextReadinessPanel } from '@/components/os/context/ContextReadinessPanel';
 import type { DiagnosticRunStatus, DiagnosticToolId } from '@/lib/os/diagnostics/runs';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
 import {
@@ -201,8 +202,10 @@ const LABS: LabDefinition[] = [
     description: 'Competitive landscape',
     icon: 'target',
     color: 'red',
+    runApiPath: '/api/os/diagnostics/run/competition-lab',
     viewPath: '/diagnostics/competition',
     category: 'specialized',
+    feedsContext: true,
   },
   {
     id: 'analyticsLab',
@@ -510,7 +513,19 @@ export function DiagnosticsControlCenter({
         const data = await response.json();
 
         if (response.ok && (data.run || data.runId || data.success)) {
-          setToast({ message: `${lab.name} started`, type: 'success' });
+          // For competition lab, cache the result for immediate display on the competition page
+          // This avoids Airtable eventual consistency issues
+          if (lab.id === 'competitionLab' && data.run) {
+            try {
+              sessionStorage.setItem(
+                `competition-run-${company.id}`,
+                JSON.stringify({ run: data.run, timestamp: Date.now() })
+              );
+            } catch {
+              // Ignore sessionStorage errors
+            }
+          }
+          setToast({ message: `${lab.name} completed`, type: 'success' });
           // Poll for completion or let user see running state
           setTimeout(() => {
             setToast(null);
@@ -609,6 +624,13 @@ export function DiagnosticsControlCenter({
           Discover is where you gather facts before making decisions—whether you&apos;re building strategy from scratch or responding to an RFP.
         </p>
       </div>
+
+      {/* Context Readiness Panel */}
+      <ContextReadinessPanel
+        companyId={company.id}
+        requiredFor="labs"
+        compact={false}
+      />
 
       {/* Dev-only UI state debug indicator */}
       {process.env.NODE_ENV !== 'production' && (

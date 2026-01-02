@@ -30,6 +30,7 @@ import { useContextV4Health } from '@/hooks/useContextV4Health';
 import { FlowReadinessBanner } from './FlowReadinessBanner';
 import { LabCoverageSummary } from './LabCoverageSummary';
 import { LabFindingsDrawer } from './LabFindingsDrawer';
+import { ContextReadinessPanel } from '@/components/os/context/ContextReadinessPanel';
 import type { LabKey } from '@/lib/types/labSummary';
 
 interface ReviewQueueClientProps {
@@ -469,6 +470,14 @@ export function ReviewQueueClient({
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-6">
+      {/* Context Readiness Panel */}
+      <ContextReadinessPanel
+        companyId={companyId}
+        requiredFor="proposals"
+        compact
+        className="mb-4"
+      />
+
       {/* Lab Coverage Summary Panel */}
       <LabCoverageSummary
         companyId={companyId}

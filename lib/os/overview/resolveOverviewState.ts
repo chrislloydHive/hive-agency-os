@@ -380,6 +380,12 @@ function transformDiagnostics(
 ): RecentDiagnostic[] {
   return runs.map((run) => {
     const slug = TOOL_ID_TO_SLUG[run.toolId] || run.toolId;
+    // Competition lab doesn't have per-run pages, just the main lab page
+    const reportPath = run.status === 'complete'
+      ? run.toolId === 'competitionLab'
+        ? `/c/${companyId}/diagnostics/competition`
+        : `/c/${companyId}/diagnostics/${slug}/${run.id}`
+      : null;
     return {
       id: run.id,
       toolId: run.toolId as DiagnosticToolId,
@@ -387,9 +393,7 @@ function transformDiagnostics(
       status: run.status as DiagnosticRunStatus,
       score: run.score,
       completedAt: run.status === 'complete' ? run.updatedAt : null,
-      reportPath: run.status === 'complete'
-        ? `/c/${companyId}/diagnostics/${slug}/${run.id}`
-        : null,
+      reportPath,
       createdAt: run.createdAt,
     };
   });
