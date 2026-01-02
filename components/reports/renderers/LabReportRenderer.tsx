@@ -359,20 +359,33 @@ export function LabReportRenderer({ report }: LabReportRendererProps) {
   const brandIssues = brandLabData?.issues || [];
   const brandFindings = brandLabData?.findings || {};
 
-  // Handle Website Lab structure
+  // Handle Website Lab structure - V5 is the ONLY canonical implementation
   const websiteLabData = data as any;
-  const siteAssessment = websiteLabData?.siteAssessment || websiteLabData?.rawEvidence?.labResultV4?.siteAssessment;
 
-  // Check for V5 diagnostic data (preferred over V4)
+  // V5 diagnostic data - the ONLY source for Website Lab rendering
+  // Check all possible nesting paths where v5Diagnostic may be stored
   const v5Diagnostic = websiteLabData?.v5Diagnostic ||
     websiteLabData?.rawEvidence?.labResultV4?.v5Diagnostic ||
+    websiteLabData?.rawEvidence?.labResultV4?.siteAssessment?.v5Diagnostic ||
+    websiteLabData?.siteAssessment?.v5Diagnostic ||
+    websiteLabData?.labResult?.v5Diagnostic ||
     null;
   const hasV5Diagnostic = v5Diagnostic !== null;
+
+  // Debug logging in development
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[LabReportRenderer] V5 detection:', {
+      hasV5Diagnostic,
+      v5Score: v5Diagnostic?.score,
+      topLevelKeys: Object.keys(websiteLabData || {}).slice(0, 10),
+    });
+  }
 
   // Determine which data to render
   const hasLabOutputContract = labOutput !== null;
   const hasBrandLabStructure = brandDimensions.length > 0 || brandLabData?.maturityStage;
-  const hasWebsiteLabStructure = siteAssessment !== null && siteAssessment !== undefined;
+  // Website Lab structure now ONLY checks for V5
+  const hasWebsiteLabStructure = hasV5Diagnostic;
 
   return (
     <div>
@@ -388,7 +401,7 @@ export function LabReportRenderer({ report }: LabReportRendererProps) {
         </>
       )}
 
-      {/* Website Lab V5 rendering (preferred when available) */}
+      {/* Website Lab V5 rendering - V5 is the ONLY canonical implementation */}
       {hasV5Diagnostic && !hasBrandLabStructure && (
         <>
           {/* V5 Score Banner */}
@@ -441,45 +454,8 @@ export function LabReportRenderer({ report }: LabReportRendererProps) {
         </>
       )}
 
-      {/* Website Lab V4 fallback (only when V5 is not available) */}
-      {hasWebsiteLabStructure && !hasV5Diagnostic && !hasBrandLabStructure && (
-        <>
-          {siteAssessment?.dimensions && <DimensionsSection dimensions={siteAssessment.dimensions} />}
-          {siteAssessment?.issues && <IssuesSection issues={siteAssessment.issues} />}
-          {siteAssessment?.criticalIssues && (
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-6">
-              <div className="flex items-center gap-2 mb-4">
-                <AlertCircle className="w-5 h-5 text-red-400" />
-                <h3 className="text-lg font-semibold text-white">Critical Issues</h3>
-              </div>
-              <ul className="space-y-2">
-                {siteAssessment.criticalIssues.map((issue: string, idx: number) => (
-                  <li key={idx} className="flex items-start gap-2 text-sm text-slate-300">
-                    <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
-                    {issue}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {siteAssessment?.quickWins && (
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 mb-6">
-              <div className="flex items-center gap-2 mb-4">
-                <Lightbulb className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-lg font-semibold text-white">Quick Wins</h3>
-              </div>
-              <ul className="space-y-2">
-                {siteAssessment.quickWins.map((win: string, idx: number) => (
-                  <li key={idx} className="flex items-start gap-2 text-sm text-slate-300">
-                    <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                    {win}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </>
-      )}
+      {/* V4 fallback removed - V5 is the ONLY canonical Website Lab implementation.
+          Legacy V4 data preserved in rawEvidence for inspection only. */}
 
       {/* Generic LabOutput contract rendering */}
       {hasLabOutputContract && !hasBrandLabStructure && !hasWebsiteLabStructure && (
@@ -500,12 +476,14 @@ export function LabReportRenderer({ report }: LabReportRendererProps) {
       )}
 
       {/* If no structured data found, show basic info */}
+      {/* NOTE: This banner should NEVER show when V5 diagnostic exists */}
       {!scores &&
         dimensions.length === 0 &&
         issues.length === 0 &&
         !findings &&
         !hasBrandLabStructure &&
-        !hasWebsiteLabStructure && (
+        !hasWebsiteLabStructure &&
+        !hasV5Diagnostic && (
           <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 text-center">
             <p className="text-slate-400">
               No structured report data available. Check the raw JSON below for details.

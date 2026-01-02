@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { getLatestRunForCompanyAndTool } from '@/lib/os/diagnostics/runs';
 import {
-  buildWebsiteLabCandidates,
+  buildWebsiteLabCandidatesWithV5,
   extractWebsiteLabResult,
 } from '@/lib/contextGraph/v4/websiteLabCandidates';
 import { proposeFromLabResult } from '@/lib/contextGraph/v4/propose';
@@ -120,9 +120,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       });
     }
 
-    // Build candidates from the run's rawJson
-    const candidateResult = buildWebsiteLabCandidates(latestRun.rawJson);
+    // Build candidates from the run's rawJson (prefers V5 if available)
+    const candidateResult = buildWebsiteLabCandidatesWithV5(latestRun.rawJson, latestRun.id);
     response.extractionPath = candidateResult.extractionPath;
+
+    // Log V5 vs V4 extraction
+    const isV5 = candidateResult.extractionPath.includes('v5Diagnostic');
+    console.log(`[propose-website-lab] Using ${isV5 ? 'V5' : 'V4'} candidates:`, {
+      extractionPath: candidateResult.extractionPath,
+      candidateCount: candidateResult.candidates.length,
+    });
 
     // Initialize debug info
     response.debug = {

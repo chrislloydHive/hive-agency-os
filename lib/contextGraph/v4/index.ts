@@ -24,9 +24,13 @@ export {
 
 export {
   buildWebsiteLabCandidates,
+  buildWebsiteLabCandidatesWithV5,
+  buildWebsiteLabV5Candidates,
   extractWebsiteLabResult,
+  extractV5DiagnosticFromRaw,
   getWebsiteLabAuthorizedDomains,
   type BuildWebsiteLabCandidatesResult,
+  type BuildWebsiteLabV5CandidatesResult,
 } from './websiteLabCandidates';
 
 export {

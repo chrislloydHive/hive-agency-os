@@ -1,13 +1,23 @@
 // lib/contextGraph/v4/websiteLabCandidates.ts
 // WebsiteLab Candidate Builder for V4 Proposals
 //
-// Extracts candidates from WebsiteUXLabResultV4 for V4 proposal flow.
+// ============================================================================
+// HARD CUTOVER: Website Lab V5 is the ONLY authoritative source
+// ============================================================================
+//
+// As of this cutover, Website Lab V5 is MANDATORY. V4 structures are IGNORED.
+// If v5Diagnostic is missing, we fail loudly (NO silent fallback to V4).
+//
+// Canonical extraction path: run.rawJson.v5Diagnostic OR
+//                            run.rawJson.rawEvidence.labResultV4.v5Diagnostic
+//
 // Only includes fields within authorized domains: website, digitalInfra.
 // Cross-domain observations (brand, content, audience) are logged but skipped.
 
 import type { LabCandidate } from './propose';
 import { WEBSITE_LAB_MAPPINGS } from '@/lib/contextGraph/websiteLabWriter';
 import type { WebsiteUXLabResultV4 } from '@/lib/gap-heavy/modules/websiteLab';
+import type { V5DiagnosticOutput } from '@/lib/gap-heavy/modules/websiteLabV5';
 
 // ============================================================================
 // Types
@@ -1360,4 +1370,435 @@ export function extractWebsiteLabResult(
  */
 export function getWebsiteLabAuthorizedDomains(): string[] {
   return Array.from(WEBSITELAB_AUTHORIZED_DOMAINS);
+}
+
+// ============================================================================
+// V5 CANDIDATE BUILDER
+// ============================================================================
+
+/**
+ * Result from V5 candidate builder
+ */
+export interface BuildWebsiteLabV5CandidatesResult {
+  candidates: LabCandidate[];
+  fieldKeys: string[];
+  extractionPath: string;
+}
+
+/**
+ * Extract v5Diagnostic from rawJson (handles various nesting)
+ */
+export function extractV5DiagnosticFromRaw(rawJson: unknown): V5DiagnosticOutput | null {
+  if (!rawJson || typeof rawJson !== 'object') return null;
+  const raw = rawJson as Record<string, unknown>;
+
+  // Path 1: Top-level v5Diagnostic (normalized/canonical)
+  if (raw.v5Diagnostic && typeof raw.v5Diagnostic === 'object') {
+    const v5 = raw.v5Diagnostic as V5DiagnosticOutput;
+    if (typeof v5.score === 'number' || Array.isArray(v5.blockingIssues)) {
+      return v5;
+    }
+  }
+
+  // Path 2: In rawEvidence.labResultV4.v5Diagnostic
+  const rawEvidence = raw.rawEvidence as Record<string, unknown> | undefined;
+  if (rawEvidence?.labResultV4 && typeof rawEvidence.labResultV4 === 'object') {
+    const labResult = rawEvidence.labResultV4 as Record<string, unknown>;
+    if (labResult.v5Diagnostic && typeof labResult.v5Diagnostic === 'object') {
+      const v5 = labResult.v5Diagnostic as V5DiagnosticOutput;
+      if (typeof v5.score === 'number' || Array.isArray(v5.blockingIssues)) {
+        return v5;
+      }
+    }
+  }
+
+  // Path 3: In labResult.v5Diagnostic
+  if (raw.labResult && typeof raw.labResult === 'object') {
+    const labResult = raw.labResult as Record<string, unknown>;
+    if (labResult.v5Diagnostic && typeof labResult.v5Diagnostic === 'object') {
+      return labResult.v5Diagnostic as V5DiagnosticOutput;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Build V5 candidates from Website Lab V5 diagnostic output.
+ *
+ * This function extracts high-signal proposals from V5 data:
+ * - websiteScore: The V5 score (0-100)
+ * - executiveSummary: Score justification
+ * - quickWins: Top 3 quick wins as actionable list
+ * - valueProposition: Derived from score justification + top blocking issue
+ * - companyDescription: Derived from executive summary
+ *
+ * Evidence is anchored to specific page paths from V5 data.
+ *
+ * @param v5Diagnostic - The V5DiagnosticOutput from a Website Lab run
+ * @param runId - The diagnostic run ID (for evidence)
+ * @returns BuildWebsiteLabV5CandidatesResult with candidates and field keys
+ */
+export function buildWebsiteLabV5Candidates(
+  v5Diagnostic: V5DiagnosticOutput,
+  runId: string
+): BuildWebsiteLabV5CandidatesResult {
+  const candidates: LabCandidate[] = [];
+  const fieldKeys: string[] = [];
+
+  console.log('[WebsiteLabCandidates] Using V5 candidates builder');
+
+  // ============================================================================
+  // A) website.websiteScore (numeric)
+  // ============================================================================
+  if (typeof v5Diagnostic.score === 'number') {
+    const personaSuccessCount = v5Diagnostic.personaJourneys?.filter(j => j.succeeded).length || 0;
+    const personaTotalCount = v5Diagnostic.personaJourneys?.length || 0;
+    const blockingCount = v5Diagnostic.blockingIssues?.length || 0;
+
+    candidates.push({
+      key: 'website.websiteScore',
+      value: v5Diagnostic.score,
+      confidence: 0.85, // High confidence for direct V5 score
+      evidence: {
+        rawPath: 'v5Diagnostic.score',
+        snippet: `Website Lab V5 score: ${v5Diagnostic.score}/100; blockingIssues: ${blockingCount}; persona success: ${personaSuccessCount}/${personaTotalCount}`,
+      },
+    });
+    fieldKeys.push('website.websiteScore');
+  }
+
+  // ============================================================================
+  // B) website.executiveSummary (concise summary of key issues)
+  // ============================================================================
+  if (v5Diagnostic.scoreJustification || v5Diagnostic.blockingIssues?.length) {
+    // Build a CONCISE summary focusing on actionable issues
+    const blockingCount = v5Diagnostic.blockingIssues?.length || 0;
+    const quickWinCount = v5Diagnostic.quickWins?.length || 0;
+    const failedJourneys = v5Diagnostic.personaJourneys?.filter(j => !j.succeeded).length || 0;
+
+    // Create a short, punchy summary
+    let summary = `Score: ${v5Diagnostic.score}/100. `;
+
+    if (blockingCount > 0) {
+      const topIssues = v5Diagnostic.blockingIssues!.slice(0, 2)
+        .map(b => `${b.page}: ${b.whyItBlocks}`)
+        .join('. ');
+      summary += `Key blockers: ${topIssues}. `;
+    }
+
+    if (failedJourneys > 0) {
+      summary += `${failedJourneys} persona journey${failedJourneys > 1 ? 's' : ''} failed. `;
+    }
+
+    if (quickWinCount > 0) {
+      summary += `${quickWinCount} quick win${quickWinCount > 1 ? 's' : ''} identified.`;
+    }
+
+    // Keep the value SHORT (under 500 chars)
+    const summaryValue = summary.length > 500 ? summary.slice(0, 497) + '...' : summary;
+
+    // Evidence shows the raw justification for context
+    const evidenceSnippet = v5Diagnostic.scoreJustification
+      ? v5Diagnostic.scoreJustification.slice(0, 200)
+      : `${blockingCount} blocking issues, ${quickWinCount} quick wins`;
+
+    candidates.push({
+      key: 'website.executiveSummary',
+      value: summaryValue,
+      confidence: 0.85,
+      evidence: {
+        rawPath: 'v5Diagnostic',
+        snippet: evidenceSnippet,
+        url: v5Diagnostic.blockingIssues?.[0]?.page || undefined,
+      },
+    });
+    fieldKeys.push('website.executiveSummary');
+  }
+
+  // ============================================================================
+  // C) website.quickWins (actionable fixes with exact page + impact)
+  // ============================================================================
+  if (Array.isArray(v5Diagnostic.quickWins) && v5Diagnostic.quickWins.length > 0) {
+    // Format quick wins with SPECIFIC page, action, and expected impact
+    const top5QuickWins = v5Diagnostic.quickWins.slice(0, 5);
+    const quickWinsValue = top5QuickWins.map(qw => {
+      // Format: "Page /pricing: Add pricing table → Increase conversion by 20%"
+      return `Page ${qw.page}: ${qw.action}${qw.expectedImpact ? ` → ${qw.expectedImpact}` : ''}`;
+    });
+
+    // Evidence shows the title (summary)
+    const quickWinsEvidence = top5QuickWins.map(qw =>
+      `${qw.page}: ${qw.title}`
+    ).join(' | ');
+
+    candidates.push({
+      key: 'website.quickWins',
+      value: quickWinsValue,
+      confidence: 0.85,
+      evidence: {
+        rawPath: 'v5Diagnostic.quickWins',
+        snippet: quickWinsEvidence,
+      },
+    });
+    fieldKeys.push('website.quickWins');
+  }
+
+  // ============================================================================
+  // D) website.conversionBlocks (page-specific with exact location)
+  // ============================================================================
+  if (Array.isArray(v5Diagnostic.blockingIssues) && v5Diagnostic.blockingIssues.length > 0) {
+    // Format with SPECIFIC page + location + fix
+    const conversionBlocks = v5Diagnostic.blockingIssues.map(issue => {
+      const location = issue.concreteFix?.where || 'on page';
+      const fix = issue.concreteFix?.what || '';
+      // Format: "Page /pricing (above fold): Missing pricing table → Add tier comparison"
+      return `Page ${issue.page} (${location}): ${issue.whyItBlocks}${fix ? ` → ${fix}` : ''}`;
+    });
+
+    // Evidence shows page paths
+    const blocksEvidence = v5Diagnostic.blockingIssues.slice(0, 3).map(issue =>
+      `${issue.page}: ${issue.concreteFix?.where || ''}`
+    ).join(' | ');
+
+    candidates.push({
+      key: 'website.conversionBlocks',
+      value: conversionBlocks,
+      confidence: 0.85,
+      evidence: {
+        rawPath: 'v5Diagnostic.blockingIssues',
+        snippet: blocksEvidence,
+      },
+    });
+    fieldKeys.push('website.conversionBlocks');
+  }
+
+  // ============================================================================
+  // E) website.personaJourneyInsights (specific failure points with page paths)
+  // ============================================================================
+  if (Array.isArray(v5Diagnostic.personaJourneys) && v5Diagnostic.personaJourneys.length > 0) {
+    // Focus on FAILED journeys - these are actionable
+    const failedJourneys = v5Diagnostic.personaJourneys.filter(j => !j.succeeded);
+    const successCount = v5Diagnostic.personaJourneys.filter(j => j.succeeded).length;
+    const totalCount = v5Diagnostic.personaJourneys.length;
+
+    // Format ALL journeys with their outcomes for context
+    const journeyInsights: string[] = [];
+
+    // Add failed journeys with specific failure points
+    for (const journey of failedJourneys) {
+      const failurePage = journey.failurePoint?.page || journey.actualPath[journey.actualPath.length - 1] || 'unknown';
+      const failureReason = journey.failurePoint?.reason || 'journey incomplete';
+      const path = journey.actualPath.join(' → ');
+      // Format: "FAILED: ready_to_buy at Page /pricing: No clear pricing visible (path: / → /pricing)"
+      journeyInsights.push(`FAILED: ${journey.persona} at Page ${failurePage}: ${failureReason} (path: ${path})`);
+    }
+
+    // Add success summary if any succeeded
+    if (successCount > 0) {
+      const succeededPersonas = v5Diagnostic.personaJourneys
+        .filter(j => j.succeeded)
+        .map(j => j.persona)
+        .join(', ');
+      journeyInsights.push(`SUCCEEDED: ${succeededPersonas} (${successCount}/${totalCount} completed goals)`);
+    }
+
+    if (journeyInsights.length > 0) {
+      const journeyEvidence = `${failedJourneys.length}/${totalCount} failed: ${failedJourneys.map(j => j.failurePoint?.page || 'unknown').join(', ')}`;
+
+      candidates.push({
+        key: 'website.personaJourneyInsights',
+        value: journeyInsights,
+        confidence: 0.80,
+        evidence: {
+          rawPath: 'v5Diagnostic.personaJourneys',
+          snippet: journeyEvidence,
+        },
+      });
+      fieldKeys.push('website.personaJourneyInsights');
+    }
+  }
+
+  // ============================================================================
+  // F) website.pageIssues (specific issues per page from observations)
+  // ============================================================================
+  if (Array.isArray(v5Diagnostic.observations) && v5Diagnostic.observations.length > 0) {
+    // Extract SPECIFIC issues from each page's missingUnclearElements
+    const pageIssues: string[] = [];
+
+    for (const obs of v5Diagnostic.observations) {
+      if (obs.missingUnclearElements && obs.missingUnclearElements.length > 0) {
+        // Format: "Page / (home): [issue1], [issue2]"
+        const issues = obs.missingUnclearElements.slice(0, 3).join(', ');
+        pageIssues.push(`Page ${obs.pagePath} (${obs.pageType}): ${issues}`);
+      }
+    }
+
+    if (pageIssues.length > 0) {
+      const pageIssuesEvidence = v5Diagnostic.observations.slice(0, 3).map(obs =>
+        `${obs.pagePath}: ${obs.missingUnclearElements?.length || 0} issues`
+      ).join(' | ');
+
+      candidates.push({
+        key: 'website.pageIssues',
+        value: pageIssues,
+        confidence: 0.80,
+        evidence: {
+          rawPath: 'v5Diagnostic.observations[].missingUnclearElements',
+          snippet: pageIssuesEvidence,
+        },
+      });
+      fieldKeys.push('website.pageIssues');
+    }
+  }
+
+  // ============================================================================
+  // G) website.structuralRecommendations (from structural changes)
+  // ============================================================================
+  if (Array.isArray(v5Diagnostic.structuralChanges) && v5Diagnostic.structuralChanges.length > 0) {
+    const structuralRecs = v5Diagnostic.structuralChanges.map(change => {
+      const pages = change.pagesAffected?.join(', ') || '';
+      return `${change.title}: ${change.description}${pages ? ` (affects: ${pages})` : ''}`;
+    });
+
+    const structuralEvidence = v5Diagnostic.structuralChanges.map(c =>
+      `${c.title}: ${c.pagesAffected?.join(', ') || 'site-wide'}`
+    ).join(' | ');
+
+    candidates.push({
+      key: 'website.structuralRecommendations',
+      value: structuralRecs,
+      confidence: 0.75,
+      evidence: {
+        rawPath: 'v5Diagnostic.structuralChanges',
+        snippet: structuralEvidence,
+      },
+    });
+    fieldKeys.push('website.structuralRecommendations');
+  }
+
+  // ============================================================================
+  // NOTE: We do NOT propose productOffer.valueProposition or identity.companyDescription
+  // from Website Lab. Those fields require Brand Lab data. Website Lab only knows
+  // about UX/conversion issues, not the company's actual value proposition.
+  // ============================================================================
+
+  console.log('[WebsiteLabCandidates] V5 candidates built:', {
+    count: candidates.length,
+    fieldKeys,
+    runId,
+  });
+
+  return {
+    candidates,
+    fieldKeys,
+    extractionPath: 'v5Diagnostic',
+  };
+}
+
+/**
+ * Build candidates from Website Lab rawJson using V5 ONLY.
+ *
+ * ============================================================================
+ * HARD CUTOVER: V5 is MANDATORY. V4 fallback is DISABLED.
+ * ============================================================================
+ *
+ * This function extracts candidates from V5 diagnostic data ONLY.
+ * If V5 is missing, it fails loudly and returns an error state.
+ *
+ * @param rawJson - The rawJson from a diagnostic run
+ * @param runId - The diagnostic run ID
+ * @returns BuildWebsiteLabCandidatesResult with candidates or error
+ */
+export function buildWebsiteLabCandidatesWithV5(
+  rawJson: unknown,
+  runId: string
+): BuildWebsiteLabCandidatesResult {
+  // ============================================================================
+  // V5 CANONICAL PATH - This is the ONLY extraction path
+  // ============================================================================
+  console.log('[WebsiteLab] V5 canonical path active');
+
+  const v5Diagnostic = extractV5DiagnosticFromRaw(rawJson);
+
+  // ============================================================================
+  // FAIL LOUDLY: V5 is MANDATORY
+  // ============================================================================
+  if (!v5Diagnostic) {
+    // Extract top-level keys for debugging
+    let topLevelKeys: string[] = [];
+    if (rawJson && typeof rawJson === 'object' && !Array.isArray(rawJson)) {
+      topLevelKeys = Object.keys(rawJson as object).slice(0, 20);
+    }
+
+    console.error('[WebsiteLab] V5_MISSING: No v5Diagnostic found in rawJson', {
+      runId,
+      topLevelKeys,
+      hasRawEvidence: !!(rawJson as Record<string, unknown>)?.rawEvidence,
+    });
+
+    // Return error result - DO NOT fall back to V4
+    return {
+      extractionPath: 'V5_MISSING_ERROR',
+      rawKeysFound: topLevelKeys.length,
+      candidates: [],
+      skipped: {
+        wrongDomain: 0,
+        emptyValue: 0,
+        noMapping: 0,
+      },
+      skippedWrongDomainKeys: [],
+      topLevelKeys,
+      extractionFailureReason: 'V5 diagnostic data is REQUIRED but missing. V4 fallback is DISABLED. Re-run the Website Lab to generate V5 data.',
+      errorState: {
+        isError: true,
+        errorType: 'DIAGNOSTIC_FAILED',
+        errorMessage: 'Website Lab V5 data is missing. This is a V5-only system. Please re-run the Website Lab diagnostic.',
+      },
+    };
+  }
+
+  // ============================================================================
+  // V5 FOUND: Build candidates from V5 data
+  // ============================================================================
+  console.log('[WebsiteLab] V5 diagnostic found, building candidates');
+
+  const v5Result = buildWebsiteLabV5Candidates(v5Diagnostic, runId);
+
+  if (v5Result.candidates.length === 0) {
+    console.warn('[WebsiteLab] V5 diagnostic found but produced 0 candidates', {
+      runId,
+      v5Keys: Object.keys(v5Diagnostic),
+      hasBlockingIssues: !!v5Diagnostic.blockingIssues?.length,
+      hasQuickWins: !!v5Diagnostic.quickWins?.length,
+    });
+  } else {
+    console.log('[WebsiteLab] V5 candidates built successfully:', {
+      count: v5Result.candidates.length,
+      fieldKeys: v5Result.fieldKeys,
+    });
+  }
+
+  // Convert to BuildWebsiteLabCandidatesResult format
+  return {
+    extractionPath: 'v5Diagnostic (V5 canonical)',
+    rawKeysFound: Object.keys(v5Diagnostic).length,
+    candidates: v5Result.candidates,
+    skipped: {
+      wrongDomain: 0,
+      emptyValue: 0,
+      noMapping: 0,
+    },
+    skippedWrongDomainKeys: [],
+  };
+}
+
+/**
+ * @deprecated Use buildWebsiteLabCandidatesWithV5 instead.
+ * This function is retained for backwards compatibility but will log a deprecation warning.
+ * V4 extraction is DISABLED. This function now delegates to the V5-only path.
+ */
+export function buildWebsiteLabCandidatesLegacy(rawJson: unknown): BuildWebsiteLabCandidatesResult {
+  console.warn('[WebsiteLab] DEPRECATED: buildWebsiteLabCandidates called. V4 extraction is DISABLED. Use buildWebsiteLabCandidatesWithV5 instead.');
+  return buildWebsiteLabCandidatesWithV5(rawJson, 'legacy-call');
 }

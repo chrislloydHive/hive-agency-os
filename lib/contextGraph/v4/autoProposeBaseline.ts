@@ -34,7 +34,7 @@ import {
 // Types
 // ============================================================================
 
-export type AutoProposeTriggeredBy = 'websiteLab' | 'gapPlan' | 'brandLab';
+export type AutoProposeTriggeredBy = 'websiteLab' | 'gapPlan' | 'brandLab' | 'competitionLab' | 'audienceLab';
 
 export interface AutoProposeBaselineParams {
   companyId: string;
