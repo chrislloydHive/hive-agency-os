@@ -6,6 +6,7 @@ import { getCompanyById } from '@/lib/airtable/companies';
 import { runCompetitionV4 } from '@/lib/competition-v4';
 import { saveCompetitionRunV4 } from '@/lib/competition-v4/store';
 import { loadContextGraph, saveContextGraph } from '@/lib/contextGraph/storage';
+import { createEmptyContextGraph, type CompanyContextGraph } from '@/lib/contextGraph/companyContextGraph';
 import { createEmptyCompetitiveDomain, createDefaultCompetitorProfile } from '@/lib/contextGraph/domains/competitive';
 import { createDiagnosticRun, updateDiagnosticRun } from '@/lib/os/diagnostics/runs';
 
@@ -63,7 +64,7 @@ export async function POST(
     // Write V4 competitors directly to context graph for immediate UI display
     if (result.competitors.validated.length > 0) {
       try {
-        const graph = (await loadContextGraph(companyId)) || {};
+        const graph: CompanyContextGraph = (await loadContextGraph(companyId)) || createEmptyContextGraph(companyId, company.name);
 
         // Convert V4 competitors to CompetitorProfile format
         const categoryMap: Record<string, 'direct' | 'indirect' | 'aspirational' | 'emerging'> = {
