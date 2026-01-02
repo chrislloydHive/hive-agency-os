@@ -105,7 +105,8 @@ export type ArtifactSource =
   | 'rfp_export'        // Created from RFP/proposal workflow
   | 'ai_generated'      // Created by AI artifact generator
   | 'manual'            // Manually created by user
-  | 'diagnostic_run';   // Created from completed lab/GAP diagnostic run
+  | 'diagnostic_run'    // Created from completed lab/GAP diagnostic run
+  | 'template';         // Created from Drive template
 
 /**
  * Google Drive file type
@@ -579,6 +580,8 @@ export function getArtifactSourceLabel(source: ArtifactSource): string {
       return 'Manual Creation';
     case 'diagnostic_run':
       return 'Diagnostic Run';
+    case 'template':
+      return 'From Template';
     default:
       return 'Unknown';
   }

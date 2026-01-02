@@ -19,7 +19,9 @@ export type CompanyTabId =
   | 'decide'      // Phase 2: Context + Strategy
   | 'deliver'     // Phase 3: Deliverables
   | 'work'        // Execution handoff
-  | 'documents'   // Archive/browse
+  | 'artifacts'   // Output ledger (renamed from documents)
+  | 'documents'   // Legacy alias for artifacts
+  | 'week-view'   // Weekly dashboard
   // Legacy/secondary (routes still work)
   | 'context'
   | 'diagnostics'
@@ -84,11 +86,26 @@ export const COMPANY_TABS: CompanyTab[] = [
     primary: true,
   },
   {
-    id: 'documents',
-    name: 'Documents',
-    href: (companyId) => `/c/${companyId}/documents`,
+    id: 'artifacts',
+    name: 'Artifacts',
+    href: (companyId) => `/c/${companyId}/artifacts`,
     description: 'Browse and manage all generated artifacts',
     primary: true,
+  },
+  {
+    id: 'documents',
+    name: 'Documents',
+    href: (companyId) => `/c/${companyId}/artifacts`, // Redirect to artifacts
+    description: 'Legacy alias for Artifacts',
+    primary: false,
+    hidden: true,
+  },
+  {
+    id: 'week-view',
+    name: 'Week View',
+    href: (companyId) => `/c/${companyId}/week-view`,
+    description: 'Weekly dashboard for deliverables, health, and approvals',
+    primary: false, // Accessible from Overview link, not in main tabs
   },
   // === Secondary Navigation (accessible via direct routes) ===
   {
@@ -187,11 +204,13 @@ export function getCompanyTabFromPath(pathname: string, companyId: string): Comp
 
   // Other primary routes
   if (pathname.startsWith(`/c/${companyId}/work`)) return 'work';
-  if (pathname.startsWith(`/c/${companyId}/documents`)) return 'documents';
+  if (pathname.startsWith(`/c/${companyId}/artifacts`)) return 'artifacts';
+  if (pathname.startsWith(`/c/${companyId}/documents`)) return 'artifacts'; // Legacy redirect
+  if (pathname.startsWith(`/c/${companyId}/week-view`)) return 'week-view';
 
-  // Legacy routes map to documents
-  if (pathname.startsWith(`/c/${companyId}/reports`)) return 'documents';
-  if (pathname.startsWith(`/c/${companyId}/qbr`)) return 'documents';
+  // Legacy routes map to artifacts
+  if (pathname.startsWith(`/c/${companyId}/reports`)) return 'artifacts';
+  if (pathname.startsWith(`/c/${companyId}/qbr`)) return 'artifacts';
 
   // Secondary routes (not in primary nav but still functional)
   if (pathname.startsWith(`/c/${companyId}/brain`)) return 'brain';

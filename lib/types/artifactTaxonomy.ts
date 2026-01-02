@@ -206,6 +206,8 @@ export enum ArtifactSource {
   Manual = 'manual',
   /** Uploaded by user */
   Upload = 'upload',
+  /** Instantiated from template */
+  Template = 'template',
 
   // External
   /** Imported from external system */
@@ -249,6 +251,25 @@ export enum ArtifactStatus {
   Archived = 'archived',
   /** Content is out of date */
   Stale = 'stale',
+  /** Superseded by newer version */
+  Superseded = 'superseded',
+}
+
+// ============================================================================
+// ArtifactProvenance - Who created/edited the artifact
+// ============================================================================
+
+/**
+ * Canonical provenance tracking for artifact authorship.
+ * Indicates whether content is AI-generated, human-authored, or mixed.
+ */
+export enum ArtifactProvenance {
+  /** Fully AI-generated, no human edits */
+  AI = 'ai',
+  /** Human-authored (manual creation or upload) */
+  Human = 'human',
+  /** AI-generated with human edits/review */
+  Mixed = 'mixed',
 }
 
 // ============================================================================
@@ -267,6 +288,52 @@ export enum ArtifactFileType {
   Image = 'image',
   Video = 'video',
   Other = 'other',
+}
+
+// ============================================================================
+// ArtifactVisibility - Where artifact appears in UI
+// ============================================================================
+
+/**
+ * Controls where artifact appears in the application UI.
+ *
+ * CRITICAL: Opening a document from Documents library should NOT
+ * create new nav items or pollute the company navigation.
+ *
+ * - documents_only: Artifact appears in Documents library only (default for lab reports)
+ * - nav_visible: Artifact appears in company nav sidebar (e.g., pinned strategy docs)
+ * - hidden: Artifact is hidden from both (archived, internal)
+ */
+export enum ArtifactVisibility {
+  /** Appears in Documents library only - opening does NOT create nav items */
+  DocumentsOnly = 'documents_only',
+  /** Appears in company nav sidebar (pinned/primary artifacts) */
+  NavVisible = 'nav_visible',
+  /** Hidden from all UI surfaces (archived or internal) */
+  Hidden = 'hidden',
+}
+
+/**
+ * Get default visibility for artifact type.
+ * Lab reports default to documents_only.
+ * Strategy docs default to nav_visible.
+ */
+export function getDefaultVisibility(type: ArtifactType): ArtifactVisibility {
+  // Strategy docs may appear in nav
+  if (
+    type === ArtifactType.StrategyDoc ||
+    type === ArtifactType.StrategyBrief
+  ) {
+    return ArtifactVisibility.NavVisible;
+  }
+
+  // Lab reports are documents_only (never nav items)
+  if (type.startsWith('lab_report_') || type === ArtifactType.GapReport) {
+    return ArtifactVisibility.DocumentsOnly;
+  }
+
+  // Default to documents_only
+  return ArtifactVisibility.DocumentsOnly;
 }
 
 // ============================================================================
@@ -492,8 +559,21 @@ export function getStatusLabel(status: ArtifactStatus): string {
     [ArtifactStatus.Final]: 'Final',
     [ArtifactStatus.Archived]: 'Archived',
     [ArtifactStatus.Stale]: 'Needs Update',
+    [ArtifactStatus.Superseded]: 'Superseded',
   };
   return labels[status];
+}
+
+/**
+ * Get human-readable label for artifact provenance
+ */
+export function getProvenanceLabel(provenance: ArtifactProvenance): string {
+  const labels: Record<ArtifactProvenance, string> = {
+    [ArtifactProvenance.AI]: 'AI Generated',
+    [ArtifactProvenance.Human]: 'Human',
+    [ArtifactProvenance.Mixed]: 'AI + Human',
+  };
+  return labels[provenance];
 }
 
 /**
@@ -518,6 +598,7 @@ export function getSourceLabel(source: ArtifactSource): string {
     [ArtifactSource.WorkAttachment]: 'Work Attachment',
     [ArtifactSource.Manual]: 'Manual',
     [ArtifactSource.Upload]: 'Upload',
+    [ArtifactSource.Template]: 'Template',
     [ArtifactSource.Import]: 'Import',
   };
   return labels[source];

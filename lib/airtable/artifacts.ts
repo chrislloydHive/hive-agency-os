@@ -19,6 +19,7 @@ import type {
   ArtifactFeedbackEntry,
 } from '@/lib/types/artifact';
 import { createDefaultUsage } from '@/lib/types/artifact';
+import { indexArtifactFromArtifact } from '@/lib/os/artifacts/indexer';
 
 // ============================================================================
 // Constants
@@ -102,6 +103,17 @@ function mapAirtableRecord(record: {
     }
   }
 
+  // Parse rawData from JSON string (for diagnostic artifacts)
+  let rawData: unknown = null;
+  const rawDataStr = fields['rawDataJson'] as string | undefined;
+  if (rawDataStr) {
+    try {
+      rawData = JSON.parse(rawDataStr);
+    } catch {
+      rawData = null;
+    }
+  }
+
   return {
     id: record.id,
     companyId: (fields['companyId'] as string) || '',
@@ -123,6 +135,9 @@ function mapAirtableRecord(record: {
     sourceBriefId: (fields['sourceBriefId'] as string) || null,
     sourceMediaPlanId: (fields['sourceMediaPlanId'] as string) || null,
     sourceContentPlanId: (fields['sourceContentPlanId'] as string) || null,
+    sourceDiagnosticRunId: (fields['sourceDiagnosticRunId'] as string) || null,
+    labSlug: (fields['labSlug'] as string) || null,
+    rawData,
     engagementId: (fields['engagementId'] as string) || null,
     projectId: (fields['projectId'] as string) || null,
 
@@ -192,8 +207,31 @@ function mapCreateInputToFields(
   if (input.sourceBriefId) fields.sourceBriefId = input.sourceBriefId;
   if (input.sourceMediaPlanId) fields.sourceMediaPlanId = input.sourceMediaPlanId;
   if (input.sourceContentPlanId) fields.sourceContentPlanId = input.sourceContentPlanId;
+  if (input.sourceDiagnosticRunId) fields.sourceDiagnosticRunId = input.sourceDiagnosticRunId;
   if (input.engagementId) fields.engagementId = input.engagementId;
   if (input.projectId) fields.projectId = input.projectId;
+
+  // Diagnostic artifact fields
+  if (input.labSlug) fields.labSlug = input.labSlug;
+  if (input.rawData !== undefined) {
+    // Airtable long text fields have a 100,000 character limit
+    // Truncate large JSON data to fit
+    const MAX_JSON_LENGTH = 95000;
+    let jsonStr = JSON.stringify(input.rawData);
+
+    if (jsonStr.length > MAX_JSON_LENGTH) {
+      console.log('[Artifacts] Raw data too large, truncating:', {
+        originalLength: jsonStr.length,
+      });
+      jsonStr = JSON.stringify({
+        _truncated: true,
+        _originalLength: jsonStr.length,
+        _note: 'Full diagnostic data available in DiagnosticRuns table',
+      });
+    }
+
+    fields.rawDataJson = jsonStr;
+  }
 
   // Google Drive fields
   if (input.googleFileId) fields.googleFileId = input.googleFileId;
@@ -332,7 +370,15 @@ export async function createArtifact(input: CreateArtifactInput): Promise<Artifa
 
     const record = await base(ARTIFACTS_TABLE).create(fields as any);
 
-    return mapAirtableRecord(record as unknown as { id: string; fields: Record<string, unknown> });
+    const artifact = mapAirtableRecord(record as unknown as { id: string; fields: Record<string, unknown> });
+
+    // Index the artifact for Documents UI
+    // Fire-and-forget: don't block creation on indexing
+    indexArtifactFromArtifact(artifact).catch(err => {
+      console.error('[Artifacts] Failed to index artifact:', artifact.id, err);
+    });
+
+    return artifact;
   } catch (error) {
     // Log detailed error info for debugging
     const airtableError = error as { statusCode?: number; message?: string; error?: string };
@@ -501,6 +547,49 @@ export async function getArtifactBySourceBriefId(briefId: string): Promise<Artif
   } catch (error) {
     console.error(`[Artifacts] Failed to get artifact for brief ${briefId}:`, error);
     return null;
+  }
+}
+
+/**
+ * Get artifact by source diagnostic run ID
+ */
+export async function getArtifactBySourceDiagnosticRunId(diagnosticRunId: string): Promise<Artifact | null> {
+  try {
+    const records = await base(ARTIFACTS_TABLE)
+      .select({
+        filterByFormula: `{sourceDiagnosticRunId} = "${diagnosticRunId}"`,
+        maxRecords: 1,
+        sort: [{ field: 'createdAt', direction: 'desc' }],
+      })
+      .firstPage();
+
+    if (records.length === 0) return null;
+
+    return mapAirtableRecord(records[0] as unknown as { id: string; fields: Record<string, unknown> });
+  } catch (error) {
+    console.error(`[Artifacts] Failed to get artifact for diagnostic run ${diagnosticRunId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Get diagnostic artifacts for a company (lab_report and gap_report)
+ */
+export async function getDiagnosticArtifactsForCompany(companyId: string): Promise<Artifact[]> {
+  try {
+    const records = await base(ARTIFACTS_TABLE)
+      .select({
+        filterByFormula: `AND({companyId} = "${companyId}", OR({type} = "lab_report", {type} = "gap_report"))`,
+        sort: [{ field: 'createdAt', direction: 'desc' }],
+      })
+      .all();
+
+    return records.map((r: { id: string; fields: Record<string, unknown> }) =>
+      mapAirtableRecord(r)
+    );
+  } catch (error) {
+    console.error(`[Artifacts] Failed to get diagnostic artifacts for company ${companyId}:`, error);
+    return [];
   }
 }
 

@@ -34,6 +34,7 @@ import type { Artifact, ArtifactType, ArtifactStatus } from '@/lib/types/artifac
 import { getArtifactTypeLabel, getArtifactStatusLabel, createDefaultUsage } from '@/lib/types/artifact';
 import type { CompanyArtifactIndex, ArtifactPhase } from '@/lib/types/artifactIndex';
 import { ArtifactUsageBadge } from '@/components/os/artifacts/ArtifactUsageIndicators';
+import { DriveIntegrationStatus } from '@/components/os/documents/DriveIntegrationStatus';
 import {
   getDocumentsUIState,
   getUpdateRouteForArtifact,
@@ -143,11 +144,14 @@ export function DocumentsClient({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">Documents</h1>
-        <p className="text-sm text-slate-400 mt-1">
-          All generated deliverables for {companyName}.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Documents</h1>
+          <p className="text-sm text-slate-400 mt-1">
+            All generated deliverables for {companyName}.
+          </p>
+        </div>
+        <DriveIntegrationStatus compact />
       </div>
 
       {/* Dev-only UI state debug indicator */}
@@ -195,28 +199,33 @@ export function DocumentsClient({
 
       {/* Empty State - Only show if BOTH sources are empty */}
       {isTrulyEmpty && (
-        <div className="bg-slate-900/50 border border-slate-800 border-dashed rounded-xl p-12 text-center">
-          <FileText className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-          <p className="text-lg font-medium text-slate-400">No documents yet</p>
-          <p className="text-sm text-slate-500 mt-1 mb-6">
-            Run diagnostics in Discover, create a strategy in Decide, or generate deliverables in Deliver.
-          </p>
-          <div className="flex items-center justify-center gap-3">
-            <Link
-              href={`/c/${companyId}/blueprint`}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-semibold text-sm transition-colors"
-            >
-              Run Diagnostics
-              <ChevronRight className="w-4 h-4" />
-            </Link>
-            <Link
-              href={`/c/${companyId}/deliver`}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-purple-500 hover:bg-purple-400 text-white font-semibold text-sm transition-colors"
-            >
-              Go to Deliver
-              <ChevronRight className="w-4 h-4" />
-            </Link>
+        <div className="space-y-6">
+          <div className="bg-slate-900/50 border border-slate-800 border-dashed rounded-xl p-12 text-center">
+            <FileText className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+            <p className="text-lg font-medium text-slate-400">No documents yet</p>
+            <p className="text-sm text-slate-500 mt-1 mb-6">
+              Run diagnostics to analyze your website, then create strategy documents.
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              <Link
+                href={`/c/${companyId}/blueprint`}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-purple-500 hover:bg-purple-400 text-white font-semibold text-sm transition-colors"
+              >
+                Run Diagnostics
+                <ChevronRight className="w-4 h-4" />
+              </Link>
+              <Link
+                href={`/c/${companyId}/decide`}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-semibold text-sm transition-colors"
+              >
+                Create Strategy
+                <ChevronRight className="w-4 h-4" />
+              </Link>
+            </div>
           </div>
+
+          {/* Drive Integration Status - show setup instructions */}
+          <DriveIntegrationStatus />
         </div>
       )}
 
