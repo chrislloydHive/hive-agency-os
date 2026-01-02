@@ -10,7 +10,30 @@ import { getLatestCompetitionRunV4 } from '@/lib/competition-v4/store';
 import { buildCompetitionStrategistModel } from '@/lib/competition-v3/strategist-orchestrator';
 import { loadContextGraph } from '@/lib/contextGraph/storage';
 import { getCompanyById } from '@/lib/airtable/companies';
-import type { CompetitionRunV3Response, CompetitionCompetitor, GeoScope } from '@/lib/competition-v3/ui-types';
+import type { CompetitionRunV3Response, CompetitionCompetitor, GeoScope, CompetitorType } from '@/lib/competition-v3/ui-types';
+
+/**
+ * Map V4 competitor type strings to CompetitorType union
+ */
+function mapV4TypeToCompetitorType(v4Type: string | undefined): CompetitorType {
+  const normalized = (v4Type || 'direct').toLowerCase();
+  switch (normalized) {
+    case 'direct':
+      return 'direct';
+    case 'indirect':
+    case 'adjacent':
+    case 'partial':
+      return 'partial';
+    case 'fractional':
+      return 'fractional';
+    case 'internal':
+      return 'internal';
+    case 'platform':
+      return 'platform';
+    default:
+      return 'direct';
+  }
+}
 
 interface RouteParams {
   params: Promise<{ companyId: string }>;
@@ -81,7 +104,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         id: `${v4.runId}-${idx}`,
         name: c.name,
         domain: c.domain,
-        type: (c.type || 'direct').toLowerCase(),
+        type: mapV4TypeToCompetitorType(c.type),
         summary: c.reason || '',
         coordinates: { valueModelFit: 50, icpFit: 50 },
         scores: {
