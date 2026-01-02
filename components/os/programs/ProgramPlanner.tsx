@@ -66,9 +66,11 @@ import { ProgramOutputsPanel } from './ProgramOutputsPanel';
 import { ProgramLearningsPanel } from './ProgramLearningsPanel';
 import { ServiceCoveragePanel } from './ServiceCoveragePanel';
 import { ArtifactPickerModal } from './ArtifactPickerModal';
+import { IntensitySelector } from './IntensitySelector';
 import type { Artifact } from '@/lib/types/artifact';
 import type { ProgramArtifactLinkType } from '@/lib/types/program';
 import { createProgramArtifactLink } from '@/lib/types/program';
+import type { IntensityLevel } from '@/lib/types/programTemplate';
 
 // ============================================================================
 // Types
@@ -1008,19 +1010,35 @@ export function ProgramPlanner({
               </div>
             )}
 
-            {/* Workstreams */}
-            {localProgram.scope.workstreams.length > 0 && (
-              <div className="flex items-center gap-1.5 mt-2">
-                {localProgram.scope.workstreams.map(ws => (
-                  <span
-                    key={ws}
-                    className="px-2 py-0.5 text-[10px] font-medium bg-slate-700/50 text-slate-400 rounded"
-                  >
-                    {WORKSTREAM_LABELS[ws] || ws}
-                  </span>
-                ))}
-              </div>
-            )}
+            {/* Workstreams and Intensity */}
+            <div className="flex items-center gap-3 mt-2">
+              {localProgram.scope.workstreams.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  {localProgram.scope.workstreams.map(ws => (
+                    <span
+                      key={ws}
+                      className="px-2 py-0.5 text-[10px] font-medium bg-slate-700/50 text-slate-400 rounded"
+                    >
+                      {WORKSTREAM_LABELS[ws] || ws}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Intensity Selector */}
+              {localProgram.intensity && (
+                <IntensitySelector
+                  programId={program.id}
+                  programTitle={program.title}
+                  currentIntensity={localProgram.intensity as IntensityLevel}
+                  isDisabled={localProgram.status === 'archived'}
+                  onIntensityChange={(newIntensity) => {
+                    // Update local state and trigger refresh
+                    setLocalProgram(prev => ({ ...prev, intensity: newIntensity }));
+                  }}
+                />
+              )}
+            </div>
           </div>
 
           {/* CTAs */}

@@ -271,6 +271,7 @@ export interface ProgramOperationResponse {
 // Programs translate Strategy Tactics into executable Work Items
 
 import { z } from 'zod';
+import { ProgramDomainSchema, IntensityLevelSchema } from './programTemplate';
 
 // ============================================================================
 // Planning Program Status & Lifecycle
@@ -613,6 +614,23 @@ export const PlanningProgramSchema = z.object({
   workPlanJson: z.string().nullable().optional(),
   /** Version number, incremented on each materialization */
   workPlanVersion: z.number().default(0),
+  // ============================================================================
+  // Program Template Fields (for bundle instantiation)
+  // ============================================================================
+  /** ID of the template this program was instantiated from */
+  templateId: z.string().optional(),
+  /** Program domain (Strategy, Creative, Media, etc.) */
+  domain: ProgramDomainSchema.optional(),
+  /** Intensity level affecting cadence, volume, and depth */
+  intensity: IntensityLevelSchema.optional(),
+  /** Bundle ID this program was created from */
+  bundleId: z.string().optional(),
+  /** Whether scope guardrails are enforced for this program */
+  scopeEnforced: z.boolean().default(false),
+  /** Maximum concurrent work items allowed (from template) */
+  maxConcurrentWork: z.number().optional(),
+  /** Allowed workstream types for work items (from template) */
+  allowedWorkTypes: z.array(WorkstreamTypeSchema).optional(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
 });

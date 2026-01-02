@@ -17,8 +17,10 @@ import type {
   PlanningProgramPlanDetails,
   PlanningProgramCommitment,
   ProgramArtifactLink,
+  WorkstreamType,
 } from '@/lib/types/program';
 import { generatePlanningProgramId, stablePlanningProgramKey } from '@/lib/types/program';
+import type { ProgramDomain, IntensityLevel } from '@/lib/types/programTemplate';
 
 const PLANNING_PROGRAMS_TABLE = AIRTABLE_TABLES.PLANNING_PROGRAMS;
 
@@ -42,6 +44,14 @@ const FIELDS = {
   ARTIFACTS_JSON: 'Artifacts JSON',
   WORK_PLAN_JSON: 'Work Plan JSON', // JSON-encoded work plan for materialization
   WORK_PLAN_VERSION: 'Work Plan Version', // Incremented on each materialization
+  // Template fields (for bundle instantiation)
+  TEMPLATE_ID: 'Template ID',
+  DOMAIN: 'Domain',
+  INTENSITY: 'Intensity',
+  BUNDLE_ID: 'Bundle ID',
+  SCOPE_ENFORCED: 'Scope Enforced',
+  MAX_CONCURRENT_WORK: 'Max Concurrent Work',
+  ALLOWED_WORK_TYPES_JSON: 'Allowed Work Types JSON',
   CREATED_AT: 'Created At',
   UPDATED_AT: 'Updated At',
 } as const;
@@ -98,6 +108,12 @@ function mapAirtableRecord(record: AirtableRecord): PlanningProgram | null {
       ? JSON.parse(artifactsJson)
       : [];
 
+    // Parse template fields
+    const allowedWorkTypesJson = fields[FIELDS.ALLOWED_WORK_TYPES_JSON] as string | undefined;
+    const allowedWorkTypes: WorkstreamType[] | undefined = allowedWorkTypesJson
+      ? JSON.parse(allowedWorkTypesJson)
+      : undefined;
+
     return {
       id: (fields[FIELDS.PROGRAM_ID] as string) || record.id,
       companyId,
@@ -113,6 +129,14 @@ function mapAirtableRecord(record: AirtableRecord): PlanningProgram | null {
       linkedArtifacts,
       workPlanJson: (fields[FIELDS.WORK_PLAN_JSON] as string) || null,
       workPlanVersion: (fields[FIELDS.WORK_PLAN_VERSION] as number) || 0,
+      // Template fields
+      templateId: (fields[FIELDS.TEMPLATE_ID] as string) || undefined,
+      domain: (fields[FIELDS.DOMAIN] as ProgramDomain) || undefined,
+      intensity: (fields[FIELDS.INTENSITY] as IntensityLevel) || undefined,
+      bundleId: (fields[FIELDS.BUNDLE_ID] as string) || undefined,
+      scopeEnforced: (fields[FIELDS.SCOPE_ENFORCED] as boolean) || false,
+      maxConcurrentWork: (fields[FIELDS.MAX_CONCURRENT_WORK] as number) || undefined,
+      allowedWorkTypes,
       createdAt: (fields[FIELDS.CREATED_AT] as string) || null,
       updatedAt: (fields[FIELDS.UPDATED_AT] as string) || null,
     };
@@ -141,6 +165,14 @@ function toAirtableFields(program: PlanningProgramInput, includeId: boolean = fa
     [FIELDS.ARTIFACTS_JSON]: JSON.stringify(program.linkedArtifacts || []),
     [FIELDS.WORK_PLAN_JSON]: program.workPlanJson || null,
     [FIELDS.WORK_PLAN_VERSION]: program.workPlanVersion || 0,
+    // Template fields (only include if set)
+    ...(program.templateId && { [FIELDS.TEMPLATE_ID]: program.templateId }),
+    ...(program.domain && { [FIELDS.DOMAIN]: program.domain }),
+    ...(program.intensity && { [FIELDS.INTENSITY]: program.intensity }),
+    ...(program.bundleId && { [FIELDS.BUNDLE_ID]: program.bundleId }),
+    [FIELDS.SCOPE_ENFORCED]: program.scopeEnforced || false,
+    ...(program.maxConcurrentWork !== undefined && { [FIELDS.MAX_CONCURRENT_WORK]: program.maxConcurrentWork }),
+    ...(program.allowedWorkTypes && { [FIELDS.ALLOWED_WORK_TYPES_JSON]: JSON.stringify(program.allowedWorkTypes) }),
     // Note: Created At and Updated At are computed fields in Airtable - don't set them
   };
 
@@ -337,6 +369,7 @@ export async function createPlanningProgramFromTactic(
       commitment: { workItemIds: [] },
       linkedArtifacts: [],
       workPlanVersion: 0,
+      scopeEnforced: false, // Tactic-based programs don't enforce scope by default
     };
 
     const created = await createPlanningProgram(input);
@@ -400,6 +433,35 @@ export async function updatePlanningProgram(
 
     if (patch.linkedArtifacts !== undefined) {
       updateFields[FIELDS.ARTIFACTS_JSON] = JSON.stringify(patch.linkedArtifacts);
+    }
+
+    // Template fields
+    if (patch.templateId !== undefined) {
+      updateFields[FIELDS.TEMPLATE_ID] = patch.templateId;
+    }
+
+    if (patch.domain !== undefined) {
+      updateFields[FIELDS.DOMAIN] = patch.domain;
+    }
+
+    if (patch.intensity !== undefined) {
+      updateFields[FIELDS.INTENSITY] = patch.intensity;
+    }
+
+    if (patch.bundleId !== undefined) {
+      updateFields[FIELDS.BUNDLE_ID] = patch.bundleId;
+    }
+
+    if (patch.scopeEnforced !== undefined) {
+      updateFields[FIELDS.SCOPE_ENFORCED] = patch.scopeEnforced;
+    }
+
+    if (patch.maxConcurrentWork !== undefined) {
+      updateFields[FIELDS.MAX_CONCURRENT_WORK] = patch.maxConcurrentWork;
+    }
+
+    if (patch.allowedWorkTypes !== undefined) {
+      updateFields[FIELDS.ALLOWED_WORK_TYPES_JSON] = JSON.stringify(patch.allowedWorkTypes);
     }
 
     // Find Airtable record ID from program ID
