@@ -137,16 +137,19 @@ export async function buildSignalsBundle(
     // Parse competitors from V4 validated list
     competitors = freshV4Result.competitors.validated
       .slice(0, 10)
-      .map(c => ({
-        domain: c.domain.toLowerCase(),
-        name: c.name ?? undefined,
-        offerOverlap: Math.round(c.confidence * 100),
-        jtbdMatch: c.type === 'Direct',
-        geoRelevance: 50, // V4 doesn't have geo data yet
-        type: c.type === 'Direct' ? 'direct' as const : c.type === 'Indirect' ? 'indirect' as const : 'adjacent' as const,
-        confidence: Math.round(c.confidence * 100),
-        source: 'baseline' as const,
-      }));
+      .map(c => {
+        const conf = c.confidence ?? 0.5;
+        return {
+          domain: c.domain.toLowerCase(),
+          name: c.name ?? undefined,
+          offerOverlap: Math.round(conf * 100),
+          jtbdMatch: c.type === 'Direct',
+          geoRelevance: 50, // V4 doesn't have geo data yet
+          type: c.type === 'Direct' ? 'direct' as const : c.type === 'Indirect' ? 'indirect' as const : 'adjacent' as const,
+          confidence: Math.round(conf * 100),
+          source: 'baseline' as const,
+        };
+      });
 
     console.log('[signals] competitionSource', 'v4', competitors.slice(0, 5).map(c => c.domain));
     console.log('[buildSignalsBundle] Using Competition V4 (Classification Tree):', {
