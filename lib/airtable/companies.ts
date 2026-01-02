@@ -313,6 +313,11 @@ export type CompanyRecord = {
   healthOverride?: 'Healthy' | 'At Risk' | null; // Manual health override - takes precedence over computed health
   atRiskFlag?: boolean; // Manual "At Risk" flag - forces At Risk status when true
 
+  // Drive eligibility flags
+  isClient?: boolean; // Whether company is a client (eligible for Drive provisioning)
+  driveEligible?: boolean; // Whether company is eligible for Drive folder provisioning
+  driveProvisioningAllowed?: boolean; // Manual override - allows provisioning when true
+
   // Analytics Blueprint (AI-generated configuration for which metrics to show)
   analyticsBlueprint?: AnalyticsBlueprint | null;
 
