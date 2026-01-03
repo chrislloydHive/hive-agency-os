@@ -190,6 +190,11 @@ export function ReviewQueueClient({
     fetchData();
   }, [fetchData]);
 
+  const normalizeDomain = useCallback((domain: string) => {
+    if (domain === 'competitiveLandscape' || domain === 'competition_v4') return 'competition';
+    return domain;
+  }, []);
+
   // Dedupe proposals by domain + fact key, consolidating alternatives
   const { dedupedProposals, lowConfidenceCount, hiddenProposals } = useMemo(() => {
     if (!data?.proposed) {
@@ -295,11 +300,6 @@ export function ReviewQueueClient({
 
     return { rawCount, dedupedCount, byDomain, bySource, altCount, topKeys };
   }, [data?.proposed.length, dedupedProposals]);
-
-  const normalizeDomain = useCallback((domain: string) => {
-    if (domain === 'competitiveLandscape' || domain === 'competition_v4') return 'competition';
-    return domain;
-  }, []);
 
   const labToDomain: Record<LabKey, string> = {
     websiteLab: 'website',

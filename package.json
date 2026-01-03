@@ -65,6 +65,8 @@
     "jsdom": "^27.4.0",
     "open": "^11.0.0",
     "tailwindcss": "^4",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "typescript": "^5",
     "vitest": "^4.0.15"
   }

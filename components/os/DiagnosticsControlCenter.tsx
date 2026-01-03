@@ -455,6 +455,8 @@ export function DiagnosticsControlCenter({
   const [selectedPath, setSelectedPath] = useState<StartingPath>(null);
   const [packStarted, setPackStarted] = useState(false);
   const [labQuality, setLabQuality] = useState<Record<string, { label: string; score: number | null; reason?: string }>>({});
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetResult, setResetResult] = useState<string | null>(null);
 
   // Compute selector inputs
   const hasAnyRuns = recentDiagnostics.length > 0;
@@ -644,6 +646,11 @@ export function DiagnosticsControlCenter({
     loadQuality();
   }, [company.id]);
 
+  const isResetVisible =
+    typeof window !== 'undefined'
+      ? process.env.NODE_ENV !== 'production' || window.location.search.includes('admin=1')
+      : process.env.NODE_ENV !== 'production';
+
   return (
     <div className="space-y-6">
       {/* ================================================================== */}
@@ -670,6 +677,91 @@ export function DiagnosticsControlCenter({
         requiredFor="labs"
         compact={false}
       />
+
+      {/* Admin-only Reset Panel (dev or ?admin=1) */}
+      {isResetVisible && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <p className="text-sm font-semibold text-white">Company Reset (Admin)</p>
+              <p className="text-xs text-slate-500">Scoped to this company only. Default is soft reset.</p>
+            </div>
+            {resetBusy && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              disabled={resetBusy}
+              onClick={async () => {
+                setResetBusy(true);
+                setResetResult(null);
+                try {
+                  const res = await fetch(`/api/os/companies/${company.id}/reset`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: 'dryRun', resetKind: 'soft' }),
+                  });
+                  const json = await res.json();
+                  setResetResult(JSON.stringify(json, null, 2));
+                } finally {
+                  setResetBusy(false);
+                }
+              }}
+              className="px-3 py-2 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-white border border-slate-700"
+            >
+              Dry Run (Soft)
+            </button>
+            <button
+              disabled={resetBusy}
+              onClick={async () => {
+                if (!window.confirm('Apply soft reset for this company?')) return;
+                setResetBusy(true);
+                setResetResult(null);
+                try {
+                  const res = await fetch(`/api/os/companies/${company.id}/reset`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: 'apply', resetKind: 'soft' }),
+                  });
+                  const json = await res.json();
+                  setResetResult(JSON.stringify(json, null, 2));
+                } finally {
+                  setResetBusy(false);
+                }
+              }}
+              className="px-3 py-2 rounded-lg text-xs font-medium bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40"
+            >
+              Apply Soft Reset
+            </button>
+            <button
+              disabled={resetBusy}
+              onClick={async () => {
+                if (!window.confirm('Hard delete is irreversible. Continue?')) return;
+                setResetBusy(true);
+                setResetResult(null);
+                try {
+                  const res = await fetch(`/api/os/companies/${company.id}/reset`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: 'apply', resetKind: 'hard', confirmHardDelete: true }),
+                  });
+                  const json = await res.json();
+                  setResetResult(JSON.stringify(json, null, 2));
+                } finally {
+                  setResetBusy(false);
+                }
+              }}
+              className="px-3 py-2 rounded-lg text-xs font-medium bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/40"
+            >
+              Apply Hard Delete
+            </button>
+          </div>
+          {resetResult && (
+            <pre className="mt-3 text-[11px] text-slate-300 bg-slate-950/70 border border-slate-800 rounded p-2 max-h-64 overflow-auto">
+              {resetResult}
+            </pre>
+          )}
+        </div>
+      )}
 
       {/* Dev-only UI state debug indicator */}
       {process.env.NODE_ENV !== 'production' && (
