@@ -158,9 +158,11 @@ InsightUnit[]:
   - "creative"
   - "media"
   - "seo_content"
+  - "website"
   - "competitive"
   - "kpi_risk"
   - "ops"
+  - "demand"
   - "other"
 
 - severity: one of

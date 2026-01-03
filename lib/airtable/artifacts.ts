@@ -114,9 +114,13 @@ function mapAirtableRecord(record: {
     }
   }
 
+  // companyId may be a linked record field (array) or plain string
+  const rawCompanyId = fields['companyId'];
+  const companyId = Array.isArray(rawCompanyId) ? rawCompanyId[0] : rawCompanyId;
+
   return {
     id: record.id,
-    companyId: (fields['companyId'] as string) || '',
+    companyId: (companyId as string) || '',
     title: (fields['title'] as string) || '',
     type: (fields['type'] as ArtifactType) || 'custom',
     status: (fields['status'] as ArtifactStatus) || 'draft',
@@ -192,7 +196,8 @@ function mapCreateInputToFields(
   now: string
 ): Record<string, unknown> {
   const fields: Record<string, unknown> = {
-    companyId: input.companyId,
+    // companyId is a linked record field in Airtable - must be an array of record IDs
+    companyId: [input.companyId],
     title: input.title,
     type: input.type,
     status: 'draft',
