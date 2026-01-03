@@ -682,10 +682,12 @@ function mapReducedCompetitor(
   return {
     name: competitor.name,
     domain: competitor.domain || undefined,
-    url: competitor.raw?.homepageUrl || undefined,
+    // ScoredCompetitor uses domain, not homepageUrl - construct URL if domain available
+    url: competitor.raw?.domain ? `https://${competitor.raw.domain}` : undefined,
     type: type === 'primary' ? 'direct' : type === 'contextual' ? 'partial' : 'platform',
     threatScore: competitor.overlapScore,
-    summary: competitor.whyThisMatters || competitor.raw?.summary || undefined,
+    // ScoredCompetitor uses whyThisMatters, not summary
+    summary: competitor.whyThisMatters || competitor.raw?.whyThisMatters || undefined,
   };
 }
 
@@ -735,7 +737,9 @@ function buildV4Candidates(
 ): BuildCompetitionCandidatesResult {
   let reduced: ReducedCompetition;
   try {
-    reduced = reduceCompetitionForUI(run);
+    // Build subject info from run data for reduceCompetitionForUI
+    const subject = { companyName: run.companyName, domain: run.domain };
+    reduced = reduceCompetitionForUI(run, subject);
   } catch (error) {
     console.warn('[competitionCandidates] reduceCompetitionForUI failed, using fallback', error);
     reduced = buildReducedFallback(run);
@@ -937,27 +941,30 @@ export function buildCompetitionCandidates(
     return result;
   }
 
+  // From here on, we know it's a V3 payload (V4 was handled above)
+  const v3Run = run as CompetitionRunV3Payload;
+
   // Get top-level keys
-  result.topLevelKeys = Object.keys(run);
+  result.topLevelKeys = Object.keys(v3Run);
   result.rawKeysFound = result.topLevelKeys.length;
 
   // Check for error state
-  const errorState = detectCompetitionErrorState(run);
+  const errorState = detectCompetitionErrorState(v3Run);
   if (errorState.isError) {
     result.errorState = errorState;
     result.extractionFailureReason = errorState.errorMessage || 'Competition run in error state';
 
     // Add debug info for diagnosis
-    const competitors = run.competitors || [];
+    const competitors = v3Run.competitors || [];
     result.debug = {
       rootTopKeys: result.topLevelKeys,
       samplePathsFound: {
-        competitors: !!run.competitors,
-        status: !!run.status,
-        summary: !!run.summary,
-        insights: !!run.insights,
-        recommendations: !!run.recommendations,
-        runId: !!run.runId,
+        competitors: !!v3Run.competitors,
+        status: !!v3Run.status,
+        summary: !!v3Run.summary,
+        insights: !!v3Run.insights,
+        recommendations: !!v3Run.recommendations,
+        runId: !!v3Run.runId,
       },
       competitorCount: competitors.length,
       hasSerpEvidence: competitors.some((c) => c.discovery?.source === 'google_search'),
@@ -971,7 +978,7 @@ export function buildCompetitionCandidates(
   // =========================================================================
   // STEP 1: Bucket competitors by type
   // =========================================================================
-  const allCompetitors = run.competitors || [];
+  const allCompetitors = v3Run.competitors || [];
   const buckets = bucketCompetitorsByType(allCompetitors);
 
   // Initialize filtering stats
@@ -1056,7 +1063,7 @@ export function buildCompetitionCandidates(
         rawPath: 'competitors[type=direct|partial, qualityGated=true]',
         snippet: extractSnippet(primaryCompetitors.slice(0, 3)),
       },
-      runCreatedAt: run.createdAt || undefined,
+      runCreatedAt: v3Run.createdAt || undefined,
     });
   } else {
     attemptedMappings[attemptedMappings.length - 1].reason =
@@ -1075,7 +1082,7 @@ export function buildCompetitionCandidates(
         rawPath: 'competitors[type=fractional|platform|internal]',
         snippet: extractSnippet(marketAltsList.slice(0, 3)),
       },
-      runCreatedAt: run.createdAt || undefined,
+      runCreatedAt: v3Run.createdAt || undefined,
     });
   } else {
     attemptedMappings[attemptedMappings.length - 1].reason = 'No market alternatives found';
@@ -1095,7 +1102,7 @@ export function buildCompetitionCandidates(
         snippet: extractSnippet(differentiationAxes),
         isInferred: true,
       },
-      runCreatedAt: run.createdAt || undefined,
+      runCreatedAt: v3Run.createdAt || undefined,
     });
   } else {
     attemptedMappings[attemptedMappings.length - 1].reason = 'No differentiation axes from direct/partial competitors';
@@ -1103,7 +1110,7 @@ export function buildCompetitionCandidates(
 
   // 4. competition.positioningMapSummary (from direct set + top 2 partial only)
   attemptedMappings.push({ fieldKey: 'competition.positioningMapSummary', attempted: true, found: false });
-  const positioningMapSummary = buildPositioningMapSummary(qualifiedDirect, buckets.partial, run);
+  const positioningMapSummary = buildPositioningMapSummary(qualifiedDirect, buckets.partial, v3Run);
   if (positioningMapSummary) {
     attemptedMappings[attemptedMappings.length - 1].found = true;
     candidates.push({
@@ -1114,7 +1121,7 @@ export function buildCompetitionCandidates(
         rawPath: 'competitors[type=direct, qualityGated=true]',
         snippet: extractSnippet(positioningMapSummary),
       },
-      runCreatedAt: run.createdAt || undefined,
+      runCreatedAt: v3Run.createdAt || undefined,
     });
   } else {
     attemptedMappings[attemptedMappings.length - 1].reason = 'No qualified direct competitors for positioning summary';
@@ -1133,7 +1140,7 @@ export function buildCompetitionCandidates(
         rawPath: 'competitors[type=direct, qualityGated=true].scores.threatScore',
         snippet: extractSnippet(threatSummary),
       },
-      runCreatedAt: run.createdAt || undefined,
+      runCreatedAt: v3Run.createdAt || undefined,
     });
   } else {
     attemptedMappings[attemptedMappings.length - 1].reason =
@@ -1144,16 +1151,16 @@ export function buildCompetitionCandidates(
   result.filteringStats = filteringStats;
 
   // Add debug info (always include filtering stats)
-  const competitors = run.competitors || [];
+  const competitors = v3Run.competitors || [];
   result.debug = {
     rootTopKeys: result.topLevelKeys,
     samplePathsFound: {
-      competitors: !!run.competitors,
-      status: !!run.status,
-      summary: !!run.summary,
-      insights: !!run.insights,
-      recommendations: !!run.recommendations,
-      runId: !!run.runId,
+      competitors: !!v3Run.competitors,
+      status: !!v3Run.status,
+      summary: !!v3Run.summary,
+      insights: !!v3Run.insights,
+      recommendations: !!v3Run.recommendations,
+      runId: !!v3Run.runId,
     },
     competitorCount: competitors.length,
     hasSerpEvidence: competitors.some((c) => c.discovery?.source === 'google_search'),

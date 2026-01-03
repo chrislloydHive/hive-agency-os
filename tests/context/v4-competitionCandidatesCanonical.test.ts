@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { buildCompetitionCandidates } from '@/lib/contextGraph/v4/competitionCandidates';
 import type { CompetitionV4Result, ScoredCompetitor } from '@/lib/competition-v4';
 
-function competitor(name: string, classification: 'primary' | 'contextual' | 'alternatives'): ScoredCompetitor {
+function competitor(name: string, classification: 'primary' | 'contextual' | 'alternative'): ScoredCompetitor {
   return {
     name,
     domain: `${name.toLowerCase().replace(/\s+/g, '')}.com`,
+    type: 'Direct' as const,
     overlapScore: classification === 'primary' ? 80 : classification === 'contextual' ? 55 : 35,
     classification,
     confidence: 75,
@@ -49,7 +50,7 @@ function v4Run(): CompetitionV4Result {
     scoredCompetitors: {
       primary: [competitor('Direct One', 'primary')],
       contextual: [competitor('Contextual One', 'contextual')],
-      alternatives: [competitor('Alt One', 'alternatives')],
+      alternatives: [competitor('Alt One', 'alternative')],
       excluded: [],
       threshold: 40,
       modality: 'InstallationOnly',
@@ -64,7 +65,11 @@ function v4Run(): CompetitionV4Result {
       serviceEmphasis: 1,
       productEmphasis: 0,
     },
-    summary: {},
+    summary: {
+      competitive_positioning: 'Test positioning',
+      key_differentiation_axes: ['service', 'price'],
+      competitive_risks: ['market shift'],
+    },
     execution: {
       status: 'completed',
       startedAt: '2025-01-01T00:00:00Z',

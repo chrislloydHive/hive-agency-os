@@ -25,9 +25,9 @@ async function batchUpdate(
   let updated = 0;
   for (let i = 0; i < recordIds.length; i += 10) {
     const chunk = recordIds.slice(i, i + 10);
-    await base(tableName).update(
-      chunk.map((id) => ({ id, fields }))
-    );
+    // Use Airtable's update - cast to any to avoid FieldSet type issues with dynamic fields
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await base(tableName).update(chunk.map((id) => ({ id, fields })) as any);
     updated += chunk.length;
   }
   return updated;

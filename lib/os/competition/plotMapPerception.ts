@@ -22,7 +22,7 @@
 export interface Competitor {
   name: string;
   domain: string;
-  classification?: 'primary' | 'contextual' | 'alternatives' | 'excluded';
+  classification?: 'primary' | 'contextual' | 'alternatives' | 'excluded' | 'subject';
   overlapScore?: number;
   brandRecognition?: number;
   pricePositioning?: 'budget' | 'mid' | 'premium' | string;

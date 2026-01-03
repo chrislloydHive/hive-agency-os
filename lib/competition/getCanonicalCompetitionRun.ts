@@ -22,11 +22,14 @@ function getRunTimestamp(payload: CompetitionV4Result | CompetitionRunV3Payload)
   if ('version' in payload && payload.version === 4) {
     return payload.execution.completedAt || payload.execution.startedAt || new Date().toISOString();
   }
-  return payload.updatedAt || payload.createdAt || new Date().toISOString();
+  // V3 payload has createdAt and completedAt (no updatedAt)
+  const v3 = payload as CompetitionRunV3Payload;
+  return v3.completedAt || v3.createdAt || new Date().toISOString();
 }
 
 function normalizeStatus(payload: CompetitionV4Result | CompetitionRunV3Payload): CanonicalRunStatus {
-  const rawStatus = 'execution' in payload ? payload.execution.status : payload.status;
+  // Cast to string to handle any status value from V3/V4 without TypeScript enum narrowing
+  const rawStatus = ('execution' in payload ? payload.execution.status : payload.status) as string | undefined;
   if (!rawStatus) return 'unknown';
   if (rawStatus === 'completed' || rawStatus === 'complete') return 'completed';
   if (rawStatus === 'failed' || rawStatus === 'error') return 'failed';
