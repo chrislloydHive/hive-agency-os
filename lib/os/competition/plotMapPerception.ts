@@ -44,8 +44,9 @@ export interface PerceptionPoint {
   estimated: boolean;
   uncertaintyRadius: number; // normalized value-space units
   // Additional metadata
-  classification: 'primary' | 'contextual' | 'alternatives' | 'excluded';
+  classification: 'primary' | 'contextual' | 'alternatives' | 'excluded' | 'subject';
   archetype: 'install-first' | 'retail-hybrid';
+  isSubject?: boolean;
 }
 
 export interface PlotContext {
@@ -84,19 +85,16 @@ function normalize0to100(x: number): number {
 function enumPriceScore(price: string | undefined): number {
   switch (price?.toLowerCase()) {
     case 'budget':
-      return 25;
+      return 35;
     case 'mid':
-      return 50;
+      return 55;
     case 'premium':
-      return 75;
+      return 78;
     default:
-      return 50; // unknown defaults to mid
+      return 55; // unknown defaults to mid-ish
   }
 }
 
-/**
- * Geographic reach enum to score
- */
 function enumReachScore(reach: string | undefined): number {
   switch (reach?.toLowerCase()) {
     case 'local':
@@ -106,7 +104,7 @@ function enumReachScore(reach: string | undefined): number {
     case 'national':
       return 80;
     default:
-      return 50; // unknown
+      return 55; // unknown
   }
 }
 
@@ -163,11 +161,15 @@ function hashToUnit(input: string, salt: number = 0): number {
 function computePriceX(c: Competitor): number {
   const base = enumPriceScore(c.pricePositioning);
   const overlap = clamp100(c.overlapScore ?? 60);
-  const retailMod = isRetailHybrid(c) ? -5 : 0;
-  const reachMod = enumReachScore(c.geographicReach) >= 80 ? -5 : 0;
-  const overlapMod = (overlap - 60) * 0.10;
+  const reach = enumReachScore(c.geographicReach);
 
-  return clamp100(base + retailMod + reachMod + overlapMod);
+  // Pull mid when national retail hybrid; push premium when install-first + high overlap
+  const retailMod = isRetailHybrid(c) ? -6 : 0;
+  const reachMod = reach >= 80 ? -4 : 0;
+  const overlapMod = (overlap - 60) * 0.12;
+  const installBias = isInstallFirst(c) ? 4 : 0;
+
+  return clamp100(base + retailMod + reachMod + overlapMod + installBias);
 }
 
 /**
@@ -192,23 +194,21 @@ function computeBrandY(c: Competitor): { y: number; inferred: boolean } {
   const reach = enumReachScore(c.geographicReach);
   const overlap = clamp100(c.overlapScore ?? 60);
 
-  const retailBoost = isRetailHybrid(c) ? 10 : 0;
+  const retailBoost = isRetailHybrid(c) ? 12 : 0;
   const nationalBoost = reach >= 80 ? 10 : 0;
-  const overlapBoost = (overlap - 60) * 0.08;
+  const overlapBoost = (overlap - 60) * 0.1;
 
   if (brandBase != null) {
-    // Direct computation with brand recognition
     const y = clamp100(
-      0.65 * brandBase + 0.20 * reach + 0.15 * (retailBoost + overlapBoost)
+      0.70 * brandBase + 0.15 * reach + 0.15 * (retailBoost + overlapBoost)
     );
     return { y, inferred: false };
-  } else {
-    // Inferred from reach + retail signals
-    const y = clamp100(
-      0.55 * reach + 0.25 * (retailBoost + nationalBoost + 40) + 0.20 * overlap
-    );
-    return { y, inferred: true };
   }
+
+  const y = clamp100(
+    0.60 * reach + 0.25 * (retailBoost + nationalBoost + 35) + 0.15 * overlap
+  );
+  return { y, inferred: true };
 }
 
 /**
@@ -238,20 +238,8 @@ function applyJitter(
   domain: string,
   ctx: PlotContext
 ): { x: number; y: number } {
-  const conf = clamp100(ctx.modalityConfidence);
-  const uncertainty = 1 - conf / 100; // 0..1
-  const jitterMax = 6 + 10 * uncertainty; // 6..16 value-space units
-
-  const hash1 = hashToUnit(domain + ctx.seed, 1);
-  const hash2 = hashToUnit(domain + ctx.seed, 2);
-
-  const jx = (hash1 - 0.5) * (jitterMax / 2);
-  const jy = (hash2 - 0.5) * (jitterMax / 2);
-
-  return {
-    x: clamp100(x + jx),
-    y: clamp100(y + jy),
-  };
+  // Only jitter when collisions are detected; baseline no jitter
+  return { x, y };
 }
 
 /**
@@ -260,33 +248,29 @@ function applyJitter(
  */
 function applySeparation(
   points: Array<{ domain: string; x: number; y: number }>,
-  threshold: number = 2
+  seed: string,
+  threshold: number = 2.5
 ): Array<{ domain: string; x: number; y: number }> {
-  // Sort by domain for deterministic order
   const sorted = [...points].sort((a, b) => a.domain.localeCompare(b.domain));
   const result = sorted.map(p => ({ ...p }));
 
-  // O(n²) but n is small (typically <20 competitors)
   for (let i = 0; i < result.length; i++) {
     for (let j = i + 1; j < result.length; j++) {
       const dx = result[j].x - result[i].x;
       const dy = result[j].y - result[i].y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      if (dist < threshold && dist > 0) {
-        // Nudge apart along the line between them
-        const nudge = (threshold - dist) / 2 + 0.5;
-        const angle = Math.atan2(dy, dx);
+      if (dist <= threshold) {
+        const jitter = 3;
+        const angleHash = hashToUnit(result[i].domain + result[j].domain + seed, 7);
+        const angle = angleHash * Math.PI * 2;
+        const offsetX = Math.cos(angle) * jitter;
+        const offsetY = Math.sin(angle) * jitter;
 
-        result[i].x = clamp100(result[i].x - nudge * Math.cos(angle));
-        result[i].y = clamp100(result[i].y - nudge * Math.sin(angle));
-        result[j].x = clamp100(result[j].x + nudge * Math.cos(angle));
-        result[j].y = clamp100(result[j].y + nudge * Math.sin(angle));
-      } else if (dist === 0) {
-        // Exactly overlapping - use deterministic offset
-        const offset = 1.5;
-        result[j].x = clamp100(result[j].x + offset);
-        result[j].y = clamp100(result[j].y + offset);
+        result[i].x = clamp100(result[i].x - offsetX / 2);
+        result[i].y = clamp100(result[i].y - offsetY / 2);
+        result[j].x = clamp100(result[j].x + offsetX / 2);
+        result[j].y = clamp100(result[j].y + offsetY / 2);
       }
     }
   }
@@ -332,9 +316,6 @@ export function computePerceptionCoordinates(
   const brandResult = computeBrandY(competitor);
   const rawY = brandResult.y;
 
-  // Apply jitter
-  const jittered = applyJitter(rawX, rawY, competitor.domain, ctx);
-
   // Determine estimation status
   const estimated = isEstimated(competitor) || brandResult.inferred;
 
@@ -347,8 +328,8 @@ export function computePerceptionCoordinates(
   return {
     domain: competitor.domain,
     name: competitor.name,
-    x: jittered.x,
-    y: jittered.y,
+    x: rawX,
+    y: rawY,
     estimated,
     uncertaintyRadius,
     classification: competitor.classification ?? 'primary',
@@ -368,20 +349,20 @@ export function computePerceptionCoordinatesBatch(
     const rawX = computePriceX(c);
     const brandResult = computeBrandY(c);
     const rawY = brandResult.y;
-    const jittered = applyJitter(rawX, rawY, c.domain, ctx);
 
     return {
       competitor: c,
       domain: c.domain,
-      x: jittered.x,
-      y: jittered.y,
+      x: rawX,
+      y: rawY,
       brandInferred: brandResult.inferred,
     };
   });
 
   // Apply separation pass
   const separated = applySeparation(
-    rawPoints.map(p => ({ domain: p.domain, x: p.x, y: p.y }))
+    rawPoints.map(p => ({ domain: p.domain, x: p.x, y: p.y })),
+    ctx.seed
   );
 
   // Map back to PerceptionPoint with separation applied
@@ -402,6 +383,7 @@ export function computePerceptionCoordinatesBatch(
       uncertaintyRadius,
       classification: raw.competitor.classification ?? 'primary',
       archetype,
+      isSubject: raw.competitor.classification === 'subject',
     };
   });
 }

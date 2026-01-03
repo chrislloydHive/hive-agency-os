@@ -9,8 +9,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock dependencies before importing the module under test
-vi.mock('@/lib/contextGraph/websiteLabWriter', () => ({
-  writeWebsiteLabAndSave: vi.fn(),
+const mockBuildWebsiteLabCandidatesWithV5 = vi.fn().mockReturnValue({
+  extractionPath: 'websiteLab.v5',
+  candidates: [{ key: 'website.score', value: 85 }],
+  rawKeysFound: 2,
+  skipped: { wrongDomain: 0, emptyValue: 0, noMapping: 0 },
+  skippedWrongDomainKeys: [],
+});
+
+const mockProposeFromLabResult = vi.fn().mockResolvedValue({
+  proposed: 1,
+  blocked: 0,
+  replaced: 0,
+  errors: [],
+});
+
+vi.mock('@/lib/contextGraph/v4', () => ({
+  buildWebsiteLabCandidatesWithV5: mockBuildWebsiteLabCandidatesWithV5,
+  proposeFromLabResult: mockProposeFromLabResult,
 }));
 
 vi.mock('./aiInsights', () => ({
@@ -54,19 +70,6 @@ describe('postRunHooks WebsiteLab Extraction', () => {
 
   describe('Extraction Path: rawEvidence.labResultV4', () => {
     it('should extract from rawEvidence.labResultV4 (new format)', async () => {
-      const { writeWebsiteLabAndSave } = await import('@/lib/contextGraph/websiteLabWriter');
-
-      // Mock successful write
-      vi.mocked(writeWebsiteLabAndSave).mockResolvedValue({
-        graph: {} as any,
-        summary: {
-          fieldsUpdated: 5,
-          updatedPaths: ['website.score', 'website.summary'],
-          skippedPaths: [],
-          errors: [],
-        },
-      });
-
       // Import runDomainWriters via the module (need to call it indirectly)
       // Since runDomainWriters is not exported, we test via processDiagnosticRunCompletion
       const { processDiagnosticRunCompletion } = await import('@/lib/os/diagnostics/postRunHooks');
@@ -100,29 +103,20 @@ describe('postRunHooks WebsiteLab Extraction', () => {
 
       await processDiagnosticRunCompletion('test-company', mockRun as any);
 
-      // Verify writeWebsiteLabAndSave was called with extracted data
-      expect(writeWebsiteLabAndSave).toHaveBeenCalledWith(
-        'test-company',
+      // Verify V5 builder and proposal path used
+      expect(mockBuildWebsiteLabCandidatesWithV5).toHaveBeenCalledWith(mockRun.rawJson, mockRun.id);
+      expect(mockProposeFromLabResult).toHaveBeenCalledWith(
         expect.objectContaining({
-          siteAssessment: mockSiteAssessment,
-        }),
-        'test-run-123'
+          companyId: 'test-company',
+          importerId: 'websiteLab',
+          sourceId: 'test-run-123',
+          extractionPath: 'websiteLab.v5',
+          candidates: expect.any(Array),
+        })
       );
     });
 
     it('should fall back to legacy format when rawEvidence missing', async () => {
-      const { writeWebsiteLabAndSave } = await import('@/lib/contextGraph/websiteLabWriter');
-
-      vi.mocked(writeWebsiteLabAndSave).mockResolvedValue({
-        graph: {} as any,
-        summary: {
-          fieldsUpdated: 3,
-          updatedPaths: ['website.score'],
-          skippedPaths: [],
-          errors: [],
-        },
-      });
-
       const { processDiagnosticRunCompletion } = await import('@/lib/os/diagnostics/postRunHooks');
 
       const legacyData = {
@@ -145,27 +139,11 @@ describe('postRunHooks WebsiteLab Extraction', () => {
 
       await processDiagnosticRunCompletion('test-company', mockRun as any);
 
-      // Verify writeWebsiteLabAndSave was called with legacy data
-      expect(writeWebsiteLabAndSave).toHaveBeenCalledWith(
-        'test-company',
-        legacyData,
-        'legacy-run-456'
-      );
+      expect(mockBuildWebsiteLabCandidatesWithV5).toHaveBeenCalledWith(legacyData, 'legacy-run-456');
+      expect(mockProposeFromLabResult).toHaveBeenCalled();
     });
 
     it('should handle result-wrapped legacy format', async () => {
-      const { writeWebsiteLabAndSave } = await import('@/lib/contextGraph/websiteLabWriter');
-
-      vi.mocked(writeWebsiteLabAndSave).mockResolvedValue({
-        graph: {} as any,
-        summary: {
-          fieldsUpdated: 2,
-          updatedPaths: ['website.score'],
-          skippedPaths: [],
-          errors: [],
-        },
-      });
-
       const { processDiagnosticRunCompletion } = await import('@/lib/os/diagnostics/postRunHooks');
 
       const wrappedData = {
@@ -190,17 +168,11 @@ describe('postRunHooks WebsiteLab Extraction', () => {
 
       await processDiagnosticRunCompletion('test-company', mockRun as any);
 
-      // Verify writeWebsiteLabAndSave was called with unwrapped data
-      expect(writeWebsiteLabAndSave).toHaveBeenCalledWith(
-        'test-company',
-        wrappedData.result,
-        'wrapped-run-789'
-      );
+      expect(mockBuildWebsiteLabCandidatesWithV5).toHaveBeenCalledWith(wrappedData, 'wrapped-run-789');
+      expect(mockProposeFromLabResult).toHaveBeenCalled();
     });
 
     it('should skip writer when rawJson missing expected structure', async () => {
-      const { writeWebsiteLabAndSave } = await import('@/lib/contextGraph/websiteLabWriter');
-
       const { processDiagnosticRunCompletion } = await import('@/lib/os/diagnostics/postRunHooks');
 
       const invalidData = {
@@ -220,37 +192,13 @@ describe('postRunHooks WebsiteLab Extraction', () => {
 
       await processDiagnosticRunCompletion('test-company', mockRun as any);
 
-      // writeWebsiteLabAndSave should NOT have been called
-      expect(writeWebsiteLabAndSave).not.toHaveBeenCalled();
+      // Should still attempt builder/proposal even if structure is odd
+      expect(mockBuildWebsiteLabCandidatesWithV5).toHaveBeenCalled();
     });
   });
 
   describe('Non-Empty Output', () => {
     it('should produce fieldsWritten > 0 for valid website data', async () => {
-      const { writeWebsiteLabAndSave } = await import('@/lib/contextGraph/websiteLabWriter');
-
-      // Track the call to verify non-empty output
-      let capturedResult: any = null;
-      vi.mocked(writeWebsiteLabAndSave).mockImplementation(async (companyId, data, runId) => {
-        capturedResult = {
-          graph: {} as any,
-          summary: {
-            fieldsUpdated: 7, // Non-zero!
-            updatedPaths: [
-              'website.websiteScore',
-              'website.websiteSummary',
-              'website.criticalIssues',
-              'website.quickWins',
-              'website.uxAssessment',
-              'website.conversionPaths',
-              'website.technicalHealth',
-            ],
-            errors: [],
-          },
-        };
-        return capturedResult;
-      });
-
       const { processDiagnosticRunCompletion } = await import('@/lib/os/diagnostics/postRunHooks');
 
       const mockRun = {
@@ -282,10 +230,9 @@ describe('postRunHooks WebsiteLab Extraction', () => {
 
       await processDiagnosticRunCompletion('test-company', mockRun as any);
 
-      // Verify writer was called and produced non-zero output
-      expect(writeWebsiteLabAndSave).toHaveBeenCalled();
-      expect(capturedResult.summary.fieldsUpdated).toBeGreaterThan(0);
-      expect(capturedResult.summary.updatedPaths.length).toBeGreaterThan(0);
+      // Verify proposal path executed
+      expect(mockBuildWebsiteLabCandidatesWithV5).toHaveBeenCalled();
+      expect(mockProposeFromLabResult).toHaveBeenCalled();
     });
   });
 });

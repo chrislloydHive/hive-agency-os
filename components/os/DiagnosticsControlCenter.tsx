@@ -9,7 +9,7 @@
 // 3. Findings Teaser - Link to Plan page
 // 4. Recent Diagnostics - Compact history list
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { formatDistanceToNow } from 'date-fns';
@@ -311,12 +311,18 @@ function LabCard({
   isRunning,
   onRun,
   companyId,
+  qualityLabel,
+  qualityScore,
+  qualityReason,
 }: {
   lab: LabDefinition;
   lastRun: RecentDiagnostic | null;
   isRunning: boolean;
   onRun: () => void;
   companyId: string;
+  qualityLabel?: string | null;
+  qualityScore?: number | null;
+  qualityReason?: string;
 }) {
   const colors = getColorClasses(lab.color);
   const Icon = iconMap[lab.icon];
@@ -332,11 +338,19 @@ function LabCard({
           <h3 className="text-sm font-semibold text-white">{lab.name}</h3>
           <p className="text-xs text-slate-400 line-clamp-1">{lab.description}</p>
         </div>
-        {lastRun?.score != null && (
-          <span className={`text-lg font-bold tabular-nums ${getScoreColor(lastRun.score)}`}>
-            {lastRun.score}
-          </span>
-        )}
+        <div className="flex flex-col items-end gap-1">
+          {lastRun?.score != null && (
+            <span className={`text-lg font-bold tabular-nums ${getScoreColor(lastRun.score)}`}>
+              {lastRun.score}
+            </span>
+          )}
+          {qualityLabel && (
+            <span className="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700 text-right">
+              Quality: {qualityLabel}{qualityScore != null ? ` (${qualityScore})` : ''}
+              {qualityReason ? ` · ${qualityReason}` : ''}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Last run status */}
@@ -440,6 +454,7 @@ export function DiagnosticsControlCenter({
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [selectedPath, setSelectedPath] = useState<StartingPath>(null);
   const [packStarted, setPackStarted] = useState(false);
+  const [labQuality, setLabQuality] = useState<Record<string, { label: string; score: number | null; reason?: string }>>({});
 
   // Compute selector inputs
   const hasAnyRuns = recentDiagnostics.length > 0;
@@ -604,6 +619,30 @@ export function DiagnosticsControlCenter({
 
   // Recent runs for history section (limit to 5)
   const recentRuns = recentDiagnostics.slice(0, 5);
+
+  // Fetch lab quality
+  useEffect(() => {
+    const loadQuality = async () => {
+      try {
+        const res = await fetch(`/api/os/companies/${company.id}/labs/quality`, { cache: 'no-store' });
+        const json = await res.json();
+        if (json?.ok && json.current) {
+          const map: Record<string, { label: string; score: number | null; reason?: string }> = {};
+          for (const [lab, q] of Object.entries(json.current)) {
+            if (q) {
+              const entry: any = q;
+              const reason = Array.isArray(entry.reasons) && entry.reasons.length > 0 ? entry.reasons[0].label : undefined;
+              map[lab] = { label: entry.label, score: entry.score ?? null, reason };
+            }
+          }
+          setLabQuality(map);
+        }
+      } catch (err) {
+        console.error('[DiagnosticsCC] Failed to load lab quality', err);
+      }
+    };
+    loadQuality();
+  }, [company.id]);
 
   return (
     <div className="space-y-6">
@@ -855,6 +894,9 @@ export function DiagnosticsControlCenter({
               isRunning={runningLabs.has(lab.id)}
               onRun={() => handleRunLab(lab)}
               companyId={company.id}
+              qualityLabel={labQuality[lab.id]?.label}
+              qualityScore={labQuality[lab.id]?.score ?? null}
+              qualityReason={labQuality[lab.id]?.reason}
             />
           ))}
         </div>
@@ -877,6 +919,9 @@ export function DiagnosticsControlCenter({
               isRunning={runningLabs.has(lab.id)}
               onRun={() => handleRunLab(lab)}
               companyId={company.id}
+              qualityLabel={labQuality[lab.id]?.label}
+              qualityScore={labQuality[lab.id]?.score ?? null}
+              qualityReason={labQuality[lab.id]?.reason}
             />
           ))}
         </div>

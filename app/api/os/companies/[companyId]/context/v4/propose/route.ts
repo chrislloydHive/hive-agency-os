@@ -15,7 +15,7 @@ import { buildGapPlanCandidates } from '@/lib/contextGraph/v4/gapPlanCandidates'
 import { buildCompetitionCandidates } from '@/lib/contextGraph/v4/competitionCandidates';
 import { proposeFromLabResult } from '@/lib/contextGraph/v4/propose';
 import { getFieldCountsV4 } from '@/lib/contextGraph/fieldStoreV4';
-import { getLatestCompetitionRunV3 } from '@/lib/competition-v3/store';
+import { getCanonicalCompetitionRun } from '@/lib/competition/getCanonicalCompetitionRun';
 import {
   isContextV4Enabled,
   isContextV4IngestWebsiteLabEnabled,
@@ -258,16 +258,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // =========================================================================
-    // Competition Lab
+    // Competition Lab (V4 preferred, V3 fallback)
     // =========================================================================
     if (flags.CONTEXT_V4_INGEST_COMPETITIONLAB) {
       try {
-        const run = await getLatestCompetitionRunV3(companyId);
-        if (run) {
-          response.sources.competitionLab.runId = run.runId;
-          response.sources.competitionLab.runCreatedAt = run.createdAt;
+        const canonicalRun = await getCanonicalCompetitionRun(companyId);
+        if (canonicalRun && canonicalRun.status === 'completed') {
+          response.sources.competitionLab.runId = canonicalRun.runId;
+          response.sources.competitionLab.runCreatedAt = canonicalRun.createdAt;
 
-          const candidateResult = buildCompetitionCandidates(run, run.runId);
+          const candidateResult = buildCompetitionCandidates(
+            canonicalRun.payload,
+            canonicalRun.runId
+          );
           response.sources.competitionLab.candidatesCount = candidateResult.candidates.length;
 
           if (candidateResult.candidates.length > 0) {
@@ -275,7 +278,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               companyId,
               importerId: 'competitionLab',
               source: 'lab',
-              sourceId: run.runId,
+              sourceId: canonicalRun.runId,
               extractionPath: candidateResult.extractionPath,
               candidates: candidateResult.candidates,
             });
@@ -286,6 +289,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             response.sources.competitionLab.conflictedCount = proposalResult.conflicted;
             response.sources.competitionLab.errors = proposalResult.errors;
           }
+        } else if (!canonicalRun) {
+          response.sources.competitionLab.errors.push('No competition run found');
+        } else {
+          response.sources.competitionLab.errors.push(`Competition run ${canonicalRun.runId} not completed`);
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);

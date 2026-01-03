@@ -137,9 +137,8 @@ describe('Week Key Period Math', () => {
     });
 
     it('should return same week for dates in same week', () => {
-      // Get two dates 3 days apart (should be in same week)
-      const day1 = new Date();
-      day1.setHours(12, 0, 0, 0);
+      // Use a fixed mid-week date to avoid boundary flakes
+      const day1 = new Date('2025-05-07T12:00:00Z');
       const day2 = new Date(day1);
       day2.setDate(day1.getDate() + 2);
       expect(getWeekKey(day1)).toBe(getWeekKey(day2));
@@ -464,9 +463,10 @@ describe('Brief Content Generation', () => {
     });
 
     it('should count deliverables due this week correctly', () => {
-      const now = new Date();
-      const dueDate = new Date(now);
-      dueDate.setDate(dueDate.getDate() + 3); // 3 days from now
+      const weekKey = getWeekKey(new Date('2025-05-07T12:00:00Z'));
+      const weekStart = getWeekStartDate(weekKey)!;
+      const dueDate = new Date(weekStart);
+      dueDate.setDate(weekStart.getDate() + 2); // safely within the same week
 
       const program = createMockProgram({
         scope: {
@@ -493,6 +493,7 @@ describe('Brief Content Generation', () => {
         companyId: 'test-company',
         programs: [program],
         workItems: [],
+        weekKey,
       });
 
       expect(brief.sourceSummary.deliverablesThisWeek).toBe(1);
@@ -533,8 +534,10 @@ describe('Brief Content Generation', () => {
     });
 
     it('should group deliverables by domain', () => {
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 3);
+      const weekKey = getWeekKey(new Date('2025-05-07T12:00:00Z'));
+      const weekStart = getWeekStartDate(weekKey)!;
+      const dueDate = new Date(weekStart);
+      dueDate.setDate(weekStart.getDate() + 2); // ensure within the same week
 
       const mediaProgram = createMockProgram({
         domain: 'Media',
@@ -584,6 +587,7 @@ describe('Brief Content Generation', () => {
         companyId: 'test-company',
         programs: [mediaProgram, creativeProgram],
         workItems: [],
+        weekKey,
       });
 
       const domains = brief.content.thisWeek.map((d) => d.domain);

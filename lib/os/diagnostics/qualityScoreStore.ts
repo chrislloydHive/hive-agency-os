@@ -23,7 +23,9 @@ import {
   computeLabQualityScore,
   extractQualityInputFromLabRaw,
 } from './qualityScore';
-import { getLatestCompetitionRunV3 } from '@/lib/competition-v3/store';
+import { getCanonicalCompetitionRun } from '@/lib/competition/getCanonicalCompetitionRun';
+import { getProposedFieldsV4 } from '@/lib/contextGraph/fieldStoreV4';
+import { computeLabQuality } from '@/lib/os/quality/computeLabQuality';
 
 // ============================================================================
 // Storage Keys
@@ -207,7 +209,7 @@ export async function getCurrentQualityScores(
     getLatestRunForCompanyAndTool(companyId, 'websiteLab'),
     getLatestRunForCompanyAndTool(companyId, 'brandLab'),
     getLatestRunForCompanyAndTool(companyId, 'gapPlan'),
-    getLatestCompetitionRunV3(companyId),
+    getCanonicalCompetitionRun(companyId),
     getLatestRunForCompanyAndTool(companyId, 'audienceLab'),
   ]);
 
@@ -228,18 +230,76 @@ export async function getCurrentQualityScores(
     scores.audienceLab = await getOrComputeQualityScore(audienceRun, companyId, 'audienceLab');
   }
 
-  // Competition Lab uses different storage - compute on-the-fly
+  // Competition Lab uses dedicated store - prefer V4, fallback V3
   if (competitionRun?.status === 'completed') {
     const input = extractQualityInputFromLabRaw(
       'competitionLab',
       competitionRun.runId,
       companyId,
-      competitionRun
+      competitionRun.payload
     );
     scores.competitionLab = computeLabQualityScore(input);
   }
 
   return scores;
+}
+
+// ============================================================================
+// V4 Proposed-Facts Quality (deterministic client/server shared)
+// ============================================================================
+
+type ImporterKey = 'websiteLab' | 'brandLab' | 'gapPlan' | 'competitionLab' | 'audienceLab';
+
+const IMPORTER_TO_LABKEY: Record<ImporterKey, LabKey> = {
+  websiteLab: 'websiteLab',
+  brandLab: 'brandLab',
+  gapPlan: 'gapPlan',
+  competitionLab: 'competitionLab',
+  audienceLab: 'audienceLab',
+};
+
+export async function computeQualityFromProposedFacts(companyId: string): Promise<Record<LabKey, { quality: ReturnType<typeof computeLabQuality>; runId: string | null }>> {
+  const result: Record<LabKey, { quality: ReturnType<typeof computeLabQuality>; runId: string | null }> = {
+    websiteLab: { quality: computeLabQuality([]), runId: null },
+    brandLab: { quality: computeLabQuality([]), runId: null },
+    gapPlan: { quality: computeLabQuality([]), runId: null },
+    competitionLab: { quality: computeLabQuality([]), runId: null },
+    audienceLab: { quality: computeLabQuality([]), runId: null },
+  };
+
+  const proposed = await getProposedFieldsV4(companyId);
+
+  const byImporter = new Map<ImporterKey, typeof proposed>();
+  for (const fact of proposed) {
+    const importer = fact.importerId as ImporterKey | undefined;
+    if (!importer || !IMPORTER_TO_LABKEY[importer]) continue;
+    if (!byImporter.has(importer)) byImporter.set(importer, []);
+    byImporter.get(importer)!.push(fact);
+  }
+
+  for (const [importer, facts] of byImporter.entries()) {
+    const labKey = IMPORTER_TO_LABKEY[importer];
+    const mappedFacts = facts.map(f => ({
+      domainKey: f.domain,
+      factKey: f.key,
+      value: f.value,
+      confidence: f.confidence,
+      evidenceRefs: f.evidence ? [f.evidence] : [],
+      sourceLab: importer,
+      runId: f.sourceId,
+      alternatives: (f.alternatives || []).map(a => ({
+        value: a.value,
+        confidence: a.confidence,
+        sourceLab: a.source,
+        evidenceRefs: a.evidence ? [a.evidence] : [],
+      })),
+    }));
+
+    const runId = facts[0]?.sourceId ?? null;
+    result[labKey] = { quality: computeLabQuality(mappedFacts), runId };
+  }
+
+  return result;
 }
 
 /**

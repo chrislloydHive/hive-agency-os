@@ -8,6 +8,7 @@ import { notFound } from 'next/navigation';
 import { getCompanyById } from '@/lib/airtable/companies';
 import { getCompanyStrategySnapshot } from '@/lib/os/companies/strategySnapshot';
 import { getRecentRunsWithToolCoverage, getToolLabel, type DiagnosticRun } from '@/lib/os/diagnostics/runs';
+import { getCanonicalCompetitionRun } from '@/lib/competition/getCanonicalCompetitionRun';
 import { DiagnosticsControlCenter } from '@/components/os/DiagnosticsControlCenter';
 
 type PageProps = {
@@ -89,6 +90,24 @@ export default async function DiagnosticsPage({ params }: PageProps) {
       error,
     };
   });
+
+  // Ensure Competition Lab status is present even when stored outside DiagnosticRuns
+  if (!recentDiagnostics.some((r) => r.toolId === 'competitionLab')) {
+    const canonicalCompetition = await getCanonicalCompetitionRun(companyId);
+    if (canonicalCompetition) {
+      recentDiagnostics.unshift({
+        id: canonicalCompetition.runId,
+        toolId: 'competitionLab',
+        toolLabel: getToolLabel('competitionLab'),
+        status: canonicalCompetition.status === 'completed' ? 'complete' : (canonicalCompetition.status as any),
+        score: null,
+        completedAt: canonicalCompetition.status === 'completed' ? canonicalCompetition.createdAt : null,
+        reportPath: `/c/${companyId}/diagnostics/competition`,
+        createdAt: canonicalCompetition.createdAt,
+        error: canonicalCompetition.status === 'failed' ? 'Competition run failed' : null,
+      });
+    }
+  }
 
   // Try to get open findings count (optional)
   let openFindingsCount = 0;

@@ -105,8 +105,10 @@ export function isInstallFirst(competitor: ScoredCompetitor): boolean {
  */
 function matchesSubject(
   competitor: ScoredCompetitor | ExcludedCompetitorRecord,
-  subject: SubjectInfo
+  subject?: SubjectInfo
 ): boolean {
+  if (!subject?.companyName) return false;
+
   const competitorName = competitor.name.toLowerCase().trim();
   const subjectName = subject.companyName.toLowerCase().trim();
   const competitorDomain = competitor.domain?.toLowerCase().trim() || '';
@@ -296,12 +298,17 @@ function validateClarifyingQuestionHonored(
  */
 export function validateCompetitionRun(
   run: CompetitionV4Result,
-  subject: SubjectInfo
+  subject?: SubjectInfo
 ): ValidationResult {
   const errors: ValidationError[] = [];
 
+  const safeSubject: SubjectInfo = {
+    companyName: subject?.companyName || run.companyName || 'Subject Company',
+    domain: subject?.domain ?? run.domain ?? null,
+  };
+
   // Rule 1: Subject not in competitors
-  errors.push(...validateSubjectNotInCompetitors(run, subject));
+  errors.push(...validateSubjectNotInCompetitors(run, safeSubject));
 
   // Rule 2: Retail-hybrid gating
   errors.push(...validateRetailHybridGating(run));
@@ -324,7 +331,7 @@ export function validateCompetitionRun(
  */
 export function assertValidCompetitionRun(
   run: CompetitionV4Result,
-  subject: SubjectInfo
+  subject?: SubjectInfo
 ): void {
   const result = validateCompetitionRun(run, subject);
 

@@ -27,6 +27,7 @@ import {
   type RecommendedAction,
   getWeekKey,
   getPreviousWeekKey,
+  getWeekStartDate,
 } from '@/lib/types/weeklyBrief';
 import { calculateProgramHealth, type ProgramHealthSnapshot, type HealthStatus } from '@/lib/os/programs/programHealth';
 import { getCompanyChanges, type GovernanceChangeRecord } from '@/lib/os/programs/governanceLog';
@@ -562,9 +563,14 @@ export function generateWeeklyBrief(
   const now = new Date();
   const lastWeekKey = getPreviousWeekKey(now);
 
-  // Calculate week date range
-  const weekStart = new Date(now);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1); // Monday
+  // Calculate week date range (use provided weekKey when available)
+  let weekStart = new Date(now);
+  const parsedWeekStart = getWeekStartDate(weekKey);
+  if (parsedWeekStart) {
+    weekStart = parsedWeekStart;
+  } else {
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1); // Monday
+  }
   weekStart.setHours(0, 0, 0, 0);
 
   const weekEnd = new Date(weekStart);

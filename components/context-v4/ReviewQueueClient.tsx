@@ -10,7 +10,7 @@
 // - Improved triage UX (Accept/Needs Rewrite/Ignore)
 // - Dedupe grouping (shows "Used by X fields" for duplicate findings)
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Globe, Beaker, Sparkles, FileText, Database, User, AlertTriangle, Bug, CheckCircle, ChevronDown, ChevronRight, LayoutList, LayoutGrid, Eye, EyeOff, XCircle, Pencil, Moon, ArrowUpRight, Copy, ShieldAlert } from 'lucide-react';
 import type {
@@ -24,7 +24,6 @@ import type {
   ProposeWebsiteLabResponse,
   InspectV4Response,
 } from '@/lib/types/contextV4Debug';
-import type { LabQualityResponse, QualityBand } from '@/lib/types/labQualityScore';
 import { PROPOSAL_REASON_LABELS } from '@/lib/types/contextV4Debug';
 import { useContextV4Health } from '@/hooks/useContextV4Health';
 import { FlowReadinessBanner } from './FlowReadinessBanner';
@@ -32,6 +31,8 @@ import { LabCoverageSummary } from './LabCoverageSummary';
 import { LabFindingsDrawer } from './LabFindingsDrawer';
 import { ContextReadinessPanel } from '@/components/os/context/ContextReadinessPanel';
 import type { LabKey } from '@/lib/types/labSummary';
+import type { ContextFieldAlternativeV4 } from '@/lib/types/contextField';
+import type { LabQuality } from '@/lib/os/quality/computeLabQuality';
 
 interface ReviewQueueClientProps {
   companyId: string;
@@ -39,6 +40,11 @@ interface ReviewQueueClientProps {
   initialDomain?: string;
   initialSource?: string;
 }
+
+type DedupedField = ContextFieldV4 & {
+  factKey: string;
+  alternatives?: ContextFieldAlternativeV4[];
+};
 
 // Simplified type for inspect data we use
 interface InspectData {
@@ -124,7 +130,9 @@ export function ReviewQueueClient({
   const [showLowConfidence, setShowLowConfidence] = useState(false);
   const [labDrawerKey, setLabDrawerKey] = useState<LabKey | null>(null);
   const [labFilter, setLabFilter] = useState<string | null>(null);
-  const [qualityData, setQualityData] = useState<LabQualityResponse | null>(null);
+  const [qualityData, setQualityData] = useState<any>(null);
+  const [showDebug, setShowDebug] = useState(false);
+  const groupRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Confidence floor: hide proposals with confidence < 30% by default
   const CONFIDENCE_FLOOR = 0.3;
@@ -182,15 +190,20 @@ export function ReviewQueueClient({
     fetchData();
   }, [fetchData]);
 
-  // Filter proposals by confidence floor
-  const { filteredProposals, lowConfidenceCount, hiddenProposals } = useMemo(() => {
+  // Dedupe proposals by domain + fact key, consolidating alternatives
+  const { dedupedProposals, lowConfidenceCount, hiddenProposals } = useMemo(() => {
     if (!data?.proposed) {
-      return { filteredProposals: [], lowConfidenceCount: 0, hiddenProposals: [] };
+      return {
+        dedupedProposals: [] as DedupedField[],
+        lowConfidenceCount: 0,
+        hiddenProposals: [] as ContextFieldV4[],
+      };
     }
 
     const hidden: ContextFieldV4[] = [];
     const visible: ContextFieldV4[] = [];
 
+    // 1) Apply confidence filter
     for (const field of data.proposed) {
       if (field.confidence < CONFIDENCE_FLOOR) {
         hidden.push(field);
@@ -199,24 +212,151 @@ export function ReviewQueueClient({
       }
     }
 
-    // If showLowConfidence is on, show all; otherwise show only visible
+    const proposals = showLowConfidence ? data.proposed : visible;
+
+    // 2) Dedupe by domain + fact key
+    const byKey = new Map<string, DedupedField>();
+    const normalizeValue = (v: unknown) => (typeof v === 'string' ? v.trim().toLowerCase() : JSON.stringify(v));
+
+    for (const field of proposals) {
+      const parts = field.key.split('.');
+      const factKey = parts.slice(1).join('.') || field.key;
+      const domainKey = normalizeDomain(field.domain);
+      const primaryKey = `${domainKey}:${factKey}`;
+      const valueNorm = normalizeValue(field.value);
+
+      const existing = byKey.get(primaryKey);
+      if (!existing) {
+        byKey.set(primaryKey, { ...field, domain: domainKey, factKey, alternatives: [] });
+        continue;
+      }
+
+      const existingValueNorm = normalizeValue(existing.value);
+      if (existingValueNorm === valueNorm) {
+        // Collapse identical value: keep higher confidence, merge evidence/importer
+        if (field.confidence > existing.confidence) {
+          byKey.set(primaryKey, { ...field, domain: domainKey, factKey, alternatives: existing.alternatives });
+        } else {
+          existing.evidence = existing.evidence || field.evidence;
+          existing.importerId = existing.importerId || field.importerId;
+          byKey.set(primaryKey, existing);
+        }
+      } else {
+        // Different value: attach as alternative
+        const alt: ContextFieldAlternativeV4 = {
+          value: field.value,
+          confidence: field.confidence,
+          source: field.source,
+          sourceId: field.sourceId,
+          evidence: field.evidence as any,
+          proposedAt: field.updatedAt,
+          dedupeKey: `${primaryKey}-${field.sourceId || field.key}`,
+        };
+        const alternatives = [...(existing.alternatives || []), alt].sort((a, b) => b.confidence - a.confidence);
+        byKey.set(primaryKey, { ...existing, alternatives });
+      }
+    }
+
     return {
-      filteredProposals: showLowConfidence ? data.proposed : visible,
+      dedupedProposals: Array.from(byKey.values()),
       lowConfidenceCount: hidden.length,
       hiddenProposals: hidden,
     };
-  }, [data?.proposed, showLowConfidence, CONFIDENCE_FLOOR]);
+  }, [CONFIDENCE_FLOOR, data?.proposed, normalizeDomain, showLowConfidence]);
 
   // Filter proposals by lab if labFilter is set
   const labFilteredProposals = useMemo(() => {
-    if (!labFilter) return filteredProposals;
-    return filteredProposals.filter(
+    if (!labFilter) return dedupedProposals;
+    return dedupedProposals.filter(
       f => f.importerId === labFilter || f.evidence?.importerId === labFilter
     );
-  }, [filteredProposals, labFilter]);
+  }, [dedupedProposals, labFilter]);
 
   // Use lab-filtered proposals for display when filter is active
-  const displayProposals = labFilter ? labFilteredProposals : filteredProposals;
+  const displayProposals = labFilter ? labFilteredProposals : dedupedProposals;
+
+  const debugInfo = useMemo(() => {
+    const rawCount = data?.proposed.length ?? 0;
+    const dedupedCount = dedupedProposals.length;
+    const byDomain: Record<string, number> = {};
+    const bySource: Record<string, number> = {};
+    let altCount = 0;
+
+    for (const f of dedupedProposals) {
+      byDomain[f.domain] = (byDomain[f.domain] || 0) + 1;
+      const src = f.importerId || f.source || 'lab';
+      bySource[src] = (bySource[src] || 0) + 1;
+      if (f.alternatives?.length) altCount += 1;
+    }
+
+    const topKeys = dedupedProposals
+      .map(f => `${f.domain}.${f.factKey || f.key}`)
+      .slice(0, 20);
+
+    return { rawCount, dedupedCount, byDomain, bySource, altCount, topKeys };
+  }, [data?.proposed.length, dedupedProposals]);
+
+  const normalizeDomain = useCallback((domain: string) => {
+    if (domain === 'competitiveLandscape' || domain === 'competition_v4') return 'competition';
+    return domain;
+  }, []);
+
+  const labToDomain: Record<LabKey, string> = {
+    websiteLab: 'website',
+    competitionLab: 'competition',
+    brandLab: 'brand',
+    gapPlan: 'offer',
+    audienceLab: 'audience',
+  };
+
+  const handleLabBadgeClick = useCallback(
+    (labKey: LabKey) => {
+      setLabFilter(labKey);
+
+      const domainKey = labToDomain[labKey];
+      if (domainKey) {
+        setDomain(domainKey);
+        setExpandedGroups(prev => {
+          const next = new Set(prev);
+          next.add(domainKey);
+          return next;
+        });
+        requestAnimationFrame(() => {
+          const target = groupRefs.current[domainKey];
+          if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        });
+      }
+    },
+    [labToDomain]
+  );
+
+  const domainOrder = [
+    'audience',
+    'website',
+    'competition',
+    'brand',
+    'offer',
+    'identity',
+    'ops',
+    'demand',
+    'content',
+    'seo',
+    'other',
+  ];
+
+  const domainRank = (domain: string) => {
+    const idx = domainOrder.indexOf(domain);
+    return idx === -1 ? domainOrder.length + 1 : idx;
+  };
+
+  const compareFields = useCallback((a: ContextFieldV4, b: ContextFieldV4) => {
+    // Higher confidence first
+    if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+    // Stable ordering by key for determinism
+    return a.key.localeCompare(b.key);
+  }, []);
 
   // Group proposals by domain for grouped view
   // Uses displayProposals which respects lab filter
@@ -225,27 +365,36 @@ export function ReviewQueueClient({
 
     const groups = new Map<string, ContextFieldV4[]>();
     for (const field of displayProposals) {
-      const groupKey = field.domain;
+      const groupKey = normalizeDomain(field.domain);
       if (!groups.has(groupKey)) {
         groups.set(groupKey, []);
       }
       groups.get(groupKey)!.push(field);
     }
 
-    // Sort groups by count (descending)
+    // Sort fields within each group deterministically
+    for (const [key, list] of groups.entries()) {
+      groups.set(key, [...list].sort(compareFields));
+    }
+
+    // Sort groups by predefined domain order, then alpha
     return new Map(
-      [...groups.entries()].sort((a, b) => b[1].length - a[1].length)
+      [...groups.entries()].sort((a, b) => {
+        const rankDiff = domainRank(a[0]) - domainRank(b[0]);
+        if (rankDiff !== 0) return rankDiff;
+        return a[0].localeCompare(b[0]);
+      })
     );
-  }, [displayProposals]);
+  }, [displayProposals, compareFields, domainRank, normalizeDomain]);
 
   // Initialize expanded groups when data loads
   useEffect(() => {
     if (data?.proposed && expandedGroups.size === 0) {
       // Expand all groups by default
-      const allDomains = new Set<string>(data.proposed.map(f => f.domain));
+      const allDomains = new Set<string>(data.proposed.map(f => normalizeDomain(f.domain)));
       setExpandedGroups(allDomains);
     }
-  }, [data?.proposed, expandedGroups.size]);
+  }, [data?.proposed, expandedGroups.size, normalizeDomain]);
 
   const toggleGroup = (groupKey: string) => {
     setExpandedGroups(prev => {
@@ -272,8 +421,8 @@ export function ReviewQueueClient({
   };
 
   const selectAll = () => {
-    if (filteredProposals.length === 0) return;
-    const allKeys = filteredProposals.map((f) => f.key);
+    if (dedupedProposals.length === 0) return;
+    const allKeys = dedupedProposals.map((f) => f.key);
     setSelectedKeys(new Set(allKeys));
   };
 
@@ -457,15 +606,7 @@ export function ReviewQueueClient({
 
   // Handler for lab filter from LabCoverageSummary
   const handleFilterByLab = (labKey: LabKey) => {
-    // Map labKey to importerId
-    const importerMap: Record<LabKey, string> = {
-      websiteLab: 'websiteLab',
-      competitionLab: 'competitionLab',
-      brandLab: 'brandLab',
-      gapPlan: 'gapPlan',
-      audienceLab: 'audienceLab',
-    };
-    setLabFilter(importerMap[labKey]);
+    handleLabBadgeClick(labKey);
   };
 
   return (
@@ -486,29 +627,60 @@ export function ReviewQueueClient({
         onRefresh={fetchData}
       />
 
-      {/* Quality Guardrail Banner - shows if any lab has Poor quality */}
-      {qualityData && (() => {
-        const poorQualityLabs = Object.entries(qualityData.current)
-          .filter(([_, score]) => score?.qualityBand === 'Poor')
-          .map(([labKey]) => labKey);
-
-        if (poorQualityLabs.length === 0) return null;
+      {/* Lab Quality header */}
+      {(() => {
+        const current = qualityData?.current as Record<string, LabQuality> | undefined;
+        if (!current) return null;
+        const orderedLabs: LabKey[] = ['websiteLab', 'competitionLab', 'brandLab', 'gapPlan', 'audienceLab'];
 
         return (
-          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
-            <div className="flex items-start gap-3">
-              <ShieldAlert className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-red-300 font-medium">
-                  Low Lab Quality Detected
-                </p>
-                <p className="text-red-400/80 text-sm mt-1">
-                  {poorQualityLabs.length === 1
-                    ? `${poorQualityLabs[0]} output quality is low.`
-                    : `${poorQualityLabs.join(', ')} outputs have low quality.`}
-                  {' '}Findings may be generic or under-evidenced. Review carefully before confirming.
-                </p>
-              </div>
+          <div className="mb-4 bg-slate-900 border border-slate-800 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm font-semibold text-white">Lab Quality</div>
+              <span className="text-xs text-slate-500">from /labs/quality</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {orderedLabs.map((labKey) => {
+                const q = current[labKey];
+                if (!q) return null;
+                const scoreText = q.score != null ? Math.round(q.score) : null;
+                const label = q.label ?? 'Insufficient';
+                const reason = q.reasons?.[0]?.label;
+                const badgeColor =
+                  label === 'Excellent'
+                    ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10'
+                    : label === 'Good'
+                    ? 'border-blue-500/40 text-blue-300 bg-blue-500/10'
+                    : label === 'Fair'
+                    ? 'border-amber-500/40 text-amber-300 bg-amber-500/10'
+                    : label === 'Poor'
+                    ? 'border-red-500/40 text-red-300 bg-red-500/10'
+                    : 'border-slate-600 text-slate-300 bg-slate-800/60';
+
+                return (
+                  <button
+                    key={labKey}
+                    onClick={() => handleLabBadgeClick(labKey)}
+                    className={`px-3 py-2 rounded-lg border text-left text-xs transition-colors ${badgeColor}`}
+                    title={reason || 'Jump to this lab'}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold capitalize">
+                        {labKey.replace('Lab', '').replace('competition', 'competition')}
+                      </span>
+                      <span className="text-[11px]">
+                        {label}
+                        {scoreText !== null ? ` • ${scoreText}` : ''}
+                      </span>
+                    </div>
+                    {reason && (
+                      <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">
+                        {reason}
+                      </p>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
         );
@@ -582,34 +754,93 @@ export function ReviewQueueClient({
           </select>
         </div>
 
-        {/* View Mode Toggle */}
-        <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg p-1">
-          <button
-            onClick={() => setViewMode('grouped')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm ${
-              viewMode === 'grouped'
-                ? 'bg-amber-500/20 text-amber-400'
-                : 'text-slate-400 hover:text-white'
-            }`}
-            title="Group by domain"
-          >
-            <LayoutGrid className="w-4 h-4" />
-            Grouped
-          </button>
-          <button
-            onClick={() => setViewMode('flat')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm ${
-              viewMode === 'flat'
-                ? 'bg-amber-500/20 text-amber-400'
-                : 'text-slate-400 hover:text-white'
-            }`}
-            title="Flat list"
-          >
-            <LayoutList className="w-4 h-4" />
-            Flat
-          </button>
+        {/* View Mode Toggle + Debug */}
+        <div className="flex items-center gap-2">
+          {(process.env.NODE_ENV !== 'production' || (typeof window !== 'undefined' && window.location?.search.includes('debug=1'))) && (
+            <button
+              onClick={() => setShowDebug(!showDebug)}
+              className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200 hover:bg-slate-800"
+            >
+              Debug
+            </button>
+          )}
+          <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode('grouped')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm ${
+                viewMode === 'grouped'
+                  ? 'bg-amber-500/20 text-amber-400'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Group by domain"
+            >
+              <LayoutGrid className="w-4 h-4" />
+              Grouped
+            </button>
+            <button
+              onClick={() => setViewMode('flat')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm ${
+                viewMode === 'flat'
+                  ? 'bg-amber-500/20 text-amber-400'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Flat list"
+            >
+              <LayoutList className="w-4 h-4" />
+              Flat
+            </button>
+          </div>
         </div>
       </div>
+
+      {showDebug && (
+        <div className="mb-4 p-4 bg-slate-900/60 border border-slate-800 rounded-lg">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-slate-200">Debug (dev-only)</p>
+            <button
+              onClick={() => setShowDebug(false)}
+              className="text-slate-400 hover:text-white text-xs"
+            >
+              Close
+            </button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs text-slate-300">
+            <div>Raw count: {debugInfo.rawCount}</div>
+            <div>After dedupe: {debugInfo.dedupedCount}</div>
+            <div>With alternatives: {debugInfo.altCount}</div>
+            <div className="col-span-2">
+              <p className="text-slate-400 mb-1">By domain:</p>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(debugInfo.byDomain).map(([d, c]) => (
+                  <span key={d} className="px-2 py-1 bg-slate-800 rounded">
+                    {d}: {c}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="col-span-2">
+              <p className="text-slate-400 mb-1">By source:</p>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(debugInfo.bySource).map(([s, c]) => (
+                  <span key={s} className="px-2 py-1 bg-slate-800 rounded">
+                    {s}: {c}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="col-span-3">
+              <p className="text-slate-400 mb-1">Top keys (first 20):</p>
+              <div className="flex flex-wrap gap-2">
+                {debugInfo.topKeys.map(k => (
+                  <span key={k} className="px-2 py-1 bg-slate-800 rounded">
+                    {k}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Authorization Error Banner */}
       {inspectData?.v4StoreCounts?.loadErrorCode === 'UNAUTHORIZED' && (
@@ -779,15 +1010,15 @@ export function ReviewQueueClient({
       )}
 
       {/* Batch Actions */}
-      {data.proposed.length > 0 && (
+      {dedupedProposals.length > 0 && (
         <div className="flex items-center justify-between mb-4 p-3 bg-slate-900/50 border border-slate-800 rounded-lg">
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
-                checked={selectedKeys.size === filteredProposals.length && filteredProposals.length > 0}
+                checked={selectedKeys.size === dedupedProposals.length && dedupedProposals.length > 0}
                 onChange={() =>
-                  selectedKeys.size === filteredProposals.length
+                  selectedKeys.size === dedupedProposals.length
                     ? deselectAll()
                     : selectAll()
                 }
@@ -910,7 +1141,7 @@ export function ReviewQueueClient({
       )}
 
       {/* Queue */}
-      {filteredProposals.length === 0 ? (
+      {dedupedProposals.length === 0 ? (
         <div className="text-center py-16 text-slate-500">
           {data.proposed.length === 0 ? (
             <>
@@ -936,7 +1167,7 @@ export function ReviewQueueClient({
       ) : viewMode === 'grouped' ? (
         /* Grouped View */
         <div className="space-y-4">
-          {Array.from(groupedProposals.entries()).map(([groupKey, fields]) => {
+      {Array.from(groupedProposals.entries()).map(([groupKey, fields]) => {
             const isExpanded = expandedGroups.has(groupKey);
             const isFullySelected = isGroupFullySelected(groupKey);
             const isPartiallySelected = isGroupPartiallySelected(groupKey);
@@ -945,6 +1176,9 @@ export function ReviewQueueClient({
             return (
               <div
                 key={groupKey}
+            ref={(el) => {
+              groupRefs.current[groupKey] = el;
+            }}
                 className="bg-slate-900/30 border border-slate-800 rounded-lg overflow-hidden"
               >
                 {/* Group Header */}
@@ -1023,8 +1257,18 @@ export function ReviewQueueClient({
                         field={field}
                         selected={selectedKeys.has(field.key)}
                         onToggle={() => toggleSelect(field.key)}
-                        onConfirm={() => handleConfirm([field.key])}
-                        onReject={() => handleReject([field.key])}
+                        onConfirm={() =>
+                          handleConfirm([
+                            field.key,
+                            ...(field.alternatives?.map((_a, idx) => `${field.key}-alt-${idx}`) || []),
+                          ])
+                        }
+                        onReject={() =>
+                          handleReject([
+                            field.key,
+                            ...(field.alternatives?.map((_a, idx) => `${field.key}-alt-${idx}`) || []),
+                          ])
+                        }
                         processing={processing}
                         disabled={isStoreUnauthorized}
                         compact
@@ -1046,8 +1290,18 @@ export function ReviewQueueClient({
               field={field}
               selected={selectedKeys.has(field.key)}
               onToggle={() => toggleSelect(field.key)}
-              onConfirm={() => handleConfirm([field.key])}
-              onReject={() => handleReject([field.key])}
+              onConfirm={() =>
+                handleConfirm([
+                  field.key,
+                  ...(field.alternatives?.map((_a, idx) => `${field.key}-alt-${idx}`) || []),
+                ])
+              }
+              onReject={() =>
+                handleReject([
+                  field.key,
+                  ...(field.alternatives?.map((_a, idx) => `${field.key}-alt-${idx}`) || []),
+                ])
+              }
               processing={processing}
               disabled={isStoreUnauthorized}
               isLowConfidence={field.confidence < CONFIDENCE_FLOOR}

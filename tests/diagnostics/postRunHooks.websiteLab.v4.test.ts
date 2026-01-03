@@ -18,7 +18,7 @@ vi.mock('@/lib/types/contextField', async (importOriginal) => {
   };
 });
 
-// Mock V4 proposal flow
+// Mock V5 proposal flow (canonical path)
 const mockProposeFromLabResult = vi.fn().mockResolvedValue({
   proposed: 5,
   blocked: 0,
@@ -28,8 +28,8 @@ const mockProposeFromLabResult = vi.fn().mockResolvedValue({
   blockedKeys: [],
 });
 
-const mockBuildWebsiteLabCandidates = vi.fn().mockReturnValue({
-  extractionPath: 'rawEvidence.labResultV4',
+const mockBuildWebsiteLabCandidatesWithV5 = vi.fn().mockReturnValue({
+  extractionPath: 'websiteLab.v5',
   rawKeysFound: 10,
   candidates: [
     { key: 'website.websiteScore', value: 72 },
@@ -41,20 +41,11 @@ const mockBuildWebsiteLabCandidates = vi.fn().mockReturnValue({
 
 vi.mock('@/lib/contextGraph/v4', () => ({
   proposeFromLabResult: mockProposeFromLabResult,
-  buildWebsiteLabCandidates: mockBuildWebsiteLabCandidates,
+  buildWebsiteLabCandidatesWithV5: mockBuildWebsiteLabCandidatesWithV5,
 }));
 
-// Mock legacy writer
-const mockWriteWebsiteLabAndSave = vi.fn().mockResolvedValue({
-  summary: {
-    fieldsUpdated: 10,
-    updatedPaths: ['website.websiteScore'],
-    skippedPaths: [],
-    errors: [],
-  },
-  graph: {},
-});
-
+// Mock legacy writer (no longer invoked)
+const mockWriteWebsiteLabAndSave = vi.fn();
 vi.mock('@/lib/contextGraph/websiteLabWriter', () => ({
   writeWebsiteLabAndSave: mockWriteWebsiteLabAndSave,
   WEBSITE_LAB_MAPPINGS: [],
@@ -174,20 +165,20 @@ describe('postRunHooks WebsiteLab V4 Flow', () => {
       mockIsContextV4IngestWebsiteLabEnabled.mockReturnValue(true);
     });
 
-    it('should call proposeFromLabResult', async () => {
+    it('should call proposeFromLabResult via V5 path', async () => {
       const { processDiagnosticRunCompletion } = await import(
         '@/lib/os/diagnostics/postRunHooks'
       );
 
       await processDiagnosticRunCompletion('company-123', mockWebsiteLabRun);
 
-      expect(mockBuildWebsiteLabCandidates).toHaveBeenCalledWith(mockWebsiteLabRun.rawJson);
+      expect(mockBuildWebsiteLabCandidatesWithV5).toHaveBeenCalledWith(mockWebsiteLabRun.rawJson, mockWebsiteLabRun.id);
       expect(mockProposeFromLabResult).toHaveBeenCalledWith({
         companyId: 'company-123',
         importerId: 'websiteLab',
         source: 'lab',
         sourceId: 'run-123',
-        extractionPath: 'rawEvidence.labResultV4',
+        extractionPath: 'websiteLab.v5',
         candidates: expect.any(Array),
       });
     });
@@ -203,8 +194,8 @@ describe('postRunHooks WebsiteLab V4 Flow', () => {
     });
 
     it('should handle empty candidates gracefully', async () => {
-      mockBuildWebsiteLabCandidates.mockReturnValueOnce({
-        extractionPath: 'rawEvidence.labResultV4',
+      mockBuildWebsiteLabCandidatesWithV5.mockReturnValueOnce({
+        extractionPath: 'websiteLab.v5',
         rawKeysFound: 0,
         candidates: [],
         skipped: { wrongDomain: 0, emptyValue: 0, noMapping: 0 },
@@ -228,29 +219,25 @@ describe('postRunHooks WebsiteLab V4 Flow', () => {
       mockIsContextV4IngestWebsiteLabEnabled.mockReturnValue(false);
     });
 
-    it('should call legacy writeWebsiteLabAndSave', async () => {
+    it('should still call V5 proposal path', async () => {
       const { processDiagnosticRunCompletion } = await import(
         '@/lib/os/diagnostics/postRunHooks'
       );
 
       await processDiagnosticRunCompletion('company-123', mockWebsiteLabRun);
 
-      expect(mockWriteWebsiteLabAndSave).toHaveBeenCalledWith(
-        'company-123',
-        expect.any(Object), // WebsiteUXLabResultV4
-        'run-123'
-      );
+      expect(mockBuildWebsiteLabCandidatesWithV5).toHaveBeenCalled();
+      expect(mockProposeFromLabResult).toHaveBeenCalled();
     });
 
-    it('should NOT call V4 proposal flow', async () => {
+    it('should ignore legacy writer even when flag is off', async () => {
       const { processDiagnosticRunCompletion } = await import(
         '@/lib/os/diagnostics/postRunHooks'
       );
 
       await processDiagnosticRunCompletion('company-123', mockWebsiteLabRun);
 
-      expect(mockBuildWebsiteLabCandidates).not.toHaveBeenCalled();
-      expect(mockProposeFromLabResult).not.toHaveBeenCalled();
+      expect(mockWriteWebsiteLabAndSave).not.toHaveBeenCalled();
     });
   });
 
@@ -300,7 +287,7 @@ describe('postRunHooks Other Tools (Non-WebsiteLab)', () => {
     await processDiagnosticRunCompletion('company-123', brandLabRun);
 
     // V4 flow should not be called for brandLab
-    expect(mockBuildWebsiteLabCandidates).not.toHaveBeenCalled();
+    expect(mockBuildWebsiteLabCandidatesWithV5).not.toHaveBeenCalled();
     expect(mockProposeFromLabResult).not.toHaveBeenCalled();
   });
 });

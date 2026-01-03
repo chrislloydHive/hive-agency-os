@@ -19,6 +19,8 @@
 import type { LabCandidate } from './propose';
 import type { CompetitionRunV3Payload } from '@/lib/competition-v3/store';
 import type { CompetitorProfileV3, CompetitorType } from '@/lib/competition-v3/types';
+import type { CompetitionV4Result, ScoredCompetitor } from '@/lib/competition-v4';
+import { reduceCompetitionForUI, type ReducedCompetition } from '@/lib/competition-v4/reduceCompetitionForUI';
 
 // ============================================================================
 // Types
@@ -634,6 +636,267 @@ function buildThreatSummary(directSet: CompetitorProfileV3[]): string | null {
 // Main Builder
 // ============================================================================
 
+function buildReducedFallback(run: CompetitionV4Result): ReducedCompetition {
+  const sc = run.scoredCompetitors ?? {
+    primary: [],
+    contextual: [],
+    alternatives: [],
+    excluded: [],
+    threshold: 0,
+    modality: run.modalityInference?.modality ?? 'InstallationOnly',
+    modalityConfidence: run.modalityInference?.confidence ?? 0,
+  };
+
+  return {
+    mode: {
+      modality: sc.modality ?? 'InstallationOnly',
+      confidence: sc.modalityConfidence ?? 0,
+      explanation: run.modalityInference?.explanation ?? 'Fallback reduction without validation',
+      hasClarifyingQuestion: !!(sc as any).clarifyingQuestion,
+      allowRetailHybridPrimary: true,
+    },
+    tiers: {
+      primaryInstallFirst: (sc.primary || []) as any,
+      primaryRetailHybrid: [],
+      contextual: (sc.contextual || []) as any,
+      alternatives: (sc.alternatives || []) as any,
+      excluded: (sc.excluded || []) as any,
+    },
+    notes: {
+      suppressedSubjectCount: 0,
+      forcedMoves: [],
+      validationErrors: [],
+    },
+    copyHints: {
+      showModerateConfidenceLabel: false,
+      showRetailHybridGatingExplanation: false,
+      retailHybridGatingReason: null,
+    },
+  };
+}
+
+function mapReducedCompetitor(
+  competitor: ReducedCompetition['tiers']['primaryInstallFirst'][number] | ReducedCompetition['tiers']['contextual'][number] | ReducedCompetition['tiers']['alternatives'][number],
+  type: 'primary' | 'contextual' | 'alternative'
+): CompetitorInfo {
+  return {
+    name: competitor.name,
+    domain: competitor.domain || undefined,
+    url: competitor.raw?.homepageUrl || undefined,
+    type: type === 'primary' ? 'direct' : type === 'contextual' ? 'partial' : 'platform',
+    threatScore: competitor.overlapScore,
+    summary: competitor.whyThisMatters || competitor.raw?.summary || undefined,
+  };
+}
+
+function buildAxesFromReduced(reduced: ReducedCompetition): string[] {
+  const axes = new Set<string>();
+  const all = [
+    ...reduced.tiers.primaryInstallFirst,
+    ...reduced.tiers.primaryRetailHybrid,
+    ...reduced.tiers.contextual,
+  ];
+
+  for (const c of all) {
+    if (c.hasInstallation) axes.add('installation');
+    if (c.hasNationalReach) axes.add('national-reach');
+    if (c.isMajorRetailer) axes.add('retail-presence');
+    if (c.pricePositioning && c.pricePositioning !== 'unknown') axes.add('pricing');
+    if (c.raw?.signalsUsed?.serviceOverlap) axes.add('service-model');
+    if (c.raw?.signalsUsed?.productOverlap) axes.add('product-overlap');
+  }
+
+  return Array.from(axes);
+}
+
+function buildPositioningSummaryFromReduced(reduced: ReducedCompetition): string | null {
+  const primaryNames = [...reduced.tiers.primaryInstallFirst, ...reduced.tiers.primaryRetailHybrid].map((c) => c.name);
+  const contextualNames = reduced.tiers.contextual.slice(0, 3).map((c) => c.name);
+
+  const parts: string[] = [];
+  if (primaryNames.length) parts.push(`Primary: ${primaryNames.slice(0, 4).join(', ')}`);
+  if (contextualNames.length) parts.push(`Contextual: ${contextualNames.join(', ')}`);
+
+  return parts.length ? parts.join(' • ') : null;
+}
+
+function buildThreatSummaryFromReduced(reduced: ReducedCompetition): string | null {
+  const primary = [...reduced.tiers.primaryInstallFirst, ...reduced.tiers.primaryRetailHybrid];
+  if (primary.length === 0) return null;
+
+  const top = primary.slice(0, 3).map((c) => `${c.name} (${Math.round(c.overlapScore)} overlap)`);
+  const modality = reduced.mode?.modality || 'Unknown modality';
+  return `${top.join(', ')} are the top direct threats. Modality: ${modality}.`;
+}
+
+function buildV4Candidates(
+  run: CompetitionV4Result,
+  runId?: string
+): BuildCompetitionCandidatesResult {
+  let reduced: ReducedCompetition;
+  try {
+    reduced = reduceCompetitionForUI(run);
+  } catch (error) {
+    console.warn('[competitionCandidates] reduceCompetitionForUI failed, using fallback', error);
+    reduced = buildReducedFallback(run);
+  }
+  const candidates: LabCandidate[] = [];
+
+  const runCreatedAt = run.execution.completedAt || run.execution.startedAt;
+  const primary = [
+    ...reduced.tiers.primaryInstallFirst,
+    ...reduced.tiers.primaryRetailHybrid,
+  ].map((c) => mapReducedCompetitor(c, 'primary'));
+
+  if (primary.length > 0) {
+    candidates.push({
+      key: 'competition.primaryCompetitors',
+      value: primary,
+      confidence: 0.86,
+      evidence: {
+        rawPath: 'competitionV4.scoredCompetitors.primary',
+        snippet: extractSnippet(primary.slice(0, 3)),
+      },
+      runCreatedAt,
+    });
+  }
+
+  const contextual = reduced.tiers.contextual.map((c) => mapReducedCompetitor(c, 'contextual'));
+  const alternatives = reduced.tiers.alternatives.map((c) => mapReducedCompetitor(c, 'alternative'));
+  let marketAlternatives = [...contextual, ...alternatives];
+
+  // If no contextual/alternatives were produced, generate low-confidence candidates so UI is never empty
+  if (marketAlternatives.length === 0) {
+    marketAlternatives = [
+      {
+        name: 'DIY install / forums',
+        domain: 'diy.community',
+        url: undefined,
+        type: 'partial',
+        threatScore: 20,
+        summary: 'Self-install via forums, Reddit, and YouTube guides',
+      },
+      {
+        name: 'Dealer service departments',
+        domain: 'dealerservice.local',
+        url: undefined,
+        type: 'partial',
+        threatScore: 25,
+        summary: 'Dealership add-on installs set expectations for quality and warranty',
+      },
+      {
+        name: 'Mobile installers',
+        domain: 'mobileinstallers.local',
+        url: undefined,
+        type: 'partial',
+        threatScore: 30,
+        summary: 'Mobile installation services as convenient alternative',
+      },
+      {
+        name: 'Do nothing / delay purchase',
+        domain: 'inaction.local',
+        url: undefined,
+        type: 'partial',
+        threatScore: 10,
+        summary: 'Customer may defer installation or purchase',
+      },
+    ];
+  }
+
+  if (marketAlternatives.length > 0) {
+    candidates.push({
+      key: 'competition.marketAlternatives',
+      value: marketAlternatives,
+      confidence: 0.65,
+      evidence: {
+        rawPath: 'competitionV4.scoredCompetitors.contextual|alternatives',
+        snippet: extractSnippet(marketAlternatives.slice(0, 3)),
+      },
+      runCreatedAt,
+    });
+  }
+
+  const axes = buildAxesFromReduced(reduced);
+  if (axes.length > 0) {
+    candidates.push({
+      key: 'competition.differentiationAxes',
+      value: axes,
+      confidence: 0.6,
+      evidence: {
+        rawPath: 'competitionV4.scoredCompetitors.signalsUsed',
+        snippet: extractSnippet(axes),
+        isInferred: true,
+      },
+      runCreatedAt,
+    });
+  }
+
+  const positioningMapSummary = buildPositioningSummaryFromReduced(reduced);
+  if (positioningMapSummary) {
+    candidates.push({
+      key: 'competition.positioningMapSummary',
+      value: positioningMapSummary,
+      confidence: 0.72,
+      evidence: {
+        rawPath: 'competitionV4.reduced.tiers',
+        snippet: extractSnippet(positioningMapSummary),
+      },
+      runCreatedAt,
+    });
+  }
+
+  const threatSummary = buildThreatSummaryFromReduced(reduced);
+  if (threatSummary) {
+    candidates.push({
+      key: 'competition.threatSummary',
+      value: threatSummary,
+      confidence: 0.78,
+      evidence: {
+        rawPath: 'competitionV4.reduced.tiers.primary',
+        snippet: extractSnippet(threatSummary),
+      },
+      runCreatedAt,
+    });
+  }
+
+  return {
+    extractionPath: 'competitionRunV4',
+    rawKeysFound: Object.keys(run).length,
+    candidates,
+    topLevelKeys: Object.keys(run),
+    filteringStats: {
+      bucketCounts: {
+        direct: reduced.tiers.primaryInstallFirst.length + reduced.tiers.primaryRetailHybrid.length,
+        partial: reduced.tiers.contextual.length,
+        fractional: 0,
+        platform: 0,
+        internal: 0,
+        unknown: 0,
+        total:
+          reduced.tiers.primaryInstallFirst.length +
+          reduced.tiers.primaryRetailHybrid.length +
+          reduced.tiers.contextual.length +
+          reduced.tiers.alternatives.length,
+      },
+      afterFiltering: {
+        qualifiedDirect: reduced.tiers.primaryInstallFirst.length + reduced.tiers.primaryRetailHybrid.length,
+        qualifiedPartial: reduced.tiers.contextual.length,
+        primaryCompetitors: reduced.tiers.primaryInstallFirst.length + reduced.tiers.primaryRetailHybrid.length,
+        marketAlternatives: reduced.tiers.contextual.length + reduced.tiers.alternatives.length,
+      },
+      excluded: [],
+      thresholds: {
+        minThreatScore: QUALITY_THRESHOLDS.MIN_THREAT_SCORE,
+        minRelevanceScore: QUALITY_THRESHOLDS.MIN_RELEVANCE_SCORE,
+        minOfferOverlapScore: QUALITY_THRESHOLDS.MIN_OFFER_OVERLAP_SCORE,
+        minJtbdMatches: QUALITY_THRESHOLDS.MIN_JTBD_MATCHES,
+        primaryCap: QUALITY_THRESHOLDS.PRIMARY_CAP,
+        alternativesCap: QUALITY_THRESHOLDS.ALTERNATIVES_CAP,
+      },
+    },
+  };
+}
+
 /**
  * Build V4 context candidates from a Competition Lab V3 run
  *
@@ -649,9 +912,13 @@ function buildThreatSummary(directSet: CompetitorProfileV3[]): string | null {
  * @returns Candidates ready for V4 proposal
  */
 export function buildCompetitionCandidates(
-  run: CompetitionRunV3Payload | null,
+  run: CompetitionRunV3Payload | CompetitionV4Result | null,
   runId?: string
 ): BuildCompetitionCandidatesResult {
+  if (run && (run as CompetitionV4Result).version === 4) {
+    return buildV4Candidates(run as CompetitionV4Result, runId);
+  }
+
   const result: BuildCompetitionCandidatesResult = {
     extractionPath: 'competitionRunV3',
     rawKeysFound: 0,

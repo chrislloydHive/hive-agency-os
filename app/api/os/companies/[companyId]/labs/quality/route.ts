@@ -8,8 +8,9 @@
 // Response: LabQualityResponse
 
 import { NextRequest, NextResponse } from 'next/server';
-import { buildLabQualityResponse } from '@/lib/os/diagnostics/qualityScoreStore';
-import type { LabQualityResponse } from '@/lib/types/labQualityScore';
+import { computeContextLabQuality } from '@/lib/os/quality/contextLabQuality';
+import { getLatestRunForCompanyAndTool } from '@/lib/os/diagnostics/runs';
+import { getCanonicalCompetitionRun } from '@/lib/competition/getCanonicalCompetitionRun';
 
 export const runtime = 'nodejs';
 
@@ -32,64 +33,38 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     if (!companyId) {
       return NextResponse.json(
-        {
-          ok: false,
-          companyId: '',
-          current: {
-            websiteLab: null,
-            competitionLab: null,
-            brandLab: null,
-            gapPlan: null,
-            audienceLab: null,
-          },
-          history: {
-            websiteLab: [],
-            competitionLab: [],
-            brandLab: [],
-            gapPlan: [],
-            audienceLab: [],
-          },
-          regressions: [],
-          summary: { averageScore: 0, lowestLab: null, highestLab: null, labsWithWarnings: [] },
-          error: 'Missing companyId',
-        } satisfies LabQualityResponse,
+        { ok: false, error: 'Missing companyId' },
         { status: 400 }
       );
     }
 
-    const response = await buildLabQualityResponse(companyId);
-    return NextResponse.json(response);
+    // Compute from Context V4 proposed fields
+    const quality = await computeContextLabQuality(companyId);
+
+    // Also surface whether runs exist (for Insufficient)
+    const websiteRun = await getLatestRunForCompanyAndTool(companyId, 'websiteLab');
+    const brandRun = await getLatestRunForCompanyAndTool(companyId, 'brandLab');
+    const gapRun = await getLatestRunForCompanyAndTool(companyId, 'gapPlan');
+    const audienceRun = await getLatestRunForCompanyAndTool(companyId, 'audienceLab');
+    const competitionRun = await getCanonicalCompetitionRun(companyId);
+
+    return NextResponse.json({
+      ok: true,
+      companyId,
+      current: {
+        websiteLab: { ...quality.websiteLab, runId: websiteRun?.id ?? null },
+        brandLab: { ...quality.brandLab, runId: brandRun?.id ?? null },
+        gapPlan: { ...quality.gapPlan, runId: gapRun?.id ?? null },
+        competitionLab: { ...quality.competitionLab, runId: competitionRun?.runId ?? null },
+        audienceLab: { ...quality.audienceLab, runId: audienceRun?.id ?? null },
+      },
+    });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('[Lab Quality API] Error:', errorMessage);
 
     return NextResponse.json(
-      {
-        ok: false,
-        companyId: '',
-        current: {
-          websiteLab: null,
-          competitionLab: null,
-          brandLab: null,
-          gapPlan: null,
-          audienceLab: null,
-        },
-        history: {
-          websiteLab: [],
-          competitionLab: [],
-          brandLab: [],
-          gapPlan: [],
-          audienceLab: [],
-        },
-        regressions: [],
-        summary: {
-          averageScore: 0,
-          lowestLab: null,
-          highestLab: null,
-          labsWithWarnings: [],
-        },
-        error: errorMessage,
-      } as LabQualityResponse,
+      { ok: false, error: errorMessage },
       { status: 500 }
     );
   }
