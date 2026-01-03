@@ -7,7 +7,7 @@
 // V3 Architecture: Business Need–First, Strategy-Aligned
 // Canonical component: components/os/overview/CompanyOverviewV3.tsx
 
-import { getCompanyById } from '@/lib/airtable/companies';
+import { getCompanyById, getCompanyByCanonicalId } from '@/lib/airtable/companies';
 import { getCompanyStrategySnapshot } from '@/lib/os/companies/strategySnapshot';
 import { getCompanyWorkSummary, type CompanyWorkSummary } from '@/lib/os/companies/workSummary';
 import { getCompanyAlerts, type CompanyAlert } from '@/lib/os/companies/alerts';
@@ -168,7 +168,12 @@ export async function resolveOverviewState(
 
   try {
     // 2. Fetch company first (required)
-    const company = await getCompanyById(companyId);
+    // Try Airtable record ID first (recXXX format), then UUID (Company ID field)
+    let company = await getCompanyById(companyId);
+    if (!company) {
+      // Fallback: try looking up by canonical UUID
+      company = await getCompanyByCanonicalId(companyId);
+    }
     if (!company) {
       console.log('[OVERVIEW_MODE]', {
         companyId,
