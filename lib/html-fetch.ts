@@ -1,44 +1,131 @@
-import * as puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
+import type { Browser, Page } from 'puppeteer-core';
 
 /**
- * Fetch rendered HTML using Puppeteer (for JS-heavy sites)
- * Reuses existing browser instance if provided, otherwise creates a new one
- * 
- * NOTE: Currently, blog extraction already uses Puppeteer directly (see lib/extraction-utils.ts),
- * so this helper is available for future use cases like:
- * - LinkedIn/GBP link detection from static HTML
- * - Complex SPA homepage content extraction
- * - Other JS-rendered content that needs static HTML fallback
+ * Get browser executable path and args for the current environment
+ *
+ * In serverless (Vercel/AWS Lambda), uses @sparticuz/chromium
+ * In local development, uses system Chrome or Puppeteer's bundled Chrome
  */
-export async function fetchRenderedHtml(
-  url: string,
-  browser?: puppeteer.Browser
-): Promise<string> {
-  const shouldCloseBrowser = !browser;
-  let page: puppeteer.Page | null = null;
-  let browserInstance = browser;
+async function getBrowserConfig(): Promise<{
+  executablePath: string;
+  args: string[];
+  headless: boolean | 'shell';
+}> {
+  // Check if we're in a serverless environment (Vercel, AWS Lambda)
+  const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.AWS_EXECUTION_ENV;
 
-  try {
-    // Use provided browser or create new one
-    if (!browserInstance) {
-      try {
-        browserInstance = await puppeteer.launch({
-          headless: true,
+  if (isServerless) {
+    // Use @sparticuz/chromium for serverless
+    try {
+      const chromium = await import('@sparticuz/chromium');
+      const executablePath = await chromium.default.executablePath();
+
+      return {
+        executablePath,
+        args: chromium.default.args,
+        headless: true, // Always headless in serverless
+      };
+    } catch (error) {
+      console.error('[html-fetch] Failed to load @sparticuz/chromium:', error);
+      throw new Error('Serverless Chromium not available. Install @sparticuz/chromium.');
+    }
+  }
+
+  // Local development - try common Chrome paths
+  const possiblePaths = [
+    // macOS
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    // Linux
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    // Windows
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  ];
+
+  for (const chromePath of possiblePaths) {
+    try {
+      const fs = await import('fs');
+      if (fs.existsSync(chromePath)) {
+        return {
+          executablePath: chromePath,
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
           ],
+          headless: true,
+        };
+      }
+    } catch {
+      // Continue to next path
+    }
+  }
+
+  // Last resort: try puppeteer's bundled browser
+  try {
+    const puppeteerFull = await import('puppeteer');
+    const execPath = puppeteerFull.executablePath();
+    if (execPath) {
+      return {
+        executablePath: execPath,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+        ],
+        headless: true,
+      };
+    }
+  } catch {
+    // Puppeteer full not installed
+  }
+
+  throw new Error('No Chrome/Chromium browser found. Install Chrome or @sparticuz/chromium for serverless.');
+}
+
+/**
+ * Fetch rendered HTML using Puppeteer (for JS-heavy sites)
+ * Reuses existing browser instance if provided, otherwise creates a new one
+ *
+ * Works in both local development and serverless environments (Vercel/Lambda)
+ * by using @sparticuz/chromium when running serverless.
+ */
+export async function fetchRenderedHtml(
+  url: string,
+  browser?: Browser
+): Promise<string> {
+  const shouldCloseBrowser = !browser;
+  let page: Page | null = null;
+  let browserInstance = browser;
+
+  try {
+    // Use provided browser or create new one
+    if (!browserInstance) {
+      try {
+        const config = await getBrowserConfig();
+
+        browserInstance = await puppeteer.launch({
+          executablePath: config.executablePath,
+          headless: config.headless,
+          args: config.args,
         });
       } catch (launchError) {
         const errorMsg = launchError instanceof Error ? launchError.message : 'Unknown error';
-        console.error(`[html-fetch] Failed to launch Puppeteer for ${url}:`, errorMsg);
+        console.error(`[html-fetch] Failed to launch browser for ${url}:`, errorMsg);
         throw new Error(`Failed to launch browser: ${errorMsg}`);
       }
     }
 
     page = await browserInstance.newPage();
+
+    // Set realistic browser headers to avoid bot detection
+    await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
     // Set a reasonable viewport
     await page.setViewport({ width: 1920, height: 1080 });
@@ -78,7 +165,7 @@ export async function fetchRenderedHtml(
     } else if (errorMsg.includes('ERR_NAME_NOT_RESOLVED') || errorMsg.includes('net::')) {
       throw new Error(`Cannot resolve domain for ${url} - site may be down`);
     } else if (errorMsg.includes('Failed to launch browser')) {
-      throw new Error(`Browser launch failed - Puppeteer may not be installed correctly`);
+      throw new Error(`Browser launch failed - ${errorMsg}`);
     }
 
     throw new Error(`Failed to fetch rendered HTML: ${errorMsg}`);
@@ -103,12 +190,13 @@ export async function fetchRenderedHtml(
 export async function fetchHtmlWithJsFallback(url: string): Promise<string> {
   let html = '';
 
-  // Try static fetch first
+  // Try static fetch first with realistic headers
   try {
     const response = await fetch(url, {
       headers: {
-        'User-Agent':
-          'Mozilla/5.0 (compatible; HiveSnapshotBot/1.0; +https://hiveadagency.com)',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
       },
       signal: AbortSignal.timeout(10000), // 10 second timeout
     });
@@ -132,16 +220,16 @@ export async function fetchHtmlWithJsFallback(url: string): Promise<string> {
       throw new Error(`Failed to fetch ${url}: ${originalError}. Puppeteer fallback also failed: ${renderErrorMsg}`);
     }
   }
-  
+
   // Heuristic: if there is very little visible text, treat as empty and re-fetch rendered HTML
   const textOnly = html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<[^>]+>/g, '')
     .trim();
-  
+
   const tooShort = textOnly.length < 500; // Tune threshold as needed
-  
+
   if (tooShort) {
     console.log(`[html-fallback] Static HTML appears empty (${textOnly.length} chars), using JS-rendered version: ${url}`);
     try {
@@ -151,7 +239,6 @@ export async function fetchHtmlWithJsFallback(url: string): Promise<string> {
       return html; // Return static HTML as fallback
     }
   }
-  
+
   return html;
 }
-
