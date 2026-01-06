@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getOpportunitiesTableName, getActivitiesTableName, validateAirtableConfig } from "@/lib/airtable/config";
+import { findOrCreateCompanyByDomain } from "@/lib/airtable/companies";
 
 /**
  * Gmail Inbound Endpoint
@@ -343,25 +344,26 @@ export async function POST(request: Request) {
     }
 
     // -------------------------------------------------------------------------
-    // Company: Find or create by domain
+    // Company: Find or create by domain using canonical function
+    // This ensures proper Company ID (UUID), Stage, and Source are set
     // -------------------------------------------------------------------------
-    let company = await findRecord(
-      TABLE_COMPANIES,
-      `LOWER({Domain}) = "${domain.toLowerCase()}"`
+    const { companyRecord, isNew: isNewCompany } = await findOrCreateCompanyByDomain(
+      domain,
+      {
+        companyName: from.name ? undefined : domainToCompanyName(domain), // Use sender name context if available
+        stage: 'Prospect',
+        source: 'Inbound',
+      }
     );
 
-    if (!company) {
-      company = await createRecord(
-        TABLE_COMPANIES,
-        filterKnownFields(
-          {
-            'Company Name': domainToCompanyName(domain),
-            Domain: domain,
-          },
-          KNOWN_COMPANY_FIELDS
-        )
-      );
-    }
+    // Wrap in AirtableRecord format for compatibility with rest of function
+    const company: AirtableRecord = {
+      id: companyRecord.id,
+      fields: {
+        'Company Name': companyRecord.name,
+        'Domain': companyRecord.domain,
+      },
+    };
 
     // -------------------------------------------------------------------------
     // Opportunity: Find by External Thread ID or create new
@@ -464,9 +466,9 @@ export async function POST(request: Request) {
       status: isNewOpportunity ? "success" : "attached",
       company: {
         id: company.id,
-        name: company.fields?.['Company Name'] || company.fields?.Name || domainToCompanyName(domain),
-        domain: company.fields?.Domain || domain,
-        isNew: !company.fields?.['Company Name'] && !company.fields?.Name,
+        name: companyRecord.name,
+        domain: companyRecord.domain,
+        isNew: isNewCompany,
       },
       opportunity: {
         id: opportunity.id,

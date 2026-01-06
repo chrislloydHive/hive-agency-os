@@ -765,44 +765,174 @@ export async function createCompany(data: {
 export async function updateCompany(
   companyId: string,
   data: {
+    // Identity
     name?: string;
     website?: string;
     domain?: string;
+    // Classification
     industry?: string;
     companyType?: CompanyRecord['companyType'];
     stage?: CompanyRecord['stage'];
+    tier?: CompanyRecord['tier'];
     sizeBand?: CompanyRecord['sizeBand'];
+    region?: string;
     source?: CompanyRecord['source'];
+    lifecycleStatus?: string;
+    // Contact
     owner?: string;
-    notes?: string;
     primaryContactName?: string;
     primaryContactEmail?: string;
+    primaryContactRole?: string;
+    notes?: string;
+    internalNotes?: string;
+    tags?: string[];
+    // ICP
+    icpFitScore?: CompanyRecord['icpFitScore'];
+    // Analytics
+    ga4PropertyId?: string;
+    ga4Linked?: boolean;
+    primaryConversionEvents?: string[];
+    searchConsoleSiteUrl?: string;
+    // Health
+    healthOverride?: CompanyRecord['healthOverride'];
+    atRiskFlag?: boolean;
+    // Drive/Jobs
+    driveEligible?: boolean;
+    driveProvisioningAllowed?: boolean;
+    clientCode?: string;
+    // Media
+    mediaProgramStatus?: 'none' | 'active';
+    mediaLabStatus?: 'none' | 'planning' | 'running' | 'paused';
+    mediaPrimaryObjective?: 'installs' | 'leads' | 'store_visits' | 'calls' | 'awareness';
+    mediaLabNotes?: string;
   }
 ): Promise<CompanyRecord | null> {
   try {
+    // Debug: Log incoming data to help identify problematic values
+    console.log(`[Companies] updateCompany called with data:`, JSON.stringify(data, null, 2));
+
     const base = getBase();
     const fields: Record<string, unknown> = {};
 
+    // Helper: For select fields, convert empty string to null (clears selection)
+    // Airtable rejects "" for select fields with "INVALID_MULTIPLE_CHOICE_OPTIONS"
+    const selectValue = <T>(val: T | undefined): T | null | undefined => {
+      if (val === undefined) return undefined;
+      // Handle empty string - convert to null to clear the selection
+      if (val === '' || val === '""') return null;
+      // Handle any string that looks like it might be double-quoted
+      if (typeof val === 'string' && val.startsWith('"') && val.endsWith('"')) {
+        const unquoted = val.slice(1, -1);
+        return unquoted === '' ? null : unquoted as T;
+      }
+      return val;
+    };
+
+    // Identity (text fields - allow empty strings)
     if (data.name !== undefined) fields['Company Name'] = data.name;
     if (data.website !== undefined) fields['Website'] = data.website;
     if (data.domain !== undefined) fields['Domain'] = normalizeDomain(data.domain);
-    if (data.industry !== undefined) fields['Industry'] = data.industry;
-    if (data.companyType !== undefined) fields['Company Type'] = data.companyType;
-    if (data.stage !== undefined) fields['Stage'] = data.stage;
-    if (data.sizeBand !== undefined) fields['Size Band'] = data.sizeBand;
-    if (data.source !== undefined) fields['Source'] = data.source;
+
+    // Classification - select fields need empty string → null conversion
+    // Note: Using selectValue defensively for fields that might be select fields in Airtable
+    if (data.industry !== undefined) fields['Industry'] = data.industry; // text field
+    if (data.companyType !== undefined) fields['Company Type'] = selectValue(data.companyType);
+    if (data.stage !== undefined) fields['Stage'] = selectValue(data.stage);
+    if (data.tier !== undefined) fields['Tier'] = selectValue(data.tier);
+    if (data.sizeBand !== undefined) fields['Size Band'] = selectValue(data.sizeBand);
+    // Note: 'Region' field doesn't exist in Airtable - skipping
+    if (data.source !== undefined) fields['Source'] = selectValue(data.source);
+    if (data.lifecycleStatus !== undefined) fields['Lifecycle Status'] = selectValue(data.lifecycleStatus); // might be select
+
+    // Contact
     if (data.owner !== undefined) fields['Owner'] = data.owner;
-    if (data.notes !== undefined) fields['Notes'] = data.notes;
     if (data.primaryContactName !== undefined) fields['Primary Contact Name'] = data.primaryContactName;
     if (data.primaryContactEmail !== undefined) fields['Primary Contact Email'] = data.primaryContactEmail;
+    // Note: 'Primary Contact Role' field doesn't exist in Airtable - skipping
+    if (data.notes !== undefined) fields['Notes'] = data.notes;
+    if (data.internalNotes !== undefined) fields['Internal Notes'] = data.internalNotes;
+    if (data.tags !== undefined) fields['Tags'] = data.tags;
+
+    // ICP - select field
+    if (data.icpFitScore !== undefined) fields['ICP Fit Score'] = selectValue(data.icpFitScore);
+
+    // Analytics - these fields may not exist, wrap in try/catch at API level
+    if (data.ga4PropertyId !== undefined) fields['GA4 Property ID'] = data.ga4PropertyId;
+    if (data.ga4Linked !== undefined) fields['GA4 Linked'] = data.ga4Linked;
+    // Note: 'Primary Conversion Events' and 'Search Console Site URL' may not exist - skipping
+
+    // Health - these fields may not exist
+    // if (data.healthOverride !== undefined) fields['Health Override'] = data.healthOverride;
+    // if (data.atRiskFlag !== undefined) fields['At Risk Flag'] = data.atRiskFlag;
+
+    // Drive/Jobs
+    if (data.driveEligible !== undefined) fields['Drive Eligible'] = data.driveEligible;
+    if (data.driveProvisioningAllowed !== undefined) fields['Drive Provisioning Allowed'] = data.driveProvisioningAllowed;
+    if (data.clientCode !== undefined) fields['Client Code'] = data.clientCode;
+
+    // Media - select fields need empty string → null conversion
+    if (data.mediaProgramStatus !== undefined) fields['Media Program Status'] = selectValue(data.mediaProgramStatus);
+    if (data.mediaLabStatus !== undefined) fields['Media Status'] = selectValue(data.mediaLabStatus);
+    if (data.mediaPrimaryObjective !== undefined) fields['Media Primary Objective'] = selectValue(data.mediaPrimaryObjective);
+    if (data.mediaLabNotes !== undefined) fields['Media Notes'] = data.mediaLabNotes; // text field
 
     if (Object.keys(fields).length === 0) {
       return getCompanyById(companyId);
     }
 
-    await base(COMPANIES_TABLE).update(companyId, fields as any);
+    // Debug: Log field values to identify problematic empty strings
+    console.log(`[Companies] Attempting to update company ${companyId}`);
+    console.log(`[Companies] Field values being sent:`, JSON.stringify(fields, null, 2));
+    console.log(`[Companies] Using table: ${COMPANIES_TABLE}`);
+    console.log(`[Companies] AIRTABLE_COMPANIES_TABLE env:`, process.env.AIRTABLE_COMPANIES_TABLE || '(not set, using default)');
 
-    console.log(`[Companies] Updated company ${companyId}`);
+    // Debug: Check what API key is being used (first/last 4 chars only for security)
+    const apiKeyFromEnv = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+    const keyPreview = apiKeyFromEnv ? `${apiKeyFromEnv.slice(0, 4)}...${apiKeyFromEnv.slice(-4)}` : '(empty)';
+    console.log(`[Companies] API key preview: ${keyPreview}, length: ${apiKeyFromEnv.length}`);
+    console.log(`[Companies] Base ID: ${process.env.AIRTABLE_BASE_ID || '(not set)'}`);
+
+    // WORKAROUND: Create fresh Airtable instance to bypass potentially stale getBase() cache
+    const Airtable = require('airtable');
+    const freshBase = new Airtable({ apiKey: apiKeyFromEnv }).base(process.env.AIRTABLE_BASE_ID || '');
+    console.log(`[Companies] Using fresh Airtable instance instead of cached getBase()`);
+
+    // Try update with fresh instance
+    try {
+      await freshBase(COMPANIES_TABLE).update(companyId, fields as any);
+      console.log(`[Companies] Updated company ${companyId}`);
+    } catch (updateError: any) {
+      if (updateError?.error === 'NOT_AUTHORIZED' || updateError?.statusCode === 403) {
+        console.error(`[Companies] NOT_AUTHORIZED error - trying fields individually to isolate issue...`);
+        const problematicFields: string[] = [];
+        const successfulFields: string[] = [];
+
+        // Try each field individually (using fresh instance)
+        for (const [fieldName, fieldValue] of Object.entries(fields)) {
+          try {
+            await freshBase(COMPANIES_TABLE).update(companyId, { [fieldName]: fieldValue } as any);
+            successfulFields.push(fieldName);
+          } catch (fieldError: any) {
+            const errMsg = fieldError?.message || fieldError?.error || JSON.stringify(fieldError);
+            console.error(`[Companies] Field '${fieldName}' failed:`, errMsg);
+            console.error(`[Companies] Full error:`, JSON.stringify(fieldError, null, 2));
+            problematicFields.push(fieldName);
+          }
+        }
+
+        // Log the base/table info for debugging
+        console.error(`[Companies] Table: ${COMPANIES_TABLE}, Record: ${companyId}`);
+
+        console.log(`[Companies] Successful fields:`, successfulFields);
+        console.error(`[Companies] Problematic fields:`, problematicFields);
+
+        if (problematicFields.length > 0) {
+          throw new Error(`NOT_AUTHORIZED for fields: ${problematicFields.join(', ')}. These fields may not exist in Airtable or require different permissions.`);
+        }
+      }
+      console.error(`[Companies] Failed to update company ${companyId}:`, updateError);
+      throw updateError;
+    }
     return getCompanyById(companyId);
   } catch (error) {
     console.error(`[Companies] Failed to update company ${companyId}:`, error);

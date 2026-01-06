@@ -52,6 +52,8 @@ export interface OverviewViewModel {
     owner?: string | null;
     hasMediaProgram: boolean;
   };
+  /** Full company record for edit modal */
+  companyRecord: CompanyRecord;
   // V3: Strategy & Plays (primary data)
   strategy: CompanyStrategy | null;
   plays: StrategyPlay[];
@@ -303,6 +305,7 @@ export async function resolveOverviewState(
         owner: company.owner,
         hasMediaProgram,
       },
+      companyRecord: company,
       // V3: Strategy & Plays
       strategy,
       plays,

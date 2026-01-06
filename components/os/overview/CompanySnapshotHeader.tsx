@@ -27,7 +27,10 @@ import {
   ArrowDownRight,
   Minus,
   Pencil,
+  Settings,
 } from 'lucide-react';
+import { CompanyEditButton } from '@/components/os/CompanyEditButton';
+import type { CompanyRecord } from '@/lib/airtable/companies';
 
 // ============================================================================
 // Types
@@ -55,6 +58,8 @@ export interface SituationMetrics {
 export interface CompanySnapshotHeaderProps {
   companyId: string;
   companyName: string;
+  /** Full company record for edit modal */
+  company?: CompanyRecord | null;
   /** Pre-generated AI snapshot (from server) */
   aiSnapshot?: string | null;
   /** Lifecycle status derived from diagnostics */
@@ -74,6 +79,7 @@ export interface CompanySnapshotHeaderProps {
 export function CompanySnapshotHeader({
   companyId,
   companyName,
+  company,
   aiSnapshot,
   lifecycle = 'new',
   industry,
@@ -174,6 +180,10 @@ export function CompanySnapshotHeader({
                   {lifecycleConfig.icon}
                   {lifecycleConfig.label}
                 </span>
+                {/* Full company edit button */}
+                {company && (
+                  <CompanyEditButton company={company} variant="button" />
+                )}
               </div>
               {(industry || stage) && (
                 <p className="text-sm text-slate-500">

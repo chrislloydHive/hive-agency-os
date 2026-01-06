@@ -135,6 +135,7 @@ export default async function OsOverviewPage({
             <CompanyOverviewV4
               companyId={companyId}
               companyName={company.name}
+              company={company}
               strategy={null}
               strategySnapshot={null}
               recentDiagnostics={[]}
@@ -342,6 +343,7 @@ async function renderReadyState(
         <CompanyOverviewV4
           companyId={companyId}
           companyName={viewModel.company.name}
+          company={viewModel.companyRecord}
           strategy={viewModel.strategy}
           strategySnapshot={viewModel.strategySnapshot}
           recentDiagnostics={viewModel.recentDiagnostics}

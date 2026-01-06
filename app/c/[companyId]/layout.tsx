@@ -6,6 +6,7 @@ import {
 } from '@/lib/airtable/fullReports';
 import CompanyTabs from '@/components/os/CompanyTabs';
 import { AssistantButton } from '@/components/assistant';
+import { CompanyEditButton } from '@/components/os/CompanyEditButton';
 
 export default async function CompanyLayout({
   children,
@@ -47,7 +48,10 @@ export default async function CompanyLayout({
         </Link>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between">
           <div>
-            <h2 className="text-xl font-bold text-gray-100 sm:text-2xl">{company.name}</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-gray-100 sm:text-2xl">{company.name}</h2>
+              <CompanyEditButton company={company} />
+            </div>
             <a
               href={company.website || '#'}
               target="_blank"

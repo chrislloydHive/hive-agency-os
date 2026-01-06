@@ -19,6 +19,7 @@ import type { CompanyStrategy } from '@/lib/types/strategy';
 import type { CompanyStrategicSnapshot } from '@/lib/airtable/companyStrategySnapshot';
 import type { RecentDiagnostic } from '@/components/os/blueprint/types';
 import type { CompanyAlert } from '@/lib/os/companies/alerts';
+import type { CompanyRecord } from '@/lib/airtable/companies';
 
 // ============================================================================
 // Types
@@ -27,6 +28,9 @@ import type { CompanyAlert } from '@/lib/os/companies/alerts';
 export interface CompanyOverviewV4Props {
   companyId: string;
   companyName: string;
+
+  // Full company record for edit modal
+  company?: CompanyRecord | null;
 
   // Strategy data (for lifecycle badge)
   strategy: CompanyStrategy | null;
@@ -54,6 +58,7 @@ export interface CompanyOverviewV4Props {
 export function CompanyOverviewV4({
   companyId,
   companyName,
+  company,
   strategy,
   recentDiagnostics,
   alerts,
@@ -91,6 +96,7 @@ export function CompanyOverviewV4({
         <CompanySnapshotHeader
           companyId={companyId}
           companyName={companyName}
+          company={company}
           aiSnapshot={aiSnapshot}
           lifecycle={lifecycle}
           industry={industry}
