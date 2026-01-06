@@ -24,6 +24,73 @@ import type {
 } from './websiteLab';
 import type { WebsiteEvidenceV3 as _WebsiteEvidenceV3 } from './website';
 import { runV5Diagnostic, type V5DiagnosticOutput } from './websiteLabV5';
+import { fetchRenderedHtml } from '@/lib/html-fetch';
+
+// ============================================================================
+// ROBUST FETCH WITH PUPPETEER FALLBACK
+// ============================================================================
+
+/**
+ * Fetch HTML with Puppeteer fallback for bot-blocked sites
+ *
+ * Many sites block automated requests (Cloudflare, bot protection, etc.)
+ * This function tries a simple fetch first, then falls back to Puppeteer
+ * for rendering if we get a 403/401/503 or other blocking response.
+ */
+async function fetchHtmlRobust(url: string): Promise<string> {
+  // Use a realistic browser User-Agent for initial attempt
+  const browserUserAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': browserUserAgent,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    // If blocked (403, 401, 503) or server error, try Puppeteer
+    if (response.status === 403 || response.status === 401 || response.status === 503) {
+      console.log(`[WebsiteLab] HTTP ${response.status} for ${url}, falling back to Puppeteer...`);
+      return await fetchRenderedHtml(url);
+    }
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const html = await response.text();
+
+    // Check if response looks like a block page (very short or no content)
+    const textOnly = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .trim();
+
+    if (textOnly.length < 200) {
+      console.log(`[WebsiteLab] Response appears to be a block page (${textOnly.length} chars), trying Puppeteer...`);
+      return await fetchRenderedHtml(url);
+    }
+
+    return html;
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+
+    // On any fetch error, try Puppeteer as fallback
+    console.log(`[WebsiteLab] Fetch failed for ${url}: ${errorMsg}, trying Puppeteer...`);
+    try {
+      return await fetchRenderedHtml(url);
+    } catch (puppeteerError) {
+      const puppeteerMsg = puppeteerError instanceof Error ? puppeteerError.message : String(puppeteerError);
+      throw new Error(`Failed to fetch ${url}: ${errorMsg}. Puppeteer fallback also failed: ${puppeteerMsg}`);
+    }
+  }
+}
 
 // ============================================================================
 // MULTI-PAGE SPIDER (V4.0)
@@ -197,19 +264,8 @@ export async function discoverSiteGraph(
   const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
 
   try {
-    // Fetch homepage
-    const homeResponse = await fetch(rootUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; HiveBot/1.0)',
-      },
-      signal: AbortSignal.timeout(15000), // 15 second timeout
-    });
-
-    if (!homeResponse.ok) {
-      throw new Error(`Failed to fetch homepage: ${homeResponse.status}`);
-    }
-
-    const homeHtml = await homeResponse.text();
+    // Fetch homepage using robust fetch with Puppeteer fallback
+    const homeHtml = await fetchHtmlRobust(rootUrl);
     const $ = cheerio.load(homeHtml);
 
     // Add homepage
@@ -364,20 +420,8 @@ export async function fetchPagesHTML(
 
     const batchPromises = batch.map(async (page) => {
       try {
-        const response = await fetch(page.url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; HiveBot/1.0)',
-          },
-          signal: AbortSignal.timeout(15000), // 15 second timeout per page
-        });
-
-        if (!response.ok) {
-          console.warn(`[WebsiteLab V4.2] Failed to fetch ${page.path}: ${response.status}`);
-          failures.push(page.url);
-          return null;
-        }
-
-        const html = await response.text();
+        // Use robust fetch with Puppeteer fallback for blocked sites
+        const html = await fetchHtmlRobust(page.url);
 
         return {
           url: page.url,
@@ -458,18 +502,8 @@ export async function discoverPages(
   const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
 
   try {
-    // Fetch homepage
-    const homeResponse = await fetch(websiteUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; HiveBot/1.0)',
-      },
-    });
-
-    if (!homeResponse.ok) {
-      throw new Error(`Failed to fetch homepage: ${homeResponse.status}`);
-    }
-
-    const homeHtml = await homeResponse.text();
+    // Fetch homepage using robust fetch with Puppeteer fallback
+    const homeHtml = await fetchHtmlRobust(websiteUrl);
     const $ = cheerio.load(homeHtml);
 
     // Add homepage as primary page
@@ -558,24 +592,17 @@ export async function discoverPages(
 
         // Fetch this page
         try {
-          const pageResponse = await fetch(selected.url, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (compatible; HiveBot/1.0)',
-            },
+          // Use robust fetch with Puppeteer fallback for blocked sites
+          const pageHtml = await fetchHtmlRobust(selected.url);
+          snapshots.push({
+            url: selected.url,
+            type,
+            html: pageHtml,
+            path: selected.path,
+            isPrimary: ['pricing', 'product', 'service', 'about', 'contact'].includes(type),
           });
 
-          if (pageResponse.ok) {
-            const pageHtml = await pageResponse.text();
-            snapshots.push({
-              url: selected.url,
-              type,
-              html: pageHtml,
-              path: selected.path,
-              isPrimary: ['pricing', 'product', 'service', 'about', 'contact'].includes(type),
-            });
-
-            console.log(`[WebsiteLab V4] Added ${type} page: ${selected.path}`);
-          }
+          console.log(`[WebsiteLab V4] Added ${type} page: ${selected.path}`);
         } catch (err) {
           console.warn(`[WebsiteLab V4] Failed to fetch ${type} page:`, selected.url, err);
         }
