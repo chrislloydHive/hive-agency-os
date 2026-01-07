@@ -5,7 +5,7 @@ import type { CompanyRecord } from '@/lib/airtable/companies';
 import type { DiagnosticModuleResult, EvidencePack } from '../types';
 import * as cheerio from 'cheerio';
 import { openai } from '@/lib/openai';
-import puppeteer from 'puppeteer';
+import { fetchRenderedHtml } from '@/lib/html-fetch';
 
 // ============================================================================
 // Types
@@ -1504,59 +1504,11 @@ function analyzeIntentSignals(params: {
  * Fetch website HTML using Puppeteer (real browser)
  *
  * Used as fallback when standard fetch fails due to bot detection.
- * Bypasses bot protection by using actual Chrome browser with proper TLS fingerprint.
+ * Uses serverless-compatible chromium for Vercel/Lambda environments.
  */
 async function fetchWithPuppeteer(url: string): Promise<string> {
-  console.log('[fetchWithPuppeteer] Launching headless browser for:', url);
-
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--disable-gpu',
-      '--window-size=1920x1080',
-    ],
-  });
-
-  try {
-    const page = await browser.newPage();
-
-    // Set realistic viewport and user agent
-    await page.setViewport({ width: 1920, height: 1080 });
-    await page.setUserAgent(
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    );
-
-    // Set extra headers to look more like a real browser
-    await page.setExtraHTTPHeaders({
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-    });
-
-    console.log('[fetchWithPuppeteer] Navigating to URL...');
-
-    // Navigate with longer timeout for slow sites
-    await page.goto(url, {
-      waitUntil: 'networkidle0', // Wait for network to be idle
-      timeout: 30000,
-    });
-
-    console.log('[fetchWithPuppeteer] Page loaded, extracting HTML...');
-
-    // Get the full HTML content
-    const html = await page.content();
-
-    console.log(`[fetchWithPuppeteer] Successfully fetched ${html.length} bytes`);
-
-    return html;
-  } finally {
-    await browser.close();
-    console.log('[fetchWithPuppeteer] Browser closed');
-  }
+  console.log('[fetchWithPuppeteer] Using serverless-compatible Puppeteer for:', url);
+  return fetchRenderedHtml(url);
 }
 
 /**
@@ -2028,7 +1980,10 @@ export async function extractWebsiteEvidenceV3(url: string): Promise<WebsiteEvid
     const isBotDetection =
       cause?.code === 'UND_ERR_CONNECT_TIMEOUT' ||
       cause?.code === 'ECONNRESET' ||
-      (error instanceof Error && error.message.includes('timeout'));
+      (error instanceof Error && error.message.includes('timeout')) ||
+      (error instanceof Error && error.message.includes('403')) ||
+      (error instanceof Error && error.message.includes('401')) ||
+      (error instanceof Error && error.message.includes('503'));
 
     // Try Puppeteer fallback for bot detection issues
     if (isBotDetection) {

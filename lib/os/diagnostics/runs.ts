@@ -287,9 +287,13 @@ function airtableRecordToDiagnosticRun(record: {
   console.log('[DiagnosticRuns] Score parsing:', { recordId: record.id, rawScore, parsedScore: score, rawType: typeof rawScore, hasRawJson: !!rawJson });
 
   // Detect stale "running" status - if running for more than 10 minutes, mark as failed
-  const rawStatus = (fields['Status'] as DiagnosticRunStatus) || 'pending';
+  // Normalize status: handle both 'complete' and 'completed' (some code paths use either)
+  let rawStatus = (fields['Status'] as string) || 'pending';
+  if (rawStatus === 'completed') {
+    rawStatus = 'complete';
+  }
   const createdAt = (fields['Created At'] as string) || new Date().toISOString();
-  let status = rawStatus;
+  let status = rawStatus as DiagnosticRunStatus;
   let needsStaleUpdate = false;
 
   if (rawStatus === 'running') {
