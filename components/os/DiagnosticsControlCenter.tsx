@@ -915,7 +915,7 @@ export function DiagnosticsControlCenter({
                     <p className="text-sm text-slate-300">
                       Last full diagnostic
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500" suppressHydrationWarning>
                       {formatRelativeTime(lastFullDiagnostic.completedAt)}
                     </p>
                   </div>
@@ -1093,7 +1093,7 @@ export function DiagnosticsControlCenter({
                     />
                     <div className="min-w-0">
                       <p className="text-sm text-slate-200 truncate">{run.toolLabel}</p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-slate-500" suppressHydrationWarning>
                         {formatRelativeTime(run.completedAt || run.createdAt)}
                       </p>
                     </div>
