@@ -254,6 +254,69 @@ async function createRecord(
   return airtableRequest<AirtableRecord>("POST", table, "", { fields });
 }
 
+/**
+ * Verify a record exists in Airtable by doing a GET request.
+ * This is a decisive check before using a record ID in a linked field.
+ *
+ * @param table - Table name
+ * @param recordId - Airtable record ID (must start with "rec")
+ * @param debugId - Debug ID for logging
+ * @returns The verified record
+ * @throws Error if record doesn't exist or ID is invalid
+ */
+async function verifyRecordExists(
+  table: string,
+  recordId: string,
+  debugId: string
+): Promise<AirtableRecord> {
+  console.log("[GMAIL_INBOUND] Verifying record exists via GET", {
+    debugId,
+    table,
+    recordId,
+    startsWithRec: recordId?.startsWith("rec"),
+  });
+
+  // Pre-flight check: must be a valid record ID format
+  if (!recordId || typeof recordId !== "string" || !recordId.startsWith("rec")) {
+    console.error("[GMAIL_INBOUND] VERIFY_RECORD_FAILED: Invalid record ID format", {
+      debugId,
+      table,
+      recordId,
+      type: typeof recordId,
+    });
+    throw new Error(
+      `Cannot verify record: invalid ID format '${recordId}'. Expected Airtable record ID (rec...).`
+    );
+  }
+
+  try {
+    const record = await airtableRequest<AirtableRecord>(
+      "GET",
+      table,
+      `/${recordId}`
+    );
+
+    console.log("[GMAIL_INBOUND] Record verified successfully", {
+      debugId,
+      table,
+      recordId,
+      recordFields: Object.keys(record.fields || {}),
+    });
+
+    return record;
+  } catch (error) {
+    console.error("[GMAIL_INBOUND] VERIFY_RECORD_FAILED: GET request failed", {
+      debugId,
+      table,
+      recordId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw new Error(
+      `Failed to verify record ${recordId} in ${table}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -417,12 +480,30 @@ export async function POST(request: Request) {
         : undefined,
     });
 
+    // -------------------------------------------------------------------------
+    // DECISIVE VERIFICATION: GET the Company record to confirm it exists
+    // This catches any case where the ID is wrong before we try to link
+    // -------------------------------------------------------------------------
+    const verifiedCompanyRecord = await verifyRecordExists(
+      TABLE_COMPANIES,
+      companyRecord.id,
+      debugId
+    );
+
+    console.log("[GMAIL_INBOUND] Company verified via GET", {
+      debugId,
+      verifiedId: verifiedCompanyRecord.id,
+      verifiedName: verifiedCompanyRecord.fields?.['Company Name'] || verifiedCompanyRecord.fields?.['Name'],
+      verifiedDomain: verifiedCompanyRecord.fields?.['Domain'],
+    });
+
     // Wrap in AirtableRecord format for compatibility with rest of function
+    // Use the VERIFIED record ID to ensure we have the correct one
     const company: AirtableRecord = {
-      id: companyRecord.id,
+      id: verifiedCompanyRecord.id,
       fields: {
-        'Company Name': companyRecord.name,
-        'Domain': companyRecord.domain,
+        'Company Name': verifiedCompanyRecord.fields?.['Company Name'] || verifiedCompanyRecord.fields?.['Name'] || companyRecord.name,
+        'Domain': verifiedCompanyRecord.fields?.['Domain'] || companyRecord.domain,
       },
     };
 

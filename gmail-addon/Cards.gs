@@ -177,6 +177,11 @@ function buildAttachedCard(result) {
     .build();
 }
 
+// Alias for backwards compatibility with Code.gs
+function buildLogSuccessCard(result) {
+  return buildLogOnlySuccessCard(result);
+}
+
 function buildLogOnlySuccessCard(result) {
   var opp = result.opportunity || {};
   var url = (opp.url || '').trim();
@@ -279,6 +284,36 @@ function buildErrorCard(message) {
       CardService.newCardSection()
         .addWidget(CardService.newTextParagraph().setText('❌ ' + escapeHtml_(message || 'Error')))
     )
+    .build();
+}
+
+function buildPersonalEmailCard(messageData) {
+  var fromEmail = (messageData.from && messageData.from.email) ? messageData.from.email : '—';
+  var domain = getEmailDomain_(fromEmail);
+
+  var sec = CardService.newCardSection()
+    .addWidget(CardService.newTextParagraph().setText('⚠️ Personal email domain detected'))
+    .addWidget(kv_('From', fromEmail))
+    .addWidget(kv_('Domain', domain || '—'))
+    .addWidget(CardService.newTextParagraph().setText(
+      'Opportunities should be created from business email addresses, not personal ones like Gmail, Yahoo, etc.'
+    ));
+
+  // Offer to log as activity anyway
+  sec.addWidget(
+    CardService.newTextButton()
+      .setText('Log Activity Only')
+      .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
+      .setOnClickAction(
+        CardService.newAction()
+          .setFunctionName('onLogActivityOnly')
+          .setParameters({ messageData: JSON.stringify(messageData) })
+      )
+  );
+
+  return CardService.newCardBuilder()
+    .setHeader(CardService.newCardHeader().setTitle('Hive OS'))
+    .addSection(sec)
     .build();
 }
 
