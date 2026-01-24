@@ -365,13 +365,8 @@ export async function POST(req: Request) {
       // Link to Company using field name
       Company: [companyId],
 
-      // Optional metadata fields (only if they exist in your table)
+      // Source field (optional - may not exist in all tables)
       Source: "Gmail Inbound",
-      "Gmail Thread Id": asStr(body.gmailThreadId || ""),
-      "Gmail Message Id": asStr(body.gmailMessageId || ""),
-      "Received At": asStr(body.receivedAt || ""),
-      "From Email": fromEmail,
-      "Gmail URL": asStr(body.gmailUrl || ""),
     };
 
     console.log(
