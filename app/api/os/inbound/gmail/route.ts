@@ -69,7 +69,7 @@ function extractDomain(email: string): string {
 // Airtable API Helpers
 // ============================================================================
 
-async function airtableFetch(url: string, init?: RequestInit): Promise<any> {
+async function airtableFetch(url: string, init?: RequestInit, debugId?: string): Promise<any> {
   const res = await fetch(url, {
     ...init,
     headers: {
@@ -81,6 +81,7 @@ async function airtableFetch(url: string, init?: RequestInit): Promise<any> {
   });
 
   const text = await res.text();
+
   let json: any = null;
   try {
     json = text ? JSON.parse(text) : null;
@@ -89,6 +90,13 @@ async function airtableFetch(url: string, init?: RequestInit): Promise<any> {
   }
 
   if (!res.ok) {
+    console.log("[GMAIL_INBOUND_AIRTABLE_ERROR]", safeLog({
+      debugId,
+      url,
+      status: res.status,
+      body: text,
+    }));
+
     const msg =
       json?.error?.message ||
       json?.error ||
@@ -97,6 +105,8 @@ async function airtableFetch(url: string, init?: RequestInit): Promise<any> {
     const err: any = new Error(msg);
     err.status = res.status;
     err.payload = json || text;
+    err.url = url;
+    err.body = text;
     throw err;
   }
 
@@ -105,7 +115,8 @@ async function airtableFetch(url: string, init?: RequestInit): Promise<any> {
 
 async function airtableSelectFirstByFormula(
   tableName: string,
-  filterByFormula: string
+  filterByFormula: string,
+  debugId?: string
 ): Promise<any> {
   const qs = new URLSearchParams();
   qs.set("maxRecords", "1");
@@ -113,7 +124,7 @@ async function airtableSelectFirstByFormula(
   qs.set("filterByFormula", filterByFormula);
 
   const url = `${AIRTABLE_DATA_BASE}/${encodeURIComponent(tableName)}?${qs.toString()}`;
-  const data = await airtableFetch(url, { method: "GET" });
+  const data = await airtableFetch(url, { method: "GET" }, debugId);
   return Array.isArray(data?.records) && data.records.length
     ? data.records[0]
     : null;
@@ -121,21 +132,23 @@ async function airtableSelectFirstByFormula(
 
 async function airtableFindRecord(
   tableName: string,
-  recordId: string
+  recordId: string,
+  debugId?: string
 ): Promise<any> {
   const url = `${AIRTABLE_DATA_BASE}/${encodeURIComponent(tableName)}/${encodeURIComponent(recordId)}`;
-  return airtableFetch(url, { method: "GET" });
+  return airtableFetch(url, { method: "GET" }, debugId);
 }
 
 async function airtableCreateRecord(
   tableName: string,
-  fields: Record<string, unknown>
+  fields: Record<string, unknown>,
+  debugId?: string
 ): Promise<any> {
   const url = `${AIRTABLE_DATA_BASE}/${encodeURIComponent(tableName)}`;
   return airtableFetch(url, {
     method: "POST",
     body: JSON.stringify({ records: [{ fields }] }),
-  });
+  }, debugId);
 }
 
 // ============================================================================
@@ -152,7 +165,7 @@ async function resolveCompanyLinkFieldId(debugId: string): Promise<{
   linkFieldName: string;
 }> {
   const url = `${AIRTABLE_META_BASE}/tables`;
-  const meta = await airtableFetch(url, { method: "GET" });
+  const meta = await airtableFetch(url, { method: "GET" }, debugId);
 
   const tables: any[] = meta?.tables || [];
   const companiesTable = tables.find((t) => t?.name === COMPANIES_TABLE_NAME);
@@ -260,7 +273,8 @@ async function ensureCompanyInOS(
   if (companyKey) {
     rec = await airtableSelectFirstByFormula(
       COMPANIES_TABLE_NAME,
-      `{Company Key} = ${escapeAirtableFormulaString(companyKey)}`
+      `{Company Key} = ${escapeAirtableFormulaString(companyKey)}`,
+      debugId
     );
     console.log(
       "[GMAIL_INBOUND] ensureCompany lookup by key",
@@ -272,7 +286,8 @@ async function ensureCompanyInOS(
   if (!rec && companyName) {
     rec = await airtableSelectFirstByFormula(
       COMPANIES_TABLE_NAME,
-      `{Company Name} = ${escapeAirtableFormulaString(companyName)}`
+      `{Company Name} = ${escapeAirtableFormulaString(companyName)}`,
+      debugId
     );
     console.log(
       "[GMAIL_INBOUND] ensureCompany lookup by name",
@@ -285,7 +300,7 @@ async function ensureCompanyInOS(
     const created = await airtableCreateRecord(COMPANIES_TABLE_NAME, {
       "Company Name": companyName || companyKey || "Unknown Company",
       "Company Key": companyKey || "",
-    });
+    }, debugId);
     rec = created?.records?.[0];
     console.log(
       "[GMAIL_INBOUND] ensureCompany created",
@@ -294,7 +309,7 @@ async function ensureCompanyInOS(
   }
 
   // Decisive verification: GET the record to confirm it exists
-  await airtableFindRecord(COMPANIES_TABLE_NAME, rec.id);
+  await airtableFindRecord(COMPANIES_TABLE_NAME, rec.id, debugId);
   console.log(
     "[GMAIL_INBOUND] ✅ Company verified",
     safeLog({ debugId, companyId: rec.id })
@@ -394,7 +409,8 @@ export async function POST(req: Request) {
 
     const created = await airtableCreateRecord(
       OPPORTUNITIES_TABLE_NAME,
-      opportunityFields
+      opportunityFields,
+      debugId
     );
     const oppRec = created?.records?.[0];
 
