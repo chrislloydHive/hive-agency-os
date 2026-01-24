@@ -15,7 +15,7 @@ import { NextResponse } from "next/server";
  * - Base: AIRTABLE_OS_BASE_ID
  * - Tables:
  *   - Companies (fields: Company Name, Company Key)
- *   - Opportunities (fields: Opportunity, Company, Source, Gmail Thread Id, Inbound Context)
+ *   - Opportunities (fields: Opportunity, Company, Source, Gmail Thread Id, Inbound Context, Inbound Notes)
  */
 
 // ============================================================================
@@ -68,6 +68,37 @@ function extractDomain(email: string): string {
   const at = e.lastIndexOf("@");
   if (at === -1) return "";
   return e.slice(at + 1).replace(/>$/, "").trim();
+}
+
+function formatInboundNote(params: {
+  fromEmail: string;
+  subject: string;
+  gmailUrl: string;
+  snippet: string;
+  bodyText: string;
+}): string {
+  const timestamp = new Date().toISOString();
+  const bodyTruncated = (params.bodyText || "").slice(0, 4000);
+
+  const lines = [
+    `**Received:** ${timestamp}`,
+    `**From:** ${params.fromEmail || "(unknown)"}`,
+    `**Subject:** ${params.subject || "(No subject)"}`,
+  ];
+
+  if (params.gmailUrl) {
+    lines.push(`**Gmail:** ${params.gmailUrl}`);
+  }
+
+  if (params.snippet) {
+    lines.push(`**Snippet:** ${params.snippet}`);
+  }
+
+  if (bodyTruncated) {
+    lines.push("", bodyTruncated);
+  }
+
+  return lines.join("\n");
 }
 
 // ============================================================================
@@ -142,6 +173,19 @@ async function createRecord(
     body: JSON.stringify({ records: [{ fields }] }),
   }, debugId);
   return data?.records?.[0] || null;
+}
+
+async function updateRecord(
+  table: string,
+  recordId: string,
+  fields: Record<string, unknown>,
+  debugId?: string
+): Promise<any> {
+  const url = `${AIRTABLE_BASE_URL}/${encodeURIComponent(table)}/${encodeURIComponent(recordId)}`;
+  return airtableFetch(url, {
+    method: "PATCH",
+    body: JSON.stringify({ fields }),
+  }, debugId);
 }
 
 // ============================================================================
@@ -220,6 +264,7 @@ export async function POST(req: Request) {
     const snippet = asStr(body.snippet || "").trim();
     const receivedAt = asStr(body.receivedAt || "").trim();
     const gmailUrl = asStr(body.gmailUrl || "").trim();
+    const bodyText = asStr(body.bodyText || body.body || "").trim();
 
     const domain = extractDomain(fromEmail);
     const companyName = asStr(body.companyName || "").trim();
@@ -240,8 +285,12 @@ export async function POST(req: Request) {
     const companyId = await ensureCompany(debugId, companyKey, companyLabel);
 
     // -------------------------------------------------------------------------
-    // 2) Idempotency: Check for existing Opportunity by Gmail Thread Id
+    // 2) Find or Create Opportunity (idempotent by Gmail Thread Id)
     // -------------------------------------------------------------------------
+    let opportunityId!: string;
+    let opportunityName!: string;
+    let isExisting = false;
+
     if (gmailThreadId) {
       const existing = await findFirst(
         OPPORTUNITIES_TABLE,
@@ -255,53 +304,85 @@ export async function POST(req: Request) {
           gmailThreadId,
           opportunityId: existing.id,
         }));
-
-        return NextResponse.json({
-          ok: true,
-          status: "existing",
-          debugId,
-          deduped: true,
-          company: { id: companyId, name: companyLabel },
-          opportunity: { id: existing.id },
-        });
+        opportunityId = existing.id;
+        opportunityName = existing.fields?.Opportunity || "";
+        isExisting = true;
       }
     }
 
+    if (!isExisting) {
+      // Create new Opportunity
+      const inboundContext = JSON.stringify({
+        gmailThreadId,
+        gmailMessageId,
+        fromEmail,
+        subject,
+        snippet,
+        receivedAt,
+        gmailUrl,
+      });
+
+      opportunityName = `${companyLabel} — ${subject}`.slice(0, 120);
+      const opportunityFields = {
+        Opportunity: opportunityName,
+        Company: [companyId],
+        Source: "Inbound",
+        "Gmail Thread Id": gmailThreadId,
+        "Inbound Context": inboundContext,
+      };
+
+      const created = await createRecord(OPPORTUNITIES_TABLE, opportunityFields, debugId);
+      if (!created?.id) {
+        throw new Error("Failed to create Opportunity record");
+      }
+      opportunityId = created.id;
+
+      console.log("[GMAIL_INBOUND] Opportunity created", safeLog({
+        debugId,
+        gmailThreadId,
+        opportunityId,
+      }));
+    }
+
     // -------------------------------------------------------------------------
-    // 3) Create Opportunity
+    // 3) Auto-attach: Append note to "Inbound Notes" field
     // -------------------------------------------------------------------------
-    const inboundContext = JSON.stringify({
-      gmailThreadId,
-      gmailMessageId,
+    const newNote = formatInboundNote({
       fromEmail,
       subject,
-      snippet,
-      receivedAt,
       gmailUrl,
+      snippet,
+      bodyText,
     });
 
-    const opportunityFields = {
-      Opportunity: `${companyLabel} — ${subject}`.slice(0, 120),
-      Company: [companyId],
-      Source: "Inbound",
-      "Gmail Thread Id": gmailThreadId,
-      "Inbound Context": inboundContext,
-    };
+    // Fetch current record to get existing notes
+    const currentRecord = await getRecord(OPPORTUNITIES_TABLE, opportunityId, debugId);
+    const existingNotes = asStr(currentRecord?.fields?.["Inbound Notes"] || "");
 
-    const created = await createRecord(OPPORTUNITIES_TABLE, opportunityFields, debugId);
+    // Append new note with separator
+    const updatedNotes = existingNotes
+      ? `${existingNotes}\n\n---\n\n${newNote}`
+      : newNote;
 
-    console.log("[GMAIL_INBOUND] Opportunity created", safeLog({
+    await updateRecord(OPPORTUNITIES_TABLE, opportunityId, {
+      "Inbound Notes": updatedNotes,
+    }, debugId);
+
+    console.log("[GMAIL_INBOUND] Attached inbound note", safeLog({
       debugId,
-      gmailThreadId,
-      opportunityId: created?.id,
+      opportunityId,
     }));
 
+    // -------------------------------------------------------------------------
+    // 4) Return response
+    // -------------------------------------------------------------------------
     return NextResponse.json({
       ok: true,
-      status: "created",
+      status: isExisting ? "existing" : "created",
       debugId,
+      deduped: isExisting,
       company: { id: companyId, name: companyLabel },
-      opportunity: { id: created?.id, name: opportunityFields.Opportunity },
+      opportunity: { id: opportunityId, name: opportunityName },
     });
 
   } catch (err: any) {
