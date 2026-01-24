@@ -359,8 +359,8 @@ export async function POST(req: Request) {
     // 2) Create Opportunity with Company link
     // -------------------------------------------------------------------------
     const opportunityFields: Record<string, unknown> = {
-      // Primary field (adjust name if yours differs)
-      Name: `${companyLabel} — ${subject}`.slice(0, 120),
+      // Primary field in Airtable
+      Opportunity: `${companyLabel} — ${subject}`.slice(0, 120),
 
       // Link to Company using field name
       Company: [companyId],
@@ -410,7 +410,7 @@ export async function POST(req: Request) {
       },
       opportunity: {
         id: oppRec?.id,
-        name: opportunityFields.Name,
+        name: opportunityFields.Opportunity,
       },
     });
   } catch (err: any) {
