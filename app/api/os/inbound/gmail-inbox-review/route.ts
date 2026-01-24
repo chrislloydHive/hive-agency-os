@@ -57,6 +57,49 @@ function truncate(s: string, n: number) {
 }
 
 // ============================================================================
+// Inbox Field Sanitizers
+// ============================================================================
+
+// Allowed values for single-select fields - prevents creating new options
+const ALLOWED_INBOX_SELECT_VALUES: Record<string, string[]> = {
+  "Source": ["Inbound"],
+  "Status": ["New"],
+  "Disposition": ["Logged"],
+};
+
+// Fields that must NEVER be sent in Inbox create payload
+const FORBIDDEN_INBOX_FIELDS = ["People", "Item Type"];
+
+/**
+ * Sanitize Inbox fields before sending to Airtable.
+ * - Removes forbidden fields (People, Item Type)
+ * - Removes select fields with values not in allowed list
+ */
+function sanitizeInboxFields(fields: Record<string, any>): Record<string, any> {
+  const sanitized: Record<string, any> = {};
+
+  for (const [key, value] of Object.entries(fields)) {
+    // Skip forbidden fields
+    if (FORBIDDEN_INBOX_FIELDS.includes(key)) {
+      continue;
+    }
+
+    // Validate select fields against allowed values
+    if (key in ALLOWED_INBOX_SELECT_VALUES) {
+      const allowed = ALLOWED_INBOX_SELECT_VALUES[key];
+      if (!allowed.includes(value)) {
+        // Omit field if value not allowed
+        continue;
+      }
+    }
+
+    sanitized[key] = value;
+  }
+
+  return sanitized;
+}
+
+// ============================================================================
 // Airtable API
 // ============================================================================
 
@@ -160,7 +203,8 @@ export async function POST(req: Request) {
       "Disposition": "Logged",
     };
 
-    const created = await airtableCreateRecord(fields, debugId);
+    const sanitizedFields = sanitizeInboxFields(fields);
+    const created = await airtableCreateRecord(sanitizedFields, debugId);
     const inboxRec = created?.records?.[0];
 
     console.log(
