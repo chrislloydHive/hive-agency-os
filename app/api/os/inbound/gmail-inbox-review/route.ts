@@ -138,7 +138,7 @@ export async function POST(req: Request) {
 
     const fields: Record<string, any> = {
       "Title": subject || "(No subject)",
-      "Source": "Gmail Add-on",
+      "Source": "Inbound",
       "Status": "New",
       "Trace ID": debugId,
 
