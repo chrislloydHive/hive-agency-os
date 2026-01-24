@@ -16,8 +16,27 @@ import { NextResponse } from "next/server";
  * - AIRTABLE_OPPORTUNITIES_TABLE (default: "Opportunities")
  */
 
-const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY!;
-const AIRTABLE_OS_BASE_ID = process.env.AIRTABLE_OS_BASE_ID!;
+const AIRTABLE_API_KEY =
+  process.env.AIRTABLE_INBOUND_API_KEY ||
+  process.env.AIRTABLE_API_KEY ||
+  "";
+
+if (!AIRTABLE_API_KEY) {
+  throw new Error(
+    "Missing Airtable API key. Set AIRTABLE_INBOUND_API_KEY or AIRTABLE_API_KEY environment variable."
+  );
+}
+
+const AIRTABLE_OS_BASE_ID =
+  process.env.AIRTABLE_OS_BASE_ID ||
+  process.env.AIRTABLE_BASE_ID ||
+  "";
+
+if (!AIRTABLE_OS_BASE_ID) {
+  throw new Error(
+    "Missing Airtable base ID. Set AIRTABLE_OS_BASE_ID or AIRTABLE_BASE_ID environment variable."
+  );
+}
 const HIVE_INBOUND_SECRET =
   process.env.HIVE_INBOUND_SECRET ||
   process.env.HIVE_INBOUND_EMAIL_SECRET!;
