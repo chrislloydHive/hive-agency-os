@@ -16,6 +16,15 @@ import { NextResponse } from "next/server";
  * - AIRTABLE_OPPORTUNITIES_TABLE (default: "Opportunities")
  */
 
+/**
+ * Airtable contract:
+ * - Base: Client PM OS (AIRTABLE_OS_BASE_ID)
+ * - Tables:
+ *   - Companies (fields: Company Name, Company Key)
+ *   - Opportunities (primary: Opportunity, link: Company, single-select: Source="Inbound",
+ *                    Gmail Thread Id, Inbound Context)
+ */
+
 const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY || "";
 
 if (!AIRTABLE_API_KEY) {
@@ -356,8 +365,54 @@ export async function POST(req: Request) {
     const companyId = await ensureCompanyInOS(debugId, companyKey, companyLabel);
 
     // -------------------------------------------------------------------------
-    // 2) Create Opportunity with Company link
+    // 2) Check for existing Opportunity by Gmail Thread Id (idempotent)
     // -------------------------------------------------------------------------
+    const gmailThreadId = asStr(body.gmailThreadId || "").trim();
+
+    if (gmailThreadId) {
+      const existing = await airtableSelectFirstByFormula(
+        OPPORTUNITIES_TABLE_NAME,
+        `{Gmail Thread Id} = ${escapeAirtableFormulaString(gmailThreadId)}`,
+        debugId
+      );
+
+      if (existing?.id) {
+        console.log("[GMAIL_INBOUND] Existing Opportunity found", safeLog({
+          debugId,
+          gmailThreadId,
+          opportunityId: existing.id,
+        }));
+
+        return NextResponse.json({
+          ok: true,
+          status: "existing",
+          debugId,
+          deduped: true,
+          company: {
+            id: companyId,
+            name: companyLabel,
+            key: companyKey,
+          },
+          opportunity: {
+            id: existing.id,
+          },
+        });
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 3) Create Opportunity with Company link and context
+    // -------------------------------------------------------------------------
+    const inboundContext = {
+      gmailThreadId,
+      gmailMessageId: asStr(body.gmailMessageId || ""),
+      fromEmail,
+      subject,
+      snippet: asStr(body.snippet || ""),
+      receivedAt: asStr(body.receivedAt || ""),
+      gmailUrl: asStr(body.gmailUrl || ""),
+    };
+
     const opportunityFields: Record<string, unknown> = {
       // Primary field in Airtable
       Opportunity: `${companyLabel} — ${subject}`.slice(0, 120),
@@ -367,6 +422,10 @@ export async function POST(req: Request) {
 
       // Source field (single-select - must match existing option)
       Source: "Inbound",
+
+      // Gmail tracking fields
+      "Gmail Thread Id": gmailThreadId,
+      "Inbound Context": JSON.stringify(inboundContext),
     };
 
     console.log(
@@ -374,6 +433,7 @@ export async function POST(req: Request) {
       safeLog({
         debugId,
         companyId,
+        gmailThreadId,
         linkValue: [companyId],
         opportunityFields: Object.keys(opportunityFields),
       })
@@ -387,8 +447,8 @@ export async function POST(req: Request) {
     const oppRec = created?.records?.[0];
 
     console.log(
-      "[GMAIL_INBOUND] ✅ Opportunity created",
-      safeLog({ debugId, opportunityId: oppRec?.id })
+      "[GMAIL_INBOUND] Opportunity created",
+      safeLog({ debugId, gmailThreadId, opportunityId: oppRec?.id })
     );
 
     // -------------------------------------------------------------------------
