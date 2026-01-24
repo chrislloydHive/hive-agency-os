@@ -365,8 +365,8 @@ export async function POST(req: Request) {
       // Link to Company using field name
       Company: [companyId],
 
-      // Source field (optional - may not exist in all tables)
-      Source: "Gmail Inbound",
+      // Source field (single-select - must match existing option)
+      Source: "Inbound",
     };
 
     console.log(
