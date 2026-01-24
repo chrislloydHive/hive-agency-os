@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
  * Gmail Inbox Review Endpoint
  * POST /api/os/inbound/gmail-inbox-review
  *
- * Creates Inbox items from Gmail add-on "Promote" action.
+ * Creates Inbox items from Gmail add-on for review.
  *
  * Required env vars:
  * - AIRTABLE_API_KEY
@@ -14,7 +14,7 @@ import { NextResponse } from "next/server";
  * Airtable contract:
  * - Base: AIRTABLE_OS_BASE_ID
  * - Table: Inbox
- * - Fields: Title, Item Type, Source, Status, Trace ID, Gmail Message ID,
+ * - Fields: Title, Source, Status, Trace ID, Gmail Message ID,
  *           Gmail Thread ID, Gmail URL, From Email, From Name, From Domain,
  *           Received At, Subject, Snippet, Body Text, Disposition, Description
  */
@@ -138,7 +138,6 @@ export async function POST(req: Request) {
 
     const fields: Record<string, any> = {
       "Title": subject || "(No subject)",
-      "Item Type": "Email",
       "Source": "Gmail Add-on",
       "Status": "New",
       "Trace ID": debugId,
@@ -158,8 +157,7 @@ export async function POST(req: Request) {
 
       "Description": description,
 
-      // Promote trigger
-      "Disposition": "Promote",
+      "Disposition": "Logged",
     };
 
     const created = await airtableCreateRecord(fields, debugId);
@@ -172,8 +170,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      status: "promoted",
-      promoted: true,
+      status: "logged",
       inboxItem: { id: inboxRec?.id || null },
     });
   } catch (e: any) {
@@ -193,6 +190,6 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     route: "os/inbound/gmail-inbox-review",
-    description: "Gmail add-on Promote action - creates Inbox items",
+    description: "Gmail add-on - logs emails to Inbox for review",
   });
 }
