@@ -235,6 +235,25 @@ async function ensureCompanyInOS(
 export async function POST(req: Request) {
   const debugId = `dbg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
+  // --- Environment sanity check ---
+  const hasApiKey = !!AIRTABLE_API_KEY;
+  const apiKeyTail = AIRTABLE_API_KEY ? AIRTABLE_API_KEY.slice(-6) : "";
+  const baseId = AIRTABLE_OS_BASE_ID || "";
+
+  console.log("[GMAIL_INBOUND_ENV]", safeLog({ hasApiKey, apiKeyTail, baseId }));
+
+  if (!AIRTABLE_API_KEY) {
+    throw new Error(
+      "Missing AIRTABLE_API_KEY at request time. Set AIRTABLE_INBOUND_API_KEY or AIRTABLE_API_KEY."
+    );
+  }
+  if (!AIRTABLE_OS_BASE_ID) {
+    throw new Error(
+      "Missing AIRTABLE_OS_BASE_ID at request time. Set AIRTABLE_OS_BASE_ID or AIRTABLE_BASE_ID."
+    );
+  }
+  // --- end env check ---
+
   // --- Data table probes ---
   try {
     // Probe Companies table
