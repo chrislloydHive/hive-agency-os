@@ -5,10 +5,9 @@ import { NextResponse } from "next/server";
  * POST /api/os/inbound/gmail
  *
  * Creates Opportunities linked to Companies in Airtable OS base.
- * Uses Meta API to resolve the correct linked-record field ID.
  *
  * Required env vars:
- * - AIRTABLE_API_KEY (PAT with data.records:read, data.records:write, schema.bases:read)
+ * - AIRTABLE_API_KEY (PAT with data.records:read, data.records:write)
  * - AIRTABLE_OS_BASE_ID
  * - HIVE_INBOUND_SECRET (or HIVE_INBOUND_EMAIL_SECRET for backwards compat)
  *
@@ -29,7 +28,6 @@ const OPPORTUNITIES_TABLE_NAME =
   process.env.AIRTABLE_OPPORTUNITIES_TABLE || "Opportunities";
 
 const AIRTABLE_DATA_BASE = `https://api.airtable.com/v0/${AIRTABLE_OS_BASE_ID}`;
-const AIRTABLE_META_BASE = `https://api.airtable.com/v0/meta/bases/${AIRTABLE_OS_BASE_ID}`;
 
 // ============================================================================
 // Helpers
@@ -152,113 +150,6 @@ async function airtableCreateRecord(
 }
 
 // ============================================================================
-// Meta API: Resolve Company Link Field
-// ============================================================================
-
-/**
- * Meta API: Find table IDs and the correct linked-record FIELD ID on Opportunities
- * We locate the Opportunities field with type "multipleRecordLinks" whose
- * linkedTableId == Companies table id.
- */
-async function resolveCompanyLinkFieldId(debugId: string): Promise<{
-  linkFieldId: string;
-  linkFieldName: string;
-}> {
-  const url = `${AIRTABLE_META_BASE}/tables`;
-  const meta = await airtableFetch(url, { method: "GET" }, debugId);
-
-  const tables: any[] = meta?.tables || [];
-  const companiesTable = tables.find((t) => t?.name === COMPANIES_TABLE_NAME);
-  const oppTable = tables.find((t) => t?.name === OPPORTUNITIES_TABLE_NAME);
-
-  if (!companiesTable || !oppTable) {
-    const names = tables.map((t) => t?.name).filter(Boolean);
-    throw new Error(
-      `Meta tables missing. Found tables: ${names.join(", ")}. Expected "${COMPANIES_TABLE_NAME}" and "${OPPORTUNITIES_TABLE_NAME}".`
-    );
-  }
-
-  const companiesTableId = companiesTable.id;
-  const oppFields: any[] = oppTable.fields || [];
-
-  // Primary strategy: linked field pointing to Companies by tableId match
-  const linkField = oppFields.find(
-    (f) =>
-      f?.type === "multipleRecordLinks" &&
-      f?.options?.linkedTableId === companiesTableId
-  );
-
-  if (linkField?.id) {
-    console.log(
-      "[GMAIL_INBOUND] ✅ Resolved Company link field via meta",
-      safeLog({
-        debugId,
-        companiesTableId,
-        opportunitiesTableId: oppTable.id,
-        linkFieldId: linkField.id,
-        linkFieldName: linkField.name,
-      })
-    );
-    return {
-      linkFieldId: linkField.id as string,
-      linkFieldName: linkField.name as string,
-    };
-  }
-
-  // Fallback: look for common field names that are multipleRecordLinks
-  const fallbackNames = new Set([
-    "Company",
-    "Companies",
-    "Account",
-    "Accounts",
-    "Client",
-    "Clients",
-  ]);
-  const namedLink = oppFields.find(
-    (f) => fallbackNames.has(f?.name) && f?.type === "multipleRecordLinks"
-  );
-
-  if (namedLink?.id) {
-    console.log(
-      "[GMAIL_INBOUND] ⚠️ Resolved Company link field via name fallback",
-      safeLog({
-        debugId,
-        linkFieldId: namedLink.id,
-        linkFieldName: namedLink.name,
-        linkedTableId: namedLink?.options?.linkedTableId,
-      })
-    );
-    return {
-      linkFieldId: namedLink.id as string,
-      linkFieldName: namedLink.name as string,
-    };
-  }
-
-  // Helpful diagnostics: list candidate fields + types
-  const fieldSummaries = oppFields.map((f) => ({
-    name: f?.name,
-    id: f?.id,
-    type: f?.type,
-    linkedTableId: f?.options?.linkedTableId,
-  }));
-
-  console.log(
-    "[GMAIL_INBOUND_ERROR] ❌ Could not resolve linked field on Opportunities that points to Companies",
-    safeLog({
-      debugId,
-      companiesTableId,
-      opportunitiesTable: OPPORTUNITIES_TABLE_NAME,
-      companiesTable: COMPANIES_TABLE_NAME,
-      fields: fieldSummaries,
-    })
-  );
-
-  throw new Error(
-    `Could not find a linked-record field on "${OPPORTUNITIES_TABLE_NAME}" pointing to "${COMPANIES_TABLE_NAME}". Check field types.`
-  );
-}
-
-// ============================================================================
 // Company Management
 // ============================================================================
 
@@ -325,31 +216,6 @@ async function ensureCompanyInOS(
 export async function POST(req: Request) {
   const debugId = `dbg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
-  // --- Airtable probe (debug) ---
-  try {
-    const probeUrl = `https://api.airtable.com/v0/${AIRTABLE_OS_BASE_ID}/meta`;
-    const r = await fetch(probeUrl, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` },
-      cache: "no-store",
-    });
-    const bodyText = await r.text();
-    console.log("[GMAIL_INBOUND_PROBE]", safeLog({ debugId, url: probeUrl, status: r.status, body: bodyText }));
-    if (!r.ok) {
-      return NextResponse.json(
-        { ok: false, debugId, error: "Airtable probe failed", status: r.status, body: bodyText },
-        { status: 500 }
-      );
-    }
-  } catch (e: any) {
-    console.log("[GMAIL_INBOUND_PROBE_ERROR]", safeLog({ debugId, error: e?.message || String(e) }));
-    return NextResponse.json(
-      { ok: false, debugId, error: "Airtable probe exception", detail: e?.message || String(e) },
-      { status: 500 }
-    );
-  }
-  // --- end probe ---
-
   try {
     // -------------------------------------------------------------------------
     // Auth
@@ -396,20 +262,14 @@ export async function POST(req: Request) {
     const companyId = await ensureCompanyInOS(debugId, companyKey, companyLabel);
 
     // -------------------------------------------------------------------------
-    // 2) Resolve the correct link FIELD ID on Opportunities via Meta API
-    // -------------------------------------------------------------------------
-    const { linkFieldId, linkFieldName } =
-      await resolveCompanyLinkFieldId(debugId);
-
-    // -------------------------------------------------------------------------
-    // 3) Create Opportunity — use FIELD ID for the link, not field name
+    // 2) Create Opportunity with Company link
     // -------------------------------------------------------------------------
     const opportunityFields: Record<string, unknown> = {
       // Primary field (adjust name if yours differs)
       Name: `${companyLabel} — ${subject}`.slice(0, 120),
 
-      // ✅ KEY FIX: Write the link using FIELD ID, not field name
-      [linkFieldId]: [companyId],
+      // Link to Company using field name
+      Company: [companyId],
 
       // Optional metadata fields (only if they exist in your table)
       Source: "Gmail Inbound",
@@ -425,8 +285,6 @@ export async function POST(req: Request) {
       safeLog({
         debugId,
         companyId,
-        linkFieldId,
-        linkFieldName,
         linkValue: [companyId],
         opportunityFields: Object.keys(opportunityFields),
       })
