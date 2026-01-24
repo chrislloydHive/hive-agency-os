@@ -1,371 +1,323 @@
 import { NextResponse } from "next/server";
-import { getOpportunitiesTableName, getActivitiesTableName, validateAirtableConfig } from "@/lib/airtable/config";
-import { findOrCreateCompanyByDomain } from "@/lib/airtable/companies";
 
 /**
  * Gmail Inbound Endpoint
  * POST /api/os/inbound/gmail
  *
- * Creates or attaches Opportunities by Gmail Thread ID.
- * Links Activities to Opportunities.
+ * Creates Opportunities linked to Companies in Airtable OS base.
+ * Uses Meta API to resolve the correct linked-record field ID.
  *
- * Uses existing Hive OS table mappings:
- * - Opportunities: AIRTABLE_OPPORTUNITIES_TABLE (default: "Opportunities")
- * - Activities: AIRTABLE_ACTIVITIES_TABLE (default: "Activities")
- * - Companies: "Companies"
+ * Required env vars:
+ * - AIRTABLE_API_KEY (PAT with data.records:read, data.records:write, schema.bases:read)
+ * - AIRTABLE_OS_BASE_ID
+ * - HIVE_INBOUND_SECRET (or HIVE_INBOUND_EMAIL_SECRET for backwards compat)
+ *
+ * Optional:
+ * - AIRTABLE_COMPANIES_TABLE (default: "Companies")
+ * - AIRTABLE_OPPORTUNITIES_TABLE (default: "Opportunities")
  */
-
-// ============================================================================
-// Config - Aligned with existing lib/airtable mappings
-// ============================================================================
 
 const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY!;
-const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID!;
-const HIVE_INBOUND_EMAIL_SECRET = process.env.HIVE_INBOUND_EMAIL_SECRET!;
+const AIRTABLE_OS_BASE_ID = process.env.AIRTABLE_OS_BASE_ID!;
+const HIVE_INBOUND_SECRET =
+  process.env.HIVE_INBOUND_SECRET ||
+  process.env.HIVE_INBOUND_EMAIL_SECRET!;
 
-// Table names - use centralized config helpers
-const TABLE_COMPANIES = "Companies";
-const TABLE_ACTIVITIES = getActivitiesTableName();
-const TABLE_OPPORTUNITIES = getOpportunitiesTableName();
+const COMPANIES_TABLE_NAME =
+  process.env.AIRTABLE_COMPANIES_TABLE || "Companies";
+const OPPORTUNITIES_TABLE_NAME =
+  process.env.AIRTABLE_OPPORTUNITIES_TABLE || "Opportunities";
 
-// ============================================================================
-// Known Airtable Fields (defensive - strip unknown keys before write)
-// ============================================================================
-
-const KNOWN_COMPANY_FIELDS = new Set([
-  'Company Name',
-  'Domain',
-  'Website',
-  'Industry',
-  'Company Type',
-  'Stage',
-  'Owner',
-  'Notes',
-  'Primary Contact Name',
-  'Primary Contact Email',
-  'Source',
-  'Company ID',
-]);
-
-const KNOWN_ACTIVITY_FIELDS = new Set([
-  'Title',
-  'Type',
-  'Direction',
-  'Source',
-  'Subject',
-  'From Name',
-  'From Email',
-  'To',
-  'CC',
-  'Snippet',
-  'Body Text',
-  'Received At',
-  'External Message ID',
-  'External Thread ID',
-  'External URL',
-  'Raw Payload (JSON)',
-  'Opportunities',
-  'Company',
-]);
-
-const KNOWN_OPPORTUNITY_FIELDS = new Set([
-  'Name',
-  'Stage',
-  'Company',
-  'Value (USD)',
-  'Expected Close Date',
-  'Opportunity Owner',
-  'Opportunity Source',
-  'Notes',
-  'Next Step',
-  'Next Step Due Date',
-]);
-
-/**
- * Filter fields to only include known Airtable fields
- */
-function filterKnownFields(
-  fields: Record<string, unknown>,
-  knownFields: Set<string>
-): Record<string, unknown> {
-  const filtered: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(fields)) {
-    if (knownFields.has(key)) {
-      filtered[key] = value;
-    } else {
-      console.warn(`[GMAIL_INBOUND] Stripping unknown field: ${key}`);
-    }
-  }
-  return filtered;
-}
-
-// Personal email domains to block
-const PERSONAL_DOMAINS = new Set([
-  "gmail.com",
-  "yahoo.com",
-  "yahoo.co.uk",
-  "hotmail.com",
-  "hotmail.co.uk",
-  "outlook.com",
-  "live.com",
-  "msn.com",
-  "icloud.com",
-  "me.com",
-  "mac.com",
-  "aol.com",
-  "proton.me",
-  "protonmail.com",
-  "zoho.com",
-  "yandex.com",
-  "mail.com",
-  "gmx.com",
-  "fastmail.com",
-]);
-
-// ============================================================================
-// Types
-// ============================================================================
-
-interface GmailPayload {
-  gmailMessageId: string;
-  gmailThreadId: string;
-  from: { email: string; name?: string | null };
-  to?: string[];
-  cc?: string[];
-  subject?: string;
-  snippet?: string;
-  bodyText?: string;
-  gmailUrl?: string;
-  receivedAt: string;
-  direction?: "inbound" | "outbound";
-}
-
-interface AirtableRecord {
-  id: string;
-  fields: Record<string, unknown>;
-}
-
-/**
- * Assert that a value is a valid Airtable record ID (starts with "rec").
- * Throws with a clear error message if not.
- */
-function assertValidRecordId(
-  value: unknown,
-  context: string,
-  debugId: string
-): asserts value is string {
-  if (typeof value !== "string") {
-    console.error("INVALID_RECORD_ID", {
-      debugId,
-      context,
-      value,
-      type: typeof value,
-      expected: "string starting with 'rec'",
-    });
-    throw new Error(
-      `${context}: expected Airtable record ID (rec...), got ${typeof value}: ${JSON.stringify(value)}`
-    );
-  }
-
-  if (!value.startsWith("rec")) {
-    console.error("INVALID_RECORD_ID", {
-      debugId,
-      context,
-      value,
-      startsWithRec: false,
-      startsWithTbl: value.startsWith("tbl"),
-      startsWithApp: value.startsWith("app"),
-      looksLikeUuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value),
-      expected: "string starting with 'rec'",
-    });
-    throw new Error(
-      `${context}: expected Airtable record ID (rec...), got '${value}'. ` +
-        (value.startsWith("tbl")
-          ? "This looks like a TABLE ID, not a record ID."
-          : value.startsWith("app")
-          ? "This looks like a BASE ID, not a record ID."
-          : /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(value)
-          ? "This looks like a UUID (companyId), not an Airtable record ID. Use companyRecord.id, not companyId."
-          : "This does not look like an Airtable record ID.")
-    );
-  }
-}
-
-// ============================================================================
-// Airtable REST Helpers
-// ============================================================================
-
-async function airtableRequest<T>(
-  method: string,
-  table: string,
-  path: string = "",
-  body?: Record<string, unknown>
-): Promise<T> {
-  const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(table)}${path}`;
-
-  const response = await fetch(url, {
-    method,
-    headers: {
-      Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: body ? JSON.stringify(body) : undefined,
-    cache: "no-store",
-  });
-
-  const text = await response.text();
-
-  if (!response.ok) {
-    let errorMessage = `Airtable ${response.status}`;
-    try {
-      const errorJson = JSON.parse(text);
-      errorMessage = errorJson?.error?.message || errorMessage;
-    } catch {
-      errorMessage = text || errorMessage;
-    }
-    throw new Error(errorMessage);
-  }
-
-  return (text ? JSON.parse(text) : null) as T;
-}
-
-async function findRecord(
-  table: string,
-  formula: string
-): Promise<AirtableRecord | null> {
-  const params = new URLSearchParams({
-    maxRecords: "1",
-    filterByFormula: formula,
-  });
-
-  const result = await airtableRequest<{ records: AirtableRecord[] }>(
-    "GET",
-    table,
-    `?${params.toString()}`
-  );
-
-  return result.records?.[0] || null;
-}
-
-async function createRecord(
-  table: string,
-  fields: Record<string, unknown>
-): Promise<AirtableRecord> {
-  return airtableRequest<AirtableRecord>("POST", table, "", { fields });
-}
-
-/**
- * Verify a record exists in Airtable by doing a GET request.
- * This is a decisive check before using a record ID in a linked field.
- *
- * @param table - Table name
- * @param recordId - Airtable record ID (must start with "rec")
- * @param debugId - Debug ID for logging
- * @returns The verified record
- * @throws Error if record doesn't exist or ID is invalid
- */
-async function verifyRecordExists(
-  table: string,
-  recordId: string,
-  debugId: string
-): Promise<AirtableRecord> {
-  console.log("[GMAIL_INBOUND] Verifying record exists via GET", {
-    debugId,
-    table,
-    recordId,
-    startsWithRec: recordId?.startsWith("rec"),
-  });
-
-  // Pre-flight check: must be a valid record ID format
-  if (!recordId || typeof recordId !== "string" || !recordId.startsWith("rec")) {
-    console.error("[GMAIL_INBOUND] VERIFY_RECORD_FAILED: Invalid record ID format", {
-      debugId,
-      table,
-      recordId,
-      type: typeof recordId,
-    });
-    throw new Error(
-      `Cannot verify record: invalid ID format '${recordId}'. Expected Airtable record ID (rec...).`
-    );
-  }
-
-  try {
-    const record = await airtableRequest<AirtableRecord>(
-      "GET",
-      table,
-      `/${recordId}`
-    );
-
-    console.log("[GMAIL_INBOUND] Record verified successfully", {
-      debugId,
-      table,
-      recordId,
-      recordFields: Object.keys(record.fields || {}),
-    });
-
-    return record;
-  } catch (error) {
-    console.error("[GMAIL_INBOUND] VERIFY_RECORD_FAILED: GET request failed", {
-      debugId,
-      table,
-      recordId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw new Error(
-      `Failed to verify record ${recordId} in ${table}: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-}
+const AIRTABLE_DATA_BASE = `https://api.airtable.com/v0/${AIRTABLE_OS_BASE_ID}`;
+const AIRTABLE_META_BASE = `https://api.airtable.com/v0/meta/bases/${AIRTABLE_OS_BASE_ID}`;
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
+function asStr(v: unknown): string {
+  return v === undefined || v === null ? "" : String(v);
+}
+
+function safeLog(obj: unknown): string {
+  try {
+    return JSON.stringify(obj, (_k, val) => {
+      if (typeof val === "string" && val.length > 800)
+        return val.slice(0, 800) + "…";
+      return val;
+    });
+  } catch {
+    return String(obj);
+  }
+}
+
+function escapeAirtableFormulaString(s: string): string {
+  return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 function extractDomain(email: string): string {
-  const parts = email.toLowerCase().trim().split("@");
-  return parts.length === 2 ? parts[1] : "";
+  const e = (email || "").toLowerCase().trim();
+  const at = e.lastIndexOf("@");
+  if (at === -1) return "";
+  return e
+    .slice(at + 1)
+    .replace(/>$/, "")
+    .trim();
 }
 
-function domainToCompanyName(domain: string): string {
-  if (!domain) return "Unknown Company";
-  const name = domain.split(".")[0];
+// ============================================================================
+// Airtable API Helpers
+// ============================================================================
 
-  // Split on hyphens, underscores, and camelCase boundaries
-  const words = name
-    .replace(/[-_]/g, ' ')                           // hyphens/underscores → spaces
-    .replace(/([a-z])([A-Z])/g, '$1 $2')             // camelCase → spaces
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')       // ABCDef → ABC Def
-    .split(/\s+/)
-    .filter(Boolean);
+async function airtableFetch(url: string, init?: RequestInit): Promise<any> {
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${AIRTABLE_API_KEY}`,
+      "Content-Type": "application/json",
+      ...(init?.headers || {}),
+    },
+    cache: "no-store",
+  });
 
-  // Capitalize each word
-  return words
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(' ');
+  const text = await res.text();
+  let json: any = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    // ignore parse errors
+  }
+
+  if (!res.ok) {
+    const msg =
+      json?.error?.message ||
+      json?.error ||
+      text ||
+      `Airtable error (${res.status})`;
+    const err: any = new Error(msg);
+    err.status = res.status;
+    err.payload = json || text;
+    throw err;
+  }
+
+  return json;
 }
 
-function generateDebugId(): string {
-  return `dbg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+async function airtableSelectFirstByFormula(
+  tableName: string,
+  filterByFormula: string
+): Promise<any> {
+  const qs = new URLSearchParams();
+  qs.set("maxRecords", "1");
+  qs.set("pageSize", "1");
+  qs.set("filterByFormula", filterByFormula);
+
+  const url = `${AIRTABLE_DATA_BASE}/${encodeURIComponent(tableName)}?${qs.toString()}`;
+  const data = await airtableFetch(url, { method: "GET" });
+  return Array.isArray(data?.records) && data.records.length
+    ? data.records[0]
+    : null;
+}
+
+async function airtableFindRecord(
+  tableName: string,
+  recordId: string
+): Promise<any> {
+  const url = `${AIRTABLE_DATA_BASE}/${encodeURIComponent(tableName)}/${encodeURIComponent(recordId)}`;
+  return airtableFetch(url, { method: "GET" });
+}
+
+async function airtableCreateRecord(
+  tableName: string,
+  fields: Record<string, unknown>
+): Promise<any> {
+  const url = `${AIRTABLE_DATA_BASE}/${encodeURIComponent(tableName)}`;
+  return airtableFetch(url, {
+    method: "POST",
+    body: JSON.stringify({ records: [{ fields }] }),
+  });
+}
+
+// ============================================================================
+// Meta API: Resolve Company Link Field
+// ============================================================================
+
+/**
+ * Meta API: Find table IDs and the correct linked-record FIELD ID on Opportunities
+ * We locate the Opportunities field with type "multipleRecordLinks" whose
+ * linkedTableId == Companies table id.
+ */
+async function resolveCompanyLinkFieldId(debugId: string): Promise<{
+  linkFieldId: string;
+  linkFieldName: string;
+}> {
+  const url = `${AIRTABLE_META_BASE}/tables`;
+  const meta = await airtableFetch(url, { method: "GET" });
+
+  const tables: any[] = meta?.tables || [];
+  const companiesTable = tables.find((t) => t?.name === COMPANIES_TABLE_NAME);
+  const oppTable = tables.find((t) => t?.name === OPPORTUNITIES_TABLE_NAME);
+
+  if (!companiesTable || !oppTable) {
+    const names = tables.map((t) => t?.name).filter(Boolean);
+    throw new Error(
+      `Meta tables missing. Found tables: ${names.join(", ")}. Expected "${COMPANIES_TABLE_NAME}" and "${OPPORTUNITIES_TABLE_NAME}".`
+    );
+  }
+
+  const companiesTableId = companiesTable.id;
+  const oppFields: any[] = oppTable.fields || [];
+
+  // Primary strategy: linked field pointing to Companies by tableId match
+  const linkField = oppFields.find(
+    (f) =>
+      f?.type === "multipleRecordLinks" &&
+      f?.options?.linkedTableId === companiesTableId
+  );
+
+  if (linkField?.id) {
+    console.log(
+      "[GMAIL_INBOUND] ✅ Resolved Company link field via meta",
+      safeLog({
+        debugId,
+        companiesTableId,
+        opportunitiesTableId: oppTable.id,
+        linkFieldId: linkField.id,
+        linkFieldName: linkField.name,
+      })
+    );
+    return {
+      linkFieldId: linkField.id as string,
+      linkFieldName: linkField.name as string,
+    };
+  }
+
+  // Fallback: look for common field names that are multipleRecordLinks
+  const fallbackNames = new Set([
+    "Company",
+    "Companies",
+    "Account",
+    "Accounts",
+    "Client",
+    "Clients",
+  ]);
+  const namedLink = oppFields.find(
+    (f) => fallbackNames.has(f?.name) && f?.type === "multipleRecordLinks"
+  );
+
+  if (namedLink?.id) {
+    console.log(
+      "[GMAIL_INBOUND] ⚠️ Resolved Company link field via name fallback",
+      safeLog({
+        debugId,
+        linkFieldId: namedLink.id,
+        linkFieldName: namedLink.name,
+        linkedTableId: namedLink?.options?.linkedTableId,
+      })
+    );
+    return {
+      linkFieldId: namedLink.id as string,
+      linkFieldName: namedLink.name as string,
+    };
+  }
+
+  // Helpful diagnostics: list candidate fields + types
+  const fieldSummaries = oppFields.map((f) => ({
+    name: f?.name,
+    id: f?.id,
+    type: f?.type,
+    linkedTableId: f?.options?.linkedTableId,
+  }));
+
+  console.log(
+    "[GMAIL_INBOUND_ERROR] ❌ Could not resolve linked field on Opportunities that points to Companies",
+    safeLog({
+      debugId,
+      companiesTableId,
+      opportunitiesTable: OPPORTUNITIES_TABLE_NAME,
+      companiesTable: COMPANIES_TABLE_NAME,
+      fields: fieldSummaries,
+    })
+  );
+
+  throw new Error(
+    `Could not find a linked-record field on "${OPPORTUNITIES_TABLE_NAME}" pointing to "${COMPANIES_TABLE_NAME}". Check field types.`
+  );
+}
+
+// ============================================================================
+// Company Management
+// ============================================================================
+
+async function ensureCompanyInOS(
+  debugId: string,
+  companyKey: string,
+  companyName: string
+): Promise<string> {
+  let rec: any = null;
+
+  // Try lookup by Company Key first
+  if (companyKey) {
+    rec = await airtableSelectFirstByFormula(
+      COMPANIES_TABLE_NAME,
+      `{Company Key} = ${escapeAirtableFormulaString(companyKey)}`
+    );
+    console.log(
+      "[GMAIL_INBOUND] ensureCompany lookup by key",
+      safeLog({ debugId, companyKey, found: !!rec, recId: rec?.id })
+    );
+  }
+
+  // Fallback: lookup by Company Name
+  if (!rec && companyName) {
+    rec = await airtableSelectFirstByFormula(
+      COMPANIES_TABLE_NAME,
+      `{Company Name} = ${escapeAirtableFormulaString(companyName)}`
+    );
+    console.log(
+      "[GMAIL_INBOUND] ensureCompany lookup by name",
+      safeLog({ debugId, companyName, found: !!rec, recId: rec?.id })
+    );
+  }
+
+  // Not found: create new company
+  if (!rec) {
+    const created = await airtableCreateRecord(COMPANIES_TABLE_NAME, {
+      "Company Name": companyName || companyKey || "Unknown Company",
+      "Company Key": companyKey || "",
+    });
+    rec = created?.records?.[0];
+    console.log(
+      "[GMAIL_INBOUND] ensureCompany created",
+      safeLog({ debugId, companyId: rec?.id, companyKey, companyName })
+    );
+  }
+
+  // Decisive verification: GET the record to confirm it exists
+  await airtableFindRecord(COMPANIES_TABLE_NAME, rec.id);
+  console.log(
+    "[GMAIL_INBOUND] ✅ Company verified",
+    safeLog({ debugId, companyId: rec.id })
+  );
+
+  return rec.id as string;
 }
 
 // ============================================================================
 // Route Handler
 // ============================================================================
 
-export async function POST(request: Request) {
-  const debugId = generateDebugId();
+export async function POST(req: Request) {
+  const debugId = `dbg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
   try {
     // -------------------------------------------------------------------------
     // Auth
     // -------------------------------------------------------------------------
-    const secret =
-      request.headers.get("x-hive-secret") ||
-      request.headers.get("X-Hive-Secret");
-
-    if (!secret || secret !== HIVE_INBOUND_EMAIL_SECRET) {
+    const secret = req.headers.get("x-hive-secret") || "";
+    if (!HIVE_INBOUND_SECRET || secret !== HIVE_INBOUND_SECRET) {
       return NextResponse.json(
-        { status: "error", message: "Unauthorized", debugId },
+        { ok: false, debugId, error: "Unauthorized" },
         { status: 401 }
       );
     }
@@ -373,290 +325,129 @@ export async function POST(request: Request) {
     // -------------------------------------------------------------------------
     // Parse payload
     // -------------------------------------------------------------------------
-    const payload: GmailPayload = await request.json();
+    const body = await req.json().catch(() => ({}));
 
-    const {
-      gmailMessageId,
-      gmailThreadId,
-      from,
-      to = [],
-      cc = [],
-      subject = "",
-      snippet = "",
-      bodyText = "",
-      gmailUrl = "",
-      receivedAt,
-      direction = "inbound",
-    } = payload;
+    const subject = asStr(body.subject || "(No subject)").trim();
+    const fromEmail = asStr(body?.from?.email || body?.from || "").trim();
+    const domain = extractDomain(fromEmail);
 
-    if (!gmailMessageId || !gmailThreadId || !from?.email) {
-      return NextResponse.json(
-        {
-          status: "error",
-          message: "Missing required fields: gmailMessageId, gmailThreadId, from.email",
-          debugId,
-        },
-        { status: 400 }
-      );
-    }
+    const companyName = asStr(body.companyName || "").trim();
+    const companyKey =
+      domain || (companyName ? `name:${companyName.toLowerCase()}` : "");
+    const companyLabel = companyName || domain || "Unknown Company";
 
-    // -------------------------------------------------------------------------
-    // Dedupe: Check if Activity already exists for this message
-    // Field name: "External Message ID" (from lib/airtable/activities.ts)
-    // -------------------------------------------------------------------------
-    const existingActivity = await findRecord(
-      TABLE_ACTIVITIES,
-      `AND({Source} = "gmail-addon", {External Message ID} = "${gmailMessageId}")`
+    console.log(
+      "[GMAIL_INBOUND] inbound",
+      safeLog({
+        debugId,
+        subject,
+        fromEmail,
+        domain,
+        companyKey,
+        companyName,
+        gmailThreadId: body.gmailThreadId,
+        gmailMessageId: body.gmailMessageId,
+      })
     );
 
-    if (existingActivity) {
-      // Check if this activity has a linked Opportunities
-      const oppLinks = existingActivity.fields["Opportunities"] as string[] | undefined;
-
-      if (oppLinks?.[0]) {
-        // Fetch the linked Opportunity record
-        const oppRecord = await airtableRequest<AirtableRecord>(
-          "GET",
-          TABLE_OPPORTUNITIES,
-          `/${oppLinks[0]}`
-        );
-
-        return NextResponse.json({
-          status: "duplicate",
-          opportunity: {
-            id: oppRecord.id,
-            name: oppRecord.fields?.["Deliverable Name"] || "Email Opportunity",
-            stage: oppRecord.fields?.Stage || "Discovery",
-            url: null,
-          },
-          activity: { id: existingActivity.id },
-        });
-      }
-
-      // No linked opportunity - return activity only
-      return NextResponse.json({
-        status: "duplicate",
-        activity: { id: existingActivity.id },
-      });
-    }
+    // -------------------------------------------------------------------------
+    // 1) Ensure company exists in OS base
+    // -------------------------------------------------------------------------
+    const companyId = await ensureCompanyInOS(debugId, companyKey, companyLabel);
 
     // -------------------------------------------------------------------------
-    // Personal email guard
+    // 2) Resolve the correct link FIELD ID on Opportunities via Meta API
     // -------------------------------------------------------------------------
-    const domain = extractDomain(from.email);
-
-    if (!domain || PERSONAL_DOMAINS.has(domain)) {
-      return NextResponse.json({
-        status: "personal_email",
-        message: `Cannot create opportunity from personal email: ${domain || "unknown"}`,
-      });
-    }
+    const { linkFieldId, linkFieldName } =
+      await resolveCompanyLinkFieldId(debugId);
 
     // -------------------------------------------------------------------------
-    // Company: Find or create by domain using canonical function
-    // This ensures proper Company ID (UUID), Stage, and Source are set
+    // 3) Create Opportunity — use FIELD ID for the link, not field name
     // -------------------------------------------------------------------------
-    const { companyRecord, isNew: isNewCompany } = await findOrCreateCompanyByDomain(
-      domain,
-      {
-        companyName: from.name ? undefined : domainToCompanyName(domain), // Use sender name context if available
-        stage: 'Prospect',
-        source: 'Inbound',
-      }
-    );
+    const opportunityFields: Record<string, unknown> = {
+      // Primary field (adjust name if yours differs)
+      Name: `${companyLabel} — ${subject}`.slice(0, 120),
 
-    // CRITICAL: Validate that we got a valid Airtable record ID (rec...), not UUID or table ID
-    // companyRecord.id = Airtable record ID (rec...)
-    // companyRecord.companyId = UUID (for cross-table references, NOT for linked fields)
-    assertValidRecordId(companyRecord.id, "Company record ID from findOrCreateCompanyByDomain", debugId);
+      // ✅ KEY FIX: Write the link using FIELD ID, not field name
+      [linkFieldId]: [companyId],
 
-    console.log("[GMAIL_INBOUND] Company record validation", {
-      debugId,
-      airtableRecordId: companyRecord.id,
-      companyId: companyRecord.companyId,
-      isRecordIdValid: companyRecord.id.startsWith("rec"),
-      warning: companyRecord.id === companyRecord.companyId
-        ? "BUG: record.id equals companyId (UUID) - this should never happen!"
-        : undefined,
-    });
-
-    // -------------------------------------------------------------------------
-    // DECISIVE VERIFICATION: GET the Company record to confirm it exists
-    // This catches any case where the ID is wrong before we try to link
-    // -------------------------------------------------------------------------
-    const verifiedCompanyRecord = await verifyRecordExists(
-      TABLE_COMPANIES,
-      companyRecord.id,
-      debugId
-    );
-
-    console.log("[GMAIL_INBOUND] Company verified via GET", {
-      debugId,
-      verifiedId: verifiedCompanyRecord.id,
-      verifiedName: verifiedCompanyRecord.fields?.['Company Name'] || verifiedCompanyRecord.fields?.['Name'],
-      verifiedDomain: verifiedCompanyRecord.fields?.['Domain'],
-    });
-
-    // Wrap in AirtableRecord format for compatibility with rest of function
-    // Use the VERIFIED record ID to ensure we have the correct one
-    const company: AirtableRecord = {
-      id: verifiedCompanyRecord.id,
-      fields: {
-        'Company Name': verifiedCompanyRecord.fields?.['Company Name'] || verifiedCompanyRecord.fields?.['Name'] || companyRecord.name,
-        'Domain': verifiedCompanyRecord.fields?.['Domain'] || companyRecord.domain,
-      },
+      // Optional metadata fields (only if they exist in your table)
+      Source: "Gmail Inbound",
+      "Gmail Thread Id": asStr(body.gmailThreadId || ""),
+      "Gmail Message Id": asStr(body.gmailMessageId || ""),
+      "Received At": asStr(body.receivedAt || ""),
+      "From Email": fromEmail,
+      "Gmail URL": asStr(body.gmailUrl || ""),
     };
 
-    // -------------------------------------------------------------------------
-    // Opportunity: Find by External Thread ID or create new
-    // Check if any Activity in this thread is linked to an Opportunity
-    // -------------------------------------------------------------------------
-    let opportunity: AirtableRecord | null = null;
-    let isNewOpportunity = false;
-
-    // First, find existing activity in this thread that has an Opportunity link
-    const threadActivity = await findRecord(
-      TABLE_ACTIVITIES,
-      `AND({Source} = "gmail-addon", {External Thread ID} = "${gmailThreadId}")`
-    );
-
-    if (threadActivity) {
-      // Get the linked opportunity ID from the activity
-      const oppLinks = threadActivity.fields["Opportunities"] as string[] | undefined;
-      if (oppLinks?.[0]) {
-        // Fetch the opportunity record
-        const oppResult = await airtableRequest<AirtableRecord>(
-          "GET",
-          TABLE_OPPORTUNITIES,
-          `/${oppLinks[0]}`
-        );
-        opportunity = oppResult;
-      }
-    }
-
-    // If no opportunity found via thread, create a new one
-    if (!opportunity) {
-      isNewOpportunity = true;
-      // Try multiple field names for company name (Airtable tables vary)
-      const companyName = company.fields?.['Company Name']
-        || company.fields?.['Name']
-        || domainToCompanyName(domain);
-      const oppName = `${companyName} - Inbound`;
-
-      // CRITICAL: Validate company.id before using in linked field
-      assertValidRecordId(company.id, "Opportunity.Company linked field value", debugId);
-
-      console.log("[GMAIL_INBOUND] Creating Opportunity with Company link", {
+    console.log(
+      "[GMAIL_INBOUND] Creating Opportunity",
+      safeLog({
         debugId,
-        companyId: company.id,
-        companyIdStartsWithRec: company.id.startsWith("rec"),
-        linkValue: [company.id],
-      });
+        companyId,
+        linkFieldId,
+        linkFieldName,
+        linkValue: [companyId],
+        opportunityFields: Object.keys(opportunityFields),
+      })
+    );
 
-      opportunity = await createRecord(
-        TABLE_OPPORTUNITIES,
-        filterKnownFields(
-          {
-            'Name': oppName,
-            Stage: "Interest Confirmed",  // Valid Airtable stage (not "Discovery")
-            Company: [company.id],
-          },
-          KNOWN_OPPORTUNITY_FIELDS
-        )
-      );
-    }
+    const created = await airtableCreateRecord(
+      OPPORTUNITIES_TABLE_NAME,
+      opportunityFields
+    );
+    const oppRec = created?.records?.[0];
 
-    // -------------------------------------------------------------------------
-    // Activity: Create linked to Company and Opportunity
-    // Field names from lib/airtable/activities.ts mapping
-    // Primary field is "Title" (NOT "Name")
-    // -------------------------------------------------------------------------
-    const activityTitle = subject?.trim() || snippet?.slice(0, 50) || "Inbound email";
-
-    // CRITICAL: Validate all linked record IDs before creating Activity
-    assertValidRecordId(opportunity.id, "Activity.Opportunities linked field value", debugId);
-    assertValidRecordId(company.id, "Activity.Company linked field value", debugId);
-
-    console.log("[GMAIL_INBOUND] Creating Activity with linked records", {
-      debugId,
-      opportunityId: opportunity.id,
-      companyId: company.id,
-      opportunityIdValid: opportunity.id.startsWith("rec"),
-      companyIdValid: company.id.startsWith("rec"),
-    });
-
-    const activity = await createRecord(
-      TABLE_ACTIVITIES,
-      filterKnownFields(
-        {
-          // Core fields - Title is primary field
-          Title: `Email: ${activityTitle}`,
-          Type: "email",
-          Direction: direction,
-          Source: "gmail-addon",
-
-          // Links
-          Opportunities: [opportunity.id],
-          Company: [company.id],
-
-          // Email content fields
-          Subject: subject || "",
-          "From Name": from.name || "",
-          "From Email": from.email,
-          To: to.join(", "),
-          CC: cc.join(", "),
-          Snippet: snippet || "",
-          "Body Text": bodyText ? bodyText.slice(0, 10000) : "",
-
-          // External IDs (correct field names from mapping)
-          "External Message ID": gmailMessageId,
-          "External Thread ID": gmailThreadId,
-          "External URL": gmailUrl,
-
-          // Timestamp
-          "Received At": receivedAt,
-
-          // Debug payload
-          "Raw Payload (JSON)": JSON.stringify(payload),
-        },
-        KNOWN_ACTIVITY_FIELDS
-      )
+    console.log(
+      "[GMAIL_INBOUND] ✅ Opportunity created",
+      safeLog({ debugId, opportunityId: oppRec?.id })
     );
 
     // -------------------------------------------------------------------------
-    // Response
+    // Success response
     // -------------------------------------------------------------------------
     return NextResponse.json({
-      status: isNewOpportunity ? "success" : "attached",
+      ok: true,
+      status: "success",
+      debugId,
       company: {
-        id: company.id,
-        name: companyRecord.name,
-        domain: companyRecord.domain,
-        isNew: isNewCompany,
+        id: companyId,
+        name: companyLabel,
+        key: companyKey,
       },
       opportunity: {
-        id: opportunity.id,
-        name: opportunity.fields?.Name || opportunity.fields?.["Deliverable Name"] || subject || "Email Opportunity",
-        stage: opportunity.fields?.Stage || "Interest Confirmed",
-      },
-      activity: {
-        id: activity.id,
+        id: oppRec?.id,
+        name: opportunityFields.Name,
       },
     });
-  } catch (err) {
-    console.error("[GMAIL_INBOUND_ERROR]", {
-      debugId,
-      error: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? err.stack : undefined,
-    });
+  } catch (err: any) {
+    console.error(
+      "[GMAIL_INBOUND_ERROR]",
+      safeLog({
+        debugId,
+        error: err?.message || String(err),
+        status: err?.status,
+        payload: err?.payload,
+        stack: err?.stack,
+      })
+    );
 
     return NextResponse.json(
       {
+        ok: false,
         status: "error",
-        message: err instanceof Error ? err.message : "Internal server error",
         debugId,
+        message: err?.message || "Internal server error",
       },
-      { status: 500 }
+      { status: err?.status || 500 }
     );
   }
+}
+
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    route: "os/inbound/gmail",
+    description: "Gmail inbound webhook for creating Opportunities",
+  });
 }
