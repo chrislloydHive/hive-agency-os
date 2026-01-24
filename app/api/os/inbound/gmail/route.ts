@@ -216,6 +216,60 @@ async function ensureCompanyInOS(
 export async function POST(req: Request) {
   const debugId = `dbg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
+  // --- Data table probes ---
+  try {
+    // Probe Companies table
+    const companiesProbeUrl = `${AIRTABLE_DATA_BASE}/${encodeURIComponent(COMPANIES_TABLE_NAME)}?maxRecords=1`;
+    const companiesProbe = await fetch(companiesProbeUrl, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` },
+      cache: "no-store",
+    });
+    const companiesBody = await companiesProbe.text();
+    console.log("[GMAIL_INBOUND_DATA_PROBE]", safeLog({
+      debugId,
+      label: "Companies",
+      url: companiesProbeUrl,
+      status: companiesProbe.status,
+      body: companiesBody,
+    }));
+    if (!companiesProbe.ok) {
+      return NextResponse.json(
+        { ok: false, debugId, error: "Data probe failed", label: "Companies", status: companiesProbe.status, body: companiesBody },
+        { status: 500 }
+      );
+    }
+
+    // Probe Opportunities table
+    const oppProbeUrl = `${AIRTABLE_DATA_BASE}/${encodeURIComponent(OPPORTUNITIES_TABLE_NAME)}?maxRecords=1`;
+    const oppProbe = await fetch(oppProbeUrl, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` },
+      cache: "no-store",
+    });
+    const oppBody = await oppProbe.text();
+    console.log("[GMAIL_INBOUND_DATA_PROBE]", safeLog({
+      debugId,
+      label: "Opportunities",
+      url: oppProbeUrl,
+      status: oppProbe.status,
+      body: oppBody,
+    }));
+    if (!oppProbe.ok) {
+      return NextResponse.json(
+        { ok: false, debugId, error: "Data probe failed", label: "Opportunities", status: oppProbe.status, body: oppBody },
+        { status: 500 }
+      );
+    }
+  } catch (e: any) {
+    console.log("[GMAIL_INBOUND_DATA_PROBE_ERROR]", safeLog({ debugId, error: e?.message || String(e) }));
+    return NextResponse.json(
+      { ok: false, debugId, error: "Data probe exception", detail: e?.message || String(e) },
+      { status: 500 }
+    );
+  }
+  // --- end probes ---
+
   try {
     // -------------------------------------------------------------------------
     // Auth
