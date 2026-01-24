@@ -145,6 +145,52 @@ interface AirtableRecord {
   fields: Record<string, unknown>;
 }
 
+/**
+ * Assert that a value is a valid Airtable record ID (starts with "rec").
+ * Throws with a clear error message if not.
+ */
+function assertValidRecordId(
+  value: unknown,
+  context: string,
+  debugId: string
+): asserts value is string {
+  if (typeof value !== "string") {
+    console.error("INVALID_RECORD_ID", {
+      debugId,
+      context,
+      value,
+      type: typeof value,
+      expected: "string starting with 'rec'",
+    });
+    throw new Error(
+      `${context}: expected Airtable record ID (rec...), got ${typeof value}: ${JSON.stringify(value)}`
+    );
+  }
+
+  if (!value.startsWith("rec")) {
+    console.error("INVALID_RECORD_ID", {
+      debugId,
+      context,
+      value,
+      startsWithRec: false,
+      startsWithTbl: value.startsWith("tbl"),
+      startsWithApp: value.startsWith("app"),
+      looksLikeUuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value),
+      expected: "string starting with 'rec'",
+    });
+    throw new Error(
+      `${context}: expected Airtable record ID (rec...), got '${value}'. ` +
+        (value.startsWith("tbl")
+          ? "This looks like a TABLE ID, not a record ID."
+          : value.startsWith("app")
+          ? "This looks like a BASE ID, not a record ID."
+          : /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(value)
+          ? "This looks like a UUID (companyId), not an Airtable record ID. Use companyRecord.id, not companyId."
+          : "This does not look like an Airtable record ID.")
+    );
+  }
+}
+
 // ============================================================================
 // Airtable REST Helpers
 // ============================================================================
@@ -356,6 +402,21 @@ export async function POST(request: Request) {
       }
     );
 
+    // CRITICAL: Validate that we got a valid Airtable record ID (rec...), not UUID or table ID
+    // companyRecord.id = Airtable record ID (rec...)
+    // companyRecord.companyId = UUID (for cross-table references, NOT for linked fields)
+    assertValidRecordId(companyRecord.id, "Company record ID from findOrCreateCompanyByDomain", debugId);
+
+    console.log("[GMAIL_INBOUND] Company record validation", {
+      debugId,
+      airtableRecordId: companyRecord.id,
+      companyId: companyRecord.companyId,
+      isRecordIdValid: companyRecord.id.startsWith("rec"),
+      warning: companyRecord.id === companyRecord.companyId
+        ? "BUG: record.id equals companyId (UUID) - this should never happen!"
+        : undefined,
+    });
+
     // Wrap in AirtableRecord format for compatibility with rest of function
     const company: AirtableRecord = {
       id: companyRecord.id,
@@ -401,6 +462,16 @@ export async function POST(request: Request) {
         || domainToCompanyName(domain);
       const oppName = `${companyName} - Inbound`;
 
+      // CRITICAL: Validate company.id before using in linked field
+      assertValidRecordId(company.id, "Opportunity.Company linked field value", debugId);
+
+      console.log("[GMAIL_INBOUND] Creating Opportunity with Company link", {
+        debugId,
+        companyId: company.id,
+        companyIdStartsWithRec: company.id.startsWith("rec"),
+        linkValue: [company.id],
+      });
+
       opportunity = await createRecord(
         TABLE_OPPORTUNITIES,
         filterKnownFields(
@@ -420,6 +491,18 @@ export async function POST(request: Request) {
     // Primary field is "Title" (NOT "Name")
     // -------------------------------------------------------------------------
     const activityTitle = subject?.trim() || snippet?.slice(0, 50) || "Inbound email";
+
+    // CRITICAL: Validate all linked record IDs before creating Activity
+    assertValidRecordId(opportunity.id, "Activity.Opportunities linked field value", debugId);
+    assertValidRecordId(company.id, "Activity.Company linked field value", debugId);
+
+    console.log("[GMAIL_INBOUND] Creating Activity with linked records", {
+      debugId,
+      opportunityId: opportunity.id,
+      companyId: company.id,
+      opportunityIdValid: opportunity.id.startsWith("rec"),
+      companyIdValid: company.id.startsWith("rec"),
+    });
 
     const activity = await createRecord(
       TABLE_ACTIVITIES,
