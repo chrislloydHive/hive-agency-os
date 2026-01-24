@@ -325,6 +325,31 @@ async function ensureCompanyInOS(
 export async function POST(req: Request) {
   const debugId = `dbg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
+  // --- Airtable probe (debug) ---
+  try {
+    const probeUrl = `https://api.airtable.com/v0/${AIRTABLE_OS_BASE_ID}/meta`;
+    const r = await fetch(probeUrl, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` },
+      cache: "no-store",
+    });
+    const bodyText = await r.text();
+    console.log("[GMAIL_INBOUND_PROBE]", safeLog({ debugId, url: probeUrl, status: r.status, body: bodyText }));
+    if (!r.ok) {
+      return NextResponse.json(
+        { ok: false, debugId, error: "Airtable probe failed", status: r.status, body: bodyText },
+        { status: 500 }
+      );
+    }
+  } catch (e: any) {
+    console.log("[GMAIL_INBOUND_PROBE_ERROR]", safeLog({ debugId, error: e?.message || String(e) }));
+    return NextResponse.json(
+      { ok: false, debugId, error: "Airtable probe exception", detail: e?.message || String(e) },
+      { status: 500 }
+    );
+  }
+  // --- end probe ---
+
   try {
     // -------------------------------------------------------------------------
     // Auth
