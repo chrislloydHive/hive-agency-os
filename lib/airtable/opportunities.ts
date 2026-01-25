@@ -100,6 +100,12 @@ function mapRecordToOpportunity(record: any): OpportunityItem {
  */
 export async function getAllOpportunities(): Promise<OpportunityItem[]> {
   const tableName = getTableName();
+  console.log("[AIRTABLE_OPPS_CFG]", {
+    base: (process.env.AIRTABLE_BASE_ID || "").slice(0, 6) + "…",
+    token: (process.env.AIRTABLE_API_KEY || "").slice(0, 5) + "…",
+    table: process.env.AIRTABLE_OPPORTUNITIES_TABLE || "Opportunities",
+  });
+
   try {
     const base = getBase();
     // Don't specify sort - let Airtable return default order

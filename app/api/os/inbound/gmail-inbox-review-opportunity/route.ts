@@ -277,6 +277,12 @@ export async function POST(req: Request) {
     }
 
     // Resolve company
+    console.log("[AIRTABLE_COMPANIES_CFG]", {
+      base: (process.env.AIRTABLE_BASE_ID || "").slice(0, 6) + "…",
+      token: (process.env.AIRTABLE_API_KEY || "").slice(0, 5) + "…",
+      table: process.env.AIRTABLE_COMPANIES_TABLE || "Companies",
+    });
+
     const { companyRecord, isNew: companyIsNew } = await findOrCreateCompanyByDomain(
       fromDomain,
       {

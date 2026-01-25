@@ -548,6 +548,12 @@ export async function findOrCreateCompanyByDomain(
     source?: CompanyRecord['source'];
   }
 ): Promise<{ companyId: string; companyRecord: CompanyRecord; isNew: boolean }> {
+  console.log("[AIRTABLE_COMPANIES_CFG]", {
+    base: (process.env.AIRTABLE_BASE_ID || "").slice(0, 6) + "…",
+    token: (process.env.AIRTABLE_API_KEY || "").slice(0, 5) + "…",
+    table: process.env.AIRTABLE_COMPANIES_TABLE || "Companies",
+  });
+
   try {
     const base = getBase();
 
