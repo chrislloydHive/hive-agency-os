@@ -14,9 +14,10 @@ import { NextResponse } from "next/server";
  * Airtable contract:
  * - Base: AIRTABLE_OS_BASE_ID
  * - Table: Inbox
- * - Fields: Title, Source, Status, Trace ID, Gmail Message ID,
- *           Gmail Thread ID, Gmail URL, From Email, From Name, From Domain,
- *           Received At, Subject, Snippet, Body Text, Disposition, Description
+ * - Fields: Title, Description, Status, Disposition, Trace ID,
+ *           Gmail Message ID, Gmail Thread ID, Gmail URL,
+ *           From Email, From Name, From Domain, Received At,
+ *           Subject, Snippet, Body Text
  */
 
 const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY || "";
@@ -62,17 +63,24 @@ function truncate(s: string, n: number) {
 
 // Allowed values for single-select fields - prevents creating new options
 const ALLOWED_INBOX_SELECT_VALUES: Record<string, string[]> = {
-  "Source": ["Inbound"],
   "Status": ["New"],
-  "Disposition": ["Logged"],
+  "Disposition": ["New"],
 };
 
 // Fields that must NEVER be sent in Inbox create payload
-const FORBIDDEN_INBOX_FIELDS = ["People", "Item Type"];
+const FORBIDDEN_INBOX_FIELDS = [
+  "Source",
+  "Item Type",
+  "People",
+  "Company",
+  "Opportunity",
+  "Client",
+  "Project",
+];
 
 /**
  * Sanitize Inbox fields before sending to Airtable.
- * - Removes forbidden fields (People, Item Type)
+ * - Removes forbidden fields (Source, Item Type, People, linked records)
  * - Removes select fields with values not in allowed list
  */
 function sanitizeInboxFields(fields: Record<string, any>): Record<string, any> {
@@ -155,14 +163,12 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
 
-    const subject = asStr(body.subject || "(No subject)").trim();
+    const subject = asStr(body.subject || "").trim() || "(No subject)";
     const snippet = asStr(body.snippet || "").trim();
     const bodyText = asStr(body.bodyText || "").trim();
-
     const fromEmail = asStr(body?.from?.email || body?.fromEmail || "").trim();
     const fromName = asStr(body?.from?.name || body?.fromName || "").trim();
-    const domain = extractDomain(fromEmail);
-
+    const fromDomain = extractDomain(fromEmail);
     const gmailThreadId = asStr(body.gmailThreadId || "").trim();
     const gmailMessageId = asStr(body.gmailMessageId || "").trim();
     const receivedAt = asStr(body.receivedAt || "").trim();
@@ -173,34 +179,34 @@ export async function POST(req: Request) {
       safeLog({ debugId, subject, fromEmail, gmailThreadId, gmailMessageId })
     );
 
-    const description =
-      `From: ${fromName ? `${fromName} <${fromEmail}>` : fromEmail}\n` +
-      `Subject: ${subject}\n` +
-      (gmailUrl ? `Gmail: ${gmailUrl}\n` : "") +
-      (snippet ? `\nSnippet:\n${truncate(snippet, 600)}` : "");
+    // Build description text block
+    const descLines: string[] = [];
+    if (fromName) {
+      descLines.push(`From: ${fromName} <${fromEmail}>`);
+    } else if (fromEmail) {
+      descLines.push(`From: ${fromEmail}`);
+    }
+    if (subject) descLines.push(`Subject: ${subject}`);
+    if (gmailUrl) descLines.push(`Gmail: ${gmailUrl}`);
+    if (snippet) descLines.push(`\nSnippet:\n${truncate(snippet, 600)}`);
+    const description = descLines.join("\n");
 
     const fields: Record<string, any> = {
-      "Title": subject || "(No subject)",
-      "Source": "Inbound",
+      "Title": subject,
+      "Description": description,
       "Status": "New",
+      "Disposition": "New",
       "Trace ID": debugId,
-
       "Gmail Message ID": gmailMessageId,
       "Gmail Thread ID": gmailThreadId,
       "Gmail URL": gmailUrl,
-
       "From Email": fromEmail,
       "From Name": fromName,
-      "From Domain": domain,
-
+      "From Domain": fromDomain,
       "Received At": receivedAt,
       "Subject": subject,
       "Snippet": truncate(snippet, 1000),
       "Body Text": truncate(bodyText, 10000),
-
-      "Description": description,
-
-      "Disposition": "Logged",
     };
 
     const sanitizedFields = sanitizeInboxFields(fields);
