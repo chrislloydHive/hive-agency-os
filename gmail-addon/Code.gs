@@ -192,3 +192,67 @@ function parseAddresses(addresses) {
       return addr.length > 0;
     });
 }
+
+/**
+ * Handle the "Review Only" button click (for personal emails)
+ * Creates an inbox item and summarizes without creating an opportunity.
+ * @param {Object} e - Action event object
+ * @returns {Card} Result card
+ */
+function onSendToInboxReview(e) {
+  try {
+    var messageData = JSON.parse(e.parameters.messageData);
+
+    // Call the inbox review API
+    var result = callHiveInboxReviewApi(messageData);
+
+    if (result.ok) {
+      return buildInboxReviewSuccessCard(result);
+    } else {
+      return buildErrorCard(result.error || 'Unknown error');
+    }
+  } catch (error) {
+    Logger.log('Error sending to inbox review: ' + error.message);
+    return buildErrorCard('Failed to send to inbox: ' + error.message);
+  }
+}
+
+/**
+ * Handle the "Review + Create Opportunity" button click (for business emails)
+ * Creates an inbox item, summarizes, and creates/attaches to an opportunity.
+ * @param {Object} e - Action event object
+ * @returns {Card} Result card
+ */
+function onReviewAndCreateOpportunity(e) {
+  try {
+    var messageData = JSON.parse(e.parameters.messageData);
+
+    // Call the review + opportunity API
+    var result = callHiveReviewOpportunityApi(messageData);
+
+    if (!result.ok && result.status === 'partial') {
+      // Inbox succeeded but opportunity failed
+      return buildInboxReviewSuccessCard(result);
+    }
+
+    if (result.ok && result.skippedOpportunity) {
+      // Inbox succeeded but opportunity was skipped (personal domain, etc.)
+      return buildReviewOpportunitySkippedCard(result);
+    }
+
+    if (result.ok && result.promoted) {
+      // Full success - opportunity created or attached
+      return buildReviewOpportunitySuccessCard(result);
+    }
+
+    if (result.ok) {
+      // Fallback for ok=true but unexpected shape
+      return buildInboxReviewSuccessCard(result);
+    }
+
+    return buildErrorCard(result.error || 'Unknown error');
+  } catch (error) {
+    Logger.log('Error in review + opportunity: ' + error.message);
+    return buildErrorCard('Failed to process email: ' + error.message);
+  }
+}

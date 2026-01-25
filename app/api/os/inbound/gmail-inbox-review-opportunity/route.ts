@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { runInboxReviewPipeline, extractDomain } from "@/lib/inbound/inbox-review-pipeline";
-import { findOrCreateCompanyByDomain, normalizeDomain, type CompanyRecord } from "@/lib/airtable/companies";
-import { getAllOpportunities, createOpportunity, updateOpportunity, type OpportunityItem } from "@/lib/airtable/opportunities";
+import { findOrCreateCompanyByDomain, type CompanyRecord } from "@/lib/airtable/companies";
+import { getAllOpportunities, createOpportunity, updateOpportunity } from "@/lib/airtable/opportunities";
+import type { OpportunityItem } from "@/lib/types/pipeline";
 import { createActivity, findActivityByExternalMessageId, type ActivitySource } from "@/lib/airtable/activities";
 
 /**

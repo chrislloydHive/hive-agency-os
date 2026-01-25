@@ -404,3 +404,122 @@ function escapeHtml_(str) {
 function kv_(label, value) {
   return CardService.newKeyValue().setTopLabel(label).setContent(value || '—');
 }
+
+/* ------------------------------------------------------------------ */
+/* Review + Opportunity Footer                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Build a primary footer button that routes to inbox-review or review+opportunity
+ * based on whether the sender is from a personal email domain.
+ * @param {Object} messageData - Email data
+ * @returns {FixedFooter} CardService fixed footer
+ */
+function buildPrimaryFooterReviewAndOpp_(messageData) {
+  var fromEmail = (messageData.from && messageData.from.email) ? messageData.from.email : '';
+  var domain = getEmailDomain_(fromEmail);
+
+  var personalDomains = {
+    "gmail.com": true,
+    "yahoo.com": true,
+    "outlook.com": true,
+    "hotmail.com": true,
+    "icloud.com": true,
+    "aol.com": true,
+    "proton.me": true,
+    "protonmail.com": true
+  };
+
+  var isPersonal = !!personalDomains[domain];
+
+  var fn = isPersonal ? 'onSendToInboxReview' : 'onReviewAndCreateOpportunity';
+  var label = isPersonal ? 'Review Only (personal email)' : 'Review + Create Opportunity';
+
+  var action = CardService.newAction()
+    .setFunctionName(fn)
+    .setParameters({ messageData: JSON.stringify(messageData || {}) });
+
+  var primary = CardService.newTextButton()
+    .setText(label)
+    .setOnClickAction(action)
+    .setTextButtonStyle(CardService.TextButtonStyle.FILLED);
+
+  try { primary.setBackgroundColor('#4F46E5'); } catch (e) {}
+  try { primary.setTextColor('#FFFFFF'); } catch (e) {}
+
+  return CardService.newFixedFooter().setPrimaryButton(primary);
+}
+
+/* ------------------------------------------------------------------ */
+/* Inbox Review Result Cards                                           */
+/* ------------------------------------------------------------------ */
+
+function buildInboxReviewSuccessCard(result) {
+  var inboxItem = result.inboxItem || {};
+  var summary = result.summary || '';
+
+  var sec = CardService.newCardSection()
+    .addWidget(CardService.newTextParagraph().setText('✅ Email sent to inbox for review'))
+    .addWidget(kv_('Inbox Item', inboxItem.id || '—'))
+    .addWidget(kv_('Summarized', result.summarized ? 'Yes' : 'No'));
+
+  if (summary) {
+    // Show first 200 chars of summary
+    var shortSummary = summary.length > 200 ? summary.slice(0, 200) + '...' : summary;
+    sec.addWidget(CardService.newTextParagraph().setText('<i>' + escapeHtml_(shortSummary) + '</i>'));
+  }
+
+  return CardService.newCardBuilder()
+    .setHeader(CardService.newCardHeader().setTitle('Hive OS'))
+    .addSection(sec)
+    .build();
+}
+
+function buildReviewOpportunitySuccessCard(result) {
+  var opp = result.opportunity || {};
+  var company = result.company || {};
+  var inboxItem = result.inboxItem || {};
+  var url = (opp.url || '').trim();
+  var action = result.opportunityAction || 'created';
+
+  var actionLabel = action === 'attached' ? '📎 Attached to existing opportunity' : '✅ Opportunity created';
+
+  var sec = CardService.newCardSection()
+    .addWidget(CardService.newTextParagraph().setText(actionLabel))
+    .addWidget(kv_('Company', company.name || '—'))
+    .addWidget(kv_('Opportunity', opp.name || '—'))
+    .addWidget(kv_('Stage', opp.stage || '—'))
+    .addWidget(kv_('Inbox Item', inboxItem.id ? 'Created' : '—'));
+
+  if (url) {
+    sec.addWidget(
+      CardService.newTextButton()
+        .setText('Open in Hive OS')
+        .setOpenLink(CardService.newOpenLink().setUrl(url))
+    );
+  }
+
+  return CardService.newCardBuilder()
+    .setHeader(CardService.newCardHeader().setTitle('Hive OS'))
+    .addSection(sec)
+    .build();
+}
+
+function buildReviewOpportunitySkippedCard(result) {
+  var inboxItem = result.inboxItem || {};
+  var reason = result.reason || 'unknown';
+
+  var reasonText = reason === 'personal_domain'
+    ? 'Personal email domain - opportunity skipped'
+    : 'Opportunity creation skipped';
+
+  var sec = CardService.newCardSection()
+    .addWidget(CardService.newTextParagraph().setText('✅ Email reviewed'))
+    .addWidget(CardService.newTextParagraph().setText('ℹ️ ' + reasonText))
+    .addWidget(kv_('Inbox Item', inboxItem.id || '—'));
+
+  return CardService.newCardBuilder()
+    .setHeader(CardService.newCardHeader().setTitle('Hive OS'))
+    .addSection(sec)
+    .build();
+}

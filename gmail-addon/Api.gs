@@ -127,6 +127,114 @@ function callHiveCompanyApi(payload) {
 }
 
 /**
+ * Call the Hive OS inbox review API (inbox item + summarize, no opportunity)
+ * @param {Object} payload - Email data to send
+ * @returns {Object} API response
+ */
+function callHiveInboxReviewApi(payload) {
+  var config = getConfig();
+
+  if (!config.apiUrl || !config.secret) {
+    throw new Error('Hive OS configuration not set. Please configure Script Properties.');
+  }
+
+  var url = config.apiUrl.replace(/\/$/, '') + '/api/os/inbound/gmail-inbox-review';
+
+  Logger.log('Calling Hive Inbox Review API: ' + url);
+
+  var options = {
+    method: 'POST',
+    contentType: 'application/json',
+    headers: {
+      'X-Hive-Secret': config.secret
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    var responseCode = response.getResponseCode();
+    var responseText = response.getContentText();
+
+    Logger.log('Inbox Review API Response (' + responseCode + '): ' + responseText);
+
+    if (responseCode === 401) {
+      throw new Error('Authentication failed. Please check your HIVE_INBOUND_EMAIL_SECRET.');
+    }
+
+    if (responseCode >= 400) {
+      var errorData = JSON.parse(responseText);
+      throw new Error(errorData.message || errorData.error || 'API error: ' + responseCode);
+    }
+
+    return JSON.parse(responseText);
+  } catch (error) {
+    Logger.log('Inbox Review API Error: ' + error.message);
+
+    if (error.message.indexOf('fetch') !== -1 || error.message.indexOf('connect') !== -1) {
+      throw new Error('Could not connect to Hive OS. Please check your HIVE_API_URL.');
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * Call the Hive OS inbox review + opportunity API
+ * @param {Object} payload - Email data to send
+ * @returns {Object} API response
+ */
+function callHiveReviewOpportunityApi(payload) {
+  var config = getConfig();
+
+  if (!config.apiUrl || !config.secret) {
+    throw new Error('Hive OS configuration not set. Please configure Script Properties.');
+  }
+
+  var url = config.apiUrl.replace(/\/$/, '') + '/api/os/inbound/gmail-inbox-review-opportunity';
+
+  Logger.log('Calling Hive Review+Opportunity API: ' + url);
+
+  var options = {
+    method: 'POST',
+    contentType: 'application/json',
+    headers: {
+      'X-Hive-Secret': config.secret
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    var responseCode = response.getResponseCode();
+    var responseText = response.getContentText();
+
+    Logger.log('Review+Opportunity API Response (' + responseCode + '): ' + responseText);
+
+    if (responseCode === 401) {
+      throw new Error('Authentication failed. Please check your HIVE_INBOUND_EMAIL_SECRET.');
+    }
+
+    if (responseCode >= 400) {
+      var errorData = JSON.parse(responseText);
+      throw new Error(errorData.message || errorData.error || 'API error: ' + responseCode);
+    }
+
+    return JSON.parse(responseText);
+  } catch (error) {
+    Logger.log('Review+Opportunity API Error: ' + error.message);
+
+    if (error.message.indexOf('fetch') !== -1 || error.message.indexOf('connect') !== -1) {
+      throw new Error('Could not connect to Hive OS. Please check your HIVE_API_URL.');
+    }
+
+    throw error;
+  }
+}
+
+/**
  * Test the API configuration (for debugging)
  * @returns {Object} Test result
  */
