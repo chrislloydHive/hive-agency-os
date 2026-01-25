@@ -143,32 +143,41 @@ describe('Response Contract', () => {
     const successResponse = {
       ok: true,
       status: 'success',
-      inbox: true,
-      promoted: true,
       tasksCreated: 0,
       opportunityAction: 'attached' as const,
       opportunity: {
         id: 'recXXX',
         name: 'Acme — Partnership Inquiry',
         stage: 'interest_confirmed',
-        url: 'https://airtable.com/...',
+        url: 'https://airtable.com/appBase123/tblOpportunities/recXXX',
       },
       company: {
         id: 'recYYY',
         name: 'Acme',
         domain: 'acme.com',
+        url: 'https://airtable.com/appBase123/tblCompanies/recYYY',
       },
-      inboxItem: { id: 'recZZZ' },
+      inboxItem: {
+        id: 'recZZZ',
+        url: 'https://airtable.com/appBase123/tblInbox/recZZZ',
+      },
       summary: '## Summary\n...',
-      url: 'https://airtable.com/...',
+      // Optional: owner if resolved
+      owner: {
+        id: 'recOwner123',
+        name: 'Jane Doe',
+      },
     };
 
     // Validate required fields are present
     expect(successResponse.ok).toBe(true);
-    expect(successResponse.inbox).toBe(true);
-    expect(successResponse.opportunityAction).toMatch(/^(attached|created)$/);
+    expect(successResponse.opportunityAction).toMatch(/^(attached|created|skipped)$/);
     expect(successResponse.opportunity.id).toBeDefined();
+    expect(successResponse.opportunity.url).toBeDefined();
     expect(successResponse.company.id).toBeDefined();
+    expect(successResponse.company.url).toBeDefined();
+    expect(successResponse.inboxItem.id).toBeDefined();
+    expect(successResponse.inboxItem.url).toBeDefined();
   });
 
   it('should match expected response shape for partial success', () => {
@@ -176,15 +185,38 @@ describe('Response Contract', () => {
       ok: false,
       status: 'partial',
       error: 'Failed to create opportunity',
-      inbox: true,
-      promoted: false,
       tasksCreated: 0,
-      inboxItem: { id: 'recZZZ' },
+      opportunityAction: 'skipped' as const,
+      inboxItem: {
+        id: 'recZZZ',
+        url: 'https://airtable.com/appBase123/tblInbox/recZZZ',
+      },
       summary: '## Summary\n...',
     };
 
     expect(partialResponse.ok).toBe(false);
-    expect(partialResponse.inbox).toBe(true);
+    expect(partialResponse.opportunityAction).toBe('skipped');
     expect(partialResponse.inboxItem.id).toBeDefined();
+    expect(partialResponse.inboxItem.url).toBeDefined();
+  });
+
+  it('should match expected response shape for personal domain (skipped)', () => {
+    const skippedResponse = {
+      ok: true,
+      status: 'success',
+      tasksCreated: 0,
+      opportunityAction: 'skipped' as const,
+      inboxItem: {
+        id: 'recZZZ',
+        url: 'https://airtable.com/appBase123/tblInbox/recZZZ',
+      },
+      summary: '## Summary\n...',
+      reason: 'personal_domain',
+    };
+
+    expect(skippedResponse.ok).toBe(true);
+    expect(skippedResponse.opportunityAction).toBe('skipped');
+    expect(skippedResponse.reason).toBe('personal_domain');
+    expect(skippedResponse.inboxItem.url).toBeDefined();
   });
 });

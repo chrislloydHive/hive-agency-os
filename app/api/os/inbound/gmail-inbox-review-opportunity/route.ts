@@ -4,6 +4,7 @@ import { findOrCreateCompanyByDomain, type CompanyRecord } from "@/lib/airtable/
 import { getAllOpportunities, createOpportunity, updateOpportunity } from "@/lib/airtable/opportunities";
 import type { OpportunityItem } from "@/lib/types/pipeline";
 import { createActivity, findActivityByExternalMessageId, type ActivitySource } from "@/lib/airtable/activities";
+import { resolveOwnerPerson, type ResolvedOwner } from "@/lib/airtable/people";
 
 /**
  * Gmail Inbox Review + Opportunity Endpoint
@@ -74,9 +75,20 @@ function isOpenOpportunity(opp: OpportunityItem): boolean {
 }
 
 // Build Airtable URL for record
-function buildAirtableUrl(tableId: string, recordId: string): string {
-  return `https://airtable.com/${AIRTABLE_OS_BASE_ID}/${tableId}/${recordId}`;
+// Format: https://airtable.com/{baseId}/{tableId}/{recordId}
+// For generic URLs when we don't know the table ID, Airtable will redirect
+function buildAirtableUrl(recordId: string, tableId?: string): string {
+  if (tableId) {
+    return `https://airtable.com/${AIRTABLE_OS_BASE_ID}/${tableId}/${recordId}`;
+  }
+  // Generic URL - Airtable handles routing
+  return `https://airtable.com/${AIRTABLE_OS_BASE_ID}/rec/${recordId}`;
 }
+
+// Table IDs for known tables (can be overridden by env vars)
+const INBOX_TABLE_ID = process.env.AIRTABLE_INBOX_TABLE_ID || "tblInbox";
+const COMPANIES_TABLE_ID = process.env.AIRTABLE_COMPANIES_TABLE_ID || "tblCompanies";
+const OPPORTUNITIES_TABLE_ID = process.env.AIRTABLE_OPPORTUNITIES_TABLE_ID || "tblOpportunities";
 
 // ============================================================================
 // Opportunity Resolution
@@ -266,12 +278,13 @@ export async function POST(req: Request) {
       return NextResponse.json({
         ok: true,
         status: "success",
-        inbox: true,
-        promoted: false,
         tasksCreated,
-        inboxItem: { id: inboxResult.inboxItemId },
+        inboxItem: {
+          id: inboxResult.inboxItemId,
+          url: buildAirtableUrl(inboxResult.inboxItemId, INBOX_TABLE_ID),
+        },
+        opportunityAction: "skipped" as const,
         summary: inboxResult.summary,
-        skippedOpportunity: true,
         reason: "personal_domain",
       });
     }
@@ -322,17 +335,22 @@ export async function POST(req: Request) {
           return NextResponse.json({
             ok: true,
             status: "success",
-            inbox: true,
-            promoted: true,
             tasksCreated,
-            opportunityAction: "attached",
-            opportunity: { id: existingActivity.opportunityId },
+            opportunityAction: "attached" as const,
+            opportunity: {
+              id: existingActivity.opportunityId,
+              url: buildAirtableUrl(existingActivity.opportunityId, OPPORTUNITIES_TABLE_ID),
+            },
             company: {
               id: companyRecord.id,
               name: companyRecord.name,
               domain: companyRecord.domain,
+              url: buildAirtableUrl(companyRecord.id, COMPANIES_TABLE_ID),
             },
-            inboxItem: { id: inboxResult.inboxItemId },
+            inboxItem: {
+              id: inboxResult.inboxItemId,
+              url: buildAirtableUrl(inboxResult.inboxItemId, INBOX_TABLE_ID),
+            },
             summary: inboxResult.summary,
             deduped: true,
           });
@@ -379,15 +397,27 @@ export async function POST(req: Request) {
     }
 
     // -------------------------------------------------------------------------
+    // Step B.5: Resolve Owner (if opportunity has one)
+    // -------------------------------------------------------------------------
+    let resolvedOwner: ResolvedOwner | null = null;
+    if (opportunity.owner) {
+      // Try to resolve owner from the opportunity's owner field
+      // This could be an email or a name depending on the Airtable schema
+      resolvedOwner = await resolveOwnerPerson({
+        name: opportunity.owner,
+      });
+    }
+
+    // -------------------------------------------------------------------------
     // Return Response
     // -------------------------------------------------------------------------
-    const opportunityUrl = buildAirtableUrl("tbl", opportunity.id); // Generic - Airtable handles routing
+    const opportunityUrl = buildAirtableUrl(opportunity.id, OPPORTUNITIES_TABLE_ID);
+    const companyUrl = buildAirtableUrl(companyRecord.id, COMPANIES_TABLE_ID);
+    const inboxUrl = buildAirtableUrl(inboxResult.inboxItemId, INBOX_TABLE_ID);
 
-    return NextResponse.json({
+    const response: Record<string, any> = {
       ok: true,
       status: "success",
-      inbox: true,
-      promoted: true,
       tasksCreated,
       opportunityAction,
       opportunity: {
@@ -400,11 +430,24 @@ export async function POST(req: Request) {
         id: companyRecord.id,
         name: companyRecord.name,
         domain: companyRecord.domain,
+        url: companyUrl,
       },
-      inboxItem: { id: inboxResult.inboxItemId },
+      inboxItem: {
+        id: inboxResult.inboxItemId,
+        url: inboxUrl,
+      },
       summary: inboxResult.summary,
-      url: opportunityUrl,
-    });
+    };
+
+    // Include owner only if resolved
+    if (resolvedOwner) {
+      response.owner = {
+        id: resolvedOwner.id,
+        name: resolvedOwner.name,
+      };
+    }
+
+    return NextResponse.json(response);
 
   } catch (e: any) {
     console.error(
@@ -418,10 +461,12 @@ export async function POST(req: Request) {
         ok: false,
         status: "partial",
         error: e?.message || String(e),
-        inbox: true,
-        promoted: false,
         tasksCreated,
-        inboxItem: { id: inboxResult.inboxItemId },
+        opportunityAction: "skipped" as const,
+        inboxItem: {
+          id: inboxResult.inboxItemId,
+          url: buildAirtableUrl(inboxResult.inboxItemId, INBOX_TABLE_ID),
+        },
         summary: inboxResult.summary,
       });
     }
