@@ -105,6 +105,92 @@ function normalizeLinkedRecordId(id: string | undefined | null): Array<{ id: str
   return [{ id }];
 }
 
+/**
+ * Extract a valid record ID string from various malformed inputs.
+ * Handles cases where the value might be:
+ * - A string "recXXX" → returns "recXXX"
+ * - An object { id: "recXXX" } → returns "recXXX"
+ * - An object { id: { id: "recXXX" } } → returns "recXXX"
+ * - A full record object { id: "recXXX", fields: {...} } → returns "recXXX"
+ * - An array [{ id: "recXXX" }] → returns "recXXX"
+ *
+ * @param value - Any value that might contain a record ID
+ * @returns The extracted record ID string, or null if none found
+ */
+function extractRecordId(value: any): string | null {
+  if (!value) return null;
+
+  // Case 1: Already a valid string ID
+  if (typeof value === "string" && value.startsWith("rec")) {
+    return value;
+  }
+
+  // Case 2: Array - extract from first element
+  if (Array.isArray(value) && value.length > 0) {
+    return extractRecordId(value[0]);
+  }
+
+  // Case 3: Object with id property
+  if (typeof value === "object" && value !== null) {
+    const id = value.id;
+    if (typeof id === "string" && id.startsWith("rec")) {
+      return id;
+    }
+    // Case 4: Nested object { id: { id: "recXXX" } }
+    if (typeof id === "object" && id !== null && typeof id.id === "string" && id.id.startsWith("rec")) {
+      return id.id;
+    }
+  }
+
+  return null;
+}
+
+// Known linked-record field names used in child Inbox records
+const LINKED_RECORD_FIELDS = [
+  "Source Inbox Item",
+  // These are in FORBIDDEN list but adding for safety:
+  "Company",
+  "Opportunity",
+  "Client",
+  "Project",
+  "People",
+  "Owner",
+  "Assignee",
+];
+
+/**
+ * Sanitize linked-record fields in a fields object.
+ * Ensures all linked-record fields are in the correct format: [{ id: "recXXX" }]
+ * Removes invalid linked-record fields from the payload.
+ *
+ * @param fields - The fields object to sanitize
+ * @returns Sanitized fields object
+ */
+function sanitizeLinkedRecordFields(fields: Record<string, any>): Record<string, any> {
+  const sanitized: Record<string, any> = { ...fields };
+
+  for (const fieldName of LINKED_RECORD_FIELDS) {
+    if (fieldName in sanitized) {
+      const value = sanitized[fieldName];
+      const recordId = extractRecordId(value);
+
+      if (recordId) {
+        // Valid ID found - normalize to correct format
+        sanitized[fieldName] = [{ id: recordId }];
+      } else if (value !== undefined && value !== null) {
+        // Invalid value - log and remove
+        console.warn(
+          "[INBOX_REVIEW_PIPELINE] Removing invalid linked-record field",
+          JSON.stringify({ fieldName, value, typeOf: typeof value })
+        );
+        delete sanitized[fieldName];
+      }
+    }
+  }
+
+  return sanitized;
+}
+
 // ============================================================================
 // Inbox Field Sanitizers
 // ============================================================================
@@ -215,12 +301,26 @@ async function airtableCreateRecordsBatch(
     } catch {}
 
     if (!res.ok) {
-      console.log(
-        "[INBOX_REVIEW_PIPELINE_AIRTABLE_BATCH_CREATE_ERROR]",
-        safeLog({ debugId, url, status: res.status, batchIndex: i, body: text })
-      );
-      const msg = json?.error?.message || json?.error || text || `Airtable error (${res.status})`;
-      throw new Error(msg);
+      // Detailed error logging for debugging Airtable 422 errors
+      console.error("[INBOX_REVIEW_PIPELINE_AIRTABLE_BATCH_CREATE_ERROR] ================");
+      console.error("[INBOX_REVIEW_PIPELINE_AIRTABLE_BATCH_CREATE_ERROR] URL:", url);
+      console.error("[INBOX_REVIEW_PIPELINE_AIRTABLE_BATCH_CREATE_ERROR] HTTP Status:", res.status);
+      console.error("[INBOX_REVIEW_PIPELINE_AIRTABLE_BATCH_CREATE_ERROR] Batch Index:", i);
+      console.error("[INBOX_REVIEW_PIPELINE_AIRTABLE_BATCH_CREATE_ERROR] debugId:", debugId);
+      console.error("[INBOX_REVIEW_PIPELINE_AIRTABLE_BATCH_CREATE_ERROR] FULL RESPONSE BODY:", text);
+      console.error("[INBOX_REVIEW_PIPELINE_AIRTABLE_BATCH_CREATE_ERROR] PAYLOAD SENT:", JSON.stringify({ records }, null, 2));
+      console.error("[INBOX_REVIEW_PIPELINE_AIRTABLE_BATCH_CREATE_ERROR] ================");
+
+      // Extract detailed error info
+      const errorType = json?.error?.type || "UNKNOWN";
+      const errorMessage = json?.error?.message || json?.error || text || `Airtable error (${res.status})`;
+      const errorField = json?.error?.field || "unknown";
+
+      console.error("[INBOX_REVIEW_PIPELINE_AIRTABLE_BATCH_CREATE_ERROR] Error Type:", errorType);
+      console.error("[INBOX_REVIEW_PIPELINE_AIRTABLE_BATCH_CREATE_ERROR] Error Field:", errorField);
+      console.error("[INBOX_REVIEW_PIPELINE_AIRTABLE_BATCH_CREATE_ERROR] Error Message:", errorMessage);
+
+      throw new Error(`Airtable batch create failed: ${errorType} - ${errorMessage} (field: ${errorField})`);
     }
 
     // Collect created record IDs
@@ -575,14 +675,27 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
       "Disposition": "New",
     };
 
-    return sanitizeInboxFields(childFields);
+    // Apply both sanitizers:
+    // 1. sanitizeInboxFields - removes forbidden fields, validates select values
+    // 2. sanitizeLinkedRecordFields - ensures linked-record fields are in correct format
+    const sanitized = sanitizeInboxFields(childFields);
+    return sanitizeLinkedRecordFields(sanitized);
   });
 
-  // DEBUG: Log the exact payload being sent to Airtable
-  console.log(
-    "[INBOX_REVIEW_PIPELINE] DEBUG - CHILD records payload before batch create:",
-    JSON.stringify(childRecordsFields, null, 2)
-  );
+  // DEBUG: Log the exact payload being sent to Airtable (with linked fields highlighted)
+  console.log("[INBOX_REVIEW_PIPELINE] DEBUG - CHILD records payload before batch create:");
+  childRecordsFields.forEach((fields, idx) => {
+    console.log(`[INBOX_REVIEW_PIPELINE] DEBUG - Record ${idx}:`, JSON.stringify(fields));
+    // Specifically log linked-record fields
+    if (fields["Source Inbox Item"]) {
+      console.log(
+        `[INBOX_REVIEW_PIPELINE] DEBUG - Record ${idx} "Source Inbox Item":`,
+        JSON.stringify(fields["Source Inbox Item"]),
+        "type:", typeof fields["Source Inbox Item"],
+        "isArray:", Array.isArray(fields["Source Inbox Item"])
+      );
+    }
+  });
 
   const childItemIds = await airtableCreateRecordsBatch(childRecordsFields, debugId);
 
