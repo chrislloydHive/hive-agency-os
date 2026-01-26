@@ -88,6 +88,24 @@ export function extractDomain(email: string): string {
 }
 
 // ============================================================================
+// Linked Record ID Helper
+// ============================================================================
+
+/**
+ * Normalize a linked record ID for Airtable REST API.
+ * Airtable requires linked record fields as: [{ id: "recXXXXXXXXXXXXXX" }]
+ *
+ * @param id - Record ID string, undefined, or null
+ * @returns [] if invalid, [{ id }] if valid record ID string
+ */
+function normalizeLinkedRecordId(id: string | undefined | null): Array<{ id: string }> {
+  if (typeof id !== "string" || !id.startsWith("rec")) {
+    return [];
+  }
+  return [{ id }];
+}
+
+// ============================================================================
 // Inbox Field Sanitizers
 // ============================================================================
 
@@ -531,6 +549,15 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
   // -------------------------------------------------------------------------
   // STEP 4: Create CHILD Inbox records for each actionable item
   // -------------------------------------------------------------------------
+
+  // Use helper to safely format linked record ID
+  const sourceInboxItemLink = normalizeLinkedRecordId(sourceRecordId);
+
+  console.log(
+    "[INBOX_REVIEW_PIPELINE] Preparing CHILD records with linked field",
+    safeLog({ debugId, sourceRecordId, sourceInboxItemLink })
+  );
+
   const childRecordsFields: Record<string, any>[] = inbox_items.map((itemTitle) => {
     const childFields: Record<string, any> = {
       "Title": itemTitle,
@@ -542,14 +569,20 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
       "Received At": receivedAt,
       "Trace ID": debugId,
       "Source": "Gmail",
-      // Link to source record - Airtable REST API format: [{ id: "recXXX" }]
-      "Source Inbox Item": [{ id: sourceRecordId }],
+      // Link to source record - using normalizeLinkedRecordId helper
+      "Source Inbox Item": sourceInboxItemLink,
       "Status": "New",
       "Disposition": "New",
     };
 
     return sanitizeInboxFields(childFields);
   });
+
+  // DEBUG: Log the exact payload being sent to Airtable
+  console.log(
+    "[INBOX_REVIEW_PIPELINE] DEBUG - CHILD records payload before batch create:",
+    JSON.stringify(childRecordsFields, null, 2)
+  );
 
   const childItemIds = await airtableCreateRecordsBatch(childRecordsFields, debugId);
 
