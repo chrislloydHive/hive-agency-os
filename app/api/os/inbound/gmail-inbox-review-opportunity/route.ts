@@ -468,6 +468,11 @@ export async function POST(req: Request) {
           url: buildAirtableUrl(inboxResult.inboxItemId, INBOX_TABLE_ID),
         },
         summary: inboxResult.summary,
+        _config: {
+          AIRTABLE_BASE_ID: (process.env.AIRTABLE_BASE_ID || "").slice(0, 8) || "(not set)",
+          AIRTABLE_OS_BASE_ID: (process.env.AIRTABLE_OS_BASE_ID || "").slice(0, 8) || "(not set)",
+          AIRTABLE_API_KEY: (process.env.AIRTABLE_API_KEY || "").slice(0, 6) || "(not set)",
+        },
       });
     }
 
