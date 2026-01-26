@@ -467,6 +467,15 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
     throw new Error("Failed to create source Inbox record - no ID returned");
   }
 
+  // Defensive assertion: sourceRecordId must be a string starting with "rec"
+  if (typeof sourceRecordId !== "string" || !sourceRecordId.startsWith("rec")) {
+    console.error(
+      "[INBOX_REVIEW_PIPELINE] INVALID sourceRecordId - expected string starting with 'rec'",
+      safeLog({ debugId, sourceRecordId, typeOf: typeof sourceRecordId, value: JSON.stringify(sourceRecordId) })
+    );
+    throw new Error(`Invalid sourceRecordId: expected string starting with 'rec', got ${typeof sourceRecordId}: ${JSON.stringify(sourceRecordId)}`);
+  }
+
   console.log(
     "[INBOX_REVIEW_PIPELINE] SOURCE record created",
     safeLog({ debugId, sourceRecordId, title: sourceTitle })
@@ -533,8 +542,8 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
       "Received At": receivedAt,
       "Trace ID": debugId,
       "Source": "Gmail",
-      // Link to source record - Airtable linked record format
-      "Source Inbox Item": [{ id: sourceRecordId }],
+      // Link to source record - Airtable expects array of record ID strings
+      "Source Inbox Item": [sourceRecordId],
       "Status": "New",
       "Disposition": "New",
     };
