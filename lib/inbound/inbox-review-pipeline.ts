@@ -675,30 +675,67 @@ async function openaiExtractInboxItems(input: {
   const { subject, fromEmail, fromName, receivedAt, gmailUrl, snippet, bodyText, debugId } = input;
 
   const prompt = `
-You are "Inbox GPT" for Hive OS. Analyze an inbound email and extract actionable items.
+You are "Inbox GPT" for Hive OS.
 
-You MUST respond with STRICT JSON ONLY. No markdown, no explanation, just the JSON object.
+Analyze an inbound email and extract actionable inbox items.
+These items will appear as task-like records in a productivity inbox.
+They must be extremely short, glanceable, and command-style.
 
-Response format:
+You MUST respond with STRICT JSON ONLY.
+No markdown. No explanation. No commentary. JSON only.
+
+────────────────────────
+RESPONSE FORMAT
+────────────────────────
 {
-  "summary": "A 1-3 sentence summary of the email content and intent",
+  "summary": "A concise 1–3 sentence summary of the email intent and key points",
   "inbox_items": [
     "Verb noun noun",
-    "Verb noun noun"
+    "Verb noun"
   ]
 }
 
-HARD RULES for inbox_items (MUST follow):
-- 3-5 words MAXIMUM per item (hard cap)
-- Verb-first imperative phrasing
+────────────────────────
+HARD RULES FOR inbox_items (MANDATORY)
+────────────────────────
+- 3–5 words MAXIMUM per item (hard cap)
+- Verb-first imperative phrasing ONLY
 - NO punctuation of any kind
-- NO filler words (the, a, an, to, for, with, on, of, etc)
-- Express the IDEA not full context
-- If unsure prefer fewer words
-- Extract 1-5 items maximum
-- If no clear action items exist return empty array []
+- NO filler words:
+  (the, a, an, to, for, with, on, of, and, or, whether, please, etc)
 
-GOOD examples:
+────────────────────────
+VERB WHITELIST (PREFER THESE)
+────────────────────────
+Use one of these verbs whenever possible:
+
+Approve
+Review
+Confirm
+Decide
+Send
+Provide
+Update
+Schedule
+Share
+Request
+Prepare
+Finalize
+Check
+Align
+Discuss
+
+Avoid inventing new verbs unless absolutely necessary.
+
+────────────────────────
+DEDUPLICATION RULE
+────────────────────────
+If multiple actions are similar, collapse them into ONE item.
+Prefer the most decisive verb (Approve > Review > Discuss).
+
+────────────────────────
+GOOD EXAMPLES
+────────────────────────
 - Approve revised budget
 - Confirm GTM installed
 - Decide audio launch
@@ -706,17 +743,15 @@ GOOD examples:
 - Send asset update
 - Schedule intro call
 - Provide campaign assets
+- Update IO
 
-BAD examples (too long/verbose):
-- Review and approve the revised budget for Q1
-- Confirm whether GTM has been installed on the site
-- Please send over the updated creative assets
-
-Email context:
-- Subject: ${subject || "—"}
-- From: ${fromName ? `${fromName} <${fromEmail}>` : fromEmail || "—"}
-- Received At: ${receivedAt || "—"}
-- Gmail URL: ${gmailUrl || "—"}
+────────────────────────
+EMAIL CONTEXT
+────────────────────────
+Subject: ${subject || "—"}
+From: ${fromName ? `${fromName} <${fromEmail}>` : fromEmail || "—"}
+Received At: ${receivedAt || "—"}
+Gmail URL: ${gmailUrl || "—"}
 
 Snippet:
 ${truncate(snippet, 800) || "—"}
@@ -724,7 +759,12 @@ ${truncate(snippet, 800) || "—"}
 Body:
 ${truncate(bodyText, 8000) || "—"}
 
-Respond with JSON only:`.trim();
+────────────────────────
+FINAL INSTRUCTION
+────────────────────────
+Respond with JSON ONLY.
+No prose. No explanation. No extra keys.
+`.trim();
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
