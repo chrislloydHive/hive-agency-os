@@ -7,7 +7,7 @@ export function getBase(): Airtable.Base {
   if (!_base) {
     const apiKey = env.AIRTABLE_API_KEY || process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
     // Check AIRTABLE_OS_BASE_ID first (for Hive OS routes), then fall back to AIRTABLE_BASE_ID
-    const baseId = env.AIRTABLE_OS_BASE_ID || env.AIRTABLE_BASE_ID || process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
+    const baseId = process.env.AIRTABLE_OS_BASE_ID || env.AIRTABLE_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
     if (!apiKey || !baseId) {
       throw new Error('Airtable credentials not configured. Please set AIRTABLE_API_KEY (or AIRTABLE_ACCESS_TOKEN) and AIRTABLE_BASE_ID (or AIRTABLE_OS_BASE_ID) environment variables.');
     }
