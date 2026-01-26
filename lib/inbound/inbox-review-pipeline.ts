@@ -92,17 +92,17 @@ export function extractDomain(email: string): string {
 // ============================================================================
 
 /**
- * Normalize a linked record ID for Airtable REST API.
- * Airtable requires linked record fields as: [{ id: "recXXXXXXXXXXXXXX" }]
+ * Normalize a linked record ID for Airtable Web API.
+ * Airtable expects linked record fields as an array of record ID strings: ["recXXXXXXXXXXXXXX"]
  *
  * @param id - Record ID string, undefined, or null
- * @returns [] if invalid, [{ id }] if valid record ID string
+ * @returns [] if invalid, [id] if valid record ID string
  */
-function normalizeLinkedRecordId(id: string | undefined | null): Array<{ id: string }> {
+function normalizeLinkedRecordId(id: string | undefined | null): string[] {
   if (typeof id !== "string" || !id.startsWith("rec")) {
     return [];
   }
-  return [{ id }];
+  return [id];
 }
 
 /**
@@ -210,7 +210,7 @@ function compactPreview(value: any, maxLen: number = 100): string {
 
 /**
  * GENERIC sanitizer that walks through EVERY field and normalizes any value
- * that looks like a linked record into Airtable REST format: [{ id: "recXXX" }]
+ * that looks like a linked record into Airtable Web API format: ["recXXX"]
  *
  * If a field looks like a linked record but contains no valid "rec" IDs,
  * it is REMOVED from the payload.
@@ -238,8 +238,8 @@ function sanitizeAllLinkedRecordFields(
       const extractedIds = extractAllRecordIds(value);
 
       if (extractedIds.length > 0) {
-        // Normalize to Airtable format: [{ id: "recXXX" }, ...]
-        sanitized[fieldName] = extractedIds.map((id) => ({ id }));
+        // Normalize to Airtable Web API format: ["recXXX", ...]
+        sanitized[fieldName] = extractedIds;
         normalizedFields.push(fieldName);
       } else {
         // Looks like linked record but no valid IDs - remove it
@@ -836,6 +836,7 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
   });
 
   // FINAL CHECK: Scan all records for any remaining objects that would cause issues
+  // Airtable Web API expects linked record fields as string arrays ["recXXX"], not object arrays
   console.log("[INBOX_REVIEW_PIPELINE] FINAL CHECK - scanning for problematic fields:");
   childRecordsFields.forEach((fields, idx) => {
     for (const [fieldName, value] of Object.entries(fields)) {
@@ -847,9 +848,10 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
       }
       if (Array.isArray(value)) {
         value.forEach((item, itemIdx) => {
-          if (wouldStringifyToObjectObject(item) && !("id" in item && typeof item.id === "string")) {
+          // Linked record arrays should contain strings only, not objects
+          if (wouldStringifyToObjectObject(item)) {
             console.error(
-              `[INBOX_REVIEW_PIPELINE] CRITICAL: Record ${idx} field "${fieldName}"[${itemIdx}] is a non-linked-record object!`,
+              `[INBOX_REVIEW_PIPELINE] CRITICAL: Record ${idx} field "${fieldName}"[${itemIdx}] is an object (should be string for linked records)!`,
               compactPreview(item)
             );
           }
