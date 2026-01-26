@@ -97,6 +97,10 @@ function buildMessageCard(messageData) {
   }
 
   card.addSection(actions);
+
+  // Add footer with "Summarize + Tasks" button (and "+ Opp" for business emails)
+  card.setFixedFooter(buildSummarizeTasksFooter_(messageData));
+
   return card.build();
 }
 
@@ -406,16 +410,18 @@ function kv_(label, value) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Review + Opportunity Footer                                         */
+/* Summarize + Tasks Footer                                            */
 /* ------------------------------------------------------------------ */
 
 /**
- * Build a primary footer button that routes to inbox-review or review+opportunity
- * based on whether the sender is from a personal email domain.
+ * Build footer with TWO buttons:
+ * - Primary: "Summarize + Tasks" → onSendToInboxReview (always available)
+ * - Secondary: "Summarize + Tasks + Opp" → onReviewAndCreateOpportunity (only for business emails)
+ *
  * @param {Object} messageData - Email data
  * @returns {FixedFooter} CardService fixed footer
  */
-function buildPrimaryFooterReviewAndOpp_(messageData) {
+function buildSummarizeTasksFooter_(messageData) {
   var fromEmail = (messageData.from && messageData.from.email) ? messageData.from.email : '';
   var domain = getEmailDomain_(fromEmail);
 
@@ -432,22 +438,36 @@ function buildPrimaryFooterReviewAndOpp_(messageData) {
 
   var isPersonal = !!personalDomains[domain];
 
-  var fn = isPersonal ? 'onSendToInboxReview' : 'onReviewAndCreateOpportunity';
-  var label = isPersonal ? 'Review Only (personal email)' : 'Review + Create Opportunity';
-
-  var action = CardService.newAction()
-    .setFunctionName(fn)
+  // Primary button: "Summarize + Tasks" → inbox review only (no opportunity)
+  var primaryAction = CardService.newAction()
+    .setFunctionName('onSendToInboxReview')
     .setParameters({ messageData: JSON.stringify(messageData || {}) });
 
-  var primary = CardService.newTextButton()
-    .setText(label)
-    .setOnClickAction(action)
+  var primaryBtn = CardService.newTextButton()
+    .setText('Summarize + Tasks')
+    .setOnClickAction(primaryAction)
     .setTextButtonStyle(CardService.TextButtonStyle.FILLED);
 
-  try { primary.setBackgroundColor('#4F46E5'); } catch (e) {}
-  try { primary.setTextColor('#FFFFFF'); } catch (e) {}
+  try { primaryBtn.setBackgroundColor('#4F46E5'); } catch (e) {}
+  try { primaryBtn.setTextColor('#FFFFFF'); } catch (e) {}
 
-  return CardService.newFixedFooter().setPrimaryButton(primary);
+  var footer = CardService.newFixedFooter().setPrimaryButton(primaryBtn);
+
+  // Secondary button: "Summarize + Tasks + Opp" → inbox review + opportunity (only for business emails)
+  if (!isPersonal) {
+    var secondaryAction = CardService.newAction()
+      .setFunctionName('onReviewAndCreateOpportunity')
+      .setParameters({ messageData: JSON.stringify(messageData || {}) });
+
+    var secondaryBtn = CardService.newTextButton()
+      .setText('+ Opp')
+      .setOnClickAction(secondaryAction)
+      .setTextButtonStyle(CardService.TextButtonStyle.TEXT);
+
+    footer.setSecondaryButton(secondaryBtn);
+  }
+
+  return footer;
 }
 
 /* ------------------------------------------------------------------ */

@@ -203,6 +203,9 @@ function onSendToInboxReview(e) {
   try {
     var messageData = JSON.parse(e.parameters.messageData);
 
+    // ROUTING: "Summarize + Tasks" button → /api/os/inbound/gmail-inbox-review
+    Logger.log('[GMAIL_ADDON] onSendToInboxReview → callHiveInboxReviewApi → /gmail-inbox-review');
+
     // Call the inbox review API
     var result = callHiveInboxReviewApi(messageData);
 
@@ -226,6 +229,9 @@ function onSendToInboxReview(e) {
 function onReviewAndCreateOpportunity(e) {
   try {
     var messageData = JSON.parse(e.parameters.messageData);
+
+    // ROUTING: "Summarize + Tasks + Opp" button → /api/os/inbound/gmail-inbox-review-opportunity
+    Logger.log('[GMAIL_ADDON] onReviewAndCreateOpportunity → callHiveReviewOpportunityApi → /gmail-inbox-review-opportunity');
 
     // Call the review + opportunity API
     var result = callHiveReviewOpportunityApi(messageData);

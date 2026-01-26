@@ -75,6 +75,12 @@ export async function POST(req: Request) {
     const receivedAt = asStr(body.receivedAt || "").trim();
     const gmailUrl = asStr(body.gmailUrl || "").trim();
 
+    // ROUTING LOG: Confirm this endpoint is hit by "Summarize + Tasks" button
+    console.log("[GMAIL_INBOX_REVIEW] ========================================");
+    console.log("[GMAIL_INBOX_REVIEW] ENDPOINT HIT: /api/os/inbound/gmail-inbox-review");
+    console.log("[GMAIL_INBOX_REVIEW] This creates SOURCE + CHILD Inbox records (NO Opportunity)");
+    console.log("[GMAIL_INBOX_REVIEW] ========================================");
+
     console.log(
       "[GMAIL_INBOX_REVIEW] inbound",
       safeLog({ debugId, subject, fromEmail, gmailThreadId, gmailMessageId })
