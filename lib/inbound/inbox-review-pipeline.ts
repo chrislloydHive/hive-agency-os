@@ -4,6 +4,11 @@
 // Used by:
 // - /api/os/inbound/gmail-inbox-review
 // - /api/os/inbound/gmail-inbox-review-opportunity
+//
+// Behavior:
+// 1. Create ONE "source" Inbox record representing the email itself
+// 2. Extract actionable items with OpenAI (returns strict JSON)
+// 3. Create child Inbox records for each actionable item, linked to source
 
 // ============================================================================
 // Types
@@ -26,6 +31,15 @@ export interface InboxReviewInput {
 export interface InboxReviewResult {
   inboxItemId: string;
   summary: string;
+  childItemIds: string[];
+}
+
+/**
+ * OpenAI response shape for inbox extraction
+ */
+interface InboxExtractionResponse {
+  summary: string;
+  inbox_items: string[];
 }
 
 // ============================================================================
@@ -38,6 +52,9 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
 const INBOX_TABLE_NAME = "Inbox";
+
+// Airtable batch limit
+const AIRTABLE_BATCH_SIZE = 10;
 
 // ============================================================================
 // Helpers
@@ -77,10 +94,12 @@ export function extractDomain(email: string): string {
 const ALLOWED_INBOX_SELECT_VALUES: Record<string, string[]> = {
   "Status": ["New", "Reviewed"],
   "Disposition": ["New", "Logged"],
+  "Source": ["Gmail", "Manual", "Slack", "Other"],
 };
 
+// Fields that should NEVER be written by this pipeline
+// (linked fields that are managed elsewhere)
 const FORBIDDEN_INBOX_FIELDS = [
-  "Source",
   "Item Type",
   "People",
   "Company",
@@ -145,6 +164,59 @@ async function airtableCreateRecord(fields: Record<string, any>, debugId: string
   return json;
 }
 
+/**
+ * Batch create multiple Inbox records
+ * Respects Airtable's 10-record batch limit
+ */
+async function airtableCreateRecordsBatch(
+  recordsFields: Record<string, any>[],
+  debugId: string
+): Promise<string[]> {
+  const url = `https://api.airtable.com/v0/${AIRTABLE_OS_BASE_ID}/${encodeURIComponent(INBOX_TABLE_NAME)}`;
+  const createdIds: string[] = [];
+
+  // Process in batches of AIRTABLE_BATCH_SIZE
+  for (let i = 0; i < recordsFields.length; i += AIRTABLE_BATCH_SIZE) {
+    const batch = recordsFields.slice(i, i + AIRTABLE_BATCH_SIZE);
+    const records = batch.map((fields) => ({ fields }));
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${AIRTABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ records }),
+      cache: "no-store",
+    });
+
+    const text = await res.text();
+    let json: any = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {}
+
+    if (!res.ok) {
+      console.log(
+        "[INBOX_REVIEW_PIPELINE_AIRTABLE_BATCH_CREATE_ERROR]",
+        safeLog({ debugId, url, status: res.status, batchIndex: i, body: text })
+      );
+      const msg = json?.error?.message || json?.error || text || `Airtable error (${res.status})`;
+      throw new Error(msg);
+    }
+
+    // Collect created record IDs
+    const createdRecords = json?.records || [];
+    for (const rec of createdRecords) {
+      if (rec?.id) {
+        createdIds.push(rec.id);
+      }
+    }
+  }
+
+  return createdIds;
+}
+
 async function airtableUpdateRecord(recordId: string, fields: Record<string, any>, debugId: string) {
   const url = `https://api.airtable.com/v0/${AIRTABLE_OS_BASE_ID}/${encodeURIComponent(INBOX_TABLE_NAME)}`;
 
@@ -177,10 +249,68 @@ async function airtableUpdateRecord(recordId: string, fields: Record<string, any
 }
 
 // ============================================================================
-// OpenAI Summarization
+// OpenAI Extraction (Strict JSON)
 // ============================================================================
 
-async function openaiSummarizeEmail(input: {
+/**
+ * Parse OpenAI response defensively
+ * - Try JSON.parse first
+ * - If that fails, try to extract JSON between first '{' and last '}'
+ */
+function parseOpenAIResponse(content: string): InboxExtractionResponse {
+  const trimmed = content.trim();
+
+  // Attempt 1: Direct JSON.parse
+  try {
+    const parsed = JSON.parse(trimmed);
+    return validateExtractionResponse(parsed);
+  } catch {
+    // Continue to fallback
+  }
+
+  // Attempt 2: Extract JSON between first '{' and last '}'
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const jsonSubstring = trimmed.slice(firstBrace, lastBrace + 1);
+    try {
+      const parsed = JSON.parse(jsonSubstring);
+      return validateExtractionResponse(parsed);
+    } catch {
+      // Continue to default
+    }
+  }
+
+  // Fallback: Return default with empty inbox_items
+  console.log("[INBOX_REVIEW_PIPELINE] Failed to parse OpenAI response, using fallback");
+  return {
+    summary: trimmed || "Unable to summarize email.",
+    inbox_items: [],
+  };
+}
+
+/**
+ * Validate and normalize the extraction response
+ */
+function validateExtractionResponse(parsed: any): InboxExtractionResponse {
+  const summary = typeof parsed.summary === "string" ? parsed.summary : "";
+  let inbox_items: string[] = [];
+
+  if (Array.isArray(parsed.inbox_items)) {
+    inbox_items = parsed.inbox_items
+      .filter((item: any) => typeof item === "string" && item.trim().length > 0)
+      .map((item: string) => item.trim());
+  }
+
+  return { summary, inbox_items };
+}
+
+/**
+ * Extract summary and actionable items from email using OpenAI
+ * Returns strict JSON: { summary: string, inbox_items: string[] }
+ */
+async function openaiExtractInboxItems(input: {
   subject: string;
   fromEmail: string;
   fromName: string;
@@ -189,26 +319,29 @@ async function openaiSummarizeEmail(input: {
   snippet: string;
   bodyText: string;
   debugId: string;
-}): Promise<string> {
+}): Promise<InboxExtractionResponse> {
   const { subject, fromEmail, fromName, receivedAt, gmailUrl, snippet, bodyText, debugId } = input;
 
   const prompt = `
-You are "Inbox GPT" for Hive OS. Summarize an inbound email for an operator.
+You are "Inbox GPT" for Hive OS. Analyze an inbound email and extract actionable items.
 
-Return a concise summary in this exact markdown structure:
+You MUST respond with STRICT JSON ONLY. No markdown, no explanation, just the JSON object.
 
-## Summary
-- <1-3 bullets>
+Response format:
+{
+  "summary": "A 1-3 sentence summary of the email content and intent",
+  "inbox_items": [
+    "Action item 1 - single sentence starting with strong verb",
+    "Action item 2 - single sentence starting with strong verb"
+  ]
+}
 
-## What they want
-- <bullets>
-
-## Suggested next step
-- <1-3 bullets>
-
-## Entities
-- People: <comma-separated or "—">
-- Company: <best guess or "—">
+Rules for inbox_items:
+- Each item must be a single sentence
+- Each item must start with a strong verb: Review, Approve, Confirm, Provide, Decide, Send, Update, Schedule, Follow up, Respond, Create, Prepare, etc.
+- Each item must represent a concrete action, decision, or follow-up
+- Extract 1-5 items maximum
+- If no clear action items exist, return an empty array []
 
 Email context:
 - Subject: ${subject || "—"}
@@ -221,7 +354,8 @@ ${truncate(snippet, 800) || "—"}
 
 Body:
 ${truncate(bodyText, 8000) || "—"}
-`.trim();
+
+Respond with JSON only:`.trim();
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -232,8 +366,12 @@ ${truncate(bodyText, 8000) || "—"}
     body: JSON.stringify({
       model: OPENAI_MODEL,
       temperature: 0.2,
+      response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: "You write crisp, operator-friendly summaries. No fluff." },
+        {
+          role: "system",
+          content: "You are a JSON-only assistant. You extract actionable items from emails. Respond with valid JSON only, no markdown or explanation.",
+        },
         { role: "user", content: prompt },
       ],
     }),
@@ -252,7 +390,14 @@ ${truncate(bodyText, 8000) || "—"}
   }
 
   const content = json?.choices?.[0]?.message?.content;
-  return asStr(content).trim();
+  const contentStr = asStr(content).trim();
+
+  console.log(
+    "[INBOX_REVIEW_PIPELINE] OpenAI raw response",
+    safeLog({ debugId, contentLength: contentStr.length, contentPreview: truncate(contentStr, 200) })
+  );
+
+  return parseOpenAIResponse(contentStr);
 }
 
 // ============================================================================
@@ -261,12 +406,14 @@ ${truncate(bodyText, 8000) || "—"}
 
 /**
  * Run the inbox review pipeline:
- * 1. Create Inbox record with safe fields
- * 2. Summarize with OpenAI
- * 3. Update record with summary + flip Status/Disposition
+ *
+ * 1. Create SOURCE Inbox record (Title = "EMAIL: {Subject}")
+ * 2. Extract actionable items with OpenAI
+ * 3. Update source record with summary
+ * 4. Create CHILD Inbox records for each actionable item (linked to source)
  *
  * @param input - Email data and debugId
- * @returns { inboxItemId, summary }
+ * @returns { inboxItemId, summary, childItemIds }
  */
 export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<InboxReviewResult> {
   const {
@@ -288,9 +435,13 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
   if (!AIRTABLE_OS_BASE_ID) throw new Error("Missing AIRTABLE_OS_BASE_ID");
   if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
 
-  // Step 1: Create Inbox record
-  const createFields: Record<string, any> = {
-    "Title": subject || "(No subject)",
+  // -------------------------------------------------------------------------
+  // STEP 1: Create SOURCE Inbox record (the email itself)
+  // -------------------------------------------------------------------------
+  const sourceTitle = `EMAIL: ${subject || "(No subject)"}`;
+
+  const sourceFields: Record<string, any> = {
+    "Title": sourceTitle,
     "Subject": subject || "(No subject)",
     "From Email": fromEmail,
     "From Name": fromName,
@@ -301,26 +452,30 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
     "Received At": receivedAt,
     "Snippet": truncate(snippet, 1000),
     "Body Text": truncate(bodyText, 10000),
+    "Trace ID": debugId,
+    "Source": "Gmail",
     "Status": "New",
     "Disposition": "New",
   };
 
-  const sanitizedCreateFields = sanitizeInboxFields(createFields);
-  const created = await airtableCreateRecord(sanitizedCreateFields, debugId);
-  const inboxRec = created?.records?.[0];
-  const inboxItemId = inboxRec?.id;
+  const sanitizedSourceFields = sanitizeInboxFields(sourceFields);
+  const sourceCreated = await airtableCreateRecord(sanitizedSourceFields, debugId);
+  const sourceRec = sourceCreated?.records?.[0];
+  const sourceRecordId = sourceRec?.id;
 
-  if (!inboxItemId) {
-    throw new Error("Failed to create Inbox record - no ID returned");
+  if (!sourceRecordId) {
+    throw new Error("Failed to create source Inbox record - no ID returned");
   }
 
   console.log(
-    "[INBOX_REVIEW_PIPELINE] created",
-    safeLog({ debugId, inboxItemId })
+    "[INBOX_REVIEW_PIPELINE] SOURCE record created",
+    safeLog({ debugId, sourceRecordId, title: sourceTitle })
   );
 
-  // Step 2: Summarize with OpenAI
-  const summary = await openaiSummarizeEmail({
+  // -------------------------------------------------------------------------
+  // STEP 2: Extract actionable items with OpenAI
+  // -------------------------------------------------------------------------
+  const extraction = await openaiExtractInboxItems({
     subject: subject || "(No subject)",
     fromEmail,
     fromName,
@@ -331,28 +486,75 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
     debugId,
   });
 
+  const { summary } = extraction;
+  let { inbox_items } = extraction;
+
+  // If no actionable items extracted, create a default one
+  if (inbox_items.length === 0) {
+    inbox_items = ["Review email and determine next step"];
+    console.log("[INBOX_REVIEW_PIPELINE] No inbox_items extracted, using default");
+  }
+
   console.log(
-    "[INBOX_REVIEW_PIPELINE] summarized",
-    safeLog({ debugId, inboxItemId, summaryLength: summary.length })
+    "[INBOX_REVIEW_PIPELINE] extracted",
+    safeLog({ debugId, summaryLength: summary.length, inboxItemCount: inbox_items.length })
   );
 
-  // Step 3: Update record with summary
+  // -------------------------------------------------------------------------
+  // STEP 3: Update SOURCE record with summary
+  // -------------------------------------------------------------------------
+  const sourceDescription = `${summary}\n\n---\n\n**Snippet:**\n${truncate(snippet, 500)}`;
+
   const updateFields: Record<string, any> = {
-    "Description": summary,
+    "Description": sourceDescription,
     "Status": "Reviewed",
     "Disposition": "Logged",
   };
 
   const sanitizedUpdateFields = sanitizeInboxFields(updateFields);
-  await airtableUpdateRecord(inboxItemId, sanitizedUpdateFields, debugId);
+  await airtableUpdateRecord(sourceRecordId, sanitizedUpdateFields, debugId);
 
   console.log(
-    "[INBOX_REVIEW_PIPELINE] updated",
-    safeLog({ debugId, inboxItemId })
+    "[INBOX_REVIEW_PIPELINE] SOURCE record updated with summary",
+    safeLog({ debugId, sourceRecordId })
   );
 
+  // -------------------------------------------------------------------------
+  // STEP 4: Create CHILD Inbox records for each actionable item
+  // -------------------------------------------------------------------------
+  const childRecordsFields: Record<string, any>[] = inbox_items.map((itemTitle) => {
+    const childFields: Record<string, any> = {
+      "Title": itemTitle,
+      "Description": summary,
+      "Subject": subject || "(No subject)",
+      "From Name": fromName,
+      "From Email": fromEmail,
+      "Gmail URL": gmailUrl,
+      "Received At": receivedAt,
+      "Trace ID": debugId,
+      "Source": "Gmail",
+      // Link to source record - Airtable linked record format
+      "Source Inbox Item": [{ id: sourceRecordId }],
+      "Status": "New",
+      "Disposition": "New",
+    };
+
+    return sanitizeInboxFields(childFields);
+  });
+
+  const childItemIds = await airtableCreateRecordsBatch(childRecordsFields, debugId);
+
+  console.log(
+    "[INBOX_REVIEW_PIPELINE] CHILD records created",
+    safeLog({ debugId, sourceRecordId, childCount: childItemIds.length, childItemIds })
+  );
+
+  // -------------------------------------------------------------------------
+  // Return result
+  // -------------------------------------------------------------------------
   return {
-    inboxItemId,
+    inboxItemId: sourceRecordId,
     summary,
+    childItemIds,
   };
 }

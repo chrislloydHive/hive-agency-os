@@ -104,6 +104,8 @@ export async function POST(req: Request) {
       ok: true,
       status: "summarized",
       inboxItem: { id: result.inboxItemId },
+      childItems: result.childItemIds.map((id) => ({ id })),
+      childCount: result.childItemIds.length,
       summarized: true,
     });
   } catch (e: any) {

@@ -205,7 +205,7 @@ export async function POST(req: Request) {
   const debugId = `dbg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
   // Track partial results for error response
-  let inboxResult: { inboxItemId: string; summary: string } | null = null;
+  let inboxResult: { inboxItemId: string; summary: string; childItemIds: string[] } | null = null;
   let tasksCreated = 0;
 
   try {
