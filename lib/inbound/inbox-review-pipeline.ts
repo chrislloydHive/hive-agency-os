@@ -106,89 +106,226 @@ function normalizeLinkedRecordId(id: string | undefined | null): Array<{ id: str
 }
 
 /**
- * Extract a valid record ID string from various malformed inputs.
- * Handles cases where the value might be:
- * - A string "recXXX" → returns "recXXX"
- * - An object { id: "recXXX" } → returns "recXXX"
- * - An object { id: { id: "recXXX" } } → returns "recXXX"
- * - A full record object { id: "recXXX", fields: {...} } → returns "recXXX"
- * - An array [{ id: "recXXX" }] → returns "recXXX"
- *
- * @param value - Any value that might contain a record ID
- * @returns The extracted record ID string, or null if none found
+ * Extract ALL valid record IDs from a value (handles arrays, nested objects, etc.)
+ * Returns an array of unique record ID strings.
  */
-function extractRecordId(value: any): string | null {
-  if (!value) return null;
+function extractAllRecordIds(value: any): string[] {
+  const ids: string[] = [];
 
-  // Case 1: Already a valid string ID
+  if (!value) return ids;
+
+  // Case 1: String starting with "rec"
   if (typeof value === "string" && value.startsWith("rec")) {
-    return value;
+    ids.push(value);
+    return ids;
   }
 
-  // Case 2: Array - extract from first element
-  if (Array.isArray(value) && value.length > 0) {
-    return extractRecordId(value[0]);
+  // Case 2: Array - extract from all elements
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      ids.push(...extractAllRecordIds(item));
+    }
+    return [...new Set(ids)]; // dedupe
   }
 
-  // Case 3: Object with id property
+  // Case 3: Object
   if (typeof value === "object" && value !== null) {
     const id = value.id;
+
+    // Direct id property is a string
     if (typeof id === "string" && id.startsWith("rec")) {
-      return id;
+      ids.push(id);
     }
-    // Case 4: Nested object { id: { id: "recXXX" } }
-    if (typeof id === "object" && id !== null && typeof id.id === "string" && id.id.startsWith("rec")) {
-      return id.id;
+    // Nested { id: { id: "recXXX" } }
+    else if (typeof id === "object" && id !== null) {
+      ids.push(...extractAllRecordIds(id));
     }
   }
 
-  return null;
+  return [...new Set(ids)]; // dedupe
 }
 
-// Known linked-record field names used in child Inbox records
-const LINKED_RECORD_FIELDS = [
-  "Source Inbox Item",
-  // These are in FORBIDDEN list but adding for safety:
-  "Company",
-  "Opportunity",
-  "Client",
-  "Project",
-  "People",
-  "Owner",
-  "Assignee",
-];
-
 /**
- * Sanitize linked-record fields in a fields object.
- * Ensures all linked-record fields are in the correct format: [{ id: "recXXX" }]
- * Removes invalid linked-record fields from the payload.
- *
- * @param fields - The fields object to sanitize
- * @returns Sanitized fields object
+ * Check if a value "looks like" a linked record (or array of linked records).
+ * Returns true if the value contains structure that suggests it's a linked record.
  */
-function sanitizeLinkedRecordFields(fields: Record<string, any>): Record<string, any> {
-  const sanitized: Record<string, any> = { ...fields };
+function looksLikeLinkedRecord(value: any): boolean {
+  if (!value) return false;
 
-  for (const fieldName of LINKED_RECORD_FIELDS) {
-    if (fieldName in sanitized) {
-      const value = sanitized[fieldName];
-      const recordId = extractRecordId(value);
+  // String starting with "rec" = linked record ID
+  if (typeof value === "string" && value.startsWith("rec")) {
+    return true;
+  }
 
-      if (recordId) {
-        // Valid ID found - normalize to correct format
-        sanitized[fieldName] = [{ id: recordId }];
-      } else if (value !== undefined && value !== null) {
-        // Invalid value - log and remove
-        console.warn(
-          "[INBOX_REVIEW_PIPELINE] Removing invalid linked-record field",
-          JSON.stringify({ fieldName, value, typeOf: typeof value })
-        );
-        delete sanitized[fieldName];
+  // Array of items that look like linked records
+  if (Array.isArray(value)) {
+    return value.some((item) => looksLikeLinkedRecord(item));
+  }
+
+  // Object with `id` property (Airtable record or linked record reference)
+  if (typeof value === "object" && value !== null) {
+    if ("id" in value) {
+      const id = value.id;
+      // id is a rec string
+      if (typeof id === "string" && id.startsWith("rec")) {
+        return true;
+      }
+      // id is an object (nested)
+      if (typeof id === "object" && id !== null) {
+        return looksLikeLinkedRecord(id);
       }
     }
   }
 
+  return false;
+}
+
+/**
+ * Check if a value would stringify to "[object Object]" if coerced to string.
+ * This helps identify problematic fields before sending to Airtable.
+ */
+function wouldStringifyToObjectObject(value: any): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value !== "object") return false;
+  if (Array.isArray(value)) return false;
+
+  // Plain object would stringify to "[object Object]"
+  return String(value) === "[object Object]";
+}
+
+/**
+ * Get a compact preview of a value for logging.
+ */
+function compactPreview(value: any, maxLen: number = 100): string {
+  try {
+    const str = JSON.stringify(value);
+    if (str.length > maxLen) {
+      return str.slice(0, maxLen) + "...";
+    }
+    return str;
+  } catch {
+    return String(value).slice(0, maxLen);
+  }
+}
+
+/**
+ * GENERIC sanitizer that walks through EVERY field and normalizes any value
+ * that looks like a linked record into Airtable REST format: [{ id: "recXXX" }]
+ *
+ * If a field looks like a linked record but contains no valid "rec" IDs,
+ * it is REMOVED from the payload.
+ *
+ * Primitive types (strings that aren't rec IDs, numbers, booleans) are left alone.
+ */
+function sanitizeAllLinkedRecordFields(
+  fields: Record<string, any>,
+  debugId: string,
+  recordLabel: string
+): Record<string, any> {
+  const sanitized: Record<string, any> = {};
+  const suspectFields: Array<{ field: string; reason: string; preview: string }> = [];
+  const removedFields: string[] = [];
+  const normalizedFields: string[] = [];
+
+  for (const [fieldName, value] of Object.entries(fields)) {
+    // Skip null/undefined
+    if (value === null || value === undefined) {
+      continue;
+    }
+
+    // Check if this value looks like a linked record
+    if (looksLikeLinkedRecord(value)) {
+      const extractedIds = extractAllRecordIds(value);
+
+      if (extractedIds.length > 0) {
+        // Normalize to Airtable format: [{ id: "recXXX" }, ...]
+        sanitized[fieldName] = extractedIds.map((id) => ({ id }));
+        normalizedFields.push(fieldName);
+      } else {
+        // Looks like linked record but no valid IDs - remove it
+        removedFields.push(fieldName);
+        suspectFields.push({
+          field: fieldName,
+          reason: "looks like linked record but no valid rec IDs",
+          preview: compactPreview(value),
+        });
+      }
+    }
+    // Check if it's an object that would stringify to "[object Object]"
+    else if (wouldStringifyToObjectObject(value)) {
+      // This is a problem - object in a non-linked-record field
+      removedFields.push(fieldName);
+      suspectFields.push({
+        field: fieldName,
+        reason: "object would stringify to [object Object]",
+        preview: compactPreview(value),
+      });
+    }
+    // Check if it's an array containing objects
+    else if (Array.isArray(value) && value.some((item) => wouldStringifyToObjectObject(item))) {
+      // Array contains objects that aren't linked records
+      removedFields.push(fieldName);
+      suspectFields.push({
+        field: fieldName,
+        reason: "array contains objects that would stringify to [object Object]",
+        preview: compactPreview(value),
+      });
+    }
+    // Safe value - keep as-is
+    else {
+      sanitized[fieldName] = value;
+    }
+  }
+
+  // Log suspect fields
+  if (suspectFields.length > 0) {
+    console.warn(
+      `[INBOX_REVIEW_PIPELINE] ${recordLabel} SUSPECT FIELDS DETECTED:`,
+      JSON.stringify(suspectFields, null, 2)
+    );
+  }
+
+  // Log removed fields
+  if (removedFields.length > 0) {
+    console.warn(
+      `[INBOX_REVIEW_PIPELINE] ${recordLabel} REMOVED FIELDS:`,
+      removedFields.join(", ")
+    );
+  }
+
+  // Log normalized fields
+  if (normalizedFields.length > 0) {
+    console.log(
+      `[INBOX_REVIEW_PIPELINE] ${recordLabel} NORMALIZED LINKED FIELDS:`,
+      normalizedFields.join(", ")
+    );
+  }
+
   return sanitized;
+}
+
+/**
+ * Scan fields for potential problems and log detailed diagnostics.
+ */
+function logFieldDiagnostics(
+  fields: Record<string, any>,
+  recordIdx: number,
+  label: string
+): void {
+  console.log(`[INBOX_REVIEW_PIPELINE] ${label} Record ${recordIdx} field diagnostics:`);
+
+  for (const [fieldName, value] of Object.entries(fields)) {
+    const typeOf = typeof value;
+    const isArray = Array.isArray(value);
+    const wouldBeObjectObject = wouldStringifyToObjectObject(value);
+    const looksLinked = looksLikeLinkedRecord(value);
+
+    if (typeOf === "object" && value !== null) {
+      console.log(
+        `  - "${fieldName}": type=${typeOf}, isArray=${isArray}, wouldBeObjectObject=${wouldBeObjectObject}, looksLinked=${looksLinked}, preview=${compactPreview(value, 80)}`
+      );
+    }
+  }
 }
 
 // ============================================================================
@@ -658,7 +795,7 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
     safeLog({ debugId, sourceRecordId, sourceInboxItemLink })
   );
 
-  const childRecordsFields: Record<string, any>[] = inbox_items.map((itemTitle) => {
+  const childRecordsFields: Record<string, any>[] = inbox_items.map((itemTitle, idx) => {
     const childFields: Record<string, any> = {
       "Title": itemTitle,
       "Description": summary,
@@ -675,27 +812,57 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
       "Disposition": "New",
     };
 
-    // Apply both sanitizers:
+    // Log BEFORE sanitization to see raw fields
+    console.log(`[INBOX_REVIEW_PIPELINE] CHILD ${idx} BEFORE sanitization:`);
+    logFieldDiagnostics(childFields, idx, "BEFORE");
+
+    // Apply sanitizers:
     // 1. sanitizeInboxFields - removes forbidden fields, validates select values
-    // 2. sanitizeLinkedRecordFields - ensures linked-record fields are in correct format
-    const sanitized = sanitizeInboxFields(childFields);
-    return sanitizeLinkedRecordFields(sanitized);
+    const afterInboxSanitize = sanitizeInboxFields(childFields);
+
+    // 2. sanitizeAllLinkedRecordFields - GENERIC sanitizer for ALL fields
+    //    Normalizes any linked-record-like values, removes problematic objects
+    const fullySanitized = sanitizeAllLinkedRecordFields(
+      afterInboxSanitize,
+      debugId,
+      `CHILD ${idx}`
+    );
+
+    // Log AFTER sanitization
+    console.log(`[INBOX_REVIEW_PIPELINE] CHILD ${idx} AFTER sanitization:`);
+    logFieldDiagnostics(fullySanitized, idx, "AFTER");
+
+    return fullySanitized;
   });
 
-  // DEBUG: Log the exact payload being sent to Airtable (with linked fields highlighted)
-  console.log("[INBOX_REVIEW_PIPELINE] DEBUG - CHILD records payload before batch create:");
+  // FINAL CHECK: Scan all records for any remaining objects that would cause issues
+  console.log("[INBOX_REVIEW_PIPELINE] FINAL CHECK - scanning for problematic fields:");
   childRecordsFields.forEach((fields, idx) => {
-    console.log(`[INBOX_REVIEW_PIPELINE] DEBUG - Record ${idx}:`, JSON.stringify(fields));
-    // Specifically log linked-record fields
-    if (fields["Source Inbox Item"]) {
-      console.log(
-        `[INBOX_REVIEW_PIPELINE] DEBUG - Record ${idx} "Source Inbox Item":`,
-        JSON.stringify(fields["Source Inbox Item"]),
-        "type:", typeof fields["Source Inbox Item"],
-        "isArray:", Array.isArray(fields["Source Inbox Item"])
-      );
+    for (const [fieldName, value] of Object.entries(fields)) {
+      if (wouldStringifyToObjectObject(value)) {
+        console.error(
+          `[INBOX_REVIEW_PIPELINE] CRITICAL: Record ${idx} field "${fieldName}" is STILL an object!`,
+          compactPreview(value)
+        );
+      }
+      if (Array.isArray(value)) {
+        value.forEach((item, itemIdx) => {
+          if (wouldStringifyToObjectObject(item) && !("id" in item && typeof item.id === "string")) {
+            console.error(
+              `[INBOX_REVIEW_PIPELINE] CRITICAL: Record ${idx} field "${fieldName}"[${itemIdx}] is a non-linked-record object!`,
+              compactPreview(item)
+            );
+          }
+        });
+      }
     }
   });
+
+  // Log final payload
+  console.log(
+    "[INBOX_REVIEW_PIPELINE] FINAL PAYLOAD for batch create:",
+    JSON.stringify(childRecordsFields, null, 2)
+  );
 
   const childItemIds = await airtableCreateRecordsBatch(childRecordsFields, debugId);
 
