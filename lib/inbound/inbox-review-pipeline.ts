@@ -561,6 +561,103 @@ function validateExtractionResponse(parsed: any): InboxExtractionResponse {
   return { summary, inbox_items };
 }
 
+// ============================================================================
+// Inbox Item Normalizer
+// ============================================================================
+
+/**
+ * Filler words to remove from inbox items
+ */
+const FILLER_WORDS = new Set([
+  "the", "a", "an", "to", "for", "with", "on", "of", "and", "or",
+  "in", "at", "by", "from", "up", "about", "into", "over", "after",
+  "is", "are", "was", "were", "be", "been", "being",
+  "has", "have", "had", "do", "does", "did",
+  "this", "that", "these", "those",
+  "it", "its", "their", "our", "your",
+]);
+
+/**
+ * Normalize a single inbox item to be glanceable (3-5 words max)
+ *
+ * Transformations:
+ * - Trim whitespace
+ * - Remove all punctuation
+ * - Split into words
+ * - Remove filler words
+ * - Limit to first 5 words
+ *
+ * @returns normalized item or null if too short (< 2 words)
+ */
+function normalizeInboxItem(item: string): string | null {
+  // Step 1: Trim and lowercase for processing
+  let text = item.trim();
+
+  // Step 2: Remove all punctuation
+  text = text.replace(/[^\w\s]/g, "");
+
+  // Step 3: Split into words
+  const words = text.split(/\s+/).filter((w) => w.length > 0);
+
+  // Step 4: Remove filler words (but keep first word if it's a verb)
+  const filtered: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    const wordLower = word.toLowerCase();
+
+    // Always keep the first word (should be the verb)
+    if (i === 0) {
+      // Capitalize first letter of first word
+      filtered.push(word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+    } else if (!FILLER_WORDS.has(wordLower)) {
+      // Keep non-filler words, preserve original case but lowercase
+      filtered.push(word.toLowerCase());
+    }
+  }
+
+  // Step 5: Limit to first 5 words
+  const limited = filtered.slice(0, 5);
+
+  // Step 6: If result is < 2 words, return null (will be dropped)
+  if (limited.length < 2) {
+    return null;
+  }
+
+  return limited.join(" ");
+}
+
+/**
+ * Normalize all inbox items for glanceable task list display
+ *
+ * - Normalizes each item (removes punctuation, filler words, limits to 5 words)
+ * - Drops items with < 2 words
+ * - Deduplicates (case-insensitive)
+ * - Falls back to ["Review email"] if no valid items remain
+ */
+function normalizeInboxItems(items: string[]): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const item of items) {
+    const norm = normalizeInboxItem(item);
+
+    if (norm) {
+      const key = norm.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        normalized.push(norm);
+      }
+    }
+  }
+
+  // Fallback if no valid items
+  if (normalized.length === 0) {
+    return ["Review email"];
+  }
+
+  return normalized;
+}
+
 /**
  * Extract summary and actionable items from email using OpenAI
  * Returns strict JSON: { summary: string, inbox_items: string[] }
@@ -586,17 +683,34 @@ Response format:
 {
   "summary": "A 1-3 sentence summary of the email content and intent",
   "inbox_items": [
-    "Action item 1 - single sentence starting with strong verb",
-    "Action item 2 - single sentence starting with strong verb"
+    "Verb noun noun",
+    "Verb noun noun"
   ]
 }
 
-Rules for inbox_items:
-- Each item must be a single sentence
-- Each item must start with a strong verb: Review, Approve, Confirm, Provide, Decide, Send, Update, Schedule, Follow up, Respond, Create, Prepare, etc.
-- Each item must represent a concrete action, decision, or follow-up
+HARD RULES for inbox_items (MUST follow):
+- 3-5 words MAXIMUM per item (hard cap)
+- Verb-first imperative phrasing
+- NO punctuation of any kind
+- NO filler words (the, a, an, to, for, with, on, of, etc)
+- Express the IDEA not full context
+- If unsure prefer fewer words
 - Extract 1-5 items maximum
-- If no clear action items exist, return an empty array []
+- If no clear action items exist return empty array []
+
+GOOD examples:
+- Approve revised budget
+- Confirm GTM installed
+- Decide audio launch
+- Review social display
+- Send asset update
+- Schedule intro call
+- Provide campaign assets
+
+BAD examples (too long/verbose):
+- Review and approve the revised budget for Q1
+- Confirm whether GTM has been installed on the site
+- Please send over the updated creative assets
 
 Email context:
 - Subject: ${subject || "—"}
@@ -751,17 +865,23 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
   });
 
   const { summary } = extraction;
-  let { inbox_items } = extraction;
-
-  // If no actionable items extracted, create a default one
-  if (inbox_items.length === 0) {
-    inbox_items = ["Review email and determine next step"];
-    console.log("[INBOX_REVIEW_PIPELINE] No inbox_items extracted, using default");
-  }
+  const rawInboxItems = extraction.inbox_items;
 
   console.log(
-    "[INBOX_REVIEW_PIPELINE] extracted",
-    safeLog({ debugId, summaryLength: summary.length, inboxItemCount: inbox_items.length })
+    "[INBOX_REVIEW_PIPELINE] raw extraction",
+    safeLog({ debugId, summaryLength: summary.length, rawItemCount: rawInboxItems.length, rawItems: rawInboxItems })
+  );
+
+  // -------------------------------------------------------------------------
+  // STEP 2.5: Normalize inbox items for glanceable display
+  // -------------------------------------------------------------------------
+  // Removes punctuation, filler words, limits to 5 words max
+  // Deduplicates and falls back to ["Review email"] if empty
+  const inbox_items = normalizeInboxItems(rawInboxItems);
+
+  console.log(
+    "[INBOX_REVIEW_PIPELINE] normalized items",
+    safeLog({ debugId, normalizedCount: inbox_items.length, items: inbox_items })
   );
 
   // -------------------------------------------------------------------------
