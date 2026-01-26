@@ -542,8 +542,8 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
       "Received At": receivedAt,
       "Trace ID": debugId,
       "Source": "Gmail",
-      // Link to source record - Airtable expects array of record ID strings
-      "Source Inbox Item": [sourceRecordId],
+      // Link to source record - Airtable REST API format: [{ id: "recXXX" }]
+      "Source Inbox Item": [{ id: sourceRecordId }],
       "Status": "New",
       "Disposition": "New",
     };
