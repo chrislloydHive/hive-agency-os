@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { exchangeCodeForTokens } from '@/lib/google/oauth';
-import { updateGoogleTokens } from '@/lib/airtable/companyIntegrations';
+import { updateGoogleTokensInDBBase } from '@/lib/airtable/companyIntegrations';
 
 export async function GET(request: NextRequest) {
   try {
@@ -79,8 +79,8 @@ export async function GET(request: NextRequest) {
       console.warn('[OAuth Google Callback] Could not fetch user email:', e);
     }
 
-    // Store tokens
-    await updateGoogleTokens(companyId, {
+    // Store tokens in DB base (creates row if missing)
+    await updateGoogleTokensInDBBase(companyId, {
       refreshToken: tokens.refreshToken,
       accessToken: tokens.accessToken,
       accessTokenExpiresAt: tokens.expiresAt,

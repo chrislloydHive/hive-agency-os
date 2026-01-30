@@ -588,6 +588,112 @@ export async function getCompanyGoogleOAuthFromDBBase(
 }
 
 // ============================================================================
+// DB-base-aware Google token upsert
+// ============================================================================
+
+/**
+ * Update (or create) Google OAuth tokens in the AIRTABLE_DB_BASE_ID base.
+ *
+ * Unlike `updateGoogleTokens()` which routes through the generic Airtable
+ * client (AIRTABLE_BASE_ID / OS base), this function writes directly to the
+ * DB base via fetch so tokens always land in the canonical location that the
+ * scaffold and other flows read from.
+ *
+ * Flow:
+ *   1. findCompanyIntegration() to locate existing row (DB → OS fallback)
+ *   2. If no row → POST to create one
+ *   3. PATCH the row with token fields + GoogleConnected = true
+ *
+ * Never logs token values.
+ */
+export async function updateGoogleTokensInDBBase(
+  companyId: string,
+  tokens: {
+    refreshToken: string;
+    accessToken?: string;
+    accessTokenExpiresAt?: string;
+    connectedEmail?: string;
+  },
+): Promise<{ recordId: string }> {
+  const baseId = process.env.AIRTABLE_DB_BASE_ID;
+  if (!baseId) throw new Error('Missing AIRTABLE_DB_BASE_ID');
+
+  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+  if (!apiKey) throw new Error('Missing AIRTABLE_API_KEY / AIRTABLE_ACCESS_TOKEN');
+
+  const tableName = 'CompanyIntegrations';
+  const url = airtableListUrl(baseId, tableName);
+
+  // 1. Try to find existing row
+  const existing = await findCompanyIntegration({ companyId });
+  let recordId: string;
+
+  if (existing.record) {
+    recordId = existing.record.id;
+    console.log(`[CompanyIntegrations] DB upsert – found existing row ${recordId} (matchedBy=${existing.matchedBy})`);
+  } else {
+    // 2. Create a new row with CompanyId
+    const createRes = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        records: [{ fields: { CompanyId: companyId, GoogleConnected: false } }],
+      }),
+    });
+    const createText = await createRes.text();
+    if (!createRes.ok) {
+      throw new Error(
+        `Failed to create CompanyIntegrations row (${createRes.status}): ${createText.slice(0, 300)}`,
+      );
+    }
+    const createData = JSON.parse(createText);
+    recordId = createData.records[0].id;
+    console.log(`[CompanyIntegrations] DB upsert – created new row ${recordId} for companyId=${companyId}`);
+  }
+
+  // 3. PATCH token fields
+  const patchUrl = `${url}/${recordId}`;
+  const now = new Date().toISOString();
+
+  const fields: Record<string, unknown> = {
+    GoogleConnected: true,
+    GoogleRefreshToken: tokens.refreshToken,
+    GoogleConnectedAt: now,
+  };
+  if (tokens.accessToken !== undefined) {
+    fields.GoogleAccessToken = tokens.accessToken;
+  }
+  if (tokens.accessTokenExpiresAt !== undefined) {
+    fields.GoogleAccessTokenExpiresAt = tokens.accessTokenExpiresAt;
+  }
+  if (tokens.connectedEmail !== undefined) {
+    fields.GoogleConnectedEmail = tokens.connectedEmail;
+  }
+
+  const patchRes = await fetch(patchUrl, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ fields }),
+  });
+
+  if (!patchRes.ok) {
+    const patchText = await patchRes.text();
+    throw new Error(
+      `Failed to update CompanyIntegrations tokens (${patchRes.status}): ${patchText.slice(0, 300)}`,
+    );
+  }
+
+  console.log(`[CompanyIntegrations] DB upsert – tokens stored for ${recordId} (companyId=${companyId})`);
+  return { recordId };
+}
+
+// ============================================================================
 // Admin helper — create a placeholder row for "Connect Google" flow
 // ============================================================================
 

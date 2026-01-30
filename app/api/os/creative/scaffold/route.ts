@@ -29,6 +29,7 @@ import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { getCompanyGoogleOAuthFromDBBase, findCompanyIntegration } from '@/lib/airtable/companyIntegrations';
 import { getCompanyOAuthClient } from '@/lib/integrations/googleDrive';
+import { getGoogleOAuthUrl } from '@/lib/google/oauth';
 import type { drive_v3 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
@@ -230,8 +231,17 @@ export async function POST(req: Request) {
     }
   }
 
-  // ── Step 3: Both failed → return error with full debug payload ──────
+  // ── Step 3: Both failed → return error with connectUrl ──────────────
   if (!auth || !oauthSource) {
+    let connectUrl: string | null = null;
+    try {
+      connectUrl = getGoogleOAuthUrl(companyId);
+    } catch {
+      // OAuth env vars may be missing; fall back to the connect endpoint
+      const hiveBase = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+      connectUrl = `${hiveBase}/api/os/google/connect?companyId=${encodeURIComponent(companyId)}`;
+    }
+
     return NextResponse.json(
       {
         ok: false,
@@ -239,16 +249,17 @@ export async function POST(req: Request) {
         productionAssetsRootUrl: null,
         clientReviewFolderUrl: null,
         scaffoldStatus: 'error',
-        error: `Google OAuth not connected for company ${companyId}`,
+        error: 'Google not connected',
         debug: {
           companyId,
           companyName: companyName ?? null,
           clientCode: clientCode ?? null,
+          connectUrl,
           dbBaseId,
           osBaseId,
           lookup: 'CompanyId → RECORD_ID() → Client Code → Company Name (DB base, then OS base), then getCompanyOAuthClient',
           lookupAttempts: lookupDebug,
-          suggestion: 'Run Connect Google for this company or create the CompanyIntegrations row.',
+          suggestion: 'Open the connectUrl in a browser to authorize Google for this company.',
         },
       },
       { status: 200 }, // 200 so Airtable script can read the body
