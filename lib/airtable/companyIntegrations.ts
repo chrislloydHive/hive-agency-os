@@ -586,3 +586,61 @@ export async function getCompanyGoogleOAuthFromDBBase(
     debug: result.debug,
   };
 }
+
+// ============================================================================
+// Admin helper — create a placeholder row for "Connect Google" flow
+// ============================================================================
+
+/**
+ * Insert a stub CompanyIntegrations row with GoogleConnected=false.
+ * Used by an admin "Connect Google" flow to pre-create the row before
+ * the OAuth callback fills in the refresh token.
+ */
+export async function createCompanyIntegrationPlaceholder({
+  companyId,
+  companyName,
+  clientCode,
+}: {
+  companyId: string;
+  companyName?: string;
+  clientCode?: string;
+}) {
+  const baseId = process.env.AIRTABLE_DB_BASE_ID;
+  if (!baseId) throw new Error('Missing AIRTABLE_DB_BASE_ID');
+
+  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+  if (!apiKey) throw new Error('Missing AIRTABLE_API_KEY');
+
+  const url = airtableListUrl(baseId, 'CompanyIntegrations');
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      records: [
+        {
+          fields: {
+            CompanyId: companyId,
+            ...(companyName ? { 'Company Name': companyName } : {}),
+            ...(clientCode ? { 'Client Code': clientCode } : {}),
+            GoogleConnected: false,
+          },
+        },
+      ],
+    }),
+  });
+
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(
+      `Failed to create CompanyIntegrations placeholder (${res.status}): ${text.slice(0, 300)}`,
+    );
+  }
+
+  const data = JSON.parse(text);
+  const record = data?.records?.[0];
+  console.log(`[CompanyIntegrations] Created placeholder row: ${record?.id} for companyId=${companyId}`);
+  return data;
+}

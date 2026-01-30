@@ -175,6 +175,11 @@ export async function POST(req: Request) {
 
   // ── Fetch OAuth tokens ─────────────────────────────────────────────
   //
+  // CompanyIntegrations must contain a row with CompanyId matching the
+  // OS Companies record ID, and GoogleConnected=true with a valid
+  // GoogleRefreshToken. This row is created by the admin "Connect Google"
+  // flow — scaffold intentionally fails if no row exists.
+  //
   // 1. Try findCompanyIntegration (DB base → OS base fallback) with
   //    multi-key lookup: CompanyId → RECORD_ID() → Client Code → Company Name
   // 2. Fallback: existing per-company OAuth (getCompanyOAuthClient)
