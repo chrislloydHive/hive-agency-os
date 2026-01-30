@@ -78,7 +78,7 @@ export async function POST(req: Request) {
   if (missing.length > 0) {
     console.error('[creative/scaffold] Missing env vars:', missing);
     return NextResponse.json(
-      { ok: false, error: 'Server misconfigured', missing },
+      { ok: false, error: 'Server misconfigured – missing env vars', missing },
       { status: 500 },
     );
   }
@@ -606,29 +606,16 @@ function buildSheetName(
  * Return list of missing env var names. Empty array = all good.
  */
 function checkRequiredEnv(): string[] {
-  const missing: string[] = [];
+  const required: Array<{ key: string; alt?: string }> = [
+    { key: 'AIRTABLE_API_KEY', alt: 'AIRTABLE_ACCESS_TOKEN' },
+    { key: 'AIRTABLE_OS_BASE_ID', alt: 'AIRTABLE_BASE_ID' },
+    { key: 'AIRTABLE_DB_BASE_ID' },
+    { key: 'CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID' },
+    { key: 'CREATIVE_REVIEW_SHEET_TEMPLATE_ID' },
+    { key: 'HIVE_OS_INTERNAL_API_KEY' },
+  ];
 
-  if (!process.env.HIVE_OS_INTERNAL_API_KEY) {
-    missing.push('HIVE_OS_INTERNAL_API_KEY');
-  }
-  if (!process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID) {
-    missing.push('CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID');
-  }
-  if (!process.env.CREATIVE_REVIEW_SHEET_TEMPLATE_ID) {
-    missing.push('CREATIVE_REVIEW_SHEET_TEMPLATE_ID');
-  }
-  if (!process.env.GOOGLE_CLIENT_ID) {
-    missing.push('GOOGLE_CLIENT_ID');
-  }
-  if (!process.env.GOOGLE_CLIENT_SECRET) {
-    missing.push('GOOGLE_CLIENT_SECRET');
-  }
-  if (!(process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN)) {
-    missing.push('AIRTABLE_API_KEY');
-  }
-  if (!process.env.AIRTABLE_DB_BASE_ID) {
-    missing.push('AIRTABLE_DB_BASE_ID');
-  }
-
-  return missing;
+  return required
+    .filter(({ key, alt }) => !process.env[key] && !(alt && process.env[alt]))
+    .map(({ key }) => key);
 }
