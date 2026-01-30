@@ -22,7 +22,8 @@
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { getCompanyOAuthClient } from '@/lib/integrations/googleDrive';
-import { getProjectById } from '@/lib/airtable/projects';
+import { getBase } from '@/lib/airtable';
+import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import type { drive_v3 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
@@ -90,30 +91,46 @@ export async function POST(req: Request) {
     );
   }
 
-  // ── Resolve companyId from Project record ──────────────────────────
-  const COMPANY_FIELD = 'Company';
-  const project = await getProjectById(recordId);
+  // ── Resolve companyId from Project record (raw Airtable fetch) ─────
+  const COMPANY_FIELD_CANDIDATES = ['Client', 'Company'] as const;
 
-  if (!project) {
+  let projectFields: Record<string, unknown>;
+  try {
+    const base = getBase();
+    const record = await base(AIRTABLE_TABLES.PROJECTS).find(recordId);
+    projectFields = record.fields as Record<string, unknown>;
+  } catch (err: any) {
     return NextResponse.json(
-      { ok: false, error: `Project not found for recordId ${recordId}` },
+      { ok: false, error: `Project not found for recordId ${recordId}: ${err?.message ?? err}` },
       { status: 400 },
     );
   }
 
-  const companyId = project.companyId;
+  let companyId: string | null = null;
+  let companyFieldNameUsed: string | null = null;
+
+  for (const fieldName of COMPANY_FIELD_CANDIDATES) {
+    const v = projectFields[fieldName];
+    const id = getLinkedRecordId(v);
+    if (id) {
+      companyId = id;
+      companyFieldNameUsed = fieldName;
+      break;
+    }
+  }
+
   if (!companyId) {
     return NextResponse.json(
       {
         ok: false,
         error: 'Project is missing linked Company/Client (Companies record ID required)',
-        debug: { recordId, companyFieldNameTried: COMPANY_FIELD },
+        debug: { recordId, companyFieldNamesTried: COMPANY_FIELD_CANDIDATES },
       },
       { status: 400 },
     );
   }
 
-  console.log(`[creative/scaffold] Project ${recordId} → company ${companyId}`);
+  console.log(`[creative/scaffold] Project ${recordId} → company ${companyId} (via "${companyFieldNameUsed}")`);
 
   const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID!;
   const templateId = process.env.CREATIVE_REVIEW_SHEET_TEMPLATE_ID!;
@@ -303,6 +320,27 @@ async function copyTemplate(
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/**
+ * Extract a record ID from an Airtable linked-record field value.
+ * Handles both [{id, name}] arrays and plain "recXXX" strings.
+ */
+function getLinkedRecordId(value: unknown): string | null {
+  if (Array.isArray(value) && value.length > 0) {
+    const first = value[0];
+    if (typeof first === 'object' && first !== null && 'id' in first) {
+      return (first as { id: string }).id;
+    }
+    // Plain string array (some Airtable configs return ["recXXX"])
+    if (typeof first === 'string' && first.startsWith('rec')) {
+      return first;
+    }
+  }
+  if (typeof value === 'string' && value.startsWith('rec')) {
+    return value;
+  }
+  return null;
+}
 
 function buildSheetName(
   creativeMode?: string,
