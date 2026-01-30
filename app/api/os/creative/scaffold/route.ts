@@ -5,26 +5,29 @@
 // under the Production Assets root and copies the Creative Review Sheet
 // template into the Client Review folder.
 //
-// Auth: Per-company OAuth2 (refresh token stored in Airtable).
-//   Same auth path used by GoogleDriveClient for Docs/Sheets/Slides.
+// Auth: Per-company OAuth2 (refresh token stored in Airtable Hive DB base).
+//
+// Airtable bases:
+//   AIRTABLE_OS_BASE_ID  – Projects table (OS base)
+//   AIRTABLE_DB_BASE_ID  – CompanyIntegrations table (Hive DB base)
 //
 // Required env vars:
 //   HIVE_OS_INTERNAL_API_KEY            – shared secret for endpoint auth
 //   CREATIVE_REVIEW_SHEET_TEMPLATE_ID   – Google Sheet template file ID
 //   CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID – root folder on Shared Drive
 //   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET – for OAuth2 token refresh
+//   AIRTABLE_DB_BASE_ID                 – Hive DB base (CompanyIntegrations)
 //
 // Required in request body:
-//   recordId – Airtable Projects record ID (companyId derived from linked Company field)
+//   recordId – Airtable Projects record ID (companyId derived from linked Client field)
 //
 // Subfolders created under root: Evergreen/, Promotions/, Client Review/
 
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { getCompanyOAuthClient } from '@/lib/integrations/googleDrive';
+import Airtable from 'airtable';
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
-import { findRecordByField } from '@/lib/airtable/client';
 import type { drive_v3 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +37,20 @@ export const dynamic = 'force-dynamic';
 // ============================================================================
 
 const SUBFOLDERS = ['Evergreen', 'Promotions', 'Client Review'] as const;
+const COMPANY_FIELD_CANDIDATES = ['Client', 'Company'] as const;
+
+// ============================================================================
+// Airtable DB base (CompanyIntegrations lives here, not in OS base)
+// ============================================================================
+
+function getDbBase(): Airtable.Base {
+  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+  const baseId = process.env.AIRTABLE_DB_BASE_ID || '';
+  if (!apiKey || !baseId) {
+    throw new Error('AIRTABLE_DB_BASE_ID or AIRTABLE_API_KEY not configured');
+  }
+  return new Airtable({ apiKey }).base(baseId);
+}
 
 // ============================================================================
 // Auth
@@ -53,6 +70,9 @@ function unauthorized(reason: string) {
 // ============================================================================
 
 export async function POST(req: Request) {
+  const osBaseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '(unset)';
+  const dbBaseId = process.env.AIRTABLE_DB_BASE_ID || '(unset)';
+
   // ── Env preflight ───────────────────────────────────────────────────
   const missing = checkRequiredEnv();
   if (missing.length > 0) {
@@ -92,17 +112,19 @@ export async function POST(req: Request) {
     );
   }
 
-  // ── Resolve companyId from Project record (raw Airtable fetch) ─────
-  const COMPANY_FIELD_CANDIDATES = ['Client', 'Company'] as const;
-
+  // ── Resolve companyId from Project record (OS base) ────────────────
   let projectFields: Record<string, unknown>;
   try {
-    const base = getBase();
-    const record = await base(AIRTABLE_TABLES.PROJECTS).find(recordId);
+    const osBase = getBase(); // AIRTABLE_OS_BASE_ID
+    const record = await osBase(AIRTABLE_TABLES.PROJECTS).find(recordId);
     projectFields = record.fields as Record<string, unknown>;
   } catch (err: any) {
     return NextResponse.json(
-      { ok: false, error: `Project not found for recordId ${recordId}: ${err?.message ?? err}` },
+      {
+        ok: false,
+        error: `Project not found for recordId ${recordId}: ${err?.message ?? err}`,
+        debug: { base: 'OS', baseId: osBaseId, table: AIRTABLE_TABLES.PROJECTS },
+      },
       { status: 400 },
     );
   }
@@ -125,7 +147,7 @@ export async function POST(req: Request) {
       {
         ok: false,
         error: 'Project is missing linked Company/Client (Companies record ID required)',
-        debug: { recordId, companyFieldNamesTried: COMPANY_FIELD_CANDIDATES },
+        debug: { recordId, companyFieldNamesTried: COMPANY_FIELD_CANDIDATES, base: 'OS', baseId: osBaseId },
       },
       { status: 400 },
     );
@@ -136,16 +158,14 @@ export async function POST(req: Request) {
   const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID!;
   const templateId = process.env.CREATIVE_REVIEW_SHEET_TEMPLATE_ID!;
 
-  // ── Resolve OAuth client (with diagnostics on failure) ─────────────
-  let auth: Awaited<ReturnType<typeof getCompanyOAuthClient>>;
+  // ── Fetch OAuth tokens from CompanyIntegrations (DB base) ──────────
+  let auth: InstanceType<typeof google.auth.OAuth2>;
   try {
-    auth = await getCompanyOAuthClient(companyId);
+    auth = await buildOAuthClient(companyId);
   } catch (oauthErr: any) {
     console.error('[creative/scaffold] OAuth lookup failed:', oauthErr?.message ?? oauthErr);
 
-    // Gather debug info to help fix the connection
-    const debug = await diagnoseOAuthLookup(companyId, projectFields);
-
+    const debug = await diagnoseOAuthLookup(companyId);
     return NextResponse.json(
       {
         ok: false,
@@ -213,6 +233,56 @@ export async function POST(req: Request) {
       { status: 200 }, // 200 so Airtable script can read the body
     );
   }
+}
+
+// ============================================================================
+// OAuth from CompanyIntegrations (DB base)
+// ============================================================================
+
+/**
+ * Fetch Google OAuth tokens from CompanyIntegrations in the DB base
+ * and return an authenticated OAuth2 client.
+ */
+async function buildOAuthClient(
+  companyId: string,
+): Promise<InstanceType<typeof google.auth.OAuth2>> {
+  const dbBase = getDbBase();
+
+  // Find CompanyIntegrations record where CompanyId = companyId
+  const records = await dbBase('CompanyIntegrations')
+    .select({
+      filterByFormula: `{CompanyId} = '${companyId.replace(/'/g, "\\'")}'`,
+      maxRecords: 1,
+    })
+    .firstPage();
+
+  if (records.length === 0) {
+    throw new Error(
+      `No CompanyIntegrations record found for CompanyId "${companyId}" in DB base (AIRTABLE_DB_BASE_ID).`
+    );
+  }
+
+  const fields = records[0].fields as Record<string, unknown>;
+  const connected = fields['GoogleConnected'] as boolean | undefined;
+  const refreshToken = fields['GoogleRefreshToken'] as string | undefined;
+
+  if (!connected || !refreshToken) {
+    throw new Error(
+      `Google OAuth not connected for CompanyId "${companyId}". ` +
+      `GoogleConnected=${connected}, hasRefreshToken=${!!refreshToken}`
+    );
+  }
+
+  const clientId = process.env.GOOGLE_CLIENT_ID!;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+
+  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+  oauth2Client.setCredentials({
+    refresh_token: refreshToken,
+    access_token: (fields['GoogleAccessToken'] as string) || undefined,
+  });
+
+  return oauth2Client;
 }
 
 // ============================================================================
@@ -346,66 +416,76 @@ async function copyTemplate(
 
 /**
  * Diagnose why OAuth lookup failed for a companyId.
- * Searches CompanyIntegrations by companyId, company name, and domain.
+ * Searches CompanyIntegrations in the DB base by companyId, name, and domain.
  * Returns counts and record IDs only (no secrets).
  */
 async function diagnoseOAuthLookup(
   companyId: string,
-  projectFields: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
+  const osBaseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '(unset)';
+  const dbBaseId = process.env.AIRTABLE_DB_BASE_ID || '(unset)';
+
   const debug: Record<string, unknown> = {
     companyId,
     companyName: null,
     companyDomain: null,
     oauthLookupKey: 'CompanyId (exact match on CompanyIntegrations.CompanyId)',
+    bases: {
+      osBaseId,
+      dbBaseId,
+      projectFetchedFrom: `OS base (${osBaseId}) → Projects table`,
+      companyIntegrationsFetchedFrom: `DB base (${dbBaseId}) → CompanyIntegrations table`,
+    },
   };
 
-  // 1. Fetch the Company record to get name + domain
+  // 1. Fetch the Company record from OS base to get name + domain
   try {
-    const base = getBase();
-    const companyRecord = await base('Companies').find(companyId);
+    const osBase = getBase();
+    const companyRecord = await osBase('Companies').find(companyId);
     const cf = companyRecord.fields as Record<string, unknown>;
     debug.companyName = (cf['Name'] as string) || (cf['Company Name'] as string) || null;
     const website = (cf['Website'] as string) || (cf['URL'] as string) || '';
-    debug.companyDomain = (cf['Domain'] as string) || (website ? new URL(website.startsWith('http') ? website : `https://${website}`).hostname.replace(/^www\./, '') : null);
+    debug.companyDomain = (cf['Domain'] as string) ||
+      (website
+        ? (() => { try { return new URL(website.startsWith('http') ? website : `https://${website}`).hostname.replace(/^www\./, ''); } catch { return null; } })()
+        : null);
   } catch {
-    debug.companyName = '(failed to fetch Company record)';
+    debug.companyName = '(failed to fetch Company record from OS base)';
   }
 
-  // 2a. Search CompanyIntegrations by companyId
+  // 2a. Search CompanyIntegrations by companyId in DB base
   try {
-    const byId = await findRecordByField('CompanyIntegrations', 'CompanyId', companyId);
-    if (byId) {
-      const f = byId.fields as Record<string, unknown>;
+    const dbBase = getDbBase();
+    const records = await dbBase('CompanyIntegrations')
+      .select({
+        filterByFormula: `{CompanyId} = '${companyId.replace(/'/g, "\\'")}'`,
+        maxRecords: 1,
+      })
+      .firstPage();
+
+    if (records.length > 0) {
+      const f = records[0].fields as Record<string, unknown>;
       debug.byCompanyId = {
         found: true,
-        recordId: byId.id,
+        base: 'DB',
+        baseId: dbBaseId,
+        recordId: records[0].id,
         googleConnected: f['GoogleConnected'] ?? false,
         hasRefreshToken: !!f['GoogleRefreshToken'],
         connectedEmail: f['GoogleConnectedEmail'] || null,
       };
     } else {
-      debug.byCompanyId = { found: false };
+      debug.byCompanyId = { found: false, base: 'DB', baseId: dbBaseId };
     }
   } catch {
-    debug.byCompanyId = { found: false, error: 'query failed' };
+    debug.byCompanyId = { found: false, base: 'DB', baseId: dbBaseId, error: 'query failed' };
   }
 
   // 2b. Search by company name (if we have one)
   if (debug.companyName && typeof debug.companyName === 'string' && !debug.companyName.startsWith('(')) {
     try {
-      const base = getBase();
-      const nameRecords = await base('CompanyIntegrations')
-        .select({
-          filterByFormula: `{CompanyId} != '${companyId}'`,
-          maxRecords: 100,
-        })
-        .firstPage();
-
-      // We can't directly search CompanyIntegrations by name (it only has CompanyId).
-      // Instead, list all and cross-reference. But that's expensive.
-      // Simpler: search Companies table for same name, get their IDs, check integrations.
-      const companiesByName = await base('Companies')
+      const osBase = getBase();
+      const companiesByName = await osBase('Companies')
         .select({
           filterByFormula: `{Name} = '${(debug.companyName as string).replace(/'/g, "\\'")}'`,
           maxRecords: 5,
@@ -416,17 +496,27 @@ async function diagnoseOAuthLookup(
       const matchingIds = companiesByName.map((r) => r.id).filter((id) => id !== companyId);
       const matches: Array<{ companyRecordId: string; integrationRecordId?: string; googleConnected?: boolean }> = [];
 
+      const dbBase = getDbBase();
       for (const altId of matchingIds) {
-        const altInteg = await findRecordByField('CompanyIntegrations', 'CompanyId', altId);
-        matches.push({
-          companyRecordId: altId,
-          integrationRecordId: altInteg?.id ?? undefined,
-          googleConnected: altInteg ? (altInteg.fields as any)['GoogleConnected'] ?? false : undefined,
-        });
+        const altRecords = await dbBase('CompanyIntegrations')
+          .select({
+            filterByFormula: `{CompanyId} = '${altId.replace(/'/g, "\\'")}'`,
+            maxRecords: 1,
+          })
+          .firstPage();
+        if (altRecords.length > 0) {
+          matches.push({
+            companyRecordId: altId,
+            integrationRecordId: altRecords[0].id,
+            googleConnected: (altRecords[0].fields as any)['GoogleConnected'] ?? false,
+          });
+        }
       }
 
       debug.byCompanyName = {
         nameSearched: debug.companyName,
+        companiesBase: 'OS',
+        integrationsBase: 'DB',
         otherCompanyRecordsWithSameName: matchingIds.length,
         matches: matches.length > 0 ? matches : 'none',
       };
@@ -438,8 +528,8 @@ async function diagnoseOAuthLookup(
   // 2c. Search by domain (if we have one)
   if (debug.companyDomain && typeof debug.companyDomain === 'string') {
     try {
-      const base = getBase();
-      const companiesByDomain = await base('Companies')
+      const osBase = getBase();
+      const companiesByDomain = await osBase('Companies')
         .select({
           filterByFormula: `{Domain} = '${(debug.companyDomain as string).replace(/'/g, "\\'")}'`,
           maxRecords: 5,
@@ -450,17 +540,27 @@ async function diagnoseOAuthLookup(
       const matchingIds = companiesByDomain.map((r) => r.id).filter((id) => id !== companyId);
       const matches: Array<{ companyRecordId: string; integrationRecordId?: string; googleConnected?: boolean }> = [];
 
+      const dbBase = getDbBase();
       for (const altId of matchingIds) {
-        const altInteg = await findRecordByField('CompanyIntegrations', 'CompanyId', altId);
-        matches.push({
-          companyRecordId: altId,
-          integrationRecordId: altInteg?.id ?? undefined,
-          googleConnected: altInteg ? (altInteg.fields as any)['GoogleConnected'] ?? false : undefined,
-        });
+        const altRecords = await dbBase('CompanyIntegrations')
+          .select({
+            filterByFormula: `{CompanyId} = '${altId.replace(/'/g, "\\'")}'`,
+            maxRecords: 1,
+          })
+          .firstPage();
+        if (altRecords.length > 0) {
+          matches.push({
+            companyRecordId: altId,
+            integrationRecordId: altRecords[0].id,
+            googleConnected: (altRecords[0].fields as any)['GoogleConnected'] ?? false,
+          });
+        }
       }
 
       debug.byDomain = {
         domainSearched: debug.companyDomain,
+        companiesBase: 'OS',
+        integrationsBase: 'DB',
         otherCompanyRecordsWithSameDomain: matchingIds.length,
         matches: matches.length > 0 ? matches : 'none',
       };
@@ -482,7 +582,6 @@ function getLinkedRecordId(value: unknown): string | null {
     if (typeof first === 'object' && first !== null && 'id' in first) {
       return (first as { id: string }).id;
     }
-    // Plain string array (some Airtable configs return ["recXXX"])
     if (typeof first === 'string' && first.startsWith('rec')) {
       return first;
     }
@@ -523,6 +622,12 @@ function checkRequiredEnv(): string[] {
   }
   if (!process.env.GOOGLE_CLIENT_SECRET) {
     missing.push('GOOGLE_CLIENT_SECRET');
+  }
+  if (!(process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN)) {
+    missing.push('AIRTABLE_API_KEY');
+  }
+  if (!process.env.AIRTABLE_DB_BASE_ID) {
+    missing.push('AIRTABLE_DB_BASE_ID');
   }
 
   return missing;
