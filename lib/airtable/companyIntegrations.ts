@@ -62,7 +62,7 @@ export interface CompanyIntegrations {
 interface AirtableCompanyIntegrationsFields {
   CompanyId: string;
   GoogleConnected?: boolean;
-  GoogleRefreshToken?: string;
+  'Google Refresh Token'?: string;
   GoogleAccessToken?: string;
   GoogleAccessTokenExpiresAt?: string;
   GoogleConnectedAt?: string;
@@ -100,7 +100,7 @@ function mapAirtableToCompanyIntegrations(record: any): CompanyIntegrations {
 
   const google: GoogleIntegration | undefined = fields.GoogleConnected ? {
     connected: true,
-    refreshToken: fields.GoogleRefreshToken || undefined,
+    refreshToken: fields['Google Refresh Token'] || undefined,
     accessToken: fields.GoogleAccessToken || undefined,
     accessTokenExpiresAt: fields.GoogleAccessTokenExpiresAt || undefined,
     connectedAt: fields.GoogleConnectedAt || undefined,
@@ -146,7 +146,7 @@ function mapCompanyIntegrationsToAirtable(
     fields.GoogleConnected = g?.connected ?? false;
 
     if (g) {
-      if (g.refreshToken !== undefined) fields.GoogleRefreshToken = g.refreshToken;
+      if (g.refreshToken !== undefined) fields['Google Refresh Token'] = g.refreshToken;
       if (g.accessToken !== undefined) fields.GoogleAccessToken = g.accessToken;
       if (g.accessTokenExpiresAt !== undefined) fields.GoogleAccessTokenExpiresAt = g.accessTokenExpiresAt;
       if (g.connectedAt !== undefined) fields.GoogleConnectedAt = g.connectedAt;
@@ -324,7 +324,7 @@ export async function disconnectGoogle(companyId: string): Promise<void> {
   if (existing?.id) {
     await updateRecord(TABLE_NAME, existing.id, {
       GoogleConnected: false,
-      GoogleRefreshToken: '',
+      'Google Refresh Token': '',
       GoogleAccessToken: '',
       GA4Connected: false,
       GSCConnected: false,
@@ -579,7 +579,7 @@ export async function getCompanyGoogleOAuthFromDBBase(
   return {
     companyId,
     googleConnected: normalizeChecked(f['GoogleConnected']),
-    googleRefreshToken: (f['GoogleRefreshToken'] as string) || null,
+    googleRefreshToken: (f['Google Refresh Token'] as string) || null,
     googleConnectedEmail: (f['GoogleConnectedEmail'] as string) || null,
     recordId: result.record.id,
     matchedBy: result.matchedBy,
@@ -655,12 +655,13 @@ export async function updateGoogleTokensInDBBase(
   }
 
   // 3. PATCH token fields
+  const REFRESH_TOKEN_FIELD = 'Google Refresh Token';
   const patchUrl = `${url}/${recordId}`;
   const now = new Date().toISOString();
 
   const fields: Record<string, unknown> = {
     GoogleConnected: true,
-    GoogleRefreshToken: tokens.refreshToken,
+    [REFRESH_TOKEN_FIELD]: tokens.refreshToken,
     GoogleConnectedAt: now,
   };
   if (tokens.accessToken !== undefined) {
@@ -689,7 +690,11 @@ export async function updateGoogleTokensInDBBase(
     );
   }
 
-  console.log(`[CompanyIntegrations] DB upsert – tokens stored for ${recordId} (companyId=${companyId})`);
+  console.log(
+    `[CompanyIntegrations] DB upsert – recordId=${recordId} ` +
+    `field="${REFRESH_TOKEN_FIELD}" hasRefreshToken=${tokens.refreshToken.length > 0} ` +
+    `companyId=${companyId}`,
+  );
   return { recordId };
 }
 

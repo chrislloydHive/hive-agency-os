@@ -178,7 +178,7 @@ export async function POST(req: Request) {
   //
   // CompanyIntegrations must contain a row with CompanyId matching the
   // OS Companies record ID, and GoogleConnected=true with a valid
-  // GoogleRefreshToken. This row is created by the admin "Connect Google"
+  // "Google Refresh Token". This row is created by the admin "Connect Google"
   // flow — scaffold intentionally fails if no row exists.
   //
   // 1. Try findCompanyIntegration (DB base → OS base fallback) with
