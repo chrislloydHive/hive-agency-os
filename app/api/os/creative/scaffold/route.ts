@@ -15,13 +15,14 @@
 //   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET – for OAuth2 token refresh
 //
 // Required in request body:
-//   companyId – Airtable Companies record ID (resolves OAuth tokens)
+//   recordId – Airtable Projects record ID (companyId derived from linked Company field)
 //
 // Subfolders created under root: Evergreen/, Promotions/, Client Review/
 
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { getCompanyOAuthClient } from '@/lib/integrations/googleDrive';
+import { getProjectById } from '@/lib/airtable/projects';
 import type { drive_v3 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
@@ -69,7 +70,6 @@ export async function POST(req: Request) {
   // ── Parse body ──────────────────────────────────────────────────────
   let body: {
     recordId?: string;
-    companyId?: string;
     creativeMode?: string;
     promoName?: string;
   };
@@ -82,19 +82,38 @@ export async function POST(req: Request) {
     );
   }
 
-  const { recordId, companyId, creativeMode, promoName } = body;
+  const { recordId, creativeMode, promoName } = body;
   if (!recordId) {
     return NextResponse.json(
       { ok: false, error: 'recordId is required' },
       { status: 400 },
     );
   }
-  if (!companyId) {
+
+  // ── Resolve companyId from Project record ──────────────────────────
+  const COMPANY_FIELD = 'Company';
+  const project = await getProjectById(recordId);
+
+  if (!project) {
     return NextResponse.json(
-      { ok: false, error: 'companyId is required (Airtable Companies record ID)' },
+      { ok: false, error: `Project not found for recordId ${recordId}` },
       { status: 400 },
     );
   }
+
+  const companyId = project.companyId;
+  if (!companyId) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'Project is missing linked Company/Client (Companies record ID required)',
+        debug: { recordId, companyFieldNameTried: COMPANY_FIELD },
+      },
+      { status: 400 },
+    );
+  }
+
+  console.log(`[creative/scaffold] Project ${recordId} → company ${companyId}`);
 
   const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID!;
   const templateId = process.env.CREATIVE_REVIEW_SHEET_TEMPLATE_ID!;
