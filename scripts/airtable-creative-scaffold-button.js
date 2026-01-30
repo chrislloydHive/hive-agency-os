@@ -9,6 +9,7 @@
 // Airtable field names expected on the record:
 //   "Creative Mode"          – single-line text (e.g. "Evergreen", "Promo")
 //   "Promo Name"             – single-line text (optional, e.g. "Summer Sale 2025")
+//   "Company"                – linked record to Companies table
 //   "Scaffold Status"        – single-line text (written back)
 //   "Review Sheet URL"       – URL field (written back)
 //   "Production Assets URL"  – URL field (written back)
@@ -30,7 +31,9 @@ const ENDPOINT = `${BASE_URL}/api/os/creative/scaffold`;
 
 // ─── Read record fields ──────────────────────────────────────────────
 const table = base.getTable('Creative Review');  // ← adjust table name
-const record = await table.selectRecordAsync(recordId);
+const record = await table.selectRecordAsync(recordId, {
+    fields: ['Creative Mode', 'Promo Name', 'Company'],
+});
 
 if (!record) {
     output.text(`Record ${recordId} not found.`);
@@ -40,7 +43,20 @@ if (!record) {
 const creativeMode = record.getCellValueAsString('Creative Mode') || '';
 const promoName    = record.getCellValueAsString('Promo Name') || '';
 
-output.text(`Scaffolding for record ${recordId}  mode=${creativeMode}  promo=${promoName}`);
+// Resolve companyId from linked Company record
+const companyLinks = record.getCellValue('Company');
+if (!companyLinks || !Array.isArray(companyLinks) || companyLinks.length === 0) {
+    const errMsg = 'No Company linked to this record. Link a Company first.';
+    await table.updateRecordAsync(recordId, {
+        'Scaffold Status': 'error',
+        'Scaffold Error': errMsg,
+    });
+    output.text(`❌ ${errMsg}`);
+    throw new Error(errMsg);
+}
+const companyId = companyLinks[0].id;
+
+output.text(`Scaffolding for record ${recordId}  company=${companyId}  mode=${creativeMode}  promo=${promoName}`);
 
 // ─── Call scaffold endpoint ──────────────────────────────────────────
 let result;
@@ -53,6 +69,7 @@ try {
         },
         body: JSON.stringify({
             recordId,
+            companyId,
             creativeMode,
             promoName,
         }),
