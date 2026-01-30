@@ -5,22 +5,24 @@
 // under the Production Assets root and copies the Creative Review Sheet
 // template into the Client Review folder.
 //
+// Auth: ADC (Application Default Credentials) – no service account keys.
+//   Local dev: gcloud auth application-default login
+//   Vercel prod: Workload Identity Federation / attached SA
+//
 // Required env vars:
-//   HIVE_OS_INTERNAL_API_KEY          – shared secret for auth
-//   GOOGLE_SERVICE_ACCOUNT_JSON       – (or EMAIL + PRIVATE_KEY)
-//   CREATIVE_REVIEW_SHEET_TEMPLATE_ID – Google Sheet template file ID
+//   HIVE_OS_INTERNAL_API_KEY            – shared secret for auth
+//   CREATIVE_REVIEW_SHEET_TEMPLATE_ID   – Google Sheet template file ID
 //   CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID – root folder on Shared Drive
 //
 // Subfolders created under root: Evergreen/, Promotions/, Client Review/
 
 import { NextResponse } from 'next/server';
 import {
-  getDriveClient,
-  ensureChildFolder,
-  copyDocTemplate,
-  findDocumentInFolder,
+  ensureFolder,
+  copyFile,
+  findFileInFolder,
   folderUrl,
-} from '@/lib/google/driveClient';
+} from '@/lib/integrations/google/driveClient';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,12 +90,10 @@ export async function POST(req: Request) {
 
   // ── Scaffold ────────────────────────────────────────────────────────
   try {
-    getDriveClient(); // warm up / fail fast on bad creds
-
     // 1. Ensure subfolders under root
     const folders: Record<string, { id: string; url: string }> = {};
     for (const name of SUBFOLDERS) {
-      const f = await ensureChildFolder(rootFolderId, name);
+      const f = await ensureFolder(rootFolderId, name);
       folders[name] = { id: f.id, url: f.url };
     }
 
@@ -104,12 +104,12 @@ export async function POST(req: Request) {
 
     // 3. Copy template (idempotent – skip if sheet with same name exists)
     let sheetUrl: string;
-    const existing = await findDocumentInFolder(clientReviewFolder.id, sheetName);
+    const existing = await findFileInFolder(clientReviewFolder.id, sheetName);
     if (existing) {
       console.log(`[creative/scaffold] Sheet already exists: "${sheetName}" (${existing.id})`);
       sheetUrl = existing.url;
     } else {
-      const doc = await copyDocTemplate(templateId, clientReviewFolder.id, sheetName);
+      const doc = await copyFile(templateId, clientReviewFolder.id, sheetName);
       sheetUrl = doc.url;
     }
 
@@ -123,17 +123,7 @@ export async function POST(req: Request) {
       scaffoldStatus: 'complete',
     });
   } catch (err: any) {
-    const code = err?.code ?? err?.status;
     console.error('[creative/scaffold] Error:', err?.message ?? err);
-
-    let message = err?.message ?? 'Unknown error';
-    if (code === 403) {
-      message =
-        'Service account lacks access. Share the Shared Drive / folder with the SA as Content Manager.';
-    } else if (code === 404) {
-      message =
-        'Root folder or template not found (404). Check CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID and CREATIVE_REVIEW_SHEET_TEMPLATE_ID.';
-    }
 
     return NextResponse.json(
       {
@@ -142,7 +132,7 @@ export async function POST(req: Request) {
         productionAssetsRootUrl: null,
         clientReviewFolderUrl: null,
         scaffoldStatus: 'error',
-        error: message,
+        error: err?.message ?? 'Unknown error',
       },
       { status: 200 }, // 200 so Airtable script can read the body
     );
@@ -166,7 +156,7 @@ function buildSheetName(
 /**
  * Return list of missing env var names. Empty array = all good.
  *
- * Google auth requires EITHER the full JSON key OR the email+private_key pair.
+ * Google auth uses ADC – no key env vars required.
  */
 function checkRequiredEnv(): string[] {
   const missing: string[] = [];
@@ -179,18 +169,6 @@ function checkRequiredEnv(): string[] {
   }
   if (!process.env.CREATIVE_REVIEW_SHEET_TEMPLATE_ID) {
     missing.push('CREATIVE_REVIEW_SHEET_TEMPLATE_ID');
-  }
-
-  // Google auth: need JSON blob OR (email + private key)
-  const hasJson = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  const hasEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const hasKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
-
-  if (!hasJson && !hasEmail) {
-    missing.push('GOOGLE_SERVICE_ACCOUNT_JSON (or GOOGLE_SERVICE_ACCOUNT_EMAIL)');
-  }
-  if (!hasJson && !hasKey) {
-    missing.push('GOOGLE_SERVICE_ACCOUNT_JSON (or GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)');
   }
 
   return missing;
