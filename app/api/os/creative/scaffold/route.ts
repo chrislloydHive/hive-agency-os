@@ -25,9 +25,10 @@
 
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import Airtable from 'airtable';
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
+import { getCompanyGoogleOAuthFromDBBase, findCompanyIntegration } from '@/lib/airtable/companyIntegrations';
+import { getCompanyOAuthClient } from '@/lib/integrations/googleDrive';
 import type { drive_v3 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
@@ -38,19 +39,6 @@ export const dynamic = 'force-dynamic';
 
 const SUBFOLDERS = ['Evergreen', 'Promotions', 'Client Review'] as const;
 const COMPANY_FIELD_CANDIDATES = ['Client', 'Company'] as const;
-
-// ============================================================================
-// Airtable DB base (CompanyIntegrations lives here, not in OS base)
-// ============================================================================
-
-function getDbBase(): Airtable.Base {
-  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
-  const baseId = process.env.AIRTABLE_DB_BASE_ID || '';
-  if (!apiKey || !baseId) {
-    throw new Error('AIRTABLE_DB_BASE_ID or AIRTABLE_API_KEY not configured');
-  }
-  return new Airtable({ apiKey }).base(baseId);
-}
 
 // ============================================================================
 // Auth
@@ -155,17 +143,90 @@ export async function POST(req: Request) {
 
   console.log(`[creative/scaffold] Project ${recordId} → company ${companyId} (via "${companyFieldNameUsed}")`);
 
+  // ── Resolve clientCode + companyName from Company record (OS base) ─
+  let clientCode: string | undefined;
+  let companyName: string | undefined;
+
+  // Prefer Client Code from Project itself (future-proof)
+  const projectClientCode = projectFields['Client Code'] ?? projectFields['ClientCode'];
+  if (typeof projectClientCode === 'string' && projectClientCode.length > 0) {
+    clientCode = projectClientCode;
+  }
+
+  try {
+    const osBase = getBase();
+    const companyRecord = await osBase('Companies').find(companyId);
+    const cf = companyRecord.fields as Record<string, unknown>;
+    if (!clientCode) {
+      const code = cf['Client Code'] ?? cf['ClientCode'];
+      if (typeof code === 'string' && code.length > 0) {
+        clientCode = code;
+      }
+    }
+    companyName = (cf['Company Name'] as string) || (cf['Name'] as string) || undefined;
+  } catch (err: any) {
+    console.warn(`[creative/scaffold] Could not fetch Company record ${companyId}:`, err?.message ?? err);
+  }
+
+  console.log(`[creative/scaffold] Resolved clientCode=${clientCode ?? '(none)'}, companyName=${companyName ?? '(none)'}`);
+
   const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID!;
   const templateId = process.env.CREATIVE_REVIEW_SHEET_TEMPLATE_ID!;
 
-  // ── Fetch OAuth tokens from CompanyIntegrations (DB base) ──────────
-  let auth: InstanceType<typeof google.auth.OAuth2>;
-  try {
-    auth = await buildOAuthClient(companyId);
-  } catch (oauthErr: any) {
-    console.error('[creative/scaffold] OAuth lookup failed:', oauthErr?.message ?? oauthErr);
+  // ── Fetch OAuth tokens ─────────────────────────────────────────────
+  //
+  // 1. Try findCompanyIntegration (DB base → OS base fallback) with
+  //    multi-key lookup: CompanyId → RECORD_ID() → Client Code → Company Name
+  // 2. Fallback: existing per-company OAuth (getCompanyOAuthClient)
+  // 3. If both fail, return structured error + full debug payload
+  //
+  let auth: InstanceType<typeof google.auth.OAuth2> | null = null;
+  let oauthSource: string | null = null;
+  let lookupDebug: unknown = null;
 
-    const debug = await diagnoseOAuthLookup(companyId);
+  // ── Step 1: Multi-base CompanyIntegrations lookup ───────────────────
+  try {
+    const oauth = await getCompanyGoogleOAuthFromDBBase(companyId, { clientCode, companyName });
+
+    if (oauth) {
+      lookupDebug = oauth.debug;
+      if (oauth.googleRefreshToken) {
+        const cid = process.env.GOOGLE_CLIENT_ID!;
+        const csecret = process.env.GOOGLE_CLIENT_SECRET!;
+        const oauth2Client = new google.auth.OAuth2(cid, csecret);
+        oauth2Client.setCredentials({ refresh_token: oauth.googleRefreshToken });
+        auth = oauth2Client;
+        oauthSource = `CompanyIntegrations (matched by ${oauth.matchedBy})`;
+        console.log(`[creative/scaffold] OAuth matched by "${oauth.matchedBy}" recordId=${oauth.recordId}`);
+      } else {
+        // Record found but Google not connected
+        console.warn(
+          `[creative/scaffold] CompanyIntegrations found (matchedBy=${oauth.matchedBy}, recordId=${oauth.recordId}) ` +
+          `but GoogleConnected=${oauth.googleConnected}, hasRefreshToken=${!!oauth.googleRefreshToken}`,
+        );
+      }
+    } else {
+      // No record found at all — run the raw lookup to capture debug
+      const raw = await findCompanyIntegration({ companyId, clientCode, companyName });
+      lookupDebug = raw.debug;
+    }
+  } catch (dbErr: any) {
+    console.warn('[creative/scaffold] CompanyIntegrations lookup failed:', dbErr?.message ?? dbErr);
+  }
+
+  // ── Step 2: Fallback to existing per-company OAuth ──────────────────
+  if (!oauthSource) {
+    try {
+      auth = await getCompanyOAuthClient(companyId);
+      oauthSource = 'getCompanyOAuthClient fallback';
+      console.log(`[creative/scaffold] OAuth from fallback (getCompanyOAuthClient)`);
+    } catch (fallbackErr: any) {
+      console.warn('[creative/scaffold] Fallback OAuth also failed:', fallbackErr?.message ?? fallbackErr);
+    }
+  }
+
+  // ── Step 3: Both failed → return error with full debug payload ──────
+  if (!auth || !oauthSource) {
     return NextResponse.json(
       {
         ok: false,
@@ -173,14 +234,23 @@ export async function POST(req: Request) {
         productionAssetsRootUrl: null,
         clientReviewFolderUrl: null,
         scaffoldStatus: 'error',
-        error: `Google OAuth not connected for company ${companyId}: ${oauthErr?.message ?? oauthErr}`,
-        debug,
+        error: `Google OAuth not connected for company ${companyId}`,
+        debug: {
+          companyId,
+          companyName: companyName ?? null,
+          clientCode: clientCode ?? null,
+          dbBaseId,
+          osBaseId,
+          lookup: 'CompanyId → RECORD_ID() → Client Code → Company Name (DB base, then OS base), then getCompanyOAuthClient',
+          lookupAttempts: lookupDebug,
+          suggestion: 'Run Connect Google for this company or create the CompanyIntegrations row.',
+        },
       },
       { status: 200 }, // 200 so Airtable script can read the body
     );
   }
 
-  console.log(`[creative/scaffold] Authenticated via OAuth for company ${companyId}`);
+  console.log(`[creative/scaffold] Authenticated via ${oauthSource}`);
 
   // ── Scaffold ────────────────────────────────────────────────────────
   try {
@@ -233,56 +303,6 @@ export async function POST(req: Request) {
       { status: 200 }, // 200 so Airtable script can read the body
     );
   }
-}
-
-// ============================================================================
-// OAuth from CompanyIntegrations (DB base)
-// ============================================================================
-
-/**
- * Fetch Google OAuth tokens from CompanyIntegrations in the DB base
- * and return an authenticated OAuth2 client.
- */
-async function buildOAuthClient(
-  companyId: string,
-): Promise<InstanceType<typeof google.auth.OAuth2>> {
-  const dbBase = getDbBase();
-
-  // Find CompanyIntegrations record where CompanyId = companyId
-  const records = await dbBase('CompanyIntegrations')
-    .select({
-      filterByFormula: `{CompanyId} = '${companyId.replace(/'/g, "\\'")}'`,
-      maxRecords: 1,
-    })
-    .firstPage();
-
-  if (records.length === 0) {
-    throw new Error(
-      `No CompanyIntegrations record found for CompanyId "${companyId}" in DB base (AIRTABLE_DB_BASE_ID).`
-    );
-  }
-
-  const fields = records[0].fields as Record<string, unknown>;
-  const connected = fields['GoogleConnected'] as boolean | undefined;
-  const refreshToken = fields['GoogleRefreshToken'] as string | undefined;
-
-  if (!connected || !refreshToken) {
-    throw new Error(
-      `Google OAuth not connected for CompanyId "${companyId}". ` +
-      `GoogleConnected=${connected}, hasRefreshToken=${!!refreshToken}`
-    );
-  }
-
-  const clientId = process.env.GOOGLE_CLIENT_ID!;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
-
-  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-  oauth2Client.setCredentials({
-    refresh_token: refreshToken,
-    access_token: (fields['GoogleAccessToken'] as string) || undefined,
-  });
-
-  return oauth2Client;
 }
 
 // ============================================================================
@@ -413,164 +433,6 @@ async function copyTemplate(
 // ============================================================================
 // Helpers
 // ============================================================================
-
-/**
- * Diagnose why OAuth lookup failed for a companyId.
- * Searches CompanyIntegrations in the DB base by companyId, name, and domain.
- * Returns counts and record IDs only (no secrets).
- */
-async function diagnoseOAuthLookup(
-  companyId: string,
-): Promise<Record<string, unknown>> {
-  const osBaseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '(unset)';
-  const dbBaseId = process.env.AIRTABLE_DB_BASE_ID || '(unset)';
-
-  const debug: Record<string, unknown> = {
-    companyId,
-    companyName: null,
-    companyDomain: null,
-    oauthLookupKey: 'CompanyId (exact match on CompanyIntegrations.CompanyId)',
-    bases: {
-      osBaseId,
-      dbBaseId,
-      projectFetchedFrom: `OS base (${osBaseId}) → Projects table`,
-      companyIntegrationsFetchedFrom: `DB base (${dbBaseId}) → CompanyIntegrations table`,
-    },
-  };
-
-  // 1. Fetch the Company record from OS base to get name + domain
-  try {
-    const osBase = getBase();
-    const companyRecord = await osBase('Companies').find(companyId);
-    const cf = companyRecord.fields as Record<string, unknown>;
-    debug.companyName = (cf['Name'] as string) || (cf['Company Name'] as string) || null;
-    const website = (cf['Website'] as string) || (cf['URL'] as string) || '';
-    debug.companyDomain = (cf['Domain'] as string) ||
-      (website
-        ? (() => { try { return new URL(website.startsWith('http') ? website : `https://${website}`).hostname.replace(/^www\./, ''); } catch { return null; } })()
-        : null);
-  } catch {
-    debug.companyName = '(failed to fetch Company record from OS base)';
-  }
-
-  // 2a. Search CompanyIntegrations by companyId in DB base
-  try {
-    const dbBase = getDbBase();
-    const records = await dbBase('CompanyIntegrations')
-      .select({
-        filterByFormula: `{CompanyId} = '${companyId.replace(/'/g, "\\'")}'`,
-        maxRecords: 1,
-      })
-      .firstPage();
-
-    if (records.length > 0) {
-      const f = records[0].fields as Record<string, unknown>;
-      debug.byCompanyId = {
-        found: true,
-        base: 'DB',
-        baseId: dbBaseId,
-        recordId: records[0].id,
-        googleConnected: f['GoogleConnected'] ?? false,
-        hasRefreshToken: !!f['GoogleRefreshToken'],
-        connectedEmail: f['GoogleConnectedEmail'] || null,
-      };
-    } else {
-      debug.byCompanyId = { found: false, base: 'DB', baseId: dbBaseId };
-    }
-  } catch {
-    debug.byCompanyId = { found: false, base: 'DB', baseId: dbBaseId, error: 'query failed' };
-  }
-
-  // 2b. Search by company name (if we have one)
-  if (debug.companyName && typeof debug.companyName === 'string' && !debug.companyName.startsWith('(')) {
-    try {
-      const osBase = getBase();
-      const companiesByName = await osBase('Companies')
-        .select({
-          filterByFormula: `{Name} = '${(debug.companyName as string).replace(/'/g, "\\'")}'`,
-          maxRecords: 5,
-          fields: ['Name', 'Domain'],
-        })
-        .firstPage();
-
-      const matchingIds = companiesByName.map((r) => r.id).filter((id) => id !== companyId);
-      const matches: Array<{ companyRecordId: string; integrationRecordId?: string; googleConnected?: boolean }> = [];
-
-      const dbBase = getDbBase();
-      for (const altId of matchingIds) {
-        const altRecords = await dbBase('CompanyIntegrations')
-          .select({
-            filterByFormula: `{CompanyId} = '${altId.replace(/'/g, "\\'")}'`,
-            maxRecords: 1,
-          })
-          .firstPage();
-        if (altRecords.length > 0) {
-          matches.push({
-            companyRecordId: altId,
-            integrationRecordId: altRecords[0].id,
-            googleConnected: (altRecords[0].fields as any)['GoogleConnected'] ?? false,
-          });
-        }
-      }
-
-      debug.byCompanyName = {
-        nameSearched: debug.companyName,
-        companiesBase: 'OS',
-        integrationsBase: 'DB',
-        otherCompanyRecordsWithSameName: matchingIds.length,
-        matches: matches.length > 0 ? matches : 'none',
-      };
-    } catch {
-      debug.byCompanyName = { error: 'query failed' };
-    }
-  }
-
-  // 2c. Search by domain (if we have one)
-  if (debug.companyDomain && typeof debug.companyDomain === 'string') {
-    try {
-      const osBase = getBase();
-      const companiesByDomain = await osBase('Companies')
-        .select({
-          filterByFormula: `{Domain} = '${(debug.companyDomain as string).replace(/'/g, "\\'")}'`,
-          maxRecords: 5,
-          fields: ['Name', 'Domain'],
-        })
-        .firstPage();
-
-      const matchingIds = companiesByDomain.map((r) => r.id).filter((id) => id !== companyId);
-      const matches: Array<{ companyRecordId: string; integrationRecordId?: string; googleConnected?: boolean }> = [];
-
-      const dbBase = getDbBase();
-      for (const altId of matchingIds) {
-        const altRecords = await dbBase('CompanyIntegrations')
-          .select({
-            filterByFormula: `{CompanyId} = '${altId.replace(/'/g, "\\'")}'`,
-            maxRecords: 1,
-          })
-          .firstPage();
-        if (altRecords.length > 0) {
-          matches.push({
-            companyRecordId: altId,
-            integrationRecordId: altRecords[0].id,
-            googleConnected: (altRecords[0].fields as any)['GoogleConnected'] ?? false,
-          });
-        }
-      }
-
-      debug.byDomain = {
-        domainSearched: debug.companyDomain,
-        companiesBase: 'OS',
-        integrationsBase: 'DB',
-        otherCompanyRecordsWithSameDomain: matchingIds.length,
-        matches: matches.length > 0 ? matches : 'none',
-      };
-    } catch {
-      debug.byDomain = { error: 'query failed' };
-    }
-  }
-
-  return debug;
-}
 
 /**
  * Extract a record ID from an Airtable linked-record field value.

@@ -367,3 +367,222 @@ export async function getGoogleConnectionStatus(companyId: string): Promise<{
     connectedAt: integrations?.google?.connectedAt,
   };
 }
+
+// ============================================================================
+// Robust CompanyIntegrations lookup (DB base → OS base fallback)
+// ============================================================================
+
+export type CompanyGoogleOAuth = {
+  companyId: string;
+  googleConnected: boolean;
+  googleRefreshToken: string | null;
+  googleConnectedEmail?: string | null;
+  recordId?: string;
+};
+
+export interface FindCompanyIntegrationArgs {
+  companyId: string;
+  companyName?: string | null;
+  clientCode?: string | null;
+}
+
+export interface LookupAttempt {
+  base: string;
+  baseId: string;
+  tableName: string;
+  formula: string;
+  status: number;
+  ok: boolean;
+  recordCount: number | null;
+  error: unknown;
+}
+
+export interface FindCompanyIntegrationResult {
+  record: { id: string; fields: Record<string, unknown> } | null;
+  matchedBy: string | null;
+  debug: { attempts: LookupAttempt[] };
+}
+
+function escapeFormulaValue(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function normalizeChecked(v: unknown): boolean {
+  if (v === true) return true;
+  if (typeof v === 'string' && v.toLowerCase() === 'checked') return true;
+  return false;
+}
+
+function airtableListUrl(baseId: string, tableName: string): string {
+  return `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}`;
+}
+
+async function airtableGet(
+  url: string,
+  apiKey: string,
+): Promise<{ ok: boolean; status: number; json: Record<string, any>; text: string }> {
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  const text = await res.text();
+  let json: Record<string, any> = {};
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    json = {};
+  }
+  return { ok: res.ok, status: res.status, json, text };
+}
+
+/**
+ * Find a CompanyIntegrations record across one or two Airtable bases.
+ *
+ * Lookup order (per base):
+ *   1. {CompanyId} = companyId  (string field exact match)
+ *   2. RECORD_ID() = companyId  (if CompanyId is the record's own ID)
+ *   3. {Client Code} = clientCode  (if provided)
+ *   4. {Company Name} = companyName  (if provided)
+ *   5. {CompanyName} = companyName   (field-name variant)
+ *
+ * Bases tried in order:
+ *   - AIRTABLE_DB_BASE_ID  (if set)
+ *   - AIRTABLE_OS_BASE_ID / AIRTABLE_BASE_ID  (fallback)
+ *
+ * Every Airtable request is logged with base, table, formula, status, and
+ * response body on failure. This makes "query failed" errors actionable.
+ */
+export async function findCompanyIntegration({
+  companyId,
+  companyName,
+  clientCode,
+}: FindCompanyIntegrationArgs): Promise<FindCompanyIntegrationResult> {
+  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+  if (!apiKey) {
+    return {
+      record: null,
+      matchedBy: null,
+      debug: { attempts: [{ base: '-', baseId: '-', tableName: '-', formula: '-', status: 0, ok: false, recordCount: null, error: 'Missing env var: AIRTABLE_API_KEY / AIRTABLE_ACCESS_TOKEN' }] },
+    };
+  }
+
+  const dbBaseId = process.env.AIRTABLE_DB_BASE_ID || '';
+  const osBaseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
+
+  const basesToTry: Array<{ label: string; baseId: string }> = [];
+  if (dbBaseId) basesToTry.push({ label: 'DB', baseId: dbBaseId });
+  if (osBaseId && osBaseId !== dbBaseId) basesToTry.push({ label: 'OS', baseId: osBaseId });
+
+  if (basesToTry.length === 0) {
+    return {
+      record: null,
+      matchedBy: null,
+      debug: { attempts: [{ base: '-', baseId: '-', tableName: '-', formula: '-', status: 0, ok: false, recordCount: null, error: 'No AIRTABLE_DB_BASE_ID or AIRTABLE_BASE_ID configured' }] },
+    };
+  }
+
+  const tableName = 'CompanyIntegrations';
+  const attempts: LookupAttempt[] = [];
+
+  for (const base of basesToTry) {
+    // Build lookup steps for this base
+    type Step = { key: string; formula: string };
+    const steps: Step[] = [
+      { key: `CompanyId (${base.label})`, formula: `{CompanyId} = "${escapeFormulaValue(companyId)}"` },
+      { key: `RECORD_ID (${base.label})`, formula: `RECORD_ID() = "${escapeFormulaValue(companyId)}"` },
+    ];
+    if (clientCode) {
+      steps.push({ key: `Client Code (${base.label})`, formula: `{Client Code} = "${escapeFormulaValue(clientCode)}"` });
+    }
+    if (companyName) {
+      steps.push(
+        { key: `Company Name (${base.label})`, formula: `{Company Name} = "${escapeFormulaValue(companyName)}"` },
+        { key: `CompanyName (${base.label})`, formula: `{CompanyName} = "${escapeFormulaValue(companyName)}"` },
+      );
+    }
+
+    for (const step of steps) {
+      const url =
+        airtableListUrl(base.baseId, tableName) +
+        `?maxRecords=1&filterByFormula=${encodeURIComponent(step.formula)}`;
+
+      const r = await airtableGet(url, apiKey);
+
+      const attempt: LookupAttempt = {
+        base: base.label,
+        baseId: base.baseId,
+        tableName,
+        formula: step.formula,
+        status: r.status,
+        ok: r.ok,
+        recordCount: r.ok ? (r.json?.records?.length ?? 0) : null,
+        error: r.ok ? null : (r.json?.error ?? r.text),
+      };
+      attempts.push(attempt);
+
+      console.log(
+        `[CompanyIntegrations] ${step.key} – base=${base.baseId} status=${r.status} ` +
+        `records=${attempt.recordCount ?? 'N/A'} formula=${step.formula}` +
+        (r.ok ? '' : ` ERROR: ${r.text.slice(0, 200)}`),
+      );
+
+      if (!r.ok) {
+        if (r.status === 401 || r.status === 403) {
+          throw new Error(
+            `Airtable token lacks access to ${base.label} base (baseId=${base.baseId}). ` +
+            `Received ${r.status}: ${r.text.slice(0, 200)}`,
+          );
+        }
+        // Non-auth error on this formula — skip to next step rather than aborting,
+        // because the field name may simply not exist in this base.
+        continue;
+      }
+
+      const rec = r.json?.records?.[0];
+      if (rec) {
+        console.log(
+          `[CompanyIntegrations] MATCHED by "${step.key}" – recordId=${rec.id}`,
+        );
+        return {
+          record: { id: rec.id, fields: rec.fields || {} },
+          matchedBy: step.key,
+          debug: { attempts },
+        };
+      }
+    }
+  }
+
+  console.log(
+    `[CompanyIntegrations] No record found after ${attempts.length} attempts across ${basesToTry.map((b) => b.label).join(', ')}`,
+  );
+  return { record: null, matchedBy: null, debug: { attempts } };
+}
+
+/**
+ * Convenience wrapper: find CompanyIntegrations and extract Google OAuth fields.
+ * Returns null when no record is found.
+ */
+export async function getCompanyGoogleOAuthFromDBBase(
+  companyId: string,
+  opts?: { clientCode?: string; companyName?: string },
+): Promise<(CompanyGoogleOAuth & { matchedBy: string; debug: { attempts: LookupAttempt[] } }) | null> {
+  const result = await findCompanyIntegration({
+    companyId,
+    clientCode: opts?.clientCode,
+    companyName: opts?.companyName,
+  });
+
+  if (!result.record || !result.matchedBy) {
+    return null;
+  }
+
+  const f = result.record.fields;
+  return {
+    companyId,
+    googleConnected: normalizeChecked(f['GoogleConnected']),
+    googleRefreshToken: (f['GoogleRefreshToken'] as string) || null,
+    googleConnectedEmail: (f['GoogleConnectedEmail'] as string) || null,
+    recordId: result.record.id,
+    matchedBy: result.matchedBy,
+    debug: result.debug,
+  };
+}
