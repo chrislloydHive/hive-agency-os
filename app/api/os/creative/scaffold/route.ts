@@ -8,7 +8,7 @@
 // Required env vars:
 //   HIVE_OS_INTERNAL_API_KEY          – shared secret for auth
 //   GOOGLE_SERVICE_ACCOUNT_JSON       – (or EMAIL + PRIVATE_KEY)
-//   CREATIVE_REVIEW_TEMPLATE_ID       – Google Sheet template file ID
+//   CREATIVE_REVIEW_SHEET_TEMPLATE_ID – Google Sheet template file ID
 //   CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID – root folder on Shared Drive
 //
 // Subfolders created under root: Evergreen/, Promotions/, Client Review/
@@ -48,15 +48,17 @@ function unauthorized(reason: string) {
 // ============================================================================
 
 export async function POST(req: Request) {
-  // ── Auth ────────────────────────────────────────────────────────────
-  if (!API_KEY) {
-    console.error('[creative/scaffold] HIVE_OS_INTERNAL_API_KEY is not set');
+  // ── Env preflight ───────────────────────────────────────────────────
+  const missing = checkRequiredEnv();
+  if (missing.length > 0) {
+    console.error('[creative/scaffold] Missing env vars:', missing);
     return NextResponse.json(
-      { ok: false, error: 'Server misconfigured' },
+      { ok: false, error: 'Server misconfigured', missing },
       { status: 500 },
     );
   }
 
+  // ── Auth ────────────────────────────────────────────────────────────
   const providedKey = req.headers.get('x-hive-api-key') || '';
   if (!providedKey || providedKey !== API_KEY) {
     return unauthorized('Missing or invalid x-hive-api-key');
@@ -81,19 +83,8 @@ export async function POST(req: Request) {
     );
   }
 
-  // ── Env ─────────────────────────────────────────────────────────────
-  const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID;
-  const templateId = process.env.CREATIVE_REVIEW_TEMPLATE_ID;
-
-  if (!rootFolderId || !templateId) {
-    console.error(
-      '[creative/scaffold] Missing env: CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID or CREATIVE_REVIEW_TEMPLATE_ID',
-    );
-    return NextResponse.json(
-      { ok: false, error: 'Server misconfigured – missing folder/template env vars' },
-      { status: 500 },
-    );
-  }
+  const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID!;
+  const templateId = process.env.CREATIVE_REVIEW_SHEET_TEMPLATE_ID!;
 
   // ── Scaffold ────────────────────────────────────────────────────────
   try {
@@ -141,7 +132,7 @@ export async function POST(req: Request) {
         'Service account lacks access. Share the Shared Drive / folder with the SA as Content Manager.';
     } else if (code === 404) {
       message =
-        'Root folder or template not found (404). Check CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID and CREATIVE_REVIEW_TEMPLATE_ID.';
+        'Root folder or template not found (404). Check CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID and CREATIVE_REVIEW_SHEET_TEMPLATE_ID.';
     }
 
     return NextResponse.json(
@@ -170,4 +161,37 @@ function buildSheetName(
   if (creativeMode) parts.push(creativeMode);
   if (promoName) parts.push(promoName);
   return parts.join(' – ');
+}
+
+/**
+ * Return list of missing env var names. Empty array = all good.
+ *
+ * Google auth requires EITHER the full JSON key OR the email+private_key pair.
+ */
+function checkRequiredEnv(): string[] {
+  const missing: string[] = [];
+
+  if (!process.env.HIVE_OS_INTERNAL_API_KEY) {
+    missing.push('HIVE_OS_INTERNAL_API_KEY');
+  }
+  if (!process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID) {
+    missing.push('CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID');
+  }
+  if (!process.env.CREATIVE_REVIEW_SHEET_TEMPLATE_ID) {
+    missing.push('CREATIVE_REVIEW_SHEET_TEMPLATE_ID');
+  }
+
+  // Google auth: need JSON blob OR (email + private key)
+  const hasJson = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  const hasEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const hasKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
+
+  if (!hasJson && !hasEmail) {
+    missing.push('GOOGLE_SERVICE_ACCOUNT_JSON (or GOOGLE_SERVICE_ACCOUNT_EMAIL)');
+  }
+  if (!hasJson && !hasKey) {
+    missing.push('GOOGLE_SERVICE_ACCOUNT_JSON (or GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)');
+  }
+
+  return missing;
 }
