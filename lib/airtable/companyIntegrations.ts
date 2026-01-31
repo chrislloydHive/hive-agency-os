@@ -418,6 +418,83 @@ function airtableListUrl(baseId: string, tableName: string): string {
   return `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}`;
 }
 
+// ============================================================================
+// Safe-patch helper — filters fields to only those that exist in Airtable
+// ============================================================================
+
+const schemaCache = new Map<string, { fields: Set<string>; fetchedAt: number }>();
+const SCHEMA_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Fetch the list of field names for a table (cached for 10 min).
+ * Uses the Airtable Meta API: GET /v0/meta/bases/{baseId}/tables
+ */
+async function getTableFieldNames(baseId: string, tableName: string): Promise<Set<string>> {
+  const cacheKey = `${baseId}::${tableName}`;
+  const cached = schemaCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < SCHEMA_CACHE_TTL_MS) {
+    return cached.fields;
+  }
+
+  const token = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN;
+  if (!token) throw new Error('Missing AIRTABLE_API_KEY / AIRTABLE_ACCESS_TOKEN');
+
+  const url = `https://api.airtable.com/v0/meta/bases/${baseId}/tables`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    console.warn(`[CompanyIntegrations] Schema fetch failed (${res.status}) – skipping field filter`);
+    return new Set(); // empty = don't filter
+  }
+
+  const json = await res.json() as { tables?: Array<{ name: string; fields?: Array<{ name: string }> }> };
+  const table = json.tables?.find((t) => t.name === tableName);
+  const fieldNames = new Set(table?.fields?.map((f) => f.name) ?? []);
+
+  schemaCache.set(cacheKey, { fields: fieldNames, fetchedAt: Date.now() });
+  console.log(`[CompanyIntegrations] Cached ${fieldNames.size} field names for ${tableName}`);
+  return fieldNames;
+}
+
+/**
+ * Strip any keys from `fields` that don't exist in the Airtable table schema.
+ * If schema fetch fails, returns fields unchanged (fail-open).
+ */
+async function filterToKnownFields(
+  baseId: string,
+  tableName: string,
+  fields: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  let knownFields: Set<string>;
+  try {
+    knownFields = await getTableFieldNames(baseId, tableName);
+  } catch (err) {
+    console.warn('[CompanyIntegrations] filterToKnownFields – schema fetch error, passing all fields:', err);
+    return fields;
+  }
+
+  // Empty set means schema fetch failed – don't filter
+  if (knownFields.size === 0) return fields;
+
+  const filtered: Record<string, unknown> = {};
+  const dropped: string[] = [];
+  for (const [key, value] of Object.entries(fields)) {
+    if (knownFields.has(key)) {
+      filtered[key] = value;
+    } else {
+      dropped.push(key);
+    }
+  }
+
+  if (dropped.length > 0) {
+    console.warn(`[CompanyIntegrations] Dropped unknown fields for ${tableName}: ${dropped.join(', ')}`);
+  }
+
+  return filtered;
+}
+
 async function airtableGet(
   url: string,
   apiKey: string,
@@ -582,7 +659,7 @@ export async function getCompanyGoogleOAuthFromDBBase(
     googleConnected: normalizeChecked(f['GoogleConnected']),
     googleRefreshToken: (f['GoogleRefreshToken'] as string) || null,
     googleConnectedEmail: (f['GoogleConnectedEmail'] as string) || null,
-    googleOAuthScopeVersion: (f['GoogleOAuthScopeVersion'] as string) || null,
+    googleOAuthScopeVersion: (f['GoogleOAuthScopeVersion'] as string) || (f['Google OAuth Scope Version'] as string) || null,
     recordId: result.record.id,
     matchedBy: result.matchedBy,
     debug: result.debug,
@@ -666,7 +743,8 @@ export async function updateGoogleTokensForCompany(args: {
     fields.GoogleConnectedEmail = args.connectedEmail;
   }
 
-  // 3. PATCH
+  // 3. PATCH (filter to known fields to avoid 422 on schema mismatches)
+  const safeFields = await filterToKnownFields(baseId, 'CompanyIntegrations', fields);
   const patchUrl = `${airtableListUrl(baseId, 'CompanyIntegrations')}/${recordId}`;
   const patchRes = await fetch(patchUrl, {
     method: 'PATCH',
@@ -674,7 +752,7 @@ export async function updateGoogleTokensForCompany(args: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ fields }),
+    body: JSON.stringify({ fields: safeFields }),
   });
 
   if (!patchRes.ok) {
@@ -732,11 +810,12 @@ async function airtableGetDirect(baseId: string, path: string) {
 }
 
 async function airtablePatch(baseId: string, table: string, recordId: string, fields: Record<string, unknown>) {
+  const safeFields = await filterToKnownFields(baseId, table, fields);
   const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}/${recordId}`;
   const res = await fetch(url, {
     method: 'PATCH',
     headers: airtableAuthHeaders(),
-    body: JSON.stringify({ fields }),
+    body: JSON.stringify({ fields: safeFields }),
   });
   const text = await res.text();
   let json: any = null;
@@ -749,11 +828,12 @@ async function airtablePatch(baseId: string, table: string, recordId: string, fi
 }
 
 async function airtablePostDirect(baseId: string, table: string, fields: Record<string, unknown>) {
+  const safeFields = await filterToKnownFields(baseId, table, fields);
   const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: airtableAuthHeaders(),
-    body: JSON.stringify({ records: [{ fields }] }),
+    body: JSON.stringify({ records: [{ fields: safeFields }] }),
   });
   const text = await res.text();
   let json: any = null;
