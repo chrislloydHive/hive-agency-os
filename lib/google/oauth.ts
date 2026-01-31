@@ -5,11 +5,13 @@
 import { google } from 'googleapis';
 
 const SCOPES = [
-  'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/drive',
   'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/documents',
   'https://www.googleapis.com/auth/presentations',
 ];
+
+export const GOOGLE_OAUTH_SCOPE_VERSION = 'v2-drive';
 
 const CALLBACK_PATH = '/api/oauth/google/callback';
 
@@ -70,7 +72,7 @@ export function getGoogleOAuthUrl(companyId: string, origin?: string): string {
   const redirectUri = (origin ?? getDefaultOrigin()) + CALLBACK_PATH;
   const client = createOAuth2Client(redirectUri);
 
-  const state = Buffer.from(JSON.stringify({ companyId })).toString('base64');
+  const state = Buffer.from(JSON.stringify({ companyId, scopeVersion: GOOGLE_OAUTH_SCOPE_VERSION })).toString('base64');
 
   return client.generateAuthUrl({
     access_type: 'offline',

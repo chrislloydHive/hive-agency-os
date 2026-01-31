@@ -28,14 +28,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Decode state to extract companyId
+    // Decode state to extract companyId and scopeVersion
     let companyId: string | null = null;
+    let scopeVersion: string | null = null;
     if (stateParam) {
       try {
         const state = JSON.parse(
           Buffer.from(stateParam, 'base64').toString('utf-8'),
         );
         companyId = state.companyId ?? null;
+        scopeVersion = state.scopeVersion ?? null;
       } catch {
         return NextResponse.json(
           { ok: false, error: 'invalid_state', hint: 'Could not decode base64 state parameter' },
@@ -91,6 +93,7 @@ export async function GET(request: NextRequest) {
         accessToken: tokens.accessToken,
         expiresAt: tokens.expiresAt,
         connectedEmail: connectedEmail ?? null,
+        scopeVersion,
       });
 
       console.log(`[OAuth Google Callback] Tokens persisted for companyId=${companyId}`);

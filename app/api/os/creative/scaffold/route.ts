@@ -29,7 +29,7 @@ import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { getCompanyGoogleOAuthFromDBBase, findCompanyIntegration } from '@/lib/airtable/companyIntegrations';
 import { getCompanyOAuthClient } from '@/lib/integrations/googleDrive';
-import { getGoogleOAuthUrl } from '@/lib/google/oauth';
+import { getGoogleOAuthUrl, GOOGLE_OAUTH_SCOPE_VERSION } from '@/lib/google/oauth';
 import type { drive_v3 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
@@ -189,6 +189,7 @@ export async function POST(req: Request) {
   let auth: InstanceType<typeof google.auth.OAuth2> | null = null;
   let oauthSource: string | null = null;
   let lookupDebug: unknown = null;
+  let storedScopeVersion: string | null = null;
 
   // ── Step 1: Multi-base CompanyIntegrations lookup ───────────────────
   try {
@@ -203,7 +204,8 @@ export async function POST(req: Request) {
         oauth2Client.setCredentials({ refresh_token: oauth.googleRefreshToken });
         auth = oauth2Client;
         oauthSource = `CompanyIntegrations (matched by ${oauth.matchedBy})`;
-        console.log(`[creative/scaffold] OAuth matched by "${oauth.matchedBy}" recordId=${oauth.recordId}`);
+        storedScopeVersion = oauth.googleOAuthScopeVersion ?? null;
+        console.log(`[creative/scaffold] OAuth matched by "${oauth.matchedBy}" recordId=${oauth.recordId} scopeVersion=${storedScopeVersion}`);
       } else {
         // Record found but Google not connected
         console.warn(
@@ -267,6 +269,43 @@ export async function POST(req: Request) {
   }
 
   console.log(`[creative/scaffold] Authenticated via ${oauthSource}`);
+
+  // ── Stale scope check ───────────────────────────────────────────────
+  // If tokens were obtained with an older scope set (e.g. drive.file
+  // instead of drive), the scaffold will fail with "insufficient
+  // authentication scopes". Detect this early and return a clear error.
+  if (storedScopeVersion !== GOOGLE_OAUTH_SCOPE_VERSION) {
+    let connectUrl: string | null = null;
+    try {
+      connectUrl = getGoogleOAuthUrl(companyId);
+    } catch {
+      const hiveBase = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+      connectUrl = `${hiveBase}/api/os/google/connect?companyId=${encodeURIComponent(companyId)}`;
+    }
+
+    console.warn(
+      `[creative/scaffold] Stale scope version: stored=${storedScopeVersion}, required=${GOOGLE_OAUTH_SCOPE_VERSION}`,
+    );
+
+    return NextResponse.json(
+      {
+        ok: false,
+        sheetUrl: null,
+        productionAssetsRootUrl: null,
+        clientReviewFolderUrl: null,
+        scaffoldStatus: 'error',
+        error: 'Google OAuth scopes outdated — please reconnect Google',
+        debug: {
+          companyId,
+          storedScopeVersion,
+          requiredScopeVersion: GOOGLE_OAUTH_SCOPE_VERSION,
+          connectUrl,
+          suggestion: 'Open the connectUrl in a browser to re-authorize Google with updated scopes.',
+        },
+      },
+      { status: 200 },
+    );
+  }
 
   // ── Scaffold ────────────────────────────────────────────────────────
   try {

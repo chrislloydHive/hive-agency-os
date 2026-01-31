@@ -377,6 +377,7 @@ export type CompanyGoogleOAuth = {
   googleConnected: boolean;
   googleRefreshToken: string | null;
   googleConnectedEmail?: string | null;
+  googleOAuthScopeVersion?: string | null;
   recordId?: string;
 };
 
@@ -581,6 +582,7 @@ export async function getCompanyGoogleOAuthFromDBBase(
     googleConnected: normalizeChecked(f['GoogleConnected']),
     googleRefreshToken: (f['GoogleRefreshToken'] as string) || null,
     googleConnectedEmail: (f['GoogleConnectedEmail'] as string) || null,
+    googleOAuthScopeVersion: (f['GoogleOAuthScopeVersion'] as string) || null,
     recordId: result.record.id,
     matchedBy: result.matchedBy,
     debug: result.debug,
@@ -702,6 +704,7 @@ type GoogleTokenPayload = {
   accessToken: string;
   expiresAt: string; // ISO string
   connectedEmail?: string | null;
+  scopeVersion?: string | null;
 };
 
 const COMPANY_INTEGRATIONS_TABLE = 'CompanyIntegrations';
@@ -794,6 +797,7 @@ export async function upsertCompanyGoogleTokens(
     GoogleAccessTokenExpiresAt: tokens.expiresAt,
     GoogleConnectedAt: nowIso,
     GoogleConnectedEmail: tokens.connectedEmail || '',
+    ...(tokens.scopeVersion ? { GoogleOAuthScopeVersion: tokens.scopeVersion } : {}),
   };
 
   const recId = found?.records?.[0]?.id;
