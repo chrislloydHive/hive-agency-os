@@ -239,9 +239,7 @@ export async function POST(req: Request) {
     try {
       connectUrl = getGoogleOAuthUrl(companyId);
     } catch {
-      // OAuth env vars may be missing; fall back to the connect endpoint
-      const hiveBase = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-      connectUrl = `${hiveBase}/api/os/google/connect?companyId=${encodeURIComponent(companyId)}`;
+      connectUrl = `https://hiveagencyos.com/api/os/google/connect?companyId=${encodeURIComponent(companyId)}`;
     }
 
     return NextResponse.json(
@@ -279,8 +277,7 @@ export async function POST(req: Request) {
     try {
       connectUrl = getGoogleOAuthUrl(companyId);
     } catch {
-      const hiveBase = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-      connectUrl = `${hiveBase}/api/os/google/connect?companyId=${encodeURIComponent(companyId)}`;
+      connectUrl = `https://hiveagencyos.com/api/os/google/connect?companyId=${encodeURIComponent(companyId)}`;
     }
 
     console.warn(

@@ -1,10 +1,18 @@
 // app/api/oauth/google/callback/route.ts
-// Google OAuth callback — exchanges code, stores tokens in Airtable, returns JSON.
+// Google OAuth callback — exchanges code, stores tokens in Airtable, redirects.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { exchangeCodeForTokens } from '@/lib/google/oauth';
+import { exchangeCodeForTokens, getCanonicalBaseUrl } from '@/lib/google/oauth';
+import { verifyState } from '@/lib/oauth/state';
 import { upsertCompanyGoogleTokens } from '@/lib/airtable/companyIntegrations';
+
+const CALLBACK_PATH = '/api/oauth/google/callback';
+
+function redirectTo(path: string): NextResponse {
+  const base = getCanonicalBaseUrl();
+  return NextResponse.redirect(`${base}${path}`);
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,48 +23,46 @@ export async function GET(request: NextRequest) {
 
     // Handle user denial
     if (error) {
-      return NextResponse.json(
-        { ok: false, error: 'access_denied', hint: `Google returned error: ${error}` },
-        { status: 400 },
+      return redirectTo(
+        `/settings/integrations?google_error=${encodeURIComponent(`Google returned error: ${error}`)}`,
       );
     }
 
     if (!code) {
+      return redirectTo(
+        `/settings/integrations?google_error=${encodeURIComponent('No authorization code received')}`,
+      );
+    }
+
+    // Verify HMAC-signed state
+    if (!stateParam) {
+      return redirectTo(
+        `/settings/integrations?google_error=${encodeURIComponent('Missing state parameter')}`,
+      );
+    }
+
+    const stateResult = verifyState(stateParam);
+    if (!stateResult.ok) {
+      console.error('[OAuth Google Callback] State verification failed:', stateResult.error);
       return NextResponse.json(
-        { ok: false, error: 'missing_code', hint: 'No authorization code in query params' },
+        { ok: false, error: 'invalid_state', hint: stateResult.error },
         { status: 400 },
       );
     }
 
-    // Decode state to extract companyId and scopeVersion
-    let companyId: string | null = null;
-    let scopeVersion: string | null = null;
-    if (stateParam) {
-      try {
-        const state = JSON.parse(
-          Buffer.from(stateParam, 'base64').toString('utf-8'),
-        );
-        companyId = state.companyId ?? null;
-        scopeVersion = state.scopeVersion ?? null;
-      } catch {
-        return NextResponse.json(
-          { ok: false, error: 'invalid_state', hint: 'Could not decode base64 state parameter' },
-          { status: 400 },
-        );
-      }
-    }
+    const { companyId, scopeVersion } = stateResult.payload as {
+      companyId?: string;
+      scopeVersion?: string;
+    };
 
     if (!companyId) {
-      return NextResponse.json(
-        { ok: false, error: 'missing_company_id', hint: 'state must contain companyId' },
-        { status: 400 },
+      return redirectTo(
+        `/settings/integrations?google_error=${encodeURIComponent('State missing companyId')}`,
       );
     }
 
-    // Build redirect_uri from the actual request origin so it matches what
-    // was used during consent URL generation.
-    const origin = new URL(request.url).origin;
-    const redirectUri = origin + '/api/oauth/google/callback';
+    // Build redirect_uri from canonical base URL (must match consent URL)
+    const redirectUri = getCanonicalBaseUrl() + CALLBACK_PATH;
 
     // Exchange code for tokens
     let tokens;
@@ -65,9 +71,8 @@ export async function GET(request: NextRequest) {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Token exchange failed';
       console.error('[OAuth Google Callback] Token exchange failed:', message);
-      return NextResponse.json(
-        { ok: false, error: 'token_exchange_failed', hint: message },
-        { status: 502 },
+      return redirectTo(
+        `/settings/integrations?google_error=${encodeURIComponent(message)}`,
       );
     }
 
@@ -82,7 +87,7 @@ export async function GET(request: NextRequest) {
       const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
       const userInfo = await oauth2.userinfo.get();
       connectedEmail = userInfo.data.email || undefined;
-    } catch (e) {
+    } catch {
       console.warn('[OAuth Google Callback] Could not fetch user email');
     }
 
@@ -93,30 +98,26 @@ export async function GET(request: NextRequest) {
         accessToken: tokens.accessToken,
         expiresAt: tokens.expiresAt,
         connectedEmail: connectedEmail ?? null,
-        scopeVersion,
+        scopeVersion: scopeVersion ?? null,
       });
 
       console.log(`[OAuth Google Callback] Tokens persisted for companyId=${companyId}`);
     } catch (storeErr) {
       const message = storeErr instanceof Error ? storeErr.message : 'Token storage failed';
       console.error('[OAuth Google Callback] Airtable write failed:', message);
-      return NextResponse.json(
-        { ok: false, error: 'airtable_write_failed', hint: message },
-        { status: 500 },
+      return redirectTo(
+        `/settings/integrations?google_error=${encodeURIComponent(message)}`,
       );
     }
 
-    return NextResponse.json({
-      ok: true,
-      companyId,
-      connectedEmail: connectedEmail ?? null,
-    });
+    return redirectTo(
+      `/settings/integrations?google=connected&companyId=${encodeURIComponent(companyId)}`,
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('[OAuth Google Callback] Unhandled error:', message);
-    return NextResponse.json(
-      { ok: false, error: 'internal_error', hint: message },
-      { status: 500 },
+    return redirectTo(
+      `/settings/integrations?google_error=${encodeURIComponent(message)}`,
     );
   }
 }

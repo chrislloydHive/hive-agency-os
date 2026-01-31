@@ -3,6 +3,7 @@
 // Never logs token values.
 
 import { google } from 'googleapis';
+import { signState } from '@/lib/oauth/state';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/drive',
@@ -42,18 +43,25 @@ function getClientCredentials() {
   return { clientId, clientSecret };
 }
 
-function getDefaultOrigin(): string {
-  return (
-    process.env.NEXT_PUBLIC_BASE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    'http://localhost:3000'
+/**
+ * Canonical base URL for OAuth redirect_uri.
+ * Reads APP_URL (the Hive Agency OS domain), NOT NEXT_PUBLIC_BASE_URL
+ * which points to the DMA frontend.
+ */
+export function getCanonicalBaseUrl(): string {
+  const url = process.env.APP_URL;
+  if (url) return url.replace(/\/+$/, '');
+
+  console.warn(
+    '[google/oauth] APP_URL not set — falling back to https://hiveagencyos.com. ' +
+    'Set APP_URL in your environment to silence this warning.',
   );
+  return 'https://hiveagencyos.com';
 }
 
 function createOAuth2Client(redirectUri?: string) {
   const { clientId, clientSecret } = getClientCredentials();
-  const callbackUrl = redirectUri ?? `${getDefaultOrigin()}${CALLBACK_PATH}`;
+  const callbackUrl = redirectUri ?? `${getCanonicalBaseUrl()}${CALLBACK_PATH}`;
   return new google.auth.OAuth2(clientId, clientSecret, callbackUrl);
 }
 
@@ -65,14 +73,24 @@ function createOAuth2Client(redirectUri?: string) {
  * Build the Google OAuth consent URL.
  *
  * @param companyId - encoded in `state` so the callback can associate tokens
- * @param origin    - optional request origin (e.g. "https://app.hive.com");
- *                    if omitted, falls back to NEXT_PUBLIC_BASE_URL / NEXT_PUBLIC_SITE_URL
+ * @param _origin   - DEPRECATED, ignored. Kept for call-site compat.
  */
-export function getGoogleOAuthUrl(companyId: string, origin?: string): string {
-  const redirectUri = (origin ?? getDefaultOrigin()) + CALLBACK_PATH;
+export function getGoogleOAuthUrl(companyId: string, _origin?: string): string {
+  if (_origin) {
+    console.warn(
+      '[google/oauth] getGoogleOAuthUrl: origin parameter is deprecated and ignored. ' +
+      'The canonical base URL is derived from APP_URL.',
+    );
+  }
+
+  const redirectUri = getCanonicalBaseUrl() + CALLBACK_PATH;
   const client = createOAuth2Client(redirectUri);
 
-  const state = Buffer.from(JSON.stringify({ companyId, scopeVersion: GOOGLE_OAUTH_SCOPE_VERSION })).toString('base64');
+  const state = signState({
+    companyId,
+    scopeVersion: GOOGLE_OAUTH_SCOPE_VERSION,
+    ts: Date.now(),
+  });
 
   return client.generateAuthUrl({
     access_type: 'offline',
