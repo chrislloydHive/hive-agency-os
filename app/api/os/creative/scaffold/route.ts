@@ -13,7 +13,7 @@
 //
 // Required env vars:
 //   HIVE_OS_INTERNAL_API_KEY            – shared secret for endpoint auth
-//   CREATIVE_REVIEW_SHEET_TEMPLATE_ID   – Google Sheet template file ID
+//   CREATIVE_REVIEW_SHEET_TEMPLATE_ID   – Google Sheet template file ID (optional override; has hardcoded default)
 //   CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID – root folder on Shared Drive
 //   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET – for OAuth2 token refresh
 //   AIRTABLE_DB_BASE_ID                 – Hive DB base (CompanyIntegrations)
@@ -40,6 +40,15 @@ export const dynamic = 'force-dynamic';
 
 const SUBFOLDERS = ['Evergreen', 'Promotions', 'Client Review'] as const;
 const COMPANY_FIELD_CANDIDATES = ['Client', 'Company'] as const;
+
+/**
+ * Canonical Creative Review template Sheet ID.
+ * Env var CREATIVE_REVIEW_SHEET_TEMPLATE_ID overrides if set,
+ * but the hardcoded default is the authoritative source of truth.
+ */
+const CREATIVE_REVIEW_TEMPLATE_SHEET_ID =
+  process.env.CREATIVE_REVIEW_SHEET_TEMPLATE_ID ||
+  '1EO3TdPG3N9zISMjdggVXTq3ZPvdpPE4kxR0fZWl5mAA';
 
 // ============================================================================
 // Auth
@@ -192,7 +201,7 @@ export async function POST(req: Request) {
   console.log(`[creative/scaffold] Resolved clientCode=${clientCode ?? '(none)'}, companyName=${companyName ?? '(none)'}`);
 
   const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID!;
-  const templateId = process.env.CREATIVE_REVIEW_SHEET_TEMPLATE_ID!;
+  const templateId = CREATIVE_REVIEW_TEMPLATE_SHEET_ID;
 
   // ── Fetch OAuth tokens ─────────────────────────────────────────────
   //
@@ -347,6 +356,7 @@ export async function POST(req: Request) {
       console.log(`[creative/scaffold] Sheet already exists: "${sheetName}" (${existing.id})`);
       sheetUrl = existing.url;
     } else {
+      console.log('[CreativeScaffold] Using templateSheetId =', templateId);
       const copied = await copyTemplate(drive, templateId, clientReviewFolder.id, sheetName);
       sheetUrl = copied.url;
     }
@@ -484,21 +494,38 @@ async function copyTemplate(
   newName: string,
 ): Promise<FileRef> {
   console.log(`[creative/scaffold] Copying template ${templateId} → "${newName}"`);
+
+  // Step 1: Copy the template (set parents hint, but Shared Drives may ignore it)
   const res = await drive.files.copy({
     fileId: templateId,
     requestBody: {
       name: newName,
       parents: [destFolderId],
     },
-    fields: 'id, name, mimeType',
+    fields: 'id, name, mimeType, parents',
     supportsAllDrives: true,
   });
   const f = res.data;
+  const copiedId = f.id!;
+
+  // Step 2: Ensure the copy is in the correct folder.
+  // On Shared Drives the copy may land in the template's parent instead.
+  const currentParents = (f.parents ?? []).join(',');
+  if (!currentParents.includes(destFolderId)) {
+    console.log(`[creative/scaffold] Moving copied sheet ${copiedId} into folder ${destFolderId}`);
+    await drive.files.update({
+      fileId: copiedId,
+      addParents: destFolderId,
+      removeParents: currentParents,
+      supportsAllDrives: true,
+    });
+  }
+
   return {
-    id: f.id!,
+    id: copiedId,
     name: f.name!,
     mimeType: f.mimeType || '',
-    url: documentUrl(f.id!, f.mimeType || undefined),
+    url: documentUrl(copiedId, f.mimeType || undefined),
   };
 }
 
@@ -557,7 +584,6 @@ function checkRequiredEnv(): string[] {
     { key: 'AIRTABLE_OS_BASE_ID', alt: 'AIRTABLE_BASE_ID' },
     { key: 'AIRTABLE_DB_BASE_ID' },
     { key: 'CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID' },
-    { key: 'CREATIVE_REVIEW_SHEET_TEMPLATE_ID' },
     { key: 'HIVE_OS_INTERNAL_API_KEY' },
   ];
 
