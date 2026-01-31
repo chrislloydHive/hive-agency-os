@@ -132,17 +132,37 @@ export async function POST(req: Request) {
   }
 
   if (!companyId) {
+    // Build debug info: show all field keys and the raw values of candidate fields
+    const availableFieldKeys = Object.keys(projectFields);
+    const candidateFieldValues: Record<string, unknown> = {};
+    for (const fieldName of COMPANY_FIELD_CANDIDATES) {
+      candidateFieldValues[fieldName] = projectFields[fieldName] ?? '(not present)';
+    }
+
+    console.error(
+      `[creative/scaffold] companyId resolution failed for record ${recordId}.`,
+      `Available fields: ${availableFieldKeys.join(', ')}`,
+      `Candidate values:`, candidateFieldValues,
+    );
+
     return NextResponse.json(
       {
         ok: false,
         error: 'Project is missing linked Company/Client (Companies record ID required)',
-        debug: { recordId, companyFieldNamesTried: COMPANY_FIELD_CANDIDATES, base: 'OS', baseId: osBaseId },
+        debug: {
+          recordId,
+          companyFieldNamesTried: COMPANY_FIELD_CANDIDATES,
+          availableFieldKeys,
+          candidateFieldValues,
+          base: 'OS',
+          baseId: osBaseId,
+        },
       },
       { status: 400 },
     );
   }
 
-  console.log(`[creative/scaffold] Project ${recordId} → company ${companyId} (via "${companyFieldNameUsed}")`);
+  console.log(`[creative/scaffold] resolved companyId`, companyId, `from Project.${companyFieldNameUsed}`);
 
   // ── Resolve clientCode + companyName from Company record (OS base) ─
   let clientCode: string | undefined;
@@ -490,18 +510,30 @@ async function copyTemplate(
  * Extract a record ID from an Airtable linked-record field value.
  * Handles both [{id, name}] arrays and plain "recXXX" strings.
  */
+/**
+ * Extract a record ID from an Airtable linked-record field value.
+ * Handles all known shapes:
+ *   - [{id: "rec..."}]  (Airtable REST API)
+ *   - ["rec..."]         (some SDK wrappers)
+ *   - "rec..."           (defensive / pre-resolved)
+ *   - {id: "rec..."}     (single object, defensive)
+ * Uses first element when multiple are linked.
+ */
 function getLinkedRecordId(value: unknown): string | null {
   if (Array.isArray(value) && value.length > 0) {
     const first = value[0];
+    if (typeof first === 'string' && first.length > 0) {
+      return first;
+    }
     if (typeof first === 'object' && first !== null && 'id' in first) {
       return (first as { id: string }).id;
     }
-    if (typeof first === 'string' && first.startsWith('rec')) {
-      return first;
-    }
   }
-  if (typeof value === 'string' && value.startsWith('rec')) {
+  if (typeof value === 'string' && value.length > 0) {
     return value;
+  }
+  if (typeof value === 'object' && value !== null && 'id' in value) {
+    return (value as { id: string }).id;
   }
   return null;
 }
