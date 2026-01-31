@@ -1,10 +1,10 @@
 // app/api/oauth/google/callback/route.ts
-// Google OAuth callback — exchanges code, stores tokens, returns JSON.
+// Google OAuth callback — exchanges code, stores tokens in Airtable, returns JSON.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { exchangeCodeForTokens } from '@/lib/google/oauth';
-import { updateGoogleTokensInDBBase } from '@/lib/airtable/companyIntegrations';
+import { upsertCompanyGoogleTokens } from '@/lib/airtable/companyIntegrations';
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,14 +16,14 @@ export async function GET(request: NextRequest) {
     // Handle user denial
     if (error) {
       return NextResponse.json(
-        { ok: false, error: 'access_denied', detail: error },
+        { ok: false, error: 'access_denied', hint: `Google returned error: ${error}` },
         { status: 400 },
       );
     }
 
     if (!code) {
       return NextResponse.json(
-        { ok: false, error: 'missing_code' },
+        { ok: false, error: 'missing_code', hint: 'No authorization code in query params' },
         { status: 400 },
       );
     }
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
         companyId = state.companyId ?? null;
       } catch {
         return NextResponse.json(
-          { ok: false, error: 'invalid_state', detail: 'Could not decode state parameter' },
+          { ok: false, error: 'invalid_state', hint: 'Could not decode base64 state parameter' },
           { status: 400 },
         );
       }
@@ -46,20 +46,25 @@ export async function GET(request: NextRequest) {
 
     if (!companyId) {
       return NextResponse.json(
-        { ok: false, error: 'missing_company_id', detail: 'state must contain companyId' },
+        { ok: false, error: 'missing_company_id', hint: 'state must contain companyId' },
         { status: 400 },
       );
     }
 
+    // Build redirect_uri from the actual request origin so it matches what
+    // was used during consent URL generation.
+    const origin = new URL(request.url).origin;
+    const redirectUri = origin + '/api/oauth/google/callback';
+
     // Exchange code for tokens
     let tokens;
     try {
-      tokens = await exchangeCodeForTokens(code);
+      tokens = await exchangeCodeForTokens(code, redirectUri);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Token exchange failed';
       console.error('[OAuth Google Callback] Token exchange failed:', message);
       return NextResponse.json(
-        { ok: false, error: 'token_exchange_failed', detail: message },
+        { ok: false, error: 'token_exchange_failed', hint: message },
         { status: 502 },
       );
     }
@@ -76,18 +81,27 @@ export async function GET(request: NextRequest) {
       const userInfo = await oauth2.userinfo.get();
       connectedEmail = userInfo.data.email || undefined;
     } catch (e) {
-      console.warn('[OAuth Google Callback] Could not fetch user email:', e);
+      console.warn('[OAuth Google Callback] Could not fetch user email');
     }
 
-    // Store tokens in DB base (creates row if missing)
-    await updateGoogleTokensInDBBase(companyId, {
-      refreshToken: tokens.refreshToken,
-      accessToken: tokens.accessToken,
-      accessTokenExpiresAt: tokens.expiresAt,
-      connectedEmail,
-    });
+    // Persist tokens to Airtable CompanyIntegrations (DB base)
+    try {
+      await upsertCompanyGoogleTokens(companyId, {
+        refreshToken: tokens.refreshToken,
+        accessToken: tokens.accessToken,
+        expiresAt: tokens.expiresAt,
+        connectedEmail: connectedEmail ?? null,
+      });
 
-    console.log(`[OAuth Google Callback] Tokens stored for company ${companyId}`);
+      console.log(`[OAuth Google Callback] Tokens persisted for companyId=${companyId}`);
+    } catch (storeErr) {
+      const message = storeErr instanceof Error ? storeErr.message : 'Token storage failed';
+      console.error('[OAuth Google Callback] Airtable write failed:', message);
+      return NextResponse.json(
+        { ok: false, error: 'airtable_write_failed', hint: message },
+        { status: 500 },
+      );
+    }
 
     return NextResponse.json({
       ok: true,
@@ -98,7 +112,7 @@ export async function GET(request: NextRequest) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('[OAuth Google Callback] Unhandled error:', message);
     return NextResponse.json(
-      { ok: false, error: 'internal_error', detail: message },
+      { ok: false, error: 'internal_error', hint: message },
       { status: 500 },
     );
   }

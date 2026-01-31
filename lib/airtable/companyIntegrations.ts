@@ -62,7 +62,7 @@ export interface CompanyIntegrations {
 interface AirtableCompanyIntegrationsFields {
   CompanyId: string;
   GoogleConnected?: boolean;
-  'Google Refresh Token'?: string;
+  GoogleRefreshToken?: string;
   GoogleAccessToken?: string;
   GoogleAccessTokenExpiresAt?: string;
   GoogleConnectedAt?: string;
@@ -100,7 +100,7 @@ function mapAirtableToCompanyIntegrations(record: any): CompanyIntegrations {
 
   const google: GoogleIntegration | undefined = fields.GoogleConnected ? {
     connected: true,
-    refreshToken: fields['Google Refresh Token'] || undefined,
+    refreshToken: fields.GoogleRefreshToken || undefined,
     accessToken: fields.GoogleAccessToken || undefined,
     accessTokenExpiresAt: fields.GoogleAccessTokenExpiresAt || undefined,
     connectedAt: fields.GoogleConnectedAt || undefined,
@@ -146,7 +146,7 @@ function mapCompanyIntegrationsToAirtable(
     fields.GoogleConnected = g?.connected ?? false;
 
     if (g) {
-      if (g.refreshToken !== undefined) fields['Google Refresh Token'] = g.refreshToken;
+      if (g.refreshToken !== undefined) fields.GoogleRefreshToken = g.refreshToken;
       if (g.accessToken !== undefined) fields.GoogleAccessToken = g.accessToken;
       if (g.accessTokenExpiresAt !== undefined) fields.GoogleAccessTokenExpiresAt = g.accessTokenExpiresAt;
       if (g.connectedAt !== undefined) fields.GoogleConnectedAt = g.connectedAt;
@@ -324,7 +324,7 @@ export async function disconnectGoogle(companyId: string): Promise<void> {
   if (existing?.id) {
     await updateRecord(TABLE_NAME, existing.id, {
       GoogleConnected: false,
-      'Google Refresh Token': '',
+      GoogleRefreshToken: '',
       GoogleAccessToken: '',
       GA4Connected: false,
       GSCConnected: false,
@@ -579,7 +579,7 @@ export async function getCompanyGoogleOAuthFromDBBase(
   return {
     companyId,
     googleConnected: normalizeChecked(f['GoogleConnected']),
-    googleRefreshToken: (f['Google Refresh Token'] as string) || null,
+    googleRefreshToken: (f['GoogleRefreshToken'] as string) || null,
     googleConnectedEmail: (f['GoogleConnectedEmail'] as string) || null,
     recordId: result.record.id,
     matchedBy: result.matchedBy,
@@ -588,92 +588,84 @@ export async function getCompanyGoogleOAuthFromDBBase(
 }
 
 // ============================================================================
-// DB-base-aware Google token upsert
+// Primary callback helper — PATCH tokens into the base where the record lives
 // ============================================================================
 
 /**
- * Update (or create) Google OAuth tokens in the AIRTABLE_DB_BASE_ID base.
+ * Update Google OAuth tokens on an existing CompanyIntegrations record.
  *
- * Unlike `updateGoogleTokens()` which routes through the generic Airtable
- * client (AIRTABLE_BASE_ID / OS base), this function writes directly to the
- * DB base via fetch so tokens always land in the canonical location that the
- * scaffold and other flows read from.
+ * Uses findCompanyIntegration() to locate the row (DB base → OS base
+ * fallback), then PATCHes it **in the same base it was found in**.
  *
- * Flow:
- *   1. findCompanyIntegration() to locate existing row (DB → OS fallback)
- *   2. If no row → POST to create one
- *   3. PATCH the row with token fields + GoogleConnected = true
+ * - GoogleRefreshToken is only overwritten when a new value is provided.
+ * - GoogleConnected is set to true when a refresh token exists (new or
+ *   already stored).
  *
+ * Throws if no CompanyIntegrations record is found for the companyId.
  * Never logs token values.
  */
-export async function updateGoogleTokensInDBBase(
-  companyId: string,
-  tokens: {
-    refreshToken: string;
-    accessToken?: string;
-    accessTokenExpiresAt?: string;
-    connectedEmail?: string;
-  },
-): Promise<{ recordId: string }> {
-  const baseId = process.env.AIRTABLE_DB_BASE_ID;
-  if (!baseId) throw new Error('Missing AIRTABLE_DB_BASE_ID');
-
+export async function updateGoogleTokensForCompany(args: {
+  companyId: string;
+  refreshToken?: string | null;
+  accessToken?: string | null;
+  expiresAt?: string | null;
+  connectedEmail?: string | null;
+}): Promise<{ ok: true; updatedRecordId: string }> {
   const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
   if (!apiKey) throw new Error('Missing AIRTABLE_API_KEY / AIRTABLE_ACCESS_TOKEN');
 
-  const tableName = 'CompanyIntegrations';
-  const url = airtableListUrl(baseId, tableName);
+  // 1. Locate record
+  const result = await findCompanyIntegration({ companyId: args.companyId });
 
-  // 1. Try to find existing row
-  const existing = await findCompanyIntegration({ companyId });
-  let recordId: string;
-
-  if (existing.record) {
-    recordId = existing.record.id;
-    console.log(`[CompanyIntegrations] DB upsert – found existing row ${recordId} (matchedBy=${existing.matchedBy})`);
-  } else {
-    // 2. Create a new row with CompanyId
-    const createRes = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        records: [{ fields: { CompanyId: companyId, GoogleConnected: false } }],
-      }),
-    });
-    const createText = await createRes.text();
-    if (!createRes.ok) {
-      throw new Error(
-        `Failed to create CompanyIntegrations row (${createRes.status}): ${createText.slice(0, 300)}`,
-      );
-    }
-    const createData = JSON.parse(createText);
-    recordId = createData.records[0].id;
-    console.log(`[CompanyIntegrations] DB upsert – created new row ${recordId} for companyId=${companyId}`);
+  if (!result.record) {
+    const err = new Error(
+      `No CompanyIntegrations record found for companyId=${args.companyId}`,
+    );
+    (err as any).debug = result.debug;
+    throw err;
   }
 
-  // 3. PATCH token fields
-  const REFRESH_TOKEN_FIELD = 'Google Refresh Token';
-  const patchUrl = `${url}/${recordId}`;
-  const now = new Date().toISOString();
+  const recordId = result.record.id;
+  const existingFields = result.record.fields;
+
+  // Determine which base the record was found in
+  const matchedAttempt = result.debug.attempts.find(
+    (a) => a.ok && a.recordCount !== null && a.recordCount > 0,
+  );
+  const baseId = matchedAttempt?.baseId
+    || process.env.AIRTABLE_DB_BASE_ID
+    || process.env.AIRTABLE_OS_BASE_ID
+    || process.env.AIRTABLE_BASE_ID
+    || '';
+
+  if (!baseId) throw new Error('Cannot determine Airtable baseId for PATCH');
+
+  // 2. Build PATCH fields
+  const hasNewRefresh = typeof args.refreshToken === 'string' && args.refreshToken.length > 0;
+  const hasExistingRefresh =
+    typeof existingFields['GoogleRefreshToken'] === 'string' &&
+    (existingFields['GoogleRefreshToken'] as string).length > 0;
 
   const fields: Record<string, unknown> = {
-    GoogleConnected: true,
-    [REFRESH_TOKEN_FIELD]: tokens.refreshToken,
-    GoogleConnectedAt: now,
+    GoogleConnected: hasNewRefresh || hasExistingRefresh,
+    GoogleConnectedAt: new Date().toISOString(),
   };
-  if (tokens.accessToken !== undefined) {
-    fields.GoogleAccessToken = tokens.accessToken;
+
+  if (hasNewRefresh) {
+    fields.GoogleRefreshToken = args.refreshToken;
   }
-  if (tokens.accessTokenExpiresAt !== undefined) {
-    fields.GoogleAccessTokenExpiresAt = tokens.accessTokenExpiresAt;
+  if (args.accessToken) {
+    fields.GoogleAccessToken = args.accessToken;
   }
-  if (tokens.connectedEmail !== undefined) {
-    fields.GoogleConnectedEmail = tokens.connectedEmail;
+  if (args.expiresAt) {
+    fields.GoogleAccessTokenExpiresAt = args.expiresAt;
+  }
+  if (args.connectedEmail) {
+    fields.GoogleConnectedEmail = args.connectedEmail;
   }
 
+  // 3. PATCH
+  const patchUrl = `${airtableListUrl(baseId, 'CompanyIntegrations')}/${recordId}`;
   const patchRes = await fetch(patchUrl, {
     method: 'PATCH',
     headers: {
@@ -686,16 +678,134 @@ export async function updateGoogleTokensInDBBase(
   if (!patchRes.ok) {
     const patchText = await patchRes.text();
     throw new Error(
-      `Failed to update CompanyIntegrations tokens (${patchRes.status}): ${patchText.slice(0, 300)}`,
+      `Failed to PATCH CompanyIntegrations ${recordId} (${patchRes.status}): ${patchText.slice(0, 300)}`,
     );
   }
 
   console.log(
-    `[CompanyIntegrations] DB upsert – recordId=${recordId} ` +
-    `field="${REFRESH_TOKEN_FIELD}" hasRefreshToken=${tokens.refreshToken.length > 0} ` +
-    `companyId=${companyId}`,
+    `[CompanyIntegrations] updateGoogleTokensForCompany – ` +
+    `recordId=${recordId} baseId=${baseId} ` +
+    `GoogleConnected=${fields.GoogleConnected} ` +
+    `hasNewRefreshToken=${hasNewRefresh} ` +
+    `companyId=${args.companyId}`,
   );
-  return { recordId };
+
+  return { ok: true, updatedRecordId: recordId };
+}
+
+// ============================================================================
+// Direct DB-base upsert for Google OAuth tokens (used by callback route)
+// ============================================================================
+
+type GoogleTokenPayload = {
+  refreshToken: string;
+  accessToken: string;
+  expiresAt: string; // ISO string
+  connectedEmail?: string | null;
+};
+
+const COMPANY_INTEGRATIONS_TABLE = 'CompanyIntegrations';
+
+function airtableAuthHeaders() {
+  const token = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN;
+  if (!token) throw new Error('Missing AIRTABLE_API_KEY (or AIRTABLE_ACCESS_TOKEN)');
+  return {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  };
+}
+
+async function airtableGetDirect(baseId: string, path: string) {
+  const url = `https://api.airtable.com/v0/${baseId}/${path}`;
+  const res = await fetch(url, { headers: airtableAuthHeaders() });
+  const text = await res.text();
+  let json: any = null;
+  try { json = text ? JSON.parse(text) : null; } catch { /* empty */ }
+  if (!res.ok) {
+    const msg = json?.error?.message || json?.error || text || `HTTP ${res.status}`;
+    throw new Error(`Airtable GET failed (${res.status}): ${msg}`);
+  }
+  return json;
+}
+
+async function airtablePatch(baseId: string, table: string, recordId: string, fields: Record<string, unknown>) {
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}/${recordId}`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: airtableAuthHeaders(),
+    body: JSON.stringify({ fields }),
+  });
+  const text = await res.text();
+  let json: any = null;
+  try { json = text ? JSON.parse(text) : null; } catch { /* empty */ }
+  if (!res.ok) {
+    const msg = json?.error?.message || json?.error || text || `HTTP ${res.status}`;
+    throw new Error(`Airtable PATCH failed (${res.status}): ${msg}`);
+  }
+  return json;
+}
+
+async function airtablePostDirect(baseId: string, table: string, fields: Record<string, unknown>) {
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: airtableAuthHeaders(),
+    body: JSON.stringify({ records: [{ fields }] }),
+  });
+  const text = await res.text();
+  let json: any = null;
+  try { json = text ? JSON.parse(text) : null; } catch { /* empty */ }
+  if (!res.ok) {
+    const msg = json?.error?.message || json?.error || text || `HTTP ${res.status}`;
+    throw new Error(`Airtable POST failed (${res.status}): ${msg}`);
+  }
+  return json;
+}
+
+/**
+ * Upserts Google OAuth tokens into CompanyIntegrations (DB base).
+ * Matches on {CompanyId} exact string match. Creates the row if missing.
+ *
+ * Field names written (exact Airtable column names):
+ *   CompanyId, GoogleConnected, GoogleRefreshToken, GoogleAccessToken,
+ *   GoogleAccessTokenExpiresAt, GoogleConnectedAt, GoogleConnectedEmail
+ *
+ * Never logs token values.
+ */
+export async function upsertCompanyGoogleTokens(
+  companyId: string,
+  tokens: GoogleTokenPayload,
+) {
+  const baseId = process.env.AIRTABLE_DB_BASE_ID;
+  if (!baseId) throw new Error('Missing AIRTABLE_DB_BASE_ID');
+
+  const nowIso = new Date().toISOString();
+
+  // Find existing row by CompanyId
+  const formula = `{CompanyId} = "${escapeFormulaValue(companyId)}"`;
+  const query = `${encodeURIComponent(COMPANY_INTEGRATIONS_TABLE)}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
+  const found = await airtableGetDirect(baseId, query);
+
+  const fields: Record<string, unknown> = {
+    CompanyId: companyId,
+    GoogleConnected: true,
+    GoogleRefreshToken: tokens.refreshToken,
+    GoogleAccessToken: tokens.accessToken,
+    GoogleAccessTokenExpiresAt: tokens.expiresAt,
+    GoogleConnectedAt: nowIso,
+    GoogleConnectedEmail: tokens.connectedEmail || '',
+  };
+
+  const recId = found?.records?.[0]?.id;
+
+  if (recId) {
+    console.log(`[CompanyIntegrations] upsertCompanyGoogleTokens – updating record ${recId} for companyId=${companyId}`);
+    return airtablePatch(baseId, COMPANY_INTEGRATIONS_TABLE, recId, fields);
+  }
+
+  // Create if missing
+  console.log(`[CompanyIntegrations] upsertCompanyGoogleTokens – creating row for companyId=${companyId}`);
+  return airtablePostDirect(baseId, COMPANY_INTEGRATIONS_TABLE, fields);
 }
 
 // ============================================================================

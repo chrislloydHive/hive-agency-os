@@ -11,6 +11,8 @@ const SCOPES = [
   'https://www.googleapis.com/auth/presentations',
 ];
 
+const CALLBACK_PATH = '/api/oauth/google/callback';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -22,10 +24,10 @@ export interface ExchangeResult {
 }
 
 // ============================================================================
-// Internal helper
+// Internal helpers
 // ============================================================================
 
-function createOAuth2Client() {
+function getClientCredentials() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
@@ -35,12 +37,21 @@ function createOAuth2Client() {
     );
   }
 
-  const baseUrl =
+  return { clientId, clientSecret };
+}
+
+function getDefaultOrigin(): string {
+  return (
     process.env.NEXT_PUBLIC_BASE_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
-    'http://localhost:3000';
-  const callbackUrl = `${baseUrl}/api/oauth/google/callback`;
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    'http://localhost:3000'
+  );
+}
 
+function createOAuth2Client(redirectUri?: string) {
+  const { clientId, clientSecret } = getClientCredentials();
+  const callbackUrl = redirectUri ?? `${getDefaultOrigin()}${CALLBACK_PATH}`;
   return new google.auth.OAuth2(clientId, clientSecret, callbackUrl);
 }
 
@@ -50,11 +61,14 @@ function createOAuth2Client() {
 
 /**
  * Build the Google OAuth consent URL.
- * The companyId is encoded in the `state` parameter so the callback can
- * associate tokens with the correct company.
+ *
+ * @param companyId - encoded in `state` so the callback can associate tokens
+ * @param origin    - optional request origin (e.g. "https://app.hive.com");
+ *                    if omitted, falls back to NEXT_PUBLIC_BASE_URL / NEXT_PUBLIC_SITE_URL
  */
-export function getGoogleOAuthUrl(companyId: string): string {
-  const client = createOAuth2Client();
+export function getGoogleOAuthUrl(companyId: string, origin?: string): string {
+  const redirectUri = (origin ?? getDefaultOrigin()) + CALLBACK_PATH;
+  const client = createOAuth2Client(redirectUri);
 
   const state = Buffer.from(JSON.stringify({ companyId })).toString('base64');
 
@@ -68,12 +82,17 @@ export function getGoogleOAuthUrl(companyId: string): string {
 
 /**
  * Exchange an authorization code for tokens.
+ *
+ * @param code        - the authorization code from Google
+ * @param redirectUri - must match the redirect_uri used during consent
+ *
  * Throws if no refresh_token is returned (user may need to re-consent).
  */
 export async function exchangeCodeForTokens(
   code: string,
+  redirectUri: string,
 ): Promise<ExchangeResult> {
-  const client = createOAuth2Client();
+  const client = createOAuth2Client(redirectUri);
   const { tokens } = await client.getToken(code);
 
   if (!tokens.refresh_token) {
