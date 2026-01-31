@@ -10,13 +10,14 @@ export const metadata: Metadata = {
   description: 'Manage third-party integrations for Hive Agency OS.',
 };
 
-export default function IntegrationsPage({
+export default async function IntegrationsPage({
   searchParams,
 }: {
-  searchParams: { google?: string; google_error?: string; companyId?: string };
+  searchParams: Promise<{ google?: string; google_error?: string; companyId?: string }>;
 }) {
-  const googleConnected = searchParams.google === 'connected';
-  const googleError = searchParams.google_error;
+  const params = await searchParams;
+  const googleConnected = params.google === 'connected';
+  const googleError = params.google_error;
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-8">
@@ -41,9 +42,9 @@ export default function IntegrationsPage({
       {googleConnected && (
         <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 mb-6">
           <p className="text-emerald-400 font-medium">Google connected successfully</p>
-          {searchParams.companyId && (
+          {params.companyId && (
             <p className="text-emerald-400/70 text-sm mt-1">
-              Company: {searchParams.companyId}
+              Company: {params.companyId}
             </p>
           )}
         </div>
