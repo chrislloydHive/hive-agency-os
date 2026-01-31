@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { getCompanyById } from '@/lib/airtable/companies';
+import { getAppBaseUrl } from '@/lib/google/oauth';
 
 const SCOPES = [
   // Analytics & Search Console (existing)
@@ -69,9 +70,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Determine callback URL based on environment
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    // Determine callback URL from canonical APP_URL
+    const baseUrl = getAppBaseUrl();
     const callbackUrl = `${baseUrl}/api/integrations/google/callback`;
+    console.log('[google-oauth] redirect_uri =', callbackUrl);
 
     // Create OAuth client
     const oauth2Client = new google.auth.OAuth2(

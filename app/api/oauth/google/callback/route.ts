@@ -3,14 +3,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { exchangeCodeForTokens, getCanonicalBaseUrl } from '@/lib/google/oauth';
+import { exchangeCodeForTokens, getAppBaseUrl } from '@/lib/google/oauth';
 import { verifyState } from '@/lib/oauth/state';
 import { upsertCompanyGoogleTokens } from '@/lib/airtable/companyIntegrations';
 
 const CALLBACK_PATH = '/api/oauth/google/callback';
 
 function redirectTo(path: string): NextResponse {
-  const base = getCanonicalBaseUrl();
+  const base = getAppBaseUrl();
   return NextResponse.redirect(`${base}${path}`);
 }
 
@@ -61,8 +61,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Build redirect_uri from canonical base URL (must match consent URL)
-    const redirectUri = getCanonicalBaseUrl() + CALLBACK_PATH;
+    // Build redirect_uri from APP_URL (must match consent URL)
+    const redirectUri = getAppBaseUrl() + CALLBACK_PATH;
 
     // Exchange code for tokens
     let tokens;

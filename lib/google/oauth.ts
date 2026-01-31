@@ -45,23 +45,43 @@ function getClientCredentials() {
 
 /**
  * Canonical base URL for OAuth redirect_uri.
- * Reads APP_URL (the Hive Agency OS domain), NOT NEXT_PUBLIC_BASE_URL
- * which points to the DMA frontend.
+ * Reads APP_URL exclusively — no other env vars influence this.
+ * Throws if APP_URL is not set or is not https.
  */
-export function getCanonicalBaseUrl(): string {
+export function getAppBaseUrl(): string {
   const url = process.env.APP_URL;
-  if (url) return url.replace(/\/+$/, '');
+  if (!url) {
+    throw new Error('APP_URL env var is required for OAuth');
+  }
+  if (!url.startsWith('https://')) {
+    throw new Error(`APP_URL must be https, got: ${url}`);
+  }
+  const base = url.replace(/\/+$/, '');
+  assertValidOAuthDomain(base);
+  return base;
+}
 
-  console.warn(
-    '[google/oauth] APP_URL not set — falling back to https://hiveagencyos.com. ' +
-    'Set APP_URL in your environment to silence this warning.',
-  );
-  return 'https://hiveagencyos.com';
+/**
+ * Regression guard: reject known-bad domain typos so OAuth
+ * never silently breaks again.
+ */
+function assertValidOAuthDomain(url: string): void {
+  // "hiveagencyos" without the 'y' → "hiveagencos"
+  if (/hiveagencos\./i.test(url)) {
+    throw new Error(
+      `Invalid redirect_uri domain detected (typo "hiveagencos" — missing "y"): ${url}`,
+    );
+  }
+  if (/digitalmarketingaudit\.ai/i.test(url)) {
+    throw new Error(
+      `Invalid redirect_uri domain detected (DMA domain should not be used for OAuth): ${url}`,
+    );
+  }
 }
 
 function createOAuth2Client(redirectUri?: string) {
   const { clientId, clientSecret } = getClientCredentials();
-  const callbackUrl = redirectUri ?? `${getCanonicalBaseUrl()}${CALLBACK_PATH}`;
+  const callbackUrl = redirectUri ?? `${getAppBaseUrl()}${CALLBACK_PATH}`;
   return new google.auth.OAuth2(clientId, clientSecret, callbackUrl);
 }
 
@@ -83,8 +103,11 @@ export function getGoogleOAuthUrl(companyId: string, _origin?: string): string {
     );
   }
 
-  const redirectUri = getCanonicalBaseUrl() + CALLBACK_PATH;
+  const baseUrl = getAppBaseUrl();
+  const redirectUri = `${baseUrl}${CALLBACK_PATH}`;
   const client = createOAuth2Client(redirectUri);
+
+  console.log('[google-oauth] redirect_uri =', redirectUri);
 
   const state = signState({
     companyId,

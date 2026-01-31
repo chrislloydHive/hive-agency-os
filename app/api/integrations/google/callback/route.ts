@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { updateGoogleTokens } from '@/lib/airtable/companyIntegrations';
+import { getAppBaseUrl } from '@/lib/google/oauth';
 
 /**
  * GET /api/integrations/google/callback
@@ -41,8 +42,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Determine base URL for redirects
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    // Determine base URL for redirects from canonical APP_URL
+    const baseUrl = getAppBaseUrl();
     const defaultRedirect = companyId ? `/c/${companyId}/brain/setup?step=9` : '/';
     const finalRedirectBase = redirectUrl || defaultRedirect;
 
@@ -82,7 +83,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Create OAuth client with same callback URL used during authorization
-    const callbackUrl = `${baseUrl}/api/integrations/google/callback`;
+    const callbackUrl = `${getAppBaseUrl()}/api/integrations/google/callback`;
     const oauth2Client = new google.auth.OAuth2(
       clientId,
       clientSecret,
@@ -132,7 +133,7 @@ export async function GET(request: NextRequest) {
     console.error('[Google OAuth Callback] Error:', error);
 
     // Try to redirect with error, or return JSON if we can't determine redirect
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const baseUrl = getAppBaseUrl();
     const errorMessage = error instanceof Error ? error.message : 'unknown_error';
 
     // If we have any state, try to redirect

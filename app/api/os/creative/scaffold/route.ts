@@ -29,7 +29,7 @@ import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { getCompanyGoogleOAuthFromDBBase, findCompanyIntegration } from '@/lib/airtable/companyIntegrations';
 import { getCompanyOAuthClient } from '@/lib/integrations/googleDrive';
-import { getGoogleOAuthUrl, GOOGLE_OAUTH_SCOPE_VERSION } from '@/lib/google/oauth';
+import { getGoogleOAuthUrl, getAppBaseUrl, GOOGLE_OAUTH_SCOPE_VERSION } from '@/lib/google/oauth';
 import type { drive_v3 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
@@ -239,7 +239,7 @@ export async function POST(req: Request) {
     try {
       connectUrl = getGoogleOAuthUrl(companyId);
     } catch {
-      connectUrl = `https://hiveagencyos.com/api/os/google/connect?companyId=${encodeURIComponent(companyId)}`;
+      connectUrl = `${getAppBaseUrl()}/api/os/google/connect?companyId=${encodeURIComponent(companyId)}`;
     }
 
     return NextResponse.json(
@@ -277,7 +277,7 @@ export async function POST(req: Request) {
     try {
       connectUrl = getGoogleOAuthUrl(companyId);
     } catch {
-      connectUrl = `https://hiveagencyos.com/api/os/google/connect?companyId=${encodeURIComponent(companyId)}`;
+      connectUrl = `${getAppBaseUrl()}/api/os/google/connect?companyId=${encodeURIComponent(companyId)}`;
     }
 
     console.warn(
