@@ -49,6 +49,10 @@ export default function ReviewSection({
   // Lightbox state
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
+  // For empty tactics: collapse feedback by default; expand on "Add feedback"
+  const [feedbackExpanded, setFeedbackExpanded] = useState(false);
+  const hasFiles = assets.length > 0;
+
   const { identity, requireIdentity } = useAuthorIdentity();
 
   const openLightbox = (index: number) => setLightboxIndex(index);
@@ -118,9 +122,12 @@ export default function ReviewSection({
     };
   }, []);
 
+  const showFeedbackControls = hasFiles || feedbackExpanded;
+
   return (
-    <section className="mb-10">
-      <div className="mb-4 flex items-center gap-3">
+    <section className={hasFiles ? 'mb-10' : 'mb-4'}>
+      {/* Header: compact for empty tactics */}
+      <div className={`flex items-center gap-3 ${hasFiles ? 'mb-4' : ''}`}>
         <h2 className="text-lg font-semibold text-amber-400">{tactic}</h2>
         <span className="rounded-full bg-gray-800 px-2.5 py-0.5 text-xs font-medium text-gray-400">
           {fileCount} {fileCount === 1 ? 'file' : 'files'}
@@ -130,12 +137,13 @@ export default function ReviewSection({
             Approved
           </span>
         )}
+        {!hasFiles && (
+          <span className="text-sm text-gray-500">— No files yet</span>
+        )}
       </div>
 
-      {/* Asset grid */}
-      {assets.length === 0 ? (
-        <p className="text-sm text-gray-500">(no files yet)</p>
-      ) : (
+      {/* Asset grid — only when files exist */}
+      {hasFiles ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {assets.map((asset, index) => (
             <AssetCard
@@ -146,7 +154,7 @@ export default function ReviewSection({
             />
           ))}
         </div>
-      )}
+      ) : null}
 
       {/* Lightbox */}
       {lightboxIndex !== null && (
@@ -161,53 +169,68 @@ export default function ReviewSection({
         />
       )}
 
-      {/* Feedback controls */}
-      <div className="mt-4 rounded-lg border border-gray-700 bg-gray-800/50 p-4">
-        <div className="flex items-start gap-4 sm:items-center">
-          {/* Approve toggle */}
-          <button
-            type="button"
-            onClick={handleApprovalToggle}
-            className={`shrink-0 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+      {/* Feedback controls: visible when files exist, or behind "Add feedback" when empty */}
+      {!hasFiles && !feedbackExpanded ? (
+        <button
+          type="button"
+          onClick={() => setFeedbackExpanded(true)}
+          className="mt-2 text-sm text-amber-400 hover:text-amber-300 hover:underline"
+        >
+          Add feedback
+        </button>
+      ) : showFeedbackControls ? (
+        <div className={`rounded-lg border border-gray-700 bg-gray-800/50 p-4 ${hasFiles ? 'mt-4' : 'mt-2'}`}>
+          {!hasFiles && (
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-xs text-gray-500">Feedback for empty tactic</span>
+              <button
+                type="button"
+                onClick={() => setFeedbackExpanded(false)}
+                className="text-xs text-gray-500 hover:text-gray-300"
+              >
+                Collapse
+              </button>
+            </div>
+          )}
+          <div className="flex items-start gap-4 sm:items-center">
+            <button
+              type="button"
+              onClick={handleApprovalToggle}
+              className={`shrink-0 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                approved
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                  : 'border border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600'
+              }`}
+            >
+              {approved ? 'Approved' : 'Approve'}
+            </button>
+            <div className="hidden shrink-0 sm:block">
+              {saving && <span className="text-xs text-gray-500">Saving...</span>}
+              {!saving && lastSaved && (
+                <span className="text-xs text-gray-600">Saved {lastSaved}</span>
+              )}
+            </div>
+          </div>
+          <textarea
+            value={comments}
+            onChange={(e) => handleCommentsChange(e.target.value)}
+            disabled={approved}
+            placeholder={approved ? 'Comments locked after approval — toggle off to edit' : 'Add comments or feedback...'}
+            rows={3}
+            className={`mt-3 w-full rounded-md border bg-gray-900 px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-1 ${
               approved
-                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                : 'border border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600'
+                ? 'cursor-not-allowed border-gray-700 opacity-60'
+                : 'border-gray-600 focus:ring-amber-500'
             }`}
-          >
-            {approved ? 'Approved' : 'Approve'}
-          </button>
-
-          {/* Save indicator */}
-          <div className="hidden shrink-0 sm:block">
+          />
+          <div className="mt-1 sm:hidden">
             {saving && <span className="text-xs text-gray-500">Saving...</span>}
             {!saving && lastSaved && (
               <span className="text-xs text-gray-600">Saved {lastSaved}</span>
             )}
           </div>
         </div>
-
-        {/* Comments */}
-        <textarea
-          value={comments}
-          onChange={(e) => handleCommentsChange(e.target.value)}
-          disabled={approved}
-          placeholder={approved ? 'Comments locked after approval — toggle off to edit' : 'Add comments or feedback...'}
-          rows={3}
-          className={`mt-3 w-full rounded-md border bg-gray-900 px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-1 ${
-            approved
-              ? 'cursor-not-allowed border-gray-700 opacity-60'
-              : 'border-gray-600 focus:ring-amber-500'
-          }`}
-        />
-
-        {/* Mobile save indicator */}
-        <div className="mt-1 sm:hidden">
-          {saving && <span className="text-xs text-gray-500">Saving...</span>}
-          {!saving && lastSaved && (
-            <span className="text-xs text-gray-600">Saved {lastSaved}</span>
-          )}
-        </div>
-      </div>
+      ) : null}
     </section>
   );
 }

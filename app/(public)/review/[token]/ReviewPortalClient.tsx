@@ -5,6 +5,7 @@
 // with per-tactic approval UI. Wrapped in AuthorIdentityProvider for identity capture.
 
 import { useState } from 'react';
+import HiveLogo from '@/components/HiveLogo';
 import ReviewSection from './ReviewSection';
 import { AuthorIdentityProvider, useAuthorIdentity } from './AuthorIdentityContext';
 
@@ -60,11 +61,14 @@ function ReviewPortalClientInner({
   return (
     <main className="min-h-screen bg-[#111827] text-gray-100">
       <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
-        {/* Header with identity display */}
+        {/* Header: optional logo, project title, identity display */}
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <h1 className="text-2xl font-bold text-white sm:text-3xl">
-            {projectName} &ndash; Creative Review
-          </h1>
+          <div className="flex flex-col gap-2">
+            <HiveLogo className="h-7 w-auto opacity-90" />
+            <h1 className="text-2xl font-bold text-white sm:text-3xl">
+              {projectName} &ndash; Creative Review
+            </h1>
+          </div>
           {identity && (
             <div className="flex items-center gap-3 rounded-lg bg-gray-800/50 px-3 py-2">
               <div className="text-right">

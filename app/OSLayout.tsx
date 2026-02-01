@@ -16,6 +16,16 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
   const [quickStats, setQuickStats] = useState<QuickStats | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Client Review Portal: render full-width without sidebar/nav (no internal app shell)
+  const isReviewPortal = pathname?.startsWith('/review');
+  if (isReviewPortal) {
+    return (
+      <div className="min-h-screen bg-[#111827] text-gray-100 antialiased">
+        {children}
+      </div>
+    );
+  }
+
   // Close sidebar on route change
   useEffect(() => {
     setSidebarOpen(false);
