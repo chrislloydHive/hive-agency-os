@@ -172,7 +172,8 @@ export async function POST(req: NextRequest) {
       'Client Review Data': JSON.stringify(data),
     });
 
-    // If approving, also update the Creative Review Sets record
+    // On any approval toggle, update the Creative Review Sets record
+    // Always overwrite: timestamp and author info are written for both approve and un-approve
     if (approved !== undefined) {
       try {
         const setFormula = `AND(
@@ -186,20 +187,13 @@ export async function POST(req: NextRequest) {
           .firstPage();
 
         if (setRecords.length > 0) {
+          // Always overwrite all fields on every toggle (true or false)
           const updateFields: Record<string, unknown> = {
             'Client Approved': !!approved,
+            'Approved At': new Date().toISOString(),
+            'Approved By Name': authorName.trim(),
+            'Approved By Email': authorEmail.trim(),
           };
-
-          if (approved) {
-            updateFields['Approved At'] = new Date().toISOString();
-            updateFields['Approved By Name'] = authorName.trim();
-            updateFields['Approved By Email'] = authorEmail.trim();
-          } else {
-            // Clear approval info when un-approving
-            updateFields['Approved At'] = null;
-            updateFields['Approved By Name'] = '';
-            updateFields['Approved By Email'] = '';
-          }
 
           await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_SETS).update(
             setRecords[0].id,
