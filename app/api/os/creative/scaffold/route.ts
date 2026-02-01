@@ -221,14 +221,32 @@ export async function POST(req: Request) {
     console.warn(`[creative/scaffold] Could not fetch Company record ${companyId}:`, err?.message ?? err);
   }
 
-  // Resolve project name for the sheet title
+  // Resolve project name — required for hub naming
   const projectName = (projectFields['Name'] as string)
     || (projectFields['Project Name'] as string)
     || (projectFields['Title'] as string)
-    || undefined;
+    || '';
 
-  console.log(`[creative/scaffold] Resolved clientCode=${clientCode ?? '(none)'}, companyName=${companyName ?? '(none)'}, projectName=${projectName ?? '(none)'}`);
-  console.log(`[creative/scaffold] creativeMode=${creativeMode ?? '(none)'}, promoName=${promoName ?? '(none)'}`);
+  if (!projectName.trim()) {
+    return NextResponse.json(
+      {
+        ok: false,
+        sheetUrl: null,
+        productionAssetsRootUrl: null,
+        clientReviewFolderUrl: null,
+        scaffoldStatus: 'error',
+        error: 'Project record is missing a Project Name — cannot name the Creative Review hub',
+        debug: { recordId, fieldsTried: ['Name', 'Project Name', 'Title'] },
+      },
+      { status: 200 },
+    );
+  }
+
+  // Canonical hub name — reused for both the Google Sheet and Creative Assets folder
+  const hubName = `${projectName.trim()} – Creative Review`;
+
+  console.log(`[creative/scaffold] Resolved clientCode=${clientCode ?? '(none)'}, companyName=${companyName ?? '(none)'}, projectName=${projectName}`);
+  console.log(`[creative/scaffold] hubName="${hubName}"`);
 
   const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID!;
   const templateId = CREATIVE_REVIEW_TEMPLATE_SHEET_ID;
@@ -376,27 +394,17 @@ export async function POST(req: Request) {
     }
     const clientReviewFolder = folders['Client Review'];
 
-    // 2. Compute the project-based folder name (same as the sheet name)
-    const projectFolderName = projectName
-      ? `${projectName} – Creative Review`
-      : buildSheetName(projectName, creativeMode, promoName);
-
-    // 3. Ensure Creative Assets/<project-named folder>/
+    // 2. Ensure Creative Assets/<hubName>/
     const creativeAssetsRoot = await ensureChildFolder(drive, rootFolderId, 'Creative Assets');
-    const projectCreativeAssetsFolder = await ensureChildFolder(drive, creativeAssetsRoot.id, projectFolderName);
+    const projectCreativeAssetsFolder = await ensureChildFolder(drive, creativeAssetsRoot.id, hubName);
 
-    console.log(`[CreativeScaffold] projectName=${projectName ?? '(none)'}, creativeAssetsRootFolderId=${creativeAssetsRoot.id}, projectCreativeAssetsFolderId=${projectCreativeAssetsFolder.id}`);
-
-    // 4. Create tactic folders with default set inside project folder
-    //    Structure: Creative Assets/<project-named folder>/<Tactic>/Default – Set A/
+    // 3. Create tactic folders with default set inside project folder
+    //    Structure: Creative Assets/<hubName>/<Tactic>/Default – Set A/
     const tacticRows: TacticRowData[] = [];
 
     for (const tactic of TACTICS) {
       const tacticFolder = await ensureChildFolder(drive, projectCreativeAssetsFolder.id, tactic);
       const defaultSetFolder = await ensureChildFolder(drive, tacticFolder.id, DEFAULT_SET_NAME);
-
-      console.log(`[CreativeScaffold] ${tactic}: tacticFolderId=${tacticFolder.id}, defaultSetFolderId=${defaultSetFolder.id}`);
-
       tacticRows.push({
         tactic,
         setName: DEFAULT_SET_NAME,
@@ -405,30 +413,23 @@ export async function POST(req: Request) {
       });
     }
 
-    console.log(`[CreativeScaffold] Created ${tacticRows.length} tactic folders`);
-
-    // 5. Copy sheet template into Client Review folder
-    const sheetName = buildSheetName(projectName, creativeMode, promoName);
-
-    console.log('[CreativeScaffold] Using templateSheetId =', templateId);
-    console.log(`[CreativeScaffold] clientReviewFolderId=${clientReviewFolder.id}`);
-    const copied = await copyTemplate(drive, templateId, clientReviewFolder.id, sheetName);
+    // 4. Copy sheet template into Client Review folder
+    const copied = await copyTemplate(drive, templateId, clientReviewFolder.id, hubName);
     const sheetUrl = copied.url;
 
-    // 5b. Rename the copied sheet using Drive API (same name as the project folder)
-    if (projectFolderName !== copied.name) {
+    // 4b. Rename the copied sheet to hubName using Drive API
+    if (copied.name !== hubName) {
       await drive.files.update({
         fileId: copied.id,
-        requestBody: { name: projectFolderName },
+        requestBody: { name: hubName },
         supportsAllDrives: true,
       });
     }
-    console.log(`[CreativeScaffold] projectName=${projectName ?? '(none)'}, newSheetName=${projectFolderName}, sheetId=${copied.id}, projectCreativeAssetsFolderId=${projectCreativeAssetsFolder.id}`);
 
-    // 6. Populate sheet with one row per tactic
+    // 5. Populate sheet with one row per tactic
     await populateReviewSheet(sheets, copied.id, tacticRows);
 
-    console.log(`[creative/scaffold] Done for record ${recordId}`);
+    console.log(`[creative/scaffold] recordId=${recordId}, projectName="${projectName}", hubName="${hubName}", sheetId=${copied.id}, projectCreativeAssetsFolderId=${projectCreativeAssetsFolder.id}, rowsWritten=${tacticRows.length}`);
 
     return NextResponse.json({
       ok: true,
@@ -677,8 +678,8 @@ async function populateReviewSheet(
   // Determine the width (number of columns)
   const maxCol = Math.max(headerRow.length, ...Object.values(colMap).map((i) => i + 1));
 
-  // Clear existing data rows (row 2 onward)
-  const clearRange = `'${tabName}'!A2:${colLetter(maxCol)}${2 + rows.length + 100}`;
+  // Clear existing data rows (fixed range A2:M200 — idempotent, no crawling)
+  const clearRange = `'${tabName}'!A2:M200`;
   await sheets.spreadsheets.values.clear({
     spreadsheetId,
     range: clearRange,
@@ -706,7 +707,7 @@ async function populateReviewSheet(
   });
 
   // Write rows starting at A2 using batchUpdate
-  const writeRange = `'${tabName}'!A2:${colLetter(maxCol)}${1 + dataRows.length}`;
+  const writeRange = `'${tabName}'!A2:M${1 + dataRows.length}`;
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
     requestBody: {
@@ -715,7 +716,7 @@ async function populateReviewSheet(
     },
   });
 
-  console.log(`[CreativeScaffold] Wrote ${dataRows.length} rows to "${tabName}" (range: ${writeRange})`);
+  console.log(`[CreativeScaffold] sheetId=${spreadsheetId}, destinationTabName="${tabName}", clearedRange="${clearRange}", rowsWritten=${dataRows.length}`);
 }
 
 /** Convert 1-based column number to letter (1→A, 26→Z, 27→AA). */
@@ -764,18 +765,6 @@ function getLinkedRecordId(value: unknown): string | null {
     return (value as { id: string }).id;
   }
   return null;
-}
-
-function buildSheetName(
-  projectName?: string,
-  creativeMode?: string,
-  promoName?: string,
-): string {
-  const parts: string[] = ['Creative Review'];
-  if (projectName) parts.push(projectName);
-  if (creativeMode) parts.push(creativeMode);
-  if (promoName) parts.push(promoName);
-  return parts.join(' – ');
 }
 
 /**
