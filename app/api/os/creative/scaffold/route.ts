@@ -513,6 +513,7 @@ export async function POST(req: Request) {
       creativeAssetsFolderUrl: folderUrl(creativeAssetsRoot.id),
       scaffoldStatus: 'complete',
       rowCount: tacticRows.length,
+      lastRunAt: new Date().toISOString(), // ISO 8601 UTC for Creative Scaffold Last Run
     });
   } catch (err: any) {
     console.error('[creative/scaffold] Error:', err?.message ?? err);
