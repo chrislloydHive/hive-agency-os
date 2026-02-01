@@ -456,7 +456,7 @@ export async function POST(req: Request) {
         await osBase(setsTable).update(existing[0].id, {
           'Folder ID': row.folderId,
           'Folder URL': folderUrlValue,
-        } as Record<string, unknown>);
+        } as any);
       } else {
         await osBase(setsTable).create({
           Project: [recordId],
@@ -467,7 +467,7 @@ export async function POST(req: Request) {
           'Folder URL': folderUrlValue,
           'Client Approved': false,
           'Client Comments': '',
-        } as Record<string, unknown>);
+        } as any);
       }
       setsUpserted += 1;
     }
