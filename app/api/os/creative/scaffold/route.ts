@@ -198,7 +198,13 @@ export async function POST(req: Request) {
     console.warn(`[creative/scaffold] Could not fetch Company record ${companyId}:`, err?.message ?? err);
   }
 
-  console.log(`[creative/scaffold] Resolved clientCode=${clientCode ?? '(none)'}, companyName=${companyName ?? '(none)'}`);
+  // Resolve project name for the sheet title
+  const projectName = (projectFields['Name'] as string)
+    || (projectFields['Project Name'] as string)
+    || (projectFields['Title'] as string)
+    || undefined;
+
+  console.log(`[creative/scaffold] Resolved clientCode=${clientCode ?? '(none)'}, companyName=${companyName ?? '(none)'}, projectName=${projectName ?? '(none)'}`);
 
   const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID!;
   const templateId = CREATIVE_REVIEW_TEMPLATE_SHEET_ID;
@@ -346,21 +352,16 @@ export async function POST(req: Request) {
 
     const clientReviewFolder = folders['Client Review'];
 
-    // 2. Build sheet name from inputs
-    const sheetName = buildSheetName(creativeMode, promoName);
+    // 2. Build sheet name from inputs (includes project name for uniqueness)
+    const sheetName = buildSheetName(projectName, creativeMode, promoName);
 
-    // 3. Copy template (idempotent – skip if sheet with same name exists)
-    let sheetUrl: string;
-    const existing = await findFileInFolder(drive, clientReviewFolder.id, sheetName);
-    if (existing) {
-      console.log(`[creative/scaffold] Sheet already exists: "${sheetName}" (${existing.id})`);
-      sheetUrl = existing.url;
-    } else {
-      console.log('[CreativeScaffold] Using templateSheetId =', templateId);
-      const copied = await copyTemplate(drive, templateId, clientReviewFolder.id, sheetName);
-      sheetUrl = copied.url;
-    }
+    // 3. Always copy template — each Project recordId gets its own sheet
+    console.log('[CreativeScaffold] Using templateSheetId =', templateId);
+    console.log(`[CreativeScaffold] recordId=${recordId}, companyId=${companyId}, clientReviewFolderId=${clientReviewFolder.id}`);
+    const copied = await copyTemplate(drive, templateId, clientReviewFolder.id, sheetName);
+    const sheetUrl = copied.url;
 
+    console.log(`[CreativeScaffold] newSheetId=${copied.id}, sheetUrl=${sheetUrl}`);
     console.log(`[creative/scaffold] Done for record ${recordId}`);
 
     return NextResponse.json({
@@ -566,10 +567,12 @@ function getLinkedRecordId(value: unknown): string | null {
 }
 
 function buildSheetName(
+  projectName?: string,
   creativeMode?: string,
   promoName?: string,
 ): string {
   const parts: string[] = ['Creative Review'];
+  if (projectName) parts.push(projectName);
   if (creativeMode) parts.push(creativeMode);
   if (promoName) parts.push(promoName);
   return parts.join(' – ');
