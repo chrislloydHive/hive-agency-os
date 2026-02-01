@@ -416,7 +416,18 @@ export async function POST(req: Request) {
     const copied = await copyTemplate(drive, templateId, clientReviewFolder.id, sheetName);
     const sheetUrl = copied.url;
 
-    console.log(`[CreativeScaffold] newSheetId=${copied.id}, sheetUrl=${sheetUrl}`);
+    // 5b. Rename the copied sheet using Drive API
+    const newSheetName = projectName
+      ? `${projectName} – Creative Review`
+      : sheetName; // fallback to buildSheetName if no project name
+    if (newSheetName !== copied.name) {
+      await drive.files.update({
+        fileId: copied.id,
+        requestBody: { name: newSheetName },
+        supportsAllDrives: true,
+      });
+    }
+    console.log(`[CreativeScaffold] Renamed sheet: projectName=${projectName ?? '(none)'}, newSheetName=${newSheetName}, sheetId=${copied.id}`);
 
     // 6. Populate sheet with one row per tactic
     await populateReviewSheet(sheets, copied.id, tacticRows);
