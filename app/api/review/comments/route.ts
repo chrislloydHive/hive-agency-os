@@ -181,7 +181,7 @@ export async function POST(req: NextRequest) {
       'Author Name': authorName.trim().slice(0, 100),
       'Author Email': authorEmail.trim().slice(0, 200),
       'Created At': new Date().toISOString(),
-    } as any);
+    } as any) as { id: string };
 
     const newComment: AssetComment = {
       id: record.id,

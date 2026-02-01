@@ -466,12 +466,17 @@ export async function POST(req: Request) {
           'Folder ID': row.folderId,
           'Folder URL': folderUrlValue,
           'Client Approved': false,
+          'Approved At': null,
+          'Approved By Name': '',
+          'Approved By Email': '',
           'Client Comments': '',
         } as any);
       }
       setsUpserted += 1;
     }
-    console.log(`[creative/scaffold] Creative Review Sets upserted: ${setsUpserted}, Project recordId: ${recordId}`);
+    // Log summary: folders created + records upserted
+    const foldersCreatedCount = tacticRows.length; // 14 total (7 tactics × 2 variants)
+    console.log(`[creative/scaffold] Summary: hubName="${hubName}", sheetId=${copied.id}, foldersCreated=${foldersCreatedCount}, recordsUpserted=${setsUpserted}`);
 
     // 5c. Backfill: Ensure both variants exist for all tactics
     const backfillStats = await backfillMissingVariants(
@@ -624,6 +629,9 @@ async function backfillMissingVariants(
         'Folder ID': folderId,
         'Folder URL': folderUrlValue,
         'Client Approved': false,
+        'Approved At': null,
+        'Approved By Name': '',
+        'Approved By Email': '',
         'Client Comments': '',
       } as any);
 
@@ -667,6 +675,9 @@ async function backfillMissingVariants(
         'Folder ID': folderId,
         'Folder URL': folderUrlValue,
         'Client Approved': false,
+        'Approved At': null,
+        'Approved By Name': '',
+        'Approved By Email': '',
         'Client Comments': '',
       } as any);
 
