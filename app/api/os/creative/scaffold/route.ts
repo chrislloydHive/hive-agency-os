@@ -23,6 +23,7 @@
 //
 // Subfolders created under root: Evergreen/, Promotions/, Client Review/
 
+import { randomBytes } from 'crypto';
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { getBase } from '@/lib/airtable';
@@ -429,7 +430,23 @@ export async function POST(req: Request) {
     // 5. Populate sheet with one row per tactic
     await populateReviewSheet(sheets, copied.id, tacticRows);
 
-    console.log(`[creative/scaffold] recordId=${recordId}, projectName="${projectName}", hubName="${hubName}", sheetId=${copied.id}, projectCreativeAssetsFolderId=${projectCreativeAssetsFolder.id}, rowsWritten=${tacticRows.length}`);
+    // 6. Generate Client Review Portal token (reuse existing if present)
+    const existingToken = typeof projectFields['Client Review Portal Token'] === 'string'
+      ? projectFields['Client Review Portal Token'].trim()
+      : '';
+    const reviewToken = existingToken || randomBytes(32).toString('hex');
+    const reviewPortalUrl = `${getAppBaseUrl()}/review/${reviewToken}`;
+
+    // Write token + portal URL back to the Project record
+    if (!existingToken) {
+      const osBase = getBase();
+      await osBase(AIRTABLE_TABLES.PROJECTS).update(recordId, {
+        'Client Review Portal Token': reviewToken,
+        'Client Review Portal URL': reviewPortalUrl,
+      });
+    }
+
+    console.log(`[creative/scaffold] recordId=${recordId}, projectName="${projectName}", hubName="${hubName}", sheetId=${copied.id}, projectCreativeAssetsFolderId=${projectCreativeAssetsFolder.id}, rowsWritten=${tacticRows.length}, reviewToken=${reviewToken}, reviewPortalUrl=${reviewPortalUrl}`);
 
     return NextResponse.json({
       ok: true,
