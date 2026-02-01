@@ -43,21 +43,30 @@ const COMPANY_FIELD_CANDIDATES = ['Client', 'Company'] as const;
 
 /** Canonical approval-unit rows per concept. */
 const APPROVAL_UNITS = [
-  { channel: 'Display', assetSet: 'Static – Set 1',   folderPath: ['Display', 'Static – Set 1'] },
-  { channel: 'Display', assetSet: 'Animated – Set 1',  folderPath: ['Display', 'Animated – Set 1'] },
-  { channel: 'Social',  assetSet: 'Facebook – Set 1',  folderPath: ['Social', 'Facebook – Set 1'] },
-  { channel: 'Social',  assetSet: 'Instagram – Set 1', folderPath: ['Social', 'Instagram – Set 1'] },
-  { channel: 'Video',   assetSet: ':30',               folderPath: ['Video', ':30'] },
-  { channel: 'Video',   assetSet: ':15',               folderPath: ['Video', ':15'] },
-  { channel: 'Audio',   assetSet: 'Radio – :30',       folderPath: ['Audio', 'Radio – :30'] },
-  { channel: 'OOH',     assetSet: 'Standard – Set 1',  folderPath: ['OOH', 'Standard – Set 1'] },
+  { tactic: 'DISPLAY', setName: 'Static – Set 1',   sizeLength: '',    folderPath: ['Display', 'Static – Set 1'] },
+  { tactic: 'DISPLAY', setName: 'Animated – Set 1',  sizeLength: '',    folderPath: ['Display', 'Animated – Set 1'] },
+  { tactic: 'SOCIAL',  setName: 'Facebook – Set 1',  sizeLength: '',    folderPath: ['Social', 'Facebook – Set 1'] },
+  { tactic: 'SOCIAL',  setName: 'Instagram – Set 1', sizeLength: '',    folderPath: ['Social', 'Instagram – Set 1'] },
+  { tactic: 'VIDEO',   setName: ':30',               sizeLength: ':30', folderPath: ['Video', ':30'] },
+  { tactic: 'VIDEO',   setName: ':15',               sizeLength: ':15', folderPath: ['Video', ':15'] },
+  { tactic: 'AUDIO',   setName: 'Radio – :30',       sizeLength: ':30', folderPath: ['Audio', 'Radio – :30'] },
+  { tactic: 'OOH',     setName: 'Standard – Set 1',  sizeLength: '',    folderPath: ['OOH', 'Standard – Set 1'] },
 ] as const;
 
 /** Tab name preferences for the destination sheet. */
-const REVIEW_TAB_NAMES = ['Creative Review', 'Review', 'Approvals'] as const;
+const REVIEW_TAB_NAMES = ['Client Review & Approvals', 'Creative Review', 'Review', 'Approvals'] as const;
 
-/** Expected header columns — used for dynamic column mapping. */
-const HEADER_FIELDS = ['Concept', 'Channel', 'Asset Set', 'Folder Link', 'Status', 'Approved', 'Notes'] as const;
+/**
+ * Expected header columns in the real template — used for dynamic column mapping.
+ * Real header row:
+ *   Tactic | Concept | Asset Name | Size / Length | Format | Preview Link |
+ *   Status | Client Approval | Client Comments | Version | Final File Link | Asset ID
+ */
+const HEADER_FIELDS = [
+  'Tactic', 'Concept', 'Asset Name', 'Size / Length', 'Format',
+  'Preview Link', 'Status', 'Client Approval', 'Client Comments',
+  'Version', 'Final File Link', 'Asset ID',
+] as const;
 
 /**
  * Canonical Creative Review template Sheet ID.
@@ -402,14 +411,7 @@ export async function POST(req: Request) {
 
     // 3. Create concept-level folder trees and collect approval-unit folder IDs
     //    Structure: Creative Assets/<Concept>/<Channel>/<Leaf Folder Name>
-    interface ApprovalRow {
-      concept: string;
-      channel: string;
-      assetSet: string;
-      folderId: string;
-      folderUrl: string;
-    }
-    const approvalRows: ApprovalRow[] = [];
+    const approvalRows: ApprovalRowData[] = [];
 
     for (const conceptName of conceptNames) {
       const conceptFolder = await ensureChildFolder(drive, creativeAssetsRoot.id, conceptName);
@@ -421,8 +423,9 @@ export async function POST(req: Request) {
 
         approvalRows.push({
           concept: conceptName,
-          channel: unit.channel,
-          assetSet: unit.assetSet,
+          tactic: unit.tactic,
+          setName: unit.setName,
+          sizeLength: unit.sizeLength,
           folderId: leafFolder.id,
           folderUrl: folderUrl(leafFolder.id),
         });
@@ -432,7 +435,7 @@ export async function POST(req: Request) {
     console.log(`[CreativeScaffold] Created ${approvalRows.length} approval-unit folders for ${conceptNames.length} concepts`);
     // Log sample of first 2 rows
     for (const row of approvalRows.slice(0, 2)) {
-      console.log(`[CreativeScaffold] Sample row: concept=${row.concept}, channel=${row.channel}, assetSet=${row.assetSet}, folderId=${row.folderId}`);
+      console.log(`[CreativeScaffold] Sample row: concept=${row.concept}, tactic=${row.tactic}, setName=${row.setName}, folderId=${row.folderId}`);
     }
 
     // 4. Build sheet name and copy template
@@ -625,8 +628,9 @@ async function copyTemplate(
 
 interface ApprovalRowData {
   concept: string;
-  channel: string;
-  assetSet: string;
+  tactic: string;
+  setName: string;
+  sizeLength: string;
   folderId: string;
   folderUrl: string;
 }
@@ -634,7 +638,12 @@ interface ApprovalRowData {
 /**
  * Populate the Creative Review sheet with approval-unit rows.
  *
- * 1. Find the target tab by name preference (Creative Review > Review > Approvals > first tab).
+ * Real template tab: "Client Review & Approvals"
+ * Header row (row 1):
+ *   Tactic | Concept | Asset Name | Size / Length | Format | Preview Link |
+ *   Status | Client Approval | Client Comments | Version | Final File Link | Asset ID
+ *
+ * 1. Find the target tab by name preference.
  * 2. Read row 1 as headers, dynamically map column indexes.
  * 3. Clear existing data rows (keep header).
  * 4. Write approval rows starting at row 2.
@@ -651,12 +660,14 @@ async function populateReviewSheet(
   });
   const allSheets = meta.data.sheets ?? [];
 
-  // Find target tab
-  let targetSheet = allSheets.find((s) =>
-    REVIEW_TAB_NAMES.some((name) =>
-      s.properties?.title?.toLowerCase() === name.toLowerCase(),
-    ),
-  );
+  // Find target tab by name preference
+  let targetSheet: (typeof allSheets)[number] | undefined;
+  for (const preferred of REVIEW_TAB_NAMES) {
+    targetSheet = allSheets.find(
+      (s) => s.properties?.title?.toLowerCase() === preferred.toLowerCase(),
+    );
+    if (targetSheet) break;
+  }
   if (!targetSheet && allSheets.length > 0) {
     targetSheet = allSheets[0];
   }
@@ -675,7 +686,7 @@ async function populateReviewSheet(
   });
   const headerRow = headerRes.data.values?.[0] ?? [];
 
-  // Build column index map from header text
+  // Build column index map from header text (case-insensitive)
   const colMap: Record<string, number> = {};
   for (let i = 0; i < headerRow.length; i++) {
     const h = String(headerRow[i]).trim();
@@ -698,26 +709,36 @@ async function populateReviewSheet(
     range: clearRange,
   });
 
-  // Build row data
+  // Build row data matching the real template columns
   const dataRows: (string | boolean)[][] = rows.map((row) => {
     const cells: (string | boolean)[] = new Array(maxCol).fill('');
-    if ('Concept' in colMap) cells[colMap['Concept']] = row.concept;
-    if ('Channel' in colMap) cells[colMap['Channel']] = row.channel;
-    if ('Asset Set' in colMap) cells[colMap['Asset Set']] = row.assetSet;
-    if ('Folder Link' in colMap) cells[colMap['Folder Link']] = `=HYPERLINK("${row.folderUrl}","Open Folder")`;
-    if ('Status' in colMap) cells[colMap['Status']] = 'Needs Review';
-    if ('Approved' in colMap) cells[colMap['Approved']] = false as unknown as string;
-    if ('Notes' in colMap) cells[colMap['Notes']] = '';
+
+    const assetName = `${row.concept} | ${row.tactic} | ${row.setName}`;
+
+    if ('Tactic' in colMap)           cells[colMap['Tactic']] = row.tactic;
+    if ('Concept' in colMap)          cells[colMap['Concept']] = row.concept;
+    if ('Asset Name' in colMap)       cells[colMap['Asset Name']] = assetName;
+    if ('Size / Length' in colMap)    cells[colMap['Size / Length']] = row.sizeLength;
+    if ('Format' in colMap)           cells[colMap['Format']] = 'Folder';
+    if ('Preview Link' in colMap)     cells[colMap['Preview Link']] = `=HYPERLINK("${row.folderUrl}","Open Folder")`;
+    if ('Status' in colMap)           cells[colMap['Status']] = 'Needs Review';
+    if ('Client Approval' in colMap)  cells[colMap['Client Approval']] = '';
+    if ('Client Comments' in colMap)  cells[colMap['Client Comments']] = '';
+    if ('Version' in colMap)          cells[colMap['Version']] = 'v1';
+    if ('Final File Link' in colMap)  cells[colMap['Final File Link']] = '';
+    if ('Asset ID' in colMap)         cells[colMap['Asset ID']] = '';
+
     return cells;
   });
 
-  // Write rows starting at A2
+  // Write rows starting at A2 using batchUpdate
   const writeRange = `'${tabName}'!A2:${colLetter(maxCol)}${1 + dataRows.length}`;
-  await sheets.spreadsheets.values.update({
+  await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
-    range: writeRange,
-    valueInputOption: 'USER_ENTERED', // needed for HYPERLINK formulas
-    requestBody: { values: dataRows },
+    requestBody: {
+      valueInputOption: 'USER_ENTERED', // needed for HYPERLINK formulas
+      data: [{ range: writeRange, values: dataRows }],
+    },
   });
 
   console.log(`[CreativeScaffold] Wrote ${dataRows.length} rows to "${tabName}" (range: ${writeRange})`);
