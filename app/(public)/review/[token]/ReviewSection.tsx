@@ -18,6 +18,7 @@ interface TacticFeedback {
 }
 
 interface ReviewSectionProps {
+  variant: string;
   tactic: string;
   assets: ReviewAsset[];
   fileCount: number;
@@ -28,6 +29,7 @@ interface ReviewSectionProps {
 const DEBOUNCE_MS = 800;
 
 export default function ReviewSection({
+  variant,
   tactic,
   assets,
   fileCount,
@@ -47,7 +49,7 @@ export default function ReviewSection({
         const res = await fetch(`/api/review/feedback?token=${encodeURIComponent(token)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tactic, ...fields }),
+          body: JSON.stringify({ variant, tactic, ...fields }),
         });
         if (res.ok) {
           setLastSaved(new Date().toLocaleTimeString());
@@ -58,7 +60,7 @@ export default function ReviewSection({
         setSaving(false);
       }
     },
-    [tactic, token],
+    [variant, tactic, token],
   );
 
   const handleApprovalToggle = () => {

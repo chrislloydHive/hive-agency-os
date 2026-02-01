@@ -42,6 +42,9 @@ export const dynamic = 'force-dynamic';
 const SUBFOLDERS = ['Evergreen', 'Promotions', 'Client Review'] as const;
 const COMPANY_FIELD_CANDIDATES = ['Client', 'Company'] as const;
 
+/** Canonical variant list — Prospecting and Retargeting audiences. */
+const VARIANTS = ['Prospecting', 'Retargeting'] as const;
+
 /** Canonical tactic list — one row per tactic, each gets a "Default – Set A" folder. */
 const TACTICS = ['Display', 'Social', 'Video', 'Audio', 'OOH', 'PMAX', 'Geofence'] as const;
 
@@ -404,19 +407,23 @@ export async function POST(req: Request) {
     const creativeAssetsRoot = await ensureChildFolder(drive, rootFolderId, 'Creative Assets');
     const projectCreativeAssetsFolder = await ensureChildFolder(drive, creativeAssetsRoot.id, hubName);
 
-    // 3. Create tactic folders with default set inside project folder
-    //    Structure: Creative Assets/<hubName>/<Tactic>/Default – Set A/
+    // 3. Create variant/tactic folders with default set inside project folder
+    //    Structure: Creative Assets/<hubName>/<Variant>/<Tactic>/Default – Set A/
     const tacticRows: TacticRowData[] = [];
 
-    for (const tactic of TACTICS) {
-      const tacticFolder = await ensureChildFolder(drive, projectCreativeAssetsFolder.id, tactic);
-      const defaultSetFolder = await ensureChildFolder(drive, tacticFolder.id, DEFAULT_SET_NAME);
-      tacticRows.push({
-        tactic,
-        setName: DEFAULT_SET_NAME,
-        folderId: defaultSetFolder.id,
-        folderUrl: folderUrl(defaultSetFolder.id),
-      });
+    for (const variant of VARIANTS) {
+      const variantFolder = await ensureChildFolder(drive, projectCreativeAssetsFolder.id, variant);
+      for (const tactic of TACTICS) {
+        const tacticFolder = await ensureChildFolder(drive, variantFolder.id, tactic);
+        const defaultSetFolder = await ensureChildFolder(drive, tacticFolder.id, DEFAULT_SET_NAME);
+        tacticRows.push({
+          variant,
+          tactic,
+          setName: DEFAULT_SET_NAME,
+          folderId: defaultSetFolder.id,
+          folderUrl: folderUrl(defaultSetFolder.id),
+        });
+      }
     }
 
     // 4. Copy sheet template into Client Review folder
@@ -435,12 +442,12 @@ export async function POST(req: Request) {
     // 5. Populate sheet with one row per tactic
     await populateReviewSheet(sheets, copied.id, tacticRows);
 
-    // 5b. Upsert Creative Review Sets (one per tactic), keyed by (Project, Tactic, Set Name)
+    // 5b. Upsert Creative Review Sets (one per variant×tactic), keyed by (Project, Variant, Tactic, Set Name)
     const setsTable = AIRTABLE_TABLES.CREATIVE_REVIEW_SETS;
     const osBase = getBase();
     let setsUpserted = 0;
     for (const row of tacticRows) {
-      const formula = `AND(FIND("${recordId}", ARRAYJOIN({Project})) > 0, {Tactic} = "${row.tactic}", {Set Name} = "${DEFAULT_SET_NAME.replace(/"/g, '""')}")`;
+      const formula = `AND(FIND("${recordId}", ARRAYJOIN({Project})) > 0, {Variant} = "${row.variant}", {Tactic} = "${row.tactic}", {Set Name} = "${DEFAULT_SET_NAME.replace(/"/g, '""')}")`;
       const existing = await osBase(setsTable)
         .select({ filterByFormula: formula, maxRecords: 1 })
         .firstPage();
@@ -453,6 +460,7 @@ export async function POST(req: Request) {
       } else {
         await osBase(setsTable).create({
           Project: [recordId],
+          Variant: row.variant,
           Tactic: row.tactic,
           'Set Name': DEFAULT_SET_NAME,
           'Folder ID': row.folderId,
@@ -655,6 +663,7 @@ async function copyTemplate(
 // ============================================================================
 
 interface TacticRowData {
+  variant: string;
   tactic: string;
   setName: string;
   folderId: string;

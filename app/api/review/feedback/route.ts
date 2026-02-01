@@ -9,6 +9,7 @@ import { resolveReviewProject } from '@/lib/review/resolveProject';
 
 export const dynamic = 'force-dynamic';
 
+const VALID_VARIANTS = new Set(['Prospecting', 'Retargeting']);
 const VALID_TACTICS = new Set([
   'Display', 'Social', 'Video', 'Audio', 'OOH', 'PMAX', 'Geofence',
 ]);
@@ -99,14 +100,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
   }
 
-  let body: { tactic?: string; approved?: boolean; comments?: string };
+  let body: { variant?: string; tactic?: string; approved?: boolean; comments?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { tactic, approved, comments } = body;
+  const { variant, tactic, approved, comments } = body;
+
+  if (!variant || !VALID_VARIANTS.has(variant)) {
+    return NextResponse.json({ error: 'Invalid variant' }, { status: 400 });
+  }
 
   if (!tactic || !VALID_TACTICS.has(tactic)) {
     return NextResponse.json({ error: 'Invalid tactic' }, { status: 400 });
@@ -119,13 +124,16 @@ export async function POST(req: NextRequest) {
   const osBase = getBase();
   const recordId = resolved.project.recordId;
 
+  // Key is "Variant:Tactic" (e.g., "Prospecting:Display")
+  const feedbackKey = `${variant}:${tactic}`;
+
   try {
     // Read-modify-write the JSON blob
     const record = await osBase(AIRTABLE_TABLES.PROJECTS).find(recordId);
     const fields = record.fields as Record<string, unknown>;
     const data = parseReviewData(fields['Client Review Data']);
 
-    const existing = data[tactic] ?? { approved: false, comments: '' };
+    const existing = data[feedbackKey] ?? { approved: false, comments: '' };
 
     // Merge updates
     if (approved !== undefined) {
@@ -136,7 +144,7 @@ export async function POST(req: NextRequest) {
       existing.comments = String(comments).slice(0, 5000);
     }
 
-    data[tactic] = existing;
+    data[feedbackKey] = existing;
 
     await osBase(AIRTABLE_TABLES.PROJECTS).update(recordId, {
       'Client Review Data': JSON.stringify(data),

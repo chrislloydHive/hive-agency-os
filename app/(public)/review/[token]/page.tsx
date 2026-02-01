@@ -2,20 +2,20 @@
 // Server component: Client Review Portal page.
 // Resolves a project by its review token, loads all files from Creative Review Sets folders,
 // reads existing feedback from the Project record, and renders interactive
-// ReviewSection client components.
+// ReviewSection client components organized by variant (Prospecting/Retargeting).
 
 import { notFound } from 'next/navigation';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
-import ReviewSection from './ReviewSection';
+import ReviewPortalClient from './ReviewPortalClient';
 import type { Metadata } from 'next';
 
 export const dynamic = 'force-dynamic';
 
+const VARIANTS = ['Prospecting', 'Retargeting'] as const;
 const TACTICS = ['Display', 'Social', 'Video', 'Audio', 'OOH', 'PMAX', 'Geofence'] as const;
-const DEFAULT_SET_NAME = 'Default – Set A';
 
 interface ReviewAsset {
   fileId: string;
@@ -25,6 +25,7 @@ interface ReviewAsset {
 }
 
 interface TacticSectionData {
+  variant: string;
   tactic: string;
   assets: ReviewAsset[];
   fileCount: number;
@@ -85,7 +86,7 @@ export default async function ReviewPage({
     // If read fails, start with empty feedback
   }
 
-  // Fetch Creative Review Sets for this project (one per tactic)
+  // Fetch Creative Review Sets for this project (one per variant×tactic)
   const osBase = getBase();
   const reviewSets = await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_SETS)
     .select({
@@ -93,50 +94,42 @@ export default async function ReviewPage({
     })
     .all();
 
-  // Map tactic → folder ID
-  const tacticFolderMap = new Map<string, string>();
+  // Map (variant, tactic) → folder ID
+  const folderMap = new Map<string, string>();
   for (const set of reviewSets) {
     const fields = set.fields as Record<string, unknown>;
+    const variant = fields['Variant'] as string;
     const tactic = fields['Tactic'] as string;
     const folderId = fields['Folder ID'] as string;
-    if (tactic && folderId) {
-      tacticFolderMap.set(tactic, folderId);
+    if (variant && tactic && folderId) {
+      folderMap.set(`${variant}:${tactic}`, folderId);
     }
   }
 
-  // For each tactic, list all files from the set folder
+  // For each variant×tactic, list all files from the set folder
   const sections: TacticSectionData[] = [];
 
-  for (const tactic of TACTICS) {
-    const folderId = tacticFolderMap.get(tactic);
-    if (!folderId) {
-      sections.push({ tactic, assets: [], fileCount: 0 });
-      continue;
-    }
+  for (const variant of VARIANTS) {
+    for (const tactic of TACTICS) {
+      const folderId = folderMap.get(`${variant}:${tactic}`);
+      if (!folderId) {
+        sections.push({ variant, tactic, assets: [], fileCount: 0 });
+        continue;
+      }
 
-    const assets = await listAllFiles(drive, folderId);
-    sections.push({ tactic, assets, fileCount: assets.length });
+      const assets = await listAllFiles(drive, folderId);
+      sections.push({ variant, tactic, assets, fileCount: assets.length });
+    }
   }
 
   return (
-    <main className="min-h-screen bg-[#111827] text-gray-100">
-      <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
-        <h1 className="mb-8 text-2xl font-bold text-white sm:text-3xl">
-          {project.name} &ndash; Creative Review
-        </h1>
-
-        {sections.map((section) => (
-          <ReviewSection
-            key={section.tactic}
-            tactic={section.tactic}
-            assets={section.assets}
-            fileCount={section.fileCount}
-            token={token}
-            initialFeedback={reviewData[section.tactic] ?? { approved: false, comments: '' }}
-          />
-        ))}
-      </div>
-    </main>
+    <ReviewPortalClient
+      projectName={project.name}
+      sections={sections}
+      reviewData={reviewData}
+      token={token}
+      variants={[...VARIANTS]}
+    />
   );
 }
 
