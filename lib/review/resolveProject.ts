@@ -59,14 +59,14 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
   const record = records[0];
   const fields = record.fields as Record<string, unknown>;
 
-  // 2. Extract project name
-  const projectName = (fields['Name'] as string)
-    || (fields['Project Name'] as string)
-    || (fields['Title'] as string)
-    || '';
-  if (!projectName.trim()) return null;
+  // 2. Extract project name — canonical field only (no fallbacks)
+  const CANONICAL_PROJECT_NAME_FIELD = 'Project Name (Job #)';
+  const raw = fields[CANONICAL_PROJECT_NAME_FIELD];
+  const projectName =
+    typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : '';
+  if (!projectName) return null;
 
-  const hubName = `${projectName.trim()} – Creative Review`;
+  const hubName = `${projectName} – Creative Review`;
 
   // 3. Resolve companyId
   let companyId: string | null = null;
@@ -128,10 +128,16 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
 
   if (!auth) return null;
 
+  console.log('[review/resolveProject]', {
+    recordId: record.id,
+    projectName,
+    hubName,
+  });
+
   return {
     project: {
       recordId: record.id,
-      name: projectName.trim(),
+      name: projectName,
       hubName,
       companyId,
     },

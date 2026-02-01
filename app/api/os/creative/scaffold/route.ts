@@ -222,13 +222,15 @@ export async function POST(req: Request) {
     console.warn(`[creative/scaffold] Could not fetch Company record ${companyId}:`, err?.message ?? err);
   }
 
-  // Resolve project name — required for hub naming
-  const projectName = (projectFields['Name'] as string)
-    || (projectFields['Project Name'] as string)
-    || (projectFields['Title'] as string)
-    || '';
+  // Resolve project name — canonical field only (no fallbacks)
+  const CANONICAL_PROJECT_NAME_FIELD = 'Project Name (Job #)';
+  const rawName = projectFields[CANONICAL_PROJECT_NAME_FIELD];
+  const projectName =
+    typeof rawName === 'string' && rawName.trim().length > 0
+      ? rawName.trim()
+      : '';
 
-  if (!projectName.trim()) {
+  if (!projectName) {
     return NextResponse.json(
       {
         ok: false,
@@ -236,18 +238,21 @@ export async function POST(req: Request) {
         productionAssetsRootUrl: null,
         clientReviewFolderUrl: null,
         scaffoldStatus: 'error',
-        error: 'Project record is missing a Project Name — cannot name the Creative Review hub',
-        debug: { recordId, fieldsTried: ['Name', 'Project Name', 'Title'] },
+        error:
+          'Project record is missing Project Name (Job #) — cannot name the Creative Review hub',
+        debug: {
+          recordId,
+          fieldsTried: [CANONICAL_PROJECT_NAME_FIELD],
+          projectNameResolvedFrom: null,
+          projectNameResolvedValue: null,
+        },
       },
       { status: 200 },
     );
   }
 
   // Canonical hub name — reused for both the Google Sheet and Creative Assets folder
-  const hubName = `${projectName.trim()} – Creative Review`;
-
-  console.log(`[creative/scaffold] Resolved clientCode=${clientCode ?? '(none)'}, companyName=${companyName ?? '(none)'}, projectName=${projectName}`);
-  console.log(`[creative/scaffold] hubName="${hubName}"`);
+  const hubName = `${projectName} – Creative Review`;
 
   const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID!;
   const templateId = CREATIVE_REVIEW_TEMPLATE_SHEET_ID;
