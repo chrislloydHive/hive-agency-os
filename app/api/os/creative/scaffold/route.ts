@@ -30,7 +30,7 @@ import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { getCompanyGoogleOAuthFromDBBase, findCompanyIntegration } from '@/lib/airtable/companyIntegrations';
 import { getCompanyOAuthClient } from '@/lib/integrations/googleDrive';
 import { getGoogleOAuthUrl, getAppBaseUrl, GOOGLE_OAUTH_SCOPE_VERSION } from '@/lib/google/oauth';
-import type { drive_v3 } from 'googleapis';
+import type { drive_v3, sheets_v4 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +40,24 @@ export const dynamic = 'force-dynamic';
 
 const SUBFOLDERS = ['Evergreen', 'Promotions', 'Client Review'] as const;
 const COMPANY_FIELD_CANDIDATES = ['Client', 'Company'] as const;
+
+/** Canonical approval-unit rows per concept. */
+const APPROVAL_UNITS = [
+  { channel: 'Display', assetSet: 'Static – Set 1',   folderPath: ['Display', 'Static – Set 1'] },
+  { channel: 'Display', assetSet: 'Animated – Set 1',  folderPath: ['Display', 'Animated – Set 1'] },
+  { channel: 'Social',  assetSet: 'Facebook – Set 1',  folderPath: ['Social', 'Facebook – Set 1'] },
+  { channel: 'Social',  assetSet: 'Instagram – Set 1', folderPath: ['Social', 'Instagram – Set 1'] },
+  { channel: 'Video',   assetSet: ':30',               folderPath: ['Video', ':30'] },
+  { channel: 'Video',   assetSet: ':15',               folderPath: ['Video', ':15'] },
+  { channel: 'Audio',   assetSet: 'Radio – :30',       folderPath: ['Audio', 'Radio – :30'] },
+  { channel: 'OOH',     assetSet: 'Standard – Set 1',  folderPath: ['OOH', 'Standard – Set 1'] },
+] as const;
+
+/** Tab name preferences for the destination sheet. */
+const REVIEW_TAB_NAMES = ['Creative Review', 'Review', 'Approvals'] as const;
+
+/** Expected header columns — used for dynamic column mapping. */
+const HEADER_FIELDS = ['Concept', 'Channel', 'Asset Set', 'Folder Link', 'Status', 'Approved', 'Notes'] as const;
 
 /**
  * Canonical Creative Review template Sheet ID.
@@ -92,6 +110,7 @@ export async function POST(req: Request) {
     recordId?: string;
     creativeMode?: string;
     promoName?: string;
+    concepts?: string[];
   };
   try {
     body = await req.json();
@@ -102,7 +121,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const { recordId, creativeMode, promoName } = body;
+  const { recordId, creativeMode, promoName, concepts: bodyConcepts } = body;
   if (!recordId) {
     return NextResponse.json(
       { ok: false, error: 'recordId is required' },
@@ -204,7 +223,32 @@ export async function POST(req: Request) {
     || (projectFields['Title'] as string)
     || undefined;
 
+  // ── Resolve concept names ──────────────────────────────────────────
+  // Priority: request body > Project record fields > fallback to project name
+  let conceptNames: string[] = [];
+  if (Array.isArray(bodyConcepts) && bodyConcepts.length > 0) {
+    conceptNames = bodyConcepts.filter((c): c is string => typeof c === 'string' && c.length > 0);
+  }
+  if (conceptNames.length === 0) {
+    // Try common Airtable field names for concepts
+    for (const fname of ['Concepts', 'Campaign Concepts', 'Concept Names']) {
+      const v = projectFields[fname];
+      if (Array.isArray(v) && v.length > 0) {
+        conceptNames = v.filter((c): c is string => typeof c === 'string' && c.length > 0);
+        if (conceptNames.length > 0) break;
+      }
+      if (typeof v === 'string' && v.length > 0) {
+        conceptNames = v.split(',').map((s) => s.trim()).filter(Boolean);
+        if (conceptNames.length > 0) break;
+      }
+    }
+  }
+  if (conceptNames.length === 0) {
+    conceptNames = [projectName || 'Default'];
+  }
+
   console.log(`[creative/scaffold] Resolved clientCode=${clientCode ?? '(none)'}, companyName=${companyName ?? '(none)'}, projectName=${projectName ?? '(none)'}`);
+  console.log(`[creative/scaffold] Concepts (${conceptNames.length}): ${conceptNames.join(', ')}`);
 
   const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID!;
   const templateId = CREATIVE_REVIEW_TEMPLATE_SHEET_ID;
@@ -342,6 +386,7 @@ export async function POST(req: Request) {
   // ── Scaffold ────────────────────────────────────────────────────────
   try {
     const drive = google.drive({ version: 'v3', auth });
+    const sheets = google.sheets({ version: 'v4', auth });
 
     // 1. Ensure subfolders under root
     const folders: Record<string, { id: string; url: string }> = {};
@@ -352,16 +397,57 @@ export async function POST(req: Request) {
 
     const clientReviewFolder = folders['Client Review'];
 
-    // 2. Build sheet name from inputs (includes project name for uniqueness)
+    // 2. Ensure "Creative Assets" root folder under the production assets root
+    const creativeAssetsRoot = await ensureChildFolder(drive, rootFolderId, 'Creative Assets');
+
+    // 3. Create concept-level folder trees and collect approval-unit folder IDs
+    //    Structure: Creative Assets/<Concept>/<Channel>/<Leaf Folder Name>
+    interface ApprovalRow {
+      concept: string;
+      channel: string;
+      assetSet: string;
+      folderId: string;
+      folderUrl: string;
+    }
+    const approvalRows: ApprovalRow[] = [];
+
+    for (const conceptName of conceptNames) {
+      const conceptFolder = await ensureChildFolder(drive, creativeAssetsRoot.id, conceptName);
+
+      for (const unit of APPROVAL_UNITS) {
+        // folderPath is [channel, leafName] — create channel folder, then leaf
+        const channelFolder = await ensureChildFolder(drive, conceptFolder.id, unit.folderPath[0]);
+        const leafFolder = await ensureChildFolder(drive, channelFolder.id, unit.folderPath[1]);
+
+        approvalRows.push({
+          concept: conceptName,
+          channel: unit.channel,
+          assetSet: unit.assetSet,
+          folderId: leafFolder.id,
+          folderUrl: folderUrl(leafFolder.id),
+        });
+      }
+    }
+
+    console.log(`[CreativeScaffold] Created ${approvalRows.length} approval-unit folders for ${conceptNames.length} concepts`);
+    // Log sample of first 2 rows
+    for (const row of approvalRows.slice(0, 2)) {
+      console.log(`[CreativeScaffold] Sample row: concept=${row.concept}, channel=${row.channel}, assetSet=${row.assetSet}, folderId=${row.folderId}`);
+    }
+
+    // 4. Build sheet name and copy template
     const sheetName = buildSheetName(projectName, creativeMode, promoName);
 
-    // 3. Always copy template — each Project recordId gets its own sheet
     console.log('[CreativeScaffold] Using templateSheetId =', templateId);
     console.log(`[CreativeScaffold] recordId=${recordId}, companyId=${companyId}, clientReviewFolderId=${clientReviewFolder.id}`);
     const copied = await copyTemplate(drive, templateId, clientReviewFolder.id, sheetName);
     const sheetUrl = copied.url;
 
     console.log(`[CreativeScaffold] newSheetId=${copied.id}, sheetUrl=${sheetUrl}`);
+
+    // 5. Populate sheet with approval-unit rows
+    await populateReviewSheet(sheets, copied.id, approvalRows);
+
     console.log(`[creative/scaffold] Done for record ${recordId}`);
 
     return NextResponse.json({
@@ -369,7 +455,10 @@ export async function POST(req: Request) {
       sheetUrl,
       productionAssetsRootUrl: folderUrl(rootFolderId),
       clientReviewFolderUrl: clientReviewFolder.url,
+      creativeAssetsFolderUrl: folderUrl(creativeAssetsRoot.id),
       scaffoldStatus: 'complete',
+      conceptCount: conceptNames.length,
+      rowCount: approvalRows.length,
     });
   } catch (err: any) {
     console.error('[creative/scaffold] Error:', err?.message ?? err);
@@ -528,6 +617,122 @@ async function copyTemplate(
     mimeType: f.mimeType || '',
     url: documentUrl(copiedId, f.mimeType || undefined),
   };
+}
+
+// ============================================================================
+// Sheet population
+// ============================================================================
+
+interface ApprovalRowData {
+  concept: string;
+  channel: string;
+  assetSet: string;
+  folderId: string;
+  folderUrl: string;
+}
+
+/**
+ * Populate the Creative Review sheet with approval-unit rows.
+ *
+ * 1. Find the target tab by name preference (Creative Review > Review > Approvals > first tab).
+ * 2. Read row 1 as headers, dynamically map column indexes.
+ * 3. Clear existing data rows (keep header).
+ * 4. Write approval rows starting at row 2.
+ */
+async function populateReviewSheet(
+  sheets: sheets_v4.Sheets,
+  spreadsheetId: string,
+  rows: ApprovalRowData[],
+): Promise<void> {
+  // Get spreadsheet metadata to find the right tab
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties',
+  });
+  const allSheets = meta.data.sheets ?? [];
+
+  // Find target tab
+  let targetSheet = allSheets.find((s) =>
+    REVIEW_TAB_NAMES.some((name) =>
+      s.properties?.title?.toLowerCase() === name.toLowerCase(),
+    ),
+  );
+  if (!targetSheet && allSheets.length > 0) {
+    targetSheet = allSheets[0];
+  }
+  if (!targetSheet?.properties?.title) {
+    console.warn('[CreativeScaffold] No tabs found in sheet — skipping population');
+    return;
+  }
+
+  const tabName = targetSheet.properties.title;
+  console.log(`[CreativeScaffold] Destination tab: "${tabName}", sheetId=${spreadsheetId}`);
+
+  // Read header row (row 1)
+  const headerRes = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `'${tabName}'!1:1`,
+  });
+  const headerRow = headerRes.data.values?.[0] ?? [];
+
+  // Build column index map from header text
+  const colMap: Record<string, number> = {};
+  for (let i = 0; i < headerRow.length; i++) {
+    const h = String(headerRow[i]).trim();
+    for (const field of HEADER_FIELDS) {
+      if (h.toLowerCase() === field.toLowerCase()) {
+        colMap[field] = i;
+      }
+    }
+  }
+
+  console.log(`[CreativeScaffold] Header columns mapped: ${JSON.stringify(colMap)}`);
+
+  // Determine the width (number of columns)
+  const maxCol = Math.max(headerRow.length, ...Object.values(colMap).map((i) => i + 1));
+
+  // Clear existing data rows (row 2 onward)
+  const clearRange = `'${tabName}'!A2:${colLetter(maxCol)}${2 + rows.length + 100}`;
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId,
+    range: clearRange,
+  });
+
+  // Build row data
+  const dataRows: (string | boolean)[][] = rows.map((row) => {
+    const cells: (string | boolean)[] = new Array(maxCol).fill('');
+    if ('Concept' in colMap) cells[colMap['Concept']] = row.concept;
+    if ('Channel' in colMap) cells[colMap['Channel']] = row.channel;
+    if ('Asset Set' in colMap) cells[colMap['Asset Set']] = row.assetSet;
+    if ('Folder Link' in colMap) cells[colMap['Folder Link']] = `=HYPERLINK("${row.folderUrl}","Open Folder")`;
+    if ('Status' in colMap) cells[colMap['Status']] = 'Needs Review';
+    if ('Approved' in colMap) cells[colMap['Approved']] = false as unknown as string;
+    if ('Notes' in colMap) cells[colMap['Notes']] = '';
+    return cells;
+  });
+
+  // Write rows starting at A2
+  const writeRange = `'${tabName}'!A2:${colLetter(maxCol)}${1 + dataRows.length}`;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: writeRange,
+    valueInputOption: 'USER_ENTERED', // needed for HYPERLINK formulas
+    requestBody: { values: dataRows },
+  });
+
+  console.log(`[CreativeScaffold] Wrote ${dataRows.length} rows to "${tabName}" (range: ${writeRange})`);
+}
+
+/** Convert 1-based column number to letter (1→A, 26→Z, 27→AA). */
+function colLetter(n: number): string {
+  let s = '';
+  let num = n;
+  while (num > 0) {
+    num--;
+    s = String.fromCharCode(65 + (num % 26)) + s;
+    num = Math.floor(num / 26);
+  }
+  return s || 'A';
 }
 
 // ============================================================================
