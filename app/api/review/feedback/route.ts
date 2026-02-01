@@ -12,6 +12,7 @@ export const dynamic = 'force-dynamic';
 const VALID_VARIANTS = new Set(['Prospecting', 'Retargeting']);
 const VALID_TACTICS = new Set([
   'Display', 'Social', 'Video', 'Audio', 'OOH', 'PMAX', 'Geofence',
+  'General', // variant-level feedback when no assets yet
 ]);
 
 // ── In-memory rate limiter ──────────────────────────────────────────────────
