@@ -1,6 +1,6 @@
 // app/(public)/review/[token]/page.tsx
 // Server component: Client Review Portal page.
-// Resolves a project by its review token, loads REVIEW_ files from Drive,
+// Resolves a project by its review token, loads all files from Creative Review Sets folders,
 // reads existing feedback from the Project record, and renders interactive
 // ReviewSection client components.
 
@@ -21,12 +21,13 @@ interface ReviewAsset {
   fileId: string;
   name: string;
   mimeType: string;
+  modifiedTime: string;
 }
 
 interface TacticSectionData {
   tactic: string;
   assets: ReviewAsset[];
-  finalAssets: ReviewAsset[];
+  fileCount: number;
 }
 
 interface TacticFeedback {
@@ -84,35 +85,37 @@ export default async function ReviewPage({
     // If read fails, start with empty feedback
   }
 
-  // Resolve Creative Assets root → hubName folder
-  const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID!;
-  const creativeAssetsFolder = await findChildFolder(drive, rootFolderId, 'Creative Assets');
-  if (!creativeAssetsFolder) notFound();
+  // Fetch Creative Review Sets for this project (one per tactic)
+  const osBase = getBase();
+  const reviewSets = await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_SETS)
+    .select({
+      filterByFormula: `FIND("${project.recordId}", ARRAYJOIN({Project})) > 0`,
+    })
+    .all();
 
-  const hubFolder = await findChildFolder(drive, creativeAssetsFolder.id, project.hubName);
-  if (!hubFolder) notFound();
+  // Map tactic → folder ID
+  const tacticFolderMap = new Map<string, string>();
+  for (const set of reviewSets) {
+    const fields = set.fields as Record<string, unknown>;
+    const tactic = fields['Tactic'] as string;
+    const folderId = fields['Folder ID'] as string;
+    if (tactic && folderId) {
+      tacticFolderMap.set(tactic, folderId);
+    }
+  }
 
-  // For each tactic, list REVIEW_ files
+  // For each tactic, list all files from the set folder
   const sections: TacticSectionData[] = [];
 
   for (const tactic of TACTICS) {
-    const tacticFolder = await findChildFolder(drive, hubFolder.id, tactic);
-    if (!tacticFolder) {
-      sections.push({ tactic, assets: [], finalAssets: [] });
+    const folderId = tacticFolderMap.get(tactic);
+    if (!folderId) {
+      sections.push({ tactic, assets: [], fileCount: 0 });
       continue;
     }
 
-    const setFolder = await findChildFolder(drive, tacticFolder.id, DEFAULT_SET_NAME);
-    if (!setFolder) {
-      sections.push({ tactic, assets: [], finalAssets: [] });
-      continue;
-    }
-
-    const [assets, finalAssets] = await Promise.all([
-      listPrefixedFiles(drive, setFolder.id, 'REVIEW_'),
-      listPrefixedFiles(drive, setFolder.id, 'FINAL_'),
-    ]);
-    sections.push({ tactic, assets, finalAssets });
+    const assets = await listAllFiles(drive, folderId);
+    sections.push({ tactic, assets, fileCount: assets.length });
   }
 
   return (
@@ -127,7 +130,7 @@ export default async function ReviewPage({
             key={section.tactic}
             tactic={section.tactic}
             assets={section.assets}
-            finalAssets={section.finalAssets}
+            fileCount={section.fileCount}
             token={token}
             initialFeedback={reviewData[section.tactic] ?? { approved: false, comments: '' }}
           />
@@ -139,30 +142,17 @@ export default async function ReviewPage({
 
 // ─── Drive helpers (inline, Shared-Drive-safe) ──────────────────────────────
 
-async function findChildFolder(
-  drive: ReturnType<typeof google.drive>,
-  parentId: string,
-  name: string,
-): Promise<{ id: string; name: string } | null> {
-  const escaped = name.replace(/'/g, "\\'");
-  const res = await drive.files.list({
-    q: `'${parentId}' in parents and name = '${escaped}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-    fields: 'files(id, name)',
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-  });
-  const files = res.data.files ?? [];
-  return files.length > 0 ? { id: files[0].id!, name: files[0].name! } : null;
-}
-
-async function listPrefixedFiles(
+/**
+ * List all non-trashed files in a folder, sorted by modified time descending.
+ */
+async function listAllFiles(
   drive: ReturnType<typeof google.drive>,
   folderId: string,
-  prefix: string,
 ): Promise<ReviewAsset[]> {
   const res = await drive.files.list({
-    q: `'${folderId}' in parents and name contains '${prefix}' and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
-    fields: 'files(id, name, mimeType)',
+    q: `'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: 'files(id, name, mimeType, modifiedTime)',
+    orderBy: 'modifiedTime desc',
     supportsAllDrives: true,
     includeItemsFromAllDrives: true,
   });
@@ -170,5 +160,6 @@ async function listPrefixedFiles(
     fileId: f.id!,
     name: f.name!,
     mimeType: f.mimeType || 'application/octet-stream',
+    modifiedTime: f.modifiedTime || '',
   }));
 }

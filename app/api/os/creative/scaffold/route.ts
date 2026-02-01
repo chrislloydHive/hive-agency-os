@@ -435,6 +435,36 @@ export async function POST(req: Request) {
     // 5. Populate sheet with one row per tactic
     await populateReviewSheet(sheets, copied.id, tacticRows);
 
+    // 5b. Upsert Creative Review Sets (one per tactic), keyed by (Project, Tactic, Set Name)
+    const setsTable = AIRTABLE_TABLES.CREATIVE_REVIEW_SETS;
+    const osBase = getBase();
+    let setsUpserted = 0;
+    for (const row of tacticRows) {
+      const formula = `AND(FIND("${recordId}", ARRAYJOIN({Project})) > 0, {Tactic} = "${row.tactic}", {Set Name} = "${DEFAULT_SET_NAME.replace(/"/g, '""')}")`;
+      const existing = await osBase(setsTable)
+        .select({ filterByFormula: formula, maxRecords: 1 })
+        .firstPage();
+      const folderUrlValue = `https://drive.google.com/drive/folders/${row.folderId}`;
+      if (existing.length > 0) {
+        await osBase(setsTable).update(existing[0].id, {
+          'Folder ID': row.folderId,
+          'Folder URL': folderUrlValue,
+        } as Record<string, unknown>);
+      } else {
+        await osBase(setsTable).create({
+          Project: [recordId],
+          Tactic: row.tactic,
+          'Set Name': DEFAULT_SET_NAME,
+          'Folder ID': row.folderId,
+          'Folder URL': folderUrlValue,
+          'Client Approved': false,
+          'Client Comments': '',
+        } as Record<string, unknown>);
+      }
+      setsUpserted += 1;
+    }
+    console.log(`[creative/scaffold] Creative Review Sets upserted: ${setsUpserted}, Project recordId: ${recordId}`);
+
     // 6. Generate Client Review Portal token (reuse existing if present)
     const existingToken = typeof projectFields['Client Review Portal Token'] === 'string'
       ? projectFields['Client Review Portal Token'].trim()
@@ -444,7 +474,6 @@ export async function POST(req: Request) {
 
     // Write token + portal URL back to the Project record
     if (!existingToken) {
-      const osBase = getBase();
       await osBase(AIRTABLE_TABLES.PROJECTS).update(recordId, {
         'Client Review Portal Token': reviewToken,
         'Client Review Portal URL': reviewPortalUrl,

@@ -81,6 +81,7 @@ export const AIRTABLE_TABLES = {
   // Project System Tables (Project-Scoped Strategy → Brief)
   PROJECTS: 'Projects', // Project entities within engagements
   PROJECT_STRATEGIES: 'ProjectStrategies', // Project-scoped strategy (collapses into brief)
+  CREATIVE_REVIEW_SETS: 'Creative Review Sets', // One per (Project, Tactic, Set Name); stores Drive folder ID/URL
 
   // Canonical Brief System
   BRIEFS: 'Briefs', // Canonical briefs - single source of truth for all work
