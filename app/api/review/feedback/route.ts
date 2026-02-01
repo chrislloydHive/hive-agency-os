@@ -1,0 +1,150 @@
+// app/api/review/feedback/route.ts
+// Per-tactic approval + comments API for the Client Review Portal.
+// Token-only auth. Writes to the Project record's "Client Review Data" field (JSON blob).
+
+import { NextRequest, NextResponse } from 'next/server';
+import { getBase } from '@/lib/airtable';
+import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
+import { resolveReviewProject } from '@/lib/review/resolveProject';
+
+export const dynamic = 'force-dynamic';
+
+const VALID_TACTICS = new Set([
+  'Display', 'Social', 'Video', 'Audio', 'OOH', 'PMAX', 'Geofence',
+]);
+
+// ── In-memory rate limiter ──────────────────────────────────────────────────
+// Max 30 writes per token per 60-second window.
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 30;
+
+const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
+
+function isRateLimited(token: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(token);
+  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+    rateLimitMap.set(token, { count: 1, windowStart: now });
+    return false;
+  }
+  entry.count++;
+  return entry.count > RATE_LIMIT_MAX;
+}
+
+// ── Types ───────────────────────────────────────────────────────────────────
+
+export interface TacticFeedback {
+  approved: boolean;
+  comments: string;
+}
+
+export type ReviewData = Record<string, TacticFeedback>;
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function parseReviewData(raw: unknown): ReviewData {
+  if (typeof raw === 'string' && raw.length > 0) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as ReviewData;
+      }
+    } catch {
+      // corrupted — return empty
+    }
+  }
+  return {};
+}
+
+// ── GET: Read current feedback ──────────────────────────────────────────────
+
+export async function GET(req: NextRequest) {
+  const token = req.nextUrl.searchParams.get('token');
+  if (!token) {
+    return NextResponse.json({ error: 'Missing token' }, { status: 401 });
+  }
+
+  const resolved = await resolveReviewProject(token);
+  if (!resolved) {
+    return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+  }
+
+  // Read current Client Review Data from the Project record
+  const osBase = getBase();
+  try {
+    const record = await osBase(AIRTABLE_TABLES.PROJECTS).find(resolved.project.recordId);
+    const fields = record.fields as Record<string, unknown>;
+    const data = parseReviewData(fields['Client Review Data']);
+    return NextResponse.json({ ok: true, data });
+  } catch (err: any) {
+    console.error('[review/feedback] GET error:', err?.message ?? err);
+    return NextResponse.json({ error: 'Failed to read feedback' }, { status: 500 });
+  }
+}
+
+// ── POST: Write per-tactic feedback ─────────────────────────────────────────
+
+export async function POST(req: NextRequest) {
+  const token = req.nextUrl.searchParams.get('token');
+  if (!token) {
+    return NextResponse.json({ error: 'Missing token' }, { status: 401 });
+  }
+
+  if (isRateLimited(token)) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+  }
+
+  const resolved = await resolveReviewProject(token);
+  if (!resolved) {
+    return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+  }
+
+  let body: { tactic?: string; approved?: boolean; comments?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  const { tactic, approved, comments } = body;
+
+  if (!tactic || !VALID_TACTICS.has(tactic)) {
+    return NextResponse.json({ error: 'Invalid tactic' }, { status: 400 });
+  }
+
+  if (approved === undefined && comments === undefined) {
+    return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
+  }
+
+  const osBase = getBase();
+  const recordId = resolved.project.recordId;
+
+  try {
+    // Read-modify-write the JSON blob
+    const record = await osBase(AIRTABLE_TABLES.PROJECTS).find(recordId);
+    const fields = record.fields as Record<string, unknown>;
+    const data = parseReviewData(fields['Client Review Data']);
+
+    const existing = data[tactic] ?? { approved: false, comments: '' };
+
+    // Merge updates
+    if (approved !== undefined) {
+      existing.approved = !!approved;
+    }
+    if (comments !== undefined) {
+      // Cap comment length to prevent abuse
+      existing.comments = String(comments).slice(0, 5000);
+    }
+
+    data[tactic] = existing;
+
+    await osBase(AIRTABLE_TABLES.PROJECTS).update(recordId, {
+      'Client Review Data': JSON.stringify(data),
+    });
+
+    return NextResponse.json({ ok: true, data });
+  } catch (err: any) {
+    console.error('[review/feedback] POST error:', err?.message ?? err);
+    return NextResponse.json({ error: 'Failed to save feedback' }, { status: 500 });
+  }
+}
