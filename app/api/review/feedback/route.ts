@@ -83,6 +83,12 @@ export async function GET(req: NextRequest) {
   }
 }
 
+// ── Email validation ─────────────────────────────────────────────────────────
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 // ── POST: Write per-tactic feedback ─────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -100,14 +106,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
   }
 
-  let body: { variant?: string; tactic?: string; approved?: boolean; comments?: string };
+  let body: {
+    variant?: string;
+    tactic?: string;
+    approved?: boolean;
+    comments?: string;
+    authorName?: string;
+    authorEmail?: string;
+  };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { variant, tactic, approved, comments } = body;
+  const { variant, tactic, approved, comments, authorName, authorEmail } = body;
+
+  // Require author identity
+  if (!authorName || typeof authorName !== 'string' || !authorName.trim()) {
+    return NextResponse.json({ error: 'Author name is required' }, { status: 400 });
+  }
+
+  if (!authorEmail || typeof authorEmail !== 'string' || !isValidEmail(authorEmail.trim())) {
+    return NextResponse.json({ error: 'Valid author email is required' }, { status: 400 });
+  }
 
   if (!variant || !VALID_VARIANTS.has(variant)) {
     return NextResponse.json({ error: 'Invalid variant' }, { status: 400 });
@@ -149,6 +171,46 @@ export async function POST(req: NextRequest) {
     await osBase(AIRTABLE_TABLES.PROJECTS).update(recordId, {
       'Client Review Data': JSON.stringify(data),
     });
+
+    // If approving, also update the Creative Review Sets record
+    if (approved !== undefined) {
+      try {
+        const setFormula = `AND(
+          FIND("${recordId}", ARRAYJOIN({Project})) > 0,
+          {Variant} = "${variant}",
+          {Tactic} = "${tactic}"
+        )`;
+
+        const setRecords = await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_SETS)
+          .select({ filterByFormula: setFormula, maxRecords: 1 })
+          .firstPage();
+
+        if (setRecords.length > 0) {
+          const updateFields: Record<string, unknown> = {
+            'Client Approved': !!approved,
+          };
+
+          if (approved) {
+            updateFields['Approved At'] = new Date().toISOString();
+            updateFields['Approved By Name'] = authorName.trim();
+            updateFields['Approved By Email'] = authorEmail.trim();
+          } else {
+            // Clear approval info when un-approving
+            updateFields['Approved At'] = null;
+            updateFields['Approved By Name'] = '';
+            updateFields['Approved By Email'] = '';
+          }
+
+          await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_SETS).update(
+            setRecords[0].id,
+            updateFields as any,
+          );
+        }
+      } catch (setErr: any) {
+        // Log but don't fail the main operation
+        console.warn('[review/feedback] Creative Review Sets update failed:', setErr?.message ?? setErr);
+      }
+    }
 
     return NextResponse.json({ ok: true, data });
   } catch (err: any) {

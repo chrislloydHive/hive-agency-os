@@ -2,11 +2,12 @@
 
 // ReviewSection.tsx
 // Client component: per-tactic approval toggle + comment textarea.
-// Debounced auto-save for comments; inputs disabled after approval.
+// Requires author identity before approval or commenting.
 // Assets can be clicked to open a lightbox for expanded preview.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import AssetLightbox from './AssetLightbox';
+import { useAuthorIdentity } from './AuthorIdentityContext';
 
 interface ReviewAsset {
   fileId: string;
@@ -43,21 +44,32 @@ export default function ReviewSection({
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingCommentRef = useRef<string | null>(null);
 
   // Lightbox state
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  const { identity, requireIdentity } = useAuthorIdentity();
 
   const openLightbox = (index: number) => setLightboxIndex(index);
   const closeLightbox = () => setLightboxIndex(null);
 
   const save = useCallback(
     async (fields: { approved?: boolean; comments?: string }) => {
+      if (!identity) return; // Should not happen if requireIdentity was called
+
       setSaving(true);
       try {
         const res = await fetch(`/api/review/feedback?token=${encodeURIComponent(token)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ variant, tactic, ...fields }),
+          body: JSON.stringify({
+            variant,
+            tactic,
+            authorName: identity.name,
+            authorEmail: identity.email,
+            ...fields,
+          }),
         });
         if (res.ok) {
           setLastSaved(new Date().toLocaleTimeString());
@@ -68,20 +80,34 @@ export default function ReviewSection({
         setSaving(false);
       }
     },
-    [variant, tactic, token],
+    [variant, tactic, token, identity],
   );
 
   const handleApprovalToggle = () => {
     const next = !approved;
-    setApproved(next);
-    save({ approved: next });
+    requireIdentity(() => {
+      setApproved(next);
+      save({ approved: next });
+    });
   };
 
   const handleCommentsChange = (value: string) => {
     setComments(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    // Store the pending comment value
+    pendingCommentRef.current = value;
+
     debounceRef.current = setTimeout(() => {
-      save({ comments: value });
+      // Only save if there's a comment to save
+      if (pendingCommentRef.current && pendingCommentRef.current.trim()) {
+        requireIdentity(() => {
+          if (pendingCommentRef.current) {
+            save({ comments: pendingCommentRef.current });
+            pendingCommentRef.current = null;
+          }
+        });
+      }
     }, DEBOUNCE_MS);
   };
 

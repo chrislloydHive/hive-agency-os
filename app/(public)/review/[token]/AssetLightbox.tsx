@@ -3,9 +3,10 @@
 // AssetLightbox.tsx
 // Modal/lightbox component for viewing assets at full size with navigation.
 // Supports images, video, and audio. ESC to close, arrow keys to navigate.
-// Includes per-asset commenting.
+// Includes per-asset commenting with required author identity.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAuthorIdentity } from './AuthorIdentityContext';
 
 interface ReviewAsset {
   fileId: string;
@@ -17,7 +18,8 @@ interface AssetComment {
   id: string;
   comment: string;
   createdAt: string;
-  authorName?: string;
+  authorName: string;
+  authorEmail?: string;
 }
 
 interface AssetLightboxProps {
@@ -42,11 +44,12 @@ export default function AssetLightbox({
   const overlayRef = useRef<HTMLDivElement>(null);
   const asset = assets[currentIndex];
 
+  const { identity, requireIdentity } = useAuthorIdentity();
+
   // Comments state
   const [comments, setComments] = useState<AssetComment[]>([]);
   const [loadingComments, setLoadingComments] = useState(false);
   const [newComment, setNewComment] = useState('');
-  const [authorName, setAuthorName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [showComments, setShowComments] = useState(false);
 
@@ -78,8 +81,8 @@ export default function AssetLightbox({
     fetchComments();
   }, [asset?.fileId, token, variant, tactic]);
 
-  const handleSubmitComment = async () => {
-    if (!newComment.trim() || !asset) return;
+  const submitComment = useCallback(async () => {
+    if (!newComment.trim() || !asset || !identity) return;
 
     setSubmitting(true);
     try {
@@ -90,8 +93,10 @@ export default function AssetLightbox({
           variant,
           tactic,
           fileId: asset.fileId,
+          fileName: asset.name,
           comment: newComment.trim(),
-          authorName: authorName.trim() || undefined,
+          authorName: identity.name,
+          authorEmail: identity.email,
         }),
       });
 
@@ -105,6 +110,13 @@ export default function AssetLightbox({
     } finally {
       setSubmitting(false);
     }
+  }, [newComment, asset, identity, token, variant, tactic]);
+
+  const handleSubmitComment = () => {
+    if (!newComment.trim()) return;
+    requireIdentity(() => {
+      submitComment();
+    });
   };
 
   if (!asset) return null;
@@ -343,13 +355,11 @@ export default function AssetLightbox({
 
           {/* Add comment form */}
           <div className="border-t border-gray-700 p-4">
-            <input
-              type="text"
-              value={authorName}
-              onChange={(e) => setAuthorName(e.target.value)}
-              placeholder="Your name (optional)"
-              className="mb-2 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-            />
+            {identity && (
+              <p className="mb-2 text-xs text-gray-500">
+                Commenting as <span className="text-gray-400">{identity.name}</span>
+              </p>
+            )}
             <textarea
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}

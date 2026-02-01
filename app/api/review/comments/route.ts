@@ -34,7 +34,12 @@ export interface AssetComment {
   id: string;
   comment: string;
   createdAt: string;
-  authorName?: string;
+  authorName: string;
+  authorEmail?: string;
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
 // GET: Fetch comments for a specific asset
@@ -90,7 +95,8 @@ export async function GET(req: NextRequest) {
         id: r.id,
         comment: (fields['Comment'] as string) || '',
         createdAt: (fields['Created At'] as string) || new Date().toISOString(),
-        authorName: (fields['Author Name'] as string) || undefined,
+        authorName: (fields['Author Name'] as string) || 'Anonymous',
+        authorEmail: (fields['Author Email'] as string) || undefined,
       };
     });
 
@@ -122,8 +128,10 @@ export async function POST(req: NextRequest) {
     variant?: string;
     tactic?: string;
     fileId?: string;
+    fileName?: string;
     comment?: string;
     authorName?: string;
+    authorEmail?: string;
   };
 
   try {
@@ -132,7 +140,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { variant, tactic, fileId, comment, authorName } = body;
+  const { variant, tactic, fileId, fileName, comment, authorName, authorEmail } = body;
+
+  // Require author identity
+  if (!authorName || typeof authorName !== 'string' || !authorName.trim()) {
+    return NextResponse.json({ error: 'Author name is required' }, { status: 400 });
+  }
+
+  if (!authorEmail || typeof authorEmail !== 'string' || !isValidEmail(authorEmail.trim())) {
+    return NextResponse.json({ error: 'Valid author email is required' }, { status: 400 });
+  }
 
   if (!variant || !VALID_VARIANTS.has(variant)) {
     return NextResponse.json({ error: 'Invalid variant' }, { status: 400 });
@@ -159,8 +176,10 @@ export async function POST(req: NextRequest) {
       Variant: variant,
       Tactic: tactic,
       'File ID': fileId,
+      Filename: fileName?.trim().slice(0, 500) || '',
       Comment: comment.trim().slice(0, 5000), // Cap length
-      'Author Name': authorName?.trim().slice(0, 100) || '',
+      'Author Name': authorName.trim().slice(0, 100),
+      'Author Email': authorEmail.trim().slice(0, 200),
       'Created At': new Date().toISOString(),
     } as any);
 
@@ -168,7 +187,8 @@ export async function POST(req: NextRequest) {
       id: record.id,
       comment: comment.trim(),
       createdAt: new Date().toISOString(),
-      authorName: authorName?.trim() || undefined,
+      authorName: authorName.trim(),
+      authorEmail: authorEmail.trim(),
     };
 
     return NextResponse.json({ ok: true, comment: newComment });

@@ -2,10 +2,11 @@
 
 // ReviewPortalClient.tsx
 // Client component: renders tabbed variant sections (Prospecting/Retargeting)
-// with per-tactic approval UI.
+// with per-tactic approval UI. Wrapped in AuthorIdentityProvider for identity capture.
 
 import { useState } from 'react';
 import ReviewSection from './ReviewSection';
+import { AuthorIdentityProvider, useAuthorIdentity } from './AuthorIdentityContext';
 
 interface ReviewAsset {
   fileId: string;
@@ -35,7 +36,15 @@ interface ReviewPortalClientProps {
   variants: string[];
 }
 
-export default function ReviewPortalClient({
+export default function ReviewPortalClient(props: ReviewPortalClientProps) {
+  return (
+    <AuthorIdentityProvider>
+      <ReviewPortalClientInner {...props} />
+    </AuthorIdentityProvider>
+  );
+}
+
+function ReviewPortalClientInner({
   projectName,
   sections,
   reviewData,
@@ -43,6 +52,7 @@ export default function ReviewPortalClient({
   variants,
 }: ReviewPortalClientProps) {
   const [activeVariant, setActiveVariant] = useState(variants[0]);
+  const { identity, clearIdentity } = useAuthorIdentity();
 
   // Filter sections by active variant
   const activeSections = sections.filter((s) => s.variant === activeVariant);
@@ -50,9 +60,29 @@ export default function ReviewPortalClient({
   return (
     <main className="min-h-screen bg-[#111827] text-gray-100">
       <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
-        <h1 className="mb-6 text-2xl font-bold text-white sm:text-3xl">
-          {projectName} &ndash; Creative Review
-        </h1>
+        {/* Header with identity display */}
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <h1 className="text-2xl font-bold text-white sm:text-3xl">
+            {projectName} &ndash; Creative Review
+          </h1>
+          {identity && (
+            <div className="flex items-center gap-3 rounded-lg bg-gray-800/50 px-3 py-2">
+              <div className="text-right">
+                <p className="text-sm font-medium text-gray-200">{identity.name}</p>
+                <p className="text-xs text-gray-500">{identity.email}</p>
+              </div>
+              <button
+                onClick={clearIdentity}
+                className="rounded p-1 text-gray-500 hover:bg-gray-700 hover:text-gray-300"
+                title="Change identity"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Variant Tabs */}
         <div className="mb-8 flex gap-2 border-b border-gray-700">
