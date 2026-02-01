@@ -82,6 +82,7 @@ export const AIRTABLE_TABLES = {
   PROJECTS: 'Projects', // Project entities within engagements
   PROJECT_STRATEGIES: 'ProjectStrategies', // Project-scoped strategy (collapses into brief)
   CREATIVE_REVIEW_SETS: 'Creative Review Sets', // One per (Project, Tactic, Set Name); stores Drive folder ID/URL
+  CREATIVE_REVIEW_COMMENTS: 'Creative Review Comments', // Per-asset comments keyed by (Project, Tactic, fileId)
 
   // Canonical Brief System
   BRIEFS: 'Briefs', // Canonical briefs - single source of truth for all work

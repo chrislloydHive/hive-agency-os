@@ -127,6 +127,8 @@ export default function ReviewSection({
         <AssetLightbox
           assets={assets}
           currentIndex={lightboxIndex}
+          variant={variant}
+          tactic={tactic}
           token={token}
           onClose={closeLightbox}
           onNavigate={setLightboxIndex}
