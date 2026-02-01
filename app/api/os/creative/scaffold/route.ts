@@ -376,24 +376,23 @@ export async function POST(req: Request) {
     }
     const clientReviewFolder = folders['Client Review'];
 
-    // 2. Determine mode folder name under Creative Assets
-    //    evergreen → "Evergreen", promo → promoName or "Promo"
-    const modeFolderName = creativeMode === 'promo'
-      ? (promoName || 'Promo')
-      : 'Evergreen';
+    // 2. Compute the project-based folder name (same as the sheet name)
+    const projectFolderName = projectName
+      ? `${projectName} – Creative Review`
+      : buildSheetName(projectName, creativeMode, promoName);
 
-    // 3. Ensure Creative Assets/<mode>/ folder
+    // 3. Ensure Creative Assets/<project-named folder>/
     const creativeAssetsRoot = await ensureChildFolder(drive, rootFolderId, 'Creative Assets');
-    const modeFolder = await ensureChildFolder(drive, creativeAssetsRoot.id, modeFolderName);
+    const projectCreativeAssetsFolder = await ensureChildFolder(drive, creativeAssetsRoot.id, projectFolderName);
 
-    console.log(`[CreativeScaffold] recordId=${recordId}, mode=${modeFolderName}, productionRootId=${modeFolder.id}`);
+    console.log(`[CreativeScaffold] projectName=${projectName ?? '(none)'}, creativeAssetsRootFolderId=${creativeAssetsRoot.id}, projectCreativeAssetsFolderId=${projectCreativeAssetsFolder.id}`);
 
-    // 4. Create tactic folders with default set inside mode folder
-    //    Structure: Creative Assets/<mode>/<Tactic>/Default – Set A/
+    // 4. Create tactic folders with default set inside project folder
+    //    Structure: Creative Assets/<project-named folder>/<Tactic>/Default – Set A/
     const tacticRows: TacticRowData[] = [];
 
     for (const tactic of TACTICS) {
-      const tacticFolder = await ensureChildFolder(drive, modeFolder.id, tactic);
+      const tacticFolder = await ensureChildFolder(drive, projectCreativeAssetsFolder.id, tactic);
       const defaultSetFolder = await ensureChildFolder(drive, tacticFolder.id, DEFAULT_SET_NAME);
 
       console.log(`[CreativeScaffold] ${tactic}: tacticFolderId=${tacticFolder.id}, defaultSetFolderId=${defaultSetFolder.id}`);
@@ -416,18 +415,15 @@ export async function POST(req: Request) {
     const copied = await copyTemplate(drive, templateId, clientReviewFolder.id, sheetName);
     const sheetUrl = copied.url;
 
-    // 5b. Rename the copied sheet using Drive API
-    const newSheetName = projectName
-      ? `${projectName} – Creative Review`
-      : sheetName; // fallback to buildSheetName if no project name
-    if (newSheetName !== copied.name) {
+    // 5b. Rename the copied sheet using Drive API (same name as the project folder)
+    if (projectFolderName !== copied.name) {
       await drive.files.update({
         fileId: copied.id,
-        requestBody: { name: newSheetName },
+        requestBody: { name: projectFolderName },
         supportsAllDrives: true,
       });
     }
-    console.log(`[CreativeScaffold] Renamed sheet: projectName=${projectName ?? '(none)'}, newSheetName=${newSheetName}, sheetId=${copied.id}`);
+    console.log(`[CreativeScaffold] projectName=${projectName ?? '(none)'}, newSheetName=${projectFolderName}, sheetId=${copied.id}, projectCreativeAssetsFolderId=${projectCreativeAssetsFolder.id}`);
 
     // 6. Populate sheet with one row per tactic
     await populateReviewSheet(sheets, copied.id, tacticRows);
