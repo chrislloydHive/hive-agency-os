@@ -473,6 +473,16 @@ export async function POST(req: Request) {
     }
     console.log(`[creative/scaffold] Creative Review Sets upserted: ${setsUpserted}, Project recordId: ${recordId}`);
 
+    // 5c. Backfill: Ensure both variants exist for all tactics
+    const backfillStats = await backfillMissingVariants(
+      osBase,
+      setsTable,
+      recordId,
+      projectCreativeAssetsFolder.id,
+      drive,
+    );
+    console.log(`[creative/scaffold] Backfill: existingRows=${backfillStats.existingRows}, createdRows=${backfillStats.createdRows}, skippedDuplicates=${backfillStats.skippedDuplicates}, missingFolderCount=${backfillStats.missingFolderCount}`);
+
     // 6. Generate Client Review Portal token (reuse existing if present)
     const existingToken = typeof projectFields['Client Review Portal Token'] === 'string'
       ? projectFields['Client Review Portal Token'].trim()
@@ -514,6 +524,158 @@ export async function POST(req: Request) {
       { status: 200 }, // 200 so Airtable script can read the body
     );
   }
+}
+
+// ============================================================================
+// Backfill helper: Ensure both variants exist for all tactics
+// ============================================================================
+
+interface BackfillStats {
+  existingRows: number;
+  createdRows: number;
+  skippedDuplicates: number;
+  missingFolderCount: number;
+}
+
+/**
+ * Backfill missing variant rows in Creative Review Sets.
+ * For each tactic, if Prospecting exists but Retargeting doesn't, create Retargeting.
+ * Attempts to find the Retargeting folder in Drive; if missing, leaves Folder ID/URL blank.
+ */
+async function backfillMissingVariants(
+  osBase: ReturnType<typeof getBase>,
+  setsTable: string,
+  projectRecordId: string,
+  projectCreativeAssetsFolderId: string,
+  drive: drive_v3.Drive,
+): Promise<BackfillStats> {
+  const stats: BackfillStats = {
+    existingRows: 0,
+    createdRows: 0,
+    skippedDuplicates: 0,
+    missingFolderCount: 0,
+  };
+
+  // Fetch all existing Creative Review Sets for this project
+  const formula = `FIND("${projectRecordId}", ARRAYJOIN({Project})) > 0`;
+  const existingRecords = await osBase(setsTable)
+    .select({ filterByFormula: formula })
+    .all();
+
+  stats.existingRows = existingRecords.length;
+
+  // Build a map of existing (Variant, Tactic, Set Name) combinations
+  const existingKeys = new Set<string>();
+  for (const record of existingRecords) {
+    const fields = record.fields as Record<string, unknown>;
+    const variant = fields['Variant'] as string;
+    const tactic = fields['Tactic'] as string;
+    const setName = fields['Set Name'] as string;
+    if (variant && tactic && setName) {
+      existingKeys.add(`${variant}:${tactic}:${setName}`);
+    }
+  }
+
+  // For each tactic, ensure both variants exist
+  for (const tactic of TACTICS) {
+    const prospectingKey = `Prospecting:${tactic}:${DEFAULT_SET_NAME}`;
+    const retargetingKey = `Retargeting:${tactic}:${DEFAULT_SET_NAME}`;
+
+    // Check if Retargeting is missing
+    if (!existingKeys.has(retargetingKey)) {
+      // Check if this would be a duplicate (shouldn't happen, but safety check)
+      if (existingKeys.has(retargetingKey)) {
+        stats.skippedDuplicates++;
+        continue;
+      }
+
+      // Try to find the Retargeting folder in Drive
+      // Structure: Creative Assets/<hubName>/Retargeting/<Tactic>/Default – Set A/
+      let folderId = '';
+      let folderUrlValue = '';
+
+      try {
+        const retargetingVariantFolder = await findChildFolder(drive, projectCreativeAssetsFolderId, 'Retargeting');
+        if (retargetingVariantFolder) {
+          const tacticFolder = await findChildFolder(drive, retargetingVariantFolder.id, tactic);
+          if (tacticFolder) {
+            const setFolder = await findChildFolder(drive, tacticFolder.id, DEFAULT_SET_NAME);
+            if (setFolder) {
+              folderId = setFolder.id;
+              folderUrlValue = `https://drive.google.com/drive/folders/${setFolder.id}`;
+            }
+          }
+        }
+      } catch {
+        // Folder lookup failed, leave blank
+      }
+
+      if (!folderId) {
+        stats.missingFolderCount++;
+        console.warn(`[creative/scaffold] Backfill: Retargeting folder not found for tactic=${tactic}, project=${projectRecordId}`);
+      }
+
+      // Create the Retargeting row
+      await osBase(setsTable).create({
+        Project: [projectRecordId],
+        Variant: 'Retargeting',
+        Tactic: tactic,
+        'Set Name': DEFAULT_SET_NAME,
+        'Folder ID': folderId,
+        'Folder URL': folderUrlValue,
+        'Client Approved': false,
+        'Client Comments': '',
+      } as any);
+
+      stats.createdRows++;
+      existingKeys.add(retargetingKey);
+    }
+
+    // Also check if Prospecting is missing (in case project was created with old code)
+    if (!existingKeys.has(prospectingKey)) {
+      // Try to find the Prospecting folder in Drive
+      let folderId = '';
+      let folderUrlValue = '';
+
+      try {
+        const prospectingVariantFolder = await findChildFolder(drive, projectCreativeAssetsFolderId, 'Prospecting');
+        if (prospectingVariantFolder) {
+          const tacticFolder = await findChildFolder(drive, prospectingVariantFolder.id, tactic);
+          if (tacticFolder) {
+            const setFolder = await findChildFolder(drive, tacticFolder.id, DEFAULT_SET_NAME);
+            if (setFolder) {
+              folderId = setFolder.id;
+              folderUrlValue = `https://drive.google.com/drive/folders/${setFolder.id}`;
+            }
+          }
+        }
+      } catch {
+        // Folder lookup failed, leave blank
+      }
+
+      if (!folderId) {
+        stats.missingFolderCount++;
+        console.warn(`[creative/scaffold] Backfill: Prospecting folder not found for tactic=${tactic}, project=${projectRecordId}`);
+      }
+
+      // Create the Prospecting row
+      await osBase(setsTable).create({
+        Project: [projectRecordId],
+        Variant: 'Prospecting',
+        Tactic: tactic,
+        'Set Name': DEFAULT_SET_NAME,
+        'Folder ID': folderId,
+        'Folder URL': folderUrlValue,
+        'Client Approved': false,
+        'Client Comments': '',
+      } as any);
+
+      stats.createdRows++;
+      existingKeys.add(prospectingKey);
+    }
+  }
+
+  return stats;
 }
 
 // ============================================================================
