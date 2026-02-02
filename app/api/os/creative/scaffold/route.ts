@@ -45,8 +45,8 @@ const COMPANY_FIELD_CANDIDATES = ['Client', 'Company'] as const;
 /** Canonical variant list — Prospecting and Retargeting audiences. */
 const VARIANTS = ['Prospecting', 'Retargeting'] as const;
 
-/** Canonical tactic list — one row per tactic, each gets a "Default – Set A" folder. */
-const TACTICS = ['Display', 'Social', 'Video', 'Audio', 'OOH', 'PMAX', 'Geofence'] as const;
+/** Canonical tactic list — top-level folders under Creative Assets/<hubName>. Order matches folder tree. */
+const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video'] as const;
 
 /** Default set folder created inside each tactic folder. */
 const DEFAULT_SET_NAME = 'Default – Set A';
@@ -407,15 +407,16 @@ export async function POST(req: Request) {
     const creativeAssetsRoot = await ensureChildFolder(drive, rootFolderId, 'Creative Assets');
     const projectCreativeAssetsFolder = await ensureChildFolder(drive, creativeAssetsRoot.id, hubName);
 
-    // 3. Create variant/tactic folders with default set inside project folder
-    //    Structure: Creative Assets/<hubName>/<Variant>/<Tactic>/Default – Set A/
+    // 3. Create tactic/variant folders with default set inside project folder
+    //    Structure: Creative Assets/<hubName>/<Tactic>/<Variant>/Default – Set A/
+    //    No top-level Prospecting/Retargeting — only Audio, Display, Geofence, OOH, PMAX, Social, Video.
     const tacticRows: TacticRowData[] = [];
 
-    for (const variant of VARIANTS) {
-      const variantFolder = await ensureChildFolder(drive, projectCreativeAssetsFolder.id, variant);
-      for (const tactic of TACTICS) {
-        const tacticFolder = await ensureChildFolder(drive, variantFolder.id, tactic);
-        const defaultSetFolder = await ensureChildFolder(drive, tacticFolder.id, DEFAULT_SET_NAME);
+    for (const tactic of TACTICS) {
+      const tacticFolder = await getOrCreateFolder(drive, projectCreativeAssetsFolder.id, tactic);
+      for (const variant of VARIANTS) {
+        const variantFolder = await getOrCreateFolder(drive, tacticFolder.id, variant);
+        const defaultSetFolder = await getOrCreateFolder(drive, variantFolder.id, DEFAULT_SET_NAME);
         tacticRows.push({
           variant,
           tactic,
@@ -595,17 +596,16 @@ async function backfillMissingVariants(
         continue;
       }
 
-      // Try to find the Retargeting folder in Drive
-      // Structure: Creative Assets/<hubName>/Retargeting/<Tactic>/Default – Set A/
+      // Try to find the folder in Drive (new schema: Tactic/Variant/Default – Set A)
       let folderId = '';
       let folderUrlValue = '';
 
       try {
-        const retargetingVariantFolder = await findChildFolder(drive, projectCreativeAssetsFolderId, 'Retargeting');
-        if (retargetingVariantFolder) {
-          const tacticFolder = await findChildFolder(drive, retargetingVariantFolder.id, tactic);
-          if (tacticFolder) {
-            const setFolder = await findChildFolder(drive, tacticFolder.id, DEFAULT_SET_NAME);
+        const tacticFolder = await findChildFolder(drive, projectCreativeAssetsFolderId, tactic);
+        if (tacticFolder) {
+          const variantFolder = await findChildFolder(drive, tacticFolder.id, 'Retargeting');
+          if (variantFolder) {
+            const setFolder = await findChildFolder(drive, variantFolder.id, DEFAULT_SET_NAME);
             if (setFolder) {
               folderId = setFolder.id;
               folderUrlValue = `https://drive.google.com/drive/folders/${setFolder.id}`;
@@ -642,16 +642,16 @@ async function backfillMissingVariants(
 
     // Also check if Prospecting is missing (in case project was created with old code)
     if (!existingKeys.has(prospectingKey)) {
-      // Try to find the Prospecting folder in Drive
+      // Try to find the folder in Drive (new schema: Tactic/Variant/Default – Set A)
       let folderId = '';
       let folderUrlValue = '';
 
       try {
-        const prospectingVariantFolder = await findChildFolder(drive, projectCreativeAssetsFolderId, 'Prospecting');
-        if (prospectingVariantFolder) {
-          const tacticFolder = await findChildFolder(drive, prospectingVariantFolder.id, tactic);
-          if (tacticFolder) {
-            const setFolder = await findChildFolder(drive, tacticFolder.id, DEFAULT_SET_NAME);
+        const tacticFolder = await findChildFolder(drive, projectCreativeAssetsFolderId, tactic);
+        if (tacticFolder) {
+          const variantFolder = await findChildFolder(drive, tacticFolder.id, 'Prospecting');
+          if (variantFolder) {
+            const setFolder = await findChildFolder(drive, variantFolder.id, DEFAULT_SET_NAME);
             if (setFolder) {
               folderId = setFolder.id;
               folderUrlValue = `https://drive.google.com/drive/folders/${setFolder.id}`;
@@ -751,7 +751,7 @@ async function createFolder(
   return { id: res.data.id!, name: res.data.name! };
 }
 
-/** Ensure a folder exists (find-or-create, Shared Drive safe). */
+/** Ensure a folder exists (find-or-create, Shared Drive safe). Idempotent. */
 async function ensureChildFolder(
   drive: drive_v3.Drive,
   parentId: string,
@@ -763,6 +763,15 @@ async function ensureChildFolder(
     return existing;
   }
   return createFolder(drive, parentId, name);
+}
+
+/** Alias for ensureChildFolder — get-or-create folder (idempotent, Shared Drive safe). */
+async function getOrCreateFolder(
+  drive: drive_v3.Drive,
+  parentId: string,
+  name: string,
+): Promise<{ id: string; name: string }> {
+  return ensureChildFolder(drive, parentId, name);
 }
 
 /** Find a file (non-folder) by exact name in a folder. */

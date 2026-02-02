@@ -12,7 +12,7 @@ import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 export const dynamic = 'force-dynamic';
 
 const VARIANTS = ['Prospecting', 'Retargeting'] as const;
-const TACTICS = ['Display', 'Social', 'Video', 'Audio', 'OOH', 'PMAX', 'Geofence'] as const;
+const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video'] as const;
 
 interface ReviewAsset {
   fileId: string;
@@ -80,6 +80,12 @@ export async function GET(req: NextRequest) {
       folderMap.set(key, folderId);
       folderIds[key] = folderId;
     }
+  }
+
+  // folderMap keys: variant:tactic (e.g. Prospecting:Audio, Retargeting:Display)
+  if (process.env.NODE_ENV === 'development' && folderMap.size > 0) {
+    const keys = [...folderMap.keys()].sort().map((k) => k.replace(':', '.'));
+    console.log('[review/assets] folderMap keys:', keys.join(', '));
   }
 
   const sections: TacticSectionData[] = [];
