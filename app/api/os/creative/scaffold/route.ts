@@ -514,12 +514,15 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       sheetUrl,
-      clientReviewFolderUrl: jobFolderUrl,
-      creativeReviewHubFolderId: jobFolder.id,
-      creativeReviewHubFolderUrl: jobFolderUrl,
       scaffoldStatus: 'complete',
       rowCount: tacticRows.length,
       lastRunAt: new Date().toISOString(),
+      jobFolderId: jobFolder.id,
+      jobFolderUrl: jobFolderUrl,
+      clientReviewPortalUrl: reviewPortalUrl,
+      creativeReviewHubFolderId: jobFolder.id,
+      creativeReviewHubFolderUrl: jobFolderUrl,
+      clientReviewFolderUrl: jobFolderUrl,
     });
   } catch (err: any) {
     console.error('[creative/scaffold] Error:', err?.message ?? err);
@@ -527,9 +530,6 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         ok: false,
-        sheetUrl: null,
-        productionAssetsRootUrl: null,
-        clientReviewFolderUrl: null,
         scaffoldStatus: 'error',
         error: err?.message ?? 'Unknown error',
       },

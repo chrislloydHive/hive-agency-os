@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
-import { getReviewFolderMap, getReviewFolderMapFromJobFolder } from '@/lib/review/reviewFolders';
+import { getReviewFolderMap, getReviewFolderMapFromJobFolder, getReviewFolderMapFromClientProjectsFolder } from '@/lib/review/reviewFolders';
 import type { drive_v3 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
@@ -67,6 +67,11 @@ export async function GET(req: NextRequest) {
   const folderResult = project.jobFolderId
     ? await getReviewFolderMapFromJobFolder(drive, project.jobFolderId)
     : await (async () => {
+        const clientProjectsFolderId = process.env.CAR_TOYS_PROJECTS_FOLDER_ID ?? '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_';
+        if (clientProjectsFolderId) {
+          const fromClient = await getReviewFolderMapFromClientProjectsFolder(drive, project.name, clientProjectsFolderId);
+          if (fromClient) return fromClient;
+        }
         const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID;
         if (!rootFolderId) return null;
         return getReviewFolderMap(drive, project.hubName, rootFolderId);

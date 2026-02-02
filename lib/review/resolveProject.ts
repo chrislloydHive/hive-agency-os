@@ -136,9 +136,11 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
     hubName,
   });
 
+  const jobFolderIdRaw =
+    fields['Creative Review Hub Folder ID'] ?? fields['CRH Folder ID'] ?? fields['Job Folder ID'];
   const jobFolderId =
-    (typeof fields['Creative Review Hub Folder ID'] === 'string' && fields['Creative Review Hub Folder ID'].trim())
-      ? (fields['Creative Review Hub Folder ID'] as string).trim()
+    typeof jobFolderIdRaw === 'string' && jobFolderIdRaw.trim()
+      ? jobFolderIdRaw.trim()
       : undefined;
 
   return {

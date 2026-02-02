@@ -97,3 +97,28 @@ export async function getAllowedReviewFolderIdsFromJobFolder(
   const result = await getReviewFolderMapFromJobFolder(drive, jobFolderId);
   return result ? [...result.map.values()] : null;
 }
+
+/**
+ * Build folder map when job folder is under client Projects folder (by project name).
+ * Path: clientProjectsFolderId → projectName → tactic → variant.
+ * Use when Project record has no Creative Review Hub Folder ID (e.g. field missing or not yet written).
+ */
+export async function getReviewFolderMapFromClientProjectsFolder(
+  drive: drive_v3.Drive,
+  projectName: string,
+  clientProjectsFolderId: string,
+): Promise<ReviewFolderMapResult | null> {
+  const jobFolderId = await getChildFolderId(drive, clientProjectsFolderId, projectName);
+  if (!jobFolderId) return null;
+  return getReviewFolderMapFromJobFolder(drive, jobFolderId);
+}
+
+/** All variant folder IDs when job is under client Projects folder (for file proxy allowlist). */
+export async function getAllowedReviewFolderIdsFromClientProjectsFolder(
+  drive: drive_v3.Drive,
+  projectName: string,
+  clientProjectsFolderId: string,
+): Promise<string[] | null> {
+  const result = await getReviewFolderMapFromClientProjectsFolder(drive, projectName, clientProjectsFolderId);
+  return result ? [...result.map.values()] : null;
+}
