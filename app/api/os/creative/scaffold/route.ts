@@ -499,14 +499,15 @@ export async function POST(req: Request) {
     const jobFolderUrl = folderUrl(jobFolder.id);
 
     // Write token, portal URL, and job folder ID/URL back to the Project record
-    await osBase(AIRTABLE_TABLES.PROJECTS).update(recordId, {
-      ...(existingToken ? {} : {
-        'Client Review Portal Token': reviewToken,
-        'Client Review Portal URL': reviewPortalUrl,
-      }),
+    const projectUpdates: Record<string, string> = {
       'Creative Review Hub Folder ID': jobFolder.id,
       'Creative Review Hub Folder URL': jobFolderUrl,
-    } as Record<string, unknown>);
+    };
+    if (!existingToken) {
+      projectUpdates['Client Review Portal Token'] = reviewToken;
+      projectUpdates['Client Review Portal URL'] = reviewPortalUrl;
+    }
+    await osBase(AIRTABLE_TABLES.PROJECTS).update(recordId, projectUpdates as any);
 
     console.log(`[creative/scaffold] recordId=${recordId}, projectName="${projectName}", hubName="${hubName}", sheetId=${copied.id}, jobFolderId=${jobFolder.id}, clientProjectsFolderId=${clientProjectsFolderId}, rowsWritten=${tacticRows.length}, reviewToken=${reviewToken}, reviewPortalUrl=${reviewPortalUrl}`);
 
