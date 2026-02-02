@@ -195,9 +195,9 @@ export default function ReviewSection({
         )}
       </div>
 
-      {/* Asset grid — only when files exist */}
+      {/* Asset grid — only when files exist; 4–5 columns so 10+ assets fit without cramping */}
       {hasFiles ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
           {assets.map((asset, index) => (
             <AssetCard
               key={asset.fileId}

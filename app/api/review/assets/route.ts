@@ -100,13 +100,20 @@ export async function GET(req: NextRequest) {
   }
   const { map: folderMap, jobFolderId } = folderResult;
 
-  // List files from each variant folder (leaf folders only)
+  // List files from each variant folder (leaf folders only). Key must be variant:tactic to match folder map.
   const sections: TacticSectionData[] = [];
   const debug: { jobFolderId: string; tactic: string; variant: string; folderId: string; fileCount: number }[] = [];
 
   for (const variant of VARIANTS) {
     for (const tactic of TACTICS) {
-      const folderId = folderMap.get(`${variant}:${tactic}`)!;
+      const mapKey = `${variant}:${tactic}`;
+      const folderId = folderMap.get(mapKey);
+      if (!folderId) {
+        console.warn(`[review/assets] Missing folder for ${mapKey}, skipping section`);
+        sections.push({ variant, tactic, assets: [], fileCount: 0 });
+        if (debugFlag) debug.push({ jobFolderId, tactic, variant, folderId: '', fileCount: 0 });
+        continue;
+      }
       const assets = await listAllFiles(drive, folderId);
       sections.push({ variant, tactic, assets, fileCount: assets.length });
       if (debugFlag) {
@@ -115,8 +122,14 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Attach review state and click-through URL from Creative Review Asset Status + project primary
-  const statusMap = await listAssetStatuses(token);
+  // Attach review state and click-through URL from Creative Review Asset Status + project primary (non-fatal if table missing)
+  let statusMap: Awaited<ReturnType<typeof listAssetStatuses>>;
+  try {
+    statusMap = await listAssetStatuses(token);
+  } catch (err) {
+    console.warn('[review/assets] listAssetStatuses failed (table may be missing):', err instanceof Error ? err.message : err);
+    statusMap = new Map();
+  }
   const primaryLandingPageUrl = project.primaryLandingPageUrl ?? null;
   const toReviewState = (fileId: string): ReviewState => {
     const key = `${token}::${fileId}`;
@@ -140,8 +153,13 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Attach group approval (as-of) and newSinceApprovalCount per section
-  const groupApprovals = await getGroupApprovals(token);
+  // Attach group approval (as-of) and newSinceApprovalCount per section (non-fatal if table missing)
+  let groupApprovals: Record<string, { approvedAt: string; approvedByName: string | null; approvedByEmail: string | null }> = {};
+  try {
+    groupApprovals = await getGroupApprovals(token);
+  } catch (err) {
+    console.warn('[review/assets] getGroupApprovals failed (table may be missing):', err instanceof Error ? err.message : err);
+  }
   for (const section of sections) {
     const key = groupKey(section.tactic, section.variant);
     const approval = groupApprovals[key];
