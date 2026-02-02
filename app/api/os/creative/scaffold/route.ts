@@ -497,11 +497,15 @@ export async function POST(req: Request) {
     const reviewPortalUrl = `${getAppBaseUrl()}/review/${reviewToken}`;
 
     const jobFolderUrl = folderUrl(jobFolder.id);
+    const productionAssetsRootFolderUrl = folderUrl(clientProjectsFolderId);
 
-    // Write token, portal URL, and job folder ID/URL back to the Project record
+    // Write token, portal URL, job folder, sheet URL, and production assets root back to the Project record
     const projectUpdates: Record<string, string> = {
       'Creative Review Hub Folder ID': jobFolder.id,
       'Creative Review Hub Folder URL': jobFolderUrl,
+      'Creative Review Sheet URL': sheetUrl,
+      'Production Assets Root Folder': productionAssetsRootFolderUrl,
+      'Client Review Folder URL': jobFolderUrl,
     };
     if (!existingToken) {
       projectUpdates['Client Review Portal Token'] = reviewToken;
@@ -523,6 +527,8 @@ export async function POST(req: Request) {
       creativeReviewHubFolderId: jobFolder.id,
       creativeReviewHubFolderUrl: jobFolderUrl,
       clientReviewFolderUrl: jobFolderUrl,
+      productionAssetsRootFolderId: clientProjectsFolderId,
+      productionAssetsRootFolderUrl: productionAssetsRootFolderUrl,
     });
   } catch (err: any) {
     console.error('[creative/scaffold] Error:', err?.message ?? err);

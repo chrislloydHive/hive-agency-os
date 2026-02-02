@@ -14,9 +14,9 @@
 //   "Creative Scaffold Error"      – long text (written on failure, cleared on success)
 //   "Creative Scaffold Connect URL" – URL (connectUrl from API or null; use real null, not string "null")
 //   "Creative Scaffold Last Run"    – Date/DateTime (always set to ISO 8601 when we have a response)
-//   "Review Sheet URL"             – URL (written on success)
-//   "Production Assets URL"        – URL (written on success)
-//   "Client Review URL"            – URL (written on success)
+//   "Creative Review Sheet URL"     – URL (written on success)
+//   "Production Assets Root Folder" – URL (written on success)
+//   "Client Review Folder URL"      – URL (written on success)
 //
 // Note: companyId is resolved server-side from the Project's linked Company field.
 //
@@ -160,10 +160,13 @@ if (result && result.ok === true) {
     updates['Creative Scaffold Error'] = '';
     updates['Creative Scaffold Connect URL'] = null;
     if (typeof result.sheetUrl === 'string' && result.sheetUrl.trim()) {
-        updates['Review Sheet URL'] = result.sheetUrl.trim();
+        updates['Creative Review Sheet URL'] = result.sheetUrl.trim();
+    }
+    if (typeof result.productionAssetsRootFolderUrl === 'string' && result.productionAssetsRootFolderUrl.trim()) {
+        updates['Production Assets Root Folder'] = result.productionAssetsRootFolderUrl.trim();
     }
     if (typeof result.clientReviewFolderUrl === 'string' && result.clientReviewFolderUrl.trim()) {
-        updates['Client Review URL'] = result.clientReviewFolderUrl.trim();
+        updates['Client Review Folder URL'] = result.clientReviewFolderUrl.trim();
     }
     if (typeof result.creativeReviewHubFolderId === 'string' && result.creativeReviewHubFolderId.trim()) {
         updates['Creative Review Hub Folder ID'] = result.creativeReviewHubFolderId.trim();
@@ -185,8 +188,9 @@ const LOG_FIELD_TYPES = {
     'Creative Scaffold Error': 'multilineText',
     'Creative Scaffold Connect URL': 'url',
     'Creative Scaffold Last Run': 'dateTime',
-    'Review Sheet URL': 'url',
-    'Client Review URL': 'url',
+    'Creative Review Sheet URL': 'url',
+    'Production Assets Root Folder': 'url',
+    'Client Review Folder URL': 'url',
     'Creative Review Hub Folder ID': 'singleLineText',
     'Creative Review Hub Folder URL': 'url',
 };
