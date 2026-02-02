@@ -89,14 +89,21 @@ export default function AssetLightbox({
       const res = await fetch(`/api/review/comments?token=${encodeURIComponent(token)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify({
-          variant,
+          token,
+          body: newComment.trim(),
+          authorName: identity.name,
+          authorEmail: identity.email,
           tactic,
+          variantGroup: variant,
+          concept: '',
+          driveFileId: asset.fileId,
+          filename: asset.name,
+          variant,
           fileId: asset.fileId,
           fileName: asset.name,
           comment: newComment.trim(),
-          authorName: identity.name,
-          authorEmail: identity.email,
         }),
       });
 
