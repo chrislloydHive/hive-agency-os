@@ -5,7 +5,7 @@
 import type { drive_v3 } from 'googleapis';
 
 const VARIANTS = ['Prospecting', 'Retargeting'] as const;
-const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video'] as const;
+const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video', 'Search'] as const;
 
 /** Get child folder id by exact name. Shared Drive safe. */
 export async function getChildFolderId(

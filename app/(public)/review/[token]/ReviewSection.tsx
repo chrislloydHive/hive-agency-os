@@ -8,11 +8,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import AssetLightbox from './AssetLightbox';
 import { useAuthorIdentity } from './AuthorIdentityContext';
+import type { ReviewState } from './ReviewPortalClient';
 
 interface ReviewAsset {
   fileId: string;
   name: string;
   mimeType: string;
+  reviewState?: ReviewState;
 }
 
 interface TacticFeedback {
@@ -27,6 +29,7 @@ interface ReviewSectionProps {
   fileCount: number;
   token: string;
   initialFeedback: TacticFeedback;
+  onAssetStatusChange?: (variant: string, tactic: string, fileId: string, reviewState: ReviewState) => void;
 }
 
 const DEBOUNCE_MS = 800;
@@ -38,6 +41,7 @@ export default function ReviewSection({
   fileCount,
   token,
   initialFeedback,
+  onAssetStatusChange,
 }: ReviewSectionProps) {
   const [approved, setApproved] = useState(initialFeedback.approved);
   const [comments, setComments] = useState(initialFeedback.comments);
@@ -166,6 +170,7 @@ export default function ReviewSection({
           token={token}
           onClose={closeLightbox}
           onNavigate={setLightboxIndex}
+          onAssetStatusChange={onAssetStatusChange}
         />
       )}
 
@@ -235,12 +240,28 @@ export default function ReviewSection({
   );
 }
 
+function statusBadgeLabel(state: ReviewState | undefined): string {
+  if (!state || state === 'new') return 'New';
+  if (state === 'seen') return 'Seen';
+  if (state === 'approved') return 'Approved';
+  if (state === 'needs_changes') return 'Needs Changes';
+  return 'New';
+}
+
+function statusBadgeClass(state: ReviewState | undefined): string {
+  if (!state || state === 'new') return 'bg-gray-700 text-gray-300';
+  if (state === 'seen') return 'bg-blue-900/60 text-blue-200';
+  if (state === 'approved') return 'bg-emerald-900/60 text-emerald-200';
+  if (state === 'needs_changes') return 'bg-amber-900/60 text-amber-200';
+  return 'bg-gray-700 text-gray-300';
+}
+
 function AssetCard({
   asset,
   token,
   onClick,
 }: {
-  asset: { fileId: string; name: string; mimeType: string };
+  asset: { fileId: string; name: string; mimeType: string; reviewState?: ReviewState };
   token: string;
   onClick: () => void;
 }) {
@@ -248,6 +269,8 @@ function AssetCard({
   const isImage = asset.mimeType.startsWith('image/');
   const isVideo = asset.mimeType.startsWith('video/');
   const isAudio = asset.mimeType.startsWith('audio/');
+  const badgeLabel = statusBadgeLabel(asset.reviewState);
+  const badgeClass = statusBadgeClass(asset.reviewState);
 
   return (
     <button
@@ -256,6 +279,12 @@ function AssetCard({
       className="group w-full overflow-hidden rounded-lg border border-gray-700 bg-gray-800 text-left transition-colors hover:border-amber-500/50 hover:bg-gray-750 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
     >
       <div className="relative flex aspect-video items-center justify-center bg-gray-900">
+        {/* Status badge */}
+        <span
+          className={`absolute left-2 top-2 z-10 rounded px-2 py-0.5 text-xs font-medium ${badgeClass}`}
+        >
+          {badgeLabel}
+        </span>
         {isImage && (
           // eslint-disable-next-line @next/next/no-img-element
           <img

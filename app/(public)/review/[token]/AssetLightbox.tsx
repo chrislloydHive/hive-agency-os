@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuthorIdentity } from './AuthorIdentityContext';
+import type { ReviewState } from './ReviewPortalClient';
 
 interface ReviewAsset {
   fileId: string;
@@ -30,6 +31,7 @@ interface AssetLightboxProps {
   token: string;
   onClose: () => void;
   onNavigate: (index: number) => void;
+  onAssetStatusChange?: (variant: string, tactic: string, fileId: string, reviewState: ReviewState) => void;
 }
 
 export default function AssetLightbox({
@@ -40,6 +42,7 @@ export default function AssetLightbox({
   token,
   onClose,
   onNavigate,
+  onAssetStatusChange,
 }: AssetLightboxProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const asset = assets[currentIndex];
@@ -52,6 +55,34 @@ export default function AssetLightbox({
   const [newComment, setNewComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const seenSentRef = useRef<Set<string>>(new Set());
+
+  // Mark asset as seen when lightbox opens (once per asset)
+  useEffect(() => {
+    if (!asset) return;
+    const key = `${token}::${asset.fileId}`;
+    if (seenSentRef.current.has(key)) return;
+    seenSentRef.current.add(key);
+    fetch('/api/review/assets/seen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify({
+        token,
+        driveFileId: asset.fileId,
+        filename: asset.name,
+        tactic,
+        variant,
+        authorName: identity?.name,
+        authorEmail: identity?.email,
+      }),
+    })
+      .then((res) => {
+        if (res.ok && onAssetStatusChange) onAssetStatusChange(variant, tactic, asset.fileId, 'seen');
+      })
+      .catch(() => {});
+  }, [asset?.fileId, asset?.name, token, variant, tactic, identity?.name, identity?.email, onAssetStatusChange]);
 
   // Fetch comments for current asset
   useEffect(() => {
@@ -125,6 +156,35 @@ export default function AssetLightbox({
       submitComment();
     });
   };
+
+  const handleApprove = useCallback(() => {
+    if (!asset) return;
+    requireIdentity(async () => {
+      if (!identity) return;
+      setApproving(true);
+      try {
+        const res = await fetch('/api/review/assets/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({
+            token,
+            driveFileId: asset.fileId,
+            status: 'Approved',
+            approvedByName: identity.name,
+            approvedByEmail: identity.email,
+          }),
+        });
+        if (res.ok && onAssetStatusChange) {
+          onAssetStatusChange(variant, tactic, asset.fileId, 'approved');
+        }
+      } catch {
+        // Silent fail
+      } finally {
+        setApproving(false);
+      }
+    });
+  }, [asset, identity, token, variant, tactic, requireIdentity, onAssetStatusChange]);
 
   if (!asset) return null;
 
@@ -291,15 +351,23 @@ export default function AssetLightbox({
           )}
         </div>
 
-        {/* Footer: filename, counter, and comment toggle */}
+        {/* Footer: filename, counter, Approve, and comment toggle */}
         <div className="mt-4 flex flex-col items-center gap-2">
           <p className="max-w-md truncate text-center text-sm text-gray-300" title={asset.name}>
             {asset.name}
           </p>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center justify-center gap-3">
             <p className="text-xs text-gray-500">
               {currentIndex + 1} of {assets.length}
             </p>
+            <button
+              type="button"
+              onClick={handleApprove}
+              disabled={approving}
+              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
+            >
+              {approving ? 'Saving…' : 'Approve'}
+            </button>
             <button
               onClick={() => setShowComments(!showComments)}
               className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${

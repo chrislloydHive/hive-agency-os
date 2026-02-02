@@ -15,10 +15,13 @@ import { AuthorIdentityProvider, useAuthorIdentity } from './AuthorIdentityConte
 
 const DEBOUNCE_MS = 800;
 
+export type ReviewState = 'new' | 'seen' | 'approved' | 'needs_changes';
+
 interface ReviewAsset {
   fileId: string;
   name: string;
   mimeType: string;
+  reviewState?: ReviewState;
 }
 
 interface TacticSectionData {
@@ -171,6 +174,23 @@ function ReviewPortalClientInner({
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const lastFetchedTokenRef = useRef<string | null>(null);
   const { identity, clearIdentity } = useAuthorIdentity();
+
+  const updateAssetReviewState = useCallback(
+    (variant: string, tactic: string, fileId: string, reviewState: ReviewState) => {
+      setSections((prev) =>
+        prev.map((sec) => {
+          if (sec.variant !== variant || sec.tactic !== tactic) return sec;
+          return {
+            ...sec,
+            assets: sec.assets.map((a) =>
+              a.fileId === fileId ? { ...a, reviewState } : a
+            ),
+          };
+        })
+      );
+    },
+    []
+  );
 
   // Fetch asset list after short delay (reduces contention with server render). Abort on unmount/token change.
   useEffect(() => {
@@ -325,6 +345,7 @@ function ReviewPortalClientInner({
                   initialFeedback={
                     reviewData[feedbackKey] ?? { approved: false, comments: '' }
                   }
+                  onAssetStatusChange={updateAssetReviewState}
                 />
               );
             })}

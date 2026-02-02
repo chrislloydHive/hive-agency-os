@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 
 const VALID_VARIANTS = new Set(['Prospecting', 'Retargeting']);
 const VALID_TACTICS = new Set([
-  'Display', 'Social', 'Video', 'Audio', 'OOH', 'PMAX', 'Geofence',
+  'Display', 'Social', 'Video', 'Audio', 'OOH', 'PMAX', 'Geofence', 'Search',
 ]);
 
 const RATE_LIMIT_WINDOW_MS = 60_000;

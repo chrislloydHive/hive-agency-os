@@ -48,7 +48,7 @@ const COMPANY_FIELD_CANDIDATES = ['Client', 'Company'] as const;
 const VARIANTS = ['Prospecting', 'Retargeting'] as const;
 
 /** Canonical tactic list — top-level folders under job folder. Order matches folder tree. */
-const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video'] as const;
+const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video', 'Search'] as const;
 
 /** Car Toys client Projects folder ID. Used when clientProjectsFolderId is not provided (temporary). */
 const CAR_TOYS_PROJECTS_FOLDER_ID = '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_';

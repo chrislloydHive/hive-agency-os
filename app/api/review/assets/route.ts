@@ -7,18 +7,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { getReviewFolderMap, getReviewFolderMapFromJobFolder, getReviewFolderMapFromClientProjectsFolder } from '@/lib/review/reviewFolders';
+import { listAssetStatuses } from '@/lib/airtable/reviewAssetStatus';
 import type { drive_v3 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
 
 const VARIANTS = ['Prospecting', 'Retargeting'] as const;
-const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video'] as const;
+const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video', 'Search'] as const;
+
+export type ReviewState = 'new' | 'seen' | 'approved' | 'needs_changes';
 
 interface ReviewAsset {
   fileId: string;
   name: string;
   mimeType: string;
   modifiedTime: string;
+  reviewState?: ReviewState;
 }
 
 interface TacticSectionData {
@@ -99,6 +103,22 @@ export async function GET(req: NextRequest) {
       if (debugFlag) {
         debug.push({ jobFolderId, tactic, variant, folderId, fileCount: assets.length });
       }
+    }
+  }
+
+  // Attach review state from Creative Review Asset Status table
+  const statusMap = await listAssetStatuses(token);
+  const toReviewState = (fileId: string): ReviewState => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    if (!rec) return 'new';
+    const s = rec.status.toLowerCase();
+    if (s === 'needs changes') return 'needs_changes';
+    return s as ReviewState;
+  };
+  for (const section of sections) {
+    for (const asset of section.assets) {
+      (asset as ReviewAsset).reviewState = toReviewState(asset.fileId);
     }
   }
 
