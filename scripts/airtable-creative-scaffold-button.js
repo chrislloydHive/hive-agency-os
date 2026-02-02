@@ -4,7 +4,8 @@
 // field or an Automation trigger.
 //
 // Input variables (configure in the Airtable script settings panel):
-//   recordId       – input.config().recordId   (the current record ID)
+//   airtableProjectRecordId – input.config().airtableProjectRecordId (canonical Projects record ID)
+//   recordId                 – input.config().recordId (legacy, accepted for backward compatibility)
 //
 // Airtable field names expected on the record (Projects table):
 //   "Creative Mode"              – single-line text (e.g. "Evergreen", "Promo")
@@ -22,6 +23,9 @@
 //   HIVE_OS_BASE_URL         – e.g. https://your-app.vercel.app
 //   HIVE_OS_INTERNAL_API_KEY – shared secret
 
+// ─── Field names ───────────────────────────────────────────────────────
+const FIELDS = { mode: 'Creative Mode', promoName: 'Promo Name' };
+
 // ─── Field mapping (Airtable field ID → name + type) ──────────────────
 // Ensures correct value shape for each field type
 const FIELD_MAP = {
@@ -33,8 +37,14 @@ const FIELD_MAP = {
 };
 
 // ─── Config ──────────────────────────────────────────────────────────
-const config = input.config();
-const recordId = config.recordId;
+const inputConfig = input.config();
+// Canonical: airtableProjectRecordId; legacy: recordId, recId
+const recordId = (inputConfig.airtableProjectRecordId ?? inputConfig.recordId ?? inputConfig.recId ?? '').trim();
+
+if (!recordId || typeof recordId !== 'string' || !recordId.trim().startsWith('rec')) {
+    output.text('Missing or invalid record ID. Set input variable airtableProjectRecordId to the current Projects record ID (recordId is also accepted for backward compatibility).');
+    throw new Error('Missing or invalid airtableProjectRecordId (or recordId)');
+}
 
 const BASE_URL = 'YOUR_HIVE_OS_BASE_URL';          // ← replace
 const API_KEY  = 'YOUR_HIVE_OS_INTERNAL_API_KEY';   // ← replace
@@ -43,19 +53,58 @@ const ENDPOINT = `${BASE_URL}/api/os/creative/scaffold`;
 
 // ─── Read record fields ──────────────────────────────────────────────
 const table = base.getTable('Projects');  // ← adjust table name if different
-const record = await table.selectRecordAsync(recordId, {
-    fields: ['Creative Mode', 'Promo Name'],
+let record = await table.selectRecordAsync(recordId, {
+  fields: [FIELDS.mode, FIELDS.promoName, 'Project Name (Job #)', 'Client Code'],
 });
 
 if (!record) {
-    output.text(`Record ${recordId} not found.`);
-    throw new Error(`Record ${recordId} not found`);
+  const projectName = (inputConfig.projectName || inputConfig.projectNameJob || inputConfig['Project Name (Job #)'] || '').toString().trim();
+  const clientCode = (inputConfig.clientCode || inputConfig['Client Code'] || '').toString().trim();
+
+  console.log('[CreativeScaffold] recordId not found; fallback lookup', { recordId, projectName, clientCode });
+
+  if (!projectName) {
+    throw new Error(
+      `Project record not found for id=${recordId}. Also missing projectName for fallback. This usually means a recordId from the other base was passed.`
+    );
+  }
+
+  const query = await table.selectRecordsAsync({
+    fields: ['Project Name (Job #)', 'Client Code', FIELDS.mode, FIELDS.promoName],
+  });
+
+  const matches = query.records.filter((r) => {
+    const pn = (r.getCellValueAsString('Project Name (Job #)') || '').trim();
+    const cc = (r.getCellValueAsString('Client Code') || '').trim();
+    if (clientCode) return pn === projectName && cc === clientCode;
+    return pn === projectName;
+  });
+
+  if (matches.length === 0) {
+    throw new Error(
+      `No Projects record matched Project Name (Job #)="${projectName}"` +
+        (clientCode ? ` and Client Code="${clientCode}"` : '') +
+        `. Incoming recordId=${recordId} appears to be from the other base.`
+    );
+  }
+
+  if (matches.length > 1) {
+    throw new Error(
+      `Multiple Projects records matched Project Name (Job #)="${projectName}"` +
+        (clientCode ? ` and Client Code="${clientCode}"` : '') +
+        `. Make projectName unique or pass clientCode. Matched: ${matches.map((m) => m.id).join(', ')}`
+    );
+  }
+
+  record = matches[0];
+  console.log('[CreativeScaffold] Fallback resolved Projects recordId:', record.id);
 }
 
-const creativeMode = record.getCellValueAsString('Creative Mode') || '';
-const promoName    = record.getCellValueAsString('Promo Name') || '';
+const effectiveRecordId = record.id;
+const creativeMode = record.getCellValueAsString(FIELDS.mode) || '';
+const promoName = record.getCellValueAsString(FIELDS.promoName) || '';
 
-output.text(`Scaffolding for record ${recordId}  mode=${creativeMode}  promo=${promoName}`);
+output.text(`Scaffolding for record ${effectiveRecordId}  mode=${creativeMode}  promo=${promoName}`);
 
 // ─── Call scaffold endpoint ──────────────────────────────────────────
 let result;
@@ -67,7 +116,7 @@ try {
             'x-hive-api-key': API_KEY,
         },
         body: JSON.stringify({
-            recordId,
+            recordId: effectiveRecordId,
             creativeMode,
             promoName,
         }),
@@ -136,6 +185,6 @@ for (const [fieldName, value] of Object.entries(updates)) {
 }
 
 // ─── Write to Airtable ───────────────────────────────────────────────
-await table.updateRecordAsync(recordId, updates);
+await table.updateRecordAsync(effectiveRecordId, updates);
 
 output.text(result.ok ? '✅ Scaffold complete' : `❌ ${result.error}`);

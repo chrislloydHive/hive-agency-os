@@ -13,6 +13,7 @@ import ReviewPortalClient from './ReviewPortalClient';
 import type { Metadata } from 'next';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 const VARIANTS = ['Prospecting', 'Retargeting'] as const;
 const TACTICS = ['Display', 'Social', 'Video', 'Audio', 'OOH', 'PMAX', 'Geofence'] as const;

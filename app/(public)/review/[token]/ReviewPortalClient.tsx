@@ -154,16 +154,60 @@ function EmptyStateCard({
   );
 }
 
+const REFRESH_DELAY_MS = 250;
+
 function ReviewPortalClientInner({
   projectName,
-  sections,
+  sections: initialSections,
   reviewData,
   token,
   variants,
 }: ReviewPortalClientProps) {
   const [activeVariant, setActiveVariant] = useState(variants[0]);
   const [showEmptyTactics, setShowEmptyTactics] = useState(false);
+  const [sections, setSections] = useState<TacticSectionData[]>(initialSections);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const lastFetchedTokenRef = useRef<string | null>(null);
   const { identity, clearIdentity } = useAuthorIdentity();
+
+  // Fetch asset list after short delay (reduces contention with server render). Abort on unmount/token change.
+  useEffect(() => {
+    if (lastFetchedTokenRef.current === token) return;
+    lastFetchedTokenRef.current = token;
+    setRefreshError(null);
+
+    const ac = new AbortController();
+    const timeoutId = setTimeout(() => {
+      setIsRefreshing(true);
+      const url = `/api/review/assets?token=${encodeURIComponent(token)}`;
+      fetch(url, { cache: 'no-store', signal: ac.signal })
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(res.statusText))))
+        .then((data: { ok?: boolean; version?: string; sections?: TacticSectionData[]; lastFetchedAt?: string }) => {
+          if (data.ok === true && data.version === 'review-assets-v1' && Array.isArray(data.sections)) {
+            setSections(data.sections);
+            setRefreshError(null);
+            if (typeof data.lastFetchedAt === 'string') {
+              setLastRefreshedAt(data.lastFetchedAt);
+            }
+          }
+        })
+        .catch((err) => {
+          if (err?.name === 'AbortError') return;
+          setRefreshError(err?.message ?? 'Request failed');
+          // Do not clear sections; keep previous initialSections or last good data
+        })
+        .finally(() => {
+          setIsRefreshing(false);
+        });
+    }, REFRESH_DELAY_MS);
+
+    return () => {
+      clearTimeout(timeoutId);
+      ac.abort();
+    };
+  }, [token]);
 
   // Reset showEmptyTactics when switching variants
   useEffect(() => {
@@ -193,7 +237,19 @@ function ReviewPortalClientInner({
               {projectName} &ndash; Creative Review
             </h1>
           </div>
-          {identity && (
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            {(isRefreshing || lastRefreshedAt || refreshError) && (
+              <p className="text-xs text-gray-500">
+                {isRefreshing
+                  ? 'Refreshing assets…'
+                  : refreshError
+                    ? `Asset refresh failed (${refreshError})`
+                    : lastRefreshedAt
+                      ? `Last refreshed: ${new Date(lastRefreshedAt).toLocaleTimeString()}`
+                      : null}
+              </p>
+            )}
+            {identity && (
             <div className="flex items-center gap-3 rounded-lg bg-gray-800/50 px-3 py-2">
               <div className="text-right">
                 <p className="text-sm font-medium text-gray-200">{identity.name}</p>
@@ -209,7 +265,8 @@ function ReviewPortalClientInner({
                 </svg>
               </button>
             </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Variant Tabs */}
