@@ -8,14 +8,15 @@
 //   recordId                 – input.config().recordId (legacy, accepted for backward compatibility)
 //
 // Airtable field names expected on the record (Projects table):
-//   "Creative Mode"              – single-line text (e.g. "Evergreen", "Promo")
-//   "Promo Name"                 – single-line text (optional, e.g. "Summer Sale 2025")
-//   "Scaffold Status"            – single-line text (written back)
-//   "Creative Scaffold Last Run" – Date/DateTime (written back, ISO 8601 UTC) [fld8kvbELvf3p9618]
-//   "Review Sheet URL"           – URL field (written back)
-//   "Production Assets URL"      – URL field (written back)
-//   "Client Review URL"          – URL field (written back)
-//   "Scaffold Error"             – long text  (written back, cleared on success)
+//   "Creative Mode"                 – single-line text (e.g. "Evergreen", "Promo")
+//   "Promo Name"                    – single-line text (optional)
+//   "Creative Scaffold Status"     – single-select (only set to "complete" on success; never set on error to avoid missing-option failure)
+//   "Creative Scaffold Error"      – long text (written on failure, cleared on success)
+//   "Creative Scaffold Connect URL" – URL (connectUrl from API or null; use real null, not string "null")
+//   "Creative Scaffold Last Run"    – Date/DateTime (always set to ISO 8601 when we have a response)
+//   "Review Sheet URL"             – URL (written on success)
+//   "Production Assets URL"        – URL (written on success)
+//   "Client Review URL"            – URL (written on success)
 //
 // Note: companyId is resolved server-side from the Project's linked Company field.
 //
@@ -140,15 +141,20 @@ try {
 
 output.text(`Response: ${JSON.stringify(result)}`);
 
-// ─── Build updates: only write URLs/IDs when response.ok === true ─────
+// ─── Build updates: avoid single-select values that may not exist; use real null for Connect URL ─────
 const updates = {};
 
-// Always write status and error (so user sees success or failure)
-updates['Scaffold Status'] = result.scaffoldStatus || (result.ok ? 'complete' : 'error');
-updates['Scaffold Error'] = result.ok ? '' : (result.error || 'Unknown error');
+// Last Run: always set to a real datetime (never {}). Use server lastRunAt when present, else now.
+const lastRunIso = (result && result.lastRunAt && typeof result.lastRunAt === 'string')
+    ? result.lastRunAt
+    : new Date().toISOString();
+updates['Creative Scaffold Last Run'] = lastRunIso;
 
-// Only write URLs and lastRunAt when response is OK and values are present
-if (result.ok === true) {
+if (result && result.ok === true) {
+    // Success: set status to existing option "complete"; clear error; set URLs.
+    updates['Creative Scaffold Status'] = 'complete';
+    updates['Creative Scaffold Error'] = '';
+    updates['Creative Scaffold Connect URL'] = null;
     if (typeof result.sheetUrl === 'string' && result.sheetUrl.trim()) {
         updates['Review Sheet URL'] = result.sheetUrl.trim();
     }
@@ -158,25 +164,23 @@ if (result.ok === true) {
     if (typeof result.clientReviewFolderUrl === 'string' && result.clientReviewFolderUrl.trim()) {
         updates['Client Review URL'] = result.clientReviewFolderUrl.trim();
     }
-
-    // Creative Scaffold Last Run (fld8kvbELvf3p9618) — DateTime field, ISO 8601
-    const lastRunField = FIELD_MAP['fld8kvbELvf3p9618'];
-    if (lastRunField && result.lastRunAt) {
-        const value = lastRunField.toValue(result.lastRunAt);
-        if (value) {
-            updates[lastRunField.name] = value;
-        }
-    }
+} else {
+    // Failure: do NOT set Creative Scaffold Status (avoids missing single-select option "Error").
+    // Only set error text and connect URL (real null if absent).
+    updates['Creative Scaffold Error'] = (result && result.error) ? String(result.error) : 'Unknown error';
+    const connectUrl = result && result.debug && result.debug.connectUrl;
+    updates['Creative Scaffold Connect URL'] = (connectUrl != null && connectUrl !== '') ? connectUrl : null;
 }
 
 // ─── Log before update: fieldName, fieldType, value ───────────────────
 const LOG_FIELD_TYPES = {
-    'Scaffold Status': 'singleLineText',
-    'Scaffold Error': 'multilineText',
+    'Creative Scaffold Status': 'singleSelect',
+    'Creative Scaffold Error': 'multilineText',
+    'Creative Scaffold Connect URL': 'url',
+    'Creative Scaffold Last Run': 'dateTime',
     'Review Sheet URL': 'url',
     'Production Assets URL': 'url',
     'Client Review URL': 'url',
-    'Creative Scaffold Last Run': 'dateTime',
 };
 
 for (const [fieldName, value] of Object.entries(updates)) {

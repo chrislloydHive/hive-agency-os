@@ -392,37 +392,43 @@ export async function POST(req: Request) {
     const drive = google.drive({ version: 'v3', auth });
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // 1. Ensure top-level subfolders under root (Evergreen, Promotions, Client Review)
+    // 1. Cache: one list per parent, then get-or-create. Reduces Drive calls and avoids timeout.
+    const cache: FolderCache = new Map();
+
+    // 2. Top-level subfolders under root (Evergreen, Promotions, Client Review) in parallel
+    const subfolderResults = await Promise.all(
+      SUBFOLDERS.map((name) => getOrCreateFolderCached(drive, rootFolderId, name, cache)),
+    );
     const folders: Record<string, { id: string; url: string }> = {};
-    for (const name of SUBFOLDERS) {
-      const f = await ensureChildFolder(drive, rootFolderId, name);
-      folders[name] = { id: f.id, url: folderUrl(f.id) };
-    }
+    SUBFOLDERS.forEach((name, i) => {
+      folders[name] = { id: subfolderResults[i].id, url: folderUrl(subfolderResults[i].id) };
+    });
     const clientReviewFolder = folders['Client Review'];
 
-    // 2. Job folder directly under Client Review (no Creative Assets parent)
-    const jobFolder = await getOrCreateFolder(drive, clientReviewFolder.id, hubName);
+    // 3. Job folder directly under Client Review (no Creative Assets parent)
+    const jobFolder = await getOrCreateFolderCached(drive, clientReviewFolder.id, hubName, cache);
 
-    // 3. Tactic → variant folders only. No "Default – Set A". No top-level Prospecting/Retargeting.
-    //    Structure: Client Review/<hubName>/<Tactic>/Prospecting, <Tactic>/Retargeting
-    const tacticRows: TacticRowData[] = [];
-
-    for (const tactic of TACTICS) {
-      const tacticFolder = await getOrCreateFolder(drive, jobFolder.id, tactic);
-      await getOrCreateFolder(drive, tacticFolder.id, 'Prospecting');
-      await getOrCreateFolder(drive, tacticFolder.id, 'Retargeting');
-      for (const variant of VARIANTS) {
-        const variantFolder = await getOrCreateFolder(drive, tacticFolder.id, variant);
-        tacticRows.push({
-          variant,
+    // 4. Tactic → variant only. No Creative Assets, no Default – Set A, no top-level Prospecting/Retargeting.
+    //    Create 7 tactic folders in parallel; within each create Prospecting + Retargeting in parallel.
+    const tacticFolders = await Promise.all(
+      TACTICS.map((tactic) => getOrCreateFolderCached(drive, jobFolder.id, tactic, cache)),
+    );
+    const tacticRowsArrays = await Promise.all(
+      TACTICS.map(async (tactic, i) => {
+        const variantFolders = await Promise.all(
+          VARIANTS.map((v) => getOrCreateFolderCached(drive, tacticFolders[i].id, v, cache)),
+        );
+        return VARIANTS.map((v, j) => ({
+          variant: v,
           tactic,
-          folderId: variantFolder.id,
-          folderUrl: folderUrl(variantFolder.id),
-        });
-      }
-    }
+          folderId: variantFolders[j].id,
+          folderUrl: folderUrl(variantFolders[j].id),
+        }));
+      }),
+    );
+    const tacticRows: TacticRowData[] = tacticRowsArrays.flat();
 
-    // 4. Copy sheet template into Client Review folder
+    // 5. Copy sheet template into Client Review folder
     const copied = await copyTemplate(drive, templateId, clientReviewFolder.id, hubName);
     const sheetUrl = copied.url;
 
@@ -435,10 +441,10 @@ export async function POST(req: Request) {
       });
     }
 
-    // 5. Populate sheet with one row per tactic
+    // 6. Populate sheet with one row per tactic
     await populateReviewSheet(sheets, copied.id, tacticRows);
 
-    // 5b. Upsert Creative Review Sets (one per variant×tactic), keyed by (Project, Variant, Tactic)
+    // 7. Upsert Creative Review Sets (one per variant×tactic), keyed by (Project, Variant, Tactic)
     const setsTable = AIRTABLE_TABLES.CREATIVE_REVIEW_SETS;
     const osBase = getBase();
     let setsUpserted = 0;
@@ -474,7 +480,7 @@ export async function POST(req: Request) {
     const foldersCreatedCount = tacticRows.length; // 14 total (7 tactics × 2 variants)
     console.log(`[creative/scaffold] Summary: hubName="${hubName}", sheetId=${copied.id}, foldersCreated=${foldersCreatedCount}, recordsUpserted=${setsUpserted}`);
 
-    // 5c. Backfill: Ensure both variants exist for all tactics
+    // 8. Backfill: Ensure both variants exist for all tactics
     const backfillStats = await backfillMissingVariants(
       osBase,
       setsTable,
@@ -484,7 +490,7 @@ export async function POST(req: Request) {
     );
     console.log(`[creative/scaffold] Backfill: existingRows=${backfillStats.existingRows}, createdRows=${backfillStats.createdRows}, skippedDuplicates=${backfillStats.skippedDuplicates}, missingFolderCount=${backfillStats.missingFolderCount}`);
 
-    // 6. Generate Client Review Portal token (reuse existing if present)
+    // 9. Generate Client Review Portal token (reuse existing if present)
     const existingToken = typeof projectFields['Client Review Portal Token'] === 'string'
       ? projectFields['Client Review Portal Token'].trim()
       : '';
@@ -678,21 +684,27 @@ function documentUrl(fileId: string, mimeType?: string): string {
   return `https://drive.google.com/file/d/${fileId}/view`;
 }
 
-/** Find a child folder by exact name (Shared Drive safe). */
-async function findChildFolder(
+/** Cache: parentId -> (name -> folder). One list per parent, then get-or-create from cache. */
+type FolderCache = Map<string, Map<string, { id: string; name: string }>>;
+
+/** List all child folders of parent once; store in cache. Shared Drive safe. */
+async function listChildrenCached(
   drive: drive_v3.Drive,
   parentId: string,
-  name: string,
-): Promise<{ id: string; name: string } | null> {
-  const escaped = name.replace(/'/g, "\\'");
+  cache: FolderCache,
+): Promise<void> {
+  if (cache.has(parentId)) return;
   const res = await drive.files.list({
-    q: `'${parentId}' in parents and name = '${escaped}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    q: `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
     fields: 'files(id, name)',
     supportsAllDrives: true,
     includeItemsFromAllDrives: true,
   });
-  const files = res.data.files ?? [];
-  return files.length > 0 ? { id: files[0].id!, name: files[0].name! } : null;
+  const byName = new Map<string, { id: string; name: string }>();
+  for (const f of res.data.files ?? []) {
+    if (f.id && f.name) byName.set(f.name, { id: f.id, name: f.name });
+  }
+  cache.set(parentId, byName);
 }
 
 /** Create a folder under a parent (Shared Drive safe). */
@@ -714,27 +726,40 @@ async function createFolder(
   return { id: res.data.id!, name: res.data.name! };
 }
 
-/** Ensure a folder exists (find-or-create, Shared Drive safe). Idempotent. */
-async function ensureChildFolder(
+/** Get or create folder using cache; one list per parent. Idempotent, Shared Drive safe. */
+async function getOrCreateFolderCached(
   drive: drive_v3.Drive,
   parentId: string,
   name: string,
+  cache: FolderCache,
 ): Promise<{ id: string; name: string }> {
-  const existing = await findChildFolder(drive, parentId, name);
+  await listChildrenCached(drive, parentId, cache);
+  const byName = cache.get(parentId)!;
+  const existing = byName.get(name);
   if (existing) {
     console.log(`[creative/scaffold] Found folder: "${name}" (${existing.id})`);
     return existing;
   }
-  return createFolder(drive, parentId, name);
+  const created = await createFolder(drive, parentId, name);
+  byName.set(name, created);
+  return created;
 }
 
-/** Alias for ensureChildFolder — get-or-create folder (idempotent, Shared Drive safe). */
-async function getOrCreateFolder(
+/** Find a child folder by exact name (Shared Drive safe). Used by backfill only. */
+async function findChildFolder(
   drive: drive_v3.Drive,
   parentId: string,
   name: string,
-): Promise<{ id: string; name: string }> {
-  return ensureChildFolder(drive, parentId, name);
+): Promise<{ id: string; name: string } | null> {
+  const escaped = name.replace(/'/g, "\\'");
+  const res = await drive.files.list({
+    q: `'${parentId}' in parents and name = '${escaped}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: 'files(id, name)',
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  });
+  const files = res.data.files ?? [];
+  return files.length > 0 ? { id: files[0].id!, name: files[0].name! } : null;
 }
 
 /** Find a file (non-folder) by exact name in a folder. */
