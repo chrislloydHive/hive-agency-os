@@ -443,37 +443,42 @@ export async function POST(req: Request) {
     // 6. Populate sheet with one row per tactic
     await populateReviewSheet(sheets, copied.id, tacticRows);
 
-    // 7. Upsert Creative Review Sets (one per variant×tactic), keyed by (Project, Variant, Tactic)
+    // 7. Upsert Creative Review Sets (one per variant×tactic), keyed by (Project, Variant, Tactic).
+    // Tactic single-select in Airtable must include all TACTICS (e.g. "Search"); missing options cause "insufficient permissions to create new select option" and are skipped so token/URLs still get written.
     const setsTable = AIRTABLE_TABLES.CREATIVE_REVIEW_SETS;
     const osBase = getBase();
     let setsUpserted = 0;
     for (const row of tacticRows) {
-      const formula = `AND(FIND("${recordId}", ARRAYJOIN({Project})) > 0, {Variant} = "${row.variant}", {Tactic} = "${row.tactic}")`;
-      const existing = await osBase(setsTable)
-        .select({ filterByFormula: formula, maxRecords: 1 })
-        .firstPage();
-      const folderUrlValue = `https://drive.google.com/drive/folders/${row.folderId}`;
-      if (existing.length > 0) {
-        await osBase(setsTable).update(existing[0].id, {
-          'Folder ID': row.folderId,
-          'Folder URL': folderUrlValue,
-        } as any);
-      } else {
-        await osBase(setsTable).create({
-          Project: [recordId],
-          Variant: row.variant,
-          Tactic: row.tactic,
-          'Set Name': '',
-          'Folder ID': row.folderId,
-          'Folder URL': folderUrlValue,
-          'Client Approved': false,
-          'Approved At': null,
-          'Approved By Name': '',
-          'Approved By Email': '',
-          'Client Comments': '',
-        } as any);
+      try {
+        const formula = `AND(FIND("${recordId}", ARRAYJOIN({Project})) > 0, {Variant} = "${row.variant}", {Tactic} = "${row.tactic}")`;
+        const existing = await osBase(setsTable)
+          .select({ filterByFormula: formula, maxRecords: 1 })
+          .firstPage();
+        const folderUrlValue = `https://drive.google.com/drive/folders/${row.folderId}`;
+        if (existing.length > 0) {
+          await osBase(setsTable).update(existing[0].id, {
+            'Folder ID': row.folderId,
+            'Folder URL': folderUrlValue,
+          } as any);
+        } else {
+          await osBase(setsTable).create({
+            Project: [recordId],
+            Variant: row.variant,
+            Tactic: row.tactic,
+            'Set Name': '',
+            'Folder ID': row.folderId,
+            'Folder URL': folderUrlValue,
+            'Client Approved': false,
+            'Approved At': null,
+            'Approved By Name': '',
+            'Approved By Email': '',
+            'Client Comments': '',
+          } as any);
+        }
+        setsUpserted += 1;
+      } catch (setErr: any) {
+        console.warn(`[creative/scaffold] Skip Creative Review Set for ${row.variant}/${row.tactic}:`, setErr?.message ?? setErr);
       }
-      setsUpserted += 1;
     }
     // Log summary: folders created + records upserted
     const foldersCreatedCount = tacticRows.length; // 14 total (7 tactics × 2 variants)
@@ -613,21 +618,25 @@ async function backfillMissingVariants(
         stats.missingFolderCount++;
         console.warn(`[creative/scaffold] Backfill: Retargeting folder not found for tactic=${tactic}, project=${projectRecordId}`);
       }
-      await osBase(setsTable).create({
-        Project: [projectRecordId],
-        Variant: 'Retargeting',
-        Tactic: tactic,
-        'Set Name': '',
-        'Folder ID': folderId,
-        'Folder URL': folderUrlValue,
-        'Client Approved': false,
-        'Approved At': null,
-        'Approved By Name': '',
-        'Approved By Email': '',
-        'Client Comments': '',
-      } as any);
-      stats.createdRows++;
-      existingKeys.add(retargetingKey);
+      try {
+        await osBase(setsTable).create({
+          Project: [projectRecordId],
+          Variant: 'Retargeting',
+          Tactic: tactic,
+          'Set Name': '',
+          'Folder ID': folderId,
+          'Folder URL': folderUrlValue,
+          'Client Approved': false,
+          'Approved At': null,
+          'Approved By Name': '',
+          'Approved By Email': '',
+          'Client Comments': '',
+        } as any);
+        stats.createdRows++;
+        existingKeys.add(retargetingKey);
+      } catch (createErr: any) {
+        console.warn(`[creative/scaffold] Backfill: skip create Retargeting/${tactic}:`, createErr?.message ?? createErr);
+      }
     }
 
     if (!existingKeys.has(prospectingKey)) {
@@ -649,21 +658,25 @@ async function backfillMissingVariants(
         stats.missingFolderCount++;
         console.warn(`[creative/scaffold] Backfill: Prospecting folder not found for tactic=${tactic}, project=${projectRecordId}`);
       }
-      await osBase(setsTable).create({
-        Project: [projectRecordId],
-        Variant: 'Prospecting',
-        Tactic: tactic,
-        'Set Name': '',
-        'Folder ID': folderId,
-        'Folder URL': folderUrlValue,
-        'Client Approved': false,
-        'Approved At': null,
-        'Approved By Name': '',
-        'Approved By Email': '',
-        'Client Comments': '',
-      } as any);
-      stats.createdRows++;
-      existingKeys.add(prospectingKey);
+      try {
+        await osBase(setsTable).create({
+          Project: [projectRecordId],
+          Variant: 'Prospecting',
+          Tactic: tactic,
+          'Set Name': '',
+          'Folder ID': folderId,
+          'Folder URL': folderUrlValue,
+          'Client Approved': false,
+          'Approved At': null,
+          'Approved By Name': '',
+          'Approved By Email': '',
+          'Client Comments': '',
+        } as any);
+        stats.createdRows++;
+        existingKeys.add(prospectingKey);
+      } catch (createErr: any) {
+        console.warn(`[creative/scaffold] Backfill: skip create Prospecting/${tactic}:`, createErr?.message ?? createErr);
+      }
     }
   }
 
