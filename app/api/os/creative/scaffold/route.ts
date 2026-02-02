@@ -45,11 +45,8 @@ const COMPANY_FIELD_CANDIDATES = ['Client', 'Company'] as const;
 /** Canonical variant list — Prospecting and Retargeting audiences. */
 const VARIANTS = ['Prospecting', 'Retargeting'] as const;
 
-/** Canonical tactic list — top-level folders under Creative Assets/<hubName>. Order matches folder tree. */
+/** Canonical tactic list — top-level folders under job folder (Client Review/<hubName>). Order matches folder tree. */
 const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video'] as const;
-
-/** Default set folder created inside each tactic folder. */
-const DEFAULT_SET_NAME = 'Default – Set A';
 
 /** Tab name preferences for the destination sheet. */
 const REVIEW_TAB_NAMES = ['Client Review & Approvals', 'Creative Review', 'Review', 'Approvals'] as const;
@@ -254,7 +251,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // Canonical hub name — reused for both the Google Sheet and Creative Assets folder
+  // Canonical hub name — reused for both the Google Sheet and job folder under Client Review
   const hubName = `${projectName} – Creative Review`;
 
   const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID!;
@@ -403,26 +400,24 @@ export async function POST(req: Request) {
     }
     const clientReviewFolder = folders['Client Review'];
 
-    // 2. Ensure Creative Assets/<hubName>/
-    const creativeAssetsRoot = await ensureChildFolder(drive, rootFolderId, 'Creative Assets');
-    const projectCreativeAssetsFolder = await ensureChildFolder(drive, creativeAssetsRoot.id, hubName);
+    // 2. Job folder directly under Client Review (no Creative Assets parent)
+    const jobFolder = await getOrCreateFolder(drive, clientReviewFolder.id, hubName);
 
-    // 3. Create tactic/variant folders with default set inside project folder
-    //    Structure: Creative Assets/<hubName>/<Tactic>/<Variant>/Default – Set A/
-    //    No top-level Prospecting/Retargeting — only Audio, Display, Geofence, OOH, PMAX, Social, Video.
+    // 3. Tactic → variant folders only. No "Default – Set A". No top-level Prospecting/Retargeting.
+    //    Structure: Client Review/<hubName>/<Tactic>/Prospecting, <Tactic>/Retargeting
     const tacticRows: TacticRowData[] = [];
 
     for (const tactic of TACTICS) {
-      const tacticFolder = await getOrCreateFolder(drive, projectCreativeAssetsFolder.id, tactic);
+      const tacticFolder = await getOrCreateFolder(drive, jobFolder.id, tactic);
+      await getOrCreateFolder(drive, tacticFolder.id, 'Prospecting');
+      await getOrCreateFolder(drive, tacticFolder.id, 'Retargeting');
       for (const variant of VARIANTS) {
         const variantFolder = await getOrCreateFolder(drive, tacticFolder.id, variant);
-        const defaultSetFolder = await getOrCreateFolder(drive, variantFolder.id, DEFAULT_SET_NAME);
         tacticRows.push({
           variant,
           tactic,
-          setName: DEFAULT_SET_NAME,
-          folderId: defaultSetFolder.id,
-          folderUrl: folderUrl(defaultSetFolder.id),
+          folderId: variantFolder.id,
+          folderUrl: folderUrl(variantFolder.id),
         });
       }
     }
@@ -443,12 +438,12 @@ export async function POST(req: Request) {
     // 5. Populate sheet with one row per tactic
     await populateReviewSheet(sheets, copied.id, tacticRows);
 
-    // 5b. Upsert Creative Review Sets (one per variant×tactic), keyed by (Project, Variant, Tactic, Set Name)
+    // 5b. Upsert Creative Review Sets (one per variant×tactic), keyed by (Project, Variant, Tactic)
     const setsTable = AIRTABLE_TABLES.CREATIVE_REVIEW_SETS;
     const osBase = getBase();
     let setsUpserted = 0;
     for (const row of tacticRows) {
-      const formula = `AND(FIND("${recordId}", ARRAYJOIN({Project})) > 0, {Variant} = "${row.variant}", {Tactic} = "${row.tactic}", {Set Name} = "${DEFAULT_SET_NAME.replace(/"/g, '""')}")`;
+      const formula = `AND(FIND("${recordId}", ARRAYJOIN({Project})) > 0, {Variant} = "${row.variant}", {Tactic} = "${row.tactic}")`;
       const existing = await osBase(setsTable)
         .select({ filterByFormula: formula, maxRecords: 1 })
         .firstPage();
@@ -463,7 +458,7 @@ export async function POST(req: Request) {
           Project: [recordId],
           Variant: row.variant,
           Tactic: row.tactic,
-          'Set Name': DEFAULT_SET_NAME,
+          'Set Name': '',
           'Folder ID': row.folderId,
           'Folder URL': folderUrlValue,
           'Client Approved': false,
@@ -484,7 +479,7 @@ export async function POST(req: Request) {
       osBase,
       setsTable,
       recordId,
-      projectCreativeAssetsFolder.id,
+      jobFolder.id,
       drive,
     );
     console.log(`[creative/scaffold] Backfill: existingRows=${backfillStats.existingRows}, createdRows=${backfillStats.createdRows}, skippedDuplicates=${backfillStats.skippedDuplicates}, missingFolderCount=${backfillStats.missingFolderCount}`);
@@ -504,14 +499,13 @@ export async function POST(req: Request) {
       });
     }
 
-    console.log(`[creative/scaffold] recordId=${recordId}, projectName="${projectName}", hubName="${hubName}", sheetId=${copied.id}, projectCreativeAssetsFolderId=${projectCreativeAssetsFolder.id}, rowsWritten=${tacticRows.length}, reviewToken=${reviewToken}, reviewPortalUrl=${reviewPortalUrl}`);
+    console.log(`[creative/scaffold] recordId=${recordId}, projectName="${projectName}", hubName="${hubName}", sheetId=${copied.id}, jobFolderId=${jobFolder.id}, rowsWritten=${tacticRows.length}, reviewToken=${reviewToken}, reviewPortalUrl=${reviewPortalUrl}`);
 
     return NextResponse.json({
       ok: true,
       sheetUrl,
       productionAssetsRootUrl: folderUrl(rootFolderId),
       clientReviewFolderUrl: clientReviewFolder.url,
-      creativeAssetsFolderUrl: folderUrl(creativeAssetsRoot.id),
       scaffoldStatus: 'complete',
       rowCount: tacticRows.length,
       lastRunAt: new Date().toISOString(), // ISO 8601 UTC for Creative Scaffold Last Run
@@ -546,14 +540,13 @@ interface BackfillStats {
 
 /**
  * Backfill missing variant rows in Creative Review Sets.
- * For each tactic, if Prospecting exists but Retargeting doesn't, create Retargeting.
- * Attempts to find the Retargeting folder in Drive; if missing, leaves Folder ID/URL blank.
+ * Keys by (Variant, Tactic) only. Folder = job folder → tactic → variant (no Default – Set A).
  */
 async function backfillMissingVariants(
   osBase: ReturnType<typeof getBase>,
   setsTable: string,
   projectRecordId: string,
-  projectCreativeAssetsFolderId: string,
+  jobFolderId: string,
   drive: drive_v3.Drive,
 ): Promise<BackfillStats> {
   const stats: BackfillStats = {
@@ -563,7 +556,6 @@ async function backfillMissingVariants(
     missingFolderCount: 0,
   };
 
-  // Fetch all existing Creative Review Sets for this project
   const formula = `FIND("${projectRecordId}", ARRAYJOIN({Project})) > 0`;
   const existingRecords = await osBase(setsTable)
     .select({ filterByFormula: formula })
@@ -571,62 +563,44 @@ async function backfillMissingVariants(
 
   stats.existingRows = existingRecords.length;
 
-  // Build a map of existing (Variant, Tactic, Set Name) combinations
   const existingKeys = new Set<string>();
   for (const record of existingRecords) {
     const fields = record.fields as Record<string, unknown>;
     const variant = fields['Variant'] as string;
     const tactic = fields['Tactic'] as string;
-    const setName = fields['Set Name'] as string;
-    if (variant && tactic && setName) {
-      existingKeys.add(`${variant}:${tactic}:${setName}`);
+    if (variant && tactic) {
+      existingKeys.add(`${variant}:${tactic}`);
     }
   }
 
-  // For each tactic, ensure both variants exist
   for (const tactic of TACTICS) {
-    const prospectingKey = `Prospecting:${tactic}:${DEFAULT_SET_NAME}`;
-    const retargetingKey = `Retargeting:${tactic}:${DEFAULT_SET_NAME}`;
+    const prospectingKey = `Prospecting:${tactic}`;
+    const retargetingKey = `Retargeting:${tactic}`;
 
-    // Check if Retargeting is missing
     if (!existingKeys.has(retargetingKey)) {
-      // Check if this would be a duplicate (shouldn't happen, but safety check)
-      if (existingKeys.has(retargetingKey)) {
-        stats.skippedDuplicates++;
-        continue;
-      }
-
-      // Try to find the folder in Drive (new schema: Tactic/Variant/Default – Set A)
       let folderId = '';
       let folderUrlValue = '';
-
       try {
-        const tacticFolder = await findChildFolder(drive, projectCreativeAssetsFolderId, tactic);
+        const tacticFolder = await findChildFolder(drive, jobFolderId, tactic);
         if (tacticFolder) {
           const variantFolder = await findChildFolder(drive, tacticFolder.id, 'Retargeting');
           if (variantFolder) {
-            const setFolder = await findChildFolder(drive, variantFolder.id, DEFAULT_SET_NAME);
-            if (setFolder) {
-              folderId = setFolder.id;
-              folderUrlValue = `https://drive.google.com/drive/folders/${setFolder.id}`;
-            }
+            folderId = variantFolder.id;
+            folderUrlValue = `https://drive.google.com/drive/folders/${variantFolder.id}`;
           }
         }
       } catch {
-        // Folder lookup failed, leave blank
+        // leave blank
       }
-
       if (!folderId) {
         stats.missingFolderCount++;
         console.warn(`[creative/scaffold] Backfill: Retargeting folder not found for tactic=${tactic}, project=${projectRecordId}`);
       }
-
-      // Create the Retargeting row
       await osBase(setsTable).create({
         Project: [projectRecordId],
         Variant: 'Retargeting',
         Tactic: tactic,
-        'Set Name': DEFAULT_SET_NAME,
+        'Set Name': '',
         'Folder ID': folderId,
         'Folder URL': folderUrlValue,
         'Client Approved': false,
@@ -635,44 +609,34 @@ async function backfillMissingVariants(
         'Approved By Email': '',
         'Client Comments': '',
       } as any);
-
       stats.createdRows++;
       existingKeys.add(retargetingKey);
     }
 
-    // Also check if Prospecting is missing (in case project was created with old code)
     if (!existingKeys.has(prospectingKey)) {
-      // Try to find the folder in Drive (new schema: Tactic/Variant/Default – Set A)
       let folderId = '';
       let folderUrlValue = '';
-
       try {
-        const tacticFolder = await findChildFolder(drive, projectCreativeAssetsFolderId, tactic);
+        const tacticFolder = await findChildFolder(drive, jobFolderId, tactic);
         if (tacticFolder) {
           const variantFolder = await findChildFolder(drive, tacticFolder.id, 'Prospecting');
           if (variantFolder) {
-            const setFolder = await findChildFolder(drive, variantFolder.id, DEFAULT_SET_NAME);
-            if (setFolder) {
-              folderId = setFolder.id;
-              folderUrlValue = `https://drive.google.com/drive/folders/${setFolder.id}`;
-            }
+            folderId = variantFolder.id;
+            folderUrlValue = `https://drive.google.com/drive/folders/${variantFolder.id}`;
           }
         }
       } catch {
-        // Folder lookup failed, leave blank
+        // leave blank
       }
-
       if (!folderId) {
         stats.missingFolderCount++;
         console.warn(`[creative/scaffold] Backfill: Prospecting folder not found for tactic=${tactic}, project=${projectRecordId}`);
       }
-
-      // Create the Prospecting row
       await osBase(setsTable).create({
         Project: [projectRecordId],
         Variant: 'Prospecting',
         Tactic: tactic,
-        'Set Name': DEFAULT_SET_NAME,
+        'Set Name': '',
         'Folder ID': folderId,
         'Folder URL': folderUrlValue,
         'Client Approved': false,
@@ -681,7 +645,6 @@ async function backfillMissingVariants(
         'Approved By Email': '',
         'Client Comments': '',
       } as any);
-
       stats.createdRows++;
       existingKeys.add(prospectingKey);
     }
@@ -848,7 +811,6 @@ async function copyTemplate(
 interface TacticRowData {
   variant: string;
   tactic: string;
-  setName: string;
   folderId: string;
   folderUrl: string;
 }
@@ -935,7 +897,7 @@ async function populateReviewSheet(
     if ('Tactic' in colMap)                   cells[colMap['Tactic']] = row.tactic;
     if ('Tactic Detail' in colMap)            cells[colMap['Tactic Detail']] = '';
     if ('Concept' in colMap)                  cells[colMap['Concept']] = 'Default';
-    if ('Set Name' in colMap)                 cells[colMap['Set Name']] = row.setName;
+    if ('Set Name' in colMap)                 cells[colMap['Set Name']] = '';
     if ('Contents (sizes/lengths)' in colMap) cells[colMap['Contents (sizes/lengths)']] = '';
     if ('Format' in colMap)                   cells[colMap['Format']] = 'Folder';
     if ('Folder Link' in colMap)              cells[colMap['Folder Link']] = `=HYPERLINK("${row.folderUrl}","Open Folder")`;
