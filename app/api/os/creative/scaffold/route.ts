@@ -14,14 +14,16 @@
 // Required env vars:
 //   HIVE_OS_INTERNAL_API_KEY            – shared secret for endpoint auth
 //   CREATIVE_REVIEW_SHEET_TEMPLATE_ID   – Google Sheet template file ID (optional override; has hardcoded default)
-//   CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID – root folder on Shared Drive
+//   (CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID no longer used by scaffold; job folder is under clientProjectsFolderId)
 //   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET – for OAuth2 token refresh
 //   AIRTABLE_DB_BASE_ID                 – Hive DB base (CompanyIntegrations)
 //
 // Required in request body:
 //   recordId – Airtable Projects record ID (companyId derived from linked Client field)
 //
-// Subfolders created under root: Evergreen/, Promotions/, Client Review/
+// Optional: clientProjectsFolderId – client's Projects folder ID. Job folder is created
+//   directly under it with name = Project Name (Job #). If omitted, Car Toys Projects
+//   folder is used (temporary per-client override).
 
 import { randomBytes } from 'crypto';
 import { NextResponse } from 'next/server';
@@ -45,8 +47,11 @@ const COMPANY_FIELD_CANDIDATES = ['Client', 'Company'] as const;
 /** Canonical variant list — Prospecting and Retargeting audiences. */
 const VARIANTS = ['Prospecting', 'Retargeting'] as const;
 
-/** Canonical tactic list — top-level folders under job folder (Client Review/<hubName>). Order matches folder tree. */
+/** Canonical tactic list — top-level folders under job folder. Order matches folder tree. */
 const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video'] as const;
+
+/** Car Toys client Projects folder ID. Used when clientProjectsFolderId is not provided (temporary). */
+const CAR_TOYS_PROJECTS_FOLDER_ID = '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_';
 
 /** Tab name preferences for the destination sheet. */
 const REVIEW_TAB_NAMES = ['Client Review & Approvals', 'Creative Review', 'Review', 'Approvals'] as const;
@@ -116,6 +121,7 @@ export async function POST(req: Request) {
     recordId?: string;
     creativeMode?: string;
     promoName?: string;
+    clientProjectsFolderId?: string;
   };
   try {
     body = await req.json();
@@ -126,7 +132,11 @@ export async function POST(req: Request) {
     );
   }
 
-  const { recordId, creativeMode, promoName } = body;
+  const { recordId, creativeMode, promoName, clientProjectsFolderId: bodyClientProjectsFolderId } = body;
+  const clientProjectsFolderId =
+    (typeof bodyClientProjectsFolderId === 'string' && bodyClientProjectsFolderId.trim())
+      ? bodyClientProjectsFolderId.trim()
+      : CAR_TOYS_PROJECTS_FOLDER_ID;
   if (!recordId) {
     return NextResponse.json(
       { ok: false, error: 'recordId is required' },
@@ -251,10 +261,9 @@ export async function POST(req: Request) {
     );
   }
 
-  // Canonical hub name — reused for both the Google Sheet and job folder under Client Review
+  // Canonical hub name — used for the copied sheet name (job folder name is projectName)
   const hubName = `${projectName} – Creative Review`;
 
-  const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID!;
   const templateId = CREATIVE_REVIEW_TEMPLATE_SHEET_ID;
 
   // ── Fetch OAuth tokens ─────────────────────────────────────────────
@@ -392,23 +401,13 @@ export async function POST(req: Request) {
     const drive = google.drive({ version: 'v3', auth });
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // 1. Cache: one list per parent, then get-or-create. Reduces Drive calls and avoids timeout.
     const cache: FolderCache = new Map();
 
-    // 2. Top-level subfolders under root (Evergreen, Promotions, Client Review) in parallel
-    const subfolderResults = await Promise.all(
-      SUBFOLDERS.map((name) => getOrCreateFolderCached(drive, rootFolderId, name, cache)),
-    );
-    const folders: Record<string, { id: string; url: string }> = {};
-    SUBFOLDERS.forEach((name, i) => {
-      folders[name] = { id: subfolderResults[i].id, url: folderUrl(subfolderResults[i].id) };
-    });
-    const clientReviewFolder = folders['Client Review'];
+    // Job folder: directly under client Projects folder (no wrapper: no Creative Review root, no Creative Assets).
+    // Folder name = Project Name (Job #) e.g. "229CAR Test Production".
+    const jobFolder = await getOrCreateFolderCached(drive, clientProjectsFolderId, projectName, cache);
 
-    // 3. Job folder directly under Client Review (no Creative Assets parent)
-    const jobFolder = await getOrCreateFolderCached(drive, clientReviewFolder.id, hubName, cache);
-
-    // 4. Tactic → variant only. No Creative Assets, no Default – Set A, no top-level Prospecting/Retargeting.
+    // Tactic → variant only. No Creative Assets, no Default – Set A, no top-level Prospecting/Retargeting.
     //    Create 7 tactic folders in parallel; within each create Prospecting + Retargeting in parallel.
     const tacticFolders = await Promise.all(
       TACTICS.map((tactic) => getOrCreateFolderCached(drive, jobFolder.id, tactic, cache)),
@@ -428,11 +427,11 @@ export async function POST(req: Request) {
     );
     const tacticRows: TacticRowData[] = tacticRowsArrays.flat();
 
-    // 5. Copy sheet template into Client Review folder
-    const copied = await copyTemplate(drive, templateId, clientReviewFolder.id, hubName);
+    // Copy sheet template into job folder (same folder as tactic/variant tree)
+    const copied = await copyTemplate(drive, templateId, jobFolder.id, hubName);
     const sheetUrl = copied.url;
 
-    // 4b. Rename the copied sheet to hubName using Drive API
+    // Rename the copied sheet to hubName using Drive API
     if (copied.name !== hubName) {
       await drive.files.update({
         fileId: copied.id,
@@ -497,24 +496,29 @@ export async function POST(req: Request) {
     const reviewToken = existingToken || randomBytes(32).toString('hex');
     const reviewPortalUrl = `${getAppBaseUrl()}/review/${reviewToken}`;
 
-    // Write token + portal URL back to the Project record
-    if (!existingToken) {
-      await osBase(AIRTABLE_TABLES.PROJECTS).update(recordId, {
+    const jobFolderUrl = folderUrl(jobFolder.id);
+
+    // Write token, portal URL, and job folder ID/URL back to the Project record
+    await osBase(AIRTABLE_TABLES.PROJECTS).update(recordId, {
+      ...(existingToken ? {} : {
         'Client Review Portal Token': reviewToken,
         'Client Review Portal URL': reviewPortalUrl,
-      });
-    }
+      }),
+      'Creative Review Hub Folder ID': jobFolder.id,
+      'Creative Review Hub Folder URL': jobFolderUrl,
+    } as Record<string, unknown>);
 
-    console.log(`[creative/scaffold] recordId=${recordId}, projectName="${projectName}", hubName="${hubName}", sheetId=${copied.id}, jobFolderId=${jobFolder.id}, rowsWritten=${tacticRows.length}, reviewToken=${reviewToken}, reviewPortalUrl=${reviewPortalUrl}`);
+    console.log(`[creative/scaffold] recordId=${recordId}, projectName="${projectName}", hubName="${hubName}", sheetId=${copied.id}, jobFolderId=${jobFolder.id}, clientProjectsFolderId=${clientProjectsFolderId}, rowsWritten=${tacticRows.length}, reviewToken=${reviewToken}, reviewPortalUrl=${reviewPortalUrl}`);
 
     return NextResponse.json({
       ok: true,
       sheetUrl,
-      productionAssetsRootUrl: folderUrl(rootFolderId),
-      clientReviewFolderUrl: clientReviewFolder.url,
+      clientReviewFolderUrl: jobFolderUrl,
+      creativeReviewHubFolderId: jobFolder.id,
+      creativeReviewHubFolderUrl: jobFolderUrl,
       scaffoldStatus: 'complete',
       rowCount: tacticRows.length,
-      lastRunAt: new Date().toISOString(), // ISO 8601 UTC for Creative Scaffold Last Run
+      lastRunAt: new Date().toISOString(),
     });
   } catch (err: any) {
     console.error('[creative/scaffold] Error:', err?.message ?? err);
@@ -1005,7 +1009,6 @@ function checkRequiredEnv(): string[] {
     { key: 'AIRTABLE_API_KEY', alt: 'AIRTABLE_ACCESS_TOKEN' },
     { key: 'AIRTABLE_OS_BASE_ID', alt: 'AIRTABLE_BASE_ID' },
     { key: 'AIRTABLE_DB_BASE_ID' },
-    { key: 'CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID' },
     { key: 'HIVE_OS_INTERNAL_API_KEY' },
   ];
 

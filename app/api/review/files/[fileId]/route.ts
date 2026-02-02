@@ -1,13 +1,12 @@
 // app/api/review/files/[fileId]/route.ts
 // Proxies Google Drive file content for the Client Review Portal.
 // Requires a valid review token as a query parameter.
-// Validates that the fileId belongs to one of the project's Creative Review Set folders.
+// Validates that the file's parent is one of the project's variant folders (Drive traversal: job → tactic → variant).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
-import { getBase } from '@/lib/airtable';
-import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
+import { getAllowedReviewFolderIds, getAllowedReviewFolderIdsFromJobFolder } from '@/lib/review/reviewFolders';
 import type { Readable } from 'stream';
 
 export const dynamic = 'force-dynamic';
@@ -67,25 +66,20 @@ export async function GET(
 
   const download = req.nextUrl.searchParams.get('dl') === '1';
 
-  // Validate that fileId belongs to one of the project's Creative Review Set folders
+  const allowedFolderIds = project.jobFolderId
+    ? await getAllowedReviewFolderIdsFromJobFolder(drive, project.jobFolderId)
+    : await (async () => {
+        const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID;
+        if (!rootFolderId) return null;
+        return getAllowedReviewFolderIds(drive, project.hubName, rootFolderId);
+      })();
+
+  if (!allowedFolderIds || allowedFolderIds.length === 0) {
+    return NextResponse.json({ error: 'No review folders configured' }, { status: 403 });
+  }
+
+  // Validate that fileId's parent is one of the allowed variant folders
   try {
-    const osBase = getBase();
-    const reviewSets = await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_SETS)
-      .select({
-        filterByFormula: `FIND("${project.recordId}", ARRAYJOIN({Project})) > 0`,
-        fields: ['Folder ID'],
-      })
-      .all();
-
-    const allowedFolderIds = reviewSets
-      .map((set) => (set.fields as Record<string, unknown>)['Folder ID'] as string)
-      .filter(Boolean);
-
-    if (allowedFolderIds.length === 0) {
-      return NextResponse.json({ error: 'No review folders configured' }, { status: 403 });
-    }
-
-    // Check if fileId's parent is one of the allowed folders
     const fileMeta = await drive.files.get({
       fileId,
       fields: 'parents, mimeType, name',

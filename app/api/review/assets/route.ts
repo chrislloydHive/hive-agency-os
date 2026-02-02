@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
+import { getReviewFolderMap, getReviewFolderMapFromJobFolder } from '@/lib/review/reviewFolders';
 import type { drive_v3 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
@@ -47,23 +48,6 @@ async function listAllFiles(
   }));
 }
 
-/** Get child folder id by exact name. Shared Drive safe. Throws if missing when required. */
-async function getChildFolderId(
-  drive: drive_v3.Drive,
-  parentId: string,
-  name: string,
-): Promise<string | null> {
-  const escaped = name.replace(/'/g, "\\'");
-  const res = await drive.files.list({
-    q: `'${parentId}' in parents and name = '${escaped}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-    fields: 'files(id, name)',
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-  });
-  const files = res.data.files ?? [];
-  return files.length > 0 ? files[0].id! : null;
-}
-
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token');
   if (!token) {
@@ -80,54 +64,23 @@ export async function GET(req: NextRequest) {
   const { project, auth } = resolved;
   const drive = google.drive({ version: 'v3', auth });
 
-  const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID;
-  if (!rootFolderId) {
-    return NextResponse.json(
-      { error: 'Server misconfigured: CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID not set' },
-      { status: 500 },
-    );
-  }
+  const folderResult = project.jobFolderId
+    ? await getReviewFolderMapFromJobFolder(drive, project.jobFolderId)
+    : await (async () => {
+        const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID;
+        if (!rootFolderId) return null;
+        return getReviewFolderMap(drive, project.hubName, rootFolderId);
+      })();
 
-  // Resolve job folder: root → Client Review → <hubName>
-  const clientReviewFolderId = await getChildFolderId(drive, rootFolderId, 'Client Review');
-  if (!clientReviewFolderId) {
+  if (!folderResult) {
     return NextResponse.json(
-      { error: 'Client Review folder not found under production assets root' },
+      project.jobFolderId
+        ? { error: 'Review folders not found under job folder. Run scaffold first.' }
+        : { error: 'Server misconfigured or review folders not found. Run scaffold first.' },
       { status: 404 },
     );
   }
-
-  const jobFolderId = await getChildFolderId(drive, clientReviewFolderId, project.hubName);
-  if (!jobFolderId) {
-    return NextResponse.json(
-      {
-        error: `Job folder not found: "${project.hubName}" under Client Review. Run scaffold first.`,
-      },
-      { status: 404 },
-    );
-  }
-
-  // Build folderMap: jobFolderId → tactic → variant (new schema). Each folderId is the leaf variant folder.
-  const folderMap = new Map<string, string>();
-  for (const tactic of TACTICS) {
-    const tacticFolderId = await getChildFolderId(drive, jobFolderId, tactic);
-    if (!tacticFolderId) {
-      return NextResponse.json(
-        { error: `Tactic folder not found: "${tactic}" under job folder "${project.hubName}"` },
-        { status: 404 },
-      );
-    }
-    for (const variant of VARIANTS) {
-      const variantFolderId = await getChildFolderId(drive, tacticFolderId, variant);
-      if (!variantFolderId) {
-        return NextResponse.json(
-          { error: `Variant folder not found: "${variant}" under tactic "${tactic}"` },
-          { status: 404 },
-        );
-      }
-      folderMap.set(`${variant}:${tactic}`, variantFolderId);
-    }
-  }
+  const { map: folderMap, jobFolderId } = folderResult;
 
   // List files from each variant folder (leaf folders only)
   const sections: TacticSectionData[] = [];

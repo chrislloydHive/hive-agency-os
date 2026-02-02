@@ -50,6 +50,9 @@ if (!recordId || typeof recordId !== 'string' || !recordId.trim().startsWith('re
 const BASE_URL = 'YOUR_HIVE_OS_BASE_URL';          // ← replace
 const API_KEY  = 'YOUR_HIVE_OS_INTERNAL_API_KEY';   // ← replace
 
+// Client Projects folder ID: job folder is created directly under this. Per-client override.
+const CLIENT_PROJECTS_FOLDER_ID = '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_'; // Car Toys
+
 const ENDPOINT = `${BASE_URL}/api/os/creative/scaffold`;
 
 // ─── Read record fields ──────────────────────────────────────────────
@@ -120,6 +123,7 @@ try {
             recordId: effectiveRecordId,
             creativeMode,
             promoName,
+            clientProjectsFolderId: CLIENT_PROJECTS_FOLDER_ID,
         }),
     });
 
@@ -151,18 +155,21 @@ const lastRunIso = (result && result.lastRunAt && typeof result.lastRunAt === 's
 updates['Creative Scaffold Last Run'] = lastRunIso;
 
 if (result && result.ok === true) {
-    // Success: set status to existing option "complete"; clear error; set URLs.
+    // Success: set status to existing option "complete"; clear error; set URLs and job folder ID/URL.
     updates['Creative Scaffold Status'] = 'complete';
     updates['Creative Scaffold Error'] = '';
     updates['Creative Scaffold Connect URL'] = null;
     if (typeof result.sheetUrl === 'string' && result.sheetUrl.trim()) {
         updates['Review Sheet URL'] = result.sheetUrl.trim();
     }
-    if (typeof result.productionAssetsRootUrl === 'string' && result.productionAssetsRootUrl.trim()) {
-        updates['Production Assets URL'] = result.productionAssetsRootUrl.trim();
-    }
     if (typeof result.clientReviewFolderUrl === 'string' && result.clientReviewFolderUrl.trim()) {
         updates['Client Review URL'] = result.clientReviewFolderUrl.trim();
+    }
+    if (typeof result.creativeReviewHubFolderId === 'string' && result.creativeReviewHubFolderId.trim()) {
+        updates['Creative Review Hub Folder ID'] = result.creativeReviewHubFolderId.trim();
+    }
+    if (typeof result.creativeReviewHubFolderUrl === 'string' && result.creativeReviewHubFolderUrl.trim()) {
+        updates['Creative Review Hub Folder URL'] = result.creativeReviewHubFolderUrl.trim();
     }
 } else {
     // Failure: do NOT set Creative Scaffold Status (avoids missing single-select option "Error").
@@ -179,8 +186,9 @@ const LOG_FIELD_TYPES = {
     'Creative Scaffold Connect URL': 'url',
     'Creative Scaffold Last Run': 'dateTime',
     'Review Sheet URL': 'url',
-    'Production Assets URL': 'url',
     'Client Review URL': 'url',
+    'Creative Review Hub Folder ID': 'singleLineText',
+    'Creative Review Hub Folder URL': 'url',
 };
 
 for (const [fieldName, value] of Object.entries(updates)) {

@@ -17,6 +17,8 @@ export interface ResolvedReviewProject {
     name: string;
     hubName: string;
     companyId: string;
+    /** Set when scaffold created job under client Projects folder; used for listing/proxy. */
+    jobFolderId?: string;
   };
   auth: OAuth2Client;
 }
@@ -134,12 +136,18 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
     hubName,
   });
 
+  const jobFolderId =
+    (typeof fields['Creative Review Hub Folder ID'] === 'string' && fields['Creative Review Hub Folder ID'].trim())
+      ? (fields['Creative Review Hub Folder ID'] as string).trim()
+      : undefined;
+
   return {
     project: {
       recordId: record.id,
       name: projectName,
       hubName,
       companyId,
+      jobFolderId,
     },
     auth,
   };
