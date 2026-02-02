@@ -19,6 +19,8 @@ export interface ResolvedReviewProject {
     companyId: string;
     /** Set when scaffold created job under client Projects folder; used for listing/proxy. */
     jobFolderId?: string;
+    /** Client Review primary landing page URL (Projects table). Used as default click-through when no per-asset override. */
+    primaryLandingPageUrl?: string | null;
   };
   auth: OAuth2Client;
 }
@@ -143,6 +145,12 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
       ? jobFolderIdRaw.trim()
       : undefined;
 
+  const primaryLandingPageUrlRaw = fields['Client Review Primary Landing Page URL'];
+  const primaryLandingPageUrl =
+    typeof primaryLandingPageUrlRaw === 'string' && primaryLandingPageUrlRaw.trim()
+      ? primaryLandingPageUrlRaw.trim()
+      : undefined;
+
   return {
     project: {
       recordId: record.id,
@@ -150,6 +158,7 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
       hubName,
       companyId,
       jobFolderId,
+      primaryLandingPageUrl: primaryLandingPageUrl ?? null,
     },
     auth,
   };

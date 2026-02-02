@@ -19,6 +19,10 @@ export interface StatusRecord {
   approvedByEmail: string | null;
   lastActivityAt: string | null;
   notes: string | null;
+  /** Per-asset override (Creative Review Asset Status: Landing Page URL Override). */
+  landingPageOverrideUrl: string | null;
+  /** Effective URL from Airtable formula/lookup when present. */
+  effectiveLandingPageUrl: string | null;
 }
 
 function keyFrom(token: string, driveFileId: string): string {
@@ -29,6 +33,11 @@ function parseStatus(raw: unknown): AssetStatusValue {
   const s = typeof raw === 'string' ? raw.trim() : '';
   if (s === 'New' || s === 'Seen' || s === 'Approved' || s === 'Needs Changes') return s;
   return 'New';
+}
+
+function parseUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  return raw.trim();
 }
 
 function recordToStatus(r: { id: string; fields: Record<string, unknown> }, token: string, driveFileId: string): StatusRecord {
@@ -43,6 +52,8 @@ function recordToStatus(r: { id: string; fields: Record<string, unknown> }, toke
     approvedByEmail: (f['Approved By Email'] as string) ?? null,
     lastActivityAt: (f['Last Activity At'] as string) ?? null,
     notes: (f['Notes'] as string) ?? null,
+    landingPageOverrideUrl: parseUrl(f['Landing Page URL Override']),
+    effectiveLandingPageUrl: parseUrl(f['Effective Landing Page URL']),
   };
 }
 

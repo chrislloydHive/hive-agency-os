@@ -23,6 +23,8 @@ interface ReviewAsset {
   mimeType: string;
   modifiedTime: string;
   reviewState?: ReviewState;
+  /** Click-through URL: status override or project primary; null if neither set. */
+  clickThroughUrl?: string | null;
 }
 
 interface TacticSectionData {
@@ -106,8 +108,9 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Attach review state from Creative Review Asset Status table
+  // Attach review state and click-through URL from Creative Review Asset Status + project primary
   const statusMap = await listAssetStatuses(token);
+  const primaryLandingPageUrl = project.primaryLandingPageUrl ?? null;
   const toReviewState = (fileId: string): ReviewState => {
     const key = `${token}::${fileId}`;
     const rec = statusMap.get(key);
@@ -116,9 +119,17 @@ export async function GET(req: NextRequest) {
     if (s === 'needs changes') return 'needs_changes';
     return s as ReviewState;
   };
+  const toClickThroughUrl = (fileId: string): string | null => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    const override = rec?.landingPageOverrideUrl ?? rec?.effectiveLandingPageUrl ?? null;
+    return override || primaryLandingPageUrl || null;
+  };
   for (const section of sections) {
     for (const asset of section.assets) {
-      (asset as ReviewAsset).reviewState = toReviewState(asset.fileId);
+      const a = asset as ReviewAsset;
+      a.reviewState = toReviewState(asset.fileId);
+      a.clickThroughUrl = toClickThroughUrl(asset.fileId);
     }
   }
 

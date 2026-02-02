@@ -22,6 +22,7 @@ interface ReviewAsset {
   name: string;
   mimeType: string;
   reviewState?: ReviewState;
+  clickThroughUrl?: string | null;
 }
 
 interface TacticSectionData {

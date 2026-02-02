@@ -261,7 +261,7 @@ function AssetCard({
   token,
   onClick,
 }: {
-  asset: { fileId: string; name: string; mimeType: string; reviewState?: ReviewState };
+  asset: { fileId: string; name: string; mimeType: string; reviewState?: ReviewState; clickThroughUrl?: string | null };
   token: string;
   onClick: () => void;
 }) {
@@ -271,12 +271,14 @@ function AssetCard({
   const isAudio = asset.mimeType.startsWith('audio/');
   const badgeLabel = statusBadgeLabel(asset.reviewState);
   const badgeClass = statusBadgeClass(asset.reviewState);
+  const hasClickThrough = typeof asset.clickThroughUrl === 'string' && asset.clickThroughUrl.trim().length > 0;
 
   return (
+    <div className="flex flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-800 text-left transition-colors hover:border-amber-500/50 hover:bg-gray-750">
     <button
       type="button"
       onClick={onClick}
-      className="group w-full overflow-hidden rounded-lg border border-gray-700 bg-gray-800 text-left transition-colors hover:border-amber-500/50 hover:bg-gray-750 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+      className="group flex-1 overflow-hidden text-left focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:ring-inset"
     >
       <div className="relative flex aspect-video items-center justify-center bg-gray-900">
         {/* Status badge */}
@@ -335,6 +337,21 @@ function AssetCard({
         </p>
       </div>
     </button>
+    {hasClickThrough && (
+      <a
+        href={asset.clickThroughUrl!}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mx-3 mb-2 inline-flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300"
+        onClick={(e) => e.stopPropagation()}
+      >
+        Click-through
+        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+        </svg>
+      </a>
+    )}
+    </div>
   );
 }
 
