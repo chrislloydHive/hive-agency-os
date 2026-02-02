@@ -30,6 +30,9 @@ interface TacticSectionData {
   tactic: string;
   assets: ReviewAsset[];
   fileCount: number;
+  groupApprovalApprovedAt?: string | null;
+  groupApprovalApprovedByName?: string | null;
+  newSinceApprovalCount?: number;
 }
 
 interface TacticFeedback {
@@ -193,6 +196,23 @@ function ReviewPortalClientInner({
     []
   );
 
+  const updateGroupApproval = useCallback(
+    (variant: string, tactic: string, approvedAt: string, _approvedByName: string, _approvedByEmail: string) => {
+      setSections((prev) =>
+        prev.map((sec) => {
+          if (sec.variant !== variant || sec.tactic !== tactic) return sec;
+          return {
+            ...sec,
+            groupApprovalApprovedAt: approvedAt,
+            groupApprovalApprovedByName: _approvedByName,
+            newSinceApprovalCount: 0,
+          };
+        })
+      );
+    },
+    []
+  );
+
   // Fetch asset list after short delay (reduces contention with server render). Abort on unmount/token change.
   useEffect(() => {
     if (lastFetchedTokenRef.current === token) return;
@@ -297,7 +317,7 @@ function ReviewPortalClientInner({
             const variantSections = sections.filter((s) => s.variant === variant);
             const totalFiles = variantSections.reduce((sum, s) => sum + s.fileCount, 0);
             const approvedCount = variantSections.filter(
-              (s) => reviewData[`${variant}:${s.tactic}`]?.approved
+              (s) => !!s.groupApprovalApprovedAt
             ).length;
 
             return (
@@ -347,6 +367,10 @@ function ReviewPortalClientInner({
                     reviewData[feedbackKey] ?? { approved: false, comments: '' }
                   }
                   onAssetStatusChange={updateAssetReviewState}
+                  groupApprovalApprovedAt={section.groupApprovalApprovedAt}
+                  groupApprovalApprovedByName={section.groupApprovalApprovedByName}
+                  newSinceApprovalCount={section.newSinceApprovalCount}
+                  onGroupApproved={updateGroupApproval}
                 />
               );
             })}

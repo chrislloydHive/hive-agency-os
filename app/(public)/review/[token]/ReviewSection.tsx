@@ -30,9 +30,28 @@ interface ReviewSectionProps {
   token: string;
   initialFeedback: TacticFeedback;
   onAssetStatusChange?: (variant: string, tactic: string, fileId: string, reviewState: ReviewState) => void;
+  /** As-of group approval from Creative Review Group Approvals (section data from API). */
+  groupApprovalApprovedAt?: string | null;
+  groupApprovalApprovedByName?: string | null;
+  newSinceApprovalCount?: number;
+  onGroupApproved?: (variant: string, tactic: string, approvedAt: string, approvedByName: string, approvedByEmail: string) => void;
 }
 
 const DEBOUNCE_MS = 800;
+
+function formatApprovedAt(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
 
 export default function ReviewSection({
   variant,
@@ -42,11 +61,15 @@ export default function ReviewSection({
   token,
   initialFeedback,
   onAssetStatusChange,
+  groupApprovalApprovedAt,
+  groupApprovalApprovedByName,
+  newSinceApprovalCount = 0,
+  onGroupApproved,
 }: ReviewSectionProps) {
-  const [approved, setApproved] = useState(initialFeedback.approved);
   const [comments, setComments] = useState(initialFeedback.comments);
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
+  const [approvingGroup, setApprovingGroup] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingCommentRef = useRef<string | null>(null);
 
@@ -56,15 +79,16 @@ export default function ReviewSection({
   // For empty tactics: collapse feedback by default; expand on "Add feedback"
   const [feedbackExpanded, setFeedbackExpanded] = useState(false);
   const hasFiles = assets.length > 0;
+  const isGroupApproved = !!groupApprovalApprovedAt;
 
   const { identity, requireIdentity } = useAuthorIdentity();
 
   const openLightbox = (index: number) => setLightboxIndex(index);
   const closeLightbox = () => setLightboxIndex(null);
 
-  const save = useCallback(
-    async (fields: { approved?: boolean; comments?: string }) => {
-      if (!identity) return; // Should not happen if requireIdentity was called
+  const saveComments = useCallback(
+    async (fields: { comments?: string }) => {
+      if (!identity) return;
 
       setSaving(true);
       try {
@@ -83,7 +107,7 @@ export default function ReviewSection({
           setLastSaved(new Date().toLocaleTimeString());
         }
       } catch {
-        // silent — user sees stale "last saved" timestamp
+        // silent
       } finally {
         setSaving(false);
       }
@@ -91,11 +115,33 @@ export default function ReviewSection({
     [variant, tactic, token, identity],
   );
 
-  const handleApprovalToggle = () => {
-    const next = !approved;
-    requireIdentity(() => {
-      setApproved(next);
-      save({ approved: next });
+  const handleGroupApprove = () => {
+    requireIdentity(async () => {
+      if (!identity) return;
+      setApprovingGroup(true);
+      try {
+        const res = await fetch('/api/review/groups/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({
+            token,
+            tactic,
+            variant,
+            approvedByName: identity.name,
+            approvedByEmail: identity.email,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const approvedAt = (data && data.approvedAt) || new Date().toISOString();
+          onGroupApproved?.(variant, tactic, approvedAt, identity.name, identity.email);
+        }
+      } catch {
+        // silent
+      } finally {
+        setApprovingGroup(false);
+      }
     });
   };
 
@@ -103,15 +149,13 @@ export default function ReviewSection({
     setComments(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    // Store the pending comment value
     pendingCommentRef.current = value;
 
     debounceRef.current = setTimeout(() => {
-      // Only save if there's a comment to save
       if (pendingCommentRef.current && pendingCommentRef.current.trim()) {
         requireIdentity(() => {
           if (pendingCommentRef.current) {
-            save({ comments: pendingCommentRef.current });
+            saveComments({ comments: pendingCommentRef.current });
             pendingCommentRef.current = null;
           }
         });
@@ -131,14 +175,19 @@ export default function ReviewSection({
   return (
     <section className={hasFiles ? 'mb-10' : 'mb-4'}>
       {/* Header: compact for empty tactics */}
-      <div className={`flex items-center gap-3 ${hasFiles ? 'mb-4' : ''}`}>
+      <div className={`flex flex-wrap items-center gap-3 ${hasFiles ? 'mb-4' : ''}`}>
         <h2 className="text-lg font-semibold text-amber-400">{tactic}</h2>
         <span className="rounded-full bg-gray-800 px-2.5 py-0.5 text-xs font-medium text-gray-400">
           {fileCount} {fileCount === 1 ? 'file' : 'files'}
         </span>
-        {approved && (
-          <span className="rounded-full bg-emerald-900/60 px-2.5 py-0.5 text-xs font-medium text-emerald-300">
-            Approved
+        {isGroupApproved && (
+          <span className="rounded-full bg-emerald-900/60 px-2.5 py-0.5 text-xs font-medium text-emerald-300" title={groupApprovalApprovedByName ?? undefined}>
+            Approved as of {formatApprovedAt(groupApprovalApprovedAt!)}
+          </span>
+        )}
+        {newSinceApprovalCount > 0 && (
+          <span className="rounded-full bg-amber-900/60 px-2.5 py-0.5 text-xs font-medium text-amber-200">
+            {newSinceApprovalCount} new since approval
           </span>
         )}
         {!hasFiles && (
@@ -200,14 +249,15 @@ export default function ReviewSection({
           <div className="flex items-start gap-4 sm:items-center">
             <button
               type="button"
-              onClick={handleApprovalToggle}
+              onClick={handleGroupApprove}
+              disabled={approvingGroup}
               className={`shrink-0 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-                approved
-                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                  : 'border border-gray-600 bg-gray-700 text-gray-200 hover:bg-gray-600'
+                isGroupApproved
+                  ? 'border border-emerald-600 bg-emerald-900/40 text-emerald-200 hover:bg-emerald-800/40'
+                  : 'bg-emerald-600 text-white hover:bg-emerald-700'
               }`}
             >
-              {approved ? 'Approved' : 'Approve'}
+              {approvingGroup ? 'Saving…' : isGroupApproved ? 'Re-approve' : 'Approve'}
             </button>
             <div className="hidden shrink-0 sm:block">
               {saving && <span className="text-xs text-gray-500">Saving...</span>}
@@ -219,11 +269,11 @@ export default function ReviewSection({
           <textarea
             value={comments}
             onChange={(e) => handleCommentsChange(e.target.value)}
-            disabled={approved}
-            placeholder={approved ? 'Comments locked after approval — toggle off to edit' : 'Add comments or feedback...'}
+            disabled={isGroupApproved}
+            placeholder={isGroupApproved ? 'Comments locked after group approval' : 'Add comments or feedback...'}
             rows={3}
             className={`mt-3 w-full rounded-md border bg-gray-900 px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-1 ${
-              approved
+              isGroupApproved
                 ? 'cursor-not-allowed border-gray-700 opacity-60'
                 : 'border-gray-600 focus:ring-amber-500'
             }`}

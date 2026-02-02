@@ -8,6 +8,7 @@ import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { getReviewFolderMap, getReviewFolderMapFromJobFolder, getReviewFolderMapFromClientProjectsFolder } from '@/lib/review/reviewFolders';
 import { listAssetStatuses } from '@/lib/airtable/reviewAssetStatus';
+import { getGroupApprovals, groupKey } from '@/lib/airtable/reviewGroupApprovals';
 import type { drive_v3 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
@@ -32,6 +33,12 @@ interface TacticSectionData {
   tactic: string;
   assets: ReviewAsset[];
   fileCount: number;
+  /** As-of group approval timestamp (from Creative Review Group Approvals). */
+  groupApprovalApprovedAt?: string | null;
+  groupApprovalApprovedByName?: string | null;
+  groupApprovalApprovedByEmail?: string | null;
+  /** Count of assets with modifiedTime > groupApprovalApprovedAt. */
+  newSinceApprovalCount?: number;
 }
 
 /** List non-folder files in a Drive folder. Shared Drive safe. */
@@ -130,6 +137,27 @@ export async function GET(req: NextRequest) {
       const a = asset as ReviewAsset;
       a.reviewState = toReviewState(asset.fileId);
       a.clickThroughUrl = toClickThroughUrl(asset.fileId);
+    }
+  }
+
+  // Attach group approval (as-of) and newSinceApprovalCount per section
+  const groupApprovals = await getGroupApprovals(token);
+  for (const section of sections) {
+    const key = groupKey(section.tactic, section.variant);
+    const approval = groupApprovals[key];
+    if (approval) {
+      section.groupApprovalApprovedAt = approval.approvedAt;
+      section.groupApprovalApprovedByName = approval.approvedByName ?? null;
+      section.groupApprovalApprovedByEmail = approval.approvedByEmail ?? null;
+      const approvedAtMs = new Date(approval.approvedAt).getTime();
+      section.newSinceApprovalCount = section.assets.filter(
+        (a) => a.modifiedTime && new Date(a.modifiedTime).getTime() > approvedAtMs
+      ).length;
+    } else {
+      section.groupApprovalApprovedAt = null;
+      section.groupApprovalApprovedByName = null;
+      section.groupApprovalApprovedByEmail = null;
+      section.newSinceApprovalCount = 0;
     }
   }
 
