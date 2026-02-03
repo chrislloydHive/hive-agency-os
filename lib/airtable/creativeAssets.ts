@@ -160,7 +160,7 @@ export async function createCreativeAsset(input: CreateCreativeAssetInput): Prom
   try {
     const base = getBase();
     const fields = mapToAirtableFields(input);
-    const record = await base(TABLE).create(fields as Record<string, unknown>);
+    const record = await base(TABLE).create(fields as any);
     return mapAirtableRecord(record as unknown as { id: string; fields: Record<string, unknown> });
   } catch (error) {
     console.error('[Creative Assets] Failed to create asset:', error);
@@ -181,7 +181,7 @@ export async function updateCreativeAsset(
     if (Object.keys(fields).length === 0) {
       return getCreativeAssetById(recordId);
     }
-    const record = await base(TABLE).update(recordId, fields as Record<string, unknown>);
+    const record = await base(TABLE).update(recordId, fields as any);
     return mapAirtableRecord(record as unknown as { id: string; fields: Record<string, unknown> });
   } catch (error) {
     console.error(`[Creative Assets] Failed to update asset ${recordId}:`, error);

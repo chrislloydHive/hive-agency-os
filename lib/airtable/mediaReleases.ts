@@ -250,7 +250,7 @@ export async function createMediaRelease(
       ...input,
       status: input.status ?? 'Draft',
     });
-    const record = await base(TABLE).create(fields as Record<string, unknown>);
+    const record = await base(TABLE).create(fields as any);
     return mapAirtableRecord(record as unknown as { id: string; fields: Record<string, unknown> });
   } catch (error) {
     console.error('[Media Releases] Failed to create release:', error);
@@ -272,7 +272,7 @@ export async function updateMediaRelease(
       const existing = await getMediaReleaseById(recordId);
       return existing ?? null;
     }
-    const record = await base(TABLE).update(recordId, fields as Record<string, unknown>);
+    const record = await base(TABLE).update(recordId, fields as any);
     return mapAirtableRecord(record as unknown as { id: string; fields: Record<string, unknown> });
   } catch (error) {
     console.error(`[Media Releases] Failed to update release ${recordId}:`, error);
