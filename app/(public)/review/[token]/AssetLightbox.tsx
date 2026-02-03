@@ -172,6 +172,7 @@ export default function AssetLightbox({
             token,
             driveFileId: asset.fileId,
             status: 'Approved',
+            approvedAt: new Date().toISOString(),
             approvedByName: identity.name,
             approvedByEmail: identity.email,
           }),

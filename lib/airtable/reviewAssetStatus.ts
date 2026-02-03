@@ -149,6 +149,8 @@ export interface UpsertStatusArgs {
   projectId: string;
   driveFileId: string;
   status: AssetStatusValue;
+  /** When status is Approved, use this timestamp if provided (e.g. from client to avoid server TZ skew). */
+  approvedAt?: string;
   approvedByName?: string;
   approvedByEmail?: string;
   notes?: string;
@@ -160,6 +162,7 @@ export interface UpsertStatusArgs {
 export async function upsertStatus(args: UpsertStatusArgs): Promise<void> {
   const osBase = getBase();
   const now = new Date().toISOString();
+  const approvedAt = args.status === 'Approved' && args.approvedAt ? args.approvedAt : now;
   const existing = await findExisting(args.token, args.driveFileId);
 
   const updates: Record<string, unknown> = {
@@ -170,7 +173,7 @@ export async function upsertStatus(args: UpsertStatusArgs): Promise<void> {
     updates['Notes'] = String(args.notes).slice(0, 5000);
   }
   if (args.status === 'Approved') {
-    updates['Approved At'] = now;
+    updates['Approved At'] = approvedAt;
     if (args.approvedByName !== undefined) updates['Approved By Name'] = args.approvedByName.slice(0, 100);
     if (args.approvedByEmail !== undefined) updates['Approved By Email'] = args.approvedByEmail.slice(0, 200);
   }

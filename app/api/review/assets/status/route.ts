@@ -3,6 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
+import { resolveApprovedAt } from '@/lib/review/approvedAt';
 import { upsertStatus, type AssetStatusValue } from '@/lib/airtable/reviewAssetStatus';
 
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,7 @@ export async function POST(req: NextRequest) {
     driveFileId?: string;
     fileId?: string;
     status?: string;
+    approvedAt?: string;
     approvedByName?: string;
     approvedByEmail?: string;
     notes?: string;
@@ -52,12 +54,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid or expired token' }, { status: 404 });
   }
 
+  const approvedAt = status === 'Approved' ? resolveApprovedAt(body.approvedAt) : undefined;
   try {
     await upsertStatus({
       token,
       projectId: resolved.project.recordId,
       driveFileId,
       status,
+      approvedAt,
       approvedByName,
       approvedByEmail,
       notes,

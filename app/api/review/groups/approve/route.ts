@@ -1,8 +1,10 @@
 // app/api/review/groups/approve/route.ts
 // POST: Record as-of group approval (tactic::variant). Updates Approved At each time.
+// Uses client-sent approvedAt when valid so the timestamp reflects the user's action time.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
+import { resolveApprovedAt } from '@/lib/review/approvedAt';
 import { upsertGroupApproval } from '@/lib/airtable/reviewGroupApprovals';
 
 export const dynamic = 'force-dynamic';
@@ -25,6 +27,7 @@ export async function POST(req: NextRequest) {
     variant?: string;
     approvedByName?: string;
     approvedByEmail?: string;
+    approvedAt?: string;
   };
   try {
     body = await req.json();
@@ -59,18 +62,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid or expired token' }, { status: 404 });
   }
 
-  const now = new Date().toISOString();
+  const approvedAt = resolveApprovedAt(body.approvedAt);
   try {
     await upsertGroupApproval({
       token,
       tactic,
       variant,
-      approvedAt: now,
+      approvedAt,
       approvedByName,
       approvedByEmail,
     });
     return NextResponse.json(
-      { ok: true, approvedAt: now },
+      { ok: true, approvedAt },
       { headers: NO_STORE }
     );
   } catch (err) {

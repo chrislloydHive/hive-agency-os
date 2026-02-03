@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
+import { resolveApprovedAt } from '@/lib/review/approvedAt';
 
 export const dynamic = 'force-dynamic';
 
@@ -114,6 +115,7 @@ export async function POST(req: NextRequest) {
     comments?: string;
     authorName?: string;
     authorEmail?: string;
+    approvedAt?: string;
   };
   try {
     body = await req.json();
@@ -188,10 +190,10 @@ export async function POST(req: NextRequest) {
           .firstPage();
 
         if (setRecords.length > 0) {
-          // Always overwrite all fields on every toggle (true or false)
+          const approvedAt = resolveApprovedAt(body.approvedAt);
           const updateFields: Record<string, unknown> = {
             'Client Approved': !!approved,
-            'Approved At': new Date().toISOString(),
+            'Approved At': approvedAt,
             'Approved By Name': authorName.trim(),
             'Approved By Email': authorEmail.trim(),
           };

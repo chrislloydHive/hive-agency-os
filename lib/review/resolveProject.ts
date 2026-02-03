@@ -145,7 +145,7 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
       ? jobFolderIdRaw.trim()
       : undefined;
 
-  const primaryLandingPageUrlRaw = fields['Client Review Primary Landing Page URL'];
+  const primaryLandingPageUrlRaw = fields['Primary Landing Page URL'] ?? fields['Client Review Primary Landing Page URL'];
   const primaryLandingPageUrl =
     typeof primaryLandingPageUrlRaw === 'string' && primaryLandingPageUrlRaw.trim()
       ? primaryLandingPageUrlRaw.trim()

@@ -128,6 +128,10 @@ export const AIRTABLE_TABLES = {
   TEMPLATE_PACKS: 'TemplatePacks', // Template bundles for quick provisioning
   JOB_DOCUMENTS: 'JobDocuments', // Documents created from templates per job
 
+  // Media Releases (Client PM OS)
+  MEDIA_RELEASES: 'Media Releases', // Media release tracking: assets, partners, delivery readiness
+  CREATIVE_ASSETS: 'Creative Assets', // Assets linked to Media Releases (approval status for rollups)
+
   // Legacy (use BRIEFS instead)
   CREATIVE_BRIEFS: 'CreativeBriefs', // Deprecated - use BRIEFS
 

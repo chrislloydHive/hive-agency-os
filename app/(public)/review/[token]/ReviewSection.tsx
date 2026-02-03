@@ -87,21 +87,25 @@ export default function ReviewSection({
   const closeLightbox = () => setLightboxIndex(null);
 
   const saveComments = useCallback(
-    async (fields: { comments?: string }) => {
+    async (fields: { comments?: string; approved?: boolean }) => {
       if (!identity) return;
 
       setSaving(true);
       try {
+        const payload: Record<string, unknown> = {
+          variant,
+          tactic,
+          authorName: identity.name,
+          authorEmail: identity.email,
+          ...fields,
+        };
+        if (fields.approved !== undefined) {
+          payload.approvedAt = new Date().toISOString();
+        }
         const res = await fetch(`/api/review/feedback?token=${encodeURIComponent(token)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            variant,
-            tactic,
-            authorName: identity.name,
-            authorEmail: identity.email,
-            ...fields,
-          }),
+          body: JSON.stringify(payload),
         });
         if (res.ok) {
           setLastSaved(new Date().toLocaleTimeString());
@@ -130,6 +134,7 @@ export default function ReviewSection({
             variant,
             approvedByName: identity.name,
             approvedByEmail: identity.email,
+            approvedAt: new Date().toISOString(),
           }),
         });
         if (res.ok) {
