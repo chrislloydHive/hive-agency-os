@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import HiveLogo from '@/components/HiveLogo';
 import ReviewSection from './ReviewSection';
 import { AuthorIdentityProvider, useAuthorIdentity } from './AuthorIdentityContext';
+import { isAssetNew } from './reviewAssetUtils';
 
 const DEBOUNCE_MS = 800;
 
@@ -23,8 +24,8 @@ interface ReviewAsset {
   mimeType: string;
   reviewState?: ReviewState;
   clickThroughUrl?: string | null;
-  /** When client first saw this asset; null = never seen (show "New"). */
   firstSeenByClientAt?: string | null;
+  assetApprovedClient?: boolean;
 }
 
 interface TacticSectionData {
@@ -180,6 +181,7 @@ function ReviewPortalClientInner({
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [bulkApproving, setBulkApproving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const lastFetchedTokenRef = useRef<string | null>(null);
   const firstSeenInFlightRef = useRef<Set<string>>(new Set());
   const { identity, clearIdentity } = useAuthorIdentity();
@@ -270,15 +272,26 @@ function ReviewPortalClientInner({
     return () => clearTimeout(timeoutId);
   }, [token, doRefresh]);
 
-  const handleBulkApprove = useCallback(() => {
-    const activeSectionsForApprove = sections.filter((s) => s.variant === activeVariant);
-    const fileIds = activeSectionsForApprove.flatMap((s) =>
-      s.assets.map((a) => a.fileId)
-    );
-    if (fileIds.length === 0) {
-      setToast({ message: 'No assets to approve in this view.', type: 'success' });
-      return;
-    }
+  const toggleSelection = useCallback((fileId: string) => {
+    setSelectedFileIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
+      return next;
+    });
+  }, []);
+
+  const selectAllDisplayed = useCallback(() => {
+    const ids = sectionsToRender.flatMap((s) => s.assets.map((a) => a.fileId));
+    const allSelected = ids.length > 0 && ids.every((id) => selectedFileIds.has(id));
+    setSelectedFileIds(allSelected ? new Set() : new Set(ids));
+  }, [sectionsToRender, selectedFileIds]);
+
+  const clearSelection = useCallback(() => setSelectedFileIds(new Set()), []);
+
+  const handleApproveSelected = useCallback(() => {
+    const fileIds = Array.from(selectedFileIds);
+    if (fileIds.length === 0) return;
     setBulkApproving(true);
     setToast(null);
     fetch('/api/review/assets/bulk-approve', {
@@ -296,6 +309,7 @@ function ReviewPortalClientInner({
             message: `Approved ${approved} assets${alreadyApproved > 0 ? ` (${alreadyApproved} already approved)` : ''}.`,
             type: 'success',
           });
+          setSelectedFileIds(new Set());
           doRefresh();
         } else {
           const approved = data.approved ?? 0;
@@ -317,7 +331,7 @@ function ReviewPortalClientInner({
       .finally(() => {
         setBulkApproving(false);
       });
-  }, [token, activeVariant, sections, doRefresh]);
+  }, [token, selectedFileIds, doRefresh]);
 
   // Auto-dismiss toast
   useEffect(() => {
@@ -326,9 +340,10 @@ function ReviewPortalClientInner({
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Reset showEmptyTactics when switching variants
+  // Reset showEmptyTactics and clear selection when switching variants
   useEffect(() => {
     setShowEmptyTactics(false);
+    setSelectedFileIds(new Set());
   }, [activeVariant]);
 
   // Filter sections by active variant
@@ -342,6 +357,12 @@ function ReviewPortalClientInner({
       : showEmptyTactics
         ? activeSections
         : activeSections.filter((s) => s.fileCount > 0);
+
+  const displayedAssets = sectionsToRender.flatMap((s) => s.assets);
+  const displayedCount = displayedAssets.length;
+  const newCount = displayedAssets.filter(isAssetNew).length;
+  const selectedCount = selectedFileIds.size;
+  const allDisplayedSelected = displayedCount > 0 && displayedCount === selectedCount && displayedAssets.every((a) => selectedFileIds.has(a.fileId));
 
   return (
     <main className="min-h-screen bg-[#111827] text-gray-100">
@@ -386,21 +407,6 @@ function ReviewPortalClientInner({
           </div>
         </div>
 
-        {/* Bulk approve + Variant Tabs row */}
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          {totalFiles > 0 && (
-            <button
-              type="button"
-              onClick={handleBulkApprove}
-              disabled={bulkApproving || isRefreshing}
-              title="Approves all assets currently shown in this list (respects filters)."
-              className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {bulkApproving ? 'Approving…' : 'Approve Displayed'}
-            </button>
-          )}
-        </div>
-
         {/* Variant Tabs */}
         <div className="mb-6 flex gap-2 border-b border-gray-700">
           {variants.map((variant) => {
@@ -433,6 +439,56 @@ function ReviewPortalClientInner({
           })}
         </div>
 
+        {/* Toolbar: Select all + New summary (only when there are assets) */}
+        {totalFiles > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-4">
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-300">
+              <input
+                type="checkbox"
+                checked={allDisplayedSelected}
+                onChange={selectAllDisplayed}
+                className="h-4 w-4 rounded border-gray-600 bg-gray-800 text-amber-500 focus:ring-amber-500"
+              />
+              <span>Select all ({displayedCount})</span>
+            </label>
+            {newCount > 0 && (
+              <span className="text-sm text-gray-400">
+                {newCount} new since your last visit
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Action bar when 1+ selected */}
+        {selectedCount > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+            <button
+              type="button"
+              onClick={handleApproveSelected}
+              disabled={bulkApproving || isRefreshing}
+              className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {bulkApproving ? 'Approving…' : `Approve selected (${selectedCount})`}
+            </button>
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="rounded-md border border-gray-600 bg-gray-800 px-3 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700"
+            >
+              Clear
+            </button>
+            {selectedCount < displayedCount && (
+              <button
+                type="button"
+                onClick={selectAllDisplayed}
+                className="text-sm text-amber-400 hover:text-amber-300"
+              >
+                Select all ({displayedCount})
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Content: empty-state card or tactic sections */}
         {totalFiles === 0 ? (
           <EmptyStateCard
@@ -462,6 +518,8 @@ function ReviewPortalClientInner({
                   groupApprovalApprovedByName={section.groupApprovalApprovedByName}
                   newSinceApprovalCount={section.newSinceApprovalCount}
                   onGroupApproved={updateGroupApproval}
+                  selectedFileIds={selectedFileIds}
+                  onToggleSelect={toggleSelection}
                 />
               );
             })}

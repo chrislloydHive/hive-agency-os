@@ -28,6 +28,8 @@ interface ReviewAsset {
   clickThroughUrl?: string | null;
   /** When client first saw this asset; null = never seen (show "New"). */
   firstSeenByClientAt?: string | null;
+  /** Client approval checkbox; "New" and "Approved" are mutually exclusive. */
+  assetApprovedClient?: boolean;
 }
 
 interface TacticSectionData {
@@ -153,12 +155,18 @@ export async function GET(req: NextRequest) {
     const rec = statusMap.get(key);
     return rec?.firstSeenByClientAt ?? null;
   };
+  const toAssetApprovedClient = (fileId: string): boolean => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.assetApprovedClient ?? false;
+  };
   for (const section of sections) {
     for (const asset of section.assets) {
       const a = asset as ReviewAsset;
       a.reviewState = toReviewState(asset.fileId);
       a.clickThroughUrl = toClickThroughUrl(asset.fileId);
       a.firstSeenByClientAt = toFirstSeenByClientAt(asset.fileId);
+      a.assetApprovedClient = toAssetApprovedClient(asset.fileId);
     }
   }
 

@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import AssetLightbox from './AssetLightbox';
 import { useAuthorIdentity } from './AuthorIdentityContext';
+import { isAssetNew } from './reviewAssetUtils';
 import type { ReviewState } from './ReviewPortalClient';
 
 interface ReviewAsset {
@@ -16,6 +17,7 @@ interface ReviewAsset {
   mimeType: string;
   reviewState?: ReviewState;
   firstSeenByClientAt?: string | null;
+  assetApprovedClient?: boolean;
 }
 
 interface TacticFeedback {
@@ -36,6 +38,8 @@ interface ReviewSectionProps {
   groupApprovalApprovedByName?: string | null;
   newSinceApprovalCount?: number;
   onGroupApproved?: (variant: string, tactic: string, approvedAt: string, approvedByName: string, approvedByEmail: string) => void;
+  selectedFileIds?: Set<string>;
+  onToggleSelect?: (fileId: string) => void;
 }
 
 const DEBOUNCE_MS = 800;
@@ -66,6 +70,8 @@ export default function ReviewSection({
   groupApprovalApprovedByName,
   newSinceApprovalCount = 0,
   onGroupApproved,
+  selectedFileIds = new Set(),
+  onToggleSelect,
 }: ReviewSectionProps) {
   const [comments, setComments] = useState(initialFeedback.comments);
   const [saving, setSaving] = useState(false);
@@ -210,6 +216,8 @@ export default function ReviewSection({
               asset={asset}
               token={token}
               onClick={() => openLightbox(index)}
+              selected={selectedFileIds.has(asset.fileId)}
+              onToggleSelect={onToggleSelect ? () => onToggleSelect(asset.fileId) : undefined}
             />
           ))}
         </div>
@@ -259,11 +267,12 @@ export default function ReviewSection({
               disabled={approvingGroup}
               className={`shrink-0 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
                 isGroupApproved
-                  ? 'border border-emerald-600 bg-emerald-900/40 text-emerald-200 hover:bg-emerald-800/40'
+                  ? 'border border-gray-600 bg-gray-800/60 text-gray-400 hover:bg-gray-700/60 hover:text-gray-300'
                   : 'bg-emerald-600 text-white hover:bg-emerald-700'
               }`}
+              title={isGroupApproved ? 'Unlock section for changes and re-approve' : undefined}
             >
-              {approvingGroup ? 'Saving…' : isGroupApproved ? 'Re-approve' : 'Approve'}
+              {approvingGroup ? 'Saving…' : isGroupApproved ? 'Unlock for changes' : 'Approve'}
             </button>
             <div className="hidden shrink-0 sm:block">
               {saving && <span className="text-xs text-gray-500">Saving...</span>}
@@ -316,32 +325,56 @@ function AssetCard({
   asset,
   token,
   onClick,
+  selected = false,
+  onToggleSelect,
 }: {
-  asset: { fileId: string; name: string; mimeType: string; reviewState?: ReviewState; clickThroughUrl?: string | null; firstSeenByClientAt?: string | null };
+  asset: { fileId: string; name: string; mimeType: string; reviewState?: ReviewState; clickThroughUrl?: string | null; firstSeenByClientAt?: string | null; assetApprovedClient?: boolean };
   token: string;
   onClick: () => void;
+  selected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const src = `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
   const isImage = asset.mimeType.startsWith('image/');
   const isVideo = asset.mimeType.startsWith('video/');
   const isAudio = asset.mimeType.startsWith('audio/');
-  const hasSeenAt = asset.firstSeenByClientAt != null && typeof asset.firstSeenByClientAt === 'string' && asset.firstSeenByClientAt.trim() !== '';
-  const isNew = !hasSeenAt && asset.reviewState !== 'approved';
+  const isNew = isAssetNew(asset);
   const badgeLabel = isNew ? 'New' : statusBadgeLabel(asset.reviewState);
   const badgeClass = isNew ? 'bg-gray-700 text-gray-300' : statusBadgeClass(asset.reviewState);
   const hasClickThrough = typeof asset.clickThroughUrl === 'string' && asset.clickThroughUrl.trim().length > 0;
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-800 text-left transition-colors hover:border-amber-500/50 hover:bg-gray-750">
+    <div
+      className={`flex flex-col overflow-hidden rounded-lg border bg-gray-800 text-left transition-colors hover:border-amber-500/50 hover:bg-gray-750 ${
+        selected ? 'border-amber-500 ring-2 ring-amber-500/50' : 'border-gray-700'
+      }`}
+    >
+    <div className="relative flex flex-1 flex-col">
+      {/* Checkbox overlay: top-left, does not trigger card click */}
+      {onToggleSelect && (
+        <div className="absolute left-2 top-2 z-20">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(e) => {
+              e.stopPropagation();
+              onToggleSelect();
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="h-4 w-4 rounded border-gray-600 bg-gray-800 text-amber-500 focus:ring-amber-500"
+            aria-label={selected ? 'Deselect' : 'Select'}
+          />
+        </div>
+      )}
     <button
       type="button"
       onClick={onClick}
       className="group flex-1 overflow-hidden text-left focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:ring-inset"
     >
       <div className="relative flex aspect-video items-center justify-center bg-gray-900">
-        {/* Status badge */}
+        {/* Status badge: right of checkbox when checkbox present, else left-2 */}
         <span
-          className={`absolute left-2 top-2 z-10 rounded px-2 py-0.5 text-xs font-medium ${badgeClass}`}
+          className={`absolute ${onToggleSelect ? 'left-10' : 'left-2'} top-2 z-10 rounded px-2 py-0.5 text-xs font-medium ${badgeClass}`}
           title={isNew ? 'Added since your last visit' : undefined}
         >
           {badgeLabel}
@@ -399,6 +432,7 @@ function AssetCard({
         )}
       </div>
     </button>
+    </div>
     {hasClickThrough && (
       <a
         href={asset.clickThroughUrl!}
