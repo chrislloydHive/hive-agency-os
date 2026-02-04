@@ -15,6 +15,7 @@ interface ReviewAsset {
   name: string;
   mimeType: string;
   reviewState?: ReviewState;
+  firstSeenByClientAt?: string | null;
 }
 
 interface TacticFeedback {
@@ -316,7 +317,7 @@ function AssetCard({
   token,
   onClick,
 }: {
-  asset: { fileId: string; name: string; mimeType: string; reviewState?: ReviewState; clickThroughUrl?: string | null };
+  asset: { fileId: string; name: string; mimeType: string; reviewState?: ReviewState; clickThroughUrl?: string | null; firstSeenByClientAt?: string | null };
   token: string;
   onClick: () => void;
 }) {
@@ -324,8 +325,10 @@ function AssetCard({
   const isImage = asset.mimeType.startsWith('image/');
   const isVideo = asset.mimeType.startsWith('video/');
   const isAudio = asset.mimeType.startsWith('audio/');
-  const badgeLabel = statusBadgeLabel(asset.reviewState);
-  const badgeClass = statusBadgeClass(asset.reviewState);
+  const hasSeenAt = asset.firstSeenByClientAt != null && typeof asset.firstSeenByClientAt === 'string' && asset.firstSeenByClientAt.trim() !== '';
+  const isNew = !hasSeenAt && asset.reviewState !== 'approved';
+  const badgeLabel = isNew ? 'New' : statusBadgeLabel(asset.reviewState);
+  const badgeClass = isNew ? 'bg-gray-700 text-gray-300' : statusBadgeClass(asset.reviewState);
   const hasClickThrough = typeof asset.clickThroughUrl === 'string' && asset.clickThroughUrl.trim().length > 0;
 
   return (
@@ -339,6 +342,7 @@ function AssetCard({
         {/* Status badge */}
         <span
           className={`absolute left-2 top-2 z-10 rounded px-2 py-0.5 text-xs font-medium ${badgeClass}`}
+          title={isNew ? 'Added since your last visit' : undefined}
         >
           {badgeLabel}
         </span>
@@ -390,6 +394,9 @@ function AssetCard({
         <p className="truncate text-xs text-gray-300" title={asset.name}>
           {asset.name}
         </p>
+        {isNew && (
+          <p className="mt-0.5 text-xs text-gray-500">Added since your last visit</p>
+        )}
       </div>
     </button>
     {hasClickThrough && (

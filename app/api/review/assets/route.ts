@@ -26,6 +26,8 @@ interface ReviewAsset {
   reviewState?: ReviewState;
   /** Click-through URL: status override or project primary; null if neither set. */
   clickThroughUrl?: string | null;
+  /** When client first saw this asset; null = never seen (show "New"). */
+  firstSeenByClientAt?: string | null;
 }
 
 interface TacticSectionData {
@@ -146,11 +148,17 @@ export async function GET(req: NextRequest) {
     const override = rec?.landingPageOverrideUrl ?? rec?.effectiveLandingPageUrl ?? null;
     return override || primaryLandingPageUrl || null;
   };
+  const toFirstSeenByClientAt = (fileId: string): string | null => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.firstSeenByClientAt ?? null;
+  };
   for (const section of sections) {
     for (const asset of section.assets) {
       const a = asset as ReviewAsset;
       a.reviewState = toReviewState(asset.fileId);
       a.clickThroughUrl = toClickThroughUrl(asset.fileId);
+      a.firstSeenByClientAt = toFirstSeenByClientAt(asset.fileId);
     }
   }
 

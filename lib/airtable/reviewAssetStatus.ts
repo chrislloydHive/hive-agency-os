@@ -10,6 +10,9 @@ const TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 /** Airtable field name for client approval checkbox. Change here if your base uses a different name. */
 export const ASSET_APPROVED_CLIENT_FIELD = 'Asset Approved (Client)';
 
+/** Airtable field name for when client first saw the asset. Do not overwrite once set. */
+export const FIRST_SEEN_BY_CLIENT_AT_FIELD = 'First Seen By Client At';
+
 export type AssetStatusValue = 'New' | 'Seen' | 'Approved' | 'Needs Changes';
 
 export interface StatusRecord {
@@ -17,6 +20,8 @@ export interface StatusRecord {
   status: AssetStatusValue;
   /** Client approval checkbox; used for bulk approve and to avoid re-updating. */
   assetApprovedClient: boolean;
+  /** When client first saw this asset (portal load); null = never seen, show "New". */
+  firstSeenByClientAt: string | null;
   firstSeenAt: string | null;
   lastSeenAt: string | null;
   approvedAt: string | null;
@@ -51,12 +56,18 @@ function parseAssetApprovedClient(raw: unknown): boolean {
   return false;
 }
 
+function parseOptionalIsoString(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  return raw.trim();
+}
+
 function recordToStatus(r: { id: string; fields: Record<string, unknown> }, token: string, driveFileId: string): StatusRecord {
   const f = r.fields;
   return {
     recordId: r.id,
     status: parseStatus(f['Status']),
     assetApprovedClient: parseAssetApprovedClient(f[ASSET_APPROVED_CLIENT_FIELD]),
+    firstSeenByClientAt: parseOptionalIsoString(f[FIRST_SEEN_BY_CLIENT_AT_FIELD]),
     firstSeenAt: (f['First Seen At'] as string) ?? null,
     lastSeenAt: (f['Last Seen At'] as string) ?? null,
     approvedAt: (f['Approved At'] as string) ?? null,
@@ -277,6 +288,56 @@ export async function batchSetAssetApprovedClient(
         error: message,
         airtableError,
       };
+    }
+  }
+  return { updated, failedAt: null };
+}
+
+// ============================================================================
+// First Seen By Client At (set once on portal load for unseen assets)
+// ============================================================================
+
+const FIRST_SEEN_CHUNK_SIZE = 10;
+
+/**
+ * Return Airtable record IDs for assets that have never been seen by client
+ * (First Seen By Client At is null). Used to batch-set timestamp on portal load.
+ */
+export async function getRecordIdsForFirstSeen(
+  token: string,
+  fileIds: string[]
+): Promise<{ toUpdate: string[] }> {
+  const statusMap = await listAssetStatuses(token);
+  const toUpdate: string[] = [];
+  for (const fileId of fileIds) {
+    const key = keyFrom(token, fileId);
+    const rec = statusMap.get(key);
+    if (!rec) continue;
+    if (rec.firstSeenByClientAt != null && rec.firstSeenByClientAt !== '') continue;
+    toUpdate.push(rec.recordId);
+  }
+  return { toUpdate };
+}
+
+/**
+ * Set First Seen By Client At = now on the given record IDs. Chunks of 10.
+ * Only call with records that currently have null (do not overwrite).
+ */
+export async function batchSetFirstSeenByClientAt(
+  recordIds: string[]
+): Promise<{ updated: number; failedAt: number | null; error?: string }> {
+  const osBase = getBase();
+  const now = new Date().toISOString();
+  const fields = { [FIRST_SEEN_BY_CLIENT_AT_FIELD]: now } as Record<string, unknown>;
+  let updated = 0;
+  for (let i = 0; i < recordIds.length; i += FIRST_SEEN_CHUNK_SIZE) {
+    const chunk = recordIds.slice(i, i + FIRST_SEEN_CHUNK_SIZE);
+    try {
+      await Promise.all(chunk.map((id) => osBase(TABLE).update(id, fields as any)));
+      updated += chunk.length;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { updated, failedAt: i, error: message };
     }
   }
   return { updated, failedAt: null };

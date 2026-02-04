@@ -6,6 +6,7 @@ The **Approve Displayed** button in the client-facing Creative Review Hub sets *
 
 - **Table:** Creative Review Asset Status (`AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS`)
 - **Field updated by the app:** **Asset Approved (Client)** (checkbox). The app only sets this to `true`. Airtable automation can set **Approved At**, **Needs Delivery**, etc.
+- **First Seen By Client At** (Date/Time): Set once when the client first sees an asset (portal load). Constant: `FIRST_SEEN_BY_CLIENT_AT_FIELD` in `lib/airtable/reviewAssetStatus.ts`. The app never overwrites an existing value.
 
 ### If your base uses a different field name
 

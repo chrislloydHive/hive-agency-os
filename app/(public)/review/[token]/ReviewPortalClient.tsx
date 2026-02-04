@@ -23,6 +23,8 @@ interface ReviewAsset {
   mimeType: string;
   reviewState?: ReviewState;
   clickThroughUrl?: string | null;
+  /** When client first saw this asset; null = never seen (show "New"). */
+  firstSeenByClientAt?: string | null;
 }
 
 interface TacticSectionData {
@@ -179,6 +181,7 @@ function ReviewPortalClientInner({
   const [bulkApproving, setBulkApproving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const lastFetchedTokenRef = useRef<string | null>(null);
+  const firstSeenInFlightRef = useRef<Set<string>>(new Set());
   const { identity, clearIdentity } = useAuthorIdentity();
 
   const updateAssetReviewState = useCallback(
@@ -227,6 +230,27 @@ function ReviewPortalClientInner({
           setRefreshError(null);
           if (typeof data.lastFetchedAt === 'string') {
             setLastRefreshedAt(data.lastFetchedAt);
+          }
+          // Fire-and-forget: mark unseen assets as "first seen" (in-flight guard prevents duplicate POSTs)
+          const unseenFileIds = data.sections?.flatMap((s) =>
+            s.assets.filter((a) => {
+              const v = a.firstSeenByClientAt;
+              const empty = v == null || (typeof v === 'string' && v.trim() === '');
+              return empty;
+            }).map((a) => a.fileId)
+          ) ?? [];
+          const toSend = unseenFileIds.filter((id) => !firstSeenInFlightRef.current.has(id));
+          if (toSend.length > 0) {
+            toSend.forEach((id) => firstSeenInFlightRef.current.add(id));
+            fetch('/api/review/assets/first-seen', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token, fileIds: toSend }),
+            })
+              .catch(() => { /* non-blocking */ })
+              .finally(() => {
+                toSend.forEach((id) => firstSeenInFlightRef.current.delete(id));
+              });
           }
         }
       })
