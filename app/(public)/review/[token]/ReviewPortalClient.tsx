@@ -272,6 +272,34 @@ function ReviewPortalClientInner({
     return () => clearTimeout(timeoutId);
   }, [token, doRefresh]);
 
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // Reset showEmptyTactics and clear selection when switching variants
+  useEffect(() => {
+    setShowEmptyTactics(false);
+    setSelectedFileIds(new Set());
+  }, [activeVariant]);
+
+  // Filter sections by active variant (declared before callbacks that use them)
+  const activeSections = sections.filter((s) => s.variant === activeVariant);
+  const totalFiles = activeSections.reduce((sum, s) => sum + s.fileCount, 0);
+  const sectionsToRender =
+    totalFiles === 0
+      ? []
+      : showEmptyTactics
+        ? activeSections
+        : activeSections.filter((s) => s.fileCount > 0);
+  const displayedAssets = sectionsToRender.flatMap((s) => s.assets);
+  const displayedCount = displayedAssets.length;
+  const newCount = displayedAssets.filter(isAssetNew).length;
+  const selectedCount = selectedFileIds.size;
+  const allDisplayedSelected = displayedCount > 0 && displayedCount === selectedCount && displayedAssets.every((a) => selectedFileIds.has(a.fileId));
+
   const toggleSelection = useCallback((fileId: string) => {
     setSelectedFileIds((prev) => {
       const next = new Set(prev);
@@ -332,37 +360,6 @@ function ReviewPortalClientInner({
         setBulkApproving(false);
       });
   }, [token, selectedFileIds, doRefresh]);
-
-  // Auto-dismiss toast
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 5000);
-    return () => clearTimeout(t);
-  }, [toast]);
-
-  // Reset showEmptyTactics and clear selection when switching variants
-  useEffect(() => {
-    setShowEmptyTactics(false);
-    setSelectedFileIds(new Set());
-  }, [activeVariant]);
-
-  // Filter sections by active variant
-  const activeSections = sections.filter((s) => s.variant === activeVariant);
-  const totalFiles = activeSections.reduce((sum, s) => sum + s.fileCount, 0);
-
-  // Sections to render: if totalFiles > 0, show only sections with files unless showEmptyTactics
-  const sectionsToRender =
-    totalFiles === 0
-      ? []
-      : showEmptyTactics
-        ? activeSections
-        : activeSections.filter((s) => s.fileCount > 0);
-
-  const displayedAssets = sectionsToRender.flatMap((s) => s.assets);
-  const displayedCount = displayedAssets.length;
-  const newCount = displayedAssets.filter(isAssetNew).length;
-  const selectedCount = selectedFileIds.size;
-  const allDisplayedSelected = displayedCount > 0 && displayedCount === selectedCount && displayedAssets.every((a) => selectedFileIds.has(a.fileId));
 
   return (
     <main className="min-h-screen bg-[#111827] text-gray-100">
