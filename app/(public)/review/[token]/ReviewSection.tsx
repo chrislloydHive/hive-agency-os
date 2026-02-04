@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import AssetLightbox from './AssetLightbox';
 import { useAuthorIdentity } from './AuthorIdentityContext';
-import { isAssetNew } from './reviewAssetUtils';
+import { getSectionCounts, isAssetNew } from './reviewAssetUtils';
 import type { ReviewState } from './ReviewPortalClient';
 
 interface ReviewAsset {
@@ -40,9 +40,41 @@ interface ReviewSectionProps {
   onGroupApproved?: (variant: string, tactic: string, approvedAt: string, approvedByName: string, approvedByEmail: string) => void;
   selectedFileIds?: Set<string>;
   onToggleSelect?: (fileId: string) => void;
+  onSelectAllUnapprovedInSection?: (fileIds: string[]) => void;
+  onSelectNewInSection?: (fileIds: string[]) => void;
 }
 
 const DEBOUNCE_MS = 800;
+
+function SelectAllUnapprovedCheckbox({
+  checked,
+  indeterminate,
+  pendingCount,
+  onToggle,
+}: {
+  checked: boolean;
+  indeterminate: boolean;
+  pendingCount: number;
+  onToggle: () => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (el) el.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return (
+    <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-300">
+      <input
+        ref={ref}
+        type="checkbox"
+        checked={checked}
+        onChange={onToggle}
+        className="h-4 w-4 rounded border-gray-600 bg-gray-800 text-amber-500 focus:ring-amber-500"
+      />
+      <span>Select all unapproved ({pendingCount})</span>
+    </label>
+  );
+}
 
 function formatApprovedAt(iso: string): string {
   try {
@@ -72,7 +104,16 @@ export default function ReviewSection({
   onGroupApproved,
   selectedFileIds = new Set(),
   onToggleSelect,
+  onSelectAllUnapprovedInSection,
+  onSelectNewInSection,
 }: ReviewSectionProps) {
+  const counts = getSectionCounts(assets);
+  const { totalCount, newCount, pendingCount } = counts;
+  const unapprovedFileIds = assets.filter((a) => !a.assetApprovedClient).map((a) => a.fileId);
+  const newFileIds = assets.filter(isAssetNew).map((a) => a.fileId);
+  const selectedUnapprovedCount = unapprovedFileIds.filter((id) => selectedFileIds.has(id)).length;
+  const allUnapprovedSelected = pendingCount > 0 && selectedUnapprovedCount === pendingCount;
+  const someUnapprovedSelected = selectedUnapprovedCount > 0 && selectedUnapprovedCount < pendingCount;
   const [comments, setComments] = useState(initialFeedback.comments);
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
@@ -186,26 +227,48 @@ export default function ReviewSection({
 
   return (
     <section className={hasFiles ? 'mb-10' : 'mb-4'}>
-      {/* Header: compact for empty tactics */}
-      <div className={`flex flex-wrap items-center gap-3 ${hasFiles ? 'mb-4' : ''}`}>
-        <h2 className="text-lg font-semibold text-amber-400">{tactic}</h2>
-        <span className="rounded-full bg-gray-800 px-2.5 py-0.5 text-xs font-medium text-gray-400">
-          {fileCount} {fileCount === 1 ? 'file' : 'files'}
-        </span>
-        {isGroupApproved && (
-          <span className="rounded-full bg-emerald-900/60 px-2.5 py-0.5 text-xs font-medium text-emerald-300" title={groupApprovalApprovedByName ?? undefined}>
-            Approved as of {formatApprovedAt(groupApprovalApprovedAt!)}
-          </span>
-        )}
-        {newSinceApprovalCount > 0 && (
-          <span className="rounded-full bg-amber-900/60 px-2.5 py-0.5 text-xs font-medium text-amber-200">
-            {newSinceApprovalCount} new since approval
-          </span>
-        )}
-        {!hasFiles && (
+      {hasFiles ? (
+        <>
+          {/* Orientation: section name + total + new (single clear line) */}
+          <p className="mb-1 text-base font-medium text-gray-200" aria-live="polite">
+            {tactic} ads · {totalCount} total
+            {newCount > 0 ? ` · ${newCount} new since your last visit` : ''}
+          </p>
+          {/* Status: pending or all approved */}
+          <p className="mb-3 text-sm text-gray-400">
+            {pendingCount > 0 ? (
+              <>{pendingCount} pending approval</>
+            ) : (
+              <>All approved</>
+            )}
+          </p>
+          {/* Selection controls: below orientation + status */}
+          <div className="mb-4 flex flex-wrap items-center gap-4">
+            {onSelectAllUnapprovedInSection && pendingCount > 0 && (
+              <SelectAllUnapprovedCheckbox
+                checked={allUnapprovedSelected}
+                indeterminate={someUnapprovedSelected}
+                pendingCount={pendingCount}
+                onToggle={() => onSelectAllUnapprovedInSection(unapprovedFileIds)}
+              />
+            )}
+            {onSelectNewInSection && newCount > 0 && (
+              <button
+                type="button"
+                onClick={() => onSelectNewInSection(newFileIds)}
+                className="text-sm text-amber-400 hover:text-amber-300 hover:underline"
+              >
+                Select new ({newCount})
+              </button>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <h2 className="text-lg font-semibold text-amber-400">{tactic}</h2>
           <span className="text-sm text-gray-500">— No files yet</span>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Asset grid — only when files exist; 4–5 columns so 10+ assets fit without cramping */}
       {hasFiles ? (

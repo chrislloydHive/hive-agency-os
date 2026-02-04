@@ -12,7 +12,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import HiveLogo from '@/components/HiveLogo';
 import ReviewSection from './ReviewSection';
 import { AuthorIdentityProvider, useAuthorIdentity } from './AuthorIdentityContext';
-import { isAssetNew } from './reviewAssetUtils';
 
 const DEBOUNCE_MS = 800;
 
@@ -294,11 +293,7 @@ function ReviewPortalClientInner({
       : showEmptyTactics
         ? activeSections
         : activeSections.filter((s) => s.fileCount > 0);
-  const displayedAssets = sectionsToRender.flatMap((s) => s.assets);
-  const displayedCount = displayedAssets.length;
-  const newCount = displayedAssets.filter(isAssetNew).length;
   const selectedCount = selectedFileIds.size;
-  const allDisplayedSelected = displayedCount > 0 && displayedCount === selectedCount && displayedAssets.every((a) => selectedFileIds.has(a.fileId));
 
   const toggleSelection = useCallback((fileId: string) => {
     setSelectedFileIds((prev) => {
@@ -309,13 +304,23 @@ function ReviewPortalClientInner({
     });
   }, []);
 
-  const selectAllDisplayed = useCallback(() => {
-    const ids = sectionsToRender.flatMap((s) => s.assets.map((a) => a.fileId));
-    const allSelected = ids.length > 0 && ids.every((id) => selectedFileIds.has(id));
-    setSelectedFileIds(allSelected ? new Set() : new Set(ids));
-  }, [sectionsToRender, selectedFileIds]);
-
   const clearSelection = useCallback(() => setSelectedFileIds(new Set()), []);
+
+  /** Toggle: select all unapproved in section, or clear if already all selected. */
+  const selectAllUnapprovedInSection = useCallback((unapprovedFileIds: string[]) => {
+    setSelectedFileIds((prev) => {
+      const allSelected =
+        unapprovedFileIds.length > 0 &&
+        unapprovedFileIds.every((id) => prev.has(id)) &&
+        prev.size === unapprovedFileIds.length;
+      return allSelected ? new Set() : new Set(unapprovedFileIds);
+    });
+  }, []);
+
+  /** Select only the "new since last visit" assets in this section. */
+  const selectNewInSection = useCallback((newFileIds: string[]) => {
+    setSelectedFileIds(new Set(newFileIds));
+  }, []);
 
   const handleApproveSelected = useCallback(() => {
     const fileIds = Array.from(selectedFileIds);
@@ -404,15 +409,12 @@ function ReviewPortalClientInner({
           </div>
         </div>
 
-        {/* Variant Tabs */}
+        {/* Variant Tabs: variant name + total assets only */}
         <div className="mb-6 flex gap-2 border-b border-gray-700">
           {variants.map((variant) => {
             const isActive = variant === activeVariant;
             const variantSections = sections.filter((s) => s.variant === variant);
-            const totalFiles = variantSections.reduce((sum, s) => sum + s.fileCount, 0);
-            const approvedCount = variantSections.filter(
-              (s) => !!s.groupApprovalApprovedAt
-            ).length;
+            const totalAssets = variantSections.reduce((sum, s) => sum + s.fileCount, 0);
 
             return (
               <button
@@ -426,7 +428,7 @@ function ReviewPortalClientInner({
               >
                 {variant}
                 <span className="ml-2 text-xs text-gray-500">
-                  ({totalFiles} files, {approvedCount}/{variantSections.length} approved)
+                  ({totalAssets} assets)
                 </span>
                 {isActive && (
                   <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-400" />
@@ -435,26 +437,6 @@ function ReviewPortalClientInner({
             );
           })}
         </div>
-
-        {/* Toolbar: Select all + New summary (only when there are assets) */}
-        {totalFiles > 0 && (
-          <div className="mb-4 flex flex-wrap items-center gap-4">
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-300">
-              <input
-                type="checkbox"
-                checked={allDisplayedSelected}
-                onChange={selectAllDisplayed}
-                className="h-4 w-4 rounded border-gray-600 bg-gray-800 text-amber-500 focus:ring-amber-500"
-              />
-              <span>Select all ({displayedCount})</span>
-            </label>
-            {newCount > 0 && (
-              <span className="text-sm text-gray-400">
-                {newCount} new since your last visit
-              </span>
-            )}
-          </div>
-        )}
 
         {/* Action bar when 1+ selected */}
         {selectedCount > 0 && (
@@ -474,15 +456,6 @@ function ReviewPortalClientInner({
             >
               Clear
             </button>
-            {selectedCount < displayedCount && (
-              <button
-                type="button"
-                onClick={selectAllDisplayed}
-                className="text-sm text-amber-400 hover:text-amber-300"
-              >
-                Select all ({displayedCount})
-              </button>
-            )}
           </div>
         )}
 
@@ -517,6 +490,8 @@ function ReviewPortalClientInner({
                   onGroupApproved={updateGroupApproval}
                   selectedFileIds={selectedFileIds}
                   onToggleSelect={toggleSelection}
+                  onSelectAllUnapprovedInSection={selectAllUnapprovedInSection}
+                  onSelectNewInSection={selectNewInSection}
                 />
               );
             })}
