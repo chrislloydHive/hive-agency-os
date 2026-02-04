@@ -42,6 +42,8 @@ interface ReviewSectionProps {
   onToggleSelect?: (fileId: string) => void;
   onSelectAllUnapprovedInSection?: (fileIds: string[]) => void;
   onSelectNewInSection?: (fileIds: string[]) => void;
+  /** Called when single-asset approve completes (for toast). */
+  onSingleAssetApprovedResult?: (success: boolean, message?: string) => void;
 }
 
 const DEBOUNCE_MS = 800;
@@ -106,6 +108,7 @@ export default function ReviewSection({
   onToggleSelect,
   onSelectAllUnapprovedInSection,
   onSelectNewInSection,
+  onSingleAssetApprovedResult,
 }: ReviewSectionProps) {
   const counts = getSectionCounts(assets);
   const { totalCount, newCount, pendingCount } = counts;
@@ -297,6 +300,7 @@ export default function ReviewSection({
           onClose={closeLightbox}
           onNavigate={setLightboxIndex}
           onAssetStatusChange={onAssetStatusChange}
+          onApprovedResult={onSingleAssetApprovedResult}
         />
       )}
 

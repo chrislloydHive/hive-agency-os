@@ -14,6 +14,7 @@ interface ReviewAsset {
   name: string;
   mimeType: string;
   clickThroughUrl?: string | null;
+  assetApprovedClient?: boolean;
 }
 
 interface AssetComment {
@@ -33,6 +34,8 @@ interface AssetLightboxProps {
   onClose: () => void;
   onNavigate: (index: number) => void;
   onAssetStatusChange?: (variant: string, tactic: string, fileId: string, reviewState: ReviewState) => void;
+  /** Called after single-asset approve (success or error) to show toast. */
+  onApprovedResult?: (success: boolean, message?: string) => void;
 }
 
 export default function AssetLightbox({
@@ -44,6 +47,7 @@ export default function AssetLightbox({
   onClose,
   onNavigate,
   onAssetStatusChange,
+  onApprovedResult,
 }: AssetLightboxProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const asset = assets[currentIndex];
@@ -164,29 +168,35 @@ export default function AssetLightbox({
       if (!identity) return;
       setApproving(true);
       try {
-        const res = await fetch('/api/review/assets/status', {
+        const res = await fetch('/api/review/assets/approve', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           cache: 'no-store',
           body: JSON.stringify({
             token,
             driveFileId: asset.fileId,
-            status: 'Approved',
-            approvedAt: new Date().toISOString(),
-            approvedByName: identity.name,
-            approvedByEmail: identity.email,
           }),
         });
-        if (res.ok && onAssetStatusChange) {
-          onAssetStatusChange(variant, tactic, asset.fileId, 'approved');
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          if (onAssetStatusChange) {
+            onAssetStatusChange(variant, tactic, asset.fileId, 'approved');
+          }
+          const msg = data.alreadyApproved ? 'Already approved' : 'Approved';
+          onApprovedResult?.(true, msg);
+        } else {
+          const msg =
+            data?.error ?? (data?.airtableError != null ? 'Airtable error' : 'Failed to approve');
+          onApprovedResult?.(false, msg);
         }
-      } catch {
-        // Silent fail
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to approve';
+        onApprovedResult?.(false, msg);
       } finally {
         setApproving(false);
       }
     });
-  }, [asset, identity, token, variant, tactic, requireIdentity, onAssetStatusChange]);
+  }, [asset, identity, token, variant, tactic, requireIdentity, onAssetStatusChange, onApprovedResult]);
 
   if (!asset) return null;
 
@@ -378,10 +388,10 @@ export default function AssetLightbox({
             <button
               type="button"
               onClick={handleApprove}
-              disabled={approving}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
+              disabled={approving || asset.assetApprovedClient}
+              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {approving ? 'Saving…' : 'Approve'}
+              {approving ? 'Approving…' : asset.assetApprovedClient ? 'Approved' : 'Approve'}
             </button>
             <button
               onClick={() => setShowComments(!showComments)}

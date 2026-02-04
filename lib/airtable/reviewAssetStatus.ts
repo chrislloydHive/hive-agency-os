@@ -293,6 +293,38 @@ export async function batchSetAssetApprovedClient(
   return { updated, failedAt: null };
 }
 
+/**
+ * Set Asset Approved (Client) = true for a single asset by token + driveFileId.
+ * Does not write Status or any other fields; Airtable automation sets Needs Delivery etc.
+ * Returns alreadyApproved if the checkbox was already true.
+ */
+export async function setSingleAssetApprovedClient(
+  token: string,
+  driveFileId: string
+): Promise<
+  | { ok: true }
+  | { alreadyApproved: true }
+  | { error: string; airtableError?: unknown }
+> {
+  const existing = await findExisting(token, driveFileId);
+  if (!existing) {
+    return { error: 'Record not found' };
+  }
+  if (parseAssetApprovedClient(existing.fields[ASSET_APPROVED_CLIENT_FIELD])) {
+    return { alreadyApproved: true };
+  }
+  const osBase = getBase();
+  try {
+    await osBase(TABLE).update(existing.id, {
+      [ASSET_APPROVED_CLIENT_FIELD]: true,
+    } as any);
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { error: message, airtableError: err };
+  }
+}
+
 // ============================================================================
 // First Seen By Client At (set once on portal load for unseen assets)
 // ============================================================================

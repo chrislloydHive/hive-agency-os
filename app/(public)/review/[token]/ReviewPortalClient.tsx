@@ -322,6 +322,16 @@ function ReviewPortalClientInner({
     setSelectedFileIds(new Set(newFileIds));
   }, []);
 
+  const handleSingleAssetApprovedResult = useCallback(
+    (success: boolean, message?: string) => {
+      setToast({
+        message: message ?? (success ? 'Approved' : 'Failed to approve'),
+        type: success ? 'success' : 'error',
+      });
+    },
+    []
+  );
+
   const handleApproveSelected = useCallback(() => {
     const fileIds = Array.from(selectedFileIds);
     if (fileIds.length === 0) return;
@@ -492,6 +502,7 @@ function ReviewPortalClientInner({
                   onToggleSelect={toggleSelection}
                   onSelectAllUnapprovedInSection={selectAllUnapprovedInSection}
                   onSelectNewInSection={selectNewInSection}
+                  onSingleAssetApprovedResult={handleSingleAssetApprovedResult}
                 />
               );
             })}
