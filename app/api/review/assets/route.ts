@@ -135,6 +135,7 @@ export async function GET(req: NextRequest) {
     const key = `${token}::${fileId}`;
     const rec = statusMap.get(key);
     if (!rec) return 'new';
+    if (rec.assetApprovedClient) return 'approved';
     const s = rec.status.toLowerCase();
     if (s === 'needs changes') return 'needs_changes';
     return s as ReviewState;

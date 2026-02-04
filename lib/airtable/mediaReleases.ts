@@ -2,8 +2,8 @@
 // Airtable integration for Media Releases table (Client PM OS)
 //
 // Media Releases track outbound media: assets, partners, channels, and delivery readiness.
-// Rollups: # Assets Linked, # Approved Assets. Formula: Delivery Readiness (ready only when
-// all linked assets are approved and at least one asset is linked).
+// Rollups: # Assets Linked, # Approved Assets (from Release Assets); # Traffic Complete,
+// # Assets Delivered, % Traffic Complete (from Delivered Assets → Creative Review Asset Status).
 
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from './tables';
@@ -38,6 +38,8 @@ export interface MediaRelease {
   releaseDate: string | null;
   status: MediaReleaseStatus;
   releaseAssetIds: string[];
+  /** Link to Creative Review Asset Status (delivered/trafficked assets). */
+  deliveredAssetIds: string[];
   releaseFolderUrl: string | null;
   releaseSheetUrl: string | null;
   instructionsNotes: string | null;
@@ -48,6 +50,12 @@ export interface MediaRelease {
   approvedAssetsCount: number;
   /** Formula: "Ready" when all linked assets approved and at least one linked; else "Blocked" */
   deliveryReadiness: string | null;
+  /** Rollup: SUM(Traffic Complete?) from Delivered Assets */
+  trafficCompleteCount: number;
+  /** Rollup: SUM(Delivered?) from Delivered Assets */
+  assetsDeliveredCount: number;
+  /** Formula: traffic complete share (0–1) when # Assets Delivered > 0 */
+  trafficCompletePercent: number;
 }
 
 export interface CreateMediaReleaseInput {
@@ -59,6 +67,7 @@ export interface CreateMediaReleaseInput {
   releaseDate?: string | null;
   status?: MediaReleaseStatus;
   releaseAssetIds?: string[];
+  deliveredAssetIds?: string[];
   releaseFolderUrl?: string | null;
   releaseSheetUrl?: string | null;
   instructionsNotes?: string | null;
@@ -78,6 +87,7 @@ const FIELDS = {
   RELEASE_DATE: 'Release Date',
   STATUS: 'Status',
   RELEASE_ASSETS: 'Release Assets',
+  DELIVERED_ASSETS: 'Delivered Assets',
   RELEASE_FOLDER_URL: 'Release Folder URL',
   RELEASE_SHEET_URL: 'Release Sheet URL',
   INSTRUCTIONS_NOTES: 'Instructions / Notes',
@@ -85,6 +95,9 @@ const FIELDS = {
   ASSETS_LINKED_COUNT: '# Assets Linked',
   APPROVED_ASSETS_COUNT: '# Approved Assets',
   DELIVERY_READINESS: 'Delivery Readiness',
+  TRAFFIC_COMPLETE_COUNT: '# Traffic Complete',
+  ASSETS_DELIVERED_COUNT: '# Assets Delivered',
+  TRAFFIC_COMPLETE_PERCENT: '% Traffic Complete',
 } as const;
 
 const RELEASE_TYPES: MediaReleaseType[] = [
@@ -155,6 +168,7 @@ function mapAirtableRecord(record: {
     releaseDate: parseOptionalString(f[FIELDS.RELEASE_DATE]),
     status: parseStatus(f[FIELDS.STATUS]),
     releaseAssetIds: parseStringArray(f[FIELDS.RELEASE_ASSETS]),
+    deliveredAssetIds: parseStringArray(f[FIELDS.DELIVERED_ASSETS]),
     releaseFolderUrl: parseOptionalString(f[FIELDS.RELEASE_FOLDER_URL]),
     releaseSheetUrl: parseOptionalString(f[FIELDS.RELEASE_SHEET_URL]),
     instructionsNotes: parseOptionalString(f[FIELDS.INSTRUCTIONS_NOTES]),
@@ -162,6 +176,9 @@ function mapAirtableRecord(record: {
     assetsLinkedCount: parseNumber(f[FIELDS.ASSETS_LINKED_COUNT]),
     approvedAssetsCount: parseNumber(f[FIELDS.APPROVED_ASSETS_COUNT]),
     deliveryReadiness: parseOptionalString(f[FIELDS.DELIVERY_READINESS]),
+    trafficCompleteCount: parseNumber(f[FIELDS.TRAFFIC_COMPLETE_COUNT]),
+    assetsDeliveredCount: parseNumber(f[FIELDS.ASSETS_DELIVERED_COUNT]),
+    trafficCompletePercent: parseNumber(f[FIELDS.TRAFFIC_COMPLETE_PERCENT]),
   };
 }
 
@@ -186,6 +203,8 @@ function mapToAirtableFields(
     fields[FIELDS.STATUS] = input.status;
   if ('releaseAssetIds' in input && input.releaseAssetIds !== undefined)
     fields[FIELDS.RELEASE_ASSETS] = input.releaseAssetIds;
+  if ('deliveredAssetIds' in input && input.deliveredAssetIds !== undefined)
+    fields[FIELDS.DELIVERED_ASSETS] = input.deliveredAssetIds;
   if ('releaseFolderUrl' in input && input.releaseFolderUrl !== undefined)
     fields[FIELDS.RELEASE_FOLDER_URL] = input.releaseFolderUrl ?? null;
   if ('releaseSheetUrl' in input && input.releaseSheetUrl !== undefined)
@@ -263,7 +282,7 @@ export async function createMediaRelease(
  */
 export async function updateMediaRelease(
   recordId: string,
-  updates: Partial<Omit<MediaRelease, 'id' | 'assetsLinkedCount' | 'approvedAssetsCount' | 'deliveryReadiness'>>
+  updates: Partial<Omit<MediaRelease, 'id' | 'assetsLinkedCount' | 'approvedAssetsCount' | 'deliveryReadiness' | 'trafficCompleteCount' | 'assetsDeliveredCount' | 'trafficCompletePercent'>>
 ): Promise<MediaRelease | null> {
   try {
     const base = getBase();

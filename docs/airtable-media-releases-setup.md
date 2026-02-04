@@ -28,10 +28,15 @@ Create the **Media Releases** table in the Client PM OS Airtable base with the f
 | **Release Date**      | Date          | Date only. |
 | **Status**             | Single select | Options: **Draft**, **Ready to Send**, **Sent**, **Confirmed Live**, **Archived**. |
 | **Release Assets**     | Link to another record | Link to **Creative Assets**; allow linking to **multiple** records. |
+| **Delivered Assets**   | Link to another record | Link to **Creative Review Asset Status**; allow linking to **multiple** records. |
 | **Release Folder URL** | URL           | — |
 | **Release Sheet URL**  | URL           | — |
 | **Instructions / Notes** | Long text   | — |
 | **Traffic Instructions** | Long text   | — |
+
+**Creative Review Asset Status** (for Delivered Assets rollups) must have:
+- **Traffic Complete?** — Formula or number (e.g. `1` when trafficked, `0` otherwise) so Media Releases can SUM it.
+- **Delivered?** — Formula or number (e.g. `1` when delivered, `0` otherwise) so Media Releases can SUM it.
 
 ## 3. Rollups (on Release Assets link)
 
@@ -53,7 +58,35 @@ Add two rollup fields that use the **Release Assets** link to **Creative Assets*
 - **Field from Creative Assets:** the numeric **Approved** formula field (1 when Approved, 0 otherwise)
 - **Rollup type:** **SUM VALUES**
 
-## 4. Formula: Delivery Readiness
+## 4. Rollups (on Delivered Assets link)
+
+These use the **Delivered Assets** link to **Creative Review Asset Status**.
+
+### # Traffic Complete
+
+- **Field name:** `# Traffic Complete`
+- **Type:** Rollup
+- **Link field:** Delivered Assets
+- **Field from Creative Review Asset Status:** **Traffic Complete?**
+- **Rollup type:** **SUM VALUES**
+
+### # Assets Delivered
+
+- **Field name:** `# Assets Delivered`
+- **Type:** Rollup
+- **Link field:** Delivered Assets
+- **Field from Creative Review Asset Status:** **Delivered?**
+- **Rollup type:** **SUM VALUES**
+
+### % Traffic Complete (formula)
+
+- **Field name:** `% Traffic Complete`
+- **Type:** Formula
+- **Formula:** `IF({# Assets Delivered}=0, 0, {# Traffic Complete}/{# Assets Delivered})`
+
+This gives the share of delivered assets that are traffic-complete (0 to 1). Use number formatting (e.g. percent) in the field or in views if you want a percentage label.
+
+## 5. Formula: Delivery Readiness
 
 Add a formula field that blocks “send” unless at least one asset is linked and all linked assets are approved:
 
@@ -78,7 +111,7 @@ So:
 
 Use **Delivery Readiness** in views or automations to gate “Ready to Send” or sending (e.g. only allow when value is `Ready`).
 
-## 5. Code reference
+## 6. Code reference
 
 - Table constant: `AIRTABLE_TABLES.MEDIA_RELEASES` → `"Media Releases"`.
 - Creative Assets table: `AIRTABLE_TABLES.CREATIVE_ASSETS` → `"Creative Assets"`.

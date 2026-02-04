@@ -176,6 +176,8 @@ function ReviewPortalClientInner({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [bulkApproving, setBulkApproving] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const lastFetchedTokenRef = useRef<string | null>(null);
   const { identity, clearIdentity } = useAuthorIdentity();
 
@@ -213,42 +215,92 @@ function ReviewPortalClientInner({
     []
   );
 
+  const doRefresh = useCallback(() => {
+    setRefreshError(null);
+    setIsRefreshing(true);
+    const url = `/api/review/assets?token=${encodeURIComponent(token)}`;
+    fetch(url, { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(res.statusText))))
+      .then((data: { ok?: boolean; version?: string; sections?: TacticSectionData[]; lastFetchedAt?: string }) => {
+        if (data.ok === true && data.version === 'review-assets-v1' && Array.isArray(data.sections)) {
+          setSections(data.sections);
+          setRefreshError(null);
+          if (typeof data.lastFetchedAt === 'string') {
+            setLastRefreshedAt(data.lastFetchedAt);
+          }
+        }
+      })
+      .catch((err) => {
+        setRefreshError(err?.message ?? 'Request failed');
+      })
+      .finally(() => {
+        setIsRefreshing(false);
+      });
+  }, [token]);
+
   // Fetch asset list after short delay (reduces contention with server render). Abort on unmount/token change.
   useEffect(() => {
     if (lastFetchedTokenRef.current === token) return;
     lastFetchedTokenRef.current = token;
-    setRefreshError(null);
+    const timeoutId = setTimeout(doRefresh, REFRESH_DELAY_MS);
+    return () => clearTimeout(timeoutId);
+  }, [token, doRefresh]);
 
-    const ac = new AbortController();
-    const timeoutId = setTimeout(() => {
-      setIsRefreshing(true);
-      const url = `/api/review/assets?token=${encodeURIComponent(token)}`;
-      fetch(url, { cache: 'no-store', signal: ac.signal })
-        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(res.statusText))))
-        .then((data: { ok?: boolean; version?: string; sections?: TacticSectionData[]; lastFetchedAt?: string }) => {
-          if (data.ok === true && data.version === 'review-assets-v1' && Array.isArray(data.sections)) {
-            setSections(data.sections);
-            setRefreshError(null);
-            if (typeof data.lastFetchedAt === 'string') {
-              setLastRefreshedAt(data.lastFetchedAt);
-            }
-          }
-        })
-        .catch((err) => {
-          if (err?.name === 'AbortError') return;
-          setRefreshError(err?.message ?? 'Request failed');
-          // Do not clear sections; keep previous initialSections or last good data
-        })
-        .finally(() => {
-          setIsRefreshing(false);
+  const handleBulkApprove = useCallback(() => {
+    const activeSectionsForApprove = sections.filter((s) => s.variant === activeVariant);
+    const fileIds = activeSectionsForApprove.flatMap((s) =>
+      s.assets.map((a) => a.fileId)
+    );
+    if (fileIds.length === 0) {
+      setToast({ message: 'No assets to approve in this view.', type: 'success' });
+      return;
+    }
+    setBulkApproving(true);
+    setToast(null);
+    fetch('/api/review/assets/bulk-approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify({ token, fileIds }),
+    })
+      .then((res) => res.json())
+      .then((data: { ok?: boolean; approved?: number; alreadyApproved?: number; error?: string; partial?: boolean }) => {
+        if (data.ok === true) {
+          const approved = data.approved ?? 0;
+          const alreadyApproved = data.alreadyApproved ?? 0;
+          setToast({
+            message: `Approved ${approved} assets${alreadyApproved > 0 ? ` (${alreadyApproved} already approved)` : ''}.`,
+            type: 'success',
+          });
+          doRefresh();
+        } else {
+          const approved = data.approved ?? 0;
+          const partial = data.partial === true && approved > 0;
+          setToast({
+            message: partial
+              ? `Error: ${data.error ?? 'Update failed'}. ${approved} approved before failure.`
+              : (data.error ?? 'Bulk approve failed'),
+            type: 'error',
+          });
+        }
+      })
+      .catch((err) => {
+        setToast({
+          message: err?.message ?? 'Bulk approve failed',
+          type: 'error',
         });
-    }, REFRESH_DELAY_MS);
+      })
+      .finally(() => {
+        setBulkApproving(false);
+      });
+  }, [token, activeVariant, sections, doRefresh]);
 
-    return () => {
-      clearTimeout(timeoutId);
-      ac.abort();
-    };
-  }, [token]);
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // Reset showEmptyTactics when switching variants
   useEffect(() => {
@@ -308,6 +360,21 @@ function ReviewPortalClientInner({
             </div>
             )}
           </div>
+        </div>
+
+        {/* Bulk approve + Variant Tabs row */}
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {totalFiles > 0 && (
+            <button
+              type="button"
+              onClick={handleBulkApprove}
+              disabled={bulkApproving || isRefreshing}
+              title="Approves all assets currently shown in this list (respects filters)."
+              className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {bulkApproving ? 'Approving…' : 'Approve Displayed'}
+            </button>
+          )}
         </div>
 
         {/* Variant Tabs */}
@@ -386,6 +453,18 @@ function ReviewPortalClientInner({
               </button>
             )}
           </>
+        )}
+
+        {/* Toast (global so it shows for bulk approve from any view) */}
+        {toast && (
+          <div
+            className={`fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg px-4 py-3 shadow-lg ${
+              toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+            }`}
+            role="alert"
+          >
+            <p className="text-sm font-medium">{toast.message}</p>
+          </div>
         )}
       </div>
     </main>

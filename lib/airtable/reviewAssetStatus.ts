@@ -7,11 +7,16 @@ import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 
 const TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 
+/** Airtable field name for client approval checkbox. Change here if your base uses a different name. */
+export const ASSET_APPROVED_CLIENT_FIELD = 'Asset Approved (Client)';
+
 export type AssetStatusValue = 'New' | 'Seen' | 'Approved' | 'Needs Changes';
 
 export interface StatusRecord {
   recordId: string;
   status: AssetStatusValue;
+  /** Client approval checkbox; used for bulk approve and to avoid re-updating. */
+  assetApprovedClient: boolean;
   firstSeenAt: string | null;
   lastSeenAt: string | null;
   approvedAt: string | null;
@@ -40,11 +45,18 @@ function parseUrl(raw: unknown): string | null {
   return raw.trim();
 }
 
+function parseAssetApprovedClient(raw: unknown): boolean {
+  if (raw === true) return true;
+  if (raw === 'true' || raw === 1) return true;
+  return false;
+}
+
 function recordToStatus(r: { id: string; fields: Record<string, unknown> }, token: string, driveFileId: string): StatusRecord {
   const f = r.fields;
   return {
     recordId: r.id,
     status: parseStatus(f['Status']),
+    assetApprovedClient: parseAssetApprovedClient(f[ASSET_APPROVED_CLIENT_FIELD]),
     firstSeenAt: (f['First Seen At'] as string) ?? null,
     lastSeenAt: (f['Last Seen At'] as string) ?? null,
     approvedAt: (f['Approved At'] as string) ?? null,
@@ -192,4 +204,80 @@ export async function upsertStatus(args: UpsertStatusArgs): Promise<void> {
   }
 
   await osBase(TABLE).update(existing.id, updates as any);
+}
+
+// ============================================================================
+// Bulk approve (Asset Approved (Client) = true only; Airtable automation sets the rest)
+// ============================================================================
+
+const BULK_APPROVE_CHUNK_SIZE = 10;
+
+export interface BulkApproveRecordResult {
+  toUpdate: string[];
+  alreadyApproved: number;
+  noRecord: number;
+}
+
+/**
+ * For a list of asset file IDs (e.g. currently displayed), return Airtable record IDs
+ * that need updating (not yet approved) and counts for already approved / no record.
+ */
+export async function getRecordIdsForBulkApprove(
+  token: string,
+  fileIds: string[]
+): Promise<BulkApproveRecordResult> {
+  const statusMap = await listAssetStatuses(token);
+  const toUpdate: string[] = [];
+  let alreadyApproved = 0;
+  let noRecord = 0;
+  for (const fileId of fileIds) {
+    const key = keyFrom(token, fileId);
+    const rec = statusMap.get(key);
+    if (!rec) {
+      noRecord += 1;
+      continue;
+    }
+    if (rec.assetApprovedClient || rec.status === 'Approved') {
+      alreadyApproved += 1;
+      continue;
+    }
+    toUpdate.push(rec.recordId);
+  }
+  return { toUpdate, alreadyApproved, noRecord };
+}
+
+export interface BatchSetAssetApprovedClientResult {
+  updated: number;
+  failedAt: number | null;
+  error?: string;
+  airtableError?: unknown;
+}
+
+/**
+ * Set Asset Approved (Client) = true on the given Airtable record IDs.
+ * Updates in chunks of 10 (Airtable limit). Stops on first batch failure.
+ */
+export async function batchSetAssetApprovedClient(
+  recordIds: string[]
+): Promise<BatchSetAssetApprovedClientResult> {
+  const osBase = getBase();
+  const fields = { [ASSET_APPROVED_CLIENT_FIELD]: true } as Record<string, unknown>;
+  let updated = 0;
+  for (let i = 0; i < recordIds.length; i += BULK_APPROVE_CHUNK_SIZE) {
+    const chunk = recordIds.slice(i, i + BULK_APPROVE_CHUNK_SIZE);
+    try {
+      await Promise.all(chunk.map((id) => osBase(TABLE).update(id, fields as any)));
+      updated += chunk.length;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const airtableError = err;
+      return {
+        updated,
+        failedAt: i,
+        error: message,
+        airtableError,
+      };
+    }
+  }
+  return { updated, failedAt: null };
 }
