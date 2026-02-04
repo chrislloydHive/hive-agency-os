@@ -264,15 +264,29 @@ export interface BatchSetAssetApprovedClientResult {
   airtableError?: unknown;
 }
 
+export interface BatchSetAssetApprovedClientOptions {
+  /** Client-sent approval time (ISO) so "Approved At" reflects when the user clicked. */
+  approvedAt?: string;
+  approvedByName?: string;
+  approvedByEmail?: string;
+}
+
 /**
  * Set Asset Approved (Client) = true on the given Airtable record IDs.
+ * Optionally sets Approved At / Approved By on each record so timestamps match the user's action.
  * Updates in chunks of 10 (Airtable limit). Stops on first batch failure.
  */
 export async function batchSetAssetApprovedClient(
-  recordIds: string[]
+  recordIds: string[],
+  options?: BatchSetAssetApprovedClientOptions
 ): Promise<BatchSetAssetApprovedClientResult> {
   const osBase = getBase();
-  const fields = { [ASSET_APPROVED_CLIENT_FIELD]: true } as Record<string, unknown>;
+  const fields: Record<string, unknown> = { [ASSET_APPROVED_CLIENT_FIELD]: true };
+  if (options?.approvedAt) {
+    fields['Approved At'] = options.approvedAt;
+    if (options.approvedByName !== undefined) fields['Approved By Name'] = String(options.approvedByName).slice(0, 100);
+    if (options.approvedByEmail !== undefined) fields['Approved By Email'] = String(options.approvedByEmail).slice(0, 200);
+  }
   let updated = 0;
   for (let i = 0; i < recordIds.length; i += BULK_APPROVE_CHUNK_SIZE) {
     const chunk = recordIds.slice(i, i + BULK_APPROVE_CHUNK_SIZE);
@@ -293,19 +307,29 @@ export async function batchSetAssetApprovedClient(
   return { updated, failedAt: null };
 }
 
+export interface SetSingleAssetApprovedClientArgs {
+  token: string;
+  driveFileId: string;
+  /** Client-sent approval time (ISO string) so "Approved At" reflects when the user clicked. */
+  approvedAt?: string;
+  approvedByName?: string;
+  approvedByEmail?: string;
+}
+
 /**
  * Set Asset Approved (Client) = true for a single asset by token + driveFileId.
- * Does not write Status or any other fields; Airtable automation sets Needs Delivery etc.
+ * Optionally sets Approved At / Approved By so the timestamp reflects the user's action time.
+ * Does not write Status; Airtable automation can set Needs Delivery etc.
  * Returns alreadyApproved if the checkbox was already true.
  */
 export async function setSingleAssetApprovedClient(
-  token: string,
-  driveFileId: string
+  args: SetSingleAssetApprovedClientArgs
 ): Promise<
   | { ok: true }
   | { alreadyApproved: true }
   | { error: string; airtableError?: unknown }
 > {
+  const { token, driveFileId, approvedAt, approvedByName, approvedByEmail } = args;
   const existing = await findExisting(token, driveFileId);
   if (!existing) {
     return { error: 'Record not found' };
@@ -314,10 +338,14 @@ export async function setSingleAssetApprovedClient(
     return { alreadyApproved: true };
   }
   const osBase = getBase();
+  const fields: Record<string, unknown> = { [ASSET_APPROVED_CLIENT_FIELD]: true };
+  if (approvedAt) {
+    fields['Approved At'] = approvedAt;
+    if (approvedByName !== undefined) fields['Approved By Name'] = String(approvedByName).slice(0, 100);
+    if (approvedByEmail !== undefined) fields['Approved By Email'] = String(approvedByEmail).slice(0, 200);
+  }
   try {
-    await osBase(TABLE).update(existing.id, {
-      [ASSET_APPROVED_CLIENT_FIELD]: true,
-    } as any);
+    await osBase(TABLE).update(existing.id, fields as any);
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

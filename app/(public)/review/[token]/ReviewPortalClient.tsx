@@ -341,7 +341,13 @@ function ReviewPortalClientInner({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       cache: 'no-store',
-      body: JSON.stringify({ token, fileIds }),
+      body: JSON.stringify({
+        token,
+        fileIds,
+        approvedAt: new Date().toISOString(),
+        approvedByName: identity?.name,
+        approvedByEmail: identity?.email,
+      }),
     })
       .then((res) => res.json())
       .then((data: { ok?: boolean; approved?: number; alreadyApproved?: number; error?: string; partial?: boolean }) => {
@@ -374,7 +380,7 @@ function ReviewPortalClientInner({
       .finally(() => {
         setBulkApproving(false);
       });
-  }, [token, selectedFileIds, doRefresh]);
+  }, [token, selectedFileIds, doRefresh, identity]);
 
   return (
     <main className="min-h-screen bg-[#111827] text-gray-100">

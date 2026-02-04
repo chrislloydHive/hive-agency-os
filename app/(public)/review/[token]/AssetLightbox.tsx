@@ -175,6 +175,9 @@ export default function AssetLightbox({
           body: JSON.stringify({
             token,
             driveFileId: asset.fileId,
+            approvedAt: new Date().toISOString(),
+            approvedByName: identity.name,
+            approvedByEmail: identity.email,
           }),
         });
         const data = await res.json().catch(() => ({}));

@@ -1,10 +1,10 @@
 // app/api/review/assets/bulk-approve/route.ts
-// POST: Set Asset Approved (Client) = true on currently displayed assets (by file IDs).
-// Token-only auth. Batch updates Creative Review Asset Status in chunks of 10.
-// Airtable automation is expected to set Approved At and Needs Delivery.
+// POST: Set Asset Approved (Client) = true on selected assets. Optionally sets Approved At
+// from client so the timestamp reflects when the user clicked.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
+import { resolveApprovedAt } from '@/lib/review/approvedAt';
 import {
   getRecordIdsForBulkApprove,
   batchSetAssetApprovedClient,
@@ -15,7 +15,13 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 
 export async function POST(req: NextRequest) {
-  let body: { token?: string; fileIds?: string[] };
+  let body: {
+    token?: string;
+    fileIds?: string[];
+    approvedAt?: string;
+    approvedByName?: string;
+    approvedByEmail?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -24,6 +30,9 @@ export async function POST(req: NextRequest) {
 
   const token = (body.token ?? '').toString().trim();
   const fileIds = Array.isArray(body.fileIds) ? body.fileIds : [];
+  const approvedAt = resolveApprovedAt(body.approvedAt);
+  const approvedByName = (body.approvedByName ?? '').toString().trim() || undefined;
+  const approvedByEmail = (body.approvedByEmail ?? '').toString().trim() || undefined;
 
   if (!token) {
     return NextResponse.json({ error: 'Missing token' }, { status: 400, headers: NO_STORE });
@@ -46,7 +55,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const result = await batchSetAssetApprovedClient(toUpdate);
+  const result = await batchSetAssetApprovedClient(toUpdate, {
+    approvedAt,
+    approvedByName,
+    approvedByEmail,
+  });
 
   if (result.failedAt !== null) {
     const payload = {

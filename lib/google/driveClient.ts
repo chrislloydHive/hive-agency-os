@@ -362,6 +362,46 @@ export function documentUrl(fileId: string, mimeType?: string): string {
 }
 
 /**
+ * Copy any Drive file into a destination folder (for partner delivery, etc.).
+ * Uses the source file's name for the copy. Supports Shared Drives.
+ *
+ * @param sourceFileId - Drive file ID to copy
+ * @param destinationFolderId - Target folder ID
+ * @returns Created copy with id, name, and view URL
+ */
+export async function copyFileToFolder(
+  sourceFileId: string,
+  destinationFolderId: string
+): Promise<{ id: string; name: string; url: string }> {
+  const drive = getDriveClient();
+
+  const getRes = await drive.files.get({
+    fileId: sourceFileId,
+    fields: 'name, mimeType',
+    supportsAllDrives: true,
+  });
+  const name = getRes.data.name ?? 'Copy';
+
+  const response = await drive.files.copy({
+    fileId: sourceFileId,
+    requestBody: {
+      name,
+      parents: [destinationFolderId],
+    },
+    fields: 'id, name, mimeType',
+    supportsAllDrives: true,
+  });
+
+  const file = response.data;
+  const url = documentUrl(file.id!, file.mimeType ?? undefined);
+  return {
+    id: file.id!,
+    name: file.name ?? name,
+    url,
+  };
+}
+
+/**
  * Copy a Google Doc/Sheet/Slides template to a destination folder
  *
  * This is the core function for document provisioning from templates.

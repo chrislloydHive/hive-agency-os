@@ -85,6 +85,7 @@ export const AIRTABLE_TABLES = {
   CREATIVE_REVIEW_ASSET_STATUS: 'Creative Review Asset Status', // Per-asset status: New/Seen/Approved/Needs Changes
   CREATIVE_REVIEW_GROUP_APPROVALS: 'Creative Review Group Approvals', // As-of group approval per tactic::variant
   CREATIVE_REVIEW_COMMENTS: 'Creative Review Comments', // Lightweight per-asset comments (Project, Tactic, fileId)
+  PARTNER_DELIVERY_BATCHES: 'Partner Delivery Batches', // Batch ID → Destination Folder ID for partner delivery
   COMMENTS: 'Comments', // Canonical comments: Body, Author, Status, Severity, Category, Target Type, Target Concept, Target Variant Group, Target Asset, Created
   CONCEPTS: 'Concepts', // Linked by Comments.Target Concept; find-or-create by name
   VARIANT_GROUPS: 'Variant Groups', // Linked by Comments.Target Variant Group; find-or-create by name
