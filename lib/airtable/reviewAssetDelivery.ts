@@ -69,13 +69,14 @@ export async function updateAssetStatusDeliverySuccess(
 ): Promise<void> {
   const base = getBase();
   const now = new Date().toISOString();
-  await base(TABLE).update(recordId, {
+  const fields: Record<string, unknown> = {
     [DELIVERY_STATUS_FIELD]: 'Delivered',
     [DELIVERED_AT_FIELD]: now,
     [DELIVERED_FILE_URL_FIELD]: deliveredFileUrl,
     [DELIVERY_ERROR_FIELD]: '',
     [READY_TO_DELIVER_WEBHOOK_FIELD]: false,
-  } as Record<string, unknown>);
+  };
+  await base(TABLE).update(recordId, fields as any);
 }
 
 /**
@@ -87,9 +88,10 @@ export async function updateAssetStatusDeliveryError(
 ): Promise<void> {
   const base = getBase();
   const truncated = String(errorMessage).slice(0, 1000);
-  await base(TABLE).update(recordId, {
+  const fields: Record<string, unknown> = {
     [DELIVERY_STATUS_FIELD]: 'Error',
     [DELIVERY_ERROR_FIELD]: truncated,
     [READY_TO_DELIVER_WEBHOOK_FIELD]: false,
-  } as Record<string, unknown>);
+  };
+  await base(TABLE).update(recordId, fields as any);
 }
