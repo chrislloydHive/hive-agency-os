@@ -195,7 +195,10 @@ export async function runPartnerDelivery(
   }
 
   try {
-    const result = await copyFileToFolder(driveFileId, destinationFolderId, copyOptions);
+    const result = await copyFileToFolder(driveFileId, destinationFolderId, {
+      ...copyOptions,
+      requestId,
+    });
     await updateAssetStatusDeliverySuccess(airtableRecordId, result.url);
     logStructured({
       requestId,

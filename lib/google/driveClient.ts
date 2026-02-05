@@ -134,6 +134,7 @@ export async function findChildFolder(
     // Escape single quotes in the name for the query
     const escapedName = name.replace(/'/g, "\\'");
 
+    // TODO: when parent is in a Shared Drive and we have driveId, set corpora: 'drive', driveId: sharedDriveId for more reliable list.
     const response = await drive.files.list({
       q: `'${parentId}' in parents and name = '${escapedName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
       fields: 'files(id, name)',
@@ -230,6 +231,7 @@ export async function listChildFolders(parentId: string): Promise<DriveFolder[]>
   const drive = getDriveClient();
 
   try {
+    // TODO: when parent is in a Shared Drive and we have driveId, set corpora: 'drive', driveId: sharedDriveId.
     const response = await drive.files.list({
       q: `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
       fields: 'files(id, name)',
@@ -379,16 +381,59 @@ export function documentUrl(fileId: string, mimeType?: string): string {
 export interface CopyFileToFolderOptions {
   /** When set, use this OAuth client instead of the service account. Use for copying from company/consumer Drive the SA cannot access. */
   auth?: OAuth2Client;
+  /** When set with DELIVERY_DRIVE_DEBUG=true, preflight gets are run and one log line is emitted. */
+  requestId?: string;
+}
+
+/**
+ * Preflight: get source and dest with supportsAllDrives, log one line. Used only when DELIVERY_DRIVE_DEBUG=true.
+ */
+async function runPreflightLog(
+  drive: drive_v3.Drive,
+  sourceFileId: string,
+  destFolderId: string,
+  requestId: string
+): Promise<void> {
+  let sourceOk = false;
+  let destOk = false;
+  let sourceDriveId: string | undefined;
+  let destDriveId: string | undefined;
+  try {
+    const src = await drive.files.get({
+      fileId: sourceFileId,
+      fields: 'id,name,driveId,parents',
+      supportsAllDrives: true,
+    });
+    sourceOk = true;
+    sourceDriveId = src.data.driveId ?? undefined;
+  } catch {
+    // leave sourceOk false
+  }
+  try {
+    const dest = await drive.files.get({
+      fileId: destFolderId,
+      fields: 'id,name,driveId',
+      supportsAllDrives: true,
+    });
+    destOk = true;
+    destDriveId = dest.data.driveId ?? undefined;
+  } catch {
+    // leave destOk false
+  }
+  console.log(
+    `[drive/preflight] sourceOk=${sourceOk} destOk=${destOk} sourceDriveId=${sourceDriveId ?? ''} destDriveId=${destDriveId ?? ''} requestId=${requestId}`
+  );
 }
 
 /**
  * Copy any Drive file into a destination folder (for partner delivery, etc.).
  * Uses the source file's name for the copy. Supports Shared Drives.
  * When options.auth is provided, uses that OAuth client (e.g. company Drive); otherwise uses the service account.
+ * Every Drive call uses supportsAllDrives: true; copy uses requestBody.parents = [destinationFolderId].
  *
  * @param sourceFileId - Drive file ID to copy
  * @param destinationFolderId - Target folder ID
- * @param options - Optional auth (OAuth2Client) to use for the copy when source is in company/consumer Drive
+ * @param options - Optional auth and requestId (requestId + DELIVERY_DRIVE_DEBUG enable preflight log)
  * @returns Created copy with id, name, and view URL
  */
 export async function copyFileToFolder(
@@ -398,30 +443,48 @@ export async function copyFileToFolder(
 ): Promise<{ id: string; name: string; url: string }> {
   const drive = options?.auth ? getDriveClientWithOAuth(options.auth) : getDriveClientWithServiceAccount();
 
-  const getRes = await drive.files.get({
-    fileId: sourceFileId,
-    fields: 'name, mimeType',
-    supportsAllDrives: true,
-  });
-  const name = getRes.data.name ?? 'Copy';
+  if (process.env.DELIVERY_DRIVE_DEBUG === 'true' && options?.requestId) {
+    await runPreflightLog(drive, sourceFileId, destinationFolderId, options.requestId);
+  }
 
-  const response = await drive.files.copy({
-    fileId: sourceFileId,
-    requestBody: {
-      name,
-      parents: [destinationFolderId],
-    },
-    fields: 'id, name, mimeType',
-    supportsAllDrives: true,
-  });
+  try {
+    const getRes = await drive.files.get({
+      fileId: sourceFileId,
+      fields: 'name, mimeType',
+      supportsAllDrives: true,
+    });
+    const name = getRes.data.name ?? 'Copy';
 
-  const file = response.data;
-  const url = documentUrl(file.id!, file.mimeType ?? undefined);
-  return {
-    id: file.id!,
-    name: file.name ?? name,
-    url,
-  };
+    const response = await drive.files.copy({
+      fileId: sourceFileId,
+      requestBody: {
+        name,
+        parents: [destinationFolderId],
+      },
+      fields: 'id, name, mimeType',
+      supportsAllDrives: true,
+    });
+
+    const file = response.data;
+    const url = documentUrl(file.id!, file.mimeType ?? undefined);
+    return {
+      id: file.id!,
+      name: file.name ?? name,
+      url,
+    };
+  } catch (err: unknown) {
+    const code =
+      (typeof err === 'object' && err !== null && 'code' in err ? (err as { code: number }).code : undefined) ??
+      (typeof err === 'object' && err !== null && 'response' in err
+        ? (err as { response?: { status?: number } }).response?.status
+        : undefined);
+    if (code === 403 || code === 404) {
+      console.warn(
+        '[Drive] Shared Drive member verified; likely missing supportsAllDrives/includeItemsFromAllDrives/corpora/driveId or incorrect parents/removeParents.'
+      );
+    }
+    throw err;
+  }
 }
 
 /**
@@ -491,6 +554,7 @@ export async function findDocumentInFolder(
     // Escape single quotes in the name for the query
     const escapedName = name.replace(/'/g, "\\'");
 
+    // TODO: when folder is in a Shared Drive and we have driveId, set corpora: 'drive', driveId: sharedDriveId.
     const response = await drive.files.list({
       q: `'${folderId}' in parents and name = '${escapedName}' and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
       fields: 'files(id, name, mimeType)',
