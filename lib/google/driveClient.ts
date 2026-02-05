@@ -393,8 +393,12 @@ export interface CopyFileToFolderOptions {
 
 const FOLDER_MIMETYPE = 'application/vnd.google-apps.folder';
 
+const SHARED_DRIVE_HINT =
+  'If these are different Shared Drives, SA must be member of both; if driveId is null, file may be in My Drive.';
+
 /**
  * Preflight: ensure source file and destination folder exist and dest is a folder. Throws with clear message on failure.
+ * Fetches source with shortcutDetails; throws if source is a shortcut (use targetId). Logs driveId/mimeType for debugging.
  * All calls use supportsAllDrives: true.
  */
 export async function preflightCopy(
@@ -402,30 +406,70 @@ export async function preflightCopy(
   sourceFileId: string,
   destinationFolderId: string
 ): Promise<void> {
+  const supportsAllDrives = true;
+
+  let sourceData: {
+    id?: string | null;
+    name?: string | null;
+    mimeType?: string | null;
+    driveId?: string | null;
+    parents?: string[] | null;
+    shortcutDetails?: { targetId?: string; targetMimeType?: string } | null;
+  };
   try {
-    await drive.files.get({
+    const sourceRes = await drive.files.get({
       fileId: sourceFileId,
-      fields: 'id,name,mimeType,driveId',
-      supportsAllDrives: true,
+      fields: 'id,name,mimeType,driveId,parents,shortcutDetails',
+      supportsAllDrives,
     });
+    sourceData = sourceRes.data;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(`Source file not accessible (${sourceFileId}). ${msg}`);
+    throw new Error(
+      `Source file not accessible (${sourceFileId}). ${msg} (supportsAllDrives: ${supportsAllDrives}). Source driveId: unknown (get failed). Destination driveId: not yet checked. ${SHARED_DRIVE_HINT}`
+    );
   }
-  let destRes: { data: { mimeType?: string | null } };
+
+  if (sourceData.shortcutDetails != null && typeof sourceData.shortcutDetails === 'object') {
+    const targetId = sourceData.shortcutDetails.targetId ?? 'unknown';
+    throw new Error(
+      `Source file (${sourceFileId}) is a shortcut, not the actual file. Use the shortcut's target file ID for the copy. targetId: ${targetId}`
+    );
+  }
+
+  let destData: { id?: string | null; name?: string | null; mimeType?: string | null; driveId?: string | null; parents?: string[] | null };
   try {
-    destRes = await drive.files.get({
+    const destRes = await drive.files.get({
       fileId: destinationFolderId,
-      fields: 'id,name,mimeType,driveId',
-      supportsAllDrives: true,
+      fields: 'id,name,mimeType,driveId,parents',
+      supportsAllDrives,
     });
+    destData = destRes.data;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(`Destination folder not accessible (${destinationFolderId}). ${msg}`);
+    const sourceDriveId = sourceData.driveId ?? 'null';
+    throw new Error(
+      `Destination folder not accessible (${destinationFolderId}). ${msg} (supportsAllDrives: ${supportsAllDrives}). Source driveId: ${sourceDriveId}. Destination driveId: unknown (get failed). ${SHARED_DRIVE_HINT}`
+    );
   }
-  if (destRes.data.mimeType !== FOLDER_MIMETYPE) {
-    throw new Error(`Destination is not a folder (mimeType=${destRes.data.mimeType ?? 'unknown'}). Use a Drive folder ID.`);
+
+  if (destData.mimeType !== FOLDER_MIMETYPE) {
+    throw new Error(
+      `Destination is not a folder (mimeType=${destData.mimeType ?? 'unknown'}). Use a Drive folder ID.`
+    );
   }
+
+  const hasShortcutDetails = sourceData.shortcutDetails != null;
+  console.log(
+    '[Drive/preflight]',
+    JSON.stringify({
+      sourceDriveId: sourceData.driveId ?? null,
+      destDriveId: destData.driveId ?? null,
+      sourceMimeType: sourceData.mimeType ?? null,
+      destMimeType: destData.mimeType ?? null,
+      hasShortcutDetails,
+    })
+  );
 }
 
 /**

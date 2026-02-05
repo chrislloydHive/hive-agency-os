@@ -61,11 +61,15 @@ function getProjectId(): string {
 }
 
 function getImpersonateEmail(): string {
-  return (
-    process.env.GOOGLE_IMPERSONATE_SERVICE_ACCOUNT?.trim() ||
+  const email =
     process.env.GOOGLE_IMPERSONATE_SERVICE_ACCOUNT_EMAIL?.trim() ||
-    DEFAULT_IMPERSONATE_EMAIL
-  );
+    DEFAULT_IMPERSONATE_EMAIL;
+  if (!email) {
+    throw new Error(
+      `Drive WIF: GOOGLE_IMPERSONATE_SERVICE_ACCOUNT_EMAIL is required (or set default). See ${WIF_DOCS}.`
+    );
+  }
+  return email;
 }
 
 /**
@@ -77,7 +81,7 @@ export function assertWifEnv(): void {
   const impersonateEmail = getImpersonateEmail();
   if (!projectId || !impersonateEmail) {
     throw new Error(
-      `Drive WIF requires GOOGLE_CLOUD_PROJECT and impersonation target. Set GOOGLE_IMPERSONATE_SERVICE_ACCOUNT (or GOOGLE_IMPERSONATE_SERVICE_ACCOUNT_EMAIL). See ${WIF_DOCS} for configuration.`
+      `Drive WIF requires GOOGLE_CLOUD_PROJECT and impersonation target. Set GOOGLE_IMPERSONATE_SERVICE_ACCOUNT_EMAIL. See ${WIF_DOCS} for configuration.`
     );
   }
 }
@@ -105,9 +109,11 @@ export async function getDriveClient(): Promise<drive_v3.Drive> {
   logEnvPresenceOnce();
 
   const impersonateEmail = getImpersonateEmail();
-  const hasImpersonate = !!impersonateEmail;
-  const valuePrefix = impersonateEmail.slice(0, 8);
-  console.log(`[WIF] hasImpersonate=${hasImpersonate} valuePrefix=${valuePrefix}`);
+  const projectId = getProjectId();
+  console.log(
+    '[WIF]',
+    JSON.stringify({ authMode: 'wif', impersonateEmail, projectId })
+  );
 
   const sourceAuth = new google.auth.GoogleAuth({ scopes: [DRIVE_SCOPE] });
   let sourceClient: Awaited<ReturnType<GoogleAuth['getClient']>>;
