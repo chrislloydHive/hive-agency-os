@@ -152,17 +152,18 @@ export async function runPartnerDelivery(
     };
   }
 
-  // OAuth-only when token is present (no service account required). Otherwise fall back to service account.
+  // If token is provided: OAuth only; never fall back to service account. If resolve fails, return 400.
   let copyOptions: CopyFileToFolderOptions | undefined;
   const tokenTrimmed = (token ?? '').trim();
   if (tokenTrimmed) {
+    console.log('[partner-delivery] token_present=true token_len=', tokenTrimmed.length);
     const resolved = await resolveReviewProject(tokenTrimmed);
-    if (resolved?.auth) {
-      copyOptions = { auth: resolved.auth };
-      console.log('[partner-delivery] auth=oauth');
+    if (!resolved?.auth) {
+      return fail('Invalid review portal token (could not resolve project/oauth).', 400, true);
     }
-  }
-  if (!copyOptions) {
+    copyOptions = { auth: resolved.auth };
+    console.log('[partner-delivery] auth=oauth');
+  } else {
     console.log('[partner-delivery] auth=service_account');
   }
 
