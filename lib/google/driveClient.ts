@@ -466,7 +466,7 @@ export async function verifyDriveAccess(
     );
     const statusPart = status != null ? ` HTTP ${status}.` : '';
     throw new Error(
-      `Source file not accessible. fileId=${fileId}.${statusPart} ${msg} (supportsAllDrives: ${supportsAllDrives}). ${SHARED_DRIVE_HINT}`
+      `Source not accessible. fileId=${fileId}.${statusPart} ${msg} (supportsAllDrives: ${supportsAllDrives}). ${SHARED_DRIVE_HINT}`
     );
   }
 

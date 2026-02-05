@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let driveFileId: string;
+  let sourceFolderId: string;
   try {
     const record = await getAssetStatusRecordById(testRecordId);
     if (!record) {
@@ -51,8 +51,8 @@ export async function POST(req: NextRequest) {
         { status: 404, headers: NO_STORE }
       );
     }
-    driveFileId = record.driveFileId ?? '';
-    if (!driveFileId) {
+    sourceFolderId = (record.driveFileId ?? '').trim();
+    if (!sourceFolderId) {
       return NextResponse.json(
         { ok: false, error: 'Test record has no Source Folder ID' },
         { status: 400, headers: NO_STORE }
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
   const result = await runPartnerDelivery(
     {
       airtableRecordId: testRecordId,
-      driveFileId,
+      sourceFolderId,
       deliveryBatchId: testBatchId || undefined,
       dryRun,
       projectName: testProjectName,

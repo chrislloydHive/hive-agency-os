@@ -48,8 +48,10 @@ export type PartnerDeliveryResult =
 
 export interface PartnerDeliveryParams {
   airtableRecordId: string;
-  /** Source Folder ID from Airtable (field "Source Folder ID"): Google Drive folder ID to copy. */
-  driveFileId: string;
+  /** Source folder ID (Google Drive folder to copy). Accepts sourceFolderId or legacy driveFileId from route. */
+  sourceFolderId: string;
+  /** @deprecated Use sourceFolderId. Kept for backward compat when calling from test route. */
+  driveFileId?: string;
   deliveryBatchId?: string;
   destinationFolderId?: string;
   dryRun?: boolean;
@@ -64,7 +66,7 @@ export type AuthMode = 'oauth' | 'wif_service_account';
 export interface PartnerDeliveryLog {
   requestId: string;
   airtableRecordId: string;
-  driveFileId: string;
+  sourceFolderId: string;
   destinationFolderId: string | null;
   dryRun: boolean;
   result: 'ok' | 'dry_run' | 'idempotent' | 'error';
@@ -76,7 +78,7 @@ function logStructured(log: PartnerDeliveryLog): void {
   const payload: Record<string, unknown> = {
     requestId: log.requestId,
     airtableRecordId: log.airtableRecordId,
-    driveFileId: log.driveFileId,
+    sourceFolderId: log.sourceFolderId,
     destinationFolderId: log.destinationFolderId,
     dryRun: log.dryRun,
     result: log.result,
@@ -94,7 +96,8 @@ export async function runPartnerDelivery(
   params: PartnerDeliveryParams,
   requestId: string
 ): Promise<PartnerDeliveryResult> {
-  const { airtableRecordId, driveFileId, deliveryBatchId, destinationFolderId: paramDestinationFolderId, dryRun = false, projectName, token } = params;
+  const sourceFolderId = (params.sourceFolderId ?? params.driveFileId ?? '').trim();
+  const { airtableRecordId, deliveryBatchId, destinationFolderId: paramDestinationFolderId, dryRun = false, projectName, token } = params;
 
   let destinationFolderId = (paramDestinationFolderId ?? '').trim();
   if (!destinationFolderId && (deliveryBatchId ?? '').trim()) {
@@ -123,7 +126,7 @@ export async function runPartnerDelivery(
     logStructured({
       requestId,
       airtableRecordId,
-      driveFileId,
+      sourceFolderId,
       destinationFolderId: destinationFolderId || null,
       dryRun,
       result: 'error',
@@ -133,8 +136,8 @@ export async function runPartnerDelivery(
     return { ok: false, error, statusCode, result: 'error', authMode };
   };
 
-  if (!driveFileId) {
-    return fail('Missing source folder ID (driveFileId)', 400, true);
+  if (!sourceFolderId) {
+    return fail('Missing source folder ID', 400, true);
   }
 
   if (!destinationFolderId) {
@@ -176,14 +179,14 @@ export async function runPartnerDelivery(
     JSON.stringify({
       requestId,
       authMode,
-      driveFileId,
+      sourceFolderId,
       destinationFolderId,
       supportsAllDrives: true,
     })
   );
 
   try {
-    await preflightFolderCopy(drive, driveFileId, destinationFolderId);
+    await preflightFolderCopy(drive, sourceFolderId, destinationFolderId);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return fail(message, 400, true, authMode);
@@ -193,7 +196,7 @@ export async function runPartnerDelivery(
     logStructured({
       requestId,
       airtableRecordId,
-      driveFileId,
+      sourceFolderId,
       destinationFolderId,
       dryRun: true,
       result: 'dry_run',
@@ -203,7 +206,7 @@ export async function runPartnerDelivery(
       ok: true,
       dryRun: true,
       resolvedDestinationFolderId: destinationFolderId,
-      wouldCopyFileId: driveFileId,
+      wouldCopyFileId: sourceFolderId,
       authMode,
       result: 'dry_run',
     };
@@ -217,7 +220,7 @@ export async function runPartnerDelivery(
     logStructured({
       requestId,
       airtableRecordId,
-      driveFileId,
+      sourceFolderId,
       destinationFolderId,
       dryRun: false,
       result: 'error',
@@ -234,7 +237,7 @@ export async function runPartnerDelivery(
     logStructured({
       requestId,
       airtableRecordId,
-      driveFileId,
+      sourceFolderId,
       destinationFolderId,
       dryRun: false,
       result: 'idempotent',
@@ -249,7 +252,7 @@ export async function runPartnerDelivery(
   const deliveredFolderName = `Delivered – ${(projectName ?? 'Delivery').trim() || 'Delivery'} – ${new Date().toISOString().slice(0, 10)}`;
 
   try {
-    const result = await copyDriveFolderTree(drive, driveFileId, destinationFolderId, {
+    const result = await copyDriveFolderTree(drive, sourceFolderId, destinationFolderId, {
       deliveredFolderName,
       drive,
     });
@@ -263,7 +266,7 @@ export async function runPartnerDelivery(
     logStructured({
       requestId,
       airtableRecordId,
-      driveFileId,
+      sourceFolderId,
       destinationFolderId,
       dryRun: false,
       result: 'ok',

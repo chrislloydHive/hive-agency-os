@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
 
   let body: {
     airtableRecordId?: string;
+    sourceFolderId?: string;
     driveFileId?: string;
     deliveryBatchId?: string;
     destinationFolderId?: string;
@@ -45,8 +46,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400, headers: NO_STORE });
   }
 
+  const sourceFolderId = (body.sourceFolderId ?? body.driveFileId ?? '').toString().trim();
+  if (!sourceFolderId) {
+    return NextResponse.json({ ok: false, error: 'Missing source folder ID' }, { status: 400, headers: NO_STORE });
+  }
+
   const airtableRecordId = (body.airtableRecordId ?? '').toString().trim();
-  const driveFileId = (body.driveFileId ?? '').toString().trim();
   const deliveryBatchId = (body.deliveryBatchId ?? '').toString().trim();
   const destinationFolderId = (body.destinationFolderId ?? '').toString().trim();
   const projectName = (body.projectName ?? '').toString().trim() || undefined;
@@ -61,7 +66,7 @@ export async function POST(req: NextRequest) {
   const result = await runPartnerDelivery(
     {
       airtableRecordId,
-      driveFileId,
+      sourceFolderId,
       deliveryBatchId: deliveryBatchId || undefined,
       destinationFolderId: destinationFolderId || undefined,
       dryRun,
@@ -95,11 +100,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         ok: true,
+        deliveredFolderId: result.deliveredRootFolderId,
+        deliveredFolderUrl: result.deliveredFileUrl,
         deliveredFileUrl: result.deliveredFileUrl,
         deliveredRootFolderId: result.deliveredRootFolderId,
-        foldersCreated: result.foldersCreated,
-        filesCopied: result.filesCopied,
-        failures: result.failures,
+        deliverySummary: {
+          foldersCreated: result.foldersCreated,
+          filesCopied: result.filesCopied,
+          failures: result.failures,
+        },
         authMode: result.authMode,
       },
       { headers: NO_STORE }
