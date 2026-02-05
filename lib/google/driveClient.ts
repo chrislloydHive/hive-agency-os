@@ -556,6 +556,39 @@ export async function preflightCopy(
 }
 
 /**
+ * Preflight for folder-based delivery: validates source and destination are folders.
+ * Uses supportsAllDrives: true. Throws with clear message if source is not a folder or dest is not a folder.
+ */
+export async function preflightFolderCopy(
+  drive: drive_v3.Drive,
+  sourceFolderId: string,
+  destinationFolderId: string
+): Promise<void> {
+  const result = await verifyDriveAccess(drive, sourceFolderId, destinationFolderId);
+  if (result.file.mimeType !== FOLDER_MIMETYPE) {
+    throw new Error(
+      `Source is not a folder (mimeType=${result.file.mimeType ?? 'unknown'}). Source Folder ID must be a folder ID for folder delivery.`
+    );
+  }
+  if (result.folder.mimeType !== FOLDER_MIMETYPE) {
+    throw new Error(
+      `Destination is not a folder (mimeType=${result.folder.mimeType ?? 'unknown'}). Use a Drive folder ID.`
+    );
+  }
+  console.log(
+    '[Drive/preflightFolder]',
+    JSON.stringify({
+      sourceFolderId: result.file.id,
+      sourceName: result.file.name,
+      sourceDriveId: result.file.driveId,
+      destFolderId: result.folder.id,
+      destName: result.folder.name,
+      destDriveId: result.folder.driveId,
+    })
+  );
+}
+
+/**
  * Preflight: get source and dest with supportsAllDrives, log one line. Used only when DELIVERY_DRIVE_DEBUG=true.
  */
 async function runPreflightLog(
@@ -657,6 +690,154 @@ export async function copyFileToFolder(
     }
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Folder tree copy (partner delivery: copy entire folder into destination)
+// ---------------------------------------------------------------------------
+
+export interface CopyDriveFolderTreeOptions {
+  /** Name for the new root folder created in the destination (e.g. "Delivered – ProjectName – 2025-02-03"). */
+  deliveredFolderName: string;
+  /** Optional drive client (e.g. WIF); when omitted uses default. */
+  drive?: drive_v3.Drive;
+}
+
+export interface CopyDriveFolderTreeResult {
+  deliveredRootFolderId: string;
+  deliveredRootFolderUrl: string;
+  foldersCreated: number;
+  filesCopied: number;
+  failures: Array<{ id: string; name?: string; reason: string }>;
+}
+
+/** List all children of a folder (paginated). supportsAllDrives and includeItemsFromAllDrives. */
+async function listFolderChildren(
+  drive: drive_v3.Drive,
+  parentId: string
+): Promise<drive_v3.Schema$File[]> {
+  const files: drive_v3.Schema$File[] = [];
+  let pageToken: string | undefined;
+  do {
+    const res = await drive.files.list({
+      q: `'${parentId.replace(/'/g, "\\'")}' in parents and trashed = false`,
+      fields: 'nextPageToken, files(id, name, mimeType, shortcutDetails)',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      pageSize: 100,
+      pageToken,
+    });
+    const list = res.data.files ?? [];
+    files.push(...list);
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+  return files;
+}
+
+/**
+ * Recursively copy a Drive folder tree into a destination folder. Creates a new folder with deliveredFolderName
+ * inside destinationParentFolderId, then recreates all subfolders and copies all files (including resolving shortcuts).
+ * Supports Shared Drives. Do not use files.copy for folders — only create folders and copy files.
+ */
+export async function copyDriveFolderTree(
+  drive: drive_v3.Drive,
+  sourceFolderId: string,
+  destinationParentFolderId: string,
+  options: CopyDriveFolderTreeOptions
+): Promise<CopyDriveFolderTreeResult> {
+  const { deliveredFolderName } = options;
+  const failures: Array<{ id: string; name?: string; reason: string }> = [];
+  let foldersCreated = 0;
+  let filesCopied = 0;
+
+  const sourceMeta = await drive.files.get({
+    fileId: sourceFolderId,
+    fields: 'id,name,mimeType',
+    supportsAllDrives: true,
+  });
+  if (sourceMeta.data.mimeType !== FOLDER_MIMETYPE) {
+    throw new Error(
+      `Source is not a folder (mimeType=${sourceMeta.data.mimeType ?? 'unknown'}). Source Folder ID must be a folder ID.`
+    );
+  }
+
+  const createRes = await drive.files.create({
+    requestBody: {
+      name: deliveredFolderName,
+      mimeType: FOLDER_MIMETYPE,
+      parents: [destinationParentFolderId],
+    },
+    fields: 'id,name,webViewLink',
+    supportsAllDrives: true,
+  });
+  const deliveredRootFolderId = createRes.data.id!;
+  const deliveredRootFolderUrl =
+    (createRes.data.webViewLink && createRes.data.webViewLink.trim()) ||
+    folderUrl(deliveredRootFolderId);
+  foldersCreated = 1;
+
+  async function recurse(
+    sourceParentId: string,
+    destParentId: string
+  ): Promise<void> {
+    const children = await listFolderChildren(drive, sourceParentId);
+    for (const item of children) {
+      const id = item.id ?? '';
+      const name = item.name ?? undefined;
+      const mimeType = item.mimeType ?? '';
+
+      if (mimeType === FOLDER_MIMETYPE) {
+        try {
+          const createChild = await drive.files.create({
+            requestBody: {
+              name: item.name ?? 'Untitled folder',
+              mimeType: FOLDER_MIMETYPE,
+              parents: [destParentId],
+            },
+            fields: 'id',
+            supportsAllDrives: true,
+          });
+          const newFolderId = createChild.data.id!;
+          foldersCreated++;
+          await recurse(id, newFolderId);
+        } catch (e) {
+          const reason = e instanceof Error ? e.message : String(e);
+          console.warn(`[Drive/copyFolderTree] Failed to create/copy folder ${id}:`, reason);
+          failures.push({ id, name, reason });
+        }
+        continue;
+      }
+
+      let fileIdToCopy = id;
+      if (item.shortcutDetails?.targetId) {
+        fileIdToCopy = item.shortcutDetails.targetId;
+      }
+
+      try {
+        await drive.files.copy({
+          fileId: fileIdToCopy,
+          requestBody: { parents: [destParentId] },
+          fields: 'id',
+          supportsAllDrives: true,
+        });
+        filesCopied++;
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : String(e);
+        console.warn(`[Drive/copyFolderTree] Failed to copy file ${id}:`, reason);
+        failures.push({ id, name, reason });
+      }
+    }
+  }
+
+  await recurse(sourceFolderId, deliveredRootFolderId);
+
+  return {
+    deliveredRootFolderId,
+    deliveredRootFolderUrl,
+    foldersCreated,
+    filesCopied,
+    failures,
+  };
 }
 
 /**

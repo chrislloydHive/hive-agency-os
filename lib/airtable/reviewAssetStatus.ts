@@ -1,11 +1,14 @@
 // lib/airtable/reviewAssetStatus.ts
 // Creative Review Asset Status table: per-asset state (New/Seen/Approved/Needs Changes).
-// Key = Review Token + "::" + Drive File ID (unique per asset per review).
+// Key = Review Token + "::" + Source Folder ID (unique per asset per review).
 
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 
 const TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
+
+/** Airtable field: Google Drive folder ID (source folder for delivery). */
+const SOURCE_FOLDER_ID_FIELD = 'Source Folder ID';
 
 /** Airtable field name for client approval checkbox. Change here if your base uses a different name. */
 export const ASSET_APPROVED_CLIENT_FIELD = 'Asset Approved (Client)';
@@ -96,7 +99,7 @@ export async function listAssetStatuses(token: string): Promise<Map<string, Stat
   const map = new Map<string, StatusRecord>();
   for (const r of records) {
     const fields = r.fields as Record<string, unknown>;
-    const driveFileId = (fields['Drive File ID'] as string) ?? '';
+    const driveFileId = (fields[SOURCE_FOLDER_ID_FIELD] as string) ?? '';
     if (driveFileId) {
       const key = keyFrom(token, driveFileId);
       map.set(key, recordToStatus(r as { id: string; fields: Record<string, unknown> }, token, driveFileId));
@@ -106,13 +109,13 @@ export async function listAssetStatuses(token: string): Promise<Map<string, Stat
 }
 
 /**
- * Find existing record by Review Token + Drive File ID.
+ * Find existing record by Review Token + Source Folder ID.
  */
 async function findExisting(token: string, driveFileId: string): Promise<{ id: string; fields: Record<string, unknown> } | null> {
   const osBase = getBase();
   const tokenEsc = String(token).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
   const fileEsc = String(driveFileId).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
-  const formula = `AND({Review Token} = "${tokenEsc}", {Drive File ID} = "${fileEsc}")`;
+  const formula = `AND({Review Token} = "${tokenEsc}", {${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}")`;
   const records = await osBase(TABLE)
     .select({ filterByFormula: formula, maxRecords: 1 })
     .firstPage();
@@ -143,7 +146,7 @@ export async function upsertSeen(args: UpsertSeenArgs): Promise<void> {
     await osBase(TABLE).create({
       'Review Token': args.token,
       Project: [args.projectId],
-      'Drive File ID': args.driveFileId,
+      [SOURCE_FOLDER_ID_FIELD]: args.driveFileId,
       Filename: (args.filename ?? '').slice(0, 500),
       Tactic: args.tactic,
       Variant: args.variant,
@@ -205,7 +208,7 @@ export async function upsertStatus(args: UpsertStatusArgs): Promise<void> {
     await osBase(TABLE).create({
       'Review Token': args.token,
       Project: [args.projectId],
-      'Drive File ID': args.driveFileId,
+      [SOURCE_FOLDER_ID_FIELD]: args.driveFileId,
       Filename: '',
       Tactic: '',
       Variant: '',

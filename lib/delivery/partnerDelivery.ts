@@ -1,13 +1,13 @@
 // lib/delivery/partnerDelivery.ts
-// Core partner delivery logic: resolve destination, copy file, update Airtable.
+// Core partner delivery logic: resolve destination, copy folder tree, update Airtable.
+// Source Folder ID (Airtable) = source folder ID; entire folder tree is copied into destination.
 // Used by POST /api/delivery/partner and /api/delivery/partner/test.
 // Auth: token -> OAuth; no token -> WIF service account impersonation (no 400 for missing token when WIF configured).
 
 import {
-  copyFileToFolder,
+  copyDriveFolderTree,
   getDriveClientWithOAuth,
-  preflightCopy,
-  type CopyFileToFolderOptions,
+  preflightFolderCopy,
 } from '@/lib/google/driveClient';
 import { getAuthModeSummary, getDriveClient as getWifDriveClient } from '@/lib/google/driveWif';
 import { getDestinationFolderIdByBatchId } from '@/lib/airtable/partnerDeliveryBatches';
@@ -32,18 +32,30 @@ export function isAbortError(err: unknown): boolean {
 }
 
 export type PartnerDeliveryResult =
-  | { ok: true; deliveredFileUrl: string; newFileId?: string; newName?: string; authMode: AuthMode; result: 'ok' }
+  | {
+      ok: true;
+      deliveredFileUrl: string;
+      deliveredRootFolderId: string;
+      foldersCreated: number;
+      filesCopied: number;
+      failures: Array<{ id: string; name?: string; reason: string }>;
+      authMode: AuthMode;
+      result: 'ok';
+    }
   | { ok: true; dryRun: true; resolvedDestinationFolderId: string; wouldCopyFileId: string; authMode: AuthMode; result: 'dry_run' }
   | { ok: true; deliveredFileUrl: string; result: 'idempotent' }
   | { ok: false; error: string; statusCode: 400 | 404 | 500; result: 'error'; authMode?: AuthMode };
 
 export interface PartnerDeliveryParams {
   airtableRecordId: string;
+  /** Source Folder ID from Airtable (field "Source Folder ID"): Google Drive folder ID to copy. */
   driveFileId: string;
   deliveryBatchId?: string;
   destinationFolderId?: string;
   dryRun?: boolean;
-  /** Review portal token; when set, copy uses company OAuth so the source file (in company Drive) is accessible. */
+  /** Optional project name for delivered folder name: "Delivered – {projectName} – {date}". */
+  projectName?: string;
+  /** Review portal token; when set, copy uses company OAuth. */
   token?: string;
 }
 
@@ -82,7 +94,7 @@ export async function runPartnerDelivery(
   params: PartnerDeliveryParams,
   requestId: string
 ): Promise<PartnerDeliveryResult> {
-  const { airtableRecordId, driveFileId, deliveryBatchId, destinationFolderId: paramDestinationFolderId, dryRun = false, token } = params;
+  const { airtableRecordId, driveFileId, deliveryBatchId, destinationFolderId: paramDestinationFolderId, dryRun = false, projectName, token } = params;
 
   let destinationFolderId = (paramDestinationFolderId ?? '').trim();
   if (!destinationFolderId && (deliveryBatchId ?? '').trim()) {
@@ -122,7 +134,7 @@ export async function runPartnerDelivery(
   };
 
   if (!driveFileId) {
-    return fail('Missing driveFileId', 400, true);
+    return fail('Missing source folder ID (driveFileId)', 400, true);
   }
 
   if (!destinationFolderId) {
@@ -135,7 +147,6 @@ export async function runPartnerDelivery(
 
   // Resolve auth: token -> OAuth; else WIF (never 400 for missing token when WIF configured).
   let drive: drive_v3.Drive;
-  let copyOptions: CopyFileToFolderOptions;
   let authMode: AuthMode;
 
   const tokenTrimmed = (token ?? '').trim();
@@ -146,12 +157,10 @@ export async function runPartnerDelivery(
     }
     authMode = 'oauth';
     drive = getDriveClientWithOAuth(resolved.auth);
-    copyOptions = { auth: resolved.auth };
   } else {
     try {
       drive = await getWifDriveClient();
       authMode = 'wif_service_account';
-      copyOptions = { drive };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.warn(`[delivery/partner] ${requestId} WIF getDriveClient failed:`, msg);
@@ -174,7 +183,7 @@ export async function runPartnerDelivery(
   );
 
   try {
-    await preflightCopy(drive, driveFileId, destinationFolderId);
+    await preflightFolderCopy(drive, driveFileId, destinationFolderId);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return fail(message, 400, true, authMode);
@@ -237,12 +246,20 @@ export async function runPartnerDelivery(
     };
   }
 
+  const deliveredFolderName = `Delivered – ${(projectName ?? 'Delivery').trim() || 'Delivery'} – ${new Date().toISOString().slice(0, 10)}`;
+
   try {
-    const result = await copyFileToFolder(driveFileId, destinationFolderId, {
-      ...copyOptions,
-      requestId,
+    const result = await copyDriveFolderTree(drive, driveFileId, destinationFolderId, {
+      deliveredFolderName,
+      drive,
     });
-    await updateAssetStatusDeliverySuccess(airtableRecordId, result.url);
+    await updateAssetStatusDeliverySuccess(airtableRecordId, {
+      deliveredFolderId: result.deliveredRootFolderId,
+      deliveredFolderUrl: result.deliveredRootFolderUrl,
+      filesCopied: result.filesCopied,
+      foldersCreated: result.foldersCreated,
+      failures: result.failures.length > 0 ? result.failures : undefined,
+    });
     logStructured({
       requestId,
       airtableRecordId,
@@ -254,9 +271,11 @@ export async function runPartnerDelivery(
     });
     return {
       ok: true,
-      deliveredFileUrl: result.url,
-      newFileId: result.id,
-      newName: result.name,
+      deliveredFileUrl: result.deliveredRootFolderUrl,
+      deliveredRootFolderId: result.deliveredRootFolderId,
+      foldersCreated: result.foldersCreated,
+      filesCopied: result.filesCopied,
+      failures: result.failures,
       authMode,
       result: 'ok',
     };
@@ -269,8 +288,8 @@ export async function runPartnerDelivery(
       raw.toLowerCase().includes('permission');
 
     let message: string;
-    if (copyOptions.auth && is403404) {
-      message = 'OAuth copy failed—check token validity and source file permissions.';
+    if (authMode === 'oauth' && is403404) {
+      message = 'OAuth copy failed—check token validity and source folder permissions.';
     } else if (authMode === 'wif_service_account' && is403404) {
       const { impersonateEmail } = getAuthModeSummary();
       message = `Service account cannot access source/destination. Ensure ${impersonateEmail} is a MEMBER of the Shared Drive.`;

@@ -1,6 +1,6 @@
 // app/api/delivery/partner/route.ts
 // POST: Partner delivery webhook. Airtable automation sends one asset per request.
-// Copies Drive file to destination folder and updates Creative Review Asset Status.
+// Copies entire Drive folder (Source Folder ID = source folder ID) into destination; updates Creative Review Asset Status.
 // Auth: X-DELIVERY-SECRET must match DELIVERY_WEBHOOK_SECRET.
 // dryRun: true = validate only, no copy, no Airtable updates.
 
@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
     driveFileId?: string;
     deliveryBatchId?: string;
     destinationFolderId?: string;
+    projectName?: string;
     token?: string;
     dryRun?: boolean;
   };
@@ -48,6 +49,7 @@ export async function POST(req: NextRequest) {
   const driveFileId = (body.driveFileId ?? '').toString().trim();
   const deliveryBatchId = (body.deliveryBatchId ?? '').toString().trim();
   const destinationFolderId = (body.destinationFolderId ?? '').toString().trim();
+  const projectName = (body.projectName ?? '').toString().trim() || undefined;
   const token = (body.token ?? '').toString().trim() || undefined;
   const dryRun = body.dryRun === true;
 
@@ -63,6 +65,7 @@ export async function POST(req: NextRequest) {
       deliveryBatchId: deliveryBatchId || undefined,
       destinationFolderId: destinationFolderId || undefined,
       dryRun,
+      projectName,
       token,
     },
     requestId
@@ -88,21 +91,19 @@ export async function POST(req: NextRequest) {
         { headers: NO_STORE }
       );
     }
-    // result.result === 'ok'
-    const body: {
-      ok: true;
-      deliveredFileUrl: string;
-      newFileId?: string;
-      newName?: string;
-      authMode: 'oauth' | 'wif_service_account';
-    } = {
-      ok: true,
-      deliveredFileUrl: result.deliveredFileUrl,
-      authMode: result.authMode,
-    };
-    if (result.newFileId != null) body.newFileId = result.newFileId;
-    if (result.newName != null) body.newName = result.newName;
-    return NextResponse.json(body, { headers: NO_STORE });
+    // result.result === 'ok' (folder delivery)
+    return NextResponse.json(
+      {
+        ok: true,
+        deliveredFileUrl: result.deliveredFileUrl,
+        deliveredRootFolderId: result.deliveredRootFolderId,
+        foldersCreated: result.foldersCreated,
+        filesCopied: result.filesCopied,
+        failures: result.failures,
+        authMode: result.authMode,
+      },
+      { headers: NO_STORE }
+    );
   }
 
   return NextResponse.json(

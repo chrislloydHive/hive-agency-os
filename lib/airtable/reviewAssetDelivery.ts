@@ -6,6 +6,9 @@ import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 
 const TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 
+/** Airtable field: Google Drive folder ID for the source (delivery copies this folder tree). */
+const SOURCE_FOLDER_ID_FIELD = 'Source Folder ID';
+
 const AIRTABLE_UPDATE_TIMEOUT_MS = 9000;
 
 /**
@@ -25,6 +28,11 @@ export async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, ms
 const DELIVERY_STATUS_FIELD = 'Delivery Status';
 const DELIVERED_AT_FIELD = 'Delivered At';
 const DELIVERED_FILE_URL_FIELD = 'Delivered File URL';
+const DELIVERED_FOLDER_ID_FIELD = 'Delivered Folder ID';
+const DELIVERED_FOLDER_URL_FIELD = 'Delivered Folder URL';
+const DELIVERY_FILES_COUNT_FIELD = 'Delivery Files Count';
+const DELIVERY_FOLDERS_COUNT_FIELD = 'Delivery Folders Count';
+const DELIVERY_FAILURES_FIELD = 'Delivery Failures';
 const DELIVERY_ERROR_FIELD = 'Delivery Error';
 const READY_TO_DELIVER_WEBHOOK_FIELD = 'Ready to Deliver (Webhook)';
 
@@ -50,7 +58,7 @@ export async function getAssetStatusRecordById(
   try {
     const record = await base(TABLE).find(recordId);
     const f = record.fields as Record<string, unknown>;
-    const driveFileId = typeof f['Drive File ID'] === 'string' ? (f['Drive File ID'] as string).trim() : null;
+    const driveFileId = typeof f[SOURCE_FOLDER_ID_FIELD] === 'string' ? (f[SOURCE_FOLDER_ID_FIELD] as string).trim() : null;
     return {
       recordId: record.id,
       driveFileId: driveFileId || null,
@@ -76,22 +84,45 @@ export function isAlreadyDelivered(record: AssetDeliveryRecord): boolean {
   return false;
 }
 
+export interface DeliverySuccessFolderPayload {
+  deliveredFolderId: string;
+  deliveredFolderUrl: string;
+  filesCopied: number;
+  foldersCreated: number;
+  failures?: Array<{ id: string; name?: string; reason: string }>;
+}
+
 /**
  * Update Creative Review Asset Status record on delivery success.
+ * Accepts either a single URL string (legacy) or a folder payload (deliveredFolderId, deliveredFolderUrl, counts, failures).
  */
 export async function updateAssetStatusDeliverySuccess(
   recordId: string,
-  deliveredFileUrl: string
+  deliveredFileUrlOrFolderPayload: string | DeliverySuccessFolderPayload
 ): Promise<void> {
   const base = getBase();
   const now = new Date().toISOString();
   const fields: Record<string, unknown> = {
     [DELIVERY_STATUS_FIELD]: 'Delivered',
     [DELIVERED_AT_FIELD]: now,
-    [DELIVERED_FILE_URL_FIELD]: deliveredFileUrl,
     [DELIVERY_ERROR_FIELD]: '',
     [READY_TO_DELIVER_WEBHOOK_FIELD]: false,
   };
+
+  if (typeof deliveredFileUrlOrFolderPayload === 'string') {
+    fields[DELIVERED_FILE_URL_FIELD] = deliveredFileUrlOrFolderPayload;
+  } else {
+    const p = deliveredFileUrlOrFolderPayload;
+    fields[DELIVERED_FILE_URL_FIELD] = p.deliveredFolderUrl;
+    fields[DELIVERED_FOLDER_ID_FIELD] = p.deliveredFolderId;
+    fields[DELIVERED_FOLDER_URL_FIELD] = p.deliveredFolderUrl;
+    fields[DELIVERY_FILES_COUNT_FIELD] = p.filesCopied;
+    fields[DELIVERY_FOLDERS_COUNT_FIELD] = p.foldersCreated;
+    if (p.failures && p.failures.length > 0) {
+      fields[DELIVERY_FAILURES_FIELD] = JSON.stringify(p.failures);
+    }
+  }
+
   await base(TABLE).update(recordId, fields as any);
 }
 

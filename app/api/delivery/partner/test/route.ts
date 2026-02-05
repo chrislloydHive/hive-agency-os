@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
   const testRecordId = (process.env.DELIVERY_TEST_RECORD_ID ?? '').trim();
   const testBatchId = (process.env.DELIVERY_TEST_BATCH_ID ?? '').trim();
   const testToken = (process.env.DELIVERY_TEST_TOKEN ?? '').trim() || undefined;
+  const testProjectName = (process.env.DELIVERY_TEST_PROJECT_NAME ?? '').trim() || undefined;
   const dryRunEnv = process.env.DELIVERY_TEST_DRY_RUN;
   const dryRun = dryRunEnv === 'false' || dryRunEnv === '0' ? false : true;
 
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
     driveFileId = record.driveFileId ?? '';
     if (!driveFileId) {
       return NextResponse.json(
-        { ok: false, error: 'Test record has no Drive File ID' },
+        { ok: false, error: 'Test record has no Source Folder ID' },
         { status: 400, headers: NO_STORE }
       );
     }
@@ -71,6 +72,7 @@ export async function POST(req: NextRequest) {
       driveFileId,
       deliveryBatchId: testBatchId || undefined,
       dryRun,
+      projectName: testProjectName,
       token: testToken,
     },
     requestId
@@ -101,8 +103,10 @@ export async function POST(req: NextRequest) {
       {
         ok: true,
         deliveredFileUrl: result.deliveredFileUrl,
-        newFileId: result.newFileId,
-        newName: result.newName,
+        deliveredRootFolderId: result.deliveredRootFolderId,
+        foldersCreated: result.foldersCreated,
+        filesCopied: result.filesCopied,
+        failures: result.failures,
         authMode: result.authMode,
         result: 'ok',
       },
