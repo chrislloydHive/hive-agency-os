@@ -396,7 +396,12 @@ const FOLDER_MIMETYPE = 'application/vnd.google-apps.folder';
 const SHARED_DRIVE_HINT =
   'If these are different Shared Drives, SA must be member of both; if driveId is null, file may be in My Drive.';
 
-/** Fields for preflight/verifyDriveAccess: supports Shared Drive and shortcut detection. */
+/**
+ * Shared Drive audit (preflightCopy / copyFileToFolder):
+ * - files.get and files.copy: only supportsAllDrives is valid (includeItemsFromAllDrives is for files.list).
+ * - All get/copy calls below use supportsAllDrives: true.
+ * - files.list calls use supportsAllDrives: true and includeItemsFromAllDrives: true.
+ */
 const PREFLIGHT_FIELDS = 'id,name,mimeType,driveId,parents,trashed,capabilities';
 const PREFLIGHT_SOURCE_FIELDS = `${PREFLIGHT_FIELDS},shortcutDetails`;
 
@@ -407,6 +412,15 @@ function getHttpStatusFromError(e: unknown): number | undefined {
   }
   if (typeof e === 'object' && e !== null && 'code' in e) {
     return (e as { code: number }).code;
+  }
+  return undefined;
+}
+
+/** Safely get error response body for logging (no secrets). */
+function getErrorResponseBody(e: unknown): unknown {
+  if (typeof e === 'object' && e !== null && 'response' in e) {
+    const res = (e as { response?: { data?: unknown } }).response;
+    return res?.data;
   }
   return undefined;
 }
@@ -445,6 +459,11 @@ export async function verifyDriveAccess(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const status = getHttpStatusFromError(e);
+    const body = getErrorResponseBody(e);
+    console.warn(
+      '[Drive/verifyDriveAccess] source files.get failed:',
+      JSON.stringify({ fileId, httpStatus: status, message: msg, responseBody: body })
+    );
     const statusPart = status != null ? ` HTTP ${status}.` : '';
     throw new Error(
       `Source file not accessible. fileId=${fileId}.${statusPart} ${msg} (supportsAllDrives: ${supportsAllDrives}). ${SHARED_DRIVE_HINT}`
@@ -462,6 +481,11 @@ export async function verifyDriveAccess(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const status = getHttpStatusFromError(e);
+    const body = getErrorResponseBody(e);
+    console.warn(
+      '[Drive/verifyDriveAccess] destination files.get failed:',
+      JSON.stringify({ folderId, httpStatus: status, message: msg, responseBody: body })
+    );
     const statusPart = status != null ? ` HTTP ${status}.` : '';
     const fileDriveId = fileData.driveId ?? 'null';
     throw new Error(
@@ -517,10 +541,14 @@ export async function preflightCopy(
   console.log(
     '[Drive/preflight]',
     JSON.stringify({
-      sourceDriveId: result.file.driveId,
+      sourceId: result.file.id,
       sourceName: result.file.name,
-      destDriveId: result.folder.driveId,
+      sourceDriveId: result.file.driveId,
+      sourceParents: result.file.parents ?? null,
+      destId: result.folder.id,
       destName: result.folder.name,
+      destDriveId: result.folder.driveId,
+      destParents: result.folder.parents ?? null,
       sourceMimeType: result.file.mimeType,
       destMimeType: result.folder.mimeType,
     })
