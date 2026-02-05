@@ -76,6 +76,8 @@ export interface PartnerDeliveryParams {
   projectName?: string;
   /** Review portal token; when set, copy uses company OAuth. */
   token?: string;
+  /** OIDC token from request header x-vercel-oidc-token; when set, WIF uses this instead of ADC file. */
+  oidcToken?: string | null;
 }
 
 export type AuthMode = 'oauth' | 'wif_service_account';
@@ -179,7 +181,7 @@ export async function runPartnerDelivery(
     drive = getDriveClientWithOAuth(resolved.auth);
   } else {
     try {
-      drive = await getWifDriveClient();
+      drive = await getWifDriveClient({ oidcToken: params.oidcToken ?? undefined });
       authMode = 'wif_service_account';
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

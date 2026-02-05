@@ -1,18 +1,22 @@
 /**
  * Google Drive API client using Workload Identity Federation (no service account keys)
- * and service account impersonation. ADC is provided by Vercel OIDC/WIF at runtime,
- * or by GOOGLE_APPLICATION_CREDENTIALS_JSON (written to /tmp for ADC).
+ * and service account impersonation.
+ * - When oidcToken (from request header x-vercel-oidc-token) is provided: uses ExternalAccountClient
+ *   so auth works in Vercel serverless where the token is not in a file.
+ * - Otherwise: ADC (file or GOOGLE_APPLICATION_CREDENTIALS_JSON written to /tmp).
  */
 
 import { writeFileSync } from 'fs';
 import { google } from 'googleapis';
 import type { drive_v3 } from 'googleapis';
-import { GoogleAuth, Impersonated } from 'google-auth-library';
+import { ExternalAccountClient, GoogleAuth, Impersonated } from 'google-auth-library';
 
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
 
 const DEFAULT_PROJECT = 'hive-os-479319';
 const DEFAULT_IMPERSONATE_EMAIL = 'hive-os-drive@hive-os-479319.iam.gserviceaccount.com';
+const DEFAULT_POOL_ID = 'hive-os-vercel-pool';
+const DEFAULT_PROVIDER_ID = 'vercel-oidc';
 
 const WIF_DOCS = 'docs/vercel-gcp-wif-setup.md';
 
@@ -100,10 +104,73 @@ export function getAuthModeSummary(): { projectId: string; impersonateEmail: str
 let _driveClient: drive_v3.Drive | null = null;
 
 /**
- * Returns a Drive v3 client using ADC (WIF/OIDC) and impersonated credentials.
+ * Build a Drive client using the Vercel OIDC token from the request header.
+ * Use when running on Vercel serverless (token is in x-vercel-oidc-token, not in a file).
+ * Requires GCP_PROJECT_NUMBER and WIF pool/provider IDs (or defaults).
+ */
+async function getDriveClientWithOidcToken(oidcToken: string): Promise<drive_v3.Drive> {
+  const projectNumber =
+    process.env.GCP_PROJECT_NUMBER?.trim() ||
+    process.env.GOOGLE_CLOUD_PROJECT_NUMBER?.trim();
+  if (!projectNumber) {
+    throw new Error(
+      `Drive WIF with OIDC token requires GCP_PROJECT_NUMBER (or GOOGLE_CLOUD_PROJECT_NUMBER). Get it from GCP Console → IAM & Admin → Settings. See ${WIF_DOCS}.`
+    );
+  }
+
+  const impersonateEmail = getImpersonateEmail();
+  const poolId =
+    process.env.GCP_WORKLOAD_IDENTITY_POOL_ID?.trim() || DEFAULT_POOL_ID;
+  const providerId =
+    process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID?.trim() ||
+    DEFAULT_PROVIDER_ID;
+
+  const audience = `//iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`;
+  const serviceAccountImpersonationUrl = `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${impersonateEmail}:generateAccessToken`;
+
+  const authClient = ExternalAccountClient.fromJSON({
+    type: 'external_account',
+    audience,
+    subject_token_type: 'urn:ietf:params:oauth:token-type:jwt',
+    token_url: 'https://sts.googleapis.com/v1/token',
+    service_account_impersonation_url: serviceAccountImpersonationUrl,
+    scopes: [DRIVE_SCOPE],
+    subject_token_supplier: {
+      getSubjectToken: () => Promise.resolve(oidcToken),
+    },
+  });
+
+  if (!authClient) {
+    throw new Error(
+      `Drive WIF: ExternalAccountClient.fromJSON returned null. Check GCP_PROJECT_NUMBER and pool/provider. See ${WIF_DOCS}.`
+    );
+  }
+
+  return google.drive({
+    version: 'v3',
+    auth: authClient as drive_v3.Drive['context']['_options']['auth'],
+  });
+}
+
+export interface GetDriveClientOptions {
+  /** OIDC token from request header x-vercel-oidc-token. When set, uses WIF with this token (no file). */
+  oidcToken?: string | null;
+}
+
+/**
+ * Returns a Drive v3 client using WIF/OIDC or ADC.
+ * - If options.oidcToken is provided: uses that token (Vercel serverless; token from request header).
+ * - Otherwise: ADC (Vercel OIDC file or GOOGLE_APPLICATION_CREDENTIALS_JSON).
  * Use supportsAllDrives: true at call sites for Shared Drives.
  */
-export async function getDriveClient(): Promise<drive_v3.Drive> {
+export async function getDriveClient(
+  options?: GetDriveClientOptions
+): Promise<drive_v3.Drive> {
+  const token = options?.oidcToken?.trim();
+  if (token) {
+    return getDriveClientWithOidcToken(token);
+  }
+
   if (_driveClient) return _driveClient;
 
   ensureAdcCredentialsFile();

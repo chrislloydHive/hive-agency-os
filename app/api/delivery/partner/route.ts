@@ -63,6 +63,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Missing airtableRecordId' }, { status: 400, headers: NO_STORE });
   }
 
+  const oidcToken = req.headers.get('x-vercel-oidc-token')?.trim() || undefined;
+
   const result = await runPartnerDelivery(
     {
       airtableRecordId,
@@ -72,6 +74,7 @@ export async function POST(req: NextRequest) {
       dryRun,
       projectName,
       token,
+      oidcToken,
     },
     requestId
   );

@@ -6,6 +6,24 @@ Step-by-step checklist to configure Workload Identity Federation so Vercel can i
 
 ---
 
+## 0. Enable OIDC in Vercel (no integration to install)
+
+**There is no “Google”, “GCP”, or “OIDC” integration in Vercel’s Integrations list.** OIDC is a **Security** setting on the project:
+
+1. Open your **Vercel project** (the one that hosts this app).
+2. Go to **Settings** → **Security**.
+3. Find the section **“Secure backend access with OIDC federation”**.
+4. Choose **Team** (recommended) or **Global** and click **Save**.
+
+That enables Vercel to issue OIDC tokens for your deployments. Without this, the runtime has no OIDC token (e.g. no file at `/var/run/secrets/vercel-oidc/token`) and you’ll see errors like “OIDC token not found” or “unable to impersonate”.
+
+- **Team mode:** issuer will be `https://oidc.vercel.com/YOUR_TEAM_SLUG` (use your team URL slug).
+- **Global mode:** issuer will be `https://oidc.vercel.com`.
+
+Use the same mode when you create the OIDC provider in GCP (step 3).
+
+---
+
 ## 1. Enable required APIs
 
 At minimum: **IAM Credentials API** (for impersonation) and **Drive API**.
@@ -142,11 +160,15 @@ In the Vercel project, set:
 |----------|--------|
 | `GOOGLE_CLOUD_PROJECT` | `hive-os-479319` |
 | `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT_EMAIL` | `hive-os-drive@hive-os-479319.iam.gserviceaccount.com` |
+| `GCP_PROJECT_NUMBER` | Project **number** (numeric), e.g. from GCP Console → IAM & Admin → Settings, or `gcloud projects describe hive-os-479319 --format="value(projectNumber)"`. Required for WIF when using the OIDC token from the request header (partner delivery on Vercel). |
 | `HIVE_INBOUND_SECRET` | (your webhook secret; same as used for `X-Hive-Secret` header) |
 
-Optional fallback for the secret header: `HIVE_INBOUND_EMAIL_SECRET`.
+Optional:
 
-**Vercel OIDC integration:** In Vercel, configure the GCP OIDC integration (Project Settings → Integrations or OIDC) and set the **audience** to match the provider’s **Allowed audiences** (e.g. `https://vercel.com/YOUR_TEAM_SLUG`). Vercel will then send the OIDC token with that audience so GCP accepts it.
+- **Fallback for the secret header:** `HIVE_INBOUND_EMAIL_SECRET`.
+- **WIF pool/provider (if you used different IDs in GCP):** `GCP_WORKLOAD_IDENTITY_POOL_ID` (default `hive-os-vercel-pool`), `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID` (default `vercel-oidc`).
+
+**Vercel OIDC:** Enable OIDC in the project (see **step 0**). The audience Vercel sends is determined by your issuer mode (Team → `https://vercel.com/YOUR_TEAM_SLUG`; Global → `https://vercel.com`). Ensure the GCP provider’s **Allowed audiences** (step 3) match that value exactly. In serverless, the token is provided on the request as the `x-vercel-oidc-token` header; the app uses it for WIF so no token file is required.
 
 ---
 
