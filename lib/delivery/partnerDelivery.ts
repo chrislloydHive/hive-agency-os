@@ -23,6 +23,23 @@ import type { drive_v3 } from 'googleapis';
 
 const AIRTABLE_UPDATE_TIMEOUT_MS = 9000;
 
+const WIF_DOCS = 'docs/vercel-gcp-wif-setup.md';
+
+/**
+ * True when the error indicates WIF/OIDC is unavailable (e.g. OIDC token file missing in local or wrong env).
+ * These often surface as "Source not accessible" from the first Drive call when credentials are resolved lazily.
+ */
+function isWifOidcUnavailableError(message: string): boolean {
+  const s = message.toLowerCase();
+  return (
+    (s.includes('oidc') && (s.includes('token') || s.includes('enoent'))) ||
+    s.includes('unable to impersonate') ||
+    (s.includes('enoent') && (s.includes('/run/secrets') || s.includes('vercel-oidc')))
+  );
+}
+
+const WIF_UNAVAILABLE_MESSAGE = `Workload Identity Federation unavailable: OIDC token not found. This usually means the request is not running in Vercel with the GCP OIDC integration configured (e.g. local dev or missing integration). Use a review portal token for OAuth delivery, or deploy to Vercel and configure WIF. See ${WIF_DOCS}.`;
+
 /** Detect request/client abort so we can log one line instead of a stack trace. Exported for tests. */
 export function isAbortError(err: unknown): boolean {
   if (err instanceof Error && err.name === 'AbortError') return true;
@@ -189,6 +206,9 @@ export async function runPartnerDelivery(
     await preflightFolderCopy(drive, sourceFolderId, destinationFolderId);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
+    if (authMode === 'wif_service_account' && isWifOidcUnavailableError(message)) {
+      return fail(WIF_UNAVAILABLE_MESSAGE, 500, true, authMode);
+    }
     return fail(message, 400, true, authMode);
   }
 
@@ -284,6 +304,9 @@ export async function runPartnerDelivery(
     };
   } catch (e) {
     const raw = e instanceof Error ? e.message : String(e);
+    if (authMode === 'wif_service_account' && isWifOidcUnavailableError(raw)) {
+      return fail(WIF_UNAVAILABLE_MESSAGE, 500, true, authMode);
+    }
     const is403404 =
       raw.includes('403') ||
       raw.includes('404') ||
