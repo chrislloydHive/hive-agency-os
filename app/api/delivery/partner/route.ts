@@ -79,10 +79,13 @@ export async function POST(req: NextRequest) {
   }
 
   if (result.ok) {
-    return NextResponse.json(
-      { ok: true, deliveredFileUrl: result.deliveredFileUrl },
-      { headers: NO_STORE }
-    );
+    const body: { ok: true; deliveredFileUrl: string; newFileId?: string; newName?: string } = {
+      ok: true,
+      deliveredFileUrl: result.deliveredFileUrl,
+    };
+    if ('newFileId' in result && result.newFileId != null) body.newFileId = result.newFileId;
+    if ('newName' in result && result.newName != null) body.newName = result.newName;
+    return NextResponse.json(body, { headers: NO_STORE });
   }
 
   return NextResponse.json(

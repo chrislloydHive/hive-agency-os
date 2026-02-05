@@ -385,8 +385,47 @@ export function documentUrl(fileId: string, mimeType?: string): string {
 export interface CopyFileToFolderOptions {
   /** When set, use this OAuth client instead of the service account. Use for copying from company/consumer Drive the SA cannot access. */
   auth?: OAuth2Client;
+  /** When set, use this Drive client directly (e.g. from WIF). Takes precedence over auth when both omitted use service account. */
+  drive?: drive_v3.Drive;
   /** When set with DELIVERY_DRIVE_DEBUG=true, preflight gets are run and one log line is emitted. */
   requestId?: string;
+}
+
+const FOLDER_MIMETYPE = 'application/vnd.google-apps.folder';
+
+/**
+ * Preflight: ensure source file and destination folder exist and dest is a folder. Throws with clear message on failure.
+ * All calls use supportsAllDrives: true.
+ */
+export async function preflightCopy(
+  drive: drive_v3.Drive,
+  sourceFileId: string,
+  destinationFolderId: string
+): Promise<void> {
+  try {
+    await drive.files.get({
+      fileId: sourceFileId,
+      fields: 'id,name,mimeType',
+      supportsAllDrives: true,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Source file not accessible (${sourceFileId}). ${msg}`);
+  }
+  let destRes: { data: { mimeType?: string | null } };
+  try {
+    destRes = await drive.files.get({
+      fileId: destinationFolderId,
+      fields: 'id,name,mimeType',
+      supportsAllDrives: true,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Destination folder not accessible (${destinationFolderId}). ${msg}`);
+  }
+  if (destRes.data.mimeType !== FOLDER_MIMETYPE) {
+    throw new Error(`Destination is not a folder (mimeType=${destRes.data.mimeType ?? 'unknown'}). Use a Drive folder ID.`);
+  }
 }
 
 /**
@@ -445,7 +484,9 @@ export async function copyFileToFolder(
   destinationFolderId: string,
   options?: CopyFileToFolderOptions
 ): Promise<{ id: string; name: string; url: string }> {
-  const drive = options?.auth ? getDriveClientWithOAuth(options.auth) : getDriveClientWithServiceAccount();
+  const drive =
+    options?.drive ??
+    (options?.auth ? getDriveClientWithOAuth(options.auth) : getDriveClientWithServiceAccount());
 
   if (process.env.DELIVERY_DRIVE_DEBUG === 'true' && options?.requestId) {
     await runPreflightLog(drive, sourceFileId, destinationFolderId, options.requestId);

@@ -1,8 +1,15 @@
 // lib/delivery/partnerDelivery.ts
 // Core partner delivery logic: resolve destination, copy file, update Airtable.
 // Used by POST /api/delivery/partner and /api/delivery/partner/test.
+// Auth: token -> OAuth; no token -> WIF service account impersonation (no 400 for missing token when WIF configured).
 
-import { copyFileToFolder, type CopyFileToFolderOptions } from '@/lib/google/driveClient';
+import {
+  copyFileToFolder,
+  getDriveClientWithOAuth,
+  preflightCopy,
+  type CopyFileToFolderOptions,
+} from '@/lib/google/driveClient';
+import { getDriveClient as getWifDriveClient } from '@/src/lib/google/driveWif';
 import { getDestinationFolderIdByBatchId } from '@/lib/airtable/partnerDeliveryBatches';
 import {
   getAssetStatusRecordById,
@@ -12,6 +19,7 @@ import {
   withTimeout,
 } from '@/lib/airtable/reviewAssetDelivery';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
+import type { drive_v3 } from 'googleapis';
 
 const AIRTABLE_UPDATE_TIMEOUT_MS = 9000;
 
@@ -24,7 +32,7 @@ export function isAbortError(err: unknown): boolean {
 }
 
 export type PartnerDeliveryResult =
-  | { ok: true; deliveredFileUrl: string; result: 'ok' }
+  | { ok: true; deliveredFileUrl: string; newFileId?: string; newName?: string; result: 'ok' }
   | { ok: true; dryRun: true; resolvedDestinationFolderId: string; wouldCopyFileId: string; result: 'dry_run' }
   | { ok: true; deliveredFileUrl: string; result: 'idempotent' }
   | { ok: false; error: string; statusCode: 400 | 404 | 500; result: 'error' };
@@ -39,6 +47,8 @@ export interface PartnerDeliveryParams {
   token?: string;
 }
 
+export type AuthMode = 'oauth' | 'wif_service_account';
+
 export interface PartnerDeliveryLog {
   requestId: string;
   airtableRecordId: string;
@@ -46,6 +56,7 @@ export interface PartnerDeliveryLog {
   destinationFolderId: string | null;
   dryRun: boolean;
   result: 'ok' | 'dry_run' | 'idempotent' | 'error';
+  authMode?: AuthMode;
   error?: string;
 }
 
@@ -58,6 +69,7 @@ function logStructured(log: PartnerDeliveryLog): void {
     dryRun: log.dryRun,
     result: log.result,
   };
+  if (log.authMode != null) payload.authMode = log.authMode;
   if (log.error != null) payload.error = log.error;
   console.log('[delivery/partner]', JSON.stringify(payload));
 }
@@ -171,18 +183,50 @@ export async function runPartnerDelivery(
     };
   }
 
-  // If token present: OAuth path. Else: service-account fallback (requires GOOGLE_SERVICE_ACCOUNT_* env).
-  let copyOptions: CopyFileToFolderOptions | undefined;
+  // Auth: token -> OAuth; no token -> WIF (never error solely for missing token if WIF works).
+  let drive: drive_v3.Drive;
+  let copyOptions: CopyFileToFolderOptions;
+  let authMode: AuthMode;
+
   const tokenTrimmed = (token ?? '').trim();
   if (tokenTrimmed) {
     const resolved = await resolveReviewProject(tokenTrimmed);
     if (!resolved?.auth) {
       return fail('Invalid review portal token (could not resolve project/oauth).', 400, true);
     }
+    authMode = 'oauth';
+    drive = getDriveClientWithOAuth(resolved.auth);
     copyOptions = { auth: resolved.auth };
-    console.log(`[delivery/partner] ${requestId} driveAuth=oauth tokenPresent=true`);
   } else {
-    console.log(`[delivery/partner] ${requestId} driveAuth=service_account tokenPresent=false`);
+    try {
+      drive = await getWifDriveClient();
+      authMode = 'wif_service_account';
+      copyOptions = { drive };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[delivery/partner] ${requestId} WIF getDriveClient failed:`, msg);
+      return fail(
+        'Google ADC/WIF not configured on Vercel. See docs/vercel-gcp-wif-setup.md',
+        500,
+        true
+      );
+    }
+  }
+
+  console.log(
+    JSON.stringify({
+      requestId,
+      authMode,
+      sourceFileId: driveFileId,
+      destinationFolderId,
+            })
+  );
+
+  try {
+    await preflightCopy(drive, driveFileId, destinationFolderId);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return fail(message, 400, true);
   }
 
   try {
@@ -198,8 +242,15 @@ export async function runPartnerDelivery(
       destinationFolderId,
       dryRun: false,
       result: 'ok',
+      authMode,
     });
-    return { ok: true, deliveredFileUrl: result.url, result: 'ok' };
+    return {
+      ok: true,
+      deliveredFileUrl: result.url,
+      newFileId: result.id,
+      newName: result.name,
+      result: 'ok',
+    };
   } catch (e) {
     const raw = e instanceof Error ? e.message : String(e);
     const is403404 =
@@ -207,13 +258,13 @@ export async function runPartnerDelivery(
       raw.includes('404') ||
       raw.includes('not found') ||
       raw.toLowerCase().includes('permission');
-    const isCredentialsError = raw.includes('credentials not configured') || raw.includes('not configured');
 
     let message: string;
-    if (copyOptions?.auth && is403404) {
+    if (copyOptions.auth && is403404) {
       message = 'OAuth copy failed—check token validity and source file permissions.';
-    } else if (!copyOptions?.auth && isCredentialsError) {
-      message = 'Google Drive credentials not configured (service account). Provide token or configure service account.';
+    } else if (authMode === 'wif_service_account' && is403404) {
+      message =
+        'Service account cannot access this folder/Shared Drive. Add hive-os-drive@hive-os-479319.iam.gserviceaccount.com as a MEMBER of the Shared Drive (Content manager).';
     } else {
       message = raw;
     }
