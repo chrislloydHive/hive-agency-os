@@ -6,6 +6,7 @@
 
 import { google } from 'googleapis';
 import type { drive_v3 } from 'googleapis';
+import type { OAuth2Client } from 'google-auth-library';
 
 // ============================================================================
 // Types
@@ -53,8 +54,7 @@ function getServiceAccountCredentials(): ServiceAccountCredentials {
 
   if (!clientEmail || !privateKey) {
     throw new Error(
-      'Google Drive credentials not configured. Set GOOGLE_SERVICE_ACCOUNT_JSON or ' +
-        'GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY'
+      'Google Drive credentials not configured (service account). Provide token or configure service account.'
     );
   }
 
@@ -72,23 +72,38 @@ function getServiceAccountCredentials(): ServiceAccountCredentials {
 let _driveClient: drive_v3.Drive | null = null;
 
 /**
- * Get authenticated Google Drive client
+ * Get a Drive client using an OAuth2 client. No service account env required.
+ * Use for partner delivery when a review portal token is provided.
  */
-export function getDriveClient(): drive_v3.Drive {
+export function getDriveClientWithOAuth(oauthClient: OAuth2Client): drive_v3.Drive {
+  return google.drive({ version: 'v3', auth: oauthClient });
+}
+
+/**
+ * Get authenticated Google Drive client using service account (lazy init).
+ * Throws with a clear message if GOOGLE_SERVICE_ACCOUNT_JSON (or EMAIL+PRIVATE_KEY) is missing.
+ * Only call when OAuth is not available (e.g. partner delivery without token).
+ */
+export function getDriveClientWithServiceAccount(): drive_v3.Drive {
   if (_driveClient) {
     return _driveClient;
   }
-
   const credentials = getServiceAccountCredentials();
-
   const auth = new google.auth.JWT({
     email: credentials.client_email,
     key: credentials.private_key,
     scopes: ['https://www.googleapis.com/auth/drive'],
   });
-
   _driveClient = google.drive({ version: 'v3', auth });
   return _driveClient;
+}
+
+/**
+ * Get authenticated Google Drive client (service account). Lazy init.
+ * @deprecated Prefer getDriveClientWithOAuth for token-based flows; use getDriveClientWithServiceAccount for explicit SA usage.
+ */
+export function getDriveClient(): drive_v3.Drive {
+  return getDriveClientWithServiceAccount();
 }
 
 /**
@@ -361,19 +376,27 @@ export function documentUrl(fileId: string, mimeType?: string): string {
   return `https://drive.google.com/file/d/${fileId}/view`;
 }
 
+export interface CopyFileToFolderOptions {
+  /** When set, use this OAuth client instead of the service account. Use for copying from company/consumer Drive the SA cannot access. */
+  auth?: OAuth2Client;
+}
+
 /**
  * Copy any Drive file into a destination folder (for partner delivery, etc.).
  * Uses the source file's name for the copy. Supports Shared Drives.
+ * When options.auth is provided, uses that OAuth client (e.g. company Drive); otherwise uses the service account.
  *
  * @param sourceFileId - Drive file ID to copy
  * @param destinationFolderId - Target folder ID
+ * @param options - Optional auth (OAuth2Client) to use for the copy when source is in company/consumer Drive
  * @returns Created copy with id, name, and view URL
  */
 export async function copyFileToFolder(
   sourceFileId: string,
-  destinationFolderId: string
+  destinationFolderId: string,
+  options?: CopyFileToFolderOptions
 ): Promise<{ id: string; name: string; url: string }> {
-  const drive = getDriveClient();
+  const drive = options?.auth ? getDriveClientWithOAuth(options.auth) : getDriveClientWithServiceAccount();
 
   const getRes = await drive.files.get({
     fileId: sourceFileId,

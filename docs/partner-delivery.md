@@ -7,7 +7,7 @@ Automated partner delivery: when an asset is ready, Airtable automation calls a 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DELIVERY_WEBHOOK_SECRET` | Yes | Shared secret. Set the same value in Airtable webhook config (header `X-DELIVERY-SECRET`). Requests without this header or with a wrong value are rejected with 401. |
-| Google Drive | Yes | Existing Hive OS Drive auth is used (`GOOGLE_SERVICE_ACCOUNT_JSON` or `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`). The service account must have read access to the source file and write access to the destination folder. |
+| Google Drive | Conditional | When `token` is provided, the copy uses the company’s OAuth (same as the review portal) so the source file in company Drive is readable. Without `token`, the service account is used (`GOOGLE_SERVICE_ACCOUNT_JSON` or `GOOGLE_SERVICE_ACCOUNT_EMAIL` + key); then the SA must have read access to the source file and write access to the destination folder. Recommend passing `token` so copies work without sharing Creative Review folders with the SA and so `GOOGLE_SERVICE_ACCOUNT_*` can be omitted. |
 
 ## Endpoint
 
@@ -27,7 +27,7 @@ Automated partner delivery: when an asset is ready, Airtable automation calls a 
 | `deliveryBatchId` | No | Batch ID. If provided and `destinationFolderId` is empty, the app looks up "Partner Delivery Batches" by "Batch ID" and uses "Destination Folder ID". |
 | `destinationFolderId` | No | Google Drive folder ID where the file should be copied. If set, this is used and no batch lookup is done. |
 | `dryRun` | No | If `true`, validate inputs and resolve destination only; **do not** copy the file or update Airtable. Response: `{ ok: true, dryRun: true, resolvedDestinationFolderId, wouldCopyFileId }`. |
-| `token` | No | Reserved; not used. |
+| `token` | No | **Recommended.** Client Review Portal token for the project. When set, the copy uses the company’s Google OAuth so the **source file** (in company Drive) can be read. Without it, the app uses the service account, which often cannot access Creative Review assets—copy will fail with 404/403 unless the source folder is shared with the service account. |
 
 ### Response
 
@@ -83,6 +83,7 @@ If the webhook is sent with `deliveryBatchId` and no `destinationFolderId`, the 
      - `driveFileId` = field "Drive File ID" of that record.
      - `deliveryBatchId` = field "Delivery Batch ID" (optional).
      - `destinationFolderId` = optional; if you store the folder ID on the record or elsewhere, pass it here. Otherwise the app uses the batch lookup.
+     - `token` = **recommended.** Client Review Portal token for the project (so the copy uses company Drive access; see Environment and Drive permissions).
 
 4. **After webhook**  
    No need to update the record in Airtable after the request; the endpoint updates Delivery Status, Delivered At, Delivered File URL, Delivery Error, and Ready to Deliver (Webhook) on success or failure.
@@ -115,6 +116,7 @@ Uses env-based test data; requires the same **X-DELIVERY-SECRET** header.
 |---------|----------|-------------|
 | `DELIVERY_TEST_RECORD_ID` | Yes | Creative Review Asset Status record ID to use for the test. |
 | `DELIVERY_TEST_BATCH_ID` | No | Batch ID for destination lookup (optional if record has a batch or you rely on destinationFolderId from elsewhere). |
+| `DELIVERY_TEST_TOKEN` | No | Review portal token for the project; when set, the copy uses company OAuth so the source file is accessible. |
 | `DELIVERY_TEST_DRY_RUN` | No | Default `true`. Set to `false` or `0` to perform a real copy and Airtable update. |
 
 The test route loads the test record to get its **Drive File ID**, then runs the same delivery logic (with dry run by default). Use it to validate end-to-end without building a body by hand.

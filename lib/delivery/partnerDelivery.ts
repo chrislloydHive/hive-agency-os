@@ -2,7 +2,7 @@
 // Core partner delivery logic: resolve destination, copy file, update Airtable.
 // Used by POST /api/delivery/partner and /api/delivery/partner/test.
 
-import { copyFileToFolder } from '@/lib/google/driveClient';
+import { copyFileToFolder, type CopyFileToFolderOptions } from '@/lib/google/driveClient';
 import { getDestinationFolderIdByBatchId } from '@/lib/airtable/partnerDeliveryBatches';
 import {
   getAssetStatusRecordById,
@@ -10,6 +10,7 @@ import {
   updateAssetStatusDeliverySuccess,
   updateAssetStatusDeliveryError,
 } from '@/lib/airtable/reviewAssetDelivery';
+import { resolveReviewProject } from '@/lib/review/resolveProject';
 
 export type PartnerDeliveryResult =
   | { ok: true; deliveredFileUrl: string; result: 'ok' }
@@ -23,6 +24,8 @@ export interface PartnerDeliveryParams {
   deliveryBatchId?: string;
   destinationFolderId?: string;
   dryRun?: boolean;
+  /** Review portal token; when set, copy uses company OAuth so the source file (in company Drive) is accessible. */
+  token?: string;
 }
 
 export interface PartnerDeliveryLog {
@@ -56,7 +59,7 @@ export async function runPartnerDelivery(
   params: PartnerDeliveryParams,
   requestId: string
 ): Promise<PartnerDeliveryResult> {
-  const { airtableRecordId, driveFileId, deliveryBatchId, destinationFolderId: paramDestinationFolderId, dryRun = false } = params;
+  const { airtableRecordId, driveFileId, deliveryBatchId, destinationFolderId: paramDestinationFolderId, dryRun = false, token } = params;
 
   let destinationFolderId = (paramDestinationFolderId ?? '').trim();
   if (!destinationFolderId && (deliveryBatchId ?? '').trim()) {
@@ -149,8 +152,22 @@ export async function runPartnerDelivery(
     };
   }
 
+  // OAuth-only when token is present (no service account required). Otherwise fall back to service account.
+  let copyOptions: CopyFileToFolderOptions | undefined;
+  const tokenTrimmed = (token ?? '').trim();
+  if (tokenTrimmed) {
+    const resolved = await resolveReviewProject(tokenTrimmed);
+    if (resolved?.auth) {
+      copyOptions = { auth: resolved.auth };
+      console.log('[partner-delivery] auth=oauth');
+    }
+  }
+  if (!copyOptions) {
+    console.log('[partner-delivery] auth=service_account');
+  }
+
   try {
-    const result = await copyFileToFolder(driveFileId, destinationFolderId);
+    const result = await copyFileToFolder(driveFileId, destinationFolderId, copyOptions);
     await updateAssetStatusDeliverySuccess(airtableRecordId, result.url);
     logStructured({
       requestId,
@@ -162,7 +179,22 @@ export async function runPartnerDelivery(
     });
     return { ok: true, deliveredFileUrl: result.url, result: 'ok' };
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    const raw = e instanceof Error ? e.message : String(e);
+    const is403404 =
+      raw.includes('403') ||
+      raw.includes('404') ||
+      raw.includes('not found') ||
+      raw.toLowerCase().includes('permission');
+    const isCredentialsError = raw.includes('credentials not configured') || raw.includes('not configured');
+
+    let message: string;
+    if (copyOptions?.auth && is403404) {
+      message = 'OAuth copy failed—check token validity and source file permissions.';
+    } else if (!copyOptions?.auth && isCredentialsError) {
+      message = 'Google Drive credentials not configured (service account). Provide token or configure service account.';
+    } else {
+      message = raw;
+    }
     return fail(message, 500, true);
   }
 }

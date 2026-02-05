@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
   const driveFileId = (body.driveFileId ?? '').toString().trim();
   const deliveryBatchId = (body.deliveryBatchId ?? '').toString().trim();
   const destinationFolderId = (body.destinationFolderId ?? '').toString().trim();
+  const token = (body.token ?? '').toString().trim() || undefined;
   const dryRun = body.dryRun === true;
 
   if (!airtableRecordId) {
@@ -60,6 +61,7 @@ export async function POST(req: NextRequest) {
       deliveryBatchId: deliveryBatchId || undefined,
       destinationFolderId: destinationFolderId || undefined,
       dryRun,
+      token,
     },
     requestId
   );

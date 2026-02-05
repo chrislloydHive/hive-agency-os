@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
 
   const testRecordId = (process.env.DELIVERY_TEST_RECORD_ID ?? '').trim();
   const testBatchId = (process.env.DELIVERY_TEST_BATCH_ID ?? '').trim();
+  const testToken = (process.env.DELIVERY_TEST_TOKEN ?? '').trim() || undefined;
   const dryRunEnv = process.env.DELIVERY_TEST_DRY_RUN;
   const dryRun = dryRunEnv === 'false' || dryRunEnv === '0' ? false : true;
 
@@ -68,6 +69,7 @@ export async function POST(req: NextRequest) {
       driveFileId,
       deliveryBatchId: testBatchId || undefined,
       dryRun,
+      token: testToken,
     },
     requestId
   );
