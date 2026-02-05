@@ -53,8 +53,12 @@ function getServiceAccountCredentials(): ServiceAccountCredentials {
   const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
 
   if (!clientEmail || !privateKey) {
+    const missing = [
+      !clientEmail && 'GOOGLE_SERVICE_ACCOUNT_EMAIL',
+      !privateKey && 'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY',
+    ].filter(Boolean) as string[];
     throw new Error(
-      'Google Drive credentials not configured (service account). Provide token or configure service account.'
+      `Google Drive credentials not configured (service account). Set GOOGLE_SERVICE_ACCOUNT_JSON or ${missing.join(' and ')}.`
     );
   }
 

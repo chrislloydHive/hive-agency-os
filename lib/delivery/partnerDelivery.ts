@@ -171,27 +171,18 @@ export async function runPartnerDelivery(
     };
   }
 
-  // If token present: OAuth only. If no token: only use service account when USE_SERVICE_ACCOUNT=true and credentials exist.
+  // If token present: OAuth path. Else: service-account fallback (requires GOOGLE_SERVICE_ACCOUNT_* env).
   let copyOptions: CopyFileToFolderOptions | undefined;
   const tokenTrimmed = (token ?? '').trim();
   if (tokenTrimmed) {
-    console.log('[partner-delivery] token_present=true token_len=', tokenTrimmed.length);
     const resolved = await resolveReviewProject(tokenTrimmed);
     if (!resolved?.auth) {
       return fail('Invalid review portal token (could not resolve project/oauth).', 400, true);
     }
     copyOptions = { auth: resolved.auth };
-    console.log('[partner-delivery] auth=oauth');
+    console.log(`[delivery/partner] ${requestId} driveAuth=oauth tokenPresent=true`);
   } else {
-    const useServiceAccount = process.env.USE_SERVICE_ACCOUNT === 'true';
-    if (!useServiceAccount) {
-      return fail(
-        'Missing Google OAuth token; cannot access Drive. Provide token or configure service account.',
-        400,
-        true
-      );
-    }
-    console.log('[partner-delivery] auth=service_account');
+    console.log(`[delivery/partner] ${requestId} driveAuth=service_account tokenPresent=false`);
   }
 
   try {
