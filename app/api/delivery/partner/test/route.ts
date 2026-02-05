@@ -8,6 +8,7 @@ import { getAssetStatusRecordById } from '@/lib/airtable/reviewAssetDelivery';
 import { runPartnerDelivery } from '@/lib/delivery/partnerDelivery';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 

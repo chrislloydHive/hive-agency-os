@@ -1,8 +1,10 @@
 /**
  * Google Drive API client using Workload Identity Federation (no service account keys)
- * and service account impersonation. ADC is provided by Vercel OIDC/WIF at runtime.
+ * and service account impersonation. ADC is provided by Vercel OIDC/WIF at runtime,
+ * or by GOOGLE_APPLICATION_CREDENTIALS_JSON (written to /tmp for ADC).
  */
 
+import { writeFileSync } from 'fs';
 import { google } from 'googleapis';
 import type { drive_v3 } from 'googleapis';
 import { GoogleAuth, Impersonated } from 'google-auth-library';
@@ -13,6 +15,42 @@ const DEFAULT_PROJECT = 'hive-os-479319';
 const DEFAULT_IMPERSONATE_EMAIL = 'hive-os-drive@hive-os-479319.iam.gserviceaccount.com';
 
 const WIF_DOCS = 'docs/vercel-gcp-wif-setup.md';
+
+const ADC_CREDENTIALS_PATH = '/tmp/gcp-wif.json';
+
+let _envLogged = false;
+
+/**
+ * If GOOGLE_APPLICATION_CREDENTIALS is not set but GOOGLE_APPLICATION_CREDENTIALS_JSON is set,
+ * write the JSON to /tmp/gcp-wif.json and set GOOGLE_APPLICATION_CREDENTIALS so ADC can find it.
+ * Do not log secrets.
+ */
+function ensureAdcCredentialsFile(): void {
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) return;
+  const json = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+  if (!json) return;
+  writeFileSync(ADC_CREDENTIALS_PATH, json, 'utf8');
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = ADC_CREDENTIALS_PATH;
+}
+
+/**
+ * One-time debug log: boolean presence of Vercel OIDC and Google credential env vars only.
+ */
+function logEnvPresenceOnce(): void {
+  if (_envLogged) return;
+  _envLogged = true;
+  console.log(
+    '[WIF] env:',
+    JSON.stringify({
+      vercelOidcToken: !!process.env.VERCEL_OIDC_TOKEN,
+      vercelOidcTokenUrl: !!process.env.VERCEL_OIDC_TOKEN_URL,
+      vercelOidcIssuer: !!process.env.VERCEL_OIDC_ISSUER,
+      vercelOidcAudience: !!process.env.VERCEL_OIDC_AUDIENCE,
+      googleApplicationCredentials: !!process.env.GOOGLE_APPLICATION_CREDENTIALS,
+      googleApplicationCredentialsJson: !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON,
+    })
+  );
+}
 
 function getProjectId(): string {
   return (
@@ -62,6 +100,9 @@ let _driveClient: drive_v3.Drive | null = null;
  */
 export async function getDriveClient(): Promise<drive_v3.Drive> {
   if (_driveClient) return _driveClient;
+
+  ensureAdcCredentialsFile();
+  logEnvPresenceOnce();
 
   const impersonateEmail = getImpersonateEmail();
   const hasImpersonate = !!impersonateEmail;
