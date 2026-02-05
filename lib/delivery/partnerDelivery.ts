@@ -8,9 +8,20 @@ import {
   getAssetStatusRecordById,
   isAlreadyDelivered,
   updateAssetStatusDeliverySuccess,
-  updateAssetStatusDeliveryError,
+  updateAssetStatusDeliveryErrorFireAndForget,
+  withTimeout,
 } from '@/lib/airtable/reviewAssetDelivery';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
+
+const AIRTABLE_UPDATE_TIMEOUT_MS = 9000;
+
+/** Detect request/client abort so we can log one line instead of a stack trace. Exported for tests. */
+export function isAbortError(err: unknown): boolean {
+  if (err instanceof Error && err.name === 'AbortError') return true;
+  if (typeof err === 'object' && err !== null && (err as { type?: string }).type === 'aborted') return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /aborted|AbortError/i.test(msg);
+}
 
 export type PartnerDeliveryResult =
   | { ok: true; deliveredFileUrl: string; result: 'ok' }
@@ -69,9 +80,17 @@ export async function runPartnerDelivery(
 
   const fail = (error: string, statusCode: 400 | 404 | 500, updateAirtable: boolean): PartnerDeliveryResult => {
     if (!dryRun && updateAirtable) {
-      updateAssetStatusDeliveryError(airtableRecordId, error).catch((e) =>
-        console.error(`[delivery/partner] ${requestId} Failed to update Airtable error:`, e)
-      );
+      // Fire-and-forget Airtable update uses own timeout (no request AbortSignal) to avoid AbortError stack traces when client disconnects.
+      withTimeout(
+        (signal) => updateAssetStatusDeliveryErrorFireAndForget(airtableRecordId, error, signal),
+        AIRTABLE_UPDATE_TIMEOUT_MS
+      ).catch((e) => {
+        if (isAbortError(e)) {
+          console.warn(`[delivery/partner] ${requestId} Airtable update skipped (request aborted)`);
+          return;
+        }
+        console.error(`[delivery/partner] ${requestId} Failed to update Airtable error:`, e);
+      });
     }
     logStructured({
       requestId,
@@ -152,7 +171,7 @@ export async function runPartnerDelivery(
     };
   }
 
-  // If token is provided: OAuth only; never fall back to service account. If resolve fails, return 400.
+  // If token present: OAuth only. If no token: only use service account when USE_SERVICE_ACCOUNT=true and credentials exist.
   let copyOptions: CopyFileToFolderOptions | undefined;
   const tokenTrimmed = (token ?? '').trim();
   if (tokenTrimmed) {
@@ -164,6 +183,14 @@ export async function runPartnerDelivery(
     copyOptions = { auth: resolved.auth };
     console.log('[partner-delivery] auth=oauth');
   } else {
+    const useServiceAccount = process.env.USE_SERVICE_ACCOUNT === 'true';
+    if (!useServiceAccount) {
+      return fail(
+        'Missing Google OAuth token; cannot access Drive. Provide token or configure service account.',
+        400,
+        true
+      );
+    }
     console.log('[partner-delivery] auth=service_account');
   }
 

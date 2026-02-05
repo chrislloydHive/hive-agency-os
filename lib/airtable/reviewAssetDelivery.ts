@@ -6,6 +6,22 @@ import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 
 const TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 
+const AIRTABLE_UPDATE_TIMEOUT_MS = 9000;
+
+/**
+ * Run an async function with a timeout using a fresh AbortController.
+ * Use for fire-and-forget Airtable updates so they don't inherit the request's AbortSignal.
+ */
+export async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fn(controller.signal);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 const DELIVERY_STATUS_FIELD = 'Delivery Status';
 const DELIVERED_AT_FIELD = 'Delivered At';
 const DELIVERED_FILE_URL_FIELD = 'Delivered File URL';
@@ -94,4 +110,40 @@ export async function updateAssetStatusDeliveryError(
     [READY_TO_DELIVER_WEBHOOK_FIELD]: false,
   };
   await base(TABLE).update(recordId, fields as any);
+}
+
+/**
+ * Update delivery error via Airtable REST API with a fresh AbortController (no request signal).
+ * Use for fire-and-forget updates from webhook handlers so client disconnect doesn't abort the update.
+ */
+export async function updateAssetStatusDeliveryErrorFireAndForget(
+  recordId: string,
+  errorMessage: string,
+  signal?: AbortSignal
+): Promise<void> {
+  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+  const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
+  if (!apiKey || !baseId) {
+    throw new Error('Airtable credentials not configured');
+  }
+  const truncated = String(errorMessage).slice(0, 1000);
+  const fields: Record<string, unknown> = {
+    [DELIVERY_STATUS_FIELD]: 'Error',
+    [DELIVERY_ERROR_FIELD]: truncated,
+    [READY_TO_DELIVER_WEBHOOK_FIELD]: false,
+  };
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}/${recordId}`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ fields }),
+    signal: signal ?? null,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Airtable PATCH failed (${res.status}): ${text}`);
+  }
 }
