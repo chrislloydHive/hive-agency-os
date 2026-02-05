@@ -63,10 +63,11 @@ function getProjectId(): string {
 function getImpersonateEmail(): string {
   const email =
     process.env.GOOGLE_IMPERSONATE_SERVICE_ACCOUNT_EMAIL?.trim() ||
+    process.env.GOOGLE_IMPERSONATE_SERVICE_ACCOUNT?.trim() ||
     DEFAULT_IMPERSONATE_EMAIL;
   if (!email) {
     throw new Error(
-      `Drive WIF: GOOGLE_IMPERSONATE_SERVICE_ACCOUNT_EMAIL is required (or set default). See ${WIF_DOCS}.`
+      `Drive WIF: GOOGLE_IMPERSONATE_SERVICE_ACCOUNT_EMAIL (or GOOGLE_IMPERSONATE_SERVICE_ACCOUNT) is required. See ${WIF_DOCS}.`
     );
   }
   return email;
@@ -87,7 +88,7 @@ export function assertWifEnv(): void {
 }
 
 /**
- * Returns { projectId, impersonateEmail } for logging. Uses env with defaults.
+ * Returns { projectId, impersonateEmail } for debugging/logging. Uses env with defaults.
  */
 export function getAuthModeSummary(): { projectId: string; impersonateEmail: string } {
   return {

@@ -396,60 +396,115 @@ const FOLDER_MIMETYPE = 'application/vnd.google-apps.folder';
 const SHARED_DRIVE_HINT =
   'If these are different Shared Drives, SA must be member of both; if driveId is null, file may be in My Drive.';
 
+/** Fields for preflight/verifyDriveAccess: supports Shared Drive and shortcut detection. */
+const PREFLIGHT_FIELDS = 'id,name,mimeType,driveId,parents,trashed,capabilities';
+const PREFLIGHT_SOURCE_FIELDS = `${PREFLIGHT_FIELDS},shortcutDetails`;
+
+function getHttpStatusFromError(e: unknown): number | undefined {
+  if (typeof e === 'object' && e !== null && 'response' in e) {
+    const res = (e as { response?: { status?: number } }).response;
+    return res?.status;
+  }
+  if (typeof e === 'object' && e !== null && 'code' in e) {
+    return (e as { code: number }).code;
+  }
+  return undefined;
+}
+
+export interface VerifyDriveAccessResult {
+  file: {
+    id: string;
+    name: string | null;
+    driveId: string | null;
+    mimeType: string | null;
+    parents?: string[] | null;
+    shortcutDetails?: { targetId?: string; targetMimeType?: string } | null;
+  };
+  folder: { id: string; name: string | null; driveId: string | null; mimeType: string | null; parents?: string[] | null };
+}
+
+/**
+ * Validates access to a file and a folder. Returns metadata for both when successful.
+ * Uses supportsAllDrives: true. Throws with a clear message including source/destination, id, and HTTP status when a get fails.
+ */
+export async function verifyDriveAccess(
+  drive: drive_v3.Drive,
+  fileId: string,
+  folderId: string
+): Promise<VerifyDriveAccessResult> {
+  const supportsAllDrives = true;
+
+  let fileData: drive_v3.Schema$File;
+  try {
+    const res = await drive.files.get({
+      fileId,
+      fields: PREFLIGHT_SOURCE_FIELDS,
+      supportsAllDrives,
+    });
+    fileData = res.data;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const status = getHttpStatusFromError(e);
+    const statusPart = status != null ? ` HTTP ${status}.` : '';
+    throw new Error(
+      `Source file not accessible. fileId=${fileId}.${statusPart} ${msg} (supportsAllDrives: ${supportsAllDrives}). ${SHARED_DRIVE_HINT}`
+    );
+  }
+
+  let folderData: drive_v3.Schema$File;
+  try {
+    const res = await drive.files.get({
+      fileId: folderId,
+      fields: PREFLIGHT_FIELDS,
+      supportsAllDrives,
+    });
+    folderData = res.data;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const status = getHttpStatusFromError(e);
+    const statusPart = status != null ? ` HTTP ${status}.` : '';
+    const fileDriveId = fileData.driveId ?? 'null';
+    throw new Error(
+      `Destination folder not accessible. folderId=${folderId}.${statusPart} ${msg} (supportsAllDrives: ${supportsAllDrives}). Source driveId: ${fileDriveId}. ${SHARED_DRIVE_HINT}`
+    );
+  }
+
+  return {
+    file: {
+      id: fileData.id ?? fileId,
+      name: fileData.name ?? null,
+      driveId: fileData.driveId ?? null,
+      mimeType: fileData.mimeType ?? null,
+      parents: fileData.parents ?? null,
+      shortcutDetails: fileData.shortcutDetails ?? undefined,
+    },
+    folder: {
+      id: folderData.id ?? folderId,
+      name: folderData.name ?? null,
+      driveId: folderData.driveId ?? null,
+      mimeType: folderData.mimeType ?? null,
+      parents: folderData.parents ?? null,
+    },
+  };
+}
+
 /**
  * Preflight: ensure source file and destination folder exist and dest is a folder. Throws with clear message on failure.
- * Fetches source with shortcutDetails; throws if source is a shortcut (use targetId). Logs driveId/mimeType for debugging.
- * All calls use supportsAllDrives: true.
+ * Uses verifyDriveAccess for gets; throws if source is a shortcut (use targetId). Logs driveId + name for both when successful.
  */
 export async function preflightCopy(
   drive: drive_v3.Drive,
   sourceFileId: string,
   destinationFolderId: string
 ): Promise<void> {
-  const supportsAllDrives = true;
+  const result = await verifyDriveAccess(drive, sourceFileId, destinationFolderId);
+  const destData = result.folder;
+  const shortcutDetails = result.file.shortcutDetails;
 
-  let sourceData: {
-    id?: string | null;
-    name?: string | null;
-    mimeType?: string | null;
-    driveId?: string | null;
-    parents?: string[] | null;
-    shortcutDetails?: { targetId?: string; targetMimeType?: string } | null;
-  };
-  try {
-    const sourceRes = await drive.files.get({
-      fileId: sourceFileId,
-      fields: 'id,name,mimeType,driveId,parents,shortcutDetails',
-      supportsAllDrives,
-    });
-    sourceData = sourceRes.data;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(
-      `Source file not accessible (${sourceFileId}). ${msg} (supportsAllDrives: ${supportsAllDrives}). Source driveId: unknown (get failed). Destination driveId: not yet checked. ${SHARED_DRIVE_HINT}`
-    );
-  }
-
-  if (sourceData.shortcutDetails != null && typeof sourceData.shortcutDetails === 'object') {
-    const targetId = sourceData.shortcutDetails.targetId ?? 'unknown';
+  if (shortcutDetails != null && typeof shortcutDetails === 'object') {
+    const targetId = shortcutDetails.targetId ?? 'unknown';
     throw new Error(
       `Source file (${sourceFileId}) is a shortcut, not the actual file. Use the shortcut's target file ID for the copy. targetId: ${targetId}`
-    );
-  }
-
-  let destData: { id?: string | null; name?: string | null; mimeType?: string | null; driveId?: string | null; parents?: string[] | null };
-  try {
-    const destRes = await drive.files.get({
-      fileId: destinationFolderId,
-      fields: 'id,name,mimeType,driveId,parents',
-      supportsAllDrives,
-    });
-    destData = destRes.data;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const sourceDriveId = sourceData.driveId ?? 'null';
-    throw new Error(
-      `Destination folder not accessible (${destinationFolderId}). ${msg} (supportsAllDrives: ${supportsAllDrives}). Source driveId: ${sourceDriveId}. Destination driveId: unknown (get failed). ${SHARED_DRIVE_HINT}`
     );
   }
 
@@ -459,15 +514,15 @@ export async function preflightCopy(
     );
   }
 
-  const hasShortcutDetails = sourceData.shortcutDetails != null;
   console.log(
     '[Drive/preflight]',
     JSON.stringify({
-      sourceDriveId: sourceData.driveId ?? null,
-      destDriveId: destData.driveId ?? null,
-      sourceMimeType: sourceData.mimeType ?? null,
-      destMimeType: destData.mimeType ?? null,
-      hasShortcutDetails,
+      sourceDriveId: result.file.driveId,
+      sourceName: result.file.name,
+      destDriveId: result.folder.driveId,
+      destName: result.folder.name,
+      sourceMimeType: result.file.mimeType,
+      destMimeType: result.folder.mimeType,
     })
   );
 }
@@ -488,7 +543,7 @@ async function runPreflightLog(
   try {
     const src = await drive.files.get({
       fileId: sourceFileId,
-      fields: 'id,name,driveId,parents',
+      fields: PREFLIGHT_FIELDS,
       supportsAllDrives: true,
     });
     sourceOk = true;
@@ -499,7 +554,7 @@ async function runPreflightLog(
   try {
     const dest = await drive.files.get({
       fileId: destFolderId,
-      fields: 'id,name,driveId',
+      fields: PREFLIGHT_FIELDS,
       supportsAllDrives: true,
     });
     destOk = true;
