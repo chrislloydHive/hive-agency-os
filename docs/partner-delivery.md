@@ -7,7 +7,12 @@ Automated partner delivery: when an asset is ready, Airtable automation calls a 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DELIVERY_WEBHOOK_SECRET` | Yes | Shared secret. Set the same value in Airtable webhook config (header `X-DELIVERY-SECRET`). Requests without this header or with a wrong value are rejected with 401. |
-| Google Drive | Conditional | When `token` is provided, the copy uses the company’s OAuth (same as the review portal) so the source file in company Drive is readable. Without `token`, the service account is used (`GOOGLE_SERVICE_ACCOUNT_JSON` or `GOOGLE_SERVICE_ACCOUNT_EMAIL` + key); then the SA must have read access to the source file and write access to the destination folder. Recommend passing `token` so copies work without sharing Creative Review folders with the SA and so `GOOGLE_SERVICE_ACCOUNT_*` can be omitted. |
+| `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT_EMAIL` | Yes (for WIF) | Service account email used when **no** `token` is sent. Required for Workload Identity Federation (WIF) mode. The app uses Google ADC + impersonated credentials; no JSON keys. See `docs/vercel-gcp-wif-setup.md`. |
+| `GOOGLE_CLOUD_PROJECT` or `GCP_PROJECT` | No | GCP project ID (optional; used for logging and WIF). |
+
+**Auth behavior:** If the request body includes a non-empty `token`, the copy uses the company’s OAuth (review portal token). **Otherwise** the app uses WIF service account impersonation. A missing token never returns 400 when WIF is configured; if WIF env is missing or misconfigured, the endpoint returns 500 with a clear message.
+
+**Shared Drive:** When using the service account (no token), the impersonated account must be a **MEMBER** of any Shared Drive that contains the source file or destination folder. Add the service account (e.g. `hive-os-drive@<project>.iam.gserviceaccount.com`) as a member with “Content manager” (or appropriate) access. All Drive API calls use `supportsAllDrives: true`.
 
 ## Endpoint
 
@@ -27,21 +32,22 @@ Automated partner delivery: when an asset is ready, Airtable automation calls a 
 | `deliveryBatchId` | No | Batch ID. If provided and `destinationFolderId` is empty, the app looks up "Partner Delivery Batches" by "Batch ID" and uses "Destination Folder ID". |
 | `destinationFolderId` | No | Google Drive folder ID where the file should be copied. If set, this is used and no batch lookup is done. |
 | `dryRun` | No | If `true`, validate inputs and resolve destination only; **do not** copy the file or update Airtable. Response: `{ ok: true, dryRun: true, resolvedDestinationFolderId, wouldCopyFileId }`. |
-| `token` | No | **Recommended.** Client Review Portal token for the project. When set, the copy uses the company’s Google OAuth so the **source file** (in company Drive) can be read. Without it, the app uses the service account, which often cannot access Creative Review assets—copy will fail with 404/403 unless the source folder is shared with the service account. |
+| `token` | No | When set (non-empty), the copy uses the company’s Google OAuth (review portal token). When omitted, the app uses WIF service account impersonation; no OAuth token is required. For service account mode, the impersonated SA must have access to source file and destination folder (e.g. be a member of the Shared Drive). |
 
 ### Response
 
 - **200** – Success, idempotent (already delivered), or dry run:
-  - Normal: `{ "ok": true, "deliveredFileUrl": "https://drive.google.com/..." }`
-  - Dry run: `{ "ok": true, "dryRun": true, "resolvedDestinationFolderId": "<folderId>", "wouldCopyFileId": "<fileId>" }`
-- **400** – Bad request (e.g. missing `airtableRecordId` or `driveFileId`, or destination folder could not be resolved):
-  - `{ "ok": false, "error": "<message>" }`
-  - In **normal** mode (not dry run), the Airtable record is updated: Delivery Status = Error, Delivery Error = message, Ready to Deliver (Webhook) = false. In **dry run** mode, Airtable is never updated.
+  - Copy success: `{ "ok": true, "deliveredFileUrl": "...", "newFileId": "...", "newName": "...", "authMode": "oauth" | "wif_service_account" }`
+  - Idempotent (already delivered): `{ "ok": true, "deliveredFileUrl": "..." }`
+  - Dry run: `{ "ok": true, "dryRun": true, "resolvedDestinationFolderId": "...", "wouldCopyFileId": "...", "authMode": "oauth" | "wif_service_account" }`
+- **400** – Bad request (e.g. missing `airtableRecordId` or `driveFileId`, or preflight failed):
+  - `{ "ok": false, "error": "<message>", "authMode": "...", "requestId": "<uuid>" }` (authMode/requestId when available)
+  - In **normal** mode, the Airtable record is updated: Delivery Status = Error, Delivery Error = message, Ready to Deliver (Webhook) = false. In **dry run** mode, Airtable is never updated.
 - **401** – Missing or invalid `X-DELIVERY-SECRET`.
 - **404** – `airtableRecordId` not found in Creative Review Asset Status.
-- **500** – Copy or Airtable update failed:
-  - `{ "ok": false, "error": "<message>" }`
-  - In normal mode, on copy failure the Airtable record is updated: Delivery Status = Error, Delivery Error = message, Ready to Deliver (Webhook) = false.
+- **500** – Copy or Airtable update failed, or WIF not configured when no token was sent:
+  - `{ "ok": false, "error": "<message>", "authMode": "...", "requestId": "<uuid>" }`
+  - In normal mode, on copy failure the Airtable record is updated. If the service account cannot access the folder, the error will state that the SA must be a MEMBER of the Shared Drive.
 
 ## Airtable schema (Creative Review Asset Status)
 
@@ -83,7 +89,7 @@ If the webhook is sent with `deliveryBatchId` and no `destinationFolderId`, the 
      - `driveFileId` = field "Drive File ID" of that record.
      - `deliveryBatchId` = field "Delivery Batch ID" (optional).
      - `destinationFolderId` = optional; if you store the folder ID on the record or elsewhere, pass it here. Otherwise the app uses the batch lookup.
-     - `token` = **recommended.** Client Review Portal token for the project (so the copy uses company Drive access; see Environment and Drive permissions).
+     - `token` = optional. When set, uses company OAuth; when omitted, uses WIF service account (see Environment).
 
 4. **After webhook**  
    No need to update the record in Airtable after the request; the endpoint updates Delivery Status, Delivered At, Delivered File URL, Delivery Error, and Ready to Deliver (Webhook) on success or failure.
@@ -94,13 +100,13 @@ If the Creative Review Asset Status record already has **Delivery Status** = "De
 
 ## Logging
 
-Each request is logged as a single JSON line with: `requestId`, `airtableRecordId`, `driveFileId`, `destinationFolderId`, `dryRun`, `result` (`ok` | `dry_run` | `idempotent` | `error`), and optionally `error`. Use Vercel logs or your logging provider to trace deliveries.
+Each request gets a UUID `requestId`. Logs include `requestId`, `authMode` (`oauth` | `wif_service_account`), `driveFileId`, `destinationFolderId`, `supportsAllDrives: true`, `dryRun`, `result`, and optionally `error`. Use Vercel logs or your logging provider to trace deliveries.
 
 ## Dry run vs real delivery
 
 - **Dry run** – Send `"dryRun": true` in the request body. The endpoint will:
-  - Validate secret, `airtableRecordId`, `driveFileId`, and resolve the destination folder (from body or Partner Delivery Batches).
-  - Return `{ "ok": true, "dryRun": true, "resolvedDestinationFolderId", "wouldCopyFileId" }`.
+  - Validate secret, `airtableRecordId`, `driveFileId`, resolve the destination folder, resolve auth (OAuth or WIF), and run preflight (source file and destination folder get with `supportsAllDrives: true`).
+  - Return `{ "ok": true, "dryRun": true, "resolvedDestinationFolderId", "wouldCopyFileId", "authMode" }`.
   - **Not** copy the file or update the Airtable record.
 - **Real delivery** – Omit `dryRun` or set `"dryRun": false`. The endpoint will copy the file and update the record as described above.
 
@@ -156,9 +162,9 @@ curl -X POST 'https://<YOUR_VERCEL_DOMAIN>/api/delivery/partner' \
   }'
 ```
 
-Expect `{ "ok": true, "dryRun": true, "resolvedDestinationFolderId": "...", "wouldCopyFileId": "..." }`.
+Expect `{ "ok": true, "dryRun": true, "resolvedDestinationFolderId": "...", "wouldCopyFileId": "...", "authMode": "oauth" | "wif_service_account" }`.
 
-**Real delivery:**
+**Real delivery (with token, OAuth):**
 
 ```bash
 curl -X POST 'https://<YOUR_VERCEL_DOMAIN>/api/delivery/partner' \
@@ -168,10 +174,26 @@ curl -X POST 'https://<YOUR_VERCEL_DOMAIN>/api/delivery/partner' \
     "airtableRecordId": "recXXXXXXXXXXXXXX",
     "driveFileId": "<Drive File ID from the record>",
     "deliveryBatchId": "<optional Batch ID>",
-    "destinationFolderId": "<optional; Drive folder ID if you do not use batch>"
+    "destinationFolderId": "<optional; Drive folder ID if you do not use batch>",
+    "token": "<review portal token>"
   }'
 ```
 
-- **Success:** response `{ "ok": true, "deliveredFileUrl": "https://drive.google.com/..." }`. The asset status record shows Delivered, Delivered At, and Delivered File URL; a copy of the file appears in the destination folder.
+**Real delivery (no token, WIF service account):**
+
+```bash
+curl -X POST 'https://<YOUR_VERCEL_DOMAIN>/api/delivery/partner' \
+  -H 'Content-Type: application/json' \
+  -H 'X-DELIVERY-SECRET: <YOUR_DELIVERY_WEBHOOK_SECRET>' \
+  -d '{
+    "airtableRecordId": "recXXXXXXXXXXXXXX",
+    "driveFileId": "<Drive File ID from the record>",
+    "destinationFolderId": "<Drive folder ID>"
+  }'
+```
+
+Requires `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT_EMAIL` and WIF configured (see `docs/vercel-gcp-wif-setup.md`). The service account must be a member of the Shared Drive containing the source file and destination folder.
+
+- **Success:** response `{ "ok": true, "deliveredFileUrl": "...", "newFileId": "...", "newName": "...", "authMode": "oauth" | "wif_service_account" }`. The asset status record shows Delivered, Delivered At, and Delivered File URL; a copy of the file appears in the destination folder.
 - **Idempotent:** run the same request again; you get 200 and no second copy.
 - **Missing destination:** omit both `destinationFolderId` and `deliveryBatchId` (or use a batch with no Destination Folder ID); you get 400 and (in non–dry-run mode) the record is set to Delivery Status = Error with a clear message.

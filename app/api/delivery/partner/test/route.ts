@@ -2,6 +2,7 @@
 // POST: Internal test harness for partner delivery. Uses env vars for record + batch.
 // Requires X-DELIVERY-SECRET. Defaults to dryRun=true unless DELIVERY_TEST_DRY_RUN=false.
 
+import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAssetStatusRecordById } from '@/lib/airtable/reviewAssetDelivery';
 import { runPartnerDelivery } from '@/lib/delivery/partnerDelivery';
@@ -13,7 +14,7 @@ const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 const DELIVERY_SECRET_HEADER = 'x-delivery-secret';
 
 function getRequestId(): string {
-  return `delivery-test-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return randomUUID();
 }
 
 export async function POST(req: NextRequest) {
@@ -81,6 +82,7 @@ export async function POST(req: NextRequest) {
         dryRun: true,
         resolvedDestinationFolderId: result.resolvedDestinationFolderId,
         wouldCopyFileId: result.wouldCopyFileId,
+        authMode: result.authMode,
         message: 'Dry run: no copy or Airtable update. Set DELIVERY_TEST_DRY_RUN=false to run for real.',
       },
       { headers: NO_STORE }
@@ -88,14 +90,32 @@ export async function POST(req: NextRequest) {
   }
 
   if (result.ok) {
+    if (result.result === 'idempotent') {
+      return NextResponse.json(
+        { ok: true, deliveredFileUrl: result.deliveredFileUrl, result: 'idempotent' },
+        { headers: NO_STORE }
+      );
+    }
     return NextResponse.json(
-      { ok: true, deliveredFileUrl: result.deliveredFileUrl, result: result.result },
+      {
+        ok: true,
+        deliveredFileUrl: result.deliveredFileUrl,
+        newFileId: result.newFileId,
+        newName: result.newName,
+        authMode: result.authMode,
+        result: 'ok',
+      },
       { headers: NO_STORE }
     );
   }
 
   return NextResponse.json(
-    { ok: false, error: result.error },
+    {
+      ok: false,
+      error: result.error,
+      authMode: result.authMode,
+      requestId,
+    },
     { status: result.statusCode, headers: NO_STORE }
   );
 }

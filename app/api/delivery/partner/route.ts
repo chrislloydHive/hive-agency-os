@@ -4,6 +4,7 @@
 // Auth: X-DELIVERY-SECRET must match DELIVERY_WEBHOOK_SECRET.
 // dryRun: true = validate only, no copy, no Airtable updates.
 
+import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { runPartnerDelivery } from '@/lib/delivery/partnerDelivery';
 
@@ -14,7 +15,7 @@ const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 const DELIVERY_SECRET_HEADER = 'x-delivery-secret';
 
 function getRequestId(): string {
-  return `delivery-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return randomUUID();
 }
 
 export async function POST(req: NextRequest) {
@@ -73,23 +74,43 @@ export async function POST(req: NextRequest) {
         dryRun: true,
         resolvedDestinationFolderId: result.resolvedDestinationFolderId,
         wouldCopyFileId: result.wouldCopyFileId,
+        authMode: result.authMode,
       },
       { headers: NO_STORE }
     );
   }
 
   if (result.ok) {
-    const body: { ok: true; deliveredFileUrl: string; newFileId?: string; newName?: string } = {
+    if (result.result === 'idempotent') {
+      return NextResponse.json(
+        { ok: true, deliveredFileUrl: result.deliveredFileUrl },
+        { headers: NO_STORE }
+      );
+    }
+    // result.result === 'ok'
+    const body: {
+      ok: true;
+      deliveredFileUrl: string;
+      newFileId?: string;
+      newName?: string;
+      authMode: 'oauth' | 'wif_service_account';
+    } = {
       ok: true,
       deliveredFileUrl: result.deliveredFileUrl,
+      authMode: result.authMode,
     };
-    if ('newFileId' in result && result.newFileId != null) body.newFileId = result.newFileId;
-    if ('newName' in result && result.newName != null) body.newName = result.newName;
+    if (result.newFileId != null) body.newFileId = result.newFileId;
+    if (result.newName != null) body.newName = result.newName;
     return NextResponse.json(body, { headers: NO_STORE });
   }
 
   return NextResponse.json(
-    { ok: false, error: result.error },
+    {
+      ok: false,
+      error: result.error,
+      authMode: result.authMode,
+      requestId,
+    },
     { status: result.statusCode, headers: NO_STORE }
   );
 }

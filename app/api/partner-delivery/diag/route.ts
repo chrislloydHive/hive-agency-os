@@ -3,7 +3,7 @@
 // Auth: X-Hive-Secret must match HIVE_INBOUND_SECRET or HIVE_INBOUND_EMAIL_SECRET.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDriveClient, getAuthModeSummary } from '@/src/lib/google/driveWif';
+import { getDriveClient, getAuthModeSummary } from '@/lib/google/driveWif';
 
 export const dynamic = 'force-dynamic';
 

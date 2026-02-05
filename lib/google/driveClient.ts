@@ -405,7 +405,7 @@ export async function preflightCopy(
   try {
     await drive.files.get({
       fileId: sourceFileId,
-      fields: 'id,name,mimeType',
+      fields: 'id,name,mimeType,driveId',
       supportsAllDrives: true,
     });
   } catch (e) {
@@ -416,7 +416,7 @@ export async function preflightCopy(
   try {
     destRes = await drive.files.get({
       fileId: destinationFolderId,
-      fields: 'id,name,mimeType',
+      fields: 'id,name,mimeType,driveId',
       supportsAllDrives: true,
     });
   } catch (e) {
@@ -503,15 +503,15 @@ export async function copyFileToFolder(
     const response = await drive.files.copy({
       fileId: sourceFileId,
       requestBody: {
-        name,
         parents: [destinationFolderId],
       },
-      fields: 'id, name, mimeType',
+      fields: 'id,name,webViewLink',
       supportsAllDrives: true,
     });
 
     const file = response.data;
-    const url = documentUrl(file.id!, file.mimeType ?? undefined);
+    const url =
+      (file.webViewLink && file.webViewLink.trim()) || documentUrl(file.id!, undefined);
     return {
       id: file.id!,
       name: file.name ?? name,
