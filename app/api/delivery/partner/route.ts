@@ -6,7 +6,11 @@
 
 import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { runPartnerDelivery } from '@/lib/delivery/partnerDelivery';
+import {
+  runPartnerDelivery,
+  runPartnerDeliveryByBatch,
+  runPartnerDeliveryFromPortal,
+} from '@/lib/delivery/partnerDelivery';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -35,6 +39,7 @@ export async function POST(req: NextRequest) {
     driveFileId?: string;
     deliveryBatchId?: string;
     destinationFolderId?: string;
+    approvedFileIds?: string[];
     projectName?: string;
     token?: string;
     dryRun?: boolean;
@@ -46,24 +51,98 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400, headers: NO_STORE });
   }
 
-  const sourceFolderId = (body.sourceFolderId ?? body.driveFileId ?? '').toString().trim();
-  if (!sourceFolderId) {
-    return NextResponse.json({ ok: false, error: 'Missing source folder ID' }, { status: 400, headers: NO_STORE });
+  const airtableRecordIdRaw = (body.airtableRecordId ?? '').toString().trim();
+  const deliveryBatchId = (body.deliveryBatchId ?? '').toString().trim();
+  const destinationFolderId = (body.destinationFolderId ?? '').toString().trim() || undefined;
+  const approvedFileIds = Array.isArray(body.approvedFileIds)
+    ? body.approvedFileIds.map((id) => String(id).trim()).filter(Boolean)
+    : undefined;
+  const dryRun = body.dryRun === true;
+  const oidcToken = req.headers.get('x-vercel-oidc-token')?.trim() || undefined;
+
+  // Portal-explicit delivery: airtableRecordId + destinationFolderId + approvedFileIds (service account only, no OIDC).
+  if (airtableRecordIdRaw) {
+    if (!destinationFolderId) {
+      return NextResponse.json(
+        { ok: false, error: 'destinationFolderId required' },
+        { status: 400, headers: NO_STORE }
+      );
+    }
+    if (!approvedFileIds || approvedFileIds.length === 0) {
+      return NextResponse.json(
+        { ok: false, error: 'approvedFileIds must be a non-empty array' },
+        { status: 400, headers: NO_STORE }
+      );
+    }
+    const portalResult = await runPartnerDeliveryFromPortal({
+      airtableRecordId: airtableRecordIdRaw,
+      deliveryBatchId: deliveryBatchId || undefined,
+      destinationFolderId,
+      approvedFileIds,
+      dryRun,
+    });
+    if (!portalResult.ok) {
+      return NextResponse.json(
+        { ok: false, error: portalResult.error },
+        { status: portalResult.statusCode, headers: NO_STORE }
+      );
+    }
+    return NextResponse.json(
+      {
+        ok: true,
+        deliveredFolderId: portalResult.deliveredFolderId,
+        deliveredFolderUrl: portalResult.deliveredFolderUrl,
+        deliverySummary: portalResult.deliverySummary,
+      },
+      { headers: NO_STORE }
+    );
   }
 
-  const airtableRecordId = (body.airtableRecordId ?? '').toString().trim();
-  const deliveryBatchId = (body.deliveryBatchId ?? '').toString().trim();
-  const destinationFolderId = (body.destinationFolderId ?? '').toString().trim();
-  const projectName = (body.projectName ?? '').toString().trim() || undefined;
-  const token = (body.token ?? '').toString().trim() || undefined;
-  const dryRun = body.dryRun === true;
+  // Batch delivery: approved assets (from DB or from portal approvedFileIds); uses token or WIF.
+  if (deliveryBatchId) {
+    const token = (body.token ?? '').toString().trim() || undefined;
+    const batchResult = await runPartnerDeliveryByBatch({
+      deliveryBatchId,
+      destinationFolderId,
+      approvedFileIds,
+      dryRun,
+      oidcToken,
+      token,
+    });
+    if (!batchResult.ok) {
+      return NextResponse.json(
+        { ok: false, error: batchResult.error, authMode: batchResult.authMode, requestId },
+        { status: batchResult.statusCode, headers: NO_STORE }
+      );
+    }
+    return NextResponse.json(
+      {
+        ok: true,
+        deliveredFolderId: batchResult.deliveredFolderId,
+        deliveredFolderUrl: batchResult.deliveredFolderUrl,
+        deliverySummary: batchResult.deliverySummary,
+        authMode: batchResult.authMode,
+        ...(batchResult.dryRun && { dryRun: true }),
+      },
+      { headers: NO_STORE }
+    );
+  }
 
+  // Single-asset folder delivery (legacy).
+  const sourceFolderId = (body.sourceFolderId ?? body.driveFileId ?? '').toString().trim();
+  if (!sourceFolderId) {
+    return NextResponse.json(
+      { ok: false, error: 'Missing source folder ID, deliveryBatchId, or (airtableRecordId + destinationFolderId + approvedFileIds)' },
+      { status: 400, headers: NO_STORE }
+    );
+  }
+  const airtableRecordId = airtableRecordIdRaw;
   if (!airtableRecordId) {
     console.warn(`[delivery/partner] ${requestId} Missing airtableRecordId`);
     return NextResponse.json({ ok: false, error: 'Missing airtableRecordId' }, { status: 400, headers: NO_STORE });
   }
-
-  const oidcToken = req.headers.get('x-vercel-oidc-token')?.trim() || undefined;
+  const projectName = (body.projectName ?? '').toString().trim() || undefined;
+  const token = (body.token ?? '').toString().trim() || undefined;
 
   const result = await runPartnerDelivery(
     {

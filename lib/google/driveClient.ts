@@ -566,8 +566,9 @@ export async function preflightFolderCopy(
 ): Promise<void> {
   const result = await verifyDriveAccess(drive, sourceFolderId, destinationFolderId);
   if (result.file.mimeType !== FOLDER_MIMETYPE) {
+    const mime = result.file.mimeType ?? 'unknown';
     throw new Error(
-      `Source is not a folder (mimeType=${result.file.mimeType ?? 'unknown'}). Source Folder ID must be a folder ID for folder delivery.`
+      `Source Folder ID must be a Drive folder. You provided a file (mimeType=${mime}). Use the folder that contains the assets, not a single file.`
     );
   }
   if (result.folder.mimeType !== FOLDER_MIMETYPE) {
@@ -756,8 +757,9 @@ export async function copyDriveFolderTree(
     supportsAllDrives: true,
   });
   if (sourceMeta.data.mimeType !== FOLDER_MIMETYPE) {
+    const mime = sourceMeta.data.mimeType ?? 'unknown';
     throw new Error(
-      `Source is not a folder (mimeType=${sourceMeta.data.mimeType ?? 'unknown'}). Source Folder ID must be a folder ID.`
+      `Source Folder ID must be a Drive folder. You provided a file (mimeType=${mime}). Use the folder that contains the assets, not a single file.`
     );
   }
 

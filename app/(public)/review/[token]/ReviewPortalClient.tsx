@@ -25,6 +25,12 @@ interface ReviewAsset {
   clickThroughUrl?: string | null;
   firstSeenByClientAt?: string | null;
   assetApprovedClient?: boolean;
+  deliveredAt?: string | null;
+  delivered?: boolean;
+  deliveredFolderId?: string | null;
+  airtableRecordId?: string;
+  approvedAt?: string | null;
+  partnerDownloadedAt?: string | null;
 }
 
 interface TacticSectionData {
@@ -35,6 +41,16 @@ interface TacticSectionData {
   groupApprovalApprovedAt?: string | null;
   groupApprovalApprovedByName?: string | null;
   newSinceApprovalCount?: number;
+}
+
+export interface DeliveryContext {
+  recordId?: string;
+  deliveryBatchId: string;
+  destinationFolderId: string;
+  vendorName: string | null;
+  partnerLastSeenAt?: string | null;
+  newApprovedCount?: number | null;
+  downloadedCount?: number | null;
 }
 
 interface TacticFeedback {
@@ -179,8 +195,13 @@ function ReviewPortalClientInner({
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [bulkApproving, setBulkApproving] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; link?: string } | null>(null);
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
+  const [deliveryContext, setDeliveryContext] = useState<DeliveryContext | null>(null);
+  const [deliverApprovedOpen, setDeliverApprovedOpen] = useState(false);
+  const [deliverApprovedState, setDeliverApprovedState] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
+  const [activePartnerTab, setActivePartnerTab] = useState<'new' | 'all_approved' | 'downloaded'>('new');
+  const [markingSeen, setMarkingSeen] = useState(false);
   const lastFetchedTokenRef = useRef<string | null>(null);
   const firstSeenInFlightRef = useRef<Set<string>>(new Set());
   const { identity, clearIdentity } = useAuthorIdentity();
@@ -225,10 +246,19 @@ function ReviewPortalClientInner({
     const url = `/api/review/assets?token=${encodeURIComponent(token)}`;
     fetch(url, { cache: 'no-store' })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(res.statusText))))
-      .then((data: { ok?: boolean; version?: string; sections?: TacticSectionData[]; lastFetchedAt?: string }) => {
+      .then((data: {
+        ok?: boolean;
+        version?: string;
+        sections?: TacticSectionData[];
+        lastFetchedAt?: string;
+        deliveryContext?: DeliveryContext;
+      }) => {
         if (data.ok === true && data.version === 'review-assets-v1' && Array.isArray(data.sections)) {
           setSections(data.sections);
           setRefreshError(null);
+          if (data.deliveryContext) {
+            setDeliveryContext(data.deliveryContext);
+          }
           if (typeof data.lastFetchedAt === 'string') {
             setLastRefreshedAt(data.lastFetchedAt);
           }
@@ -284,15 +314,61 @@ function ReviewPortalClientInner({
     setSelectedFileIds(new Set());
   }, [activeVariant]);
 
+  // Partner tab filter: New = approved && (approvedAt > partnerLastSeenAt || !partnerLastSeenAt); All Approved; Downloaded
+  const partnerLastSeenAt = deliveryContext?.partnerLastSeenAt ?? null;
+  const isNewlyApproved = useCallback(
+    (a: ReviewAsset) =>
+      !!(
+        a.assetApprovedClient &&
+        a.approvedAt &&
+        (!partnerLastSeenAt || new Date(a.approvedAt) > new Date(partnerLastSeenAt))
+      ),
+    [partnerLastSeenAt]
+  );
+  const isPartnerDownloaded = useCallback((a: ReviewAsset) => !!a.partnerDownloadedAt, []);
+
+  const partnerTabCounts = useMemo(() => {
+    const allAssets = sections.flatMap((s) => s.assets);
+    return {
+      new: allAssets.filter(isNewlyApproved).length,
+      allApproved: allAssets.filter((a) => a.assetApprovedClient).length,
+      downloaded: allAssets.filter(isPartnerDownloaded).length,
+    };
+  }, [sections, isNewlyApproved, isPartnerDownloaded]);
+
+  const partnerFilterSections = useCallback(
+    (secs: TacticSectionData[], tab: 'new' | 'all_approved' | 'downloaded') => {
+      return secs.map((sec) => {
+        const filtered =
+          tab === 'new'
+            ? sec.assets.filter(isNewlyApproved)
+            : tab === 'all_approved'
+              ? sec.assets.filter((a) => a.assetApprovedClient)
+              : sec.assets.filter(isPartnerDownloaded);
+        return { ...sec, assets: filtered, fileCount: filtered.length };
+      });
+    },
+    [isNewlyApproved, isPartnerDownloaded]
+  );
+
   // Filter sections by active variant (declared before callbacks that use them)
   const activeSections = sections.filter((s) => s.variant === activeVariant);
-  const totalFiles = activeSections.reduce((sum, s) => sum + s.fileCount, 0);
+  const partnerFilteredSections =
+    deliveryContext != null
+      ? partnerFilterSections(activeSections, activePartnerTab)
+      : activeSections;
+  const totalFiles = partnerFilteredSections.reduce((sum, s) => sum + s.fileCount, 0);
+  const deliverableAssets = sections.flatMap((s) =>
+    s.assets.filter((a) => a.assetApprovedClient && !a.delivered)
+  );
+  const deliverableCount = deliverableAssets.length;
+  const deliverableFileIds = deliverableAssets.map((a) => a.fileId);
   const sectionsToRender =
     totalFiles === 0
       ? []
       : showEmptyTactics
-        ? activeSections
-        : activeSections.filter((s) => s.fileCount > 0);
+        ? partnerFilteredSections
+        : partnerFilteredSections.filter((s) => s.fileCount > 0);
   const selectedCount = selectedFileIds.size;
 
   const toggleSelection = useCallback((fileId: string) => {
@@ -382,6 +458,129 @@ function ReviewPortalClientInner({
       });
   }, [token, selectedFileIds, doRefresh, identity]);
 
+  const handleMarkSeen = useCallback(() => {
+    if (!deliveryContext?.deliveryBatchId) return;
+    setMarkingSeen(true);
+    fetch('/api/review/partners/mark-seen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, deliveryBatchId: deliveryContext.deliveryBatchId }),
+    })
+      .then((res) => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
+      .then(() => {
+        setToast({ message: 'Marked all as seen.', type: 'success' });
+        doRefresh();
+      })
+      .catch((err) => {
+        setToast({ message: err?.message ?? 'Failed to mark as seen', type: 'error' });
+      })
+      .finally(() => setMarkingSeen(false));
+  }, [token, deliveryContext, doRefresh]);
+
+  const handleMarkDownloaded = useCallback(
+    (fileIds: string[]) => {
+      if (fileIds.length === 0) return;
+      fetch('/api/review/assets/mark-downloaded', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          fileIds,
+          deliveryBatchId: deliveryContext?.deliveryBatchId,
+        }),
+      })
+        .then((res) => res.ok ? undefined : Promise.reject(new Error(res.statusText)))
+        .then(() => doRefresh())
+        .catch(() => { /* non-blocking */ });
+    },
+    [token, deliveryContext?.deliveryBatchId, doRefresh]
+  );
+
+  /** Partner view: get signed download URL, open in new tab, refresh list after delay. */
+  const handleDownloadAsset = useCallback(
+    async (assetId: string) => {
+      try {
+        const res = await fetch('/api/review/assets/download-link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, assetId }),
+        });
+        const data = await res.json();
+        if (!data.ok || !data.url) {
+          setToast({
+            message: data.error ?? 'Could not get download link',
+            type: 'error',
+          });
+          return;
+        }
+        window.open(data.url, '_blank');
+        setTimeout(doRefresh, 3000);
+      } catch (err) {
+        setToast({
+          message: err instanceof Error ? err.message : 'Download failed',
+          type: 'error',
+        });
+      }
+    },
+    [token, doRefresh]
+  );
+
+  const handleDeliverApproved = useCallback(() => {
+    if (!deliveryContext || deliverableFileIds.length === 0) return;
+    setDeliverApprovedState('running');
+    fetch('/api/review/assets/deliver-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token,
+        deliveryBatchId: deliveryContext.deliveryBatchId,
+        destinationFolderId: deliveryContext.destinationFolderId,
+        approvedFileIds: deliverableFileIds,
+      }),
+    })
+      .then((res) => res.json())
+      .then((data: {
+        ok?: boolean;
+        error?: string;
+        deliveredFolderUrl?: string;
+        deliverySummary?: { excluded?: Array<{ fileId: string; reason?: string }> };
+      }) => {
+        if (data.ok === true) {
+          setDeliverApprovedState('success');
+          setDeliverApprovedOpen(false);
+          const excluded = data.deliverySummary?.excluded ?? [];
+          const excludedMsg =
+            excluded.length > 0
+              ? ` ${excluded.length} excluded (no longer approved or already exported).`
+              : '';
+          setToast({
+            message: `Exported ${deliverableCount - excluded.length} assets.${excludedMsg}`,
+            type: 'success',
+            link: data.deliveredFolderUrl,
+          });
+          doRefresh();
+        } else {
+          setDeliverApprovedState('error');
+          setToast({
+            message: data.error ?? 'Export failed',
+            type: 'error',
+          });
+        }
+      })
+      .catch((err) => {
+        setDeliverApprovedState('error');
+        setToast({
+          message: err?.message ?? 'Export failed',
+          type: 'error',
+        });
+      });
+  }, [token, deliveryContext, deliverableFileIds, deliverableCount, doRefresh]);
+
+  const openDeliverConfirm = useCallback(() => {
+    setDeliverApprovedState('idle');
+    setDeliverApprovedOpen(true);
+  }, []);
+
   return (
     <main className="min-h-screen bg-[#111827] text-gray-100">
       <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6 lg:px-8">
@@ -394,6 +593,32 @@ function ReviewPortalClientInner({
             </h1>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-3">
+            {deliveryContext && (
+              <>
+                {partnerTabCounts.new > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleMarkSeen}
+                    disabled={markingSeen || isRefreshing}
+                    className="rounded-md border border-gray-600 bg-gray-800 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {markingSeen ? 'Updating…' : 'Mark all as seen'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={openDeliverConfirm}
+                  disabled={deliverableCount === 0 || deliverApprovedState === 'running'}
+                  className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-400 hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {deliverableCount === 0
+                    ? 'No Approved Assets'
+                    : deliverApprovedState === 'running'
+                      ? 'Exporting…'
+                      : `Export Approved (${deliverableCount})`}
+                </button>
+              </>
+            )}
             {(isRefreshing || lastRefreshedAt || refreshError) && (
               <p className="text-xs text-gray-500">
                 {isRefreshing
@@ -424,6 +649,34 @@ function ReviewPortalClientInner({
             )}
           </div>
         </div>
+
+        {/* Partner view tabs: New, All Approved, Downloaded (only when deliveryContext) */}
+        {deliveryContext && (
+          <div className="mb-4 flex gap-2 border-b border-gray-700">
+            {(
+              [
+                { id: 'new' as const, label: 'New', count: partnerTabCounts.new },
+                { id: 'all_approved' as const, label: 'All Approved', count: partnerTabCounts.allApproved },
+                { id: 'downloaded' as const, label: 'Downloaded', count: partnerTabCounts.downloaded },
+              ] as const
+            ).map(({ id, label, count }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setActivePartnerTab(id)}
+                className={`relative px-3 py-2 text-sm font-medium transition-colors ${
+                  activePartnerTab === id ? 'text-amber-400' : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                {label}
+                <span className="ml-2 text-xs text-gray-500">({count})</span>
+                {activePartnerTab === id && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-400" />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Variant Tabs: variant name + total assets only */}
         <div className="mb-6 flex gap-2 border-b border-gray-700">
@@ -509,12 +762,15 @@ function ReviewPortalClientInner({
                   onSelectAllUnapprovedInSection={selectAllUnapprovedInSection}
                   onSelectNewInSection={selectNewInSection}
                   onSingleAssetApprovedResult={handleSingleAssetApprovedResult}
+                  deliveryBatchId={deliveryContext?.deliveryBatchId}
+                  onPartnerDownload={deliveryContext ? handleMarkDownloaded : undefined}
+                  onDownloadAsset={deliveryContext ? handleDownloadAsset : undefined}
                 />
               );
             })}
 
             {/* Show empty tactics toggle */}
-            {activeSections.some((s) => s.fileCount === 0) && (
+            {partnerFilteredSections.some((s) => s.fileCount === 0) && (
               <button
                 type="button"
                 onClick={() => setShowEmptyTactics(!showEmptyTactics)}
@@ -526,7 +782,7 @@ function ReviewPortalClientInner({
           </>
         )}
 
-        {/* Toast (global so it shows for bulk approve from any view) */}
+        {/* Toast (global so it shows for bulk approve / deliver from any view) */}
         {toast && (
           <div
             className={`fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg px-4 py-3 shadow-lg ${
@@ -535,6 +791,47 @@ function ReviewPortalClientInner({
             role="alert"
           >
             <p className="text-sm font-medium">{toast.message}</p>
+            {toast.link && (
+              <a
+                href={toast.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 block text-xs underline opacity-90 hover:opacity-100"
+              >
+                Open exported folder
+              </a>
+            )}
+          </div>
+        )}
+
+        {/* Export Approved confirm modal */}
+        {deliverApprovedOpen && deliveryContext && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-md rounded-lg border border-gray-700 bg-gray-800 p-6 shadow-xl">
+              <h3 className="text-lg font-semibold text-white">Export to vendor folder</h3>
+              <p className="mt-2 text-sm text-gray-300">
+                Export {deliverableCount} approved asset{deliverableCount !== 1 ? 's' : ''} to{' '}
+                {deliveryContext.vendorName || 'Partner'}&apos;s folder?
+              </p>
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDeliverApprovedOpen(false)}
+                  disabled={deliverApprovedState === 'running'}
+                  className="rounded-md border border-gray-600 bg-gray-700 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-600 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeliverApproved}
+                  disabled={deliverApprovedState === 'running'}
+                  className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+                >
+                  {deliverApprovedState === 'running' ? 'Exporting…' : 'Export'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

@@ -36,6 +36,8 @@ interface AssetLightboxProps {
   onAssetStatusChange?: (variant: string, tactic: string, fileId: string, reviewState: ReviewState) => void;
   /** Called after single-asset approve (success or error) to show toast. */
   onApprovedResult?: (success: boolean, message?: string) => void;
+  /** Partner view: call when partner views an asset (record as downloaded). */
+  onPartnerDownload?: (fileIds: string[]) => void;
 }
 
 export default function AssetLightbox({
@@ -48,6 +50,7 @@ export default function AssetLightbox({
   onNavigate,
   onAssetStatusChange,
   onApprovedResult,
+  onPartnerDownload,
 }: AssetLightboxProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const asset = assets[currentIndex];
@@ -62,6 +65,16 @@ export default function AssetLightbox({
   const [showComments, setShowComments] = useState(false);
   const [approving, setApproving] = useState(false);
   const seenSentRef = useRef<Set<string>>(new Set());
+  const partnerDownloadSentRef = useRef<Set<string>>(new Set());
+
+  // Partner view: record asset as downloaded when viewed in lightbox (once per asset)
+  useEffect(() => {
+    if (!asset || !onPartnerDownload) return;
+    const key = `${token}::${asset.fileId}`;
+    if (partnerDownloadSentRef.current.has(key)) return;
+    partnerDownloadSentRef.current.add(key);
+    onPartnerDownload([asset.fileId]);
+  }, [asset?.fileId, token, onPartnerDownload]);
 
   // Mark asset as seen when lightbox opens (once per asset)
   useEffect(() => {

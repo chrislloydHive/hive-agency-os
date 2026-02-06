@@ -1,14 +1,23 @@
 // lib/airtable/reviewAssetStatus.ts
 // Creative Review Asset Status table: per-asset state (New/Seen/Approved/Needs Changes).
 // Key = Review Token + "::" + Source Folder ID (unique per asset per review).
+//
+// Portal DB schema (delivery fields on each asset):
+//   delivered: boolean (default false) — "Delivered" checkbox; also true if deliveredAt set
+//   deliveredAt: datetime nullable — "Delivered At" (ISO timestamp)
+//   deliveredFolderId: string nullable — "Delivered Folder ID" (optional, Drive folder of delivery run)
+//   Delivery Batch ID: existing link/reference to batch/group
 
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 
 const TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 
-/** Airtable field: Google Drive folder ID (source folder for delivery). */
+/** Airtable field: Google Drive folder ID (source folder or file ID for delivery). */
 const SOURCE_FOLDER_ID_FIELD = 'Source Folder ID';
+
+/** Airtable field: Delivery Batch ID – links asset to a partner delivery batch. */
+export const DELIVERY_BATCH_ID_FIELD = 'Delivery Batch ID';
 
 /** Airtable field name for client approval checkbox. Change here if your base uses a different name. */
 export const ASSET_APPROVED_CLIENT_FIELD = 'Asset Approved (Client)';
@@ -17,6 +26,18 @@ export const ASSET_APPROVED_CLIENT_FIELD = 'Asset Approved (Client)';
 export const FIRST_SEEN_BY_CLIENT_AT_FIELD = 'First Seen By Client At';
 
 export type AssetStatusValue = 'New' | 'Seen' | 'Approved' | 'Needs Changes';
+
+/** Airtable field: Delivered At (ISO timestamp when asset was delivered to partner). */
+export const DELIVERED_AT_FIELD = 'Delivered At';
+
+/** Airtable field: Delivered (checkbox, true when asset has been delivered to partner). */
+export const DELIVERED_CHECKBOX_FIELD = 'Delivered';
+
+/** Airtable field: Delivered Folder ID (Drive folder id for the delivery run). */
+export const DELIVERED_FOLDER_ID_FIELD = 'Delivered Folder ID';
+
+/** Airtable field: Partner Downloaded At (when partner downloaded this asset in the portal). */
+export const PARTNER_DOWNLOADED_AT_FIELD = 'Partner Downloaded At';
 
 export interface StatusRecord {
   recordId: string;
@@ -36,6 +57,14 @@ export interface StatusRecord {
   landingPageOverrideUrl: string | null;
   /** Effective URL from Airtable formula/lookup when present. */
   effectiveLandingPageUrl: string | null;
+  /** When asset was delivered to partner; null = not delivered. */
+  deliveredAt: string | null;
+  /** True if asset has been delivered (Delivered checkbox or deliveredAt set). Default false. */
+  delivered: boolean;
+  /** Drive folder ID of the delivery run; null if not delivered or unknown. */
+  deliveredFolderId: string | null;
+  /** When partner downloaded this asset in the portal; null = not downloaded. */
+  partnerDownloadedAt: string | null;
 }
 
 function keyFrom(token: string, driveFileId: string): string {
@@ -64,8 +93,23 @@ function parseOptionalIsoString(raw: unknown): string | null {
   return raw.trim();
 }
 
+function parseDeliveredCheckbox(raw: unknown): boolean {
+  if (raw === true) return true;
+  if (raw === 'true' || raw === 1) return true;
+  return false;
+}
+
 function recordToStatus(r: { id: string; fields: Record<string, unknown> }, token: string, driveFileId: string): StatusRecord {
   const f = r.fields;
+  const deliveredAt = parseOptionalIsoString(f[DELIVERED_AT_FIELD]);
+  const deliveredCheckbox = parseDeliveredCheckbox(f[DELIVERED_CHECKBOX_FIELD]);
+  const deliveredFolderIdRaw = f[DELIVERED_FOLDER_ID_FIELD];
+  const deliveredFolderId =
+    typeof deliveredFolderIdRaw === 'string' && deliveredFolderIdRaw.trim()
+      ? deliveredFolderIdRaw.trim()
+      : null;
+  const delivered = deliveredCheckbox || (deliveredAt != null && deliveredAt.trim().length > 0);
+  const partnerDownloadedAt = parseOptionalIsoString(f[PARTNER_DOWNLOADED_AT_FIELD]);
   return {
     recordId: r.id,
     status: parseStatus(f['Status']),
@@ -80,6 +124,10 @@ function recordToStatus(r: { id: string; fields: Record<string, unknown> }, toke
     notes: (f['Notes'] as string) ?? null,
     landingPageOverrideUrl: parseUrl(f['Landing Page URL Override']),
     effectiveLandingPageUrl: parseUrl(f['Effective Landing Page URL']),
+    deliveredAt,
+    delivered,
+    deliveredFolderId,
+    partnerDownloadedAt,
   };
 }
 
@@ -106,6 +154,122 @@ export async function listAssetStatuses(token: string): Promise<Map<string, Stat
     }
   }
   return map;
+}
+
+export interface ApprovedAssetForDelivery {
+  recordId: string;
+  driveId: string;
+}
+
+/**
+ * List approved assets for a delivery batch (DB is the approval truth).
+ * Returns records where Delivery Batch ID = batchId and Asset Approved (Client) = true,
+ * with non-empty Source Folder ID (used as Drive file ID for files.copy).
+ */
+export async function getApprovedAssetDriveIdsByBatchId(
+  batchId: string
+): Promise<ApprovedAssetForDelivery[]> {
+  const id = String(batchId).trim();
+  if (!id) return [];
+
+  const base = getBase();
+  const batchEsc = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const formula = `AND({${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}", {${ASSET_APPROVED_CLIENT_FIELD}} = TRUE())`;
+  const records = await base(TABLE)
+    .select({ filterByFormula: formula })
+    .all();
+
+  const out: ApprovedAssetForDelivery[] = [];
+  for (const r of records) {
+    const raw = (r.fields as Record<string, unknown>)[SOURCE_FOLDER_ID_FIELD];
+    const driveId = typeof raw === 'string' ? raw.trim() : '';
+    if (driveId) {
+      out.push({ recordId: r.id, driveId });
+    }
+  }
+  return out;
+}
+
+/**
+ * List approved and not-yet-delivered assets for a batch (for deliver-batch validation).
+ * Returns records where Delivery Batch ID = batchId, Asset Approved = true, and Delivered At is blank.
+ */
+export async function getApprovedAndNotDeliveredByBatchId(
+  batchId: string
+): Promise<ApprovedAssetForDelivery[]> {
+  const id = String(batchId).trim();
+  if (!id) return [];
+
+  const base = getBase();
+  const batchEsc = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const formula = `AND({${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}", {${ASSET_APPROVED_CLIENT_FIELD}} = TRUE(), ISBLANK({${DELIVERED_AT_FIELD}}))`;
+  const records = await base(TABLE)
+    .select({ filterByFormula: formula })
+    .all();
+
+  const out: ApprovedAssetForDelivery[] = [];
+  for (const r of records) {
+    const raw = (r.fields as Record<string, unknown>)[SOURCE_FOLDER_ID_FIELD];
+    const driveId = typeof raw === 'string' ? raw.trim() : '';
+    if (driveId) {
+      out.push({ recordId: r.id, driveId });
+    }
+  }
+  return out;
+}
+
+/**
+ * Get CRAS record IDs for a batch and set of Drive file IDs.
+ * Used to mark assets as delivered after portal-initiated delivery (client sends approvedFileIds).
+ */
+export async function getRecordIdsByBatchIdAndFileIds(
+  batchId: string,
+  fileIds: string[]
+): Promise<ApprovedAssetForDelivery[]> {
+  const id = String(batchId).trim();
+  const set = new Set(fileIds.map((f) => String(f).trim()).filter(Boolean));
+  if (!id || set.size === 0) return [];
+
+  const base = getBase();
+  const batchEsc = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const formula = `{${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}"`;
+  const records = await base(TABLE)
+    .select({ filterByFormula: formula })
+    .all();
+
+  const out: ApprovedAssetForDelivery[] = [];
+  for (const r of records) {
+    const raw = (r.fields as Record<string, unknown>)[SOURCE_FOLDER_ID_FIELD];
+    const driveId = typeof raw === 'string' ? raw.trim() : '';
+    if (driveId && set.has(driveId)) {
+      out.push({ recordId: r.id, driveId });
+    }
+  }
+  return out;
+}
+
+/**
+ * Set Partner Downloaded At = now on a CRAS record (when partner downloads asset in portal).
+ */
+export async function setPartnerDownloadedAt(recordId: string): Promise<void> {
+  const base = getBase();
+  const now = new Date().toISOString();
+  await base(TABLE).update(recordId, { [PARTNER_DOWNLOADED_AT_FIELD]: now } as Record<string, unknown>);
+}
+
+/**
+ * Count assets in a batch that have Partner Downloaded At set.
+ */
+export async function getDownloadedCountForBatch(batchId: string): Promise<number> {
+  const id = String(batchId).trim();
+  if (!id) return 0;
+  const base = getBase();
+  const batchEsc = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const formula = `AND({${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}", NOT(ISBLANK({${PARTNER_DOWNLOADED_AT_FIELD}})))`;
+  const records = await base(TABLE)
+    .select({ filterByFormula: formula })
+    .all();
+  return records.length;
 }
 
 /**

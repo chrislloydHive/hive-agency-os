@@ -18,6 +18,10 @@ interface ReviewAsset {
   reviewState?: ReviewState;
   firstSeenByClientAt?: string | null;
   assetApprovedClient?: boolean;
+  deliveredAt?: string | null;
+  delivered?: boolean;
+  approvedAt?: string | null;
+  partnerDownloadedAt?: string | null;
 }
 
 interface TacticFeedback {
@@ -44,6 +48,12 @@ interface ReviewSectionProps {
   onSelectNewInSection?: (fileIds: string[]) => void;
   /** Called when single-asset approve completes (for toast). */
   onSingleAssetApprovedResult?: (success: boolean, message?: string) => void;
+  /** Partner view: batch id for mark-downloaded. */
+  deliveryBatchId?: string | null;
+  /** Partner view: call when partner views/downloads an asset. */
+  onPartnerDownload?: (fileIds: string[]) => void;
+  /** Partner view: get signed download URL and open download (proxy download). */
+  onDownloadAsset?: (assetId: string) => void | Promise<void>;
 }
 
 const DEBOUNCE_MS = 800;
@@ -109,6 +119,9 @@ export default function ReviewSection({
   onSelectAllUnapprovedInSection,
   onSelectNewInSection,
   onSingleAssetApprovedResult,
+  deliveryBatchId,
+  onPartnerDownload,
+  onDownloadAsset,
 }: ReviewSectionProps) {
   const counts = getSectionCounts(assets);
   const { totalCount, newCount, pendingCount } = counts;
@@ -284,6 +297,7 @@ export default function ReviewSection({
               onClick={() => openLightbox(index)}
               selected={selectedFileIds.has(asset.fileId)}
               onToggleSelect={onToggleSelect ? () => onToggleSelect(asset.fileId) : undefined}
+              onDownloadAsset={onDownloadAsset}
             />
           ))}
         </div>
@@ -301,6 +315,7 @@ export default function ReviewSection({
           onNavigate={setLightboxIndex}
           onAssetStatusChange={onAssetStatusChange}
           onApprovedResult={onSingleAssetApprovedResult}
+          onPartnerDownload={onPartnerDownload}
         />
       )}
 
@@ -394,12 +409,14 @@ function AssetCard({
   onClick,
   selected = false,
   onToggleSelect,
+  onDownloadAsset,
 }: {
-  asset: { fileId: string; name: string; mimeType: string; reviewState?: ReviewState; clickThroughUrl?: string | null; firstSeenByClientAt?: string | null; assetApprovedClient?: boolean };
+  asset: { fileId: string; name: string; mimeType: string; reviewState?: ReviewState; clickThroughUrl?: string | null; firstSeenByClientAt?: string | null; assetApprovedClient?: boolean; delivered?: boolean; partnerDownloadedAt?: string | null };
   token: string;
   onClick: () => void;
   selected?: boolean;
   onToggleSelect?: () => void;
+  onDownloadAsset?: (assetId: string) => void | Promise<void>;
 }) {
   const src = `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
   const isImage = asset.mimeType.startsWith('image/');
@@ -446,6 +463,26 @@ function AssetCard({
         >
           {badgeLabel}
         </span>
+        {(asset.delivered || asset.partnerDownloadedAt) && (
+          <div className="absolute right-2 top-2 z-10 flex flex-col gap-1">
+            {asset.delivered && (
+              <span
+                className="rounded bg-emerald-700/90 px-2 py-0.5 text-xs font-medium text-emerald-100"
+                title="Exported to vendor folder"
+              >
+                Exported
+              </span>
+            )}
+            {asset.partnerDownloadedAt && (
+              <span
+                className="rounded bg-blue-700/90 px-2 py-0.5 text-xs font-medium text-blue-100"
+                title="Downloaded by partner"
+              >
+                Downloaded
+              </span>
+            )}
+          </div>
+        )}
         {isImage && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -513,6 +550,20 @@ function AssetCard({
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
         </svg>
       </a>
+    )}
+    {onDownloadAsset && (
+      <div className="mx-3 mb-2 flex justify-end">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDownloadAsset(asset.fileId);
+          }}
+          className="inline-flex items-center gap-1 rounded border border-gray-600 bg-gray-800 px-2 py-1 text-xs font-medium text-gray-200 hover:bg-gray-700"
+        >
+          Download
+        </button>
+      </div>
     )}
     </div>
   );

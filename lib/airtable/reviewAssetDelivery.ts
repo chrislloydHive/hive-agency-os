@@ -3,6 +3,12 @@
 
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
+import {
+  writeDeliveryToRecord,
+  CREATIVE_REVIEW_ASSET_STATUS_TABLE,
+  type DeliveryWritePayloadSuccess,
+  type DeliveryWritePayloadError,
+} from '@/lib/airtable/deliveryWriteBack';
 
 const TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 
@@ -28,13 +34,7 @@ export async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, ms
 const DELIVERY_STATUS_FIELD = 'Delivery Status';
 const DELIVERED_AT_FIELD = 'Delivered At';
 const DELIVERED_FILE_URL_FIELD = 'Delivered File URL';
-const DELIVERED_FOLDER_ID_FIELD = 'Delivered Folder ID';
-const DELIVERED_FOLDER_URL_FIELD = 'Delivered Folder URL';
-const DELIVERY_FILES_COUNT_FIELD = 'Delivery Files Count';
-const DELIVERY_FOLDERS_COUNT_FIELD = 'Delivery Folders Count';
-const DELIVERY_FAILURES_FIELD = 'Delivery Failures';
 const DELIVERY_ERROR_FIELD = 'Delivery Error';
-const READY_TO_DELIVER_WEBHOOK_FIELD = 'Ready to Deliver (Webhook)';
 
 export type DeliveryStatusValue = 'Not Delivered' | 'Delivering' | 'Delivered' | 'Error';
 
@@ -94,87 +94,113 @@ export interface DeliverySuccessFolderPayload {
 
 /**
  * Update Creative Review Asset Status record on delivery success.
+ * Uses field-alias aware write-back (skips non-writable, safe for single-select). Logs fields written.
  * Accepts either a single URL string (legacy) or a folder payload (deliveredFolderId, deliveredFolderUrl, counts, failures).
  */
 export async function updateAssetStatusDeliverySuccess(
   recordId: string,
   deliveredFileUrlOrFolderPayload: string | DeliverySuccessFolderPayload
 ): Promise<void> {
-  const base = getBase();
   const now = new Date().toISOString();
-  const fields: Record<string, unknown> = {
-    [DELIVERY_STATUS_FIELD]: 'Delivered',
-    [DELIVERED_AT_FIELD]: now,
-    [DELIVERY_ERROR_FIELD]: '',
-    [READY_TO_DELIVER_WEBHOOK_FIELD]: false,
-  };
+  let deliveredFolderUrl: string;
+  let deliveredFolderId: string;
+  let deliverySummary: string;
+  let deliveryFilesCount: number | undefined;
+  let deliveryFoldersCount: number | undefined;
+  let deliveryFailures: string | undefined;
 
   if (typeof deliveredFileUrlOrFolderPayload === 'string') {
-    fields[DELIVERED_FILE_URL_FIELD] = deliveredFileUrlOrFolderPayload;
+    deliveredFolderUrl = deliveredFileUrlOrFolderPayload;
+    deliveredFolderId = '';
+    deliverySummary = JSON.stringify({ url: deliveredFileUrlOrFolderPayload });
   } else {
     const p = deliveredFileUrlOrFolderPayload;
-    fields[DELIVERED_FILE_URL_FIELD] = p.deliveredFolderUrl;
-    fields[DELIVERED_FOLDER_ID_FIELD] = p.deliveredFolderId;
-    fields[DELIVERED_FOLDER_URL_FIELD] = p.deliveredFolderUrl;
-    fields[DELIVERY_FILES_COUNT_FIELD] = p.filesCopied;
-    fields[DELIVERY_FOLDERS_COUNT_FIELD] = p.foldersCreated;
+    deliveredFolderUrl = p.deliveredFolderUrl;
+    deliveredFolderId = p.deliveredFolderId;
+    deliverySummary = JSON.stringify({
+      deliveredFolderId: p.deliveredFolderId,
+      deliveredFolderUrl: p.deliveredFolderUrl,
+      filesCopied: p.filesCopied,
+      foldersCreated: p.foldersCreated,
+      failures: p.failures ?? [],
+    });
+    deliveryFilesCount = p.filesCopied;
+    deliveryFoldersCount = p.foldersCreated;
     if (p.failures && p.failures.length > 0) {
-      fields[DELIVERY_FAILURES_FIELD] = JSON.stringify(p.failures);
+      deliveryFailures = JSON.stringify(p.failures);
     }
   }
 
-  await base(TABLE).update(recordId, fields as any);
+  const payload: DeliveryWritePayloadSuccess = {
+    kind: 'success',
+    deliveryStatus: 'Delivered',
+    deliveredAt: now,
+    deliveredCheckbox: true,
+    deliveredFolderId,
+    deliveredFolderUrl,
+    deliverySummary,
+    deliveryError: '',
+    readyToDeliverWebhook: false,
+    ...(deliveryFilesCount !== undefined && { deliveryFilesCount }),
+    ...(deliveryFoldersCount !== undefined && { deliveryFoldersCount }),
+    ...(deliveryFailures !== undefined && { deliveryFailures }),
+  };
+
+  const result = await writeDeliveryToRecord(
+    CREATIVE_REVIEW_ASSET_STATUS_TABLE,
+    recordId,
+    payload
+  );
+  if (!result.ok && result.error) {
+    throw new Error(result.error);
+  }
 }
 
 /**
  * Update Creative Review Asset Status record on delivery failure.
+ * Uses field-alias aware write-back. Logs fields written.
  */
 export async function updateAssetStatusDeliveryError(
   recordId: string,
   errorMessage: string
 ): Promise<void> {
-  const base = getBase();
   const truncated = String(errorMessage).slice(0, 1000);
-  const fields: Record<string, unknown> = {
-    [DELIVERY_STATUS_FIELD]: 'Error',
-    [DELIVERY_ERROR_FIELD]: truncated,
-    [READY_TO_DELIVER_WEBHOOK_FIELD]: false,
+  const payload: DeliveryWritePayloadError = {
+    kind: 'error',
+    deliveryStatus: 'Error',
+    deliveryError: truncated,
   };
-  await base(TABLE).update(recordId, fields as any);
+  const result = await writeDeliveryToRecord(
+    CREATIVE_REVIEW_ASSET_STATUS_TABLE,
+    recordId,
+    payload
+  );
+  if (!result.ok && result.error) {
+    throw new Error(result.error);
+  }
 }
 
 /**
- * Update delivery error via Airtable REST API with a fresh AbortController (no request signal).
+ * Update delivery error via field-alias aware write-back (fire-and-forget safe).
  * Use for fire-and-forget updates from webhook handlers so client disconnect doesn't abort the update.
  */
 export async function updateAssetStatusDeliveryErrorFireAndForget(
   recordId: string,
   errorMessage: string,
-  signal?: AbortSignal
+  _signal?: AbortSignal
 ): Promise<void> {
-  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
-  const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
-  if (!apiKey || !baseId) {
-    throw new Error('Airtable credentials not configured');
-  }
   const truncated = String(errorMessage).slice(0, 1000);
-  const fields: Record<string, unknown> = {
-    [DELIVERY_STATUS_FIELD]: 'Error',
-    [DELIVERY_ERROR_FIELD]: truncated,
-    [READY_TO_DELIVER_WEBHOOK_FIELD]: false,
+  const payload: DeliveryWritePayloadError = {
+    kind: 'error',
+    deliveryStatus: 'Error',
+    deliveryError: truncated,
   };
-  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}/${recordId}`;
-  const res = await fetch(url, {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ fields }),
-    signal: signal ?? null,
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Airtable PATCH failed (${res.status}): ${text}`);
+  const result = await writeDeliveryToRecord(
+    CREATIVE_REVIEW_ASSET_STATUS_TABLE,
+    recordId,
+    payload
+  );
+  if (!result.ok && result.error) {
+    console.warn('[reviewAssetDelivery] Fire-and-forget delivery error write failed:', result.error);
   }
 }

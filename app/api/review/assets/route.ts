@@ -9,6 +9,7 @@ import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { getReviewFolderMap, getReviewFolderMapFromJobFolder, getReviewFolderMapFromClientProjectsFolder } from '@/lib/review/reviewFolders';
 import { listAssetStatuses } from '@/lib/airtable/reviewAssetStatus';
 import { getGroupApprovals, groupKey } from '@/lib/airtable/reviewGroupApprovals';
+import { getDeliveryContextByProjectId } from '@/lib/airtable/partnerDeliveryBatches';
 import type { drive_v3 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,18 @@ interface ReviewAsset {
   firstSeenByClientAt?: string | null;
   /** Client approval checkbox; "New" and "Approved" are mutually exclusive. */
   assetApprovedClient?: boolean;
+  /** When asset was delivered to partner; null = not delivered. */
+  deliveredAt?: string | null;
+  /** True if asset has been delivered (default false). */
+  delivered?: boolean;
+  /** Drive folder ID of the delivery run; null if not delivered. */
+  deliveredFolderId?: string | null;
+  /** CRAS record id for delivery updates. */
+  airtableRecordId?: string;
+  /** When asset was approved (for "Newly Approved" tab: approvedAt > partnerLastSeenAt). */
+  approvedAt?: string | null;
+  /** When partner downloaded this asset in the portal; null = not downloaded. */
+  partnerDownloadedAt?: string | null;
 }
 
 interface TacticSectionData {
@@ -160,6 +173,36 @@ export async function GET(req: NextRequest) {
     const rec = statusMap.get(key);
     return rec?.assetApprovedClient ?? false;
   };
+  const toDeliveredAt = (fileId: string): string | null => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.deliveredAt ?? null;
+  };
+  const toDelivered = (fileId: string): boolean => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.delivered ?? false;
+  };
+  const toDeliveredFolderId = (fileId: string): string | null => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.deliveredFolderId ?? null;
+  };
+  const toAirtableRecordId = (fileId: string): string | undefined => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.recordId;
+  };
+  const toApprovedAt = (fileId: string): string | null => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.approvedAt ?? null;
+  };
+  const toPartnerDownloadedAt = (fileId: string): string | null => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.partnerDownloadedAt ?? null;
+  };
   for (const section of sections) {
     for (const asset of section.assets) {
       const a = asset as ReviewAsset;
@@ -167,6 +210,12 @@ export async function GET(req: NextRequest) {
       a.clickThroughUrl = toClickThroughUrl(asset.fileId);
       a.firstSeenByClientAt = toFirstSeenByClientAt(asset.fileId);
       a.assetApprovedClient = toAssetApprovedClient(asset.fileId);
+      a.deliveredAt = toDeliveredAt(asset.fileId);
+      a.delivered = toDelivered(asset.fileId);
+      a.deliveredFolderId = toDeliveredFolderId(asset.fileId);
+      a.airtableRecordId = toAirtableRecordId(asset.fileId);
+      a.approvedAt = toApprovedAt(asset.fileId);
+      a.partnerDownloadedAt = toPartnerDownloadedAt(asset.fileId);
     }
   }
 
@@ -199,6 +248,13 @@ export async function GET(req: NextRequest) {
   const totalFiles = sections.reduce((sum, s) => sum + s.assets.length, 0);
   const lastFetchedAt = new Date().toISOString();
 
+  let deliveryContext: Awaited<ReturnType<typeof getDeliveryContextByProjectId>> = null;
+  try {
+    deliveryContext = await getDeliveryContextByProjectId(project.recordId);
+  } catch (err) {
+    console.warn('[review/assets] getDeliveryContextByProjectId failed:', err instanceof Error ? err.message : err);
+  }
+
   const payload: Record<string, unknown> = {
     ok: true,
     version: 'review-assets-v1',
@@ -207,6 +263,7 @@ export async function GET(req: NextRequest) {
     lastFetchedAt,
     count: { sections: sections.length, files: totalFiles },
     sections,
+    ...(deliveryContext && { deliveryContext }),
   };
   if (debugFlag) {
     payload.debug = debug;
