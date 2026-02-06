@@ -17,12 +17,19 @@ export const runPendingDeliveriesScheduled = inngest.createFunction(
   },
   { cron: CRON_SCHEDULE },
   async () => {
-    const result = await runPendingDeliveries({ oidcToken: undefined });
-    if (result.processed > 0) {
-      console.log(
-        `[run-pending-deliveries] processed=${result.processed} succeeded=${result.succeeded} failed=${result.failed} skipped=${result.skipped}`
-      );
+    try {
+      const result = await runPendingDeliveries({ oidcToken: undefined });
+      if (result.processed > 0) {
+        console.log(
+          `[run-pending-deliveries] processed=${result.processed} succeeded=${result.succeeded} failed=${result.failed} skipped=${result.skipped}`
+        );
+      }
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error ? err.stack : undefined;
+      console.error('[run-pending-deliveries] Inngest function error:', message, stack);
+      throw err;
     }
-    return result;
   }
 );

@@ -1,8 +1,10 @@
 // lib/review/reviewFolders.ts
 // Resolves CRH folder IDs by traversing Drive: root → Client Review → job → tactic → variant.
 // Shared by assets listing and file proxy so both use the same allowed folders.
+// Variant folder names are resolved via detectVariantFromPath (Remarketing, RTG → Retargeting).
 
 import type { drive_v3 } from 'googleapis';
+import { detectVariantFromPath } from '@/lib/review/reviewVariantDetection';
 
 const VARIANTS = ['Prospecting', 'Retargeting'] as const;
 const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video', 'Search'] as const;
@@ -22,6 +24,21 @@ export async function getChildFolderId(
   });
   const files = res.data.files ?? [];
   return files.length > 0 ? files[0].id! : null;
+}
+
+/** List direct child folders (id, name). Shared Drive safe. */
+async function listChildFolders(
+  drive: drive_v3.Drive,
+  parentId: string,
+): Promise<Array<{ id: string; name: string }>> {
+  const res = await drive.files.list({
+    q: `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: 'files(id, name)',
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  });
+  const files = res.data.files ?? [];
+  return files.map((f) => ({ id: f.id!, name: f.name ?? '' }));
 }
 
 export interface ReviewFolderMapResult {
@@ -91,20 +108,33 @@ export async function getReviewFolderMapFromJobFolder(
 
 /**
  * Build folder map from job folder, including only tactic→variant folders that exist.
- * Use when the job may have only some tactics (e.g. scaffold not run for all); avoids 404.
+ * Variant is detected via detectVariantFromPath so Remarketing, RTG, Re-targeting → Retargeting.
+ * Unknown child folders are logged (not silently skipped); skipped count is logged at end.
  */
 export async function getReviewFolderMapFromJobFolderPartial(
   drive: drive_v3.Drive,
   jobFolderId: string,
 ): Promise<ReviewFolderMapResult> {
   const map = new Map<string, string>();
+  let skippedFolderCount = 0;
   for (const tactic of TACTICS) {
     const tacticFolderId = await getChildFolderId(drive, jobFolderId, tactic);
     if (!tacticFolderId) continue;
-    for (const variant of VARIANTS) {
-      const variantFolderId = await getChildFolderId(drive, tacticFolderId, variant);
-      if (variantFolderId) map.set(`${variant}:${tactic}`, variantFolderId);
+    const childFolders = await listChildFolders(drive, tacticFolderId);
+    for (const folder of childFolders) {
+      const variant = detectVariantFromPath(folder.name);
+      if (variant) {
+        map.set(`${variant}:${tactic}`, folder.id);
+      } else {
+        skippedFolderCount += 1;
+        console.warn(
+          `[reviewFolders] Skipped unknown variant folder (tactic=${tactic}, folderId=${folder.id}, folderName=${folder.name})`
+        );
+      }
     }
+  }
+  if (skippedFolderCount > 0) {
+    console.warn(`[reviewFolders] getReviewFolderMapFromJobFolderPartial: skipped ${skippedFolderCount} folder(s) with unrecognized variant name (jobFolderId=${jobFolderId})`);
   }
   return { map, jobFolderId };
 }

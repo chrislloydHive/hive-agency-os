@@ -58,53 +58,75 @@ export async function runPendingDeliveries(options?: {
   let failed = 0;
   let skipped = 0;
 
+  console.log(`[runPendingDeliveries] Found ${pending.length} pending record(s) to process`);
   for (const row of pending) {
-    const destinationFolderId = await resolveDestinationFolderId(row.deliveryBatchIdRaw);
-    if (!destinationFolderId) {
-      results.push({
-        recordId: row.recordId,
-        ok: false,
-        error: `Could not resolve destination for batch: ${row.deliveryBatchIdRaw}`,
-      });
-      failed++;
-      continue;
-    }
-
-    const deliveryResult = await runPartnerDelivery(
-      {
-        airtableRecordId: row.recordId,
-        sourceFolderId: row.sourceFolderId,
-        deliveryBatchId: row.deliveryBatchIdRaw,
-        destinationFolderId,
-        dryRun: false,
-        oidcToken: options?.oidcToken ?? undefined,
-      },
-      `${requestId}-${row.recordId}`
-    );
-
-    if (deliveryResult.ok) {
-      if (deliveryResult.result === 'idempotent') {
+    try {
+      console.log(`[runPendingDeliveries] Processing record ${row.recordId}, sourceFolderId=${row.sourceFolderId}, batch=${row.deliveryBatchIdRaw}`);
+      const destinationFolderId = await resolveDestinationFolderId(row.deliveryBatchIdRaw);
+      if (!destinationFolderId) {
+        console.error(`[runPendingDeliveries] Could not resolve destination for batch: ${row.deliveryBatchIdRaw}`);
         results.push({
           recordId: row.recordId,
-          ok: true,
-          deliveredFileUrl: deliveryResult.deliveredFileUrl,
+          ok: false,
+          error: `Could not resolve destination for batch: ${row.deliveryBatchIdRaw}`,
         });
-        skipped++;
+        failed++;
+        continue;
+      }
+      console.log(`[runPendingDeliveries] Resolved destinationFolderId=${destinationFolderId} for record ${row.recordId}`);
+
+      const deliveryResult = await runPartnerDelivery(
+        {
+          airtableRecordId: row.recordId,
+          sourceFolderId: row.sourceFolderId,
+          deliveryBatchId: row.deliveryBatchIdRaw,
+          destinationFolderId,
+          dryRun: false,
+          oidcToken: options?.oidcToken ?? undefined,
+        },
+        `${requestId}-${row.recordId}`
+      );
+
+      if (deliveryResult.ok) {
+        if (deliveryResult.result === 'idempotent') {
+          console.log(`[runPendingDeliveries] Record ${row.recordId} already delivered (idempotent)`);
+          results.push({
+            recordId: row.recordId,
+            ok: true,
+            deliveredFileUrl: deliveryResult.deliveredFileUrl,
+          });
+          skipped++;
+        } else {
+          const fileUrl = 'deliveredFileUrl' in deliveryResult ? deliveryResult.deliveredFileUrl : undefined;
+          const filesCopied = 'filesCopied' in deliveryResult ? deliveryResult.filesCopied : undefined;
+          const foldersCreated = 'foldersCreated' in deliveryResult ? deliveryResult.foldersCreated : undefined;
+          console.log(`[runPendingDeliveries] Record ${row.recordId} delivered successfully: filesCopied=${filesCopied ?? 'unknown'}, foldersCreated=${foldersCreated ?? 'unknown'}, url=${fileUrl ?? 'none'}`);
+          results.push({
+            recordId: row.recordId,
+            ok: true,
+            deliveredFileUrl: fileUrl,
+            authMode: deliveryResult.authMode,
+          });
+          succeeded++;
+        }
       } else {
+        console.error(`[runPendingDeliveries] Record ${row.recordId} delivery failed: ${deliveryResult.error}, authMode=${deliveryResult.authMode ?? 'unknown'}`);
         results.push({
           recordId: row.recordId,
-          ok: true,
-          deliveredFileUrl: 'deliveredFileUrl' in deliveryResult ? deliveryResult.deliveredFileUrl : undefined,
+          ok: false,
+          error: deliveryResult.error,
           authMode: deliveryResult.authMode,
         });
-        succeeded++;
+        failed++;
       }
-    } else {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error ? err.stack : undefined;
+      console.error(`[runPendingDeliveries] Unexpected error processing record ${row.recordId}:`, message, stack);
       results.push({
         recordId: row.recordId,
         ok: false,
-        error: deliveryResult.error,
-        authMode: deliveryResult.authMode,
+        error: `Unexpected error: ${message}`,
       });
       failed++;
     }

@@ -240,36 +240,6 @@ export async function runPartnerDelivery(
     })
   );
 
-  try {
-    await preflightFolderCopy(drive, sourceFolderId, destinationFolderId);
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    if (authMode === 'wif_service_account' && isWifOidcUnavailableError(message)) {
-      return fail(WIF_UNAVAILABLE_MESSAGE, 500, true, authMode);
-    }
-    return fail(message, 400, true, authMode);
-  }
-
-  if (dryRun) {
-    logStructured({
-      requestId,
-      airtableRecordId,
-      sourceFolderId,
-      destinationFolderId,
-      dryRun: true,
-      result: 'dry_run',
-      authMode,
-    });
-    return {
-      ok: true,
-      dryRun: true,
-      resolvedDestinationFolderId: destinationFolderId,
-      wouldCopyFileId: sourceFolderId,
-      authMode,
-      result: 'dry_run',
-    };
-  }
-
   let record: Awaited<ReturnType<typeof getAssetStatusRecordById>>;
   try {
     record = await getAssetStatusRecordById(airtableRecordId);
@@ -309,26 +279,76 @@ export async function runPartnerDelivery(
 
   // Auto subfolder routing: {Destination Folder}/{Tactic}/{Variant?}; fallback to root if no Tactic
   let effectiveDestinationFolderId = destinationFolderId;
-  if (record.tactic && record.tactic.trim()) {
-    const pathSegments = [record.tactic.trim()];
-    if (record.variant && record.variant.trim()) {
-      pathSegments.push(record.variant.trim());
+  const tacticValue = record.tactic?.trim() || '';
+  const variantValue = record.variant?.trim() || '';
+  
+  if (tacticValue) {
+    const pathSegments = [tacticValue];
+    if (variantValue) {
+      pathSegments.push(variantValue);
     }
+    console.log(`[delivery/partner] ${requestId} Resolving subfolder path: ${pathSegments.join('/')} under ${destinationFolderId} (tactic="${tacticValue}", variant="${variantValue}")`);
     try {
       effectiveDestinationFolderId = await ensureSubfolderPath(drive, destinationFolderId, pathSegments);
+      console.log(`[delivery/partner] ${requestId} Subfolder resolved: ${effectiveDestinationFolderId}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.warn(`[delivery/partner] ${requestId} ensureSubfolderPath failed, using root destination:`, msg);
+      // Continue with root destination
     }
+  } else {
+    console.warn(`[delivery/partner] ${requestId} WARNING: No Tactic found on CRAS record ${airtableRecordId} (tactic="${tacticValue}", variant="${variantValue}"). Files will be delivered to root destination: ${destinationFolderId}. Set Tactic/Variant on CRAS records to enable subfolder routing.`);
+  }
+
+  // Preflight check source and effective destination (after subfolder resolution)
+  try {
+    await preflightFolderCopy(drive, sourceFolderId, effectiveDestinationFolderId);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (authMode === 'wif_service_account' && isWifOidcUnavailableError(message)) {
+      return fail(WIF_UNAVAILABLE_MESSAGE, 500, true, authMode);
+    }
+    return fail(message, 400, true, authMode);
+  }
+
+  if (dryRun) {
+    logStructured({
+      requestId,
+      airtableRecordId,
+      sourceFolderId,
+      destinationFolderId: effectiveDestinationFolderId,
+      dryRun: true,
+      result: 'dry_run',
+      authMode,
+    });
+    return {
+      ok: true,
+      dryRun: true,
+      resolvedDestinationFolderId: effectiveDestinationFolderId,
+      wouldCopyFileId: sourceFolderId,
+      authMode,
+      result: 'dry_run',
+    };
   }
 
   const deliveredFolderName = `Delivered – ${(projectName ?? 'Delivery').trim() || 'Delivery'} – ${new Date().toISOString().slice(0, 10)}`;
+  console.log(`[delivery/partner] ${requestId} Copying folder tree: sourceFolderId=${sourceFolderId}, destination=${effectiveDestinationFolderId}, folderName="${deliveredFolderName}"`);
 
   try {
     const result = await copyDriveFolderTree(drive, sourceFolderId, effectiveDestinationFolderId, {
       deliveredFolderName,
       drive,
     });
+    console.log(`[delivery/partner] ${requestId} Copy completed: filesCopied=${result.filesCopied}, foldersCreated=${result.foldersCreated}, failures=${result.failures.length}, deliveredFolderId=${result.deliveredRootFolderId}`);
+    
+    if (result.filesCopied === 0) {
+      console.warn(`[delivery/partner] ${requestId} WARNING: Copy succeeded but 0 files were copied. Source folder ${sourceFolderId} may be empty or inaccessible.`);
+    }
+    
+    if (result.failures.length > 0) {
+      console.warn(`[delivery/partner] ${requestId} Copy had ${result.failures.length} failures:`, result.failures);
+    }
+    
     await updateAssetStatusDeliverySuccess(airtableRecordId, {
       deliveredFolderId: result.deliveredRootFolderId,
       deliveredFolderUrl: result.deliveredRootFolderUrl,

@@ -273,17 +273,24 @@ export async function createFolderWithDrive(
   parentId: string,
   name: string
 ): Promise<DriveFolder> {
-  const response = await drive.files.create({
-    requestBody: {
-      name,
-      mimeType: 'application/vnd.google-apps.folder',
-      parents: [parentId],
-    },
-    fields: 'id, name',
-    supportsAllDrives: true,
-  });
-  const folder = response.data;
-  return { id: folder.id!, name: folder.name!, url: folderUrl(folder.id!) };
+  try {
+    const response = await drive.files.create({
+      requestBody: {
+        name,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [parentId],
+      },
+      fields: 'id, name',
+      supportsAllDrives: true,
+    });
+    const folder = response.data;
+    console.log(`[Drive] Created folder: "${name}" (${folder.id}) under ${parentId}`);
+    return { id: folder.id!, name: folder.name!, url: folderUrl(folder.id!) };
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`[Drive] Error creating folder "${name}" under ${parentId}:`, msg);
+    throw error;
+  }
 }
 
 /**
@@ -928,7 +935,9 @@ export async function copyDriveFolderTree(
     }
   }
 
+  console.log(`[Drive/copyFolderTree] Starting recursive copy from ${sourceFolderId} to ${deliveredRootFolderId}`);
   await recurse(sourceFolderId, deliveredRootFolderId);
+  console.log(`[Drive/copyFolderTree] Copy complete: filesCopied=${filesCopied}, foldersCreated=${foldersCreated}, failures=${failures.length}`);
 
   return {
     deliveredRootFolderId,

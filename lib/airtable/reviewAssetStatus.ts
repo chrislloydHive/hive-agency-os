@@ -303,7 +303,8 @@ export interface PendingWebhookDeliveryRecord {
  */
 export async function getPendingWebhookDeliveryRecords(): Promise<PendingWebhookDeliveryRecord[]> {
   const base = getBase();
-  const formula = `AND({${READY_TO_DELIVER_WEBHOOK_FIELD}} = TRUE(), ISBLANK({${DELIVERED_AT_FIELD}}))`;
+  // Use Ready to Deliver (Webhook) = TRUE and filter out delivered in code (ISBLANK may not be supported in all bases)
+  const formula = `{${READY_TO_DELIVER_WEBHOOK_FIELD}} = TRUE()`;
   const records = await base(TABLE)
     .select({ filterByFormula: formula })
     .all();
@@ -311,6 +312,11 @@ export async function getPendingWebhookDeliveryRecords(): Promise<PendingWebhook
   const out: PendingWebhookDeliveryRecord[] = [];
   for (const r of records) {
     const f = r.fields as Record<string, unknown>;
+    
+    // Filter out already-delivered records (idempotency check in code)
+    const deliveredAt = typeof f[DELIVERED_AT_FIELD] === 'string' ? (f[DELIVERED_AT_FIELD] as string).trim() : '';
+    if (deliveredAt) continue; // Skip if Delivered At is set
+    
     const sourceFolderId = typeof f[SOURCE_FOLDER_ID_FIELD] === 'string' ? (f[SOURCE_FOLDER_ID_FIELD] as string).trim() : '';
     if (!sourceFolderId) continue;
 
@@ -463,11 +469,19 @@ export async function getDownloadedCountForBatch(batchId: string): Promise<numbe
   if (!id) return 0;
   const base = getBase();
   const batchEsc = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  const formula = `AND({${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}", NOT(ISBLANK({${PARTNER_DOWNLOADED_AT_FIELD}})))`;
+  // Filter for downloaded records in code (ISBLANK may not be supported in all bases)
+  const formula = `{${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}"`;
   const records = await base(TABLE)
     .select({ filterByFormula: formula })
     .all();
-  return records.length;
+  // Count records where Partner Downloaded At is set
+  let count = 0;
+  for (const r of records) {
+    const f = r.fields as Record<string, unknown>;
+    const downloadedAt = typeof f[PARTNER_DOWNLOADED_AT_FIELD] === 'string' ? (f[PARTNER_DOWNLOADED_AT_FIELD] as string).trim() : '';
+    if (downloadedAt) count++;
+  }
+  return count;
 }
 
 /**
