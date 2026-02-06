@@ -165,7 +165,7 @@ export async function GET(req: NextRequest) {
 
   const logContext: DownloadLogContext = {
     assetId,
-    recordId,
+    recordId: recordId ?? undefined,
     startedAtWritten: false,
     completedAtWritten: false,
     aborted: false,
