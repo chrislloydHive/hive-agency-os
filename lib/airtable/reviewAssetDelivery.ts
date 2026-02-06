@@ -38,6 +38,9 @@ const DELIVERY_ERROR_FIELD = 'Delivery Error';
 
 export type DeliveryStatusValue = 'Not Delivered' | 'Delivering' | 'Delivered' | 'Error';
 
+const TACTIC_FIELD = 'Tactic';
+const VARIANT_FIELD = 'Variant';
+
 export interface AssetDeliveryRecord {
   recordId: string;
   driveFileId: string | null;
@@ -45,6 +48,10 @@ export interface AssetDeliveryRecord {
   deliveredAt: string | null;
   deliveredFileUrl: string | null;
   deliveryError: string | null;
+  /** e.g. Display, Social, Video (for subfolder routing). */
+  tactic: string | null;
+  /** e.g. Prospecting, Retargeting (optional). */
+  variant: string | null;
 }
 
 /**
@@ -59,6 +66,10 @@ export async function getAssetStatusRecordById(
     const record = await base(TABLE).find(recordId);
     const f = record.fields as Record<string, unknown>;
     const driveFileId = typeof f[SOURCE_FOLDER_ID_FIELD] === 'string' ? (f[SOURCE_FOLDER_ID_FIELD] as string).trim() : null;
+    const tacticRaw = f[TACTIC_FIELD];
+    const tactic = typeof tacticRaw === 'string' && tacticRaw.trim() ? tacticRaw.trim() : null;
+    const variantRaw = f[VARIANT_FIELD];
+    const variant = typeof variantRaw === 'string' && variantRaw.trim() ? variantRaw.trim() : null;
     return {
       recordId: record.id,
       driveFileId: driveFileId || null,
@@ -66,6 +77,8 @@ export async function getAssetStatusRecordById(
       deliveredAt: (f[DELIVERED_AT_FIELD] as string) ?? null,
       deliveredFileUrl: (f[DELIVERED_FILE_URL_FIELD] as string) ?? null,
       deliveryError: (f[DELIVERY_ERROR_FIELD] as string) ?? null,
+      tactic,
+      variant,
     };
   } catch (err: unknown) {
     const code = typeof err === 'object' && err !== null && 'statusCode' in err ? (err as { statusCode: number }).statusCode : undefined;

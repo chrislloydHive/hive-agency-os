@@ -11,6 +11,7 @@ import {
   getDriveClientWithOAuth,
   getDriveClientWithServiceAccount,
   preflightFolderCopy,
+  ensureSubfolderPath,
 } from '@/lib/google/driveClient';
 import { getAuthModeSummary, getDriveClient as getWifDriveClient } from '@/lib/google/driveWif';
 import {
@@ -306,10 +307,25 @@ export async function runPartnerDelivery(
     };
   }
 
+  // Auto subfolder routing: {Destination Folder}/{Tactic}/{Variant?}; fallback to root if no Tactic
+  let effectiveDestinationFolderId = destinationFolderId;
+  if (record.tactic && record.tactic.trim()) {
+    const pathSegments = [record.tactic.trim()];
+    if (record.variant && record.variant.trim()) {
+      pathSegments.push(record.variant.trim());
+    }
+    try {
+      effectiveDestinationFolderId = await ensureSubfolderPath(drive, destinationFolderId, pathSegments);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[delivery/partner] ${requestId} ensureSubfolderPath failed, using root destination:`, msg);
+    }
+  }
+
   const deliveredFolderName = `Delivered – ${(projectName ?? 'Delivery').trim() || 'Delivery'} – ${new Date().toISOString().slice(0, 10)}`;
 
   try {
-    const result = await copyDriveFolderTree(drive, sourceFolderId, destinationFolderId, {
+    const result = await copyDriveFolderTree(drive, sourceFolderId, effectiveDestinationFolderId, {
       deliveredFolderName,
       drive,
     });
@@ -324,7 +340,7 @@ export async function runPartnerDelivery(
       requestId,
       airtableRecordId,
       sourceFolderId,
-      destinationFolderId,
+      destinationFolderId: effectiveDestinationFolderId,
       dryRun: false,
       result: 'ok',
       authMode,

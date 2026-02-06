@@ -58,8 +58,6 @@ interface ReviewSectionProps {
   onSingleAssetApprovedResult?: (success: boolean, message?: string) => void;
   /** Partner view: batch id for mark-downloaded. */
   deliveryBatchId?: string | null;
-  /** When true, show "Export to get Drive link" on approved-but-not-delivered assets. */
-  hasDeliveryBatches?: boolean;
   /** Partner view: call when partner views/downloads an asset. */
   onPartnerDownload?: (fileIds: string[]) => void;
   /** Partner view: get signed download URL and open download (proxy download). */
@@ -130,7 +128,6 @@ export default function ReviewSection({
   onSelectNewInSection,
   onSingleAssetApprovedResult,
   deliveryBatchId,
-  hasDeliveryBatches = false,
   onPartnerDownload,
   onDownloadAsset,
 }: ReviewSectionProps) {
@@ -309,7 +306,6 @@ export default function ReviewSection({
               selected={selectedFileIds.has(asset.fileId)}
               onToggleSelect={onToggleSelect ? () => onToggleSelect(asset.fileId) : undefined}
               onDownloadAsset={onDownloadAsset}
-              hasDeliveryBatches={hasDeliveryBatches}
             />
           ))}
         </div>
@@ -449,7 +445,6 @@ function AssetCard({
   selected = false,
   onToggleSelect,
   onDownloadAsset,
-  hasDeliveryBatches = false,
 }: {
   asset: { fileId: string; name: string; mimeType: string; reviewState?: ReviewState; clickThroughUrl?: string | null; firstSeenByClientAt?: string | null; assetApprovedClient?: boolean; delivered?: boolean; deliveredFileUrl?: string | null; deliveredFolderId?: string | null; partnerDownloadedAt?: string | null; approvedAt?: string | null; approvedByName?: string | null; approvedByEmail?: string | null; firstSeenAt?: string | null; lastSeenAt?: string | null };
   token: string;
@@ -457,7 +452,6 @@ function AssetCard({
   selected?: boolean;
   onToggleSelect?: () => void;
   onDownloadAsset?: (assetId: string) => void | Promise<void>;
-  hasDeliveryBatches?: boolean;
 }) {
   const src = `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
   const isImage = asset.mimeType.startsWith('image/');
@@ -505,38 +499,6 @@ function AssetCard({
         >
           {badgeLabel}
         </span>
-        {(asset.delivered || asset.partnerDownloadedAt) && (
-          <div className="absolute right-2 top-2 z-10 flex flex-col gap-1 items-end">
-            {asset.delivered &&
-              ((asset.deliveredFileUrl || asset.deliveredFolderId) ? (
-                <a
-                  href={asset.deliveredFileUrl ?? `https://drive.google.com/drive/folders/${asset.deliveredFolderId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="rounded bg-emerald-700/90 px-2 py-0.5 text-xs font-medium text-emerald-100 hover:bg-emerald-600 no-underline"
-                  title="Open in Google Drive"
-                >
-                  View in Drive →
-                </a>
-              ) : (
-                <span
-                  className="rounded bg-emerald-700/90 px-2 py-0.5 text-xs font-medium text-emerald-100"
-                  title="Exported to vendor folder"
-                >
-                  Exported
-                </span>
-              ))}
-            {asset.partnerDownloadedAt && (
-              <span
-                className="rounded bg-blue-700/90 px-2 py-0.5 text-xs font-medium text-blue-100"
-                title="Downloaded by partner"
-              >
-                Downloaded
-              </span>
-            )}
-          </div>
-        )}
         {isImage && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -587,9 +549,6 @@ function AssetCard({
         </p>
         {isNew && (
           <p className="mt-0.5 text-xs text-gray-500">Added since your last visit</p>
-        )}
-        {asset.assetApprovedClient && !asset.delivered && hasDeliveryBatches && (
-          <p className="mt-0.5 text-xs text-amber-400/90">Export to get Drive link</p>
         )}
         <AssetDetailsLine asset={asset} />
       </div>

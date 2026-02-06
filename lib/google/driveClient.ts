@@ -226,6 +226,103 @@ export async function ensureChildFolder(
 }
 
 /**
+ * Sanitize a segment for use as a Drive folder name: trim, replace slashes.
+ * Returns fallback if result would be empty.
+ */
+export function sanitizeFolderSegment(segment: string, fallback = 'Uncategorized'): string {
+  const s = String(segment ?? '')
+    .trim()
+    .replace(/[/\\]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return s.length > 0 ? s : fallback;
+}
+
+/**
+ * Find a folder by exact name under a parent (using provided drive client).
+ */
+export async function findChildFolderWithDrive(
+  drive: drive_v3.Drive,
+  parentId: string,
+  name: string
+): Promise<DriveFolder | null> {
+  try {
+    const escapedName = name.replace(/'/g, "\\'");
+    const response = await drive.files.list({
+      q: `'${parentId}' in parents and name = '${escapedName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: 'files(id, name)',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    });
+    const files = response.data.files ?? [];
+    if (files.length === 0) return null;
+    const folder = files[0];
+    return { id: folder.id!, name: folder.name!, url: folderUrl(folder.id!) };
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`[Drive] Error finding folder "${name}" under ${parentId}:`, msg);
+    throw error;
+  }
+}
+
+/**
+ * Create a folder under a parent (using provided drive client).
+ */
+export async function createFolderWithDrive(
+  drive: drive_v3.Drive,
+  parentId: string,
+  name: string
+): Promise<DriveFolder> {
+  const response = await drive.files.create({
+    requestBody: {
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentId],
+    },
+    fields: 'id, name',
+    supportsAllDrives: true,
+  });
+  const folder = response.data;
+  return { id: folder.id!, name: folder.name!, url: folderUrl(folder.id!) };
+}
+
+/**
+ * Ensure a folder exists under a parent (find or create), using the provided drive client.
+ */
+export async function ensureChildFolderWithDrive(
+  drive: drive_v3.Drive,
+  parentId: string,
+  name: string
+): Promise<DriveFolder> {
+  const existing = await findChildFolderWithDrive(drive, parentId, name);
+  if (existing) return existing;
+  return createFolderWithDrive(drive, parentId, name);
+}
+
+/**
+ * Ensure a path of subfolders exists under root (idempotent). Creates each segment in order.
+ * @param drive - Drive client (OAuth or WIF)
+ * @param rootFolderId - Destination folder ID (batch destination)
+ * @param pathSegments - e.g. ["Display", "Prospecting"] for Display/Prospecting
+ * @returns Final folder ID (leaf of the path)
+ */
+export async function ensureSubfolderPath(
+  drive: drive_v3.Drive,
+  rootFolderId: string,
+  pathSegments: string[]
+): Promise<string> {
+  const sanitized = pathSegments
+    .map((seg) => sanitizeFolderSegment(seg))
+    .filter((s) => s.length > 0);
+  let currentId = rootFolderId;
+  for (const name of sanitized) {
+    const folder = await ensureChildFolderWithDrive(drive, currentId, name);
+    currentId = folder.id;
+  }
+  return currentId;
+}
+
+/**
  * List child folders under a parent folder
  *
  * @param parentId - Parent folder ID

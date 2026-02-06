@@ -221,13 +221,11 @@ function ReviewPortalClientInner({
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [bulkApproving, setBulkApproving] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; link?: string } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [deliveryContext, setDeliveryContext] = useState<DeliveryContext | null>(null);
   const [deliveryBatches, setDeliveryBatches] = useState<DeliveryBatchOption[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
-  const [deliverApprovedOpen, setDeliverApprovedOpen] = useState(false);
-  const [deliverApprovedState, setDeliverApprovedState] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
   const [activePartnerTab, setActivePartnerTab] = useState<'new' | 'all_approved' | 'downloaded'>('new');
   const [markingSeen, setMarkingSeen] = useState(false);
   const [apiCounts, setApiCounts] = useState<{ newApproved: number; approved: number; downloaded: number } | null>(null);
@@ -421,11 +419,6 @@ function ReviewPortalClientInner({
       ? partnerFilterSections(activeSections, activePartnerTab)
       : activeSections;
   const totalFiles = partnerFilteredSections.reduce((sum, s) => sum + s.fileCount, 0);
-  const deliverableAssets = sections.flatMap((s) =>
-    s.assets.filter((a) => a.assetApprovedClient && !a.delivered)
-  );
-  const deliverableCount = deliverableAssets.length;
-  const deliverableFileIds = deliverableAssets.map((a) => a.fileId);
   const sectionsToRender =
     totalFiles === 0
       ? []
@@ -601,66 +594,6 @@ function ReviewPortalClientInner({
     [token, doRefresh]
   );
 
-  const handleDeliverApproved = useCallback(() => {
-    const batchId = selectedBatchId ?? deliveryContext?.deliveryBatchId;
-    const destFolderId =
-      deliveryContext?.destinationFolderId ??
-      deliveryBatches.find((b) => b.batchId === batchId)?.destinationFolderId;
-    if (!batchId || !destFolderId || deliverableFileIds.length === 0) return;
-    setDeliverApprovedState('running');
-    fetch('/api/review/assets/deliver-batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        token,
-        deliveryBatchId: batchId,
-        destinationFolderId: destFolderId,
-        approvedFileIds: deliverableFileIds,
-      }),
-    })
-      .then((res) => res.json())
-      .then((data: {
-        ok?: boolean;
-        error?: string;
-        deliveredFolderUrl?: string;
-        deliverySummary?: { excluded?: Array<{ fileId: string; reason?: string }> };
-      }) => {
-        if (data.ok === true) {
-          setDeliverApprovedState('success');
-          setDeliverApprovedOpen(false);
-          const excluded = data.deliverySummary?.excluded ?? [];
-          const excludedMsg =
-            excluded.length > 0
-              ? ` ${excluded.length} excluded (no longer approved or already exported).`
-              : '';
-          setToast({
-            message: `Exported ${deliverableCount - excluded.length} assets.${excludedMsg}`,
-            type: 'success',
-            link: data.deliveredFolderUrl,
-          });
-          doRefresh();
-        } else {
-          setDeliverApprovedState('error');
-          setToast({
-            message: data.error ?? 'Export failed',
-            type: 'error',
-          });
-        }
-      })
-      .catch((err) => {
-        setDeliverApprovedState('error');
-        setToast({
-          message: err?.message ?? 'Export failed',
-          type: 'error',
-        });
-      });
-  }, [token, selectedBatchId, deliveryContext, deliveryBatches, deliverableFileIds, deliverableCount, doRefresh]);
-
-  const openDeliverConfirm = useCallback(() => {
-    setDeliverApprovedState('idle');
-    setDeliverApprovedOpen(true);
-  }, []);
-
   return (
     <main className="min-h-screen bg-[#111827] text-gray-100">
       <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6 lg:px-8">
@@ -673,31 +606,15 @@ function ReviewPortalClientInner({
             </h1>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-3">
-            {deliveryBatches.length > 0 && (
-              <>
-                {(partnerTabCounts.new > 0 || deliveryContext) && (
-                  <button
-                    type="button"
-                    onClick={handleMarkSeen}
-                    disabled={markingSeen || isRefreshing}
-                    className="rounded-md border border-gray-600 bg-gray-800 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {markingSeen ? 'Updating…' : 'Mark all as seen'}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={openDeliverConfirm}
-                  disabled={deliverableCount === 0 || deliverApprovedState === 'running'}
-                  className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-400 hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {deliverableCount === 0
-                    ? 'No Approved Assets'
-                    : deliverApprovedState === 'running'
-                      ? 'Exporting…'
-                      : `Export Approved (${deliverableCount})`}
-                </button>
-              </>
+            {deliveryBatches.length > 0 && (partnerTabCounts.new > 0 || deliveryContext) && (
+              <button
+                type="button"
+                onClick={handleMarkSeen}
+                disabled={markingSeen || isRefreshing}
+                className="rounded-md border border-gray-600 bg-gray-800 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {markingSeen ? 'Updating…' : 'Mark all as seen'}
+              </button>
             )}
             {(isRefreshing || lastRefreshedAt || refreshError) && (
               <p className="text-xs text-gray-500">
@@ -729,24 +646,6 @@ function ReviewPortalClientInner({
             )}
           </div>
         </div>
-
-        {/* Delivery: show when there are approved assets so users know how to access them */}
-        {sections.some((s) => s.assets.some((a) => a.assetApprovedClient)) && (
-          <div className="mb-4 rounded-lg border border-slate-600/80 bg-slate-800/50 px-4 py-3">
-            <h3 className="text-sm font-medium text-slate-200 mb-1">Delivery</h3>
-            {deliveryBatches.length > 0 ? (
-              <p className="text-xs text-slate-400">
-                Approved assets can be exported to the vendor folder. Use <strong className="text-amber-400/90">Export Approved</strong> above to send them.
-                Once delivered, each asset card shows a <strong className="text-emerald-400/90">View in Drive →</strong> link to open the file or folder in Google Drive.
-              </p>
-            ) : (
-              <p className="text-xs text-slate-400">
-                No vendor delivery folder is configured for this project. Approved assets will not show an export option here.
-                Contact your project manager to set up partner delivery or to get a link to approved files.
-              </p>
-            )}
-          </div>
-        )}
 
         {/* Batch selector when multiple batches (default = selectedBatchId from API) */}
         {deliveryBatches.length > 1 && (
@@ -887,7 +786,6 @@ function ReviewPortalClientInner({
                   onSelectNewInSection={selectNewInSection}
                   onSingleAssetApprovedResult={handleSingleAssetApprovedResult}
                   deliveryBatchId={deliveryContext?.deliveryBatchId}
-                  hasDeliveryBatches={deliveryBatches.length > 0}
                   onPartnerDownload={deliveryContext ? handleMarkDownloaded : undefined}
                   onDownloadAsset={deliveryContext ? handleDownloadAsset : undefined}
                 />
@@ -916,49 +814,9 @@ function ReviewPortalClientInner({
             role="alert"
           >
             <p className="text-sm font-medium">{toast.message}</p>
-            {toast.link && (
-              <a
-                href={toast.link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1 block text-xs underline opacity-90 hover:opacity-100"
-              >
-                Open exported folder
-              </a>
-            )}
           </div>
         )}
 
-        {/* Export Approved confirm modal */}
-        {deliverApprovedOpen && deliveryContext && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-            <div className="w-full max-w-md rounded-lg border border-gray-700 bg-gray-800 p-6 shadow-xl">
-              <h3 className="text-lg font-semibold text-white">Export to vendor folder</h3>
-              <p className="mt-2 text-sm text-gray-300">
-                Export {deliverableCount} approved asset{deliverableCount !== 1 ? 's' : ''} to{' '}
-                {deliveryContext.vendorName || 'Partner'}&apos;s folder?
-              </p>
-              <div className="mt-6 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setDeliverApprovedOpen(false)}
-                  disabled={deliverApprovedState === 'running'}
-                  className="rounded-md border border-gray-600 bg-gray-700 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-600 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDeliverApproved}
-                  disabled={deliverApprovedState === 'running'}
-                  className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
-                >
-                  {deliverApprovedState === 'running' ? 'Exporting…' : 'Export'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </main>
   );
