@@ -730,6 +730,24 @@ function ReviewPortalClientInner({
           </div>
         </div>
 
+        {/* Delivery: show when there are approved assets so users know how to access them */}
+        {sections.some((s) => s.assets.some((a) => a.assetApprovedClient)) && (
+          <div className="mb-4 rounded-lg border border-slate-600/80 bg-slate-800/50 px-4 py-3">
+            <h3 className="text-sm font-medium text-slate-200 mb-1">Delivery</h3>
+            {deliveryBatches.length > 0 ? (
+              <p className="text-xs text-slate-400">
+                Approved assets can be exported to the vendor folder. Use <strong className="text-amber-400/90">Export Approved</strong> above to send them.
+                Once delivered, each asset card shows a <strong className="text-emerald-400/90">View in Drive →</strong> link to open the file or folder in Google Drive.
+              </p>
+            ) : (
+              <p className="text-xs text-slate-400">
+                No vendor delivery folder is configured for this project. Approved assets will not show an export option here.
+                Contact your project manager to set up partner delivery or to get a link to approved files.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Batch selector when multiple batches (default = selectedBatchId from API) */}
         {deliveryBatches.length > 1 && (
           <div className="mb-4 flex items-center gap-2">
@@ -869,6 +887,7 @@ function ReviewPortalClientInner({
                   onSelectNewInSection={selectNewInSection}
                   onSingleAssetApprovedResult={handleSingleAssetApprovedResult}
                   deliveryBatchId={deliveryContext?.deliveryBatchId}
+                  hasDeliveryBatches={deliveryBatches.length > 0}
                   onPartnerDownload={deliveryContext ? handleMarkDownloaded : undefined}
                   onDownloadAsset={deliveryContext ? handleDownloadAsset : undefined}
                 />
