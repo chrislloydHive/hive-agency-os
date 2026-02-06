@@ -78,6 +78,29 @@ async function listAllFiles(
   }));
 }
 
+/** List direct children (files + folders) for diagnostics when 0 assets. */
+async function listDirectChildren(
+  drive: drive_v3.Drive,
+  folderId: string,
+): Promise<{ fileCount: number; folderCount: number; fileNames: string[]; folderNames: string[] }> {
+  const res = await drive.files.list({
+    q: `'${folderId}' in parents and trashed = false`,
+    fields: 'files(name, mimeType)',
+    pageSize: 50,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  });
+  const files = res.data.files ?? [];
+  const fileNames: string[] = [];
+  const folderNames: string[] = [];
+  for (const f of files) {
+    const name = f.name ?? '(no name)';
+    if (f.mimeType === 'application/vnd.google-apps.folder') folderNames.push(name);
+    else fileNames.push(name);
+  }
+  return { fileCount: fileNames.length, folderCount: folderNames.length, fileNames, folderNames };
+}
+
 export async function GET(req: NextRequest) {
   try {
     const token = req.nextUrl.searchParams.get('token');
@@ -291,14 +314,32 @@ export async function GET(req: NextRequest) {
     };
   }
   if (totalFiles === 0) {
-    const firstVariantFolderId = folderMap.size > 0 ? folderMap.values().next().value as string : undefined;
-    payload.emptyAssetsHint = {
+    const firstVariantFolderId = folderMap.size > 0 ? (folderMap.values().next().value as string) : undefined;
+    const hint: Record<string, unknown> = {
       message: 'No files found in variant folders. Expected: job folder → tactic (Audio, Display, …) → Prospecting/Retargeting; files must be direct children of those variant folders.',
       jobFolderId,
       jobFolderUrl: `https://drive.google.com/drive/folders/${jobFolderId}`,
-      ...(firstVariantFolderId && { sampleVariantFolderUrl: `https://drive.google.com/drive/folders/${firstVariantFolderId}` }),
+      variantFoldersFound: folderMap.size,
       checkAirtableField: 'Creative Review Hub Folder ID (on Project)',
     };
+    if (firstVariantFolderId) {
+      hint.sampleVariantFolderUrl = `https://drive.google.com/drive/folders/${firstVariantFolderId}`;
+      try {
+        const children = await listDirectChildren(drive, firstVariantFolderId);
+        hint.sampleFolderInspect = {
+          directFileCount: children.fileCount,
+          directFolderCount: children.folderCount,
+          sampleFileNames: children.fileNames.slice(0, 10),
+          sampleFolderNames: children.folderNames.slice(0, 10),
+          hint: children.folderCount > 0 && children.fileCount === 0
+            ? 'Files may be inside subfolders; move them to be direct children of the variant folder.'
+            : undefined,
+        };
+      } catch (inspectErr) {
+        hint.sampleFolderInspect = { error: inspectErr instanceof Error ? inspectErr.message : String(inspectErr) };
+      }
+    }
+    payload.emptyAssetsHint = hint;
     console.warn('[review/assets] 0 files', { projectName: project.name, jobFolderId, variantFoldersFound: folderMap.size });
   }
 
