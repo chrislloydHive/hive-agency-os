@@ -156,7 +156,8 @@ export async function getWorkItems(companyId: string): Promise<WorkItem[]> {
     const records = await base('Work Items')
       .select({
         filterByFormula: `FIND("${companyId}", ARRAYJOIN({Company}))`,
-        sort: [{ field: 'Created At', direction: 'desc' }],
+        // Sort by Status instead of Created At (field may not exist)
+        sort: [{ field: 'Status', direction: 'asc' }],
       })
       .all();
 

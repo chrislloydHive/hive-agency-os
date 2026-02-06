@@ -97,15 +97,26 @@ async function fetchAllWorkItems() {
         notes: record.fields['Notes'] as string,
         effort: record.fields['Effort'] as string,
         impact: record.fields['Impact'] as string,
-        createdAt: record.fields['Created At'] as string,
-        updatedAt: record.fields['Updated At'] as string,
-        lastTouchedAt: record.fields['Last Touched At'] as string,
+        // Use Airtable's built-in createdTime if 'Created At' field doesn't exist
+        createdAt: (record.fields['Created At'] as string) || record.createdTime || '',
+        updatedAt: (record.fields['Updated At'] as string) || record.createdTime || '',
+        lastTouchedAt: (record.fields['Last Touched At'] as string) || '',
         aiAdditionalInfo: record.fields['AI Additional Info'] as string,
         source,
       };
     });
   } catch (error) {
-    console.error('[Work] Failed to fetch work items:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    const isAuthError = typeof error === 'object' && error !== null &&
+      ('statusCode' in error && (error as { statusCode: number }).statusCode === 403) ||
+      ('error' in error && (error as { error: string }).error === 'NOT_AUTHORIZED') ||
+      message.includes('NOT_AUTHORIZED') || message.includes('not authorized');
+    
+    if (isAuthError) {
+      console.warn('[Work] Not authorized to access Work Items table. Check Airtable token permissions.');
+    } else {
+      console.error('[Work] Failed to fetch work items:', error);
+    }
     return [];
   }
 }
