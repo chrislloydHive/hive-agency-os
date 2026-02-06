@@ -53,6 +53,15 @@ export interface DeliveryContext {
   downloadedCount?: number | null;
 }
 
+/** Batch option from GET /api/review/assets (deliveryBatches). */
+export interface DeliveryBatchOption {
+  batchId: string;
+  destinationFolderId: string;
+  vendorName?: string | null;
+  status?: string;
+  recordId?: string;
+}
+
 interface TacticFeedback {
   approved: boolean;
   comments: string;
@@ -198,6 +207,8 @@ function ReviewPortalClientInner({
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; link?: string } | null>(null);
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [deliveryContext, setDeliveryContext] = useState<DeliveryContext | null>(null);
+  const [deliveryBatches, setDeliveryBatches] = useState<DeliveryBatchOption[]>([]);
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [deliverApprovedOpen, setDeliverApprovedOpen] = useState(false);
   const [deliverApprovedState, setDeliverApprovedState] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
   const [activePartnerTab, setActivePartnerTab] = useState<'new' | 'all_approved' | 'downloaded'>('new');
@@ -241,66 +252,78 @@ function ReviewPortalClientInner({
     []
   );
 
-  const doRefresh = useCallback(() => {
-    setRefreshError(null);
-    setIsRefreshing(true);
-    const url = `/api/review/assets?token=${encodeURIComponent(token)}`;
-    fetch(url, { cache: 'no-store' })
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(res.statusText))))
-      .then((data: {
-        ok?: boolean;
-        version?: string;
-        sections?: TacticSectionData[];
-        lastFetchedAt?: string;
-        deliveryContext?: DeliveryContext;
-        counts?: { newApproved: number; approved: number; downloaded: number };
-      }) => {
-        if (data.ok === true && data.version === 'review-assets-v1' && Array.isArray(data.sections)) {
-          setSections(data.sections);
-          setRefreshError(null);
-          if (data.deliveryContext) {
-            setDeliveryContext(data.deliveryContext);
-          } else {
-            setDeliveryContext(null);
+  const doRefresh = useCallback(
+    (batchIdOverride?: string | null) => {
+      setRefreshError(null);
+      setIsRefreshing(true);
+      const batchId = batchIdOverride ?? selectedBatchId;
+      const url = `/api/review/assets?token=${encodeURIComponent(token)}${batchId ? `&batchId=${encodeURIComponent(batchId)}` : ''}`;
+      fetch(url, { cache: 'no-store' })
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(res.statusText))))
+        .then((data: {
+          ok?: boolean;
+          version?: string;
+          sections?: TacticSectionData[];
+          lastFetchedAt?: string;
+          deliveryContext?: DeliveryContext;
+          deliveryBatches?: DeliveryBatchOption[];
+          selectedBatchId?: string | null;
+          counts?: { newApproved: number; approved: number; downloaded: number };
+        }) => {
+          if (data.ok === true && data.version === 'review-assets-v1' && Array.isArray(data.sections)) {
+            setSections(data.sections);
+            setRefreshError(null);
+            if (Array.isArray(data.deliveryBatches)) {
+              setDeliveryBatches(data.deliveryBatches);
+            }
+            if (data.selectedBatchId !== undefined) {
+              setSelectedBatchId(data.selectedBatchId ?? null);
+            }
+            if (data.deliveryContext) {
+              setDeliveryContext(data.deliveryContext);
+            } else {
+              setDeliveryContext(null);
+            }
+            if (data.counts && typeof data.counts.newApproved === 'number' && typeof data.counts.approved === 'number' && typeof data.counts.downloaded === 'number') {
+              setApiCounts(data.counts);
+            } else {
+              setApiCounts(null);
+            }
+            if (typeof data.lastFetchedAt === 'string') {
+              setLastRefreshedAt(data.lastFetchedAt);
+            }
+            // Fire-and-forget: mark unseen assets as "first seen" (in-flight guard prevents duplicate POSTs)
+            const unseenFileIds = data.sections?.flatMap((s) =>
+              s.assets.filter((a) => {
+                const v = a.firstSeenByClientAt;
+                const empty = v == null || (typeof v === 'string' && v.trim() === '');
+                return empty;
+              }).map((a) => a.fileId)
+            ) ?? [];
+            const toSend = unseenFileIds.filter((id) => !firstSeenInFlightRef.current.has(id));
+            if (toSend.length > 0) {
+              toSend.forEach((id) => firstSeenInFlightRef.current.add(id));
+              fetch('/api/review/assets/first-seen', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token, fileIds: toSend }),
+              })
+                .catch(() => { /* non-blocking */ })
+                .finally(() => {
+                  toSend.forEach((id) => firstSeenInFlightRef.current.delete(id));
+                });
+            }
           }
-          if (data.counts && typeof data.counts.newApproved === 'number' && typeof data.counts.approved === 'number' && typeof data.counts.downloaded === 'number') {
-            setApiCounts(data.counts);
-          } else {
-            setApiCounts(null);
-          }
-          if (typeof data.lastFetchedAt === 'string') {
-            setLastRefreshedAt(data.lastFetchedAt);
-          }
-          // Fire-and-forget: mark unseen assets as "first seen" (in-flight guard prevents duplicate POSTs)
-          const unseenFileIds = data.sections?.flatMap((s) =>
-            s.assets.filter((a) => {
-              const v = a.firstSeenByClientAt;
-              const empty = v == null || (typeof v === 'string' && v.trim() === '');
-              return empty;
-            }).map((a) => a.fileId)
-          ) ?? [];
-          const toSend = unseenFileIds.filter((id) => !firstSeenInFlightRef.current.has(id));
-          if (toSend.length > 0) {
-            toSend.forEach((id) => firstSeenInFlightRef.current.add(id));
-            fetch('/api/review/assets/first-seen', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ token, fileIds: toSend }),
-            })
-              .catch(() => { /* non-blocking */ })
-              .finally(() => {
-                toSend.forEach((id) => firstSeenInFlightRef.current.delete(id));
-              });
-          }
-        }
-      })
-      .catch((err) => {
-        setRefreshError(err?.message ?? 'Request failed');
-      })
-      .finally(() => {
-        setIsRefreshing(false);
-      });
-  }, [token]);
+        })
+        .catch((err) => {
+          setRefreshError(err?.message ?? 'Request failed');
+        })
+        .finally(() => {
+          setIsRefreshing(false);
+        });
+    },
+    [token, selectedBatchId]
+  );
 
   // Fetch asset list after short delay (reduces contention with server render). Abort on unmount/token change.
   useEffect(() => {
@@ -472,12 +495,13 @@ function ReviewPortalClientInner({
   }, [token, selectedFileIds, doRefresh, identity]);
 
   const handleMarkSeen = useCallback(() => {
-    if (!deliveryContext) return;
+    const batchId = selectedBatchId ?? deliveryContext?.deliveryBatchId;
+    if (!batchId) return;
     setMarkingSeen(true);
     fetch('/api/review/partners/mark-seen', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, batchId }),
     })
       .then((res) => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(() => {
@@ -488,7 +512,7 @@ function ReviewPortalClientInner({
         setToast({ message: err?.message ?? 'Failed to mark as seen', type: 'error' });
       })
       .finally(() => setMarkingSeen(false));
-  }, [token, deliveryContext, doRefresh]);
+  }, [token, selectedBatchId, deliveryContext, doRefresh]);
 
   const handleMarkDownloaded = useCallback(
     (fileIds: string[]) => {
@@ -539,15 +563,19 @@ function ReviewPortalClientInner({
   );
 
   const handleDeliverApproved = useCallback(() => {
-    if (!deliveryContext || deliverableFileIds.length === 0) return;
+    const batchId = selectedBatchId ?? deliveryContext?.deliveryBatchId;
+    const destFolderId =
+      deliveryContext?.destinationFolderId ??
+      deliveryBatches.find((b) => b.batchId === batchId)?.destinationFolderId;
+    if (!batchId || !destFolderId || deliverableFileIds.length === 0) return;
     setDeliverApprovedState('running');
     fetch('/api/review/assets/deliver-batch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         token,
-        deliveryBatchId: deliveryContext.deliveryBatchId,
-        destinationFolderId: deliveryContext.destinationFolderId,
+        deliveryBatchId: batchId,
+        destinationFolderId: destFolderId,
         approvedFileIds: deliverableFileIds,
       }),
     })
@@ -587,7 +615,7 @@ function ReviewPortalClientInner({
           type: 'error',
         });
       });
-  }, [token, deliveryContext, deliverableFileIds, deliverableCount, doRefresh]);
+  }, [token, selectedBatchId, deliveryContext, deliveryBatches, deliverableFileIds, deliverableCount, doRefresh]);
 
   const openDeliverConfirm = useCallback(() => {
     setDeliverApprovedState('idle');
@@ -662,6 +690,32 @@ function ReviewPortalClientInner({
             )}
           </div>
         </div>
+
+        {/* Batch selector when multiple batches (default = selectedBatchId from API) */}
+        {deliveryBatches.length > 1 && (
+          <div className="mb-4 flex items-center gap-2">
+            <label htmlFor="review-batch-select" className="text-sm font-medium text-gray-300">
+              Batch:
+            </label>
+            <select
+              id="review-batch-select"
+              value={selectedBatchId ?? ''}
+              onChange={(e) => {
+                const next = e.target.value || null;
+                setSelectedBatchId(next);
+                doRefresh(next ?? undefined);
+              }}
+              disabled={isRefreshing}
+              className="rounded-md border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-gray-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 disabled:opacity-50"
+            >
+              {deliveryBatches.map((b) => (
+                <option key={b.batchId} value={b.batchId}>
+                  {b.batchId} {b.status ? `(${b.status})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Partner view tabs: New, All Approved, Downloaded (only when deliveryContext) */}
         {deliveryContext && (

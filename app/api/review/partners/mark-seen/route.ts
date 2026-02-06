@@ -1,11 +1,16 @@
 // app/api/review/partners/mark-seen/route.ts
-// POST: Record partner "Mark all as seen" — set Partner Last Seen At on the batch.
-// Body: { token, deliveryBatchId? }. If deliveryBatchId omitted, resolved from project's delivery context.
+// POST: Record partner "Mark all as seen" — set Partner Last Seen At on the Partner Delivery Batch record (per batch).
+// Body: { token, batchId? }. batchId (or deliveryBatchId / selectedBatchId) identifies the batch; if omitted, inferred from project default.
 // Does NOT run on page load; only when partner explicitly clicks "Mark all as seen".
 
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
-import { getBatchDetails, getDeliveryContextByProjectId } from '@/lib/airtable/partnerDeliveryBatches';
+import {
+  getBatchDetails,
+  getBatchDetailsInBase,
+  getDeliveryContextByProjectId,
+  getProjectDefaultBatchId,
+} from '@/lib/airtable/partnerDeliveryBatches';
 import { writePartnerActivityToRecord, PARTNER_DELIVERY_BATCHES_TABLE } from '@/lib/airtable/deliveryWriteBack';
 
 export const dynamic = 'force-dynamic';
@@ -13,7 +18,7 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 
 export async function POST(req: NextRequest) {
-  let body: { token?: string; deliveryBatchId?: string };
+  let body: { token?: string; batchId?: string; deliveryBatchId?: string; selectedBatchId?: string };
   try {
     body = await req.json();
   } catch {
@@ -21,7 +26,8 @@ export async function POST(req: NextRequest) {
   }
 
   const token = (body.token ?? '').toString().trim();
-  const deliveryBatchId = (body.deliveryBatchId ?? '').toString().trim() || null;
+  const batchIdParam =
+    (body.batchId ?? body.deliveryBatchId ?? body.selectedBatchId ?? '').toString().trim() || null;
 
   if (!token) {
     return NextResponse.json({ ok: false, error: 'Missing token' }, { status: 400, headers: NO_STORE });
@@ -32,14 +38,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 404, headers: NO_STORE });
   }
 
-  let batch = deliveryBatchId ? await getBatchDetails(deliveryBatchId) : null;
-  if (!batch && !deliveryBatchId) {
+  let batchId = batchIdParam;
+  if (!batchId) {
+    const defaultId = await getProjectDefaultBatchId(resolved.project.recordId).catch(() => null);
+    if (defaultId) batchId = defaultId;
+    else {
+      const ctx = await getDeliveryContextByProjectId(resolved.project.recordId);
+      if (ctx) batchId = ctx.deliveryBatchId;
+    }
+  }
+
+  let batch = batchId ? await getBatchDetails(batchId) : null;
+  if (!batch && batchId && process.env.PARTNER_DELIVERY_BASE_ID?.trim()) {
+    batch = await getBatchDetailsInBase(batchId, process.env.PARTNER_DELIVERY_BASE_ID.trim());
+  }
+  if (!batch && !batchId) {
     const ctx = await getDeliveryContextByProjectId(resolved.project.recordId);
     if (ctx) batch = ctx;
   }
   if (!batch) {
     return NextResponse.json(
-      { ok: false, error: deliveryBatchId ? 'Batch not found' : 'No delivery context for this project' },
+      { ok: false, error: batchId ? 'Batch not found' : 'No delivery batch for this project' },
       { status: 404, headers: NO_STORE }
     );
   }

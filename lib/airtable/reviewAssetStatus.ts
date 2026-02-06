@@ -266,6 +266,43 @@ export async function getApprovedAndNotDeliveredByBatchId(
 }
 
 /**
+ * Get the set of Drive file IDs (Source Folder ID) for assets that belong to a batch.
+ * Supports both Delivery Batch ID as text (Batch ID string) and as linked Partner Delivery Batch record.
+ * Used to scope GET /api/review/assets to the selected batch.
+ */
+export async function getDriveFileIdsForBatch(
+  token: string,
+  batchId: string,
+  batchRecordId?: string | null
+): Promise<Set<string>> {
+  const tokenEsc = String(token).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
+  const id = String(batchId).trim();
+  if (!tokenEsc || !id) return new Set();
+
+  const base = getBase();
+  const batchEsc = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  let formula: string;
+  if (batchRecordId && String(batchRecordId).trim()) {
+    const recEsc = String(batchRecordId).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
+    formula = `AND({Review Token} = "${tokenEsc}", OR({${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}", FIND("${recEsc}", ARRAYJOIN({${DELIVERY_BATCH_ID_FIELD}})) > 0))`;
+  } else {
+    formula = `AND({Review Token} = "${tokenEsc}", {${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}")`;
+  }
+
+  const records = await base(TABLE)
+    .select({ filterByFormula: formula })
+    .all();
+
+  const fileIds = new Set<string>();
+  for (const r of records) {
+    const raw = (r.fields as Record<string, unknown>)[SOURCE_FOLDER_ID_FIELD];
+    const driveId = typeof raw === 'string' ? raw.trim() : '';
+    if (driveId) fileIds.add(driveId);
+  }
+  return fileIds;
+}
+
+/**
  * Get CRAS record IDs for a batch and set of Drive file IDs.
  * Used to mark assets as delivered after portal-initiated delivery (client sends approvedFileIds).
  */

@@ -17,6 +17,11 @@ const VENDOR_NAME_FIELD = 'Vendor Name';
 const PARTNER_LAST_SEEN_AT_FIELD = 'Partner Last Seen At';
 const NEW_APPROVED_COUNT_FIELD = 'New Approved Count';
 const DOWNLOADED_COUNT_FIELD = 'Downloaded Count';
+/** Batch table: link to Projects (Option B – multiple batches per project). */
+const BATCH_PROJECT_LINK_FIELD = 'Project';
+/** Batch table: Status or Delivery Status (e.g. "Active", "Delivered"). */
+const BATCH_STATUS_FIELD = 'Status';
+const BATCH_DELIVERY_STATUS_FIELD = 'Delivery Status';
 
 /**
  * Get Destination Folder ID for a delivery batch by Batch ID.
@@ -43,26 +48,8 @@ export interface DeliveryBatchDetails {
   downloadedCount: number | null;
 }
 
-/**
- * Get batch details by Batch ID. Returns null if not found.
- */
-export async function getBatchDetails(
-  batchId: string
-): Promise<DeliveryBatchDetails | null> {
-  const id = String(batchId).trim();
-  if (!id) return null;
-
-  const base = getBase();
-  const escaped = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  const formula = `{${BATCH_ID_FIELD}} = "${escaped}"`;
-  const records = await base(TABLE)
-    .select({ filterByFormula: formula, maxRecords: 1 })
-    .firstPage();
-
-  if (records.length === 0) return null;
-
-  const record = records[0];
-  const f = record.fields as Record<string, unknown>;
+function mapRecordToBatchDetails(record: { id: string; fields: Record<string, unknown> }, batchId: string): DeliveryBatchDetails | null {
+  const f = record.fields;
   const dest = typeof f[DESTINATION_FOLDER_ID_FIELD] === 'string' ? (f[DESTINATION_FOLDER_ID_FIELD] as string).trim() : '';
   if (!dest) return null;
 
@@ -92,7 +79,7 @@ export async function getBatchDetails(
 
   return {
     recordId: record.id,
-    deliveryBatchId: id,
+    deliveryBatchId: batchId,
     destinationFolderId: dest,
     vendorName,
     partnerLastSeenAt,
@@ -101,9 +88,189 @@ export async function getBatchDetails(
   };
 }
 
+/**
+ * Get batch details by Batch ID from a specific Airtable base (REST API).
+ * Use when Partner Delivery Batches table is in a different base (e.g. Client PM).
+ */
+export async function getBatchDetailsInBase(
+  batchId: string,
+  baseId: string
+): Promise<DeliveryBatchDetails | null> {
+  const id = String(batchId).trim();
+  if (!id || !baseId) return null;
+
+  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+  if (!apiKey) return null;
+
+  const escaped = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const formula = encodeURIComponent(`{${BATCH_ID_FIELD}} = "${escaped}"`);
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}?maxRecords=1&filterByFormula=${formula}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+  if (!res.ok) return null;
+
+  const json = (await res.json()) as { records?: Array<{ id: string; fields: Record<string, unknown> }> };
+  const record = json.records?.[0];
+  if (!record) return null;
+  return mapRecordToBatchDetails(record, id);
+}
+
+/**
+ * Get batch details by Batch ID. Uses default base (getBase()).
+ * Returns null if not found or Destination Folder ID is empty.
+ */
+export async function getBatchDetails(
+  batchId: string
+): Promise<DeliveryBatchDetails | null> {
+  const id = String(batchId).trim();
+  if (!id) return null;
+
+  const base = getBase();
+  const escaped = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const formula = `{${BATCH_ID_FIELD}} = "${escaped}"`;
+  const records = await base(TABLE)
+    .select({ filterByFormula: formula, maxRecords: 1 })
+    .firstPage();
+
+  if (records.length === 0) return null;
+  return mapRecordToBatchDetails(records[0] as { id: string; fields: Record<string, unknown> }, id);
+}
+
 /** Project field: Delivery Batch ID (text) or link to Partner Delivery Batches. */
 const PROJECT_DELIVERY_BATCH_ID_FIELD = 'Delivery Batch ID';
 const PROJECT_DELIVERY_BATCH_LINK_FIELD = 'Partner Delivery Batch';
+/** Project field: default batch when partner has multiple (Option B). */
+const PROJECT_DEFAULT_PARTNER_BATCH_FIELD = 'Default Partner Batch';
+
+export interface DeliveryBatchListItem {
+  batchId: string;
+  destinationFolderId: string;
+  vendorName: string | null;
+  status: string;
+  recordId: string;
+  createdTime: string;
+}
+
+function escapeFormula(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function mapRecordToListItem(record: { id: string; fields: Record<string, unknown>; createdTime?: string }): DeliveryBatchListItem | null {
+  const f = record.fields;
+  const batchIdRaw = f[BATCH_ID_FIELD];
+  const batchId = typeof batchIdRaw === 'string' && batchIdRaw.trim() ? batchIdRaw.trim() : null;
+  const dest = typeof f[DESTINATION_FOLDER_ID_FIELD] === 'string' ? (f[DESTINATION_FOLDER_ID_FIELD] as string).trim() : '';
+  if (!batchId || !dest) return null;
+
+  const vendorRaw = f[VENDOR_NAME_FIELD];
+  const vendorName =
+    typeof vendorRaw === 'string' && vendorRaw.trim()
+      ? vendorRaw.trim()
+      : null;
+
+  const statusRaw = f[BATCH_STATUS_FIELD] ?? f[BATCH_DELIVERY_STATUS_FIELD];
+  const status = typeof statusRaw === 'string' && statusRaw.trim() ? statusRaw.trim() : '';
+
+  const createdTime = typeof (record as { createdTime?: string }).createdTime === 'string'
+    ? (record as { createdTime: string }).createdTime
+    : '';
+
+  return {
+    batchId,
+    destinationFolderId: dest,
+    vendorName,
+    status,
+    recordId: record.id,
+    createdTime,
+  };
+}
+
+/**
+ * List all Partner Delivery Batches linked to a project (Option B).
+ * Uses default base first; if empty and PARTNER_DELIVERY_BASE_ID is set, queries that base.
+ * Returns batches with batchId, destinationFolderId, vendorName, status, recordId, createdTime.
+ */
+export async function listBatchesByProjectId(
+  projectId: string
+): Promise<DeliveryBatchListItem[]> {
+  const id = String(projectId).trim();
+  if (!id) return [];
+
+  let list: DeliveryBatchListItem[] = [];
+
+  const base = getBase();
+  const formula = `FIND("${escapeFormula(id)}", ARRAYJOIN({${BATCH_PROJECT_LINK_FIELD}})) > 0`;
+  try {
+    const records = await base(TABLE)
+      .select({ filterByFormula: formula })
+      .firstPage();
+    for (const rec of records) {
+      const r = rec as { id: string; fields: Record<string, unknown>; createdTime?: string };
+      const item = mapRecordToListItem(r);
+      if (item) list.push(item);
+    }
+  } catch {
+    list = [];
+  }
+
+  if (list.length === 0 && process.env.PARTNER_DELIVERY_BASE_ID?.trim()) {
+    list = await listBatchesByProjectIdInBase(id, process.env.PARTNER_DELIVERY_BASE_ID.trim());
+  }
+
+  return list;
+}
+
+/**
+ * List batches by project from a specific base (REST API).
+ */
+export async function listBatchesByProjectIdInBase(
+  projectId: string,
+  baseId: string
+): Promise<DeliveryBatchListItem[]> {
+  const id = String(projectId).trim();
+  if (!id || !baseId) return [];
+
+  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+  if (!apiKey) return [];
+
+  const formula = encodeURIComponent(`FIND("${escapeFormula(id)}", ARRAYJOIN({${BATCH_PROJECT_LINK_FIELD}})) > 0`);
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}?filterByFormula=${formula}&pageSize=100`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+  if (!res.ok) return [];
+
+  const json = (await res.json()) as { records?: Array<{ id: string; fields: Record<string, unknown>; createdTime?: string }> };
+  const records = json.records ?? [];
+  const list: DeliveryBatchListItem[] = [];
+  for (const rec of records) {
+    const item = mapRecordToListItem(rec);
+    if (item) list.push(item);
+  }
+  return list;
+}
+
+/**
+ * Get the Project's default Partner Batch ID (Batch ID string) for selection.
+ * Reads Project's "Default Partner Batch" link and returns that batch's Batch ID.
+ */
+export async function getProjectDefaultBatchId(projectId: string): Promise<string | null> {
+  const base = getBase();
+  const projectsTable = AIRTABLE_TABLES.PROJECTS;
+  try {
+    const projectRecord = await base(projectsTable).find(projectId);
+    const fields = projectRecord.fields as Record<string, unknown>;
+    const linkVal = fields[PROJECT_DEFAULT_PARTNER_BATCH_FIELD];
+    if (!Array.isArray(linkVal) || linkVal.length === 0) return null;
+    const first = linkVal[0];
+    const linkedRecordId = typeof first === 'string' ? first : (first as { id?: string })?.id;
+    if (!linkedRecordId) return null;
+
+    const batchRecord = await base(TABLE).find(linkedRecordId);
+    const batchFields = batchRecord.fields as Record<string, unknown>;
+    const batchId = typeof batchFields[BATCH_ID_FIELD] === 'string' ? (batchFields[BATCH_ID_FIELD] as string).trim() : null;
+    return batchId || null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Get delivery context for a project (batch id, destination folder, vendor).
@@ -137,7 +304,12 @@ export async function getDeliveryContextByProjectId(
   }
 
   if (!batchId) return null;
-  return getBatchDetails(batchId);
+
+  let details = await getBatchDetails(batchId);
+  if (!details && process.env.PARTNER_DELIVERY_BASE_ID?.trim()) {
+    details = await getBatchDetailsInBase(batchId, process.env.PARTNER_DELIVERY_BASE_ID.trim());
+  }
+  return details;
 }
 
 export interface DeliveryResultPayload {

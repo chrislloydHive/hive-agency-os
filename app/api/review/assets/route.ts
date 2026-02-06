@@ -7,9 +7,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { getReviewFolderMap, getReviewFolderMapFromJobFolderPartial, getReviewFolderMapFromClientProjectsFolder } from '@/lib/review/reviewFolders';
-import { listAssetStatuses } from '@/lib/airtable/reviewAssetStatus';
+import { listAssetStatuses, getDriveFileIdsForBatch } from '@/lib/airtable/reviewAssetStatus';
 import { getGroupApprovals, groupKey } from '@/lib/airtable/reviewGroupApprovals';
-import { getDeliveryContextByProjectId } from '@/lib/airtable/partnerDeliveryBatches';
+import {
+  getDeliveryContextByProjectId,
+  listBatchesByProjectId,
+  getProjectDefaultBatchId,
+  getBatchDetails,
+  getBatchDetailsInBase,
+  type DeliveryBatchListItem,
+} from '@/lib/airtable/partnerDeliveryBatches';
 import type { drive_v3 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
@@ -109,6 +116,7 @@ export async function GET(req: NextRequest) {
     }
 
     const debugFlag = req.nextUrl.searchParams.get('debug') === '1';
+    const batchIdParam = req.nextUrl.searchParams.get('batchId')?.trim() || null;
 
     const resolved = await resolveReviewProject(token);
   if (!resolved) {
@@ -272,11 +280,73 @@ export async function GET(req: NextRequest) {
   const totalFiles = sections.reduce((sum, s) => sum + s.assets.length, 0);
   const lastFetchedAt = new Date().toISOString();
 
+  // Option B: multiple batches per project; partner can switch via ?batchId=
+  let deliveryBatches: DeliveryBatchListItem[] = [];
+  let selectedBatchId: string | null = null;
   let deliveryContext: Awaited<ReturnType<typeof getDeliveryContextByProjectId>> = null;
+
   try {
-    deliveryContext = await getDeliveryContextByProjectId(project.recordId);
+    deliveryBatches = await listBatchesByProjectId(project.recordId);
   } catch (err) {
-    console.warn('[review/assets] getDeliveryContextByProjectId failed:', err instanceof Error ? err.message : err);
+    console.warn('[review/assets] listBatchesByProjectId failed:', err instanceof Error ? err.message : err);
+  }
+
+  // Sort: Active first, then most recently created
+  deliveryBatches.sort((a, b) => {
+    const aActive = a.status.toLowerCase() === 'active' ? 0 : 1;
+    const bActive = b.status.toLowerCase() === 'active' ? 0 : 1;
+    if (aActive !== bActive) return aActive - bActive;
+    const aTime = a.createdTime ? new Date(a.createdTime).getTime() : 0;
+    const bTime = b.createdTime ? new Date(b.createdTime).getTime() : 0;
+    return bTime - aTime;
+  });
+
+  const defaultBatchId = await getProjectDefaultBatchId(project.recordId).catch(() => null);
+
+  if (deliveryBatches.length > 0) {
+    const batchIds = new Set(deliveryBatches.map((b) => b.batchId));
+    if (batchIdParam && batchIds.has(batchIdParam)) {
+      selectedBatchId = batchIdParam;
+    } else if (defaultBatchId && batchIds.has(defaultBatchId)) {
+      selectedBatchId = defaultBatchId;
+    } else {
+      const firstActive = deliveryBatches.find((b) => b.status.toLowerCase() === 'active');
+      selectedBatchId = (firstActive ?? deliveryBatches[0]).batchId;
+    }
+  }
+
+  if (selectedBatchId) {
+    deliveryContext = await getBatchDetails(selectedBatchId);
+    if (!deliveryContext && process.env.PARTNER_DELIVERY_BASE_ID?.trim()) {
+      deliveryContext = await getBatchDetailsInBase(selectedBatchId, process.env.PARTNER_DELIVERY_BASE_ID.trim());
+    }
+  }
+
+  if (!deliveryContext && deliveryBatches.length === 0) {
+    try {
+      deliveryContext = await getDeliveryContextByProjectId(project.recordId);
+      if (deliveryContext) selectedBatchId = deliveryContext.deliveryBatchId;
+    } catch (err) {
+      console.warn('[review/assets] getDeliveryContextByProjectId failed:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  // Scope assets to the selected batch when we have one (batchId param or defaulted selectedBatchId)
+  let batchFileIds: Set<string> | null = null;
+  if (selectedBatchId) {
+    const selectedBatchRecordId = deliveryBatches.find((b) => b.batchId === selectedBatchId)?.recordId ?? null;
+    try {
+      batchFileIds = await getDriveFileIdsForBatch(token, selectedBatchId, selectedBatchRecordId);
+    } catch (err) {
+      console.warn('[review/assets] getDriveFileIdsForBatch failed:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  if (batchFileIds !== null) {
+    for (const section of sections) {
+      section.assets = section.assets.filter((a) => batchFileIds!.has(a.fileId));
+      section.fileCount = section.assets.length;
+    }
   }
 
   const partnerLastSeenAt = deliveryContext?.partnerLastSeenAt ?? null;
@@ -297,6 +367,14 @@ export async function GET(req: NextRequest) {
     lastFetchedAt,
     count: { sections: sections.length, files: totalFiles },
     sections,
+    deliveryBatches: deliveryBatches.map((b) => ({
+      batchId: b.batchId,
+      destinationFolderId: b.destinationFolderId,
+      vendorName: b.vendorName,
+      status: b.status,
+      recordId: b.recordId,
+    })),
+    ...(selectedBatchId && { selectedBatchId }),
     ...(deliveryContext && { deliveryContext }),
     counts: {
       newApproved: newApprovedCount,

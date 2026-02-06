@@ -1,10 +1,15 @@
 // app/api/review/assets/deliver-batch/route.ts
 // POST: Portal-initiated vendor delivery. Delivers approved (and not-yet-delivered) assets.
 // Body: { token, deliveryBatchId, destinationFolderId, approvedFileIds }.
+// Server validates that destinationFolderId belongs to the given batch. Write-back marks only assets in that batch.
 // Auth: token (review portal); no webhook secret required.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { runPartnerDeliveryByBatch } from '@/lib/delivery/partnerDelivery';
+import {
+  getDestinationFolderIdByBatchId,
+  getBatchDetailsInBase,
+} from '@/lib/airtable/partnerDeliveryBatches';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,6 +43,28 @@ export async function POST(req: NextRequest) {
   }
   if (!approvedFileIds?.length) {
     return NextResponse.json({ ok: false, error: 'No approved assets to deliver' }, { status: 400, headers: NO_STORE });
+  }
+
+  // Validate that destinationFolderId belongs to this batch (prevent mismatch).
+  if (destinationFolderId) {
+    let batchDestinationFolderId: string | null =
+      await getDestinationFolderIdByBatchId(deliveryBatchId);
+    if (!batchDestinationFolderId && process.env.PARTNER_DELIVERY_BASE_ID?.trim()) {
+      const details = await getBatchDetailsInBase(
+        deliveryBatchId,
+        process.env.PARTNER_DELIVERY_BASE_ID.trim()
+      );
+      batchDestinationFolderId = details?.destinationFolderId ?? null;
+    }
+    if (
+      batchDestinationFolderId != null &&
+      destinationFolderId.trim() !== batchDestinationFolderId.trim()
+    ) {
+      return NextResponse.json(
+        { ok: false, error: 'destinationFolderId does not match the batch' },
+        { status: 400, headers: NO_STORE }
+      );
+    }
   }
 
   const oidcToken = req.headers.get('x-vercel-oidc-token')?.trim() || undefined;
