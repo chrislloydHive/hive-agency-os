@@ -106,6 +106,22 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, comments }, { headers: NO_STORE_HEADERS });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    const errorObj = err && typeof err === 'object' ? err as Record<string, unknown> : null;
+    
+    // Check for authorization errors
+    const isAuthError = errorObj !== null &&
+      ((errorObj.statusCode === 403) ||
+      (errorObj.error === 'NOT_AUTHORIZED') ||
+      message.includes('NOT_AUTHORIZED') || 
+      message.includes('not authorized') ||
+      message.includes('You are not authorized'));
+    
+    if (isAuthError) {
+      console.warn(`[review/comments] Not authorized to access ${AIRTABLE_TABLES.CREATIVE_REVIEW_COMMENTS} table. Check Airtable token permissions.`);
+      // Return empty comments array instead of error (graceful degradation)
+      return NextResponse.json({ ok: true, comments: [] }, { headers: NO_STORE_HEADERS });
+    }
+    
     console.error('[review/comments] GET error:', message);
     return NextResponse.json({ error: 'Failed to fetch comments' }, { status: 500 });
   }
