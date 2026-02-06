@@ -97,9 +97,9 @@ async function fetchAllWorkItems() {
         notes: record.fields['Notes'] as string,
         effort: record.fields['Effort'] as string,
         impact: record.fields['Impact'] as string,
-        // Use Airtable's built-in createdTime if 'Created At' field doesn't exist
-        createdAt: (record.fields['Created At'] as string) || record.createdTime || '',
-        updatedAt: (record.fields['Updated At'] as string) || record.createdTime || '',
+        // Use empty string if 'Created At' field doesn't exist (field may not exist in table)
+        createdAt: (record.fields['Created At'] as string) || '',
+        updatedAt: (record.fields['Updated At'] as string) || '',
         lastTouchedAt: (record.fields['Last Touched At'] as string) || '',
         aiAdditionalInfo: record.fields['AI Additional Info'] as string,
         source,
