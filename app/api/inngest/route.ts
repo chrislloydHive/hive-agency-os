@@ -26,6 +26,7 @@ import {
   weeklyBriefMonday,
   weeklyBriefOnDemand,
 } from '@/lib/inngest/functions/weekly-brief';
+import { runPendingDeliveriesScheduled } from '@/lib/inngest/functions/run-pending-deliveries';
 
 // Serve all functions
 export const { GET, POST, PUT } = serve({
@@ -54,5 +55,7 @@ export const { GET, POST, PUT } = serve({
     // Weekly Brief Generation
     weeklyBriefMonday,
     weeklyBriefOnDemand,
+    // Partner delivery: process CRAS Ready to Deliver (Webhook) without Airtable fetch
+    runPendingDeliveriesScheduled,
   ],
 });

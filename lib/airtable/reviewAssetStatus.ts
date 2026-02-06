@@ -47,6 +47,9 @@ export const PARTNER_DOWNLOADED_AT_FIELD = 'Partner Downloaded At';
 /** Airtable field: Partner Download Started At (when stream began; optional, for visibility). */
 export const PARTNER_DOWNLOAD_STARTED_AT_FIELD = 'Partner Download Started At';
 
+/** Airtable field: Ready to Deliver (Webhook) – when true, backend worker runs delivery (no Airtable fetch). */
+export const READY_TO_DELIVER_WEBHOOK_FIELD = 'Ready to Deliver (Webhook)';
+
 export interface StatusRecord {
   recordId: string;
   status: AssetStatusValue;
@@ -266,6 +269,46 @@ export async function getApprovedAndNotDeliveredByBatchId(
     if (driveId) {
       out.push({ recordId: r.id, driveId });
     }
+  }
+  return out;
+}
+
+/** Pending webhook delivery row: CRAS record flagged for delivery, not yet delivered. */
+export interface PendingWebhookDeliveryRecord {
+  recordId: string;
+  sourceFolderId: string;
+  /** Batch ID string (e.g. "Batch 1") or first linked batch record id (e.g. "recXXX"). */
+  deliveryBatchIdRaw: string;
+}
+
+/**
+ * List CRAS records where Ready to Deliver (Webhook) = true and not yet delivered.
+ * Used by the backend worker so Airtable only sets flags (no outbound fetch).
+ * Idempotent: skip records that already have Delivered At set (formula) or Delivered = true.
+ */
+export async function getPendingWebhookDeliveryRecords(): Promise<PendingWebhookDeliveryRecord[]> {
+  const base = getBase();
+  const formula = `AND({${READY_TO_DELIVER_WEBHOOK_FIELD}} = TRUE(), ISBLANK({${DELIVERED_AT_FIELD}}))`;
+  const records = await base(TABLE)
+    .select({ filterByFormula: formula })
+    .all();
+
+  const out: PendingWebhookDeliveryRecord[] = [];
+  for (const r of records) {
+    const f = r.fields as Record<string, unknown>;
+    const sourceFolderId = typeof f[SOURCE_FOLDER_ID_FIELD] === 'string' ? (f[SOURCE_FOLDER_ID_FIELD] as string).trim() : '';
+    if (!sourceFolderId) continue;
+
+    const batchRaw = f[DELIVERY_BATCH_ID_FIELD];
+    let deliveryBatchIdRaw = '';
+    if (Array.isArray(batchRaw) && batchRaw.length > 0 && typeof batchRaw[0] === 'string') {
+      deliveryBatchIdRaw = (batchRaw[0] as string).trim();
+    } else if (typeof batchRaw === 'string' && batchRaw.trim()) {
+      deliveryBatchIdRaw = (batchRaw as string).trim();
+    }
+    if (!deliveryBatchIdRaw) continue;
+
+    out.push({ recordId: r.id, sourceFolderId, deliveryBatchIdRaw });
   }
   return out;
 }

@@ -135,6 +135,29 @@ export async function getBatchDetails(
   return mapRecordToBatchDetails(records[0] as { id: string; fields: Record<string, unknown> }, id);
 }
 
+/**
+ * Get batch details by Partner Delivery Batches record ID (e.g. from CRAS link field).
+ * Use when CRAS stores a link to the batch record instead of the Batch ID string.
+ */
+export async function getBatchDetailsByRecordId(
+  batchRecordId: string
+): Promise<DeliveryBatchDetails | null> {
+  const id = String(batchRecordId).trim();
+  if (!id) return null;
+
+  const base = getBase();
+  try {
+    const record = await base(TABLE).find(id);
+    const f = record.fields as Record<string, unknown>;
+    const batchId = typeof f[BATCH_ID_FIELD] === 'string' ? (f[BATCH_ID_FIELD] as string).trim() : id;
+    return mapRecordToBatchDetails(record as { id: string; fields: Record<string, unknown> }, batchId);
+  } catch (err: unknown) {
+    const code = typeof err === 'object' && err !== null && 'statusCode' in err ? (err as { statusCode: number }).statusCode : undefined;
+    if (code === 404) return null;
+    throw err;
+  }
+}
+
 /** Project field: Delivery Batch ID (text) or link to Partner Delivery Batches. */
 const PROJECT_DELIVERY_BATCH_ID_FIELD = 'Delivery Batch ID';
 const PROJECT_DELIVERY_BATCH_LINK_FIELD = 'Partner Delivery Batch';

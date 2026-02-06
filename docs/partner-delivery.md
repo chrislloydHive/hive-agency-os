@@ -1,6 +1,10 @@
 # Partner Delivery (Airtable webhook → Hive OS)
 
-Automated partner delivery: when an asset is ready, Airtable automation calls a Hive OS endpoint. The app copies the Google Drive file into a destination folder and updates the Creative Review Asset Status record.
+Automated partner delivery: when an asset is ready, Hive OS runs delivery and updates the Creative Review Asset Status record.
+
+**Preferred (no Airtable fetch):** If Airtable has disabled `fetch()` in automations, use the **backend worker**: Airtable only sets **Ready to Deliver (Webhook)** = true; a scheduled job (Inngest cron or internal endpoint) processes pending records. See **[Partner Delivery: Backend Worker](partner-delivery-backend-worker.md)**.
+
+**Legacy (Airtable webhook):** When Airtable can call outbound HTTP, an automation can still call the Hive OS endpoint below. The app copies the Google Drive file into a destination folder and updates the Creative Review Asset Status record.
 
 ## Environment
 

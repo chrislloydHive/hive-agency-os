@@ -1,0 +1,28 @@
+// lib/inngest/functions/run-pending-deliveries.ts
+// Scheduled job: process CRAS records where Ready to Deliver (Webhook) = true.
+// Replaces Airtable Run Script / Webhook automations; Airtable only sets flags, this runs delivery.
+// Runs every 5 minutes. Idempotent; safe to re-run.
+
+import { inngest } from '../client';
+import { runPendingDeliveries } from '@/lib/delivery/runPendingDeliveries';
+
+const CRON_SCHEDULE = '*/5 * * * *'; // Every 5 minutes
+
+export const runPendingDeliveriesScheduled = inngest.createFunction(
+  {
+    id: 'partner-delivery-run-pending',
+    name: 'Run Pending Partner Deliveries',
+    retries: 2,
+    concurrency: { limit: 1 },
+  },
+  { cron: CRON_SCHEDULE },
+  async () => {
+    const result = await runPendingDeliveries({ oidcToken: undefined });
+    if (result.processed > 0) {
+      console.log(
+        `[run-pending-deliveries] processed=${result.processed} succeeded=${result.succeeded} failed=${result.failed} skipped=${result.skipped}`
+      );
+    }
+    return result;
+  }
+);
