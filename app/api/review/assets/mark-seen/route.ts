@@ -1,8 +1,7 @@
-// app/api/review/partners/mark-seen/route.ts
-// POST: Record partner "Mark all as seen" — set Partner Last Seen At on the Partner Delivery Batch record (per batch).
-// Body: { token, batchId? }. batchId (or deliveryBatchId / selectedBatchId) identifies the batch; if omitted, inferred from project default.
-// Does NOT run on page load; only when partner explicitly clicks "Mark all as seen".
-// Logic shared with POST /api/review/assets/mark-seen.
+// app/api/review/assets/mark-seen/route.ts
+// POST: Batch-level "Mark all as seen". Body: { token, batchId }.
+// Resolves project via token, selected batch by batchId, writes Partner Last Seen At = now on the batch record.
+// Scoped to the selected batch (Option B). Use this from the portal when a batch is selected.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { markBatchSeen } from '@/lib/review/markBatchSeen';

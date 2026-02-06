@@ -80,10 +80,13 @@ function getBaseId(): string {
   return id;
 }
 
+/** CRAS datetime field: when partner completed download. Alias-safe candidate names. */
+export const CRAS_PARTNER_DOWNLOADED_AT_ALIASES = ['ID Partner Downloaded At', 'Partner Downloaded At'] as const;
+
 /**
  * Fetch table schema (field names + types + singleSelect choices) via Airtable Meta API.
  */
-async function getTableSchema(
+export async function getTableSchema(
   baseId: string,
   tableName: string
 ): Promise<{ fields: Map<string, TableFieldMeta>; writableNames: Set<string> }> {
@@ -135,7 +138,7 @@ async function getTableSchema(
 /**
  * Resolve first alias that exists in the table and is writable. Returns the Airtable field name or null.
  */
-function resolveAlias(
+export function resolveAlias(
   aliases: readonly string[],
   writableNames: Set<string>
 ): string | null {

@@ -10,6 +10,11 @@
 
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
+import {
+  getTableSchema,
+  resolveAlias,
+  CRAS_PARTNER_DOWNLOADED_AT_ALIASES,
+} from '@/lib/airtable/deliveryWriteBack';
 
 const TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 
@@ -334,13 +339,39 @@ export async function getRecordIdsByBatchIdAndFileIds(
 
 /**
  * Set Partner Downloaded At = now on a CRAS record (when stream completes successfully).
- * Safe: catches Airtable errors (e.g. missing field) and logs without throwing.
+ * Alias-safe: writes to "ID Partner Downloaded At" or "Partner Downloaded At" if present.
+ * Does not throw if the field is missing (log + skip). In dev, logs { recordId, wrotePartnerDownloadedAt: true }.
  */
 export async function setPartnerDownloadedAt(recordId: string): Promise<boolean> {
   const base = getBase();
   const now = new Date().toISOString();
+  const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
+
+  if (baseId) {
+    try {
+      const schema = await getTableSchema(baseId, TABLE);
+      const alias = resolveAlias(CRAS_PARTNER_DOWNLOADED_AT_ALIASES, schema.writableNames);
+      if (!alias) {
+        console.warn('[reviewAssetStatus] setPartnerDownloadedAt: no writable field found for Partner Downloaded At (tried: %s), skipping', CRAS_PARTNER_DOWNLOADED_AT_ALIASES.join(', '));
+        return false;
+      }
+      await base(TABLE).update(recordId, { [alias]: now } as any);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[reviewAssetStatus]', JSON.stringify({ recordId, wrotePartnerDownloadedAt: true }));
+      }
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn('[reviewAssetStatus] setPartnerDownloadedAt failed (alias path):', recordId, msg);
+      return false;
+    }
+  }
+
   try {
     await base(TABLE).update(recordId, { [PARTNER_DOWNLOADED_AT_FIELD]: now } as any);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[reviewAssetStatus]', JSON.stringify({ recordId, wrotePartnerDownloadedAt: true }));
+    }
     return true;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -509,7 +509,7 @@ function ReviewPortalClientInner({
     const batchId = selectedBatchId ?? deliveryContext?.deliveryBatchId;
     if (!batchId) return;
     setMarkingSeen(true);
-    fetch('/api/review/partners/mark-seen', {
+    fetch('/api/review/assets/mark-seen', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, batchId }),
