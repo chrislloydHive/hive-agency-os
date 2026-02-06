@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { updateGoogleTokens } from '@/lib/airtable/companyIntegrations';
+import { updateGoogleTokensForCompany } from '@/lib/airtable/companyIntegrations';
 import { getAppBaseUrl } from '@/lib/google/oauth';
 
 /**
@@ -113,11 +113,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Store tokens in CompanyIntegrations
-    await updateGoogleTokens(companyId, {
-      refreshToken: tokens.refresh_token || '',
+    // Store tokens in CompanyIntegrations (finds record by companyId or by RECORD_ID when reconnecting for review)
+    await updateGoogleTokensForCompany({
+      companyId,
+      refreshToken: tokens.refresh_token || undefined,
       accessToken: tokens.access_token || undefined,
-      accessTokenExpiresAt: tokens.expiry_date
+      expiresAt: tokens.expiry_date
         ? new Date(tokens.expiry_date).toISOString()
         : undefined,
       connectedEmail,

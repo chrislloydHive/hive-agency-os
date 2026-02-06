@@ -382,9 +382,12 @@ export type CompanyGoogleOAuth = {
 };
 
 export interface FindCompanyIntegrationArgs {
-  companyId: string;
+  /** Optional when looking up by clientCode or companyName only (e.g. reconnect for review when company is not in OS). */
+  companyId?: string | null;
   companyName?: string | null;
   clientCode?: string | null;
+  /** If set, only try this Airtable base (e.g. Client PM base where CompanyIntegrations lives). Use when table is not in DB/OS bases. */
+  baseIdOverride?: string | null;
 }
 
 export interface LookupAttempt {
@@ -533,6 +536,7 @@ export async function findCompanyIntegration({
   companyId,
   companyName,
   clientCode,
+  baseIdOverride,
 }: FindCompanyIntegrationArgs): Promise<FindCompanyIntegrationResult> {
   const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
   if (!apiKey) {
@@ -547,8 +551,12 @@ export async function findCompanyIntegration({
   const osBaseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
 
   const basesToTry: Array<{ label: string; baseId: string }> = [];
-  if (dbBaseId) basesToTry.push({ label: 'DB', baseId: dbBaseId });
-  if (osBaseId && osBaseId !== dbBaseId) basesToTry.push({ label: 'OS', baseId: osBaseId });
+  if (baseIdOverride && baseIdOverride.trim()) {
+    basesToTry.push({ label: 'Override', baseId: baseIdOverride.trim() });
+  } else {
+    if (dbBaseId) basesToTry.push({ label: 'DB', baseId: dbBaseId });
+    if (osBaseId && osBaseId !== dbBaseId) basesToTry.push({ label: 'OS', baseId: osBaseId });
+  }
 
   if (basesToTry.length === 0) {
     return {
@@ -560,14 +568,28 @@ export async function findCompanyIntegration({
 
   const tableName = 'CompanyIntegrations';
   const attempts: LookupAttempt[] = [];
+  const hasCompanyId = typeof companyId === 'string' && companyId.trim().length > 0;
+  const hasClientCode = typeof clientCode === 'string' && clientCode.trim().length > 0;
+  const hasCompanyName = typeof companyName === 'string' && companyName.trim().length > 0;
+  if (!hasCompanyId && !hasClientCode && !hasCompanyName) {
+    return {
+      record: null,
+      matchedBy: null,
+      debug: { attempts: [{ base: '-', baseId: '-', tableName: '-', formula: '-', status: 0, ok: false, recordCount: null, error: 'Provide at least one of companyId, clientCode, or companyName' }] },
+    };
+  }
 
   for (const base of basesToTry) {
     // Build lookup steps for this base
     type Step = { key: string; formula: string };
-    const steps: Step[] = [
-      { key: `CompanyId (${base.label})`, formula: `{CompanyId} = "${escapeFormulaValue(companyId)}"` },
-      { key: `RECORD_ID (${base.label})`, formula: `RECORD_ID() = "${escapeFormulaValue(companyId)}"` },
-    ];
+    const steps: Step[] = [];
+    if (hasCompanyId) {
+      const idVal = escapeFormulaValue(companyId!.trim());
+      steps.push(
+        { key: `CompanyId (${base.label})`, formula: `{CompanyId} = "${idVal}"` },
+        { key: `RECORD_ID (${base.label})`, formula: `RECORD_ID() = "${idVal}"` },
+      );
+    }
     if (clientCode) {
       steps.push({ key: `Client Code (${base.label})`, formula: `{Client Code} = "${escapeFormulaValue(clientCode)}"` });
     }

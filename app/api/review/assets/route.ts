@@ -352,8 +352,13 @@ export async function GET(req: NextRequest) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
     console.error('[review/assets] GET error:', message, stack);
+    const isInvalidGrant = /invalid_grant/i.test(message);
     return NextResponse.json(
-      { error: 'Failed to load assets', detail: message },
+      {
+        error: isInvalidGrant ? 'Google access expired or revoked' : 'Failed to load assets',
+        detail: message,
+        ...(isInvalidGrant && { code: 'GOOGLE_RECONNECT', hint: 'Reconnect Google for this company (CompanyIntegrations / Connect Google flow) to get a new refresh token.' }),
+      },
       { status: 500, headers: { 'Cache-Control': 'no-store, max-age=0' } }
     );
   }

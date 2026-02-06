@@ -38,6 +38,35 @@ function getLinkedRecordId(value: unknown): string | null {
 }
 
 /**
+ * Get company id (and optional client code) from a review portal token.
+ * Use for reconnect flows when you don't need the full OAuth client.
+ * Does not require the company to exist in the OS Companies table.
+ */
+export async function getReviewCompanyFromToken(token: string): Promise<{ companyId: string; clientCode?: string } | null> {
+  const osBase = getBase();
+  const escaped = token.replace(/"/g, '\\"');
+  let records;
+  try {
+    records = await osBase(AIRTABLE_TABLES.PROJECTS)
+      .select({
+        filterByFormula: `{Client Review Portal Token} = "${escaped}"`,
+        maxRecords: 1,
+      })
+      .firstPage();
+  } catch (err) {
+    console.error('[review/resolveProject] Airtable query failed:', err);
+    return null;
+  }
+  if (!records || records.length === 0) return null;
+  const fields = records[0].fields as Record<string, unknown>;
+  const companyId = getLinkedRecordId(fields['Client'] ?? fields['Company']);
+  if (!companyId) return null;
+  const projectClientCode = fields['Client Code'] ?? fields['ClientCode'];
+  const clientCode = typeof projectClientCode === 'string' && projectClientCode.trim().length > 0 ? projectClientCode.trim() : undefined;
+  return { companyId, clientCode };
+}
+
+/**
  * Resolve a Client Review Portal token to a project record and OAuth client.
  * Returns null if the token is invalid, the project is not found, or OAuth is unavailable.
  */
