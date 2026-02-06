@@ -79,14 +79,15 @@ async function listAllFiles(
 }
 
 export async function GET(req: NextRequest) {
-  const token = req.nextUrl.searchParams.get('token');
-  if (!token) {
-    return NextResponse.json({ error: 'Missing token' }, { status: 400 });
-  }
+  try {
+    const token = req.nextUrl.searchParams.get('token');
+    if (!token) {
+      return NextResponse.json({ error: 'Missing token' }, { status: 400 });
+    }
 
-  const debugFlag = req.nextUrl.searchParams.get('debug') === '1';
+    const debugFlag = req.nextUrl.searchParams.get('debug') === '1';
 
-  const resolved = await resolveReviewProject(token);
+    const resolved = await resolveReviewProject(token);
   if (!resolved) {
     return NextResponse.json({ error: 'Invalid or expired token' }, { status: 404 });
   }
@@ -282,6 +283,18 @@ export async function GET(req: NextRequest) {
   };
   if (debugFlag) {
     payload.debug = debug;
+    payload.folderResolution = {
+      jobFolderId,
+      projectName: project.name,
+      hubName: project.hubName,
+      usedJobFolderFromProject: !!project.jobFolderId,
+    };
+  }
+  if (totalFiles === 0) {
+    payload.emptyAssetsHint = {
+      message: 'No files found in variant folders. Expected: job folder → tactic (Audio, Display, …) → Prospecting/Retargeting; files as direct children of those folders.',
+      jobFolderId,
+    };
   }
 
   return NextResponse.json(payload, {
@@ -289,4 +302,13 @@ export async function GET(req: NextRequest) {
       'Cache-Control': 'no-store, max-age=0',
     },
   });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error('[review/assets] GET error:', message, stack);
+    return NextResponse.json(
+      { error: 'Failed to load assets', detail: message },
+      { status: 500, headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
+  }
 }
