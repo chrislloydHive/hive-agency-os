@@ -15,7 +15,7 @@ import {
   getProjectDefaultBatchId,
   getBatchDetails,
   getBatchDetailsInBase,
-  type DeliveryBatchListItem,
+  type BatchContext,
 } from '@/lib/airtable/partnerDeliveryBatches';
 import type { drive_v3 } from 'googleapis';
 
@@ -281,25 +281,15 @@ export async function GET(req: NextRequest) {
   const lastFetchedAt = new Date().toISOString();
 
   // Option B: multiple batches per project; partner can switch via ?batchId=
-  let deliveryBatches: DeliveryBatchListItem[] = [];
+  let deliveryBatches: BatchContext[] = [];
   let selectedBatchId: string | null = null;
-  let deliveryContext: Awaited<ReturnType<typeof getDeliveryContextByProjectId>> = null;
+  let deliveryContext: BatchContext | null = null;
 
   try {
     deliveryBatches = await listBatchesByProjectId(project.recordId);
   } catch (err) {
     console.warn('[review/assets] listBatchesByProjectId failed:', err instanceof Error ? err.message : err);
   }
-
-  // Sort: Active first, then most recently created
-  deliveryBatches.sort((a, b) => {
-    const aActive = a.status.toLowerCase() === 'active' ? 0 : 1;
-    const bActive = b.status.toLowerCase() === 'active' ? 0 : 1;
-    if (aActive !== bActive) return aActive - bActive;
-    const aTime = a.createdTime ? new Date(a.createdTime).getTime() : 0;
-    const bTime = b.createdTime ? new Date(b.createdTime).getTime() : 0;
-    return bTime - aTime;
-  });
 
   const defaultBatchId = await getProjectDefaultBatchId(project.recordId).catch(() => null);
 
@@ -310,22 +300,47 @@ export async function GET(req: NextRequest) {
     } else if (defaultBatchId && batchIds.has(defaultBatchId)) {
       selectedBatchId = defaultBatchId;
     } else {
-      const firstActive = deliveryBatches.find((b) => b.status.toLowerCase() === 'active');
+      const firstActive = deliveryBatches.find((b) => (b.status ?? '').toLowerCase() === 'active');
       selectedBatchId = (firstActive ?? deliveryBatches[0]).batchId;
     }
   }
 
-  if (selectedBatchId) {
-    deliveryContext = await getBatchDetails(selectedBatchId);
-    if (!deliveryContext && process.env.PARTNER_DELIVERY_BASE_ID?.trim()) {
-      deliveryContext = await getBatchDetailsInBase(selectedBatchId, process.env.PARTNER_DELIVERY_BASE_ID.trim());
+  if (selectedBatchId && deliveryBatches.length > 0) {
+    const selectedBatch = deliveryBatches.find((b) => b.batchId === selectedBatchId) ?? null;
+    if (selectedBatch) {
+      const details = await getBatchDetails(selectedBatchId);
+      const detailsInBase =
+        !details && process.env.PARTNER_DELIVERY_BASE_ID?.trim()
+          ? await getBatchDetailsInBase(selectedBatchId, process.env.PARTNER_DELIVERY_BASE_ID.trim())
+          : null;
+      const d = details ?? detailsInBase;
+      deliveryContext = {
+        ...selectedBatch,
+        partnerLastSeenAt: d?.partnerLastSeenAt ?? undefined,
+        // Backward compat for UI expecting deliveryContext.deliveryBatchId / .recordId
+        recordId: selectedBatch.batchRecordId,
+        deliveryBatchId: selectedBatch.batchId,
+      } as BatchContext & { recordId: string; deliveryBatchId: string };
     }
   }
 
   if (!deliveryContext && deliveryBatches.length === 0) {
     try {
-      deliveryContext = await getDeliveryContextByProjectId(project.recordId);
-      if (deliveryContext) selectedBatchId = deliveryContext.deliveryBatchId;
+      const ctx = await getDeliveryContextByProjectId(project.recordId);
+      if (ctx) {
+        selectedBatchId = ctx.deliveryBatchId;
+        deliveryContext = {
+          batchRecordId: ctx.recordId,
+          batchId: ctx.deliveryBatchId,
+          destinationFolderId: ctx.destinationFolderId,
+          destinationFolderUrl: `https://drive.google.com/drive/folders/${ctx.destinationFolderId}`,
+          vendorName: ctx.vendorName,
+          partnerName: ctx.vendorName,
+          partnerLastSeenAt: ctx.partnerLastSeenAt,
+          recordId: ctx.recordId,
+          deliveryBatchId: ctx.deliveryBatchId,
+        } as BatchContext & { recordId: string; deliveryBatchId: string };
+      }
     } catch (err) {
       console.warn('[review/assets] getDeliveryContextByProjectId failed:', err instanceof Error ? err.message : err);
     }
@@ -334,7 +349,7 @@ export async function GET(req: NextRequest) {
   // Scope assets to the selected batch when we have one (batchId param or defaulted selectedBatchId)
   let batchFileIds: Set<string> | null = null;
   if (selectedBatchId) {
-    const selectedBatchRecordId = deliveryBatches.find((b) => b.batchId === selectedBatchId)?.recordId ?? null;
+    const selectedBatchRecordId = deliveryBatches.find((b) => b.batchId === selectedBatchId)?.batchRecordId ?? null;
     try {
       batchFileIds = await getDriveFileIdsForBatch(token, selectedBatchId, selectedBatchRecordId);
     } catch (err) {
@@ -367,13 +382,7 @@ export async function GET(req: NextRequest) {
     lastFetchedAt,
     count: { sections: sections.length, files: totalFiles },
     sections,
-    deliveryBatches: deliveryBatches.map((b) => ({
-      batchId: b.batchId,
-      destinationFolderId: b.destinationFolderId,
-      vendorName: b.vendorName,
-      status: b.status,
-      recordId: b.recordId,
-    })),
+    deliveryBatches,
     ...(selectedBatchId && { selectedBatchId }),
     ...(deliveryContext && { deliveryContext }),
     counts: {

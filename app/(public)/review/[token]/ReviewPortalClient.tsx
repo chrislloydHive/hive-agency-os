@@ -43,22 +43,33 @@ interface TacticSectionData {
   newSinceApprovalCount?: number;
 }
 
+/** Selected batch context (backward compat: deliveryBatchId/recordId aliases). */
 export interface DeliveryContext {
   recordId?: string;
   deliveryBatchId: string;
+  batchId?: string;
+  batchRecordId?: string;
   destinationFolderId: string;
+  destinationFolderUrl?: string;
   vendorName: string | null;
+  partnerName?: string | null;
   partnerLastSeenAt?: string | null;
   newApprovedCount?: number | null;
   downloadedCount?: number | null;
+  status?: string;
+  createdTime?: string;
 }
 
-/** Batch option from GET /api/review/assets (deliveryBatches). */
+/** Batch context from GET /api/review/assets (deliveryBatches); Option B. */
 export interface DeliveryBatchOption {
+  batchRecordId?: string;
   batchId: string;
   destinationFolderId: string;
+  destinationFolderUrl?: string;
   vendorName?: string | null;
+  partnerName?: string | null;
   status?: string;
+  createdTime?: string;
   recordId?: string;
 }
 
@@ -634,7 +645,7 @@ function ReviewPortalClientInner({
             </h1>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-3">
-            {deliveryContext && (
+            {deliveryBatches.length > 0 && (
               <>
                 {(partnerTabCounts.new > 0 || deliveryContext) && (
                   <button
@@ -695,7 +706,7 @@ function ReviewPortalClientInner({
         {deliveryBatches.length > 1 && (
           <div className="mb-4 flex items-center gap-2">
             <label htmlFor="review-batch-select" className="text-sm font-medium text-gray-300">
-              Batch:
+              Batch
             </label>
             <select
               id="review-batch-select"
@@ -717,8 +728,8 @@ function ReviewPortalClientInner({
           </div>
         )}
 
-        {/* Partner view tabs: New, All Approved, Downloaded (only when deliveryContext) */}
-        {deliveryContext && (
+        {/* Partner view tabs: New, All Approved, Downloaded (when any batch exists) */}
+        {deliveryBatches.length > 0 && (
           <div className="mb-4 flex gap-2 border-b border-gray-700">
             {(
               [

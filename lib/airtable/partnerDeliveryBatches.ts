@@ -141,6 +141,20 @@ const PROJECT_DELIVERY_BATCH_LINK_FIELD = 'Partner Delivery Batch';
 /** Project field: default batch when partner has multiple (Option B). */
 const PROJECT_DEFAULT_PARTNER_BATCH_FIELD = 'Default Partner Batch';
 
+/** Option B: batch context for partner portal (list + selection). */
+export interface BatchContext {
+  batchRecordId: string;
+  batchId: string;
+  destinationFolderId: string;
+  destinationFolderUrl?: string;
+  vendorName?: string | null;
+  partnerName?: string | null;
+  status?: string;
+  createdTime?: string;
+  /** When partner last clicked "Mark all as seen" (selected batch only). */
+  partnerLastSeenAt?: string | null;
+}
+
 export interface DeliveryBatchListItem {
   batchId: string;
   destinationFolderId: string;
@@ -148,6 +162,23 @@ export interface DeliveryBatchListItem {
   status: string;
   recordId: string;
   createdTime: string;
+}
+
+function folderUrl(folderId: string): string {
+  return `https://drive.google.com/drive/folders/${folderId}`;
+}
+
+function listItemToBatchContext(item: DeliveryBatchListItem): BatchContext {
+  return {
+    batchRecordId: item.recordId,
+    batchId: item.batchId,
+    destinationFolderId: item.destinationFolderId,
+    destinationFolderUrl: folderUrl(item.destinationFolderId),
+    vendorName: item.vendorName,
+    partnerName: item.vendorName,
+    status: item.status || undefined,
+    createdTime: item.createdTime || undefined,
+  };
 }
 
 function escapeFormula(s: string): string {
@@ -187,11 +218,11 @@ function mapRecordToListItem(record: { id: string; fields: Record<string, unknow
 /**
  * List all Partner Delivery Batches linked to a project (Option B).
  * Uses default base first; if empty and PARTNER_DELIVERY_BASE_ID is set, queries that base.
- * Returns batches with batchId, destinationFolderId, vendorName, status, recordId, createdTime.
+ * Returns BatchContext[] sorted: Active first, then createdTime desc.
  */
 export async function listBatchesByProjectId(
   projectId: string
-): Promise<DeliveryBatchListItem[]> {
+): Promise<BatchContext[]> {
   const id = String(projectId).trim();
   if (!id) return [];
 
@@ -216,7 +247,16 @@ export async function listBatchesByProjectId(
     list = await listBatchesByProjectIdInBase(id, process.env.PARTNER_DELIVERY_BASE_ID.trim());
   }
 
-  return list;
+  list.sort((a, b) => {
+    const aActive = a.status.toLowerCase() === 'active' ? 0 : 1;
+    const bActive = b.status.toLowerCase() === 'active' ? 0 : 1;
+    if (aActive !== bActive) return aActive - bActive;
+    const aTime = a.createdTime ? new Date(a.createdTime).getTime() : 0;
+    const bTime = b.createdTime ? new Date(b.createdTime).getTime() : 0;
+    return bTime - aTime;
+  });
+
+  return list.map(listItemToBatchContext);
 }
 
 /**
