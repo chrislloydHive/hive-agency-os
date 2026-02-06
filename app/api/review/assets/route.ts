@@ -44,6 +44,8 @@ interface ReviewAsset {
   delivered?: boolean;
   /** Drive folder ID of the delivery run; null if not delivered. */
   deliveredFolderId?: string | null;
+  /** URL to open delivered folder/file in Drive; null if not delivered. */
+  deliveredFileUrl?: string | null;
   /** CRAS record id for delivery updates. */
   airtableRecordId?: string;
   /** When asset was approved (for "Newly Approved" tab: approvedAt > partnerLastSeenAt). */
@@ -228,6 +230,11 @@ export async function GET(req: NextRequest) {
     const rec = statusMap.get(key);
     return rec?.deliveredFolderId ?? null;
   };
+  const toDeliveredFileUrl = (fileId: string): string | null => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.deliveredFileUrl ?? null;
+  };
   const toAirtableRecordId = (fileId: string): string | undefined => {
     const key = `${token}::${fileId}`;
     const rec = statusMap.get(key);
@@ -273,6 +280,7 @@ export async function GET(req: NextRequest) {
       a.deliveredAt = toDeliveredAt(asset.fileId);
       a.delivered = toDelivered(asset.fileId);
       a.deliveredFolderId = toDeliveredFolderId(asset.fileId);
+      a.deliveredFileUrl = toDeliveredFileUrl(asset.fileId);
       a.airtableRecordId = toAirtableRecordId(asset.fileId);
       a.approvedAt = toApprovedAt(asset.fileId);
       a.approvedByName = toApprovedByName(asset.fileId);

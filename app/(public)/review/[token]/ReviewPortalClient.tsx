@@ -28,6 +28,8 @@ interface ReviewAsset {
   deliveredAt?: string | null;
   delivered?: boolean;
   deliveredFolderId?: string | null;
+  /** URL to open delivered folder/file in Drive. */
+  deliveredFileUrl?: string | null;
   airtableRecordId?: string;
   approvedAt?: string | null;
   approvedByName?: string | null;

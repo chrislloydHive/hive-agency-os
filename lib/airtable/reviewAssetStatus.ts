@@ -41,6 +41,9 @@ export const DELIVERED_CHECKBOX_FIELD = 'Delivered';
 /** Airtable field: Delivered Folder ID (Drive folder id for the delivery run). */
 export const DELIVERED_FOLDER_ID_FIELD = 'Delivered Folder ID';
 
+/** Airtable field names for delivered URL (folder or file); try both (alias-aware). */
+const DELIVERED_URL_FIELD_ALIASES = ['Delivered Folder URL', 'Delivered File URL'] as const;
+
 /** Airtable field: Partner Downloaded At (when partner completed download; drives "Downloaded" badge). */
 export const PARTNER_DOWNLOADED_AT_FIELD = 'Partner Downloaded At';
 
@@ -74,6 +77,8 @@ export interface StatusRecord {
   delivered: boolean;
   /** Drive folder ID of the delivery run; null if not delivered or unknown. */
   deliveredFolderId: string | null;
+  /** URL to open delivered folder/file in Drive; null if not delivered or unknown. */
+  deliveredFileUrl: string | null;
   /** When partner downloaded this asset in the portal; null = not downloaded. */
   partnerDownloadedAt: string | null;
 }
@@ -120,6 +125,15 @@ function recordToStatus(r: { id: string; fields: Record<string, unknown> }, toke
       ? deliveredFolderIdRaw.trim()
       : null;
   const delivered = deliveredCheckbox || (deliveredAt != null && deliveredAt.trim().length > 0);
+  let deliveredFileUrl: string | null = null;
+  for (const fieldName of DELIVERED_URL_FIELD_ALIASES) {
+    const raw = f[fieldName];
+    const url = parseUrl(raw);
+    if (url) {
+      deliveredFileUrl = url;
+      break;
+    }
+  }
   const partnerDownloadedAt = parseOptionalIsoString(f[PARTNER_DOWNLOADED_AT_FIELD]);
   return {
     recordId: r.id,
@@ -138,6 +152,7 @@ function recordToStatus(r: { id: string; fields: Record<string, unknown> }, toke
     deliveredAt,
     delivered,
     deliveredFolderId,
+    deliveredFileUrl,
     partnerDownloadedAt,
   };
 }

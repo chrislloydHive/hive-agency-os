@@ -20,6 +20,10 @@ interface ReviewAsset {
   assetApprovedClient?: boolean;
   deliveredAt?: string | null;
   delivered?: boolean;
+  /** URL to open delivered folder/file in Drive. */
+  deliveredFileUrl?: string | null;
+  /** Drive folder ID of delivery (fallback to build URL if deliveredFileUrl missing). */
+  deliveredFolderId?: string | null;
   approvedAt?: string | null;
   approvedByName?: string | null;
   approvedByEmail?: string | null;
@@ -442,7 +446,7 @@ function AssetCard({
   onToggleSelect,
   onDownloadAsset,
 }: {
-  asset: { fileId: string; name: string; mimeType: string; reviewState?: ReviewState; clickThroughUrl?: string | null; firstSeenByClientAt?: string | null; assetApprovedClient?: boolean; delivered?: boolean; partnerDownloadedAt?: string | null; approvedAt?: string | null; approvedByName?: string | null; approvedByEmail?: string | null; firstSeenAt?: string | null; lastSeenAt?: string | null };
+  asset: { fileId: string; name: string; mimeType: string; reviewState?: ReviewState; clickThroughUrl?: string | null; firstSeenByClientAt?: string | null; assetApprovedClient?: boolean; delivered?: boolean; deliveredFileUrl?: string | null; deliveredFolderId?: string | null; partnerDownloadedAt?: string | null; approvedAt?: string | null; approvedByName?: string | null; approvedByEmail?: string | null; firstSeenAt?: string | null; lastSeenAt?: string | null };
   token: string;
   onClick: () => void;
   selected?: boolean;
@@ -496,15 +500,27 @@ function AssetCard({
           {badgeLabel}
         </span>
         {(asset.delivered || asset.partnerDownloadedAt) && (
-          <div className="absolute right-2 top-2 z-10 flex flex-col gap-1">
-            {asset.delivered && (
-              <span
-                className="rounded bg-emerald-700/90 px-2 py-0.5 text-xs font-medium text-emerald-100"
-                title="Exported to vendor folder"
-              >
-                Exported
-              </span>
-            )}
+          <div className="absolute right-2 top-2 z-10 flex flex-col gap-1 items-end">
+            {asset.delivered &&
+              ((asset.deliveredFileUrl || asset.deliveredFolderId) ? (
+                <a
+                  href={asset.deliveredFileUrl ?? `https://drive.google.com/drive/folders/${asset.deliveredFolderId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="rounded bg-emerald-700/90 px-2 py-0.5 text-xs font-medium text-emerald-100 hover:bg-emerald-600 no-underline"
+                  title="Open in Google Drive"
+                >
+                  View in Drive →
+                </a>
+              ) : (
+                <span
+                  className="rounded bg-emerald-700/90 px-2 py-0.5 text-xs font-medium text-emerald-100"
+                  title="Exported to vendor folder"
+                >
+                  Exported
+                </span>
+              ))}
             {asset.partnerDownloadedAt && (
               <span
                 className="rounded bg-blue-700/90 px-2 py-0.5 text-xs font-medium text-blue-100"
