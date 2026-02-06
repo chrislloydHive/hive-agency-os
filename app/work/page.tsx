@@ -107,10 +107,11 @@ async function fetchAllWorkItems() {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const isAuthError = typeof error === 'object' && error !== null &&
-      ('statusCode' in error && (error as { statusCode: number }).statusCode === 403) ||
-      ('error' in error && (error as { error: string }).error === 'NOT_AUTHORIZED') ||
-      message.includes('NOT_AUTHORIZED') || message.includes('not authorized');
+    const errorObj = error && typeof error === 'object' ? error as Record<string, unknown> : null;
+    const isAuthError = errorObj !== null &&
+      ((errorObj.statusCode === 403) ||
+      (errorObj.error === 'NOT_AUTHORIZED') ||
+      message.includes('NOT_AUTHORIZED') || message.includes('not authorized'));
     
     if (isAuthError) {
       console.warn('[Work] Not authorized to access Work Items table. Check Airtable token permissions.');
