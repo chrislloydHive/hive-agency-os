@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { resolveApprovedAt } from '@/lib/review/approvedAt';
-import { setSingleAssetApprovedClient } from '@/lib/airtable/reviewAssetStatus';
+import { setSingleAssetApprovedClient, ensureCrasRecord } from '@/lib/airtable/reviewAssetStatus';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +19,10 @@ export async function POST(req: NextRequest) {
     approvedAt?: string;
     approvedByName?: string;
     approvedByEmail?: string;
+    deliveryBatchId?: string | null;
+    tactic?: string;
+    variant?: string;
+    filename?: string;
   };
   try {
     body = await req.json();
@@ -31,6 +35,10 @@ export async function POST(req: NextRequest) {
   const approvedAt = resolveApprovedAt(body.approvedAt);
   const approvedByName = (body.approvedByName ?? '').toString().trim() || undefined;
   const approvedByEmail = (body.approvedByEmail ?? '').toString().trim() || undefined;
+  const deliveryBatchId = body.deliveryBatchId != null ? String(body.deliveryBatchId).trim() || undefined : undefined;
+  const tactic = (body.tactic ?? '').toString().trim() || undefined;
+  const variant = (body.variant ?? '').toString().trim() || undefined;
+  const filename = (body.filename ?? '').toString().trim() || undefined;
 
   if (!token) {
     return NextResponse.json({ error: 'Missing token' }, { status: 400 });
@@ -44,12 +52,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid or expired token' }, { status: 404 });
   }
 
+  if (tactic && variant) {
+    await ensureCrasRecord({
+      token,
+      projectId: resolved.project.recordId,
+      driveFileId,
+      filename,
+      tactic,
+      variant,
+    });
+  }
+
   const result = await setSingleAssetApprovedClient({
     token,
     driveFileId,
     approvedAt,
     approvedByName,
     approvedByEmail,
+    deliveryBatchId: deliveryBatchId ?? undefined,
   });
 
   if ('error' in result) {

@@ -316,6 +316,7 @@ export default function ReviewSection({
           onAssetStatusChange={onAssetStatusChange}
           onApprovedResult={onSingleAssetApprovedResult}
           onPartnerDownload={onPartnerDownload}
+          deliveryBatchId={deliveryBatchId}
         />
       )}
 

@@ -231,14 +231,24 @@ function ReviewPortalClientInner({
 
   const updateAssetReviewState = useCallback(
     (variant: string, tactic: string, fileId: string, reviewState: ReviewState) => {
+      const now = new Date().toISOString();
       setSections((prev) =>
         prev.map((sec) => {
           if (sec.variant !== variant || sec.tactic !== tactic) return sec;
           return {
             ...sec,
-            assets: sec.assets.map((a) =>
-              a.fileId === fileId ? { ...a, reviewState } : a
-            ),
+            assets: sec.assets.map((a) => {
+              if (a.fileId !== fileId) return a;
+              const next = { ...a, reviewState };
+              if (reviewState === 'approved') {
+                next.assetApprovedClient = true;
+                next.firstSeenByClientAt = a.firstSeenByClientAt ?? now;
+              }
+              if (reviewState === 'seen') {
+                next.firstSeenByClientAt = a.firstSeenByClientAt ?? now;
+              }
+              return next;
+            }),
           };
         })
       );
@@ -458,6 +468,16 @@ function ReviewPortalClientInner({
   const handleApproveSelected = useCallback(() => {
     const fileIds = Array.from(selectedFileIds);
     if (fileIds.length === 0) return;
+    const batchId = selectedBatchId ?? deliveryContext?.deliveryBatchId ?? undefined;
+    const sectionsForApprove = sections
+      .map((sec) => {
+        const fileIdsInSection = sec.assets
+          .filter((a) => selectedFileIds.has(a.fileId))
+          .map((a) => a.fileId);
+        if (fileIdsInSection.length === 0) return null;
+        return { variant: sec.variant, tactic: sec.tactic, fileIds: fileIdsInSection };
+      })
+      .filter((s): s is { variant: string; tactic: string; fileIds: string[] } => s != null);
     setBulkApproving(true);
     setToast(null);
     fetch('/api/review/assets/bulk-approve', {
@@ -470,6 +490,8 @@ function ReviewPortalClientInner({
         approvedAt: new Date().toISOString(),
         approvedByName: identity?.name,
         approvedByEmail: identity?.email,
+        deliveryBatchId: batchId ?? undefined,
+        sections: sectionsForApprove,
       }),
     })
       .then((res) => res.json())
@@ -503,7 +525,7 @@ function ReviewPortalClientInner({
       .finally(() => {
         setBulkApproving(false);
       });
-  }, [token, selectedFileIds, doRefresh, identity]);
+  }, [token, selectedFileIds, sections, selectedBatchId, deliveryContext?.deliveryBatchId, doRefresh, identity]);
 
   const handleMarkSeen = useCallback(() => {
     const batchId = selectedBatchId ?? deliveryContext?.deliveryBatchId;

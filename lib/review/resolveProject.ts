@@ -3,13 +3,17 @@
 // Used by both the public review page and the Drive file proxy API.
 
 import { google } from 'googleapis';
-import { getBase } from '@/lib/airtable';
+import { getBase, getProjectsBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { getCompanyGoogleOAuthFromDBBase, findCompanyIntegration } from '@/lib/airtable/companyIntegrations';
 import { getCompanyOAuthClient } from '@/lib/integrations/googleDrive';
 import type { OAuth2Client } from 'google-auth-library';
 
 const COMPANY_FIELD_CANDIDATES = ['Client', 'Company'] as const;
+
+/** Projects table: field that stores the review portal token. Override with REVIEW_PORTAL_TOKEN_FIELD if your base uses a different name. */
+const REVIEW_PORTAL_TOKEN_FIELD =
+  (typeof process !== 'undefined' && process.env?.REVIEW_PORTAL_TOKEN_FIELD?.trim()) || 'Client Review Portal Token';
 
 export interface ResolvedReviewProject {
   project: {
@@ -43,18 +47,27 @@ function getLinkedRecordId(value: unknown): string | null {
  * Does not require the company to exist in the OS Companies table.
  */
 export async function getReviewCompanyFromToken(token: string): Promise<{ companyId: string; clientCode?: string } | null> {
-  const osBase = getBase();
+  const projectsBase = getProjectsBase();
   const escaped = token.replace(/"/g, '\\"');
   let records;
   try {
-    records = await osBase(AIRTABLE_TABLES.PROJECTS)
+    records = await projectsBase(AIRTABLE_TABLES.PROJECTS)
       .select({
-        filterByFormula: `{Client Review Portal Token} = "${escaped}"`,
+        filterByFormula: `{${REVIEW_PORTAL_TOKEN_FIELD}} = "${escaped}"`,
         maxRecords: 1,
       })
       .firstPage();
   } catch (err) {
     console.error('[review/resolveProject] Airtable query failed:', err);
+    const errStr = err instanceof Error ? err.message : String(err);
+    const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
+    if (baseId && errStr.includes('Unknown field')) {
+      const projectsBaseId = process.env.AIRTABLE_PROJECTS_BASE_ID || process.env.REVIEW_PROJECTS_BASE_ID || '(using default base)';
+      console.error(
+        `[review/resolveProject] Hint: The base used for Projects (${String(projectsBaseId).slice(0, 20)}…) may not have a Projects table with field "${REVIEW_PORTAL_TOKEN_FIELD}". ` +
+          'If your Projects table is in a different Airtable base, set AIRTABLE_PROJECTS_BASE_ID (or REVIEW_PROJECTS_BASE_ID) to that base ID in .env.local.'
+      );
+    }
     return null;
   }
   if (!records || records.length === 0) return null;
@@ -71,19 +84,28 @@ export async function getReviewCompanyFromToken(token: string): Promise<{ compan
  * Returns null if the token is invalid, the project is not found, or OAuth is unavailable.
  */
 export async function resolveReviewProject(token: string): Promise<ResolvedReviewProject | null> {
-  // 1. Query Airtable Projects by token
-  const osBase = getBase();
+  // 1. Query Airtable Projects by token (use getProjectsBase() so Projects can live in a different base)
+  const projectsBase = getProjectsBase();
   const escaped = token.replace(/"/g, '\\"');
   let records;
   try {
-    records = await osBase(AIRTABLE_TABLES.PROJECTS)
+    records = await projectsBase(AIRTABLE_TABLES.PROJECTS)
       .select({
-        filterByFormula: `{Client Review Portal Token} = "${escaped}"`,
+        filterByFormula: `{${REVIEW_PORTAL_TOKEN_FIELD}} = "${escaped}"`,
         maxRecords: 1,
       })
       .firstPage();
   } catch (err) {
     console.error('[review/resolveProject] Airtable query failed:', err);
+    const errStr = err instanceof Error ? err.message : String(err);
+    const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
+    if (baseId && errStr.includes('Unknown field')) {
+      const projectsBaseId = process.env.AIRTABLE_PROJECTS_BASE_ID || process.env.REVIEW_PROJECTS_BASE_ID || '(using default base)';
+      console.error(
+        `[review/resolveProject] Hint: The base used for Projects (${String(projectsBaseId).slice(0, 20)}…) may not have a Projects table with field "${REVIEW_PORTAL_TOKEN_FIELD}". ` +
+          'If your Projects table is in a different Airtable base, set AIRTABLE_PROJECTS_BASE_ID (or REVIEW_PROJECTS_BASE_ID) to that base ID in .env.local.'
+      );
+    }
     return null;
   }
 

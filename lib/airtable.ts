@@ -16,6 +16,28 @@ export function getBase(): Airtable.Base {
   return _base;
 }
 
+let _projectsBase: Airtable.Base | null = null;
+/**
+ * Base to use for the Projects table (review portal token lookup).
+ * When AIRTABLE_PROJECTS_BASE_ID is set, Projects are read from that base; otherwise uses getBase().
+ * Use this when your Projects table with "Client Review Portal Token" lives in a different base than the OS base.
+ */
+export function getProjectsBase(): Airtable.Base {
+  if (!_projectsBase) {
+    const apiKey = env.AIRTABLE_API_KEY || process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+    const projectsBaseId =
+      process.env.AIRTABLE_PROJECTS_BASE_ID || process.env.REVIEW_PROJECTS_BASE_ID || '';
+    const baseId = projectsBaseId.trim()
+      ? projectsBaseId
+      : process.env.AIRTABLE_OS_BASE_ID || env.AIRTABLE_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
+    if (!apiKey || !baseId) {
+      throw new Error('Airtable credentials not configured.');
+    }
+    _projectsBase = new Airtable({ apiKey }).base(baseId);
+  }
+  return _projectsBase;
+}
+
 // Export a function that returns the base, or use a getter pattern
 // For compatibility, we'll create a proxy that forwards all calls
 const base = new Proxy(function() {} as any, {

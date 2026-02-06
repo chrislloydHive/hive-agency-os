@@ -439,6 +439,37 @@ export interface UpsertSeenArgs {
 }
 
 /**
+ * Ensure a CRAS record exists for this token + drive file. Creates with Status=New if missing (for backfill).
+ * Returns true if a record was created, false if one already existed.
+ */
+export interface EnsureCrasRecordArgs {
+  token: string;
+  projectId: string;
+  driveFileId: string;
+  filename?: string;
+  tactic: string;
+  variant: string;
+}
+
+export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<boolean> {
+  const existing = await findExisting(args.token, args.driveFileId);
+  if (existing) return false;
+  const osBase = getBase();
+  const now = new Date().toISOString();
+  await osBase(TABLE).create({
+    'Review Token': args.token,
+    Project: [args.projectId],
+    [SOURCE_FOLDER_ID_FIELD]: args.driveFileId,
+    Filename: (args.filename ?? '').slice(0, 500),
+    Tactic: args.tactic,
+    Variant: args.variant,
+    Status: 'New',
+    'Last Activity At': now,
+  } as any);
+  return true;
+}
+
+/**
  * Mark asset as seen. Creates record with Status=Seen if new; otherwise updates Status (New→Seen) and timestamps.
  */
 export async function upsertSeen(args: UpsertSeenArgs): Promise<void> {
@@ -457,6 +488,7 @@ export async function upsertSeen(args: UpsertSeenArgs): Promise<void> {
       Status: 'Seen',
       'First Seen At': now,
       'Last Seen At': now,
+      [FIRST_SEEN_BY_CLIENT_AT_FIELD]: now,
       'Last Activity At': now,
     } as any);
     return;
@@ -470,6 +502,10 @@ export async function upsertSeen(args: UpsertSeenArgs): Promise<void> {
   };
   if (currentStatus === 'New') {
     updates['Status'] = 'Seen';
+  }
+  const existingFirstSeenByClient = parseOptionalIsoString(existing.fields[FIRST_SEEN_BY_CLIENT_AT_FIELD]);
+  if (existingFirstSeenByClient == null || existingFirstSeenByClient === '') {
+    updates[FIRST_SEEN_BY_CLIENT_AT_FIELD] = now;
   }
   await osBase(TABLE).update(existing.id, updates as any);
 }
@@ -576,6 +612,8 @@ export interface BatchSetAssetApprovedClientOptions {
   approvedAt?: string;
   approvedByName?: string;
   approvedByEmail?: string;
+  /** When set, write this to Delivery Batch ID on each CRAS record (Partner Delivery Batch link or Batch ID text). */
+  deliveryBatchId?: string | null;
 }
 
 /**
@@ -593,6 +631,10 @@ export async function batchSetAssetApprovedClient(
     fields['Approved At'] = options.approvedAt;
     if (options.approvedByName !== undefined) fields['Approved By Name'] = String(options.approvedByName).slice(0, 100);
     if (options.approvedByEmail !== undefined) fields['Approved By Email'] = String(options.approvedByEmail).slice(0, 200);
+  }
+  if (options?.deliveryBatchId != null && String(options.deliveryBatchId).trim()) {
+    const bid = String(options.deliveryBatchId).trim();
+    fields[DELIVERY_BATCH_ID_FIELD] = bid.startsWith('rec') ? [bid] : bid;
   }
   let updated = 0;
   for (let i = 0; i < recordIds.length; i += BULK_APPROVE_CHUNK_SIZE) {
@@ -621,6 +663,8 @@ export interface SetSingleAssetApprovedClientArgs {
   approvedAt?: string;
   approvedByName?: string;
   approvedByEmail?: string;
+  /** When set, write this to Delivery Batch ID on the CRAS record (Partner Delivery Batch link or Batch ID text). */
+  deliveryBatchId?: string | null;
 }
 
 /**
@@ -636,7 +680,7 @@ export async function setSingleAssetApprovedClient(
   | { alreadyApproved: true }
   | { error: string; airtableError?: unknown }
 > {
-  const { token, driveFileId, approvedAt, approvedByName, approvedByEmail } = args;
+  const { token, driveFileId, approvedAt, approvedByName, approvedByEmail, deliveryBatchId } = args;
   const existing = await findExisting(token, driveFileId);
   if (!existing) {
     return { error: 'Record not found' };
@@ -650,6 +694,10 @@ export async function setSingleAssetApprovedClient(
     fields['Approved At'] = approvedAt;
     if (approvedByName !== undefined) fields['Approved By Name'] = String(approvedByName).slice(0, 100);
     if (approvedByEmail !== undefined) fields['Approved By Email'] = String(approvedByEmail).slice(0, 200);
+  }
+  if (deliveryBatchId != null && String(deliveryBatchId).trim()) {
+    const bid = String(deliveryBatchId).trim();
+    fields[DELIVERY_BATCH_ID_FIELD] = bid.startsWith('rec') ? [bid] : bid;
   }
   try {
     await osBase(TABLE).update(existing.id, fields as any);

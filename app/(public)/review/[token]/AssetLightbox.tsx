@@ -38,6 +38,8 @@ interface AssetLightboxProps {
   onApprovedResult?: (success: boolean, message?: string) => void;
   /** Partner view: call when partner views an asset (record as downloaded). */
   onPartnerDownload?: (fileIds: string[]) => void;
+  /** When set, written to CRAS Delivery Batch ID when user approves. */
+  deliveryBatchId?: string | null;
 }
 
 export default function AssetLightbox({
@@ -51,6 +53,7 @@ export default function AssetLightbox({
   onAssetStatusChange,
   onApprovedResult,
   onPartnerDownload,
+  deliveryBatchId,
 }: AssetLightboxProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const asset = assets[currentIndex];
@@ -191,6 +194,10 @@ export default function AssetLightbox({
             approvedAt: new Date().toISOString(),
             approvedByName: identity.name,
             approvedByEmail: identity.email,
+            deliveryBatchId: deliveryBatchId ?? undefined,
+            tactic,
+            variant,
+            filename: asset.name,
           }),
         });
         const data = await res.json().catch(() => ({}));

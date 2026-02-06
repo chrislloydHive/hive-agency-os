@@ -3,6 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
+import { detectVariantFromPath } from '@/lib/review/reviewVariantDetection';
 import { upsertSeen } from '@/lib/airtable/reviewAssetStatus';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,6 @@ const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 const VALID_TACTICS = new Set([
   'Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video', 'Search',
 ]);
-const VALID_VARIANTS = new Set(['Prospecting', 'Retargeting']);
 
 export async function POST(req: NextRequest) {
   let body: {
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   const driveFileId = (body.driveFileId ?? body.fileId ?? '').toString().trim();
   const filename = (body.filename ?? '').toString().trim();
   const tactic = (body.tactic ?? '').toString().trim();
-  const variant = (body.variant ?? '').toString().trim();
+  const variantInput = (body.variant ?? '').toString().trim();
   const authorName = (body.authorName ?? '').toString().trim() || undefined;
   const authorEmail = (body.authorEmail ?? '').toString().trim() || undefined;
 
@@ -48,8 +48,9 @@ export async function POST(req: NextRequest) {
   if (!tactic || !VALID_TACTICS.has(tactic)) {
     return NextResponse.json({ error: 'Invalid tactic' }, { status: 400 });
   }
-  if (!variant || !VALID_VARIANTS.has(variant)) {
-    return NextResponse.json({ error: 'Invalid variant' }, { status: 400 });
+  const variant = variantInput ? detectVariantFromPath(variantInput) : null;
+  if (!variant) {
+    return NextResponse.json({ error: 'Invalid variant (expected Prospecting or Retargeting/Remarketing/RTG)' }, { status: 400 });
   }
 
   const resolved = await resolveReviewProject(token);
@@ -64,7 +65,7 @@ export async function POST(req: NextRequest) {
       driveFileId,
       filename,
       tactic,
-      variant,
+      variant, // canonical "Prospecting" | "Retargeting"
       authorName,
       authorEmail,
     });
