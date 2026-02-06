@@ -144,6 +144,7 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
   }
 
   try {
+    const osBase = getBase();
     const companyRecord = await osBase('Companies').find(companyId);
     const cf = companyRecord.fields as Record<string, unknown>;
     if (!clientCode) {
