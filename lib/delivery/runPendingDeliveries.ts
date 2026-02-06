@@ -52,13 +52,17 @@ export async function runPendingDeliveries(options?: {
   oidcToken?: string | null;
 }): Promise<RunPendingDeliveriesResult> {
   const requestId = `pending-${Date.now().toString(36)}`;
+  console.log(`[runPendingDeliveries] ${requestId} Starting worker run...`);
   const pending = await getPendingWebhookDeliveryRecords();
   const results: PendingDeliveryRunResult[] = [];
   let succeeded = 0;
   let failed = 0;
   let skipped = 0;
 
-  console.log(`[runPendingDeliveries] Found ${pending.length} pending record(s) to process`);
+  console.log(`[runPendingDeliveries] ${requestId} Found ${pending.length} pending record(s) to process`);
+  if (pending.length === 0) {
+    console.log(`[runPendingDeliveries] ${requestId} No pending deliveries found. Check CRAS records for "Ready to Deliver (Webhook)" = true and "Delivered At" is blank.`);
+  }
   for (const row of pending) {
     try {
       console.log(`[runPendingDeliveries] Processing record ${row.recordId}, sourceFolderId=${row.sourceFolderId}, batch=${row.deliveryBatchIdRaw}`);

@@ -935,9 +935,32 @@ export async function copyDriveFolderTree(
     }
   }
 
+  // Pre-check: List source folder contents for diagnostics
+  try {
+    const sourceChildren = await listFolderChildren(drive, sourceFolderId);
+    console.log(`[Drive/copyFolderTree] Source folder ${sourceFolderId} contains: ${sourceChildren.files.length} files, ${sourceChildren.folders.length} folders`);
+    if (sourceChildren.files.length === 0 && sourceChildren.folders.length === 0) {
+      console.warn(`[Drive/copyFolderTree] WARNING: Source folder ${sourceFolderId} appears to be empty!`);
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[Drive/copyFolderTree] Failed to list source folder contents for diagnostics:`, msg);
+  }
+
   console.log(`[Drive/copyFolderTree] Starting recursive copy from ${sourceFolderId} to ${deliveredRootFolderId}`);
   await recurse(sourceFolderId, deliveredRootFolderId);
   console.log(`[Drive/copyFolderTree] Copy complete: filesCopied=${filesCopied}, foldersCreated=${foldersCreated}, failures=${failures.length}`);
+
+  // Post-check: Verify destination folder has files
+  if (filesCopied > 0) {
+    try {
+      const destChildren = await listFolderChildren(drive, deliveredRootFolderId);
+      console.log(`[Drive/copyFolderTree] Destination folder ${deliveredRootFolderId} now contains: ${destChildren.files.length} files, ${destChildren.folders.length} folders`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[Drive/copyFolderTree] Failed to verify destination folder contents:`, msg);
+    }
+  }
 
   return {
     deliveredRootFolderId,

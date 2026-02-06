@@ -333,6 +333,7 @@ export async function runPartnerDelivery(
 
   const deliveredFolderName = `Delivered – ${(projectName ?? 'Delivery').trim() || 'Delivery'} – ${new Date().toISOString().slice(0, 10)}`;
   console.log(`[delivery/partner] ${requestId} Copying folder tree: sourceFolderId=${sourceFolderId}, destination=${effectiveDestinationFolderId}, folderName="${deliveredFolderName}"`);
+  console.log(`[delivery/partner] ${requestId} Destination folder URL: ${folderUrl(effectiveDestinationFolderId)}`);
 
   try {
     const result = await copyDriveFolderTree(drive, sourceFolderId, effectiveDestinationFolderId, {
@@ -340,9 +341,10 @@ export async function runPartnerDelivery(
       drive,
     });
     console.log(`[delivery/partner] ${requestId} Copy completed: filesCopied=${result.filesCopied}, foldersCreated=${result.foldersCreated}, failures=${result.failures.length}, deliveredFolderId=${result.deliveredRootFolderId}`);
+    console.log(`[delivery/partner] ${requestId} Delivered folder URL: ${result.deliveredRootFolderUrl}`);
     
     if (result.filesCopied === 0) {
-      console.warn(`[delivery/partner] ${requestId} WARNING: Copy succeeded but 0 files were copied. Source folder ${sourceFolderId} may be empty or inaccessible.`);
+      console.warn(`[delivery/partner] ${requestId} WARNING: Copy succeeded but 0 files were copied. Source folder ${sourceFolderId} may be empty or inaccessible. Check source folder: ${folderUrl(sourceFolderId)}`);
     }
     
     if (result.failures.length > 0) {
