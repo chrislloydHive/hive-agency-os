@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
-import { getReviewFolderMap, getReviewFolderMapFromJobFolder, getReviewFolderMapFromClientProjectsFolder } from '@/lib/review/reviewFolders';
+import { getReviewFolderMap, getReviewFolderMapFromJobFolderPartial, getReviewFolderMapFromClientProjectsFolder } from '@/lib/review/reviewFolders';
 import { listAssetStatuses } from '@/lib/airtable/reviewAssetStatus';
 import { getGroupApprovals, groupKey } from '@/lib/airtable/reviewGroupApprovals';
 import { getDeliveryContextByProjectId } from '@/lib/airtable/partnerDeliveryBatches';
@@ -96,7 +96,7 @@ export async function GET(req: NextRequest) {
   const drive = google.drive({ version: 'v3', auth });
 
   const folderResult = project.jobFolderId
-    ? await getReviewFolderMapFromJobFolder(drive, project.jobFolderId)
+    ? await getReviewFolderMapFromJobFolderPartial(drive, project.jobFolderId)
     : await (async () => {
         const clientProjectsFolderId = process.env.CAR_TOYS_PROJECTS_FOLDER_ID ?? '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_';
         if (clientProjectsFolderId) {
@@ -291,10 +291,15 @@ export async function GET(req: NextRequest) {
     };
   }
   if (totalFiles === 0) {
+    const firstVariantFolderId = folderMap.size > 0 ? folderMap.values().next().value as string : undefined;
     payload.emptyAssetsHint = {
-      message: 'No files found in variant folders. Expected: job folder → tactic (Audio, Display, …) → Prospecting/Retargeting; files as direct children of those folders.',
+      message: 'No files found in variant folders. Expected: job folder → tactic (Audio, Display, …) → Prospecting/Retargeting; files must be direct children of those variant folders.',
       jobFolderId,
+      jobFolderUrl: `https://drive.google.com/drive/folders/${jobFolderId}`,
+      ...(firstVariantFolderId && { sampleVariantFolderUrl: `https://drive.google.com/drive/folders/${firstVariantFolderId}` }),
+      checkAirtableField: 'Creative Review Hub Folder ID (on Project)',
     };
+    console.warn('[review/assets] 0 files', { projectName: project.name, jobFolderId, variantFoldersFound: folderMap.size });
   }
 
   return NextResponse.json(payload, {

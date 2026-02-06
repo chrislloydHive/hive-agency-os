@@ -89,6 +89,26 @@ export async function getReviewFolderMapFromJobFolder(
   return { map, jobFolderId };
 }
 
+/**
+ * Build folder map from job folder, including only tactic→variant folders that exist.
+ * Use when the job may have only some tactics (e.g. scaffold not run for all); avoids 404.
+ */
+export async function getReviewFolderMapFromJobFolderPartial(
+  drive: drive_v3.Drive,
+  jobFolderId: string,
+): Promise<ReviewFolderMapResult> {
+  const map = new Map<string, string>();
+  for (const tactic of TACTICS) {
+    const tacticFolderId = await getChildFolderId(drive, jobFolderId, tactic);
+    if (!tacticFolderId) continue;
+    for (const variant of VARIANTS) {
+      const variantFolderId = await getChildFolderId(drive, tacticFolderId, variant);
+      if (variantFolderId) map.set(`${variant}:${tactic}`, variantFolderId);
+    }
+  }
+  return { map, jobFolderId };
+}
+
 /** All variant folder IDs when job folder ID is known (for file proxy allowlist). */
 export async function getAllowedReviewFolderIdsFromJobFolder(
   drive: drive_v3.Drive,
@@ -102,6 +122,7 @@ export async function getAllowedReviewFolderIdsFromJobFolder(
  * Build folder map when job folder is under client Projects folder (by project name).
  * Path: clientProjectsFolderId → projectName → tactic → variant.
  * Use when Project record has no Creative Review Hub Folder ID (e.g. field missing or not yet written).
+ * Uses partial map so missing tactic/variant folders do not cause null.
  */
 export async function getReviewFolderMapFromClientProjectsFolder(
   drive: drive_v3.Drive,
@@ -110,7 +131,7 @@ export async function getReviewFolderMapFromClientProjectsFolder(
 ): Promise<ReviewFolderMapResult | null> {
   const jobFolderId = await getChildFolderId(drive, clientProjectsFolderId, projectName);
   if (!jobFolderId) return null;
-  return getReviewFolderMapFromJobFolder(drive, jobFolderId);
+  return getReviewFolderMapFromJobFolderPartial(drive, jobFolderId);
 }
 
 /** All variant folder IDs when job is under client Projects folder (for file proxy allowlist). */
