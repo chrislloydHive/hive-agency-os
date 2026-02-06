@@ -202,6 +202,7 @@ function ReviewPortalClientInner({
   const [deliverApprovedState, setDeliverApprovedState] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
   const [activePartnerTab, setActivePartnerTab] = useState<'new' | 'all_approved' | 'downloaded'>('new');
   const [markingSeen, setMarkingSeen] = useState(false);
+  const [apiCounts, setApiCounts] = useState<{ newApproved: number; approved: number; downloaded: number } | null>(null);
   const lastFetchedTokenRef = useRef<string | null>(null);
   const firstSeenInFlightRef = useRef<Set<string>>(new Set());
   const { identity, clearIdentity } = useAuthorIdentity();
@@ -252,12 +253,20 @@ function ReviewPortalClientInner({
         sections?: TacticSectionData[];
         lastFetchedAt?: string;
         deliveryContext?: DeliveryContext;
+        counts?: { newApproved: number; approved: number; downloaded: number };
       }) => {
         if (data.ok === true && data.version === 'review-assets-v1' && Array.isArray(data.sections)) {
           setSections(data.sections);
           setRefreshError(null);
           if (data.deliveryContext) {
             setDeliveryContext(data.deliveryContext);
+          } else {
+            setDeliveryContext(null);
+          }
+          if (data.counts && typeof data.counts.newApproved === 'number' && typeof data.counts.approved === 'number' && typeof data.counts.downloaded === 'number') {
+            setApiCounts(data.counts);
+          } else {
+            setApiCounts(null);
           }
           if (typeof data.lastFetchedAt === 'string') {
             setLastRefreshedAt(data.lastFetchedAt);
@@ -314,20 +323,20 @@ function ReviewPortalClientInner({
     setSelectedFileIds(new Set());
   }, [activeVariant]);
 
-  // Partner tab filter: New = approved && (approvedAt > partnerLastSeenAt || !partnerLastSeenAt); All Approved; Downloaded
+  // Partner tab filter: New = approved && !downloaded && (approved after lastSeen or lastSeen null); All Approved; Downloaded
   const partnerLastSeenAt = deliveryContext?.partnerLastSeenAt ?? null;
   const isNewlyApproved = useCallback(
     (a: ReviewAsset) =>
       !!(
         a.assetApprovedClient &&
-        a.approvedAt &&
-        (!partnerLastSeenAt || new Date(a.approvedAt) > new Date(partnerLastSeenAt))
+        !a.partnerDownloadedAt &&
+        (!partnerLastSeenAt || (a.approvedAt && new Date(a.approvedAt) > new Date(partnerLastSeenAt)))
       ),
     [partnerLastSeenAt]
   );
   const isPartnerDownloaded = useCallback((a: ReviewAsset) => !!a.partnerDownloadedAt, []);
 
-  const partnerTabCounts = useMemo(() => {
+  const partnerTabCountsFromSections = useMemo(() => {
     const allAssets = sections.flatMap((s) => s.assets);
     return {
       new: allAssets.filter(isNewlyApproved).length,
@@ -335,6 +344,10 @@ function ReviewPortalClientInner({
       downloaded: allAssets.filter(isPartnerDownloaded).length,
     };
   }, [sections, isNewlyApproved, isPartnerDownloaded]);
+
+  const partnerTabCounts = deliveryContext && apiCounts
+    ? { new: apiCounts.newApproved, allApproved: apiCounts.approved, downloaded: apiCounts.downloaded }
+    : partnerTabCountsFromSections;
 
   const partnerFilterSections = useCallback(
     (secs: TacticSectionData[], tab: 'new' | 'all_approved' | 'downloaded') => {
@@ -459,12 +472,12 @@ function ReviewPortalClientInner({
   }, [token, selectedFileIds, doRefresh, identity]);
 
   const handleMarkSeen = useCallback(() => {
-    if (!deliveryContext?.deliveryBatchId) return;
+    if (!deliveryContext) return;
     setMarkingSeen(true);
     fetch('/api/review/partners/mark-seen', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, deliveryBatchId: deliveryContext.deliveryBatchId }),
+      body: JSON.stringify({ token }),
     })
       .then((res) => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(() => {
@@ -595,7 +608,7 @@ function ReviewPortalClientInner({
           <div className="flex flex-wrap items-center justify-end gap-3">
             {deliveryContext && (
               <>
-                {partnerTabCounts.new > 0 && (
+                {(partnerTabCounts.new > 0 || deliveryContext) && (
                   <button
                     type="button"
                     onClick={handleMarkSeen}

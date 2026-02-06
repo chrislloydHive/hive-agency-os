@@ -376,6 +376,8 @@ export async function writePartnerActivityToRecord(
     if (alias) {
       fieldsToWrite[alias] = payload.partnerLastSeenAt;
       written.push(alias);
+    } else {
+      console.warn('[deliveryWriteBack] Partner Last Seen At field not found on table, skipping write');
     }
   }
   if (payload.newApprovedCount !== undefined) {

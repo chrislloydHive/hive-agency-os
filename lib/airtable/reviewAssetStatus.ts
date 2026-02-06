@@ -134,6 +134,50 @@ function recordToStatus(r: { id: string; fields: Record<string, unknown> }, toke
   };
 }
 
+/** Cache for getCrasRecordIdByTokenAndFileId: key = token::fileId, value = { recordId, expiresAt }. */
+const recordIdByTokenFileIdCache = new Map<
+  string,
+  { recordId: string; expiresAt: number }
+>();
+const RECORD_ID_CACHE_TTL_MS = 60 * 1000; // 1 minute
+
+/**
+ * Get CRAS record ID for a single asset by review token and Drive file ID.
+ * Same scope as listAssetStatuses (Review Token); single-record lookup.
+ * Optional short TTL cache to reduce Airtable reads.
+ */
+export async function getCrasRecordIdByTokenAndFileId(
+  token: string,
+  fileId: string
+): Promise<string | null> {
+  const tokenTrim = String(token).trim();
+  const fileIdTrim = String(fileId).trim();
+  if (!tokenTrim || !fileIdTrim) return null;
+
+  const cacheKey = keyFrom(tokenTrim, fileIdTrim);
+  const cached = recordIdByTokenFileIdCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.recordId;
+  }
+
+  const base = getBase();
+  const tokenEsc = tokenTrim.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const fileEsc = fileIdTrim.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const formula = `AND({Review Token} = "${tokenEsc}", {${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}")`;
+  const records = await base(TABLE)
+    .select({ filterByFormula: formula, maxRecords: 1 })
+    .firstPage();
+
+  const recordId = records.length > 0 ? records[0].id : null;
+  if (recordId) {
+    recordIdByTokenFileIdCache.set(cacheKey, {
+      recordId,
+      expiresAt: Date.now() + RECORD_ID_CACHE_TTL_MS,
+    });
+  }
+  return recordId;
+}
+
 /**
  * List all asset statuses for a review token. Returns Map keyed by token::driveFileId.
  */

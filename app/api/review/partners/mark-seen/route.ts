@@ -1,11 +1,11 @@
 // app/api/review/partners/mark-seen/route.ts
 // POST: Record partner "Mark all as seen" — set Partner Last Seen At on the batch.
-// Body: { token, deliveryBatchId }.
+// Body: { token, deliveryBatchId? }. If deliveryBatchId omitted, resolved from project's delivery context.
 // Does NOT run on page load; only when partner explicitly clicks "Mark all as seen".
 
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
-import { getBatchDetails } from '@/lib/airtable/partnerDeliveryBatches';
+import { getBatchDetails, getDeliveryContextByProjectId } from '@/lib/airtable/partnerDeliveryBatches';
 import { writePartnerActivityToRecord, PARTNER_DELIVERY_BATCHES_TABLE } from '@/lib/airtable/deliveryWriteBack';
 
 export const dynamic = 'force-dynamic';
@@ -21,13 +21,10 @@ export async function POST(req: NextRequest) {
   }
 
   const token = (body.token ?? '').toString().trim();
-  const deliveryBatchId = (body.deliveryBatchId ?? '').toString().trim();
+  const deliveryBatchId = (body.deliveryBatchId ?? '').toString().trim() || null;
 
   if (!token) {
     return NextResponse.json({ ok: false, error: 'Missing token' }, { status: 400, headers: NO_STORE });
-  }
-  if (!deliveryBatchId) {
-    return NextResponse.json({ ok: false, error: 'Missing deliveryBatchId' }, { status: 400, headers: NO_STORE });
   }
 
   const resolved = await resolveReviewProject(token);
@@ -35,9 +32,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 404, headers: NO_STORE });
   }
 
-  const batch = await getBatchDetails(deliveryBatchId);
+  let batch = deliveryBatchId ? await getBatchDetails(deliveryBatchId) : null;
+  if (!batch && !deliveryBatchId) {
+    const ctx = await getDeliveryContextByProjectId(resolved.project.recordId);
+    if (ctx) batch = ctx;
+  }
   if (!batch) {
-    return NextResponse.json({ ok: false, error: 'Batch not found' }, { status: 404, headers: NO_STORE });
+    return NextResponse.json(
+      { ok: false, error: deliveryBatchId ? 'Batch not found' : 'No delivery context for this project' },
+      { status: 404, headers: NO_STORE }
+    );
   }
 
   const now = new Date().toISOString();

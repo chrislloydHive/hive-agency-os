@@ -255,6 +255,16 @@ export async function GET(req: NextRequest) {
     console.warn('[review/assets] getDeliveryContextByProjectId failed:', err instanceof Error ? err.message : err);
   }
 
+  const partnerLastSeenAt = deliveryContext?.partnerLastSeenAt ?? null;
+  const allAssets = sections.flatMap((s) => s.assets) as ReviewAsset[];
+  const approvedCount = allAssets.filter((a) => a.assetApprovedClient).length;
+  const downloadedCount = allAssets.filter((a) => a.partnerDownloadedAt).length;
+  const newApprovedCount = allAssets.filter((a) => {
+    if (!a.assetApprovedClient || a.partnerDownloadedAt) return false;
+    if (!partnerLastSeenAt) return true;
+    return !!(a.approvedAt && new Date(a.approvedAt) > new Date(partnerLastSeenAt));
+  }).length;
+
   const payload: Record<string, unknown> = {
     ok: true,
     version: 'review-assets-v1',
@@ -264,6 +274,11 @@ export async function GET(req: NextRequest) {
     count: { sections: sections.length, files: totalFiles },
     sections,
     ...(deliveryContext && { deliveryContext }),
+    counts: {
+      newApproved: newApprovedCount,
+      approved: approvedCount,
+      downloaded: downloadedCount,
+    },
   };
   if (debugFlag) {
     payload.debug = debug;

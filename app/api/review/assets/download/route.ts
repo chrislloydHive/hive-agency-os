@@ -10,7 +10,7 @@ import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { getAllowedReviewFolderIdsFromJobFolder, getAllowedReviewFolderIdsFromClientProjectsFolder } from '@/lib/review/reviewFolders';
 import {
-  listAssetStatuses,
+  getCrasRecordIdByTokenAndFileId,
   setPartnerDownloadedAt,
   setPartnerDownloadStartedAt,
 } from '@/lib/airtable/reviewAssetStatus';
@@ -22,10 +22,6 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 const EXTRA_HEADERS = { 'Referrer-Policy': 'no-referrer' as const };
 const MAX_INLINE_SIZE_BYTES = 500 * 1024 * 1024; // 500 MB
-
-function keyFrom(token: string, fileId: string): string {
-  return `${token}::${fileId}`;
-}
 
 function safeFilename(name: string): string {
   const ascii = name.replace(/[^\x20-\x7E]/g, '_');
@@ -165,9 +161,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const statusMap = await listAssetStatuses(token);
-  const record = statusMap.get(keyFrom(token, assetId));
-  const recordId = record?.recordId;
+  const recordId = await getCrasRecordIdByTokenAndFileId(token, assetId);
 
   const logContext: DownloadLogContext = {
     assetId,
