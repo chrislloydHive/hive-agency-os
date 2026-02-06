@@ -318,7 +318,7 @@ export async function writeDeliveryToRecord(
 
   try {
     const base = getBase();
-    await base(tableName).update(recordId, fieldsToWrite as Record<string, unknown>);
+    await base(tableName).update(recordId, fieldsToWrite as any);
     console.log('[deliveryWriteBack] Written to', tableName, 'record', recordId, 'fields:', written.join(', '));
     return { ok: true, written, skipped };
   } catch (err) {
@@ -401,7 +401,7 @@ export async function writePartnerActivityToRecord(
 
   try {
     const base = getBase();
-    await base(tableName).update(recordId, fieldsToWrite as Record<string, unknown>);
+    await base(tableName).update(recordId, fieldsToWrite as any);
     console.log('[deliveryWriteBack] Partner activity written to', tableName, 'record', recordId, 'fields:', written.join(', '));
     return { ok: true, written, skipped };
   } catch (err) {
