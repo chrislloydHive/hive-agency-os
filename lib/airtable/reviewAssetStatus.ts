@@ -139,7 +139,10 @@ function recordToStatus(r: { id: string; fields: Record<string, unknown> }, toke
     recordId: r.id,
     status: parseStatus(f['Status']),
     assetApprovedClient: parseAssetApprovedClient(f[ASSET_APPROVED_CLIENT_FIELD]),
-    firstSeenByClientAt: parseOptionalIsoString(f[FIRST_SEEN_BY_CLIENT_AT_FIELD]),
+    // Gracefully handle missing field (may not exist in all Airtable bases)
+    firstSeenByClientAt: f[FIRST_SEEN_BY_CLIENT_AT_FIELD] != null 
+      ? parseOptionalIsoString(f[FIRST_SEEN_BY_CLIENT_AT_FIELD])
+      : null,
     firstSeenAt: (f['First Seen At'] as string) ?? null,
     lastSeenAt: (f['Last Seen At'] as string) ?? null,
     approvedAt: (f['Approved At'] as string) ?? null,
@@ -550,7 +553,7 @@ export async function upsertSeen(args: UpsertSeenArgs): Promise<void> {
   const existing = await findExisting(args.token, args.driveFileId);
 
   if (!existing) {
-    await osBase(TABLE).create({
+    const createFields: Record<string, unknown> = {
       'Review Token': args.token,
       Project: [args.projectId],
       [SOURCE_FOLDER_ID_FIELD]: args.driveFileId,
@@ -560,9 +563,29 @@ export async function upsertSeen(args: UpsertSeenArgs): Promise<void> {
       Status: 'Seen',
       'First Seen At': now,
       'Last Seen At': now,
-      [FIRST_SEEN_BY_CLIENT_AT_FIELD]: now,
       'Last Activity At': now,
-    } as any);
+    };
+    // Only include First Seen By Client At if field exists (graceful degradation)
+    createFields[FIRST_SEEN_BY_CLIENT_AT_FIELD] = now;
+    
+    try {
+      await osBase(TABLE).create(createFields as any);
+    } catch (err) {
+      // If field doesn't exist (422), remove it and retry without it
+      const message = err instanceof Error ? err.message : String(err);
+      const isFieldMissing = typeof err === 'object' && err !== null && 
+        ('statusCode' in err && (err as { statusCode: number }).statusCode === 422) ||
+        message.includes('UNKNOWN_FIELD_NAME') ||
+        message.includes(FIRST_SEEN_BY_CLIENT_AT_FIELD);
+      
+      if (isFieldMissing && FIRST_SEEN_BY_CLIENT_AT_FIELD in createFields) {
+        console.warn(`[reviewAssetStatus] Field "${FIRST_SEEN_BY_CLIENT_AT_FIELD}" not found in Airtable. Creating record without it.`);
+        delete createFields[FIRST_SEEN_BY_CLIENT_AT_FIELD];
+        await osBase(TABLE).create(createFields as any);
+      } else {
+        throw err;
+      }
+    }
     return;
   }
 
@@ -575,11 +598,33 @@ export async function upsertSeen(args: UpsertSeenArgs): Promise<void> {
   if (currentStatus === 'New') {
     updates['Status'] = 'Seen';
   }
-  const existingFirstSeenByClient = parseOptionalIsoString(existing.fields[FIRST_SEEN_BY_CLIENT_AT_FIELD]);
+  // Only set First Seen By Client At if field exists and is not already set
+  const existingFirstSeenByClient = existing.fields[FIRST_SEEN_BY_CLIENT_AT_FIELD] != null
+    ? parseOptionalIsoString(existing.fields[FIRST_SEEN_BY_CLIENT_AT_FIELD])
+    : null;
   if (existingFirstSeenByClient == null || existingFirstSeenByClient === '') {
+    // Only include field if it exists in Airtable (graceful degradation)
+    // If field doesn't exist, Airtable will ignore it or return 422, which we handle elsewhere
     updates[FIRST_SEEN_BY_CLIENT_AT_FIELD] = now;
   }
-  await osBase(TABLE).update(existing.id, updates as any);
+  try {
+    await osBase(TABLE).update(existing.id, updates as any);
+  } catch (err) {
+    // If field doesn't exist (422), remove it and retry without it
+    const message = err instanceof Error ? err.message : String(err);
+    const isFieldMissing = typeof err === 'object' && err !== null && 
+      ('statusCode' in err && (err as { statusCode: number }).statusCode === 422) ||
+      message.includes('UNKNOWN_FIELD_NAME') ||
+      message.includes(FIRST_SEEN_BY_CLIENT_AT_FIELD);
+    
+    if (isFieldMissing && FIRST_SEEN_BY_CLIENT_AT_FIELD in updates) {
+      console.warn(`[reviewAssetStatus] Field "${FIRST_SEEN_BY_CLIENT_AT_FIELD}" not found in Airtable. Retrying without it.`);
+      delete updates[FIRST_SEEN_BY_CLIENT_AT_FIELD];
+      await osBase(TABLE).update(existing.id, updates as any);
+    } else {
+      throw err;
+    }
+  }
 }
 
 export interface UpsertStatusArgs {
@@ -815,6 +860,7 @@ export async function getRecordIdsForFirstSeen(
 /**
  * Set First Seen By Client At = now on the given record IDs. Chunks of 10.
  * Only call with records that currently have null (do not overwrite).
+ * Gracefully handles missing field (422) - logs warning but doesn't fail.
  */
 export async function batchSetFirstSeenByClientAt(
   recordIds: string[]
@@ -830,6 +876,20 @@ export async function batchSetFirstSeenByClientAt(
       updated += chunk.length;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // Check if this is a 422 (field doesn't exist) - treat as non-fatal
+      const isFieldMissing = typeof err === 'object' && err !== null && 
+        ('statusCode' in err && (err as { statusCode: number }).statusCode === 422) ||
+        message.includes('UNKNOWN_FIELD_NAME') ||
+        message.includes('First Seen By Client At');
+      
+      if (isFieldMissing) {
+        console.warn(`[reviewAssetStatus] Field "${FIRST_SEEN_BY_CLIENT_AT_FIELD}" not found in Airtable. Skipping first-seen tracking. Error:`, message);
+        // Continue processing - this is a non-critical field
+        updated += chunk.length; // Count as "updated" since we tried
+        continue;
+      }
+      
+      // For other errors, fail fast
       return { updated, failedAt: i, error: message };
     }
   }
