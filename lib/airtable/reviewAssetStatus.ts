@@ -626,7 +626,10 @@ export async function batchSetAssetApprovedClient(
   options?: BatchSetAssetApprovedClientOptions
 ): Promise<BatchSetAssetApprovedClientResult> {
   const osBase = getBase();
-  const fields: Record<string, unknown> = { [ASSET_APPROVED_CLIENT_FIELD]: true };
+  const fields: Record<string, unknown> = {
+    [ASSET_APPROVED_CLIENT_FIELD]: true,
+    Status: 'Approved',
+  };
   if (options?.approvedAt) {
     fields['Approved At'] = options.approvedAt;
     if (options.approvedByName !== undefined) fields['Approved By Name'] = String(options.approvedByName).slice(0, 100);
@@ -689,7 +692,10 @@ export async function setSingleAssetApprovedClient(
     return { alreadyApproved: true };
   }
   const osBase = getBase();
-  const fields: Record<string, unknown> = { [ASSET_APPROVED_CLIENT_FIELD]: true };
+  const fields: Record<string, unknown> = {
+    [ASSET_APPROVED_CLIENT_FIELD]: true,
+    Status: 'Approved',
+  };
   if (approvedAt) {
     fields['Approved At'] = approvedAt;
     if (approvedByName !== undefined) fields['Approved By Name'] = String(approvedByName).slice(0, 100);

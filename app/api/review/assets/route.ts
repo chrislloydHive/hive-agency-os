@@ -48,6 +48,14 @@ interface ReviewAsset {
   airtableRecordId?: string;
   /** When asset was approved (for "Newly Approved" tab: approvedAt > partnerLastSeenAt). */
   approvedAt?: string | null;
+  /** Name of person who approved (client). */
+  approvedByName?: string | null;
+  /** Email of person who approved (client). */
+  approvedByEmail?: string | null;
+  /** First seen at (portal/lightbox open). */
+  firstSeenAt?: string | null;
+  /** Last seen at (portal/lightbox open). */
+  lastSeenAt?: string | null;
   /** When partner downloaded this asset in the portal; null = not downloaded. */
   partnerDownloadedAt?: string | null;
 }
@@ -235,6 +243,26 @@ export async function GET(req: NextRequest) {
     const rec = statusMap.get(key);
     return rec?.partnerDownloadedAt ?? null;
   };
+  const toApprovedByName = (fileId: string): string | null => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.approvedByName ?? null;
+  };
+  const toApprovedByEmail = (fileId: string): string | null => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.approvedByEmail ?? null;
+  };
+  const toFirstSeenAt = (fileId: string): string | null => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.firstSeenAt ?? null;
+  };
+  const toLastSeenAt = (fileId: string): string | null => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.lastSeenAt ?? null;
+  };
   for (const section of sections) {
     for (const asset of section.assets) {
       const a = asset as ReviewAsset;
@@ -247,6 +275,10 @@ export async function GET(req: NextRequest) {
       a.deliveredFolderId = toDeliveredFolderId(asset.fileId);
       a.airtableRecordId = toAirtableRecordId(asset.fileId);
       a.approvedAt = toApprovedAt(asset.fileId);
+      a.approvedByName = toApprovedByName(asset.fileId);
+      a.approvedByEmail = toApprovedByEmail(asset.fileId);
+      a.firstSeenAt = toFirstSeenAt(asset.fileId);
+      a.lastSeenAt = toLastSeenAt(asset.fileId);
       a.partnerDownloadedAt = toPartnerDownloadedAt(asset.fileId);
     }
   }

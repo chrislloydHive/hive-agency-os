@@ -15,6 +15,11 @@ interface ReviewAsset {
   mimeType: string;
   clickThroughUrl?: string | null;
   assetApprovedClient?: boolean;
+  approvedAt?: string | null;
+  approvedByName?: string | null;
+  approvedByEmail?: string | null;
+  firstSeenAt?: string | null;
+  lastSeenAt?: string | null;
 }
 
 interface AssetComment {
@@ -386,11 +391,41 @@ export default function AssetLightbox({
           )}
         </div>
 
-        {/* Footer: filename, counter, Approve, and comment toggle */}
+        {/* Footer: filename, details, counter, Approve, and comment toggle */}
         <div className="mt-4 flex flex-col items-center gap-2">
           <p className="max-w-md truncate text-center text-sm text-gray-300" title={asset.name}>
             {asset.name}
           </p>
+          {(asset.approvedAt || asset.approvedByName || asset.approvedByEmail || asset.firstSeenAt || asset.lastSeenAt) && (
+            <div className="w-full max-w-md rounded-lg border border-gray-700 bg-gray-800/80 px-4 py-2 text-left text-xs text-gray-400">
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                {asset.approvedAt && (
+                  <>
+                    <dt className="text-gray-500">Approved at</dt>
+                    <dd>{formatDate(asset.approvedAt)}</dd>
+                  </>
+                )}
+                {(asset.approvedByName || asset.approvedByEmail) && (
+                  <>
+                    <dt className="text-gray-500">Approved by</dt>
+                    <dd>{[asset.approvedByName, asset.approvedByEmail].filter(Boolean).join(' · ') || '—'}</dd>
+                  </>
+                )}
+                {asset.firstSeenAt && (
+                  <>
+                    <dt className="text-gray-500">First seen at</dt>
+                    <dd>{formatDate(asset.firstSeenAt)}</dd>
+                  </>
+                )}
+                {asset.lastSeenAt && (
+                  <>
+                    <dt className="text-gray-500">Last seen at</dt>
+                    <dd>{formatDate(asset.lastSeenAt)}</dd>
+                  </>
+                )}
+              </dl>
+            </div>
+          )}
           <div className="flex flex-wrap items-center justify-center gap-3">
             <p className="text-xs text-gray-500">
               {currentIndex + 1} of {assets.length}

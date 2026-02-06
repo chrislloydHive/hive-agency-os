@@ -21,6 +21,10 @@ interface ReviewAsset {
   deliveredAt?: string | null;
   delivered?: boolean;
   approvedAt?: string | null;
+  approvedByName?: string | null;
+  approvedByEmail?: string | null;
+  firstSeenAt?: string | null;
+  lastSeenAt?: string | null;
   partnerDownloadedAt?: string | null;
 }
 
@@ -388,6 +392,32 @@ export default function ReviewSection({
   );
 }
 
+function formatShortDate(iso: string | null | undefined): string {
+  if (!iso || !iso.trim()) return '';
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
+function AssetDetailsLine({ asset }: { asset: { approvedAt?: string | null; approvedByName?: string | null; firstSeenAt?: string | null; lastSeenAt?: string | null } }) {
+  const parts: string[] = [];
+  if (asset.approvedAt) {
+    const by = asset.approvedByName?.trim();
+    const date = formatShortDate(asset.approvedAt);
+    if (by && date) parts.push(`Approved by ${by} · ${date}`);
+    else if (date) parts.push(`Approved ${date}`);
+  }
+  if (asset.firstSeenAt && !parts.length) {
+    parts.push(`First seen ${formatShortDate(asset.firstSeenAt)}`);
+  } else if (asset.lastSeenAt && !asset.approvedAt) {
+    parts.push(`Last seen ${formatShortDate(asset.lastSeenAt)}`);
+  }
+  if (parts.length === 0) return null;
+  return <p className="mt-0.5 text-xs text-gray-500" title={parts.join(' ')}>{parts[0]}</p>;
+}
+
 function statusBadgeLabel(state: ReviewState | undefined): string {
   if (!state || state === 'new') return 'New';
   if (state === 'seen') return 'Seen';
@@ -412,7 +442,7 @@ function AssetCard({
   onToggleSelect,
   onDownloadAsset,
 }: {
-  asset: { fileId: string; name: string; mimeType: string; reviewState?: ReviewState; clickThroughUrl?: string | null; firstSeenByClientAt?: string | null; assetApprovedClient?: boolean; delivered?: boolean; partnerDownloadedAt?: string | null };
+  asset: { fileId: string; name: string; mimeType: string; reviewState?: ReviewState; clickThroughUrl?: string | null; firstSeenByClientAt?: string | null; assetApprovedClient?: boolean; delivered?: boolean; partnerDownloadedAt?: string | null; approvedAt?: string | null; approvedByName?: string | null; approvedByEmail?: string | null; firstSeenAt?: string | null; lastSeenAt?: string | null };
   token: string;
   onClick: () => void;
   selected?: boolean;
@@ -424,8 +454,9 @@ function AssetCard({
   const isVideo = asset.mimeType.startsWith('video/');
   const isAudio = asset.mimeType.startsWith('audio/');
   const isNew = isAssetNew(asset);
-  const badgeLabel = isNew ? 'New' : statusBadgeLabel(asset.reviewState);
-  const badgeClass = isNew ? 'bg-gray-700 text-gray-300' : statusBadgeClass(asset.reviewState);
+  const effectiveState: ReviewState | undefined = asset.assetApprovedClient ? 'approved' : asset.reviewState;
+  const badgeLabel = isNew ? 'New' : statusBadgeLabel(effectiveState);
+  const badgeClass = isNew ? 'bg-gray-700 text-gray-300' : statusBadgeClass(effectiveState);
   const hasClickThrough = typeof asset.clickThroughUrl === 'string' && asset.clickThroughUrl.trim().length > 0;
 
   return (
@@ -535,6 +566,7 @@ function AssetCard({
         {isNew && (
           <p className="mt-0.5 text-xs text-gray-500">Added since your last visit</p>
         )}
+        <AssetDetailsLine asset={asset} />
       </div>
     </button>
     </div>

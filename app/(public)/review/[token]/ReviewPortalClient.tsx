@@ -30,6 +30,10 @@ interface ReviewAsset {
   deliveredFolderId?: string | null;
   airtableRecordId?: string;
   approvedAt?: string | null;
+  approvedByName?: string | null;
+  approvedByEmail?: string | null;
+  firstSeenAt?: string | null;
+  lastSeenAt?: string | null;
   partnerDownloadedAt?: string | null;
 }
 
