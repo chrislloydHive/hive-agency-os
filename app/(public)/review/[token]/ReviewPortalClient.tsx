@@ -8,7 +8,7 @@
 // - If variant has 0 total files: single empty-state card, no per-tactic list
 // - If variant has files: show tactics with files; hide empty tactics behind toggle
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import HiveLogo from '@/components/HiveLogo';
 import ReviewSection from './ReviewSection';
 import { AuthorIdentityProvider, useAuthorIdentity } from './AuthorIdentityContext';

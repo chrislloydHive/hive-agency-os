@@ -1,11 +1,14 @@
 // app/api/review/assets/download-link/route.ts
 // POST: Return a short-lived signed URL for GET /api/review/assets/download.
 // Auth: token in body (same as deliver-batch). Asset must be approved and visible to that partner.
+// URL contains dlId, exp, sig only (no token). Session stored server-side (Upstash or in-memory fallback).
 
+import { randomBytes } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { listAssetStatuses } from '@/lib/airtable/reviewAssetStatus';
-import { signPayload, isDownloadSigningConfigured } from '@/lib/review/downloadSignature';
+import { signDownloadPayload, isDownloadSigningConfigured } from '@/lib/review/downloadSignature';
+import { setDownloadSession } from '@/lib/review/downloadSessionStore';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,7 +66,16 @@ export async function POST(req: NextRequest) {
   }
 
   const exp = Math.floor(Date.now() / 1000) + DOWNLOAD_TTL_SEC;
-  const sig = signPayload(assetId, token, exp);
+  const dlId = randomBytes(16).toString('hex');
+  const stored = await setDownloadSession(dlId, { token, assetId, exp }, DOWNLOAD_TTL_SEC);
+  if (!stored) {
+    return NextResponse.json(
+      { ok: false, error: 'Failed to create download session' },
+      { status: 503, headers: NO_STORE }
+    );
+  }
+
+  const sig = signDownloadPayload(dlId, exp);
   if (!sig) {
     return NextResponse.json(
       { ok: false, error: 'Signing failed' },
@@ -73,8 +85,7 @@ export async function POST(req: NextRequest) {
 
   const origin = req.nextUrl.origin;
   const params = new URLSearchParams({
-    assetId,
-    token,
+    dlId,
     exp: String(exp),
     sig,
   });

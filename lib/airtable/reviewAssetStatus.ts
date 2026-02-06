@@ -36,8 +36,11 @@ export const DELIVERED_CHECKBOX_FIELD = 'Delivered';
 /** Airtable field: Delivered Folder ID (Drive folder id for the delivery run). */
 export const DELIVERED_FOLDER_ID_FIELD = 'Delivered Folder ID';
 
-/** Airtable field: Partner Downloaded At (when partner downloaded this asset in the portal). */
+/** Airtable field: Partner Downloaded At (when partner completed download; drives "Downloaded" badge). */
 export const PARTNER_DOWNLOADED_AT_FIELD = 'Partner Downloaded At';
+
+/** Airtable field: Partner Download Started At (when stream began; optional, for visibility). */
+export const PARTNER_DOWNLOAD_STARTED_AT_FIELD = 'Partner Download Started At';
 
 export interface StatusRecord {
   recordId: string;
@@ -249,12 +252,37 @@ export async function getRecordIdsByBatchIdAndFileIds(
 }
 
 /**
- * Set Partner Downloaded At = now on a CRAS record (when partner downloads asset in portal).
+ * Set Partner Downloaded At = now on a CRAS record (when stream completes successfully).
+ * Safe: catches Airtable errors (e.g. missing field) and logs without throwing.
  */
-export async function setPartnerDownloadedAt(recordId: string): Promise<void> {
+export async function setPartnerDownloadedAt(recordId: string): Promise<boolean> {
   const base = getBase();
   const now = new Date().toISOString();
-  await base(TABLE).update(recordId, { [PARTNER_DOWNLOADED_AT_FIELD]: now } as Record<string, unknown>);
+  try {
+    await base(TABLE).update(recordId, { [PARTNER_DOWNLOADED_AT_FIELD]: now } as any);
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn('[reviewAssetStatus] setPartnerDownloadedAt failed (field may be missing):', recordId, msg);
+    return false;
+  }
+}
+
+/**
+ * Set Partner Download Started At = now on a CRAS record (when download stream is about to start).
+ * Safe: catches Airtable errors (e.g. missing field) and logs without throwing.
+ */
+export async function setPartnerDownloadStartedAt(recordId: string): Promise<boolean> {
+  const base = getBase();
+  const now = new Date().toISOString();
+  try {
+    await base(TABLE).update(recordId, { [PARTNER_DOWNLOAD_STARTED_AT_FIELD]: now } as any);
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn('[reviewAssetStatus] setPartnerDownloadStartedAt failed (field may be missing):', recordId, msg);
+    return false;
+  }
 }
 
 /**
