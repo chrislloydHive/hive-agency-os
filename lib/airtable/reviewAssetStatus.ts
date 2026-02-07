@@ -324,12 +324,14 @@ export async function getPendingWebhookDeliveryRecords(): Promise<PendingWebhook
     const deliveredAt = typeof f[DELIVERED_AT_FIELD] === 'string' ? (f[DELIVERED_AT_FIELD] as string).trim() : '';
     if (deliveredAt) {
       skippedDelivered++;
+      console.log(`[getPendingWebhookDeliveryRecords] Record ${r.id} skipped: already delivered (Delivered At=${deliveredAt})`);
       continue; // Skip if Delivered At is set
     }
     
     const sourceFolderId = typeof f[SOURCE_FOLDER_ID_FIELD] === 'string' ? (f[SOURCE_FOLDER_ID_FIELD] as string).trim() : '';
     if (!sourceFolderId) {
       skippedNoSource++;
+      console.log(`[getPendingWebhookDeliveryRecords] Record ${r.id} skipped: missing Source Folder ID (field value: ${JSON.stringify(f[SOURCE_FOLDER_ID_FIELD])})`);
       continue;
     }
 
@@ -348,8 +350,13 @@ export async function getPendingWebhookDeliveryRecords(): Promise<PendingWebhook
     out.push({ recordId: r.id, sourceFolderId, deliveryBatchIdRaw });
   }
   
-  if (records.length > 0) {
-    console.log(`[getPendingWebhookDeliveryRecords] Found ${records.length} records with flag. After filtering: ${out.length} ready (skipped: ${skippedDelivered} delivered, ${skippedNoSource} no source, ${skippedNoBatch} no batch)`);
+  // Always log when we check (even if 0 records found)
+  console.log(`[getPendingWebhookDeliveryRecords] Query result: ${records.length} records with "Ready to Deliver (Webhook)" = TRUE. After filtering: ${out.length} ready to process (skipped: ${skippedDelivered} already delivered, ${skippedNoSource} missing source folder, ${skippedNoBatch} missing batch ID)`);
+  
+  // Log sample record IDs for debugging if we filtered everything out
+  if (records.length > 0 && out.length === 0) {
+    const sampleIds = records.slice(0, 3).map(r => r.id);
+    console.warn(`[getPendingWebhookDeliveryRecords] ⚠️ All ${records.length} records were filtered out. Sample record IDs: ${sampleIds.join(', ')}`);
   }
   
   return out;

@@ -53,6 +53,7 @@ export async function runPendingDeliveries(options?: {
 }): Promise<RunPendingDeliveriesResult> {
   const requestId = `pending-${Date.now().toString(36)}`;
   console.log(`[runPendingDeliveries] ${requestId} Starting worker run...`);
+  console.log(`[runPendingDeliveries] ${requestId} Auth context: oidcToken=${options?.oidcToken ? 'provided' : 'not provided'}`);
   const pending = await getPendingWebhookDeliveryRecords();
   const results: PendingDeliveryRunResult[] = [];
   let succeeded = 0;

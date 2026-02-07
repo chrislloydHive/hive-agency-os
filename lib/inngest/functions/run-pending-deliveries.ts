@@ -20,6 +20,26 @@ export const runPendingDeliveriesScheduled = inngest.createFunction(
   { cron: CRON_SCHEDULE },
   async () => {
     try {
+      // Diagnostic: Check credential availability in Inngest function context
+      const hasServiceAccountJson = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+      const hasServiceAccountEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+      const hasServiceAccountKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
+      const hasWifJson = !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+      const hasVercelOidcToken = !!process.env.VERCEL_OIDC_TOKEN;
+      
+      console.log('[run-pending-deliveries] Inngest function credential check:', {
+        serviceAccount: {
+          hasJson: hasServiceAccountJson,
+          hasEmail: hasServiceAccountEmail,
+          hasKey: hasServiceAccountKey,
+          available: hasServiceAccountJson || (hasServiceAccountEmail && hasServiceAccountKey),
+        },
+        wif: {
+          hasJson: hasWifJson,
+          hasVercelOidcToken,
+        },
+      });
+      
       const result = await runPendingDeliveries({ oidcToken: undefined });
       if (result.processed > 0) {
         console.log(

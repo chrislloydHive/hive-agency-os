@@ -235,14 +235,19 @@ export async function getDriveClient(
   
   // If credentials need OIDC token and we have it in env var, use it directly
   const vercelOidcToken = process.env.VERCEL_OIDC_TOKEN?.trim();
+  console.log('[WIF/getDriveClient] OIDC token check:', {
+    needsOidcTokenFromEnv,
+    hasVercelOidcToken: !!vercelOidcToken,
+    vercelOidcTokenLength: vercelOidcToken?.length || 0,
+  });
   if (needsOidcTokenFromEnv || vercelOidcToken) {
     if (vercelOidcToken) {
       console.log('[WIF] Using VERCEL_OIDC_TOKEN from env var (credentials file references missing token file)');
       return getDriveClientWithOidcToken(vercelOidcToken);
     } else {
-      throw new Error(
-        'Credentials require OIDC token but VERCEL_OIDC_TOKEN env var is not set. Enable Vercel OIDC integration (Settings → Security) or set VERCEL_OIDC_TOKEN. See docs/vercel-gcp-wif-setup.md'
-      );
+      const errorMsg = 'Credentials require OIDC token but VERCEL_OIDC_TOKEN env var is not set. Enable Vercel OIDC integration (Settings → Security) or set VERCEL_OIDC_TOKEN. See docs/vercel-gcp-wif-setup.md';
+      console.error('[WIF/getDriveClient] ❌ Throwing OIDC error:', errorMsg);
+      throw new Error(errorMsg);
     }
   }
 

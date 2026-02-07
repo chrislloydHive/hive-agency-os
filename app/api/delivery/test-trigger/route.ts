@@ -11,7 +11,16 @@ export const maxDuration = 300;
 
 const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 
+// Support both GET and POST for flexibility
 export async function GET(req: NextRequest) {
+  return handleRequest();
+}
+
+export async function POST(req: NextRequest) {
+  return handleRequest();
+}
+
+async function handleRequest() {
   try {
     console.log('[delivery/test-trigger] Manually triggering pending deliveries...');
     const result = await runPendingDeliveries({ oidcToken: undefined });

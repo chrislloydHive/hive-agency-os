@@ -50,11 +50,12 @@ const WIF_DOCS = 'docs/vercel-gcp-wif-setup.md';
  */
 function isWifOidcUnavailableError(message: string): boolean {
   const s = message.toLowerCase();
-  // Only match if it's specifically about OIDC token files or Vercel OIDC integration
+  // Match if it's specifically about OIDC token files, Vercel OIDC integration, or missing VERCEL_OIDC_TOKEN
   return (
-    (s.includes('oidc') && (s.includes('token') || s.includes('enoent')) && (s.includes('not found') || s.includes('missing'))) ||
+    (s.includes('oidc') && (s.includes('token') || s.includes('enoent')) && (s.includes('not found') || s.includes('missing') || s.includes('not set'))) ||
     (s.includes('unable to impersonate') && s.includes('oidc')) ||
-    (s.includes('enoent') && (s.includes('/run/secrets/vercel-oidc') || s.includes('vercel-oidc/token')))
+    (s.includes('enoent') && (s.includes('/run/secrets/vercel-oidc') || s.includes('vercel-oidc/token'))) ||
+    (s.includes('credentials require oidc token') && s.includes('vercel_oidc_token'))
   );
 }
 
@@ -220,15 +221,17 @@ export async function runPartnerDelivery(
   } else {
     // Try WIF first, fall back to service account if WIF fails
     // This matches how project folder creation works (uses service account)
+    console.log(`[delivery/partner] ${requestId} No OAuth token provided, attempting WIF auth (oidcToken=${params.oidcToken ? 'provided' : 'not provided'})`);
     try {
       drive = await getWifDriveClient({ oidcToken: params.oidcToken ?? undefined });
       authMode = 'wif_service_account';
+      console.log(`[delivery/partner] ${requestId} ✅ WIF authentication successful`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const stack = e instanceof Error ? e.stack : undefined;
-      console.warn(`[delivery/partner] ${requestId} WIF getDriveClient failed:`, msg);
+      console.error(`[delivery/partner] ${requestId} ❌ WIF getDriveClient failed:`, msg);
       if (stack) {
-        console.warn(`[delivery/partner] ${requestId} Stack:`, stack);
+        console.error(`[delivery/partner] ${requestId} WIF error stack:`, stack);
       }
       
       // Fallback to service account (same as project folder creation)
@@ -239,22 +242,20 @@ export async function runPartnerDelivery(
       const hasServiceAccount = hasServiceAccountJson || (hasServiceAccountEmail && hasServiceAccountKey);
       
       // Log credential availability (this is the "credential check output")
-      console.log(`[delivery/partner] ${requestId} CREDENTIAL CHECK:`, JSON.stringify({
-        wifFailed: true,
-        wifError: msg,
-        serviceAccount: {
-          hasJson: hasServiceAccountJson,
-          hasEmail: hasServiceAccountEmail,
-          hasKey: hasServiceAccountKey,
-          available: hasServiceAccount,
-        },
-        envVars: {
-          GOOGLE_SERVICE_ACCOUNT_JSON: !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
-          GOOGLE_SERVICE_ACCOUNT_EMAIL: !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-          GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
-          GOOGLE_APPLICATION_CREDENTIALS_JSON: !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON,
-        },
-      }));
+      // Split into multiple logs to avoid truncation in Vercel
+      console.log(`[delivery/partner] ${requestId} CREDENTIAL CHECK - WIF failed:`, msg);
+      console.log(`[delivery/partner] ${requestId} CREDENTIAL CHECK - Service account availability:`, {
+        hasJson: hasServiceAccountJson,
+        hasEmail: hasServiceAccountEmail,
+        hasKey: hasServiceAccountKey,
+        available: hasServiceAccount,
+      });
+      console.log(`[delivery/partner] ${requestId} CREDENTIAL CHECK - Env vars present:`, {
+        GOOGLE_SERVICE_ACCOUNT_JSON: !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+        GOOGLE_SERVICE_ACCOUNT_EMAIL: !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+        GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+        GOOGLE_APPLICATION_CREDENTIALS_JSON: !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON,
+      });
       
       if (hasServiceAccount) {
         console.log(`[delivery/partner] ${requestId} Falling back to service account authentication (same as project folder creation)`);
