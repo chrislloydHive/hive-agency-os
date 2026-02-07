@@ -45,11 +45,10 @@ function ensureAdcCredentialsFile(): void {
     }
     
     // If credentials reference the Vercel OIDC token file, check if it exists
-    // If not, try to use VERCEL_OIDC_TOKEN env var instead
+    // If not, we'll need to handle it specially in getDriveClient
     if (parsed.type === 'external_account' && parsed.credential_source?.file === '/var/run/secrets/vercel-oidc/token') {
       const fs = require('fs');
       const oidcTokenPath = '/var/run/secrets/vercel-oidc/token';
-      const oidcTokenEnv = process.env.VERCEL_OIDC_TOKEN;
       
       // Check if the file exists
       let fileExists = false;
@@ -59,22 +58,10 @@ function ensureAdcCredentialsFile(): void {
         // Ignore errors checking file existence
       }
       
-      if (!fileExists && oidcTokenEnv) {
-        // File doesn't exist but we have the token in env var - modify credentials to use env var
-        console.log('[WIF] OIDC token file not found, using VERCEL_OIDC_TOKEN env var');
-        parsed.credential_source = {
-          environment_id: 'aws1',
-          region_url: 'https://sts.googleapis.com/v1/token',
-          url: 'https://sts.googleapis.com/v1/token',
-          regional_cred_verification_url: 'https://sts.googleapis.com/v1/token',
-        };
-        // Use a custom subject token supplier that reads from env var
-        // We'll handle this in getDriveClient by creating ExternalAccountClient directly
-        // For now, write the modified JSON but note we'll need special handling
-        console.warn('[WIF] Credentials reference OIDC token file that does not exist. Will need to use ExternalAccountClient with env var token.');
-      } else if (!fileExists) {
-        console.error('[WIF] OIDC token file does not exist and VERCEL_OIDC_TOKEN env var not set');
-        throw new Error('OIDC token file /var/run/secrets/vercel-oidc/token does not exist and VERCEL_OIDC_TOKEN env var is not set. Enable Vercel OIDC integration or set VERCEL_OIDC_TOKEN.');
+      if (!fileExists) {
+        console.warn('[WIF] OIDC token file does not exist. Will try VERCEL_OIDC_TOKEN env var or require Vercel OIDC integration.');
+        // Store a flag that we'll check in getDriveClient
+        (parsed as any)._needsOidcTokenFromEnv = true;
       } else {
         console.log('[WIF] OIDC token file exists, using file-based credentials');
       }
@@ -232,11 +219,31 @@ export async function getDriveClient(
   const impersonateEmail = getImpersonateEmail();
   const projectId = getProjectId();
   
-  // Check if we have VERCEL_OIDC_TOKEN env var - if so, use it directly instead of file
+  // Check if credentials need OIDC token from env var (file doesn't exist)
+  // Read the credentials file to check if it has the flag
+  let needsOidcTokenFromEnv = false;
+  try {
+    const fs = require('fs');
+    if (fs.existsSync(ADC_CREDENTIALS_PATH)) {
+      const credsContent = fs.readFileSync(ADC_CREDENTIALS_PATH, 'utf8');
+      const creds = JSON.parse(credsContent);
+      needsOidcTokenFromEnv = creds._needsOidcTokenFromEnv === true;
+    }
+  } catch {
+    // Ignore errors reading credentials
+  }
+  
+  // If credentials need OIDC token and we have it in env var, use it directly
   const vercelOidcToken = process.env.VERCEL_OIDC_TOKEN?.trim();
-  if (vercelOidcToken) {
-    console.log('[WIF] Using VERCEL_OIDC_TOKEN from env var');
-    return getDriveClientWithOidcToken(vercelOidcToken);
+  if (needsOidcTokenFromEnv || vercelOidcToken) {
+    if (vercelOidcToken) {
+      console.log('[WIF] Using VERCEL_OIDC_TOKEN from env var (credentials file references missing token file)');
+      return getDriveClientWithOidcToken(vercelOidcToken);
+    } else {
+      throw new Error(
+        'Credentials require OIDC token but VERCEL_OIDC_TOKEN env var is not set. Enable Vercel OIDC integration (Settings → Security) or set VERCEL_OIDC_TOKEN. See docs/vercel-gcp-wif-setup.md'
+      );
+    }
   }
 
   console.log(
