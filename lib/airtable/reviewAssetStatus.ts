@@ -755,6 +755,9 @@ export async function batchSetAssetApprovedClient(
   if (options?.deliveryBatchId != null && String(options.deliveryBatchId).trim()) {
     const bid = String(options.deliveryBatchId).trim();
     fields[DELIVERY_BATCH_ID_FIELD] = bid.startsWith('rec') ? [bid] : bid;
+    // When a delivery batch is set, automatically mark as ready for delivery
+    // This triggers the backend worker to process the delivery
+    fields[READY_TO_DELIVER_WEBHOOK_FIELD] = true;
   }
   let updated = 0;
   for (let i = 0; i < recordIds.length; i += BULK_APPROVE_CHUNK_SIZE) {
@@ -821,6 +824,9 @@ export async function setSingleAssetApprovedClient(
   if (deliveryBatchId != null && String(deliveryBatchId).trim()) {
     const bid = String(deliveryBatchId).trim();
     fields[DELIVERY_BATCH_ID_FIELD] = bid.startsWith('rec') ? [bid] : bid;
+    // When a delivery batch is set, automatically mark as ready for delivery
+    // This triggers the backend worker to process the delivery
+    fields[READY_TO_DELIVER_WEBHOOK_FIELD] = true;
   }
   try {
     await osBase(TABLE).update(existing.id, fields as any);
