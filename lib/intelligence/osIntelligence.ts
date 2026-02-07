@@ -4,7 +4,7 @@
 import { getCompaniesWithOsSummary } from '@/lib/airtable/companies';
 import { getAllWorkItems } from '@/lib/airtable/workItems';
 import { getAllFullReports } from '@/lib/airtable/fullReports';
-import { isDmaConfigured, getDmaFunnelOsContribution } from '@/lib/analytics/dmaIntegration';
+import { isDmaConfigured, getDmaFunnelOsContribution } from '@/lib/os/analytics/dmaIntegration';
 import { getAllInboundLeads } from '@/lib/airtable/inboundLeads';
 import { buildSystemAnalysisPrompt } from './prompts';
 import type {
