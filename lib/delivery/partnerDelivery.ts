@@ -8,12 +8,11 @@ import {
   copyDriveFolderTree,
   copyFileToFolder,
   folderUrl,
+  getDriveClient,
   getDriveClientWithOAuth,
-  getDriveClientWithServiceAccount,
   preflightFolderCopy,
   ensureSubfolderPath,
 } from '@/lib/google/driveClient';
-// Removed WIF/ADC imports - using explicit service account directly (simpler, matches what works)
 import {
   getDestinationFolderIdByBatchId,
   updateDeliveryResultToRecord,
@@ -36,6 +35,7 @@ import {
 } from '@/lib/airtable/reviewAssetDelivery';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import type { drive_v3 } from 'googleapis';
+import type { OAuth2Client } from 'google-auth-library';
 
 const FOLDER_MIMETYPE = 'application/vnd.google-apps.folder';
 
@@ -187,68 +187,47 @@ export async function runPartnerDelivery(
   }
 
   // Resolve auth: token -> OAuth; else WIF (never 400 for missing token when WIF configured).
-  let drive: drive_v3.Drive | undefined;
-  let authMode: AuthMode | undefined;
+  let drive: drive_v3.Drive;
+  let authMode: AuthMode;
 
   const tokenTrimmed = (token ?? '').trim();
+  let oauthClient: OAuth2Client | null = null;
+  
   if (tokenTrimmed) {
     const resolved = await resolveReviewProject(tokenTrimmed);
     if (!resolved?.auth) {
       return fail('Invalid review portal token (could not resolve project/oauth).', 400, true);
     }
+    oauthClient = resolved.auth;
     authMode = 'oauth';
-    drive = getDriveClientWithOAuth(resolved.auth);
   } else {
-    // SIMPLIFIED: Use explicit service account directly (same approach that works for project folder creation)
-    // Skip all WIF/ADC complexity - just use what works
-    console.log(`[delivery/partner] ${requestId} No OAuth token provided, using explicit service account credentials`);
-    
-    const hasServiceAccountJson = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-    const hasServiceAccountEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-    const hasServiceAccountKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
-    const hasServiceAccount = hasServiceAccountJson || (hasServiceAccountEmail && hasServiceAccountKey);
-    
-    if (!hasServiceAccount) {
-      return fail(
-        'No service account credentials available. Set GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.',
-        500,
-        true,
-        'wif_service_account'
-      );
-    }
-    
-    try {
-      console.log(`[delivery/partner] ${requestId} Using explicit service account:`, {
-        usingJson: hasServiceAccountJson,
-        usingEmailKey: hasServiceAccountEmail && hasServiceAccountKey,
-      });
-      drive = getDriveClientWithServiceAccount();
-      authMode = 'wif_service_account';
-      console.log(`[delivery/partner] ${requestId} ✅ Service account authentication successful`);
-    } catch (saError) {
-      const saMsg = saError instanceof Error ? saError.message : String(saError);
-      const saStack = saError instanceof Error ? saError.stack : undefined;
-      console.error(`[delivery/partner] ${requestId} ❌ Service account authentication failed:`, saMsg);
-      if (saStack) {
-        console.error(`[delivery/partner] ${requestId} Service account error stack:`, saStack);
-      }
-      console.error(`[delivery/partner] ${requestId} Env var check:`, {
-        GOOGLE_SERVICE_ACCOUNT_JSON_length: process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.length || 0,
-        GOOGLE_SERVICE_ACCOUNT_EMAIL: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ? 'present' : 'missing',
-        GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY_length: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.length || 0,
-      });
-      return fail(
-        `Service account authentication failed: ${saMsg}. Check GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.`,
-        500,
-        true,
-        'wif_service_account'
-      );
-    }
+    authMode = 'wif_service_account';
   }
 
-  // Ensure drive and authMode are assigned (TypeScript check)
-  if (!drive || !authMode) {
-    return fail('Failed to initialize Google Drive client', 500, true, authMode || 'wif_service_account');
+  // Debug logging (optional, safe, temporary)
+  try {
+    const credsJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    const credsType = credsJson ? JSON.parse(credsJson).type : 'unknown';
+    console.log(`[delivery/partner] ${requestId} Auth context:`, {
+      useServiceAccount: process.env.USE_SERVICE_ACCOUNT,
+      hasOidcToken: Boolean(oidcToken ?? process.env.VERCEL_OIDC_TOKEN),
+      credsType,
+      authMode,
+    });
+  } catch {
+    // Ignore parse errors in debug logging
+  }
+
+  try {
+    drive = await getDriveClient({
+      oauthToken: oauthClient ?? null,
+      vercelOidcToken: oidcToken ?? process.env.VERCEL_OIDC_TOKEN ?? null,
+    });
+    console.log(`[delivery/partner] ${requestId} ✅ Drive client initialized (authMode=${authMode})`);
+  } catch (authError) {
+    const authMsg = authError instanceof Error ? authError.message : String(authError);
+    console.error(`[delivery/partner] ${requestId} ❌ Drive client initialization failed:`, authMsg);
+    return fail(`Drive client initialization failed: ${authMsg}`, 500, true, authMode);
   }
 
   console.log(
@@ -476,6 +455,7 @@ export async function runPartnerDeliveryByBatch(params: {
   let authMode: AuthMode;
   const tokenTrimmed = (token ?? '').trim();
   if (tokenTrimmed) {
+    // Priority 1: OAuth token provided
     const resolved = await resolveReviewProject(tokenTrimmed);
     if (!resolved?.auth) {
       return { ok: false, error: 'Invalid review portal token (could not resolve project/oauth).', statusCode: 400 };
@@ -483,29 +463,35 @@ export async function runPartnerDeliveryByBatch(params: {
     authMode = 'oauth';
     drive = getDriveClientWithOAuth(resolved.auth);
   } else {
-    // SIMPLIFIED: Use explicit service account directly (same approach that works for project folder creation)
-    const hasServiceAccountJson = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-    const hasServiceAccountEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-    const hasServiceAccountKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
-    const hasServiceAccount = hasServiceAccountJson || (hasServiceAccountEmail && hasServiceAccountKey);
-    
-    if (!hasServiceAccount) {
+    // Priority 2: WIF with USE_SERVICE_ACCOUNT flag
+    if (process.env.USE_SERVICE_ACCOUNT === 'true') {
+      const vercelOidcTokenToUse = oidcToken ?? process.env.VERCEL_OIDC_TOKEN;
+      if (!vercelOidcTokenToUse) {
+        return {
+          ok: false,
+          error: 'USE_SERVICE_ACCOUNT=true requires VERCEL_OIDC_TOKEN to be set or passed explicitly.',
+          statusCode: 500,
+          authMode: 'wif_service_account',
+        };
+      }
+      try {
+        drive = await getDriveClient({ vercelOidcToken: vercelOidcTokenToUse });
+        authMode = 'wif_service_account';
+      } catch (wifError) {
+        const wifMsg = wifError instanceof Error ? wifError.message : String(wifError);
+        console.error(`[delivery/partner-by-batch] WIF authentication failed:`, wifMsg);
+        return {
+          ok: false,
+          error: `WIF authentication failed: ${wifMsg}`,
+          statusCode: 500,
+          authMode: 'wif_service_account',
+        };
+      }
+    } else {
+      // Priority 3: Hard error
       return {
         ok: false,
-        error: 'No service account credentials available. Set GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.',
-        statusCode: 500,
-        authMode: 'wif_service_account',
-      };
-    }
-    
-    try {
-      drive = getDriveClientWithServiceAccount();
-      authMode = 'wif_service_account';
-    } catch (saError) {
-      const saMsg = saError instanceof Error ? saError.message : String(saError);
-      return {
-        ok: false,
-        error: `Service account authentication failed: ${saMsg}. Check GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.`,
+        error: 'No OAuth token provided and USE_SERVICE_ACCOUNT is not enabled. Set USE_SERVICE_ACCOUNT=true to use WIF, or provide an OAuth token.',
         statusCode: 500,
         authMode: 'wif_service_account',
       };
@@ -637,7 +623,8 @@ export async function runPartnerDeliveryFromPortal(params: {
     dryRun = false,
   } = params;
 
-  const drive = getDriveClientWithServiceAccount();
+  // Use unified factory for WIF auth
+  const drive = await getDriveClient({ vercelOidcToken: oidcToken ?? process.env.VERCEL_OIDC_TOKEN ?? null });
   const dateStr = new Date().toISOString().slice(0, 10);
   const folderNameSuffix = deliveryBatchId || airtableRecordId;
   const deliveredFolderName = `Delivered – ${folderNameSuffix} – ${dateStr}`;
