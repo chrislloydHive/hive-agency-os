@@ -261,15 +261,41 @@ export async function runPartnerDelivery(
       
       if (hasServiceAccount) {
         console.log(`[delivery/partner] ${requestId} Falling back to service account authentication`);
-        try {
-          // Try ADC-based client first (same as project folder creation - works with WIF automatically)
-          console.log(`[delivery/partner] ${requestId} Attempting ADC-based Drive client (same as project folder creation)`);
-          drive = await getAdcDriveClient();
-          authMode = 'wif_service_account';
-          console.log(`[delivery/partner] ${requestId} ✅ ADC-based Drive client created successfully`);
-        } catch (adcError) {
-          const adcMsg = adcError instanceof Error ? adcError.message : String(adcError);
-          console.warn(`[delivery/partner] ${requestId} ADC-based client failed, trying explicit service account:`, adcMsg);
+        
+        // Check if ADC credentials reference missing OIDC token file
+        const wifJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+        let skipAdc = false;
+        if (wifJson && !process.env.VERCEL_OIDC_TOKEN) {
+          try {
+            const parsed = JSON.parse(wifJson);
+            if (parsed.type === 'external_account' && 
+                parsed.credential_source?.file === '/var/run/secrets/vercel-oidc/token') {
+              const fs = require('fs');
+              if (!fs.existsSync('/var/run/secrets/vercel-oidc/token')) {
+                skipAdc = true;
+                console.log(`[delivery/partner] ${requestId} Skipping ADC - credentials reference missing OIDC token file and VERCEL_OIDC_TOKEN not set`);
+              }
+            }
+          } catch {
+            // Ignore parse errors
+          }
+        }
+        
+        if (!skipAdc) {
+          try {
+            // Try ADC-based client first (same as project folder creation - works with WIF automatically)
+            console.log(`[delivery/partner] ${requestId} Attempting ADC-based Drive client (same as project folder creation)`);
+            drive = await getAdcDriveClient();
+            authMode = 'wif_service_account';
+            console.log(`[delivery/partner] ${requestId} ✅ ADC-based Drive client created successfully`);
+          } catch (adcError) {
+            const adcMsg = adcError instanceof Error ? adcError.message : String(adcError);
+            console.warn(`[delivery/partner] ${requestId} ADC-based client failed, trying explicit service account:`, adcMsg);
+            skipAdc = true; // Fall through to explicit service account
+          }
+        }
+        
+        if (skipAdc || !drive) {
           try {
             // Fallback to explicit service account (for backwards compatibility)
             console.log(`[delivery/partner] ${requestId} Attempting explicit service account auth with:`, {
@@ -283,7 +309,7 @@ export async function runPartnerDelivery(
             const saMsg = saError instanceof Error ? saError.message : String(saError);
             const saStack = saError instanceof Error ? saError.stack : undefined;
             console.error(`[delivery/partner] ${requestId} ❌ Both ADC and explicit service account failed`);
-            console.error(`[delivery/partner] ${requestId} ADC error:`, adcMsg);
+            console.error(`[delivery/partner] ${requestId} ADC error:`, adcErrorMsg || 'Unknown');
             console.error(`[delivery/partner] ${requestId} Service account error:`, saMsg);
             if (saStack) {
               console.error(`[delivery/partner] ${requestId} Service account error stack:`, saStack);
@@ -294,9 +320,10 @@ export async function runPartnerDelivery(
               GOOGLE_SERVICE_ACCOUNT_EMAIL: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ? 'present' : 'missing',
               GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY_length: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.length || 0,
               GOOGLE_APPLICATION_CREDENTIALS_JSON: !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON,
+              VERCEL_OIDC_TOKEN: !!process.env.VERCEL_OIDC_TOKEN,
             });
             return fail(
-              `Google authentication failed (tried WIF, ADC, and explicit service account). ADC error: ${adcMsg}. Service account error: ${saMsg}. Check GOOGLE_APPLICATION_CREDENTIALS_JSON for WIF/ADC or GOOGLE_SERVICE_ACCOUNT_JSON for explicit SA.`,
+              `Google authentication failed (tried WIF, ADC, and explicit service account). ADC error: ${adcErrorMsg || 'Unknown'}. Service account error: ${saMsg}. Check GOOGLE_APPLICATION_CREDENTIALS_JSON for WIF/ADC or GOOGLE_SERVICE_ACCOUNT_JSON for explicit SA.`,
               500,
               true,
               'wif_service_account'

@@ -61,12 +61,51 @@ export async function getDriveClient(): Promise<drive_v3.Drive> {
   // projectId is needed for quota attribution when using user credentials
   const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT_ID;
 
+  // If GOOGLE_APPLICATION_CREDENTIALS_JSON is set, use it directly
+  // This avoids issues with OIDC token files that don't exist in Inngest functions
+  let credentials: any = undefined;
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+    try {
+      credentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+      console.log('[Drive/ADC] Using credentials from GOOGLE_APPLICATION_CREDENTIALS_JSON, type:', credentials.type);
+      
+      // If credentials reference OIDC token file that doesn't exist, modify to use env var or file
+      if (credentials.type === 'external_account' && 
+          credentials.credential_source?.file === '/var/run/secrets/vercel-oidc/token') {
+        const fs = require('fs');
+        const oidcTokenPath = '/var/run/secrets/vercel-oidc/token';
+        const fileExists = fs.existsSync(oidcTokenPath);
+        
+        if (!fileExists) {
+          if (process.env.VERCEL_OIDC_TOKEN) {
+            // Modify credentials to use the token directly instead of file
+            // Create a custom getSubjectToken function
+            const token = process.env.VERCEL_OIDC_TOKEN;
+            credentials.credential_source = {
+              ...credentials.credential_source,
+              // Remove file reference, we'll provide token via getSubjectToken
+            };
+            // Store token for later use (GoogleAuth will call getSubjectToken)
+            (credentials as any)._oidcToken = token;
+            console.log('[Drive/ADC] Modified credentials to use VERCEL_OIDC_TOKEN env var instead of missing file');
+          } else {
+            console.warn('[Drive/ADC] OIDC token file missing and VERCEL_OIDC_TOKEN not set - ADC will likely fail');
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[Drive/ADC] Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON:', e instanceof Error ? e.message : String(e));
+      credentials = undefined;
+    }
+  }
+
   _authClient = new google.auth.GoogleAuth({
     scopes: [
       'https://www.googleapis.com/auth/drive',
       'https://www.googleapis.com/auth/drive.file',
     ],
     projectId,
+    ...(credentials ? { credentials } : {}),
   });
 
   _driveClient = google.drive({ version: 'v3', auth: _authClient });
