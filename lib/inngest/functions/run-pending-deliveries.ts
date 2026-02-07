@@ -18,40 +18,60 @@ export const runPendingDeliveriesScheduled = inngest.createFunction(
     concurrency: { limit: 1 },
   },
   { cron: CRON_SCHEDULE },
-  async () => {
-    try {
-      // Diagnostic: Check credential availability in Inngest function context
-      const hasServiceAccountJson = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-      const hasServiceAccountEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-      const hasServiceAccountKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
-      const hasWifJson = !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
-      const hasVercelOidcToken = !!process.env.VERCEL_OIDC_TOKEN;
-      
-      console.log('[run-pending-deliveries] Inngest function credential check:', {
-        serviceAccount: {
-          hasJson: hasServiceAccountJson,
-          hasEmail: hasServiceAccountEmail,
-          hasKey: hasServiceAccountKey,
-          available: hasServiceAccountJson || (hasServiceAccountEmail && hasServiceAccountKey),
-        },
-        wif: {
-          hasJson: hasWifJson,
-          hasVercelOidcToken,
-        },
-      });
-      
-      const result = await runPendingDeliveries({ oidcToken: undefined });
-      if (result.processed > 0) {
-        console.log(
-          `[run-pending-deliveries] processed=${result.processed} succeeded=${result.succeeded} failed=${result.failed} skipped=${result.skipped}`
-        );
+  async ({ event, step }) => {
+    console.log('[run-pending-deliveries] ⚡ Function triggered by cron:', CRON_SCHEDULE, 'event:', event.id);
+    
+    return await step.run('process-deliveries', async () => {
+      try {
+        console.log('[run-pending-deliveries] Starting delivery processing...');
+        
+        // Diagnostic: Check credential availability in Inngest function context
+        const hasServiceAccountJson = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+        const hasServiceAccountEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+        const hasServiceAccountKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
+        const hasWifJson = !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+        const hasVercelOidcToken = !!process.env.VERCEL_OIDC_TOKEN;
+        
+        console.log('[run-pending-deliveries] Inngest function credential check:', {
+          serviceAccount: {
+            hasJson: hasServiceAccountJson,
+            hasEmail: hasServiceAccountEmail,
+            hasKey: hasServiceAccountKey,
+            available: hasServiceAccountJson || (hasServiceAccountEmail && hasServiceAccountKey),
+          },
+          wif: {
+            hasJson: hasWifJson,
+            hasVercelOidcToken,
+          },
+        });
+        
+        const result = await runPendingDeliveries({ oidcToken: undefined });
+        
+        console.log('[run-pending-deliveries] Delivery processing complete:', {
+          processed: result.processed,
+          succeeded: result.succeeded,
+          failed: result.failed,
+          skipped: result.skipped,
+        });
+        
+        if (result.processed > 0) {
+          console.log(
+            `[run-pending-deliveries] Summary: processed=${result.processed} succeeded=${result.succeeded} failed=${result.failed} skipped=${result.skipped}`
+          );
+        } else {
+          console.log('[run-pending-deliveries] No records to process');
+        }
+        
+        return result;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const stack = err instanceof Error ? err.stack : undefined;
+        console.error('[run-pending-deliveries] ❌ Inngest function error:', message);
+        if (stack) {
+          console.error('[run-pending-deliveries] Error stack:', stack);
+        }
+        throw err;
       }
-      return result;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const stack = err instanceof Error ? err.stack : undefined;
-      console.error('[run-pending-deliveries] Inngest function error:', message, stack);
-      throw err;
-    }
+    });
   }
 );
