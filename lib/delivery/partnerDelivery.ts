@@ -13,9 +13,7 @@ import {
   preflightFolderCopy,
   ensureSubfolderPath,
 } from '@/lib/google/driveClient';
-import { getAuthModeSummary, getDriveClient as getWifDriveClient } from '@/lib/google/driveWif';
-// ADC-based client (same as project folder creation - works with WIF automatically)
-import { getDriveClient as getAdcDriveClient } from '@/lib/integrations/google/driveClient';
+// Removed WIF/ADC imports - using explicit service account directly (simpler, matches what works)
 import {
   getDestinationFolderIdByBatchId,
   updateDeliveryResultToRecord,
@@ -221,131 +219,50 @@ export async function runPartnerDelivery(
     authMode = 'oauth';
     drive = getDriveClientWithOAuth(resolved.auth);
   } else {
-    // Try WIF first, fall back to service account if WIF fails
-    // This matches how project folder creation works (uses service account)
-    console.log(`[delivery/partner] ${requestId} No OAuth token provided, attempting WIF auth (oidcToken=${params.oidcToken ? 'provided' : 'not provided'})`);
+    // SIMPLIFIED: Use explicit service account directly (same approach that works for project folder creation)
+    // Skip all WIF/ADC complexity - just use what works
+    console.log(`[delivery/partner] ${requestId} No OAuth token provided, using explicit service account credentials`);
+    
+    const hasServiceAccountJson = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    const hasServiceAccountEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+    const hasServiceAccountKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
+    const hasServiceAccount = hasServiceAccountJson || (hasServiceAccountEmail && hasServiceAccountKey);
+    
+    if (!hasServiceAccount) {
+      return fail(
+        'No service account credentials available. Set GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.',
+        500,
+        true,
+        'wif_service_account'
+      );
+    }
+    
     try {
-      drive = await getWifDriveClient({ oidcToken: params.oidcToken ?? undefined });
+      console.log(`[delivery/partner] ${requestId} Using explicit service account:`, {
+        usingJson: hasServiceAccountJson,
+        usingEmailKey: hasServiceAccountEmail && hasServiceAccountKey,
+      });
+      drive = getDriveClientWithServiceAccount();
       authMode = 'wif_service_account';
-      console.log(`[delivery/partner] ${requestId} ✅ WIF authentication successful`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      const stack = e instanceof Error ? e.stack : undefined;
-      console.error(`[delivery/partner] ${requestId} ❌ WIF getDriveClient failed:`, msg);
-      if (stack) {
-        console.error(`[delivery/partner] ${requestId} WIF error stack:`, stack);
+      console.log(`[delivery/partner] ${requestId} ✅ Service account authentication successful`);
+    } catch (saError) {
+      const saMsg = saError instanceof Error ? saError.message : String(saError);
+      const saStack = saError instanceof Error ? saError.stack : undefined;
+      console.error(`[delivery/partner] ${requestId} ❌ Service account authentication failed:`, saMsg);
+      if (saStack) {
+        console.error(`[delivery/partner] ${requestId} Service account error stack:`, saStack);
       }
-      
-      // Fallback to service account (same as project folder creation)
-      // Check if service account credentials are available
-      const hasServiceAccountJson = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-      const hasServiceAccountEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-      const hasServiceAccountKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
-      const hasServiceAccount = hasServiceAccountJson || (hasServiceAccountEmail && hasServiceAccountKey);
-      
-      // Log credential availability (this is the "credential check output")
-      // Split into multiple logs to avoid truncation in Vercel
-      console.log(`[delivery/partner] ${requestId} CREDENTIAL CHECK - WIF failed:`, msg);
-      console.log(`[delivery/partner] ${requestId} CREDENTIAL CHECK - Service account availability:`, {
-        hasJson: hasServiceAccountJson,
-        hasEmail: hasServiceAccountEmail,
-        hasKey: hasServiceAccountKey,
-        available: hasServiceAccount,
+      console.error(`[delivery/partner] ${requestId} Env var check:`, {
+        GOOGLE_SERVICE_ACCOUNT_JSON_length: process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.length || 0,
+        GOOGLE_SERVICE_ACCOUNT_EMAIL: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ? 'present' : 'missing',
+        GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY_length: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.length || 0,
       });
-      console.log(`[delivery/partner] ${requestId} CREDENTIAL CHECK - Env vars present:`, {
-        GOOGLE_SERVICE_ACCOUNT_JSON: !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
-        GOOGLE_SERVICE_ACCOUNT_EMAIL: !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-        GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
-        GOOGLE_APPLICATION_CREDENTIALS_JSON: !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON,
-      });
-      
-      if (hasServiceAccount) {
-        console.log(`[delivery/partner] ${requestId} Falling back to service account authentication`);
-        
-        // Check if ADC credentials reference missing OIDC token file
-        const wifJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
-        let skipAdc = false;
-        let adcErrorMsg: string | undefined = undefined;
-        
-        if (wifJson && !process.env.VERCEL_OIDC_TOKEN) {
-          try {
-            const parsed = JSON.parse(wifJson);
-            if (parsed.type === 'external_account' && 
-                parsed.credential_source?.file === '/var/run/secrets/vercel-oidc/token') {
-              const fs = require('fs');
-              if (!fs.existsSync('/var/run/secrets/vercel-oidc/token')) {
-                skipAdc = true;
-                adcErrorMsg = 'Skipped (missing OIDC token file and VERCEL_OIDC_TOKEN not set)';
-                console.log(`[delivery/partner] ${requestId} Skipping ADC - credentials reference missing OIDC token file and VERCEL_OIDC_TOKEN not set`);
-              }
-            }
-          } catch {
-            // Ignore parse errors
-          }
-        }
-        
-        if (!skipAdc) {
-          try {
-            // Try ADC-based client first (same as project folder creation - works with WIF automatically)
-            console.log(`[delivery/partner] ${requestId} Attempting ADC-based Drive client (same as project folder creation)`);
-            drive = await getAdcDriveClient();
-            authMode = 'wif_service_account';
-            console.log(`[delivery/partner] ${requestId} ✅ ADC-based Drive client created successfully`);
-          } catch (adcError) {
-            adcErrorMsg = adcError instanceof Error ? adcError.message : String(adcError);
-            console.warn(`[delivery/partner] ${requestId} ADC-based client failed, trying explicit service account:`, adcErrorMsg);
-            skipAdc = true; // Fall through to explicit service account
-          }
-        }
-        
-        if (skipAdc) {
-          try {
-            // Fallback to explicit service account (for backwards compatibility)
-            console.log(`[delivery/partner] ${requestId} Attempting explicit service account auth with:`, {
-              usingJson: hasServiceAccountJson,
-              usingEmailKey: hasServiceAccountEmail && hasServiceAccountKey,
-            });
-            const saDrive = getDriveClientWithServiceAccount();
-            drive = saDrive;
-            authMode = 'wif_service_account';
-            console.log(`[delivery/partner] ${requestId} ✅ Explicit service account authentication successful`);
-          } catch (saError) {
-            const saMsg = saError instanceof Error ? saError.message : String(saError);
-            const saStack = saError instanceof Error ? saError.stack : undefined;
-            console.error(`[delivery/partner] ${requestId} ❌ Both ADC and explicit service account failed`);
-            console.error(`[delivery/partner] ${requestId} ADC error:`, adcErrorMsg || 'Unknown');
-            console.error(`[delivery/partner] ${requestId} Service account error:`, saMsg);
-            if (saStack) {
-              console.error(`[delivery/partner] ${requestId} Service account error stack:`, saStack);
-            }
-            // Log the actual env var values (not the secrets themselves, just presence)
-            console.error(`[delivery/partner] ${requestId} Env var check at error time:`, {
-              GOOGLE_SERVICE_ACCOUNT_JSON_length: process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.length || 0,
-              GOOGLE_SERVICE_ACCOUNT_EMAIL: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ? 'present' : 'missing',
-              GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY_length: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.length || 0,
-              GOOGLE_APPLICATION_CREDENTIALS_JSON: !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON,
-              VERCEL_OIDC_TOKEN: !!process.env.VERCEL_OIDC_TOKEN,
-            });
-            return fail(
-              `Google authentication failed (tried WIF, ADC, and explicit service account). ADC error: ${adcErrorMsg || 'Unknown'}. Service account error: ${saMsg}. Check GOOGLE_APPLICATION_CREDENTIALS_JSON for WIF/ADC or GOOGLE_SERVICE_ACCOUNT_JSON for explicit SA.`,
-              500,
-              true,
-              'wif_service_account'
-            );
-          }
-        }
-      } else {
-        // No service account fallback available
-        if (isWifOidcUnavailableError(msg)) {
-          return fail(WIF_UNAVAILABLE_MESSAGE, 500, true, 'wif_service_account');
-        }
-        return fail(
-          `Google ADC/WIF authentication failed: ${msg}. Check GOOGLE_APPLICATION_CREDENTIALS_JSON format and GOOGLE_IMPERSONATE_SERVICE_ACCOUNT_EMAIL. See ${WIF_DOCS}.`,
-          500,
-          true,
-          'wif_service_account'
-        );
-      }
+      return fail(
+        `Service account authentication failed: ${saMsg}. Check GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.`,
+        500,
+        true,
+        'wif_service_account'
+      );
     }
   }
 
