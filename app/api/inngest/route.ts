@@ -64,21 +64,25 @@ const handlers = serve({
 // Wrap handlers to read x-vercel-oidc-token header and log presence
 // Note: The actual token propagation is handled by middleware in lib/inngest/client.ts
 // This wrapper just logs the header presence for verification
-export const GET = async (req: NextRequest, context?: { params?: Promise<Record<string, string>> }) => {
+type RouteContext = {
+  params: Promise<Record<string, string>>;
+};
+
+export const GET = async (req: NextRequest, context: RouteContext) => {
   const oidcToken = req.headers.get('x-vercel-oidc-token');
   // Temporary console.log confirming presence
   console.log('[Inngest Route] OIDC token present:', !!oidcToken);
   return handlers.GET(req, context);
 };
 
-export const POST = async (req: NextRequest, context?: { params?: Promise<Record<string, string>> }) => {
+export const POST = async (req: NextRequest, context: RouteContext) => {
   const oidcToken = req.headers.get('x-vercel-oidc-token');
   // Temporary console.log confirming presence
   console.log('[Inngest Route] OIDC token present:', !!oidcToken);
   return handlers.POST(req, context);
 };
 
-export const PUT = async (req: NextRequest, context?: { params?: Promise<Record<string, string>> }) => {
+export const PUT = async (req: NextRequest, context: RouteContext) => {
   const oidcToken = req.headers.get('x-vercel-oidc-token');
   // Temporary console.log confirming presence
   console.log('[Inngest Route] OIDC token present:', !!oidcToken);
