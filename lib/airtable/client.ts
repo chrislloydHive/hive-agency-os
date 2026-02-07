@@ -274,6 +274,18 @@ export async function findRecordByField(
   if (!response.ok) {
     const errorText = await response.text();
     console.error(`[Airtable] API error: status=${response.status}, statusText=${response.statusText}, table=${tableName}, field=${fieldName}, value=${value}, error=${errorText}`);
+    
+    // Provide helpful guidance for permission errors
+    if (response.status === 403 || response.status === 401) {
+      const baseId = config.baseId.slice(0, 20);
+      throw new Error(
+        `Airtable API permission error (${response.status}): Token lacks access to table "${tableName}" in base ${baseId}... ` +
+        `Ensure AIRTABLE_API_KEY has read permissions for this table. ` +
+        `If the table is in a different base, configure AIRTABLE_DB_BASE_ID or AIRTABLE_OS_BASE_ID. ` +
+        `Error: ${errorText.slice(0, 300)}`
+      );
+    }
+    
     throw new Error(
       `Airtable API error (${response.status}): ${errorText}`
     );

@@ -627,10 +627,15 @@ export async function findCompanyIntegration({
 
       if (!r.ok) {
         if (r.status === 401 || r.status === 403) {
-          throw new Error(
-            `Airtable token lacks access to ${base.label} base (baseId=${base.baseId}). ` +
-            `Received ${r.status}: ${r.text.slice(0, 200)}`,
+          // Log permission error but continue trying other bases/formulas
+          // Don't throw - allow fallback to other bases or return null gracefully
+          console.warn(
+            `[CompanyIntegrations] Permission denied (${r.status}) for ${base.label} base (baseId=${base.baseId.slice(0, 20)}...). ` +
+            `Token may lack access to CompanyIntegrations table in this base. ` +
+            `Error: ${r.text.slice(0, 200)}`,
           );
+          // Continue to next step/base rather than aborting
+          continue;
         }
         // Non-auth error on this formula — skip to next step rather than aborting,
         // because the field name may simply not exist in this base.
