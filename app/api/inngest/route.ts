@@ -3,6 +3,7 @@
 
 import { serve } from 'inngest/next';
 import { inngest } from '@/lib/inngest/client';
+import type { NextRequest } from 'next/server';
 
 // Import all Inngest functions
 import { generateFullGap } from '@/lib/inngest/functions/generate-full-gap';
@@ -29,6 +30,8 @@ import {
 import { runPendingDeliveriesScheduled } from '@/lib/inngest/functions/run-pending-deliveries';
 
 // Serve all functions
+// Note: The x-vercel-oidc-token header is automatically propagated to function context
+// via middleware defined in lib/inngest/client.ts
 export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [

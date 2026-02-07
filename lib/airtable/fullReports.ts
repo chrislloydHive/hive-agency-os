@@ -313,7 +313,8 @@ export async function upsertFullReportForOsRun({
  */
 export async function getAllFullReports(): Promise<FullReportRecord[]> {
   try {
-    console.log('[Full Reports] Fetching all full reports');
+    const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
+    console.log(`[Full Reports] Fetching all full reports from base: ${baseId.substring(0, 20)}...`);
     const table = base(FULL_REPORTS_TABLE_NAME);
     const records = await table.select().all();
 
@@ -348,6 +349,13 @@ export async function getAllFullReports(): Promise<FullReportRecord[]> {
     console.log('[Full Reports] Found', reports.length, 'total reports');
     return reports;
   } catch (error) {
+    const errorObj = error as any;
+    const isAuthError = errorObj?.error === 'NOT_AUTHORIZED' || errorObj?.statusCode === 403;
+    if (isAuthError) {
+      const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
+      console.error(`[Full Reports] NOT_AUTHORIZED: API key lacks permissions for table "${FULL_REPORTS_TABLE_NAME}" in base ${baseId.substring(0, 20)}...`);
+      console.error(`[Full Reports] Check: 1) API key has read access to this table, 2) Table exists in base ${baseId}, 3) AIRTABLE_OS_BASE_ID vs AIRTABLE_BASE_ID is correct`);
+    }
     console.error('[Full Reports] Error fetching all reports:', error);
     return [];
   }
