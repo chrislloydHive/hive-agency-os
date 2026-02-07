@@ -27,6 +27,8 @@ let _envLogged = false;
 /**
  * If GOOGLE_APPLICATION_CREDENTIALS is not set but GOOGLE_APPLICATION_CREDENTIALS_JSON is set,
  * write the JSON to /tmp/gcp-wif.json and set GOOGLE_APPLICATION_CREDENTIALS so ADC can find it.
+ * If the credentials reference /var/run/secrets/vercel-oidc/token, check if that file exists.
+ * If not, try to use VERCEL_OIDC_TOKEN env var or modify the credential_source to use env var.
  * Do not log secrets.
  */
 function ensureAdcCredentialsFile(): void {
@@ -41,7 +43,44 @@ function ensureAdcCredentialsFile(): void {
       console.error('[WIF] GOOGLE_APPLICATION_CREDENTIALS_JSON missing "type" field');
       throw new Error('Invalid credentials JSON: missing "type" field');
     }
-    writeFileSync(ADC_CREDENTIALS_PATH, json, 'utf8');
+    
+    // If credentials reference the Vercel OIDC token file, check if it exists
+    // If not, try to use VERCEL_OIDC_TOKEN env var instead
+    if (parsed.type === 'external_account' && parsed.credential_source?.file === '/var/run/secrets/vercel-oidc/token') {
+      const fs = require('fs');
+      const oidcTokenPath = '/var/run/secrets/vercel-oidc/token';
+      const oidcTokenEnv = process.env.VERCEL_OIDC_TOKEN;
+      
+      // Check if the file exists
+      let fileExists = false;
+      try {
+        fileExists = fs.existsSync(oidcTokenPath);
+      } catch {
+        // Ignore errors checking file existence
+      }
+      
+      if (!fileExists && oidcTokenEnv) {
+        // File doesn't exist but we have the token in env var - modify credentials to use env var
+        console.log('[WIF] OIDC token file not found, using VERCEL_OIDC_TOKEN env var');
+        parsed.credential_source = {
+          environment_id: 'aws1',
+          region_url: 'https://sts.googleapis.com/v1/token',
+          url: 'https://sts.googleapis.com/v1/token',
+          regional_cred_verification_url: 'https://sts.googleapis.com/v1/token',
+        };
+        // Use a custom subject token supplier that reads from env var
+        // We'll handle this in getDriveClient by creating ExternalAccountClient directly
+        // For now, write the modified JSON but note we'll need special handling
+        console.warn('[WIF] Credentials reference OIDC token file that does not exist. Will need to use ExternalAccountClient with env var token.');
+      } else if (!fileExists) {
+        console.error('[WIF] OIDC token file does not exist and VERCEL_OIDC_TOKEN env var not set');
+        throw new Error('OIDC token file /var/run/secrets/vercel-oidc/token does not exist and VERCEL_OIDC_TOKEN env var is not set. Enable Vercel OIDC integration or set VERCEL_OIDC_TOKEN.');
+      } else {
+        console.log('[WIF] OIDC token file exists, using file-based credentials');
+      }
+    }
+    
+    writeFileSync(ADC_CREDENTIALS_PATH, JSON.stringify(parsed), 'utf8');
     process.env.GOOGLE_APPLICATION_CREDENTIALS = ADC_CREDENTIALS_PATH;
     console.log(`[WIF] Wrote credentials to ${ADC_CREDENTIALS_PATH}, type=${parsed.type}`);
   } catch (err) {
@@ -192,6 +231,14 @@ export async function getDriveClient(
 
   const impersonateEmail = getImpersonateEmail();
   const projectId = getProjectId();
+  
+  // Check if we have VERCEL_OIDC_TOKEN env var - if so, use it directly instead of file
+  const vercelOidcToken = process.env.VERCEL_OIDC_TOKEN?.trim();
+  if (vercelOidcToken) {
+    console.log('[WIF] Using VERCEL_OIDC_TOKEN from env var');
+    return getDriveClientWithOidcToken(vercelOidcToken);
+  }
+
   console.log(
     '[WIF]',
     JSON.stringify({ authMode: 'wif', impersonateEmail, projectId })
