@@ -29,6 +29,18 @@ export interface ResolvedReviewProject {
   auth: OAuth2Client;
 }
 
+export interface ResolvedReviewProjectWithoutAuth {
+  project: {
+    recordId: string;
+    name: string;
+    hubName: string;
+    companyId: string;
+    jobFolderId?: string;
+    primaryLandingPageUrl?: string | null;
+  };
+  oauthError: string;
+}
+
 function getLinkedRecordId(value: unknown): string | null {
   if (Array.isArray(value) && value.length > 0) {
     const first = value[0];
@@ -207,10 +219,41 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
   }
 
   if (!auth) {
+    const errorMessage = oauthError?.message || 'Unknown error';
     console.error(`[review/resolveProject] Could not resolve OAuth client for company ${companyId} (project ${record.id})`);
-    console.error(`[review/resolveProject] Last error:`, oauthError?.message || 'Unknown error');
+    console.error(`[review/resolveProject] Last error:`, errorMessage);
     console.error(`[review/resolveProject] Troubleshooting: Check that AIRTABLE_API_KEY has read access to CompanyIntegrations table in AIRTABLE_DB_BASE_ID or AIRTABLE_OS_BASE_ID`);
-    return null;
+    
+    // Return project info even if OAuth fails, so we can show a helpful error page
+    // The page will need to handle this case and show an error instead of 404
+    const jobFolderIdRaw =
+      fields['Creative Review Hub Folder ID'] ?? fields['CRH Folder ID'] ?? fields['Job Folder ID'];
+    const jobFolderId =
+      typeof jobFolderIdRaw === 'string' && jobFolderIdRaw.trim()
+        ? jobFolderIdRaw.trim()
+        : undefined;
+
+    const primaryLandingPageUrlRaw = fields['Primary Landing Page URL'] ?? fields['Client Review Primary Landing Page URL'];
+    const primaryLandingPageUrl =
+      typeof primaryLandingPageUrlRaw === 'string' && primaryLandingPageUrlRaw.trim()
+        ? primaryLandingPageUrlRaw.trim()
+        : undefined;
+
+    // Throw a specific error that the page can catch and handle
+    const error = new Error(`OAuth resolution failed: ${errorMessage}`) as Error & { 
+      code: string; 
+      project: ResolvedReviewProject['project'];
+    };
+    error.code = 'OAUTH_RESOLUTION_FAILED';
+    error.project = {
+      recordId: record.id,
+      name: projectName,
+      hubName,
+      companyId,
+      jobFolderId,
+      primaryLandingPageUrl: primaryLandingPageUrl ?? null,
+    };
+    throw error;
   }
 
   console.log('[review/resolveProject]', {

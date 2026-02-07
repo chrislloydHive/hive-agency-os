@@ -70,7 +70,45 @@ export default async function ReviewPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const resolved = await resolveReviewProject(token);
+  let resolved;
+  try {
+    resolved = await resolveReviewProject(token);
+  } catch (error: any) {
+    // OAuth resolution failed but project exists
+    if (error?.code === 'OAUTH_RESOLUTION_FAILED' && error?.project) {
+      console.error(`[review/page] OAuth resolution failed for project: ${error.project.name}`);
+      // Show helpful error page instead of 404
+      return (
+        <div className="min-h-screen bg-[#050509] flex items-center justify-center p-4">
+          <div className="max-w-2xl w-full bg-slate-900/70 rounded-xl p-8 border border-slate-700">
+            <h1 className="text-2xl font-bold text-white mb-4">Unable to Access Review Portal</h1>
+            <p className="text-slate-300 mb-4">
+              The review portal for <strong className="text-white">{error.project.name}</strong> could not be loaded because Google Drive authentication failed.
+            </p>
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 mb-4">
+              <p className="text-amber-200 text-sm">
+                <strong>Error:</strong> {error.message}
+              </p>
+            </div>
+            <div className="text-slate-400 text-sm space-y-2">
+              <p><strong>Possible causes:</strong></p>
+              <ul className="list-disc list-inside ml-2 space-y-1">
+                <li>The Airtable API token lacks read access to the CompanyIntegrations table</li>
+                <li>Google OAuth tokens are missing or expired for this company</li>
+                <li>The CompanyIntegrations table is in a different base (check AIRTABLE_DB_BASE_ID or AIRTABLE_OS_BASE_ID)</li>
+              </ul>
+              <p className="mt-4">
+                Please contact your administrator to resolve this authentication issue.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    // Re-throw other errors
+    throw error;
+  }
+  
   if (!resolved) {
     console.error(`[review/page] Token not found or invalid: ${token.slice(0, 20)}...`);
     notFound();
