@@ -616,6 +616,7 @@ export async function runPartnerDeliveryFromPortal(params: {
   destinationFolderId: string;
   approvedFileIds: string[];
   dryRun?: boolean;
+  oidcToken?: string | null;
 }): Promise<PartnerDeliveryFromPortalResult> {
   const {
     airtableRecordId,
@@ -623,6 +624,7 @@ export async function runPartnerDeliveryFromPortal(params: {
     destinationFolderId,
     approvedFileIds,
     dryRun = false,
+    oidcToken,
   } = params;
 
   // Use unified factory for WIF auth
