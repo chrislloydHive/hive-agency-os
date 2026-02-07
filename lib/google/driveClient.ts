@@ -92,7 +92,23 @@ export function getDriveClientWithServiceAccount(): drive_v3.Drive {
   if (_driveClient) {
     return _driveClient;
   }
+  
+  // Log credential availability before attempting to use them
+  const hasJson = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  const hasEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const hasKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
+  console.log('[Drive/getDriveClientWithServiceAccount] Credential check:', {
+    hasJson,
+    hasEmail,
+    hasKey,
+    jsonLength: process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.length || 0,
+    emailValue: hasEmail ? process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL?.substring(0, 20) + '...' : 'missing',
+    keyLength: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.length || 0,
+  });
+  
   const credentials = getServiceAccountCredentials();
+  console.log('[Drive/getDriveClientWithServiceAccount] Credentials parsed, client_email:', credentials.client_email?.substring(0, 20) + '...');
+  
   const auth = new google.auth.JWT({
     email: credentials.client_email,
     key: credentials.private_key,
