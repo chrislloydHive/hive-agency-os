@@ -313,15 +313,25 @@ export async function getPendingWebhookDeliveryRecords(): Promise<PendingWebhook
     .all();
 
   const out: PendingWebhookDeliveryRecord[] = [];
+  let skippedDelivered = 0;
+  let skippedNoSource = 0;
+  let skippedNoBatch = 0;
+  
   for (const r of records) {
     const f = r.fields as Record<string, unknown>;
     
     // Filter out already-delivered records (idempotency check in code)
     const deliveredAt = typeof f[DELIVERED_AT_FIELD] === 'string' ? (f[DELIVERED_AT_FIELD] as string).trim() : '';
-    if (deliveredAt) continue; // Skip if Delivered At is set
+    if (deliveredAt) {
+      skippedDelivered++;
+      continue; // Skip if Delivered At is set
+    }
     
     const sourceFolderId = typeof f[SOURCE_FOLDER_ID_FIELD] === 'string' ? (f[SOURCE_FOLDER_ID_FIELD] as string).trim() : '';
-    if (!sourceFolderId) continue;
+    if (!sourceFolderId) {
+      skippedNoSource++;
+      continue;
+    }
 
     const batchRaw = f[DELIVERY_BATCH_ID_FIELD];
     let deliveryBatchIdRaw = '';
@@ -330,10 +340,18 @@ export async function getPendingWebhookDeliveryRecords(): Promise<PendingWebhook
     } else if (typeof batchRaw === 'string' && batchRaw.trim()) {
       deliveryBatchIdRaw = (batchRaw as string).trim();
     }
-    if (!deliveryBatchIdRaw) continue;
+    if (!deliveryBatchIdRaw) {
+      skippedNoBatch++;
+      continue;
+    }
 
     out.push({ recordId: r.id, sourceFolderId, deliveryBatchIdRaw });
   }
+  
+  if (records.length > 0) {
+    console.log(`[getPendingWebhookDeliveryRecords] Found ${records.length} records with flag. After filtering: ${out.length} ready (skipped: ${skippedDelivered} delivered, ${skippedNoSource} no source, ${skippedNoBatch} no batch)`);
+  }
+  
   return out;
 }
 
