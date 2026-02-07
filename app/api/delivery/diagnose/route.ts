@@ -4,7 +4,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getBase } from '@/lib/airtable';
-import { CREATIVE_REVIEW_ASSET_STATUS_TABLE, READY_TO_DELIVER_WEBHOOK_FIELD, DELIVERY_BATCH_ID_FIELD, DELIVERED_AT_FIELD } from '@/lib/airtable/reviewAssetStatus';
+import { READY_TO_DELIVER_WEBHOOK_FIELD, DELIVERY_BATCH_ID_FIELD, DELIVERED_AT_FIELD } from '@/lib/airtable/reviewAssetStatus';
+import { CREATIVE_REVIEW_ASSET_STATUS_TABLE } from '@/lib/airtable/deliveryWriteBack';
 
 const SOURCE_FOLDER_ID_FIELD = 'Source Folder ID';
 
