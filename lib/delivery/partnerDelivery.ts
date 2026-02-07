@@ -41,26 +41,6 @@ const FOLDER_MIMETYPE = 'application/vnd.google-apps.folder';
 
 const AIRTABLE_UPDATE_TIMEOUT_MS = 9000;
 
-const WIF_DOCS = 'docs/vercel-gcp-wif-setup.md';
-
-/**
- * True when the error indicates WIF/OIDC is unavailable (e.g. OIDC token file missing in local or wrong env).
- * These often surface as "Source not accessible" from the first Drive call when credentials are resolved lazily.
- * Note: This should only match errors that are specifically about OIDC token files, not general ADC failures.
- */
-function isWifOidcUnavailableError(message: string): boolean {
-  const s = message.toLowerCase();
-  // Match if it's specifically about OIDC token files, Vercel OIDC integration, or missing VERCEL_OIDC_TOKEN
-  return (
-    (s.includes('oidc') && (s.includes('token') || s.includes('enoent')) && (s.includes('not found') || s.includes('missing') || s.includes('not set'))) ||
-    (s.includes('unable to impersonate') && s.includes('oidc')) ||
-    (s.includes('enoent') && (s.includes('/run/secrets/vercel-oidc') || s.includes('vercel-oidc/token'))) ||
-    (s.includes('credentials require oidc token') && s.includes('vercel_oidc_token'))
-  );
-}
-
-const WIF_UNAVAILABLE_MESSAGE = `Workload Identity Federation unavailable: OIDC token not found. This usually means the request is not running in Vercel with the GCP OIDC integration configured (e.g. local dev or missing integration). Use a review portal token for OAuth delivery, or deploy to Vercel and configure WIF. See ${WIF_DOCS}.`;
-
 /** Detect request/client abort so we can log one line instead of a stack trace. Exported for tests. */
 export function isAbortError(err: unknown): boolean {
   if (err instanceof Error && err.name === 'AbortError') return true;
@@ -346,9 +326,6 @@ export async function runPartnerDelivery(
     await preflightFolderCopy(drive, sourceFolderId, effectiveDestinationFolderId);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    if (authMode === 'wif_service_account' && isWifOidcUnavailableError(message)) {
-      return fail(WIF_UNAVAILABLE_MESSAGE, 500, true, authMode);
-    }
     return fail(message, 400, true, authMode);
   }
 
@@ -420,9 +397,6 @@ export async function runPartnerDelivery(
     };
   } catch (e) {
     const raw = e instanceof Error ? e.message : String(e);
-    if (authMode === 'wif_service_account' && isWifOidcUnavailableError(raw)) {
-      return fail(WIF_UNAVAILABLE_MESSAGE, 500, true, authMode);
-    }
     const is403404 =
       raw.includes('403') ||
       raw.includes('404') ||
@@ -433,8 +407,7 @@ export async function runPartnerDelivery(
     if (authMode === 'oauth' && is403404) {
       message = 'OAuth copy failed—check token validity and source folder permissions.';
     } else if (authMode === 'wif_service_account' && is403404) {
-      const { impersonateEmail } = getAuthModeSummary();
-      message = `Service account cannot access source/destination. Ensure ${impersonateEmail} is a MEMBER of the Shared Drive.`;
+      message = `Service account cannot access source/destination. Ensure the service account is a MEMBER of the Shared Drive.`;
     } else {
       message = raw;
     }
@@ -501,26 +474,42 @@ export async function runPartnerDeliveryByBatch(params: {
 
   let drive: drive_v3.Drive;
   let authMode: AuthMode;
-  try {
-    const tokenTrimmed = (token ?? '').trim();
-    if (tokenTrimmed) {
-      const resolved = await resolveReviewProject(tokenTrimmed);
-      if (!resolved?.auth) {
-        return { ok: false, error: 'Invalid review portal token (could not resolve project/oauth).', statusCode: 400 };
-      }
-      authMode = 'oauth';
-      drive = getDriveClientWithOAuth(resolved.auth);
-    } else {
-      drive = await getWifDriveClient({ oidcToken: oidcToken ?? undefined });
+  const tokenTrimmed = (token ?? '').trim();
+  if (tokenTrimmed) {
+    const resolved = await resolveReviewProject(tokenTrimmed);
+    if (!resolved?.auth) {
+      return { ok: false, error: 'Invalid review portal token (could not resolve project/oauth).', statusCode: 400 };
+    }
+    authMode = 'oauth';
+    drive = getDriveClientWithOAuth(resolved.auth);
+  } else {
+    // SIMPLIFIED: Use explicit service account directly (same approach that works for project folder creation)
+    const hasServiceAccountJson = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    const hasServiceAccountEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+    const hasServiceAccountKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
+    const hasServiceAccount = hasServiceAccountJson || (hasServiceAccountEmail && hasServiceAccountKey);
+    
+    if (!hasServiceAccount) {
+      return {
+        ok: false,
+        error: 'No service account credentials available. Set GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.',
+        statusCode: 500,
+        authMode: 'wif_service_account',
+      };
+    }
+    
+    try {
+      drive = getDriveClientWithServiceAccount();
       authMode = 'wif_service_account';
+    } catch (saError) {
+      const saMsg = saError instanceof Error ? saError.message : String(saError);
+      return {
+        ok: false,
+        error: `Service account authentication failed: ${saMsg}. Check GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.`,
+        statusCode: 500,
+        authMode: 'wif_service_account',
+      };
     }
-  } catch (e) {
-    const raw = e instanceof Error ? e.message : String(e);
-    const inferredMode: AuthMode = (token ?? '').trim() ? 'oauth' : 'wif_service_account';
-    if (inferredMode === 'wif_service_account' && isWifOidcUnavailableError(raw)) {
-      return { ok: false, error: WIF_UNAVAILABLE_MESSAGE, statusCode: 500, authMode: inferredMode };
-    }
-    return { ok: false, error: raw, statusCode: 500, authMode: inferredMode };
   }
 
   const dateStr = new Date().toISOString().slice(0, 10);
