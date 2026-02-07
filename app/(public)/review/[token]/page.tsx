@@ -59,9 +59,17 @@ export async function generateMetadata({
   params: Promise<{ token: string }>;
 }): Promise<Metadata> {
   const { token } = await params;
-  const resolved = await resolveReviewProject(token);
-  if (!resolved) return { title: 'Review Not Found' };
-  return { title: `${resolved.project.name} – Creative Review` };
+  try {
+    const resolved = await resolveReviewProject(token);
+    if (!resolved) return { title: 'Review Not Found' };
+    return { title: `${resolved.project.name} – Creative Review` };
+  } catch (error: any) {
+    // If OAuth failed but project exists, use project name from error
+    if (error?.code === 'OAUTH_RESOLUTION_FAILED' && error?.project) {
+      return { title: `${error.project.name} – Review Portal Error` };
+    }
+    return { title: 'Review Portal Error' };
+  }
 }
 
 export default async function ReviewPage({
@@ -93,9 +101,19 @@ export default async function ReviewPage({
             <div className="text-slate-400 text-sm space-y-2">
               <p><strong>Possible causes:</strong></p>
               <ul className="list-disc list-inside ml-2 space-y-1">
-                <li>The Airtable API token lacks read access to the CompanyIntegrations table</li>
-                <li>Google OAuth tokens are missing or expired for this company</li>
-                <li>The CompanyIntegrations table is in a different base (check AIRTABLE_DB_BASE_ID or AIRTABLE_OS_BASE_ID)</li>
+                {error.message.includes('Google is not connected') ? (
+                  <>
+                    <li><strong>Google OAuth is not connected for this company</strong> - The CompanyIntegrations record exists but doesn't have Google OAuth tokens configured</li>
+                    <li>You need to connect Google for this company via the OAuth flow</li>
+                    <li>Check the CompanyIntegrations table in Airtable - ensure there's a record with GoogleConnected = true and a valid GoogleRefreshToken</li>
+                  </>
+                ) : (
+                  <>
+                    <li>The Airtable API token lacks read access to the CompanyIntegrations table</li>
+                    <li>Google OAuth tokens are missing or expired for this company</li>
+                    <li>The CompanyIntegrations table is in a different base (check AIRTABLE_DB_BASE_ID or AIRTABLE_OS_BASE_ID)</li>
+                  </>
+                )}
               </ul>
               <p className="mt-4">
                 Please contact your administrator to resolve this authentication issue.

@@ -224,8 +224,7 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
     console.error(`[review/resolveProject] Last error:`, errorMessage);
     console.error(`[review/resolveProject] Troubleshooting: Check that AIRTABLE_API_KEY has read access to CompanyIntegrations table in AIRTABLE_DB_BASE_ID or AIRTABLE_OS_BASE_ID`);
     
-    // Return project info even if OAuth fails, so we can show a helpful error page
-    // The page will need to handle this case and show an error instead of 404
+    // Prepare project info for error page
     const jobFolderIdRaw =
       fields['Creative Review Hub Folder ID'] ?? fields['CRH Folder ID'] ?? fields['Job Folder ID'];
     const jobFolderId =
@@ -240,12 +239,10 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
         : undefined;
 
     // Throw a specific error that the page can catch and handle
-    const error = new Error(`OAuth resolution failed: ${errorMessage}`) as Error & { 
-      code: string; 
-      project: ResolvedReviewProject['project'];
-    };
-    error.code = 'OAUTH_RESOLUTION_FAILED';
-    error.project = {
+    // Use a plain Error object with additional properties for better compatibility
+    const error = new Error(`OAuth resolution failed: ${errorMessage}`);
+    (error as any).code = 'OAUTH_RESOLUTION_FAILED';
+    (error as any).project = {
       recordId: record.id,
       name: projectName,
       hubName,
