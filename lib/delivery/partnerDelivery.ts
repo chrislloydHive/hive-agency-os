@@ -260,17 +260,26 @@ export async function runPartnerDelivery(
       });
       
       if (hasServiceAccount) {
-        console.log(`[delivery/partner] ${requestId} Falling back to service account authentication (same as project folder creation)`);
+        console.log(`[delivery/partner] ${requestId} Falling back to service account authentication`);
         try {
-          // Log what we're about to use before calling
-          console.log(`[delivery/partner] ${requestId} Attempting service account auth with:`, {
-            usingJson: hasServiceAccountJson,
-            usingEmailKey: hasServiceAccountEmail && hasServiceAccountKey,
-          });
-          drive = getDriveClientWithServiceAccount();
-          authMode = 'wif_service_account'; // Keep same mode name for consistency
-          console.log(`[delivery/partner] ${requestId} ✅ Service account authentication successful`);
-        } catch (saError) {
+          // Try ADC-based client first (same as project folder creation - works with WIF automatically)
+          console.log(`[delivery/partner] ${requestId} Attempting ADC-based Drive client (same as project folder creation)`);
+          drive = await getAdcDriveClient();
+          authMode = 'wif_service_account';
+          console.log(`[delivery/partner] ${requestId} ✅ ADC-based Drive client created successfully`);
+        } catch (adcError) {
+          const adcMsg = adcError instanceof Error ? adcError.message : String(adcError);
+          console.warn(`[delivery/partner] ${requestId} ADC-based client failed, trying explicit service account:`, adcMsg);
+          try {
+            // Fallback to explicit service account (for backwards compatibility)
+            console.log(`[delivery/partner] ${requestId} Attempting explicit service account auth with:`, {
+              usingJson: hasServiceAccountJson,
+              usingEmailKey: hasServiceAccountEmail && hasServiceAccountKey,
+            });
+            drive = getDriveClientWithServiceAccount();
+            authMode = 'wif_service_account';
+            console.log(`[delivery/partner] ${requestId} ✅ Explicit service account authentication successful`);
+          } catch (saError) {
             const saMsg = saError instanceof Error ? saError.message : String(saError);
             const saStack = saError instanceof Error ? saError.stack : undefined;
             console.error(`[delivery/partner] ${requestId} ❌ Both ADC and explicit service account failed`);
