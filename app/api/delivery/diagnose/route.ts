@@ -25,6 +25,15 @@ export async function GET(req: NextRequest) {
         maxRecords: 100,
       })
       .all();
+    
+    // Also check for approved assets with deliveryBatchId but missing the flag
+    const ASSET_APPROVED_CLIENT_FIELD = 'Asset Approved (Client)';
+    const approvedWithBatch = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE)
+      .select({
+        filterByFormula: `AND({${ASSET_APPROVED_CLIENT_FIELD}} = TRUE(), NOT({${READY_TO_DELIVER_WEBHOOK_FIELD}} = TRUE()), NOT({${DELIVERY_BATCH_ID_FIELD}} = BLANK()))`,
+        maxRecords: 50,
+      })
+      .all();
 
     const diagnostics = readyRecords.map((record) => {
       const fields = record.fields as Record<string, unknown>;
@@ -55,6 +64,25 @@ export async function GET(req: NextRequest) {
 
     const wouldBeProcessed = diagnostics.filter((d) => d.wouldBeProcessed);
     const blocked = diagnostics.filter((d) => !d.wouldBeProcessed);
+    
+    // Check approved assets missing the flag
+    const approvedMissingFlag = approvedWithBatch.map((record) => {
+      const fields = record.fields as Record<string, unknown>;
+      const sourceFolderId = typeof fields[SOURCE_FOLDER_ID_FIELD] === 'string' ? (fields[SOURCE_FOLDER_ID_FIELD] as string).trim() : '';
+      const batchRaw = fields[DELIVERY_BATCH_ID_FIELD];
+      let deliveryBatchId = '';
+      if (Array.isArray(batchRaw) && batchRaw.length > 0 && typeof batchRaw[0] === 'string') {
+        deliveryBatchId = (batchRaw[0] as string).trim();
+      } else if (typeof batchRaw === 'string' && batchRaw.trim()) {
+        deliveryBatchId = (batchRaw as string).trim();
+      }
+      return {
+        recordId: record.id,
+        sourceFolderId: sourceFolderId || null,
+        deliveryBatchId: deliveryBatchId || null,
+        issue: 'Approved with deliveryBatchId but missing Ready to Deliver flag',
+      };
+    });
 
     return NextResponse.json(
       {
@@ -62,9 +90,11 @@ export async function GET(req: NextRequest) {
           totalWithFlag: readyRecords.length,
           wouldBeProcessed: wouldBeProcessed.length,
           blocked: blocked.length,
+          approvedMissingFlag: approvedMissingFlag.length,
         },
         wouldBeProcessed,
         blocked,
+        approvedMissingFlag,
       },
       { headers: NO_STORE }
     );
