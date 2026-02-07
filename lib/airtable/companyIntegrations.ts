@@ -206,13 +206,27 @@ export async function getCompanyIntegrations(
   } catch (error) {
     // If we get a permission error, try multi-base lookup as fallback
     const errStr = error instanceof Error ? error.message : String(error);
-    if (errStr.includes('403') || errStr.includes('401') || errStr.includes('permission')) {
+    const statusCode = (error as any)?.statusCode || (error as any)?.status;
+    
+    // Check for permission errors: status code 403/401 or error message contains permission-related keywords
+    const isPermissionError = 
+      statusCode === 403 || 
+      statusCode === 401 ||
+      errStr.includes('403') || 
+      errStr.includes('401') || 
+      errStr.includes('permission') ||
+      errStr.includes('INVALID_PERMISSIONS') ||
+      errStr.includes('Forbidden');
+    
+    if (isPermissionError) {
       console.warn('[CompanyIntegrations] Permission error with AIRTABLE_BASE_ID, trying multi-base lookup:', errStr);
       try {
         const result = await findCompanyIntegration({ companyId });
         if (result.record) {
           console.log(`[CompanyIntegrations] Found via multi-base lookup: ${result.record.id} (matched by: ${result.matchedBy})`);
           return mapAirtableToCompanyIntegrations(result.record as any);
+        } else {
+          console.warn('[CompanyIntegrations] Multi-base lookup found no record. Debug attempts:', result.debug.attempts.length);
         }
       } catch (fallbackError) {
         console.warn('[CompanyIntegrations] Multi-base lookup also failed:', fallbackError);
