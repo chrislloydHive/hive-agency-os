@@ -238,12 +238,23 @@ export async function runPartnerDelivery(
       const hasServiceAccountKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
       const hasServiceAccount = hasServiceAccountJson || (hasServiceAccountEmail && hasServiceAccountKey);
       
-      console.log(`[delivery/partner] ${requestId} Checking service account fallback:`, {
-        hasServiceAccountJson,
-        hasServiceAccountEmail,
-        hasServiceAccountKey,
-        hasServiceAccount,
-      });
+      // Log credential availability (this is the "credential check output")
+      console.log(`[delivery/partner] ${requestId} CREDENTIAL CHECK:`, JSON.stringify({
+        wifFailed: true,
+        wifError: msg,
+        serviceAccount: {
+          hasJson: hasServiceAccountJson,
+          hasEmail: hasServiceAccountEmail,
+          hasKey: hasServiceAccountKey,
+          available: hasServiceAccount,
+        },
+        envVars: {
+          GOOGLE_SERVICE_ACCOUNT_JSON: !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+          GOOGLE_SERVICE_ACCOUNT_EMAIL: !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+          GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+          GOOGLE_APPLICATION_CREDENTIALS_JSON: !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON,
+        },
+      }));
       
       if (hasServiceAccount) {
         console.log(`[delivery/partner] ${requestId} Falling back to service account authentication (same as project folder creation)`);
