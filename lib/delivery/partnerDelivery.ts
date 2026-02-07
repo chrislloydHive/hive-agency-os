@@ -233,14 +233,24 @@ export async function runPartnerDelivery(
       
       // Fallback to service account (same as project folder creation)
       // Check if service account credentials are available
-      const hasServiceAccount = !!(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || 
-        (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY));
+      const hasServiceAccountJson = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+      const hasServiceAccountEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+      const hasServiceAccountKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
+      const hasServiceAccount = hasServiceAccountJson || (hasServiceAccountEmail && hasServiceAccountKey);
+      
+      console.log(`[delivery/partner] ${requestId} Checking service account fallback:`, {
+        hasServiceAccountJson,
+        hasServiceAccountEmail,
+        hasServiceAccountKey,
+        hasServiceAccount,
+      });
       
       if (hasServiceAccount) {
         console.log(`[delivery/partner] ${requestId} Falling back to service account authentication (same as project folder creation)`);
         try {
           drive = getDriveClientWithServiceAccount();
           authMode = 'wif_service_account'; // Keep same mode name for consistency
+          console.log(`[delivery/partner] ${requestId} Service account authentication successful`);
         } catch (saError) {
           const saMsg = saError instanceof Error ? saError.message : String(saError);
           console.error(`[delivery/partner] ${requestId} Service account fallback also failed:`, saMsg);
