@@ -938,8 +938,10 @@ export async function copyDriveFolderTree(
   // Pre-check: List source folder contents for diagnostics
   try {
     const sourceChildren = await listFolderChildren(drive, sourceFolderId);
-    console.log(`[Drive/copyFolderTree] Source folder ${sourceFolderId} contains: ${sourceChildren.files.length} files, ${sourceChildren.folders.length} folders`);
-    if (sourceChildren.files.length === 0 && sourceChildren.folders.length === 0) {
+    const sourceFiles = sourceChildren.filter(f => f.mimeType !== FOLDER_MIMETYPE);
+    const sourceFolders = sourceChildren.filter(f => f.mimeType === FOLDER_MIMETYPE);
+    console.log(`[Drive/copyFolderTree] Source folder ${sourceFolderId} contains: ${sourceFiles.length} files, ${sourceFolders.length} folders`);
+    if (sourceFiles.length === 0 && sourceFolders.length === 0) {
       console.warn(`[Drive/copyFolderTree] WARNING: Source folder ${sourceFolderId} appears to be empty!`);
     }
   } catch (e) {
@@ -955,7 +957,9 @@ export async function copyDriveFolderTree(
   if (filesCopied > 0) {
     try {
       const destChildren = await listFolderChildren(drive, deliveredRootFolderId);
-      console.log(`[Drive/copyFolderTree] Destination folder ${deliveredRootFolderId} now contains: ${destChildren.files.length} files, ${destChildren.folders.length} folders`);
+      const destFiles = destChildren.filter(f => f.mimeType !== FOLDER_MIMETYPE);
+      const destFolders = destChildren.filter(f => f.mimeType === FOLDER_MIMETYPE);
+      console.log(`[Drive/copyFolderTree] Destination folder ${deliveredRootFolderId} now contains: ${destFiles.length} files, ${destFolders.length} folders`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.warn(`[Drive/copyFolderTree] Failed to verify destination folder contents:`, msg);
