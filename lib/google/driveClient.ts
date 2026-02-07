@@ -109,13 +109,38 @@ export function getDriveClientWithServiceAccount(): drive_v3.Drive {
   const credentials = getServiceAccountCredentials();
   console.log('[Drive/getDriveClientWithServiceAccount] Credentials parsed, client_email:', credentials.client_email?.substring(0, 20) + '...');
   
-  const auth = new google.auth.JWT({
-    email: credentials.client_email,
-    key: credentials.private_key,
-    scopes: ['https://www.googleapis.com/auth/drive'],
-  });
-  _driveClient = google.drive({ version: 'v3', auth });
-  return _driveClient;
+  // Validate credentials before creating auth
+  if (!credentials.client_email || !credentials.private_key) {
+    const missing = [
+      !credentials.client_email && 'client_email',
+      !credentials.private_key && 'private_key',
+    ].filter(Boolean);
+    throw new Error(`Service account credentials incomplete: missing ${missing.join(' and ')}`);
+  }
+  
+  try {
+    const auth = new google.auth.JWT({
+      email: credentials.client_email,
+      key: credentials.private_key,
+      scopes: ['https://www.googleapis.com/auth/drive'],
+    });
+    
+    // Test auth immediately to catch "No key or keyFile set" errors early
+    console.log('[Drive/getDriveClientWithServiceAccount] Auth object created, testing...');
+    _driveClient = google.drive({ version: 'v3', auth });
+    return _driveClient;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[Drive/getDriveClientWithServiceAccount] Failed to create auth or Drive client:', msg);
+    console.error('[Drive/getDriveClientWithServiceAccount] Credential details:', {
+      hasEmail: !!credentials.client_email,
+      emailLength: credentials.client_email?.length || 0,
+      hasKey: !!credentials.private_key,
+      keyLength: credentials.private_key?.length || 0,
+      keyStartsWith: credentials.private_key?.substring(0, 30) || 'missing',
+    });
+    throw e;
+  }
 }
 
 /**

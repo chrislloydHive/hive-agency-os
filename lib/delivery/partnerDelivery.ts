@@ -14,6 +14,8 @@ import {
   ensureSubfolderPath,
 } from '@/lib/google/driveClient';
 import { getAuthModeSummary, getDriveClient as getWifDriveClient } from '@/lib/google/driveWif';
+// ADC-based client (same as project folder creation - works with WIF automatically)
+import { getDriveClient as getAdcDriveClient } from '@/lib/integrations/google/driveClient';
 import {
   getDestinationFolderIdByBatchId,
   updateDeliveryResultToRecord,
@@ -269,24 +271,28 @@ export async function runPartnerDelivery(
           authMode = 'wif_service_account'; // Keep same mode name for consistency
           console.log(`[delivery/partner] ${requestId} ✅ Service account authentication successful`);
         } catch (saError) {
-          const saMsg = saError instanceof Error ? saError.message : String(saError);
-          const saStack = saError instanceof Error ? saError.stack : undefined;
-          console.error(`[delivery/partner] ${requestId} ❌ Service account fallback failed:`, saMsg);
-          if (saStack) {
-            console.error(`[delivery/partner] ${requestId} Service account error stack:`, saStack);
+            const saMsg = saError instanceof Error ? saError.message : String(saError);
+            const saStack = saError instanceof Error ? saError.stack : undefined;
+            console.error(`[delivery/partner] ${requestId} ❌ Both ADC and explicit service account failed`);
+            console.error(`[delivery/partner] ${requestId} ADC error:`, adcMsg);
+            console.error(`[delivery/partner] ${requestId} Service account error:`, saMsg);
+            if (saStack) {
+              console.error(`[delivery/partner] ${requestId} Service account error stack:`, saStack);
+            }
+            // Log the actual env var values (not the secrets themselves, just presence)
+            console.error(`[delivery/partner] ${requestId} Env var check at error time:`, {
+              GOOGLE_SERVICE_ACCOUNT_JSON_length: process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.length || 0,
+              GOOGLE_SERVICE_ACCOUNT_EMAIL: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ? 'present' : 'missing',
+              GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY_length: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.length || 0,
+              GOOGLE_APPLICATION_CREDENTIALS_JSON: !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON,
+            });
+            return fail(
+              `Google authentication failed (tried WIF, ADC, and explicit service account). ADC error: ${adcMsg}. Service account error: ${saMsg}. Check GOOGLE_APPLICATION_CREDENTIALS_JSON for WIF/ADC or GOOGLE_SERVICE_ACCOUNT_JSON for explicit SA.`,
+              500,
+              true,
+              'wif_service_account'
+            );
           }
-          // Log the actual env var values (not the secrets themselves, just presence)
-          console.error(`[delivery/partner] ${requestId} Env var check at error time:`, {
-            GOOGLE_SERVICE_ACCOUNT_JSON_length: process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.length || 0,
-            GOOGLE_SERVICE_ACCOUNT_EMAIL: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ? 'present' : 'missing',
-            GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY_length: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.length || 0,
-          });
-          return fail(
-            `Google authentication failed (tried WIF and service account): ${saMsg}. Check GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS_JSON.`,
-            500,
-            true,
-            'wif_service_account'
-          );
         }
       } else {
         // No service account fallback available
