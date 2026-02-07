@@ -12,6 +12,8 @@ import {
   getDriveClientWithOAuth,
   preflightFolderCopy,
   ensureSubfolderPath,
+  findChildFolderWithDrive,
+  createFolderWithDrive,
 } from '@/lib/google/driveClient';
 import {
   getDestinationFolderIdByBatchId,
@@ -284,15 +286,34 @@ export async function runPartnerDelivery(
   let effectiveDestinationFolderId = destinationFolderId;
   const tacticValue = record.tactic?.trim() || '';
   const variantValue = record.variant?.trim() || '';
+  let resolvedTacticFolderId: string | null = null;
+  let resolvedVariantFolderId: string | null = null;
   
   if (tacticValue) {
-    const pathSegments = [tacticValue];
-    if (variantValue) {
-      pathSegments.push(variantValue);
-    }
-    console.log(`[delivery/partner] ${requestId} Resolving subfolder path: ${pathSegments.join('/')} under ${destinationFolderId} (tactic="${tacticValue}", variant="${variantValue}")`);
+    console.log(`[delivery/partner] ${requestId} Resolving subfolder path: ${tacticValue}${variantValue ? `/${variantValue}` : ''} under ${destinationFolderId} (tactic="${tacticValue}", variant="${variantValue}")`);
     try {
-      effectiveDestinationFolderId = await ensureSubfolderPath(drive, destinationFolderId, pathSegments);
+      // Resolve tactic folder first (find or create)
+      const existingTactic = await findChildFolderWithDrive(drive, destinationFolderId, tacticValue);
+      if (existingTactic) {
+        resolvedTacticFolderId = existingTactic.id;
+      } else {
+        const createdTactic = await createFolderWithDrive(drive, destinationFolderId, tacticValue);
+        resolvedTacticFolderId = createdTactic.id;
+      }
+      
+      // Resolve variant folder if provided
+      if (variantValue && resolvedTacticFolderId) {
+        const existingVariant = await findChildFolderWithDrive(drive, resolvedTacticFolderId, variantValue);
+        if (existingVariant) {
+          resolvedVariantFolderId = existingVariant.id;
+        } else {
+          const createdVariant = await createFolderWithDrive(drive, resolvedTacticFolderId, variantValue);
+          resolvedVariantFolderId = createdVariant.id;
+        }
+        effectiveDestinationFolderId = resolvedVariantFolderId;
+      } else {
+        effectiveDestinationFolderId = resolvedTacticFolderId;
+      }
       console.log(`[delivery/partner] ${requestId} Subfolder resolved: ${effectiveDestinationFolderId}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -342,8 +363,38 @@ export async function runPartnerDelivery(
     resolvedFolderId: resolvedSourceFolderId,
   });
 
-  // Preflight check source and effective destination (after subfolder resolution)
+  // TEMPORARY debug log before delivery
+  console.log(`[delivery/partner] ${requestId} Pre-delivery debug:`, {
+    sourceId: resolvedSourceFolderId,
+    destinationFolderId: destinationFolderId,
+    resolvedTacticFolderId,
+    resolvedVariantFolderId,
+    effectiveDestinationFolderId,
+  });
+
+  // Preflight check: verify source and destination with driveId + mimeType logging
   try {
+    const sourcePreflight = await drive.files.get({
+      fileId: resolvedSourceFolderId,
+      fields: 'id,name,mimeType,driveId',
+      supportsAllDrives: true,
+    });
+    const destPreflight = await drive.files.get({
+      fileId: effectiveDestinationFolderId,
+      fields: 'id,name,mimeType,driveId',
+      supportsAllDrives: true,
+    });
+    
+    console.log(`[delivery/partner] ${requestId} Preflight check:`, {
+      sourceId: sourcePreflight.data.id,
+      sourceDriveId: sourcePreflight.data.driveId ?? 'null (My Drive)',
+      sourceMimeType: sourcePreflight.data.mimeType,
+      destId: destPreflight.data.id,
+      destDriveId: destPreflight.data.driveId ?? 'null (My Drive)',
+      destMimeType: destPreflight.data.mimeType,
+    });
+    
+    // Run the actual preflight validation
     await preflightFolderCopy(drive, resolvedSourceFolderId, effectiveDestinationFolderId);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
