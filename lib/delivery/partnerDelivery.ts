@@ -46,13 +46,15 @@ const WIF_DOCS = 'docs/vercel-gcp-wif-setup.md';
 /**
  * True when the error indicates WIF/OIDC is unavailable (e.g. OIDC token file missing in local or wrong env).
  * These often surface as "Source not accessible" from the first Drive call when credentials are resolved lazily.
+ * Note: This should only match errors that are specifically about OIDC token files, not general ADC failures.
  */
 function isWifOidcUnavailableError(message: string): boolean {
   const s = message.toLowerCase();
+  // Only match if it's specifically about OIDC token files or Vercel OIDC integration
   return (
-    (s.includes('oidc') && (s.includes('token') || s.includes('enoent'))) ||
-    s.includes('unable to impersonate') ||
-    (s.includes('enoent') && (s.includes('/run/secrets') || s.includes('vercel-oidc')))
+    (s.includes('oidc') && (s.includes('token') || s.includes('enoent')) && (s.includes('not found') || s.includes('missing'))) ||
+    (s.includes('unable to impersonate') && s.includes('oidc')) ||
+    (s.includes('enoent') && (s.includes('/run/secrets/vercel-oidc') || s.includes('vercel-oidc/token')))
   );
 }
 
@@ -221,11 +223,21 @@ export async function runPartnerDelivery(
       authMode = 'wif_service_account';
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.warn(`[delivery/partner] ${requestId} WIF getDriveClient failed:`, msg);
+      const stack = e instanceof Error ? e.stack : undefined;
+      console.error(`[delivery/partner] ${requestId} WIF getDriveClient failed:`, msg);
+      if (stack) {
+        console.error(`[delivery/partner] ${requestId} Stack:`, stack);
+      }
+      // Check if this is a WIF/OIDC unavailable error and use the more specific message
+      if (isWifOidcUnavailableError(msg)) {
+        return fail(WIF_UNAVAILABLE_MESSAGE, 500, true, 'wif_service_account');
+      }
+      // For other ADC errors, show the actual error message
       return fail(
-        'Google ADC/WIF not configured. Set GOOGLE_IMPERSONATE_SERVICE_ACCOUNT_EMAIL and configure Workload Identity Federation per docs/vercel-gcp-wif-setup.md.',
+        `Google ADC/WIF authentication failed: ${msg}. Check GOOGLE_APPLICATION_CREDENTIALS_JSON format and GOOGLE_IMPERSONATE_SERVICE_ACCOUNT_EMAIL. See ${WIF_DOCS}.`,
         500,
-        true
+        true,
+        'wif_service_account'
       );
     }
   }

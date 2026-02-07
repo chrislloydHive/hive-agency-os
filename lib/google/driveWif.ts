@@ -33,8 +33,22 @@ function ensureAdcCredentialsFile(): void {
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS) return;
   const json = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
   if (!json) return;
-  writeFileSync(ADC_CREDENTIALS_PATH, json, 'utf8');
-  process.env.GOOGLE_APPLICATION_CREDENTIALS = ADC_CREDENTIALS_PATH;
+  
+  try {
+    // Validate JSON before writing
+    const parsed = JSON.parse(json);
+    if (!parsed.type) {
+      console.error('[WIF] GOOGLE_APPLICATION_CREDENTIALS_JSON missing "type" field');
+      throw new Error('Invalid credentials JSON: missing "type" field');
+    }
+    writeFileSync(ADC_CREDENTIALS_PATH, json, 'utf8');
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = ADC_CREDENTIALS_PATH;
+    console.log(`[WIF] Wrote credentials to ${ADC_CREDENTIALS_PATH}, type=${parsed.type}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[WIF] Failed to write credentials file: ${msg}`);
+    throw new Error(`Failed to write ADC credentials file: ${msg}. Check GOOGLE_APPLICATION_CREDENTIALS_JSON format.`);
+  }
 }
 
 /**
@@ -189,8 +203,54 @@ export async function getDriveClient(
     sourceClient = await sourceAuth.getClient();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // Log diagnostic info to help debug WIF issues
+    const hasAdcFile = !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    const hasAdcJson = !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+    const hasVercelOidc = !!process.env.VERCEL_OIDC_TOKEN;
+    const adcPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    
+    // Try to read and validate the credentials file if it exists
+    let credsType = 'unknown';
+    let credsError = null;
+    if (adcPath) {
+      try {
+        const fs = require('fs');
+        if (fs.existsSync(adcPath)) {
+          const credsContent = fs.readFileSync(adcPath, 'utf8');
+          const creds = JSON.parse(credsContent);
+          credsType = creds.type || 'unknown';
+        } else {
+          credsError = 'file not found';
+        }
+      } catch (e) {
+        credsError = e instanceof Error ? e.message : String(e);
+      }
+    }
+    
+    console.error('[WIF] ADC failed. Diagnostics:', {
+      hasAdcFile,
+      hasAdcJson,
+      hasVercelOidc,
+      adcPath,
+      credsType,
+      credsError,
+      error: msg,
+      projectId: getProjectId(),
+      impersonateEmail: getImpersonateEmail(),
+    });
+    
+    // Provide more specific error message based on what we found
+    let errorDetail = msg;
+    if (credsError) {
+      errorDetail = `Credentials file error: ${credsError}. ${msg}`;
+    } else if (!hasAdcJson && !hasAdcFile) {
+      errorDetail = 'No credentials found. Set GOOGLE_APPLICATION_CREDENTIALS_JSON or configure WIF.';
+    } else if (credsType !== 'external_account') {
+      errorDetail = `Invalid credentials type: ${credsType}. Expected "external_account" for WIF. ${msg}`;
+    }
+    
     throw new Error(
-      `Drive WIF: ADC failed (no credentials from OIDC/WIF). ${msg} See ${WIF_DOCS} for Vercel + GCP WIF setup.`
+      `Drive WIF: ADC failed. ${errorDetail} See ${WIF_DOCS} for Vercel + GCP WIF setup.`
     );
   }
 
