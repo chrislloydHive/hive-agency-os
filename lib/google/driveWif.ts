@@ -197,7 +197,13 @@ export async function getDriveClient(
     JSON.stringify({ authMode: 'wif', impersonateEmail, projectId })
   );
 
-  const sourceAuth = new google.auth.GoogleAuth({ scopes: [DRIVE_SCOPE] });
+  // Force GoogleAuth to use the credentials file we wrote
+  // Explicitly set keyFilename to prevent it from checking Vercel OIDC token path
+  const adcPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  const sourceAuth = new google.auth.GoogleAuth({
+    scopes: [DRIVE_SCOPE],
+    ...(adcPath ? { keyFilename: adcPath } : {}),
+  });
   let sourceClient: Awaited<ReturnType<GoogleAuth['getClient']>>;
   try {
     sourceClient = await sourceAuth.getClient();
