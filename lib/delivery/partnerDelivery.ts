@@ -218,27 +218,51 @@ export async function runPartnerDelivery(
     authMode = 'oauth';
     drive = getDriveClientWithOAuth(resolved.auth);
   } else {
+    // Try WIF first, fall back to service account if WIF fails
+    // This matches how project folder creation works (uses service account)
     try {
       drive = await getWifDriveClient({ oidcToken: params.oidcToken ?? undefined });
       authMode = 'wif_service_account';
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const stack = e instanceof Error ? e.stack : undefined;
-      console.error(`[delivery/partner] ${requestId} WIF getDriveClient failed:`, msg);
+      console.warn(`[delivery/partner] ${requestId} WIF getDriveClient failed:`, msg);
       if (stack) {
-        console.error(`[delivery/partner] ${requestId} Stack:`, stack);
+        console.warn(`[delivery/partner] ${requestId} Stack:`, stack);
       }
-      // Check if this is a WIF/OIDC unavailable error and use the more specific message
-      if (isWifOidcUnavailableError(msg)) {
-        return fail(WIF_UNAVAILABLE_MESSAGE, 500, true, 'wif_service_account');
+      
+      // Fallback to service account (same as project folder creation)
+      // Check if service account credentials are available
+      const hasServiceAccount = !!(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || 
+        (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY));
+      
+      if (hasServiceAccount) {
+        console.log(`[delivery/partner] ${requestId} Falling back to service account authentication (same as project folder creation)`);
+        try {
+          drive = getDriveClientWithServiceAccount();
+          authMode = 'wif_service_account'; // Keep same mode name for consistency
+        } catch (saError) {
+          const saMsg = saError instanceof Error ? saError.message : String(saError);
+          console.error(`[delivery/partner] ${requestId} Service account fallback also failed:`, saMsg);
+          return fail(
+            `Google authentication failed (tried WIF and service account): ${saMsg}. Check GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS_JSON.`,
+            500,
+            true,
+            'wif_service_account'
+          );
+        }
+      } else {
+        // No service account fallback available
+        if (isWifOidcUnavailableError(msg)) {
+          return fail(WIF_UNAVAILABLE_MESSAGE, 500, true, 'wif_service_account');
+        }
+        return fail(
+          `Google ADC/WIF authentication failed: ${msg}. Check GOOGLE_APPLICATION_CREDENTIALS_JSON format and GOOGLE_IMPERSONATE_SERVICE_ACCOUNT_EMAIL. See ${WIF_DOCS}.`,
+          500,
+          true,
+          'wif_service_account'
+        );
       }
-      // For other ADC errors, show the actual error message
-      return fail(
-        `Google ADC/WIF authentication failed: ${msg}. Check GOOGLE_APPLICATION_CREDENTIALS_JSON format and GOOGLE_IMPERSONATE_SERVICE_ACCOUNT_EMAIL. See ${WIF_DOCS}.`,
-        500,
-        true,
-        'wif_service_account'
-      );
     }
   }
 
