@@ -2,6 +2,7 @@
 // Inngest serve endpoint for handling background jobs
 
 import { serve } from 'inngest/next';
+import { InngestMiddleware } from 'inngest';
 import { inngest } from '@/lib/inngest/client';
 import type { NextRequest } from 'next/server';
 
@@ -29,9 +30,48 @@ import {
 } from '@/lib/inngest/functions/weekly-brief';
 import { runPendingDeliveriesScheduled } from '@/lib/inngest/functions/run-pending-deliveries';
 
+// Middleware to read x-vercel-oidc-token header and inject into ctx.oidcToken
+const routeOidcMiddleware = new InngestMiddleware({
+  name: 'Route OIDC Token Propagation',
+  init: () => {
+    return {
+      onFunctionRun: ({ ctx, reqArgs }) => {
+        // Extract x-vercel-oidc-token from request headers
+        let oidcToken: string | undefined;
+        
+        if (reqArgs && Array.isArray(reqArgs) && reqArgs.length > 0) {
+          const firstArg = reqArgs[0];
+          if (firstArg && typeof firstArg === 'object' && 'headers' in firstArg) {
+            const headers = firstArg.headers as Headers | Record<string, string>;
+            if (headers instanceof Headers) {
+              oidcToken = headers.get('x-vercel-oidc-token') || undefined;
+            } else if (typeof headers === 'object') {
+              oidcToken = headers['x-vercel-oidc-token'] || headers['X-Vercel-OIDC-Token'] || undefined;
+            }
+          }
+        }
+        
+        // Temporary console.log confirming presence
+        console.log('[Inngest Route] OIDC token present:', !!oidcToken);
+        
+        return {
+          transformInput: ({ ctx: inputCtx }) => {
+            // Merge OIDC token into function context
+            return {
+              ctx: {
+                ...inputCtx,
+                oidcToken,
+              },
+            };
+          },
+        };
+      },
+    };
+  },
+});
+
 // Serve all functions
-// Note: The x-vercel-oidc-token header is automatically propagated to function context
-// via middleware defined in lib/inngest/client.ts
+// Middleware reads x-vercel-oidc-token header and injects into ctx.oidcToken
 export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [
@@ -61,4 +101,5 @@ export const { GET, POST, PUT } = serve({
     // Partner delivery: process CRAS Ready to Deliver (Webhook) without Airtable fetch
     runPendingDeliveriesScheduled,
   ],
+  middleware: [routeOidcMiddleware],
 });

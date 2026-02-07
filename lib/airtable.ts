@@ -3,6 +3,13 @@ import { env } from './env';
 
 // Lazy initialization to avoid build-time errors
 let _base: Airtable.Base | null = null;
+let _baseId: string | null = null;
+let _startupLogged = false;
+
+// Track which (baseId, table) combinations have already logged 403 errors
+// to prevent log spam - only log once per combination per process
+const _logged403Errors = new Set<string>();
+
 export function getBase(): Airtable.Base {
   if (!_base) {
     const apiKey = env.AIRTABLE_API_KEY || process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
@@ -11,9 +18,86 @@ export function getBase(): Airtable.Base {
     if (!apiKey || !baseId) {
       throw new Error('Airtable credentials not configured. Please set AIRTABLE_API_KEY (or AIRTABLE_ACCESS_TOKEN) and AIRTABLE_BASE_ID (or AIRTABLE_OS_BASE_ID) environment variables.');
     }
+    
+    // Startup logging (once per process)
+    if (!_startupLogged) {
+      const baseIdPrefix = baseId.substring(0, 20);
+      console.log('[Airtable] Initializing base:', {
+        baseId: `${baseIdPrefix}...`,
+        baseIdFull: baseId, // Log full ID for verification
+        hasApiKey: !!apiKey,
+        hasToken: !!apiKey, // Alias for clarity
+        usingOsBaseId: !!process.env.AIRTABLE_OS_BASE_ID,
+        usingBaseId: !!process.env.AIRTABLE_BASE_ID && !process.env.AIRTABLE_OS_BASE_ID,
+        envVars: {
+          AIRTABLE_OS_BASE_ID: process.env.AIRTABLE_OS_BASE_ID ? `${process.env.AIRTABLE_OS_BASE_ID.substring(0, 20)}...` : 'not set',
+          AIRTABLE_BASE_ID: process.env.AIRTABLE_BASE_ID ? `${process.env.AIRTABLE_BASE_ID.substring(0, 20)}...` : 'not set',
+        },
+      });
+      _startupLogged = true;
+    }
+    
+    _baseId = baseId;
     _base = new Airtable({ apiKey }).base(baseId);
   }
   return _base;
+}
+
+/**
+ * Get the current base ID being used (for logging/debugging)
+ */
+export function getBaseId(): string | null {
+  return _baseId;
+}
+
+/**
+ * Check if an error is a 403 NOT_AUTHORIZED from Airtable
+ */
+export function isAirtableAuthError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const err = error as any;
+  return (
+    err?.error === 'NOT_AUTHORIZED' ||
+    err?.statusCode === 403 ||
+    (typeof err?.message === 'string' && err.message.includes('NOT_AUTHORIZED'))
+  );
+}
+
+/**
+ * Extract Airtable error details for logging
+ */
+export function getAirtableErrorDetails(error: unknown): {
+  statusCode?: number;
+  errorCode?: string;
+  message?: string;
+} {
+  if (!error || typeof error !== 'object') {
+    return {};
+  }
+  const err = error as any;
+  return {
+    statusCode: err?.statusCode,
+    errorCode: err?.error,
+    message: err?.message,
+  };
+}
+
+/**
+ * Log a 403 NOT_AUTHORIZED error once per (baseId, table) combination
+ * Returns true if this is the first time logging this combination, false if already logged
+ */
+export function logAirtable403Error(baseId: string, tableName: string, details: { statusCode?: number; errorCode?: string }): boolean {
+  const key = `${baseId}:${tableName}`;
+  if (_logged403Errors.has(key)) {
+    // Already logged this combination - don't spam
+    return false;
+  }
+  
+  // Mark as logged and log the error
+  _logged403Errors.add(key);
+  const baseIdPrefix = baseId.length > 20 ? baseId.substring(0, 20) + '...' : baseId;
+  console.error(`[Airtable] NOT_AUTHORIZED: base=${baseIdPrefix} table="${tableName}" status=${details.statusCode || 403} error=${details.errorCode || 'NOT_AUTHORIZED'}`);
+  return true;
 }
 
 let _projectsBase: Airtable.Base | null = null;

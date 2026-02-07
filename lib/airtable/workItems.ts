@@ -6,6 +6,7 @@
  */
 
 import { base } from './client';
+import { isAirtableAuthError, getAirtableErrorDetails, getBaseId, logAirtable403Error } from '@/lib/airtable';
 import type { PriorityItem } from './fullReports';
 import type { PlanInitiative } from '@/lib/gap/types';
 import type { WorkSource, WorkSourceAnalytics, WorkItemArtifact, StrategyLink, WorkstreamType } from '@/lib/types/work';
@@ -255,19 +256,17 @@ function getStatusSortOrder(status?: WorkItemStatus): number {
  */
 export async function getAllWorkItems(): Promise<WorkItemRecord[]> {
   try {
-    const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
-    console.log(`[Work Items] Fetching all work items from base: ${baseId.substring(0, 20)}...`);
     const records = await base('Work Items').select().all();
     const workItems = records.map(mapWorkItemRecord);
-    console.log('[Work Items] Found', workItems.length, 'total work items');
     return workItems;
   } catch (error) {
-    const errorObj = error as any;
-    const isAuthError = errorObj?.error === 'NOT_AUTHORIZED' || errorObj?.statusCode === 403;
-    if (isAuthError) {
-      const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
-      console.error(`[Work Items] NOT_AUTHORIZED: API key lacks permissions for table "Work Items" in base ${baseId.substring(0, 20)}...`);
-      console.error(`[Work Items] Check: 1) API key has read access to this table, 2) Table exists in base ${baseId}, 3) AIRTABLE_OS_BASE_ID vs AIRTABLE_BASE_ID is correct`);
+    if (isAirtableAuthError(error)) {
+      const baseId = getBaseId() || process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
+      const details = getAirtableErrorDetails(error);
+      // Log once per (baseId, table) combination - prevents log spam
+      logAirtable403Error(baseId, 'Work Items', details);
+      // Short-circuit: return empty array, don't spam logs
+      return [];
     }
     console.error('[Work Items] Error fetching all work items:', error);
     return [];

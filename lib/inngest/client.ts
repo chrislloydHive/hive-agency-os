@@ -26,6 +26,13 @@ const vercelOidcMiddleware = new InngestMiddleware({
           }
         }
         
+        // Temporary logging to confirm OIDC token presence
+        console.log('[Inngest Middleware] OIDC token propagation:', {
+          hasOidcToken: !!oidcToken,
+          hasReqArgs: !!reqArgs,
+          reqArgsLength: reqArgs?.length || 0,
+        });
+        
         return {
           transformInput: ({ ctx: inputCtx }) => {
             // Merge OIDC token into function context

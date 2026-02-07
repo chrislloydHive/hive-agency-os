@@ -4,6 +4,7 @@
 // v2: Uses JSON fields for detailed data, scalar fields for scores
 
 import { base } from './client';
+import { isAirtableAuthError, getAirtableErrorDetails, getBaseId, logAirtable403Error } from '@/lib/airtable';
 import type { WebsiteUxDiagnostic } from '@/lib/diagnostics/websiteUx';
 import type {
   OsDiagnosticResult,
@@ -313,8 +314,7 @@ export async function upsertFullReportForOsRun({
  */
 export async function getAllFullReports(): Promise<FullReportRecord[]> {
   try {
-    const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
-    console.log(`[Full Reports] Fetching all full reports from base: ${baseId.substring(0, 20)}...`);
+    const baseId = getBaseId() || process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
     const table = base(FULL_REPORTS_TABLE_NAME);
     const records = await table.select().all();
 
@@ -346,15 +346,15 @@ export async function getAllFullReports(): Promise<FullReportRecord[]> {
       } as FullReportRecord;
     });
 
-    console.log('[Full Reports] Found', reports.length, 'total reports');
     return reports;
   } catch (error) {
-    const errorObj = error as any;
-    const isAuthError = errorObj?.error === 'NOT_AUTHORIZED' || errorObj?.statusCode === 403;
-    if (isAuthError) {
-      const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
-      console.error(`[Full Reports] NOT_AUTHORIZED: API key lacks permissions for table "${FULL_REPORTS_TABLE_NAME}" in base ${baseId.substring(0, 20)}...`);
-      console.error(`[Full Reports] Check: 1) API key has read access to this table, 2) Table exists in base ${baseId}, 3) AIRTABLE_OS_BASE_ID vs AIRTABLE_BASE_ID is correct`);
+    if (isAirtableAuthError(error)) {
+      const baseId = getBaseId() || process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
+      const details = getAirtableErrorDetails(error);
+      // Log once per (baseId, table) combination - prevents log spam
+      logAirtable403Error(baseId, FULL_REPORTS_TABLE_NAME, details);
+      // Short-circuit: return empty array, don't spam logs
+      return [];
     }
     console.error('[Full Reports] Error fetching all reports:', error);
     return [];
@@ -1091,9 +1091,10 @@ export async function getFullReportsForCompany(
   companyId: string
 ): Promise<FullReportRecord[]> {
   try {
+    const currentBaseId = getBaseId() || process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'not configured';
     console.log(`[Full Reports] Fetching reports for company: ${companyId}`);
     console.log(`[Full Reports] Using table name: "${FULL_REPORTS_TABLE_NAME}"`);
-    console.log(`[Full Reports] Airtable base ID configured: ${!!process.env.AIRTABLE_BASE_ID}`);
+    console.log(`[Full Reports] Airtable base ID: ${currentBaseId.substring(0, 20)}... (OS_BASE_ID=${!!process.env.AIRTABLE_OS_BASE_ID}, BASE_ID=${!!process.env.AIRTABLE_BASE_ID})`);
     console.log(`[Full Reports] Airtable API key configured: ${!!(process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN)}`);
 
     const table = base(FULL_REPORTS_TABLE_NAME);
@@ -1118,13 +1119,12 @@ export async function getFullReportsForCompany(
     return companyReports.map(mapToFullReportRecord);
   } catch (error) {
     // Check for authorization errors - these are expected if table doesn't exist or no access
-    const isAuthError = error && typeof error === 'object' &&
-      (('error' in error && (error as any).error === 'NOT_AUTHORIZED') ||
-       ('statusCode' in error && (error as any).statusCode === 403));
-
-    if (isAuthError) {
-      // Silently return empty array for auth errors (table may not exist or no access)
-      console.warn(`[Full Reports] No access to Full Reports table for company ${companyId}, skipping`);
+    if (isAirtableAuthError(error)) {
+      const baseId = getBaseId() || process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
+      const details = getAirtableErrorDetails(error);
+      // Log once per (baseId, table) combination - prevents log spam
+      logAirtable403Error(baseId, FULL_REPORTS_TABLE_NAME, details);
+      // Short-circuit: return empty array, don't spam logs
       return [];
     }
 

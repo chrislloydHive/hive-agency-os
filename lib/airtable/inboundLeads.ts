@@ -1,7 +1,7 @@
 // lib/airtable/inboundLeads.ts
 // Airtable helpers for Inbound Leads
 
-import { getBase } from '@/lib/airtable';
+import { getBase, isAirtableAuthError, getAirtableErrorDetails, getBaseId, logAirtable403Error } from '@/lib/airtable';
 import type { InboundLeadItem, PipelineLeadStage } from '@/lib/types/pipeline';
 
 const INBOUND_LEADS_TABLE = process.env.AIRTABLE_INBOUND_LEADS_TABLE || 'Inbound Leads';
@@ -82,8 +82,6 @@ function mapRecordToLead(record: any): InboundLeadItem {
 export async function getAllInboundLeads(): Promise<InboundLeadItem[]> {
   try {
     const base = getBase();
-    const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
-    console.log(`[InboundLeads] Fetching from base: ${baseId.substring(0, 20)}...`);
     const records = await base(INBOUND_LEADS_TABLE)
       .select({
         sort: [{ field: 'Created At', direction: 'desc' }],
@@ -93,12 +91,13 @@ export async function getAllInboundLeads(): Promise<InboundLeadItem[]> {
 
     return records.map(mapRecordToLead);
   } catch (error) {
-    const errorObj = error as any;
-    const isAuthError = errorObj?.error === 'NOT_AUTHORIZED' || errorObj?.statusCode === 403;
-    if (isAuthError) {
-      const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
-      console.error(`[InboundLeads] NOT_AUTHORIZED: API key lacks permissions for table "${INBOUND_LEADS_TABLE}" in base ${baseId.substring(0, 20)}...`);
-      console.error(`[InboundLeads] Check: 1) API key has read access to this table, 2) Table exists in base ${baseId}, 3) AIRTABLE_OS_BASE_ID vs AIRTABLE_BASE_ID is correct`);
+    if (isAirtableAuthError(error)) {
+      const baseId = getBaseId() || process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
+      const details = getAirtableErrorDetails(error);
+      // Log once per (baseId, table) combination - prevents log spam
+      logAirtable403Error(baseId, INBOUND_LEADS_TABLE, details);
+      // Short-circuit: return empty array, don't spam logs
+      return [];
     }
     console.error('[InboundLeads] Failed to fetch leads:', error);
     return [];
