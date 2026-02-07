@@ -259,12 +259,27 @@ export async function runPartnerDelivery(
       if (hasServiceAccount) {
         console.log(`[delivery/partner] ${requestId} Falling back to service account authentication (same as project folder creation)`);
         try {
+          // Log what we're about to use before calling
+          console.log(`[delivery/partner] ${requestId} Attempting service account auth with:`, {
+            usingJson: hasServiceAccountJson,
+            usingEmailKey: hasServiceAccountEmail && hasServiceAccountKey,
+          });
           drive = getDriveClientWithServiceAccount();
           authMode = 'wif_service_account'; // Keep same mode name for consistency
-          console.log(`[delivery/partner] ${requestId} Service account authentication successful`);
+          console.log(`[delivery/partner] ${requestId} ✅ Service account authentication successful`);
         } catch (saError) {
           const saMsg = saError instanceof Error ? saError.message : String(saError);
-          console.error(`[delivery/partner] ${requestId} Service account fallback also failed:`, saMsg);
+          const saStack = saError instanceof Error ? saError.stack : undefined;
+          console.error(`[delivery/partner] ${requestId} ❌ Service account fallback failed:`, saMsg);
+          if (saStack) {
+            console.error(`[delivery/partner] ${requestId} Service account error stack:`, saStack);
+          }
+          // Log the actual env var values (not the secrets themselves, just presence)
+          console.error(`[delivery/partner] ${requestId} Env var check at error time:`, {
+            GOOGLE_SERVICE_ACCOUNT_JSON_length: process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.length || 0,
+            GOOGLE_SERVICE_ACCOUNT_EMAIL: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ? 'present' : 'missing',
+            GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY_length: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.length || 0,
+          });
           return fail(
             `Google authentication failed (tried WIF and service account): ${saMsg}. Check GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS_JSON.`,
             500,
