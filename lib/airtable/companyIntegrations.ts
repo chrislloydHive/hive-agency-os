@@ -181,7 +181,9 @@ function mapCompanyIntegrationsToAirtable(
 
 /**
  * Get company integrations by company ID
- * Uses multi-base lookup (DB base → OS base fallback) for better resilience
+ * 
+ * IMPORTANT: This function preserves the original behavior of checking AIRTABLE_BASE_ID first.
+ * For multi-base lookup with DB/OS fallback, use findCompanyIntegration() directly.
  */
 export async function getCompanyIntegrations(
   companyId: string
@@ -189,24 +191,33 @@ export async function getCompanyIntegrations(
   try {
     console.log('[CompanyIntegrations] Looking for company:', companyId);
     
-    // Use multi-base lookup instead of single-base findRecordByField
-    // This handles permission errors more gracefully and tries multiple bases
-    const result = await findCompanyIntegration({ companyId });
-    
-    if (result.record) {
-      console.log(`[CompanyIntegrations] Found existing record: ${result.record.id} (matched by: ${result.matchedBy})`);
-      return mapAirtableToCompanyIntegrations(result.record as any);
+    // Preserve original behavior: use findRecordByField which checks AIRTABLE_BASE_ID
+    // This ensures backward compatibility - if CompanyIntegrations is in AIRTABLE_BASE_ID,
+    // it will be found there first, matching the old behavior
+    const record = await findRecordByField(TABLE_NAME, 'CompanyId', companyId);
+
+    if (record) {
+      console.log('[CompanyIntegrations] Found existing record:', record.id);
+      return mapAirtableToCompanyIntegrations(record);
     }
 
     console.log('[CompanyIntegrations] No record found for company:', companyId);
-    if (result.debug.attempts.length > 0) {
-      const errors = result.debug.attempts.filter(a => !a.ok && a.status === 403);
-      if (errors.length > 0) {
-        console.warn(`[CompanyIntegrations] Permission errors encountered (403) for ${errors.length} attempts. Token may lack access to CompanyIntegrations table.`);
-      }
-    }
     return null;
   } catch (error) {
+    // If we get a permission error, try multi-base lookup as fallback
+    const errStr = error instanceof Error ? error.message : String(error);
+    if (errStr.includes('403') || errStr.includes('401') || errStr.includes('permission')) {
+      console.warn('[CompanyIntegrations] Permission error with AIRTABLE_BASE_ID, trying multi-base lookup:', errStr);
+      try {
+        const result = await findCompanyIntegration({ companyId });
+        if (result.record) {
+          console.log(`[CompanyIntegrations] Found via multi-base lookup: ${result.record.id} (matched by: ${result.matchedBy})`);
+          return mapAirtableToCompanyIntegrations(result.record as any);
+        }
+      } catch (fallbackError) {
+        console.warn('[CompanyIntegrations] Multi-base lookup also failed:', fallbackError);
+      }
+    }
     console.warn('[CompanyIntegrations] Error fetching integrations:', error);
     return null;
   }
