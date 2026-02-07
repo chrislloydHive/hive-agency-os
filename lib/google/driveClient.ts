@@ -7,6 +7,7 @@
 import { google } from 'googleapis';
 import type { drive_v3 } from 'googleapis';
 import type { OAuth2Client } from 'google-auth-library';
+import { GoogleAuth } from 'google-auth-library';
 
 // ============================================================================
 // Types
@@ -73,8 +74,6 @@ function getServiceAccountCredentials(): ServiceAccountCredentials {
 // Drive Client
 // ============================================================================
 
-let _driveClient: drive_v3.Drive | null = null;
-
 /**
  * Get a Drive client using an OAuth2 client. No service account env required.
  * Use for partner delivery when a review portal token is provided.
@@ -84,30 +83,66 @@ export function getDriveClientWithOAuth(oauthClient: OAuth2Client): drive_v3.Dri
 }
 
 /**
- * Get authenticated Google Drive client using service account (lazy init).
- * Throws with a clear message if GOOGLE_SERVICE_ACCOUNT_JSON (or EMAIL+PRIVATE_KEY) is missing.
- * Only call when OAuth is not available (e.g. partner delivery without token).
+ * Unified Drive client factory with explicit auth selection logic.
+ * 
+ * Auth selection order:
+ * 1. If OAuth token provided → use OAuth client
+ * 2. Else if USE_SERVICE_ACCOUNT=true → use WIF (external_account) and require Vercel OIDC token
+ * 3. Else → hard error
+ * 
+ * Note: No singleton cache - tokens expire and caching is unsafe in serverless environments.
+ * google-auth-library handles token caching internally per client instance during that invocation.
+ * 
+ * @param options - Auth options
+ * @param options.oauthToken - OAuth token (from review portal) - pass OAuth2Client directly via getDriveClientWithOAuth
+ * @param options.vercelOidcToken - Vercel OIDC token (from process.env.VERCEL_OIDC_TOKEN or request header)
+ * @returns Authenticated Drive client
+ */
+export async function getDriveClient(options: {
+  oauthToken?: OAuth2Client | null;
+  vercelOidcToken?: string | null;
+}): Promise<drive_v3.Drive> {
+  const { oauthToken, vercelOidcToken } = options;
+
+  // Priority 1: OAuth token (user token from review portal)
+  if (oauthToken) {
+    return getDriveClientWithOAuth(oauthToken);
+  }
+
+  // Priority 2: WIF with USE_SERVICE_ACCOUNT flag
+  if (process.env.USE_SERVICE_ACCOUNT === 'true') {
+    const token = vercelOidcToken ?? process.env.VERCEL_OIDC_TOKEN;
+    if (!token) {
+      throw new Error('USE_SERVICE_ACCOUNT=true requires VERCEL_OIDC_TOKEN to be set or passed explicitly');
+    }
+    return await getDriveClientWithWif(token);
+  }
+
+  // Priority 3: Hard error
+  throw new Error('No OAuth token provided and USE_SERVICE_ACCOUNT is not enabled. Set USE_SERVICE_ACCOUNT=true to use WIF, or provide an OAuth token.');
+}
+
+/**
+ * Get authenticated Google Drive client using explicit service account (JWT with private key).
+ * 
+ * @deprecated Use getDriveClient() with USE_SERVICE_ACCOUNT=true for WIF, or getDriveClientWithOAuth() for OAuth.
+ * This function is kept for backward compatibility but should not be used with external_account credentials.
  */
 export function getDriveClientWithServiceAccount(): drive_v3.Drive {
-  if (_driveClient) {
-    return _driveClient;
-  }
-  
-  // Log credential availability before attempting to use them
-  const hasJson = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  const hasEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const hasKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
-  console.log('[Drive/getDriveClientWithServiceAccount] Credential check:', {
-    hasJson,
-    hasEmail,
-    hasKey,
-    jsonLength: process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.length || 0,
-    emailValue: hasEmail ? process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL?.substring(0, 20) + '...' : 'missing',
-    keyLength: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.length || 0,
-  });
-  
   const credentials = getServiceAccountCredentials();
-  console.log('[Drive/getDriveClientWithServiceAccount] Credentials parsed, client_email:', credentials.client_email?.substring(0, 20) + '...');
+  
+  // Validate that we're not trying to use external_account credentials here
+  const jsonStr = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (jsonStr) {
+    try {
+      const parsed = JSON.parse(jsonStr);
+      if (parsed.type === 'external_account') {
+        throw new Error('Cannot use getDriveClientWithServiceAccount() with external_account credentials. Use getDriveClient() with USE_SERVICE_ACCOUNT=true instead.');
+      }
+    } catch {
+      // Not JSON or parse failed, continue with JWT auth
+    }
+  }
   
   // Validate credentials before creating auth
   if (!credentials.client_email || !credentials.private_key) {
@@ -118,38 +153,77 @@ export function getDriveClientWithServiceAccount(): drive_v3.Drive {
     throw new Error(`Service account credentials incomplete: missing ${missing.join(' and ')}`);
   }
   
-  try {
-    const auth = new google.auth.JWT({
-      email: credentials.client_email,
-      key: credentials.private_key,
-      scopes: ['https://www.googleapis.com/auth/drive'],
-    });
-    
-    // Test auth immediately to catch "No key or keyFile set" errors early
-    console.log('[Drive/getDriveClientWithServiceAccount] Auth object created, testing...');
-    _driveClient = google.drive({ version: 'v3', auth });
-    return _driveClient;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error('[Drive/getDriveClientWithServiceAccount] Failed to create auth or Drive client:', msg);
-    console.error('[Drive/getDriveClientWithServiceAccount] Credential details:', {
-      hasEmail: !!credentials.client_email,
-      emailLength: credentials.client_email?.length || 0,
-      hasKey: !!credentials.private_key,
-      keyLength: credentials.private_key?.length || 0,
-      keyStartsWith: credentials.private_key?.substring(0, 30) || 'missing',
-    });
-    throw e;
-  }
+  const auth = new google.auth.JWT({
+    email: credentials.client_email,
+    key: credentials.private_key,
+    scopes: ['https://www.googleapis.com/auth/drive'],
+  });
+  
+  return google.drive({ version: 'v3', auth });
 }
 
 /**
- * Get authenticated Google Drive client (service account). Lazy init.
- * @deprecated Prefer getDriveClientWithOAuth for token-based flows; use getDriveClientWithServiceAccount for explicit SA usage.
+ * Get authenticated Google Drive client using Workload Identity Federation (WIF) with Vercel OIDC.
+ * 
+ * This function reads external_account credentials from GOOGLE_SERVICE_ACCOUNT_JSON and patches
+ * the credential_source to use a temp file containing the Vercel OIDC token.
+ * 
+ * @param vercelOidcToken - The OIDC token from Vercel (from process.env.VERCEL_OIDC_TOKEN or request header)
+ * @returns Authenticated Drive client
  */
-export function getDriveClient(): drive_v3.Drive {
-  return getDriveClientWithServiceAccount();
+export async function getDriveClientWithWif(vercelOidcToken: string): Promise<drive_v3.Drive> {
+  if (!vercelOidcToken) {
+    throw new Error('Missing Vercel OIDC token. Set VERCEL_OIDC_TOKEN or pass token explicitly.');
+  }
+
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!raw) {
+    throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_JSON (expected external_account credentials)');
+  }
+
+  let external: any;
+  try {
+    external = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Failed to parse GOOGLE_SERVICE_ACCOUNT_JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  if (external.type !== 'external_account') {
+    throw new Error(`Expected external_account credentials, got type: ${external.type}`);
+  }
+
+  // Write the OIDC token to a temp file that matches the credential_source.file path
+  const fs = await import('node:fs/promises');
+  const os = await import('node:os');
+  const path = await import('node:path');
+
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'vercel-oidc-'));
+  const tokenPath = path.join(dir, 'token');
+
+  await fs.writeFile(tokenPath, vercelOidcToken, 'utf8');
+
+  // Patch the external_account config to use our temp file
+  const patchedExternal = {
+    ...external,
+    credential_source: {
+      ...(external.credential_source ?? {}),
+      file: tokenPath,
+      format: { type: 'text' },
+    },
+  };
+
+  const auth = new GoogleAuth({
+    credentials: patchedExternal,
+    scopes: ['https://www.googleapis.com/auth/drive'],
+  });
+
+  const client = await auth.getClient();
+  
+  // getClient() returns a union type, but we need it to be compatible with google.drive
+  // Cast to any to work around the type mismatch (the actual runtime type is correct)
+  return google.drive({ version: 'v3', auth: client as any });
 }
+
 
 /**
  * Generate Drive folder URL from folder ID
@@ -173,7 +247,7 @@ export async function findChildFolder(
   parentId: string,
   name: string
 ): Promise<DriveFolder | null> {
-  const drive = getDriveClient();
+  const drive = await getDriveClient({ vercelOidcToken: process.env.VERCEL_OIDC_TOKEN });
 
   try {
     // Escape single quotes in the name for the query
@@ -215,7 +289,7 @@ export async function createFolder(
   parentId: string,
   name: string
 ): Promise<DriveFolder> {
-  const drive = getDriveClient();
+  const drive = await getDriveClient({ vercelOidcToken: process.env.VERCEL_OIDC_TOKEN });
 
   try {
     const response = await drive.files.create({
@@ -377,7 +451,7 @@ export async function ensureSubfolderPath(
  * @returns List of child folders
  */
 export async function listChildFolders(parentId: string): Promise<DriveFolder[]> {
-  const drive = getDriveClient();
+  const drive = await getDriveClient({ vercelOidcToken: process.env.VERCEL_OIDC_TOKEN });
 
   try {
     // TODO: when parent is in a Shared Drive and we have driveId, set corpora: 'drive', driveId: sharedDriveId.
@@ -408,7 +482,7 @@ export async function listChildFolders(parentId: string): Promise<DriveFolder[]>
  * @returns Folder metadata or null if not found
  */
 export async function getFolder(folderId: string): Promise<DriveFolder | null> {
-  const drive = getDriveClient();
+  const drive = await getDriveClient({ vercelOidcToken: process.env.VERCEL_OIDC_TOKEN });
 
   try {
     const response = await drive.files.get({
@@ -1031,7 +1105,7 @@ export async function copyDocTemplate(
   destinationFolderId: string,
   newName: string
 ): Promise<DriveDocument> {
-  const drive = getDriveClient();
+  const drive = await getDriveClient({ vercelOidcToken: process.env.VERCEL_OIDC_TOKEN });
 
   try {
     console.log(`[Drive] Copying template ${templateFileId} to folder ${destinationFolderId} as "${newName}"`);
@@ -1077,7 +1151,7 @@ export async function findDocumentInFolder(
   folderId: string,
   name: string
 ): Promise<DriveDocument | null> {
-  const drive = getDriveClient();
+  const drive = await getDriveClient({ vercelOidcToken: process.env.VERCEL_OIDC_TOKEN });
 
   try {
     // Escape single quotes in the name for the query
@@ -1141,7 +1215,7 @@ export async function ensureDocumentFromTemplate(
  * @returns Document metadata or null if not found
  */
 export async function getDocument(fileId: string): Promise<DriveDocument | null> {
-  const drive = getDriveClient();
+  const drive = await getDriveClient({ vercelOidcToken: process.env.VERCEL_OIDC_TOKEN });
 
   try {
     const response = await drive.files.get({

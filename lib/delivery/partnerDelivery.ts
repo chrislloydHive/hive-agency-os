@@ -221,6 +221,7 @@ export async function runPartnerDelivery(
 
   try {
     const vercelOidcTokenToUse = oidcToken ?? process.env.VERCEL_OIDC_TOKEN ?? null;
+    // Use getDriveClient from driveClient.ts (requires options parameter)
     drive = await getDriveClient({
       oauthToken: oauthClient ?? null,
       vercelOidcToken: vercelOidcTokenToUse,

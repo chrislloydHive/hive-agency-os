@@ -45,7 +45,9 @@ export const runPendingDeliveriesScheduled = inngest.createFunction(
           },
         });
         
-        const result = await runPendingDeliveries({ oidcToken: undefined });
+        // Pass VERCEL_OIDC_TOKEN if available (Vercel injects this when OIDC is enabled)
+        const oidcToken = process.env.VERCEL_OIDC_TOKEN ?? undefined;
+        const result = await runPendingDeliveries({ oidcToken });
         
         console.log('[run-pending-deliveries] Delivery processing complete:', {
           processed: result.processed,

@@ -61,9 +61,9 @@ export async function GET(req: NextRequest) {
     result.actingEmail = null;
   }
 
-  let drive: ReturnType<typeof getDriveClient>;
+  let drive: Awaited<ReturnType<typeof getDriveClient>>;
   try {
-    drive = getDriveClient();
+    drive = await getDriveClient({ vercelOidcToken: process.env.VERCEL_OIDC_TOKEN });
   } catch (err: any) {
     result.errors.push(`Auth failed: ${err.message}`);
     return NextResponse.json(result, { status: 200 });
