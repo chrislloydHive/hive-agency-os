@@ -303,9 +303,48 @@ export async function runPartnerDelivery(
     console.warn(`[delivery/partner] ${requestId} WARNING: No Tactic found on CRAS record ${airtableRecordId} (tactic="${tacticValue}", variant="${variantValue}"). Files will be delivered to root destination: ${destinationFolderId}. Set Tactic/Variant on CRAS records to enable subfolder routing.`);
   }
 
+  // Resolve source folder ID: if sourceFolderId is a file, use its parent folder
+  let resolvedSourceFolderId = sourceFolderId;
+  let sourceMimeType: string | null = null;
+  try {
+    const sourceMeta = await drive.files.get({
+      fileId: sourceFolderId,
+      fields: 'id,name,mimeType,parents',
+      supportsAllDrives: true,
+    });
+    sourceMimeType = sourceMeta.data.mimeType ?? null;
+    
+    if (sourceMimeType !== FOLDER_MIMETYPE) {
+      // Source is a file, resolve its parent folder
+      const parents = sourceMeta.data.parents;
+      if (!parents || parents.length === 0) {
+        return fail(
+          `Source Folder ID points to a file (mimeType=${sourceMimeType}) with no parent folder. Use a folder ID instead.`,
+          400,
+          true,
+          authMode
+        );
+      }
+      resolvedSourceFolderId = parents[0];
+      console.log(`[delivery/partner] ${requestId} Source is a file, resolved to parent folder: sourceId=${sourceFolderId}, sourceMimeType=${sourceMimeType}, resolvedFolderId=${resolvedSourceFolderId}`);
+    } else {
+      console.log(`[delivery/partner] ${requestId} Source is a folder: sourceId=${sourceFolderId}, sourceMimeType=${sourceMimeType}, resolvedFolderId=${resolvedSourceFolderId}`);
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return fail(`Failed to resolve source folder: ${message}`, 400, true, authMode);
+  }
+
+  // Log source resolution details
+  console.log(`[delivery/partner] ${requestId} Source resolution:`, {
+    sourceId: sourceFolderId,
+    sourceMimeType,
+    resolvedFolderId: resolvedSourceFolderId,
+  });
+
   // Preflight check source and effective destination (after subfolder resolution)
   try {
-    await preflightFolderCopy(drive, sourceFolderId, effectiveDestinationFolderId);
+    await preflightFolderCopy(drive, resolvedSourceFolderId, effectiveDestinationFolderId);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return fail(message, 400, true, authMode);
@@ -332,11 +371,11 @@ export async function runPartnerDelivery(
   }
 
   const deliveredFolderName = `Delivered – ${(projectName ?? 'Delivery').trim() || 'Delivery'} – ${new Date().toISOString().slice(0, 10)}`;
-  console.log(`[delivery/partner] ${requestId} Copying folder tree: sourceFolderId=${sourceFolderId}, destination=${effectiveDestinationFolderId}, folderName="${deliveredFolderName}"`);
+  console.log(`[delivery/partner] ${requestId} Copying folder tree: sourceFolderId=${resolvedSourceFolderId}, destination=${effectiveDestinationFolderId}, folderName="${deliveredFolderName}"`);
   console.log(`[delivery/partner] ${requestId} Destination folder URL: ${folderUrl(effectiveDestinationFolderId)}`);
 
   try {
-    const result = await copyDriveFolderTree(drive, sourceFolderId, effectiveDestinationFolderId, {
+    const result = await copyDriveFolderTree(drive, resolvedSourceFolderId, effectiveDestinationFolderId, {
       deliveredFolderName,
       drive,
     });
@@ -344,7 +383,7 @@ export async function runPartnerDelivery(
     console.log(`[delivery/partner] ${requestId} Delivered folder URL: ${result.deliveredRootFolderUrl}`);
     
     if (result.filesCopied === 0) {
-      console.warn(`[delivery/partner] ${requestId} WARNING: Copy succeeded but 0 files were copied. Source folder ${sourceFolderId} may be empty or inaccessible. Check source folder: ${folderUrl(sourceFolderId)}`);
+      console.warn(`[delivery/partner] ${requestId} WARNING: Copy succeeded but 0 files were copied. Source folder ${resolvedSourceFolderId} may be empty or inaccessible. Check source folder: ${folderUrl(resolvedSourceFolderId)}`);
     }
     
     if (result.failures.length > 0) {
