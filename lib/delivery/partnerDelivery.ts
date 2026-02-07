@@ -209,7 +209,7 @@ export async function runPartnerDelivery(
   }
 
   // Resolve auth: token -> OAuth; else WIF (never 400 for missing token when WIF configured).
-  let drive: drive_v3.Drive;
+  let drive: drive_v3.Drive | undefined;
   let authMode: AuthMode;
 
   const tokenTrimmed = (token ?? '').trim();
@@ -295,14 +295,15 @@ export async function runPartnerDelivery(
           }
         }
         
-        if (skipAdc || !drive) {
+        if (skipAdc) {
           try {
             // Fallback to explicit service account (for backwards compatibility)
             console.log(`[delivery/partner] ${requestId} Attempting explicit service account auth with:`, {
               usingJson: hasServiceAccountJson,
               usingEmailKey: hasServiceAccountEmail && hasServiceAccountKey,
             });
-            drive = getDriveClientWithServiceAccount();
+            const saDrive = getDriveClientWithServiceAccount();
+            drive = saDrive;
             authMode = 'wif_service_account';
             console.log(`[delivery/partner] ${requestId} ✅ Explicit service account authentication successful`);
           } catch (saError) {
@@ -343,6 +344,11 @@ export async function runPartnerDelivery(
         );
       }
     }
+  }
+
+  // Ensure drive is assigned (TypeScript check)
+  if (!drive) {
+    return fail('Failed to initialize Google Drive client', 500, true, 'wif_service_account');
   }
 
   console.log(
