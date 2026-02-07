@@ -260,6 +260,13 @@ export async function getDriveClient(
     );
   }
 
+  // Log what we're about to impersonate
+  console.log('[WIF] Creating Impersonated client:', {
+    targetPrincipal: impersonateEmail,
+    sourceClientType: sourceClient.constructor.name,
+    hasCredentials: !!(sourceClient as any).credentials,
+  });
+
   const auth = new Impersonated({
     sourceClient,
     targetPrincipal: impersonateEmail,
@@ -267,6 +274,18 @@ export async function getDriveClient(
     lifetime: 3600,
     delegates: [],
   });
+  
+  // Test the impersonated auth immediately to catch errors early
+  try {
+    const testToken = await auth.getAccessToken();
+    console.log('[WIF] Impersonation test successful, token type:', typeof testToken);
+  } catch (impersonateErr) {
+    const impersonateMsg = impersonateErr instanceof Error ? impersonateErr.message : String(impersonateErr);
+    console.error('[WIF] Impersonation test failed:', impersonateMsg);
+    throw new Error(
+      `Drive WIF: Failed to impersonate service account ${impersonateEmail}. ${impersonateMsg} Check that the source credentials have permission to impersonate this service account. See ${WIF_DOCS}.`
+    );
+  }
 
   _driveClient = google.drive({
     version: 'v3',
