@@ -210,7 +210,7 @@ export async function runPartnerDelivery(
 
   // Resolve auth: token -> OAuth; else WIF (never 400 for missing token when WIF configured).
   let drive: drive_v3.Drive | undefined;
-  let authMode: AuthMode;
+  let authMode: AuthMode | undefined;
 
   const tokenTrimmed = (token ?? '').trim();
   if (tokenTrimmed) {
@@ -349,9 +349,9 @@ export async function runPartnerDelivery(
     }
   }
 
-  // Ensure drive is assigned (TypeScript check)
-  if (!drive) {
-    return fail('Failed to initialize Google Drive client', 500, true, 'wif_service_account');
+  // Ensure drive and authMode are assigned (TypeScript check)
+  if (!drive || !authMode) {
+    return fail('Failed to initialize Google Drive client', 500, true, authMode || 'wif_service_account');
   }
 
   console.log(
