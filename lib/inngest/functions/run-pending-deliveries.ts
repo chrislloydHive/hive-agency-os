@@ -6,7 +6,9 @@
 import { inngest } from '../client';
 import { runPendingDeliveries } from '@/lib/delivery/runPendingDeliveries';
 
-const CRON_SCHEDULE = '*/5 * * * *'; // Every 5 minutes
+// Temporarily set to every 1 minute for faster testing/debugging
+// TODO: Change back to '*/5 * * * *' (every 5 minutes) once delivery is working
+const CRON_SCHEDULE = '*/1 * * * *'; // Every 1 minute (temporary for debugging)
 
 export const runPendingDeliveriesScheduled = inngest.createFunction(
   {
