@@ -109,7 +109,10 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
     return null;
   }
 
-  if (!records || records.length === 0) return null;
+  if (!records || records.length === 0) {
+    console.warn(`[review/resolveProject] No project found for token: ${token.slice(0, 20)}...`);
+    return null;
+  }
 
   const record = records[0];
   const fields = record.fields as Record<string, unknown>;
@@ -119,7 +122,10 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
   const raw = fields[CANONICAL_PROJECT_NAME_FIELD];
   const projectName =
     typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : '';
-  if (!projectName) return null;
+  if (!projectName) {
+    console.warn(`[review/resolveProject] Project ${record.id} missing "${CANONICAL_PROJECT_NAME_FIELD}" field`);
+    return null;
+  }
 
   const hubName = `${projectName} – Creative Review`;
 
@@ -132,7 +138,10 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
       break;
     }
   }
-  if (!companyId) return null;
+  if (!companyId) {
+    console.warn(`[review/resolveProject] Project ${record.id} missing Company/Client linked record`);
+    return null;
+  }
 
   // 4. Resolve clientCode + companyName for OAuth lookup
   let clientCode: string | undefined;
@@ -182,7 +191,10 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
     }
   }
 
-  if (!auth) return null;
+  if (!auth) {
+    console.warn(`[review/resolveProject] Could not resolve OAuth client for company ${companyId} (project ${record.id})`);
+    return null;
+  }
 
   console.log('[review/resolveProject]', {
     recordId: record.id,

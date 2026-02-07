@@ -71,7 +71,10 @@ export default async function ReviewPage({
 }) {
   const { token } = await params;
   const resolved = await resolveReviewProject(token);
-  if (!resolved) notFound();
+  if (!resolved) {
+    console.error(`[review/page] Token not found or invalid: ${token.slice(0, 20)}...`);
+    notFound();
+  }
 
   const { project, auth } = resolved;
   const drive = google.drive({ version: 'v3', auth });
