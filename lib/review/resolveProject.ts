@@ -167,6 +167,7 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
 
   // 5. Resolve OAuth — same cascade as scaffold
   let auth: OAuth2Client | null = null;
+  let oauthError: Error | null = null;
 
   // Step 1: Multi-base CompanyIntegrations lookup
   try {
@@ -177,8 +178,19 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
       const oauth2Client = new google.auth.OAuth2(cid, csecret);
       oauth2Client.setCredentials({ refresh_token: oauth.googleRefreshToken });
       auth = oauth2Client;
+      console.log(`[review/resolveProject] OAuth resolved via getCompanyGoogleOAuthFromDBBase (matched by: ${oauth.matchedBy})`);
+    } else {
+      console.log(`[review/resolveProject] getCompanyGoogleOAuthFromDBBase returned null (no refresh token found)`);
+      if (oauth?.debug?.attempts) {
+        const permissionErrors = oauth.debug.attempts.filter(a => !a.ok && (a.status === 403 || a.status === 401));
+        if (permissionErrors.length > 0) {
+          console.warn(`[review/resolveProject] Permission errors (403/401) encountered: ${permissionErrors.length} attempts failed`);
+        }
+      }
     }
-  } catch {
+  } catch (err) {
+    oauthError = err instanceof Error ? err : new Error(String(err));
+    console.warn(`[review/resolveProject] getCompanyGoogleOAuthFromDBBase failed:`, oauthError.message);
     // fall through to fallback
   }
 
@@ -186,13 +198,18 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
   if (!auth) {
     try {
       auth = await getCompanyOAuthClient(companyId);
-    } catch {
-      // both failed
+      console.log(`[review/resolveProject] OAuth resolved via getCompanyOAuthClient fallback`);
+    } catch (err) {
+      const fallbackError = err instanceof Error ? err : new Error(String(err));
+      console.warn(`[review/resolveProject] getCompanyOAuthClient fallback also failed:`, fallbackError.message);
+      oauthError = fallbackError;
     }
   }
 
   if (!auth) {
-    console.warn(`[review/resolveProject] Could not resolve OAuth client for company ${companyId} (project ${record.id})`);
+    console.error(`[review/resolveProject] Could not resolve OAuth client for company ${companyId} (project ${record.id})`);
+    console.error(`[review/resolveProject] Last error:`, oauthError?.message || 'Unknown error');
+    console.error(`[review/resolveProject] Troubleshooting: Check that AIRTABLE_API_KEY has read access to CompanyIntegrations table in AIRTABLE_DB_BASE_ID or AIRTABLE_OS_BASE_ID`);
     return null;
   }
 

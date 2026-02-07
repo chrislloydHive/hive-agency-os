@@ -181,20 +181,30 @@ function mapCompanyIntegrationsToAirtable(
 
 /**
  * Get company integrations by company ID
+ * Uses multi-base lookup (DB base → OS base fallback) for better resilience
  */
 export async function getCompanyIntegrations(
   companyId: string
 ): Promise<CompanyIntegrations | null> {
   try {
     console.log('[CompanyIntegrations] Looking for company:', companyId);
-    const record = await findRecordByField(TABLE_NAME, 'CompanyId', companyId);
-
-    if (record) {
-      console.log('[CompanyIntegrations] Found existing record:', record.id);
-      return mapAirtableToCompanyIntegrations(record);
+    
+    // Use multi-base lookup instead of single-base findRecordByField
+    // This handles permission errors more gracefully and tries multiple bases
+    const result = await findCompanyIntegration({ companyId });
+    
+    if (result.record) {
+      console.log(`[CompanyIntegrations] Found existing record: ${result.record.id} (matched by: ${result.matchedBy})`);
+      return mapAirtableToCompanyIntegrations(result.record as any);
     }
 
     console.log('[CompanyIntegrations] No record found for company:', companyId);
+    if (result.debug.attempts.length > 0) {
+      const errors = result.debug.attempts.filter(a => !a.ok && a.status === 403);
+      if (errors.length > 0) {
+        console.warn(`[CompanyIntegrations] Permission errors encountered (403) for ${errors.length} attempts. Token may lack access to CompanyIntegrations table.`);
+      }
+    }
     return null;
   } catch (error) {
     console.warn('[CompanyIntegrations] Error fetching integrations:', error);
