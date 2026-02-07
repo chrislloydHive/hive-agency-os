@@ -18,7 +18,7 @@ export const runPendingDeliveriesScheduled = inngest.createFunction(
     concurrency: { limit: 1 },
   },
   { cron: CRON_SCHEDULE },
-  async ({ event, step, ctx }) => {
+  async ({ event, step }) => {
     console.log('[run-pending-deliveries] ⚡ Function triggered by cron:', CRON_SCHEDULE, 'event:', event.id);
     
     return await step.run('process-deliveries', async () => {
@@ -26,7 +26,8 @@ export const runPendingDeliveriesScheduled = inngest.createFunction(
         console.log('[run-pending-deliveries] Starting delivery processing...');
         
         // Read OIDC token from context (injected by middleware from x-vercel-oidc-token header)
-        const oidcToken = (ctx as any)?.oidcToken || process.env.VERCEL_OIDC_TOKEN || undefined;
+        // For cron jobs, Vercel injects VERCEL_OIDC_TOKEN as env var automatically
+        const oidcToken = process.env.VERCEL_OIDC_TOKEN || undefined;
         
         // Diagnostic: Check credential availability in Inngest function context
         const hasServiceAccountJson = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -45,7 +46,6 @@ export const runPendingDeliveriesScheduled = inngest.createFunction(
           wif: {
             hasJson: hasWifJson,
             hasVercelOidcToken,
-            oidcTokenFromCtx: !!(ctx as any)?.oidcToken,
           },
         });
         
