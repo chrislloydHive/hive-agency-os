@@ -582,8 +582,13 @@ export async function findCompanyIntegration({
     };
   }
 
+  // CompanyIntegrations is in appVLDjqK2q4IJhGz
+  // Check DB base first, then OS base, then fallback to AIRTABLE_BASE_ID
   const dbBaseId = process.env.AIRTABLE_DB_BASE_ID || '';
   const osBaseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
+  
+  // CompanyIntegrations is known to be in appVLDjqK2q4IJhGz
+  const knownCompanyIntegrationsBase = 'appVLDjqK2q4IJhGz';
 
   const basesToTry: Array<{ label: string; baseId: string }> = [];
   if (baseIdOverride && baseIdOverride.trim()) {
@@ -591,6 +596,13 @@ export async function findCompanyIntegration({
   } else {
     if (dbBaseId) basesToTry.push({ label: 'DB', baseId: dbBaseId });
     if (osBaseId && osBaseId !== dbBaseId) basesToTry.push({ label: 'OS', baseId: osBaseId });
+    
+    // If known CompanyIntegrations base isn't already in the list, add it as fallback
+    if (knownCompanyIntegrationsBase !== dbBaseId && 
+        knownCompanyIntegrationsBase !== osBaseId && 
+        !basesToTry.some(b => b.baseId === knownCompanyIntegrationsBase)) {
+      basesToTry.push({ label: 'Known CI Base', baseId: knownCompanyIntegrationsBase });
+    }
   }
 
   if (basesToTry.length === 0) {
