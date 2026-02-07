@@ -265,6 +265,8 @@ export async function runPartnerDelivery(
         // Check if ADC credentials reference missing OIDC token file
         const wifJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
         let skipAdc = false;
+        let adcErrorMsg: string | undefined = undefined;
+        
         if (wifJson && !process.env.VERCEL_OIDC_TOKEN) {
           try {
             const parsed = JSON.parse(wifJson);
@@ -273,6 +275,7 @@ export async function runPartnerDelivery(
               const fs = require('fs');
               if (!fs.existsSync('/var/run/secrets/vercel-oidc/token')) {
                 skipAdc = true;
+                adcErrorMsg = 'Skipped (missing OIDC token file and VERCEL_OIDC_TOKEN not set)';
                 console.log(`[delivery/partner] ${requestId} Skipping ADC - credentials reference missing OIDC token file and VERCEL_OIDC_TOKEN not set`);
               }
             }
@@ -289,8 +292,8 @@ export async function runPartnerDelivery(
             authMode = 'wif_service_account';
             console.log(`[delivery/partner] ${requestId} ✅ ADC-based Drive client created successfully`);
           } catch (adcError) {
-            const adcMsg = adcError instanceof Error ? adcError.message : String(adcError);
-            console.warn(`[delivery/partner] ${requestId} ADC-based client failed, trying explicit service account:`, adcMsg);
+            adcErrorMsg = adcError instanceof Error ? adcError.message : String(adcError);
+            console.warn(`[delivery/partner] ${requestId} ADC-based client failed, trying explicit service account:`, adcErrorMsg);
             skipAdc = true; // Fall through to explicit service account
           }
         }
