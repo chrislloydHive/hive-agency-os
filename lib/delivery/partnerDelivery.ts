@@ -135,7 +135,7 @@ export async function runPartnerDelivery(
   requestId: string
 ): Promise<PartnerDeliveryResult> {
   const sourceFolderId = (params.sourceFolderId ?? params.driveFileId ?? '').trim();
-  const { airtableRecordId, deliveryBatchId, destinationFolderId: paramDestinationFolderId, dryRun = false, projectName, token } = params;
+  const { airtableRecordId, deliveryBatchId, destinationFolderId: paramDestinationFolderId, dryRun = false, projectName, token, oidcToken } = params;
 
   let destinationFolderId = (paramDestinationFolderId ?? '').trim();
   if (!destinationFolderId && (deliveryBatchId ?? '').trim()) {
@@ -208,9 +208,10 @@ export async function runPartnerDelivery(
   try {
     const credsJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
     const credsType = credsJson ? JSON.parse(credsJson).type : 'unknown';
+    const vercelOidcTokenToUse = oidcToken ?? process.env.VERCEL_OIDC_TOKEN;
     console.log(`[delivery/partner] ${requestId} Auth context:`, {
       useServiceAccount: process.env.USE_SERVICE_ACCOUNT,
-      hasOidcToken: Boolean(oidcToken ?? process.env.VERCEL_OIDC_TOKEN),
+      hasOidcToken: Boolean(vercelOidcTokenToUse),
       credsType,
       authMode,
     });
@@ -219,9 +220,10 @@ export async function runPartnerDelivery(
   }
 
   try {
+    const vercelOidcTokenToUse = oidcToken ?? process.env.VERCEL_OIDC_TOKEN ?? null;
     drive = await getDriveClient({
       oauthToken: oauthClient ?? null,
-      vercelOidcToken: oidcToken ?? process.env.VERCEL_OIDC_TOKEN ?? null,
+      vercelOidcToken: vercelOidcTokenToUse,
     });
     console.log(`[delivery/partner] ${requestId} ✅ Drive client initialized (authMode=${authMode})`);
   } catch (authError) {
