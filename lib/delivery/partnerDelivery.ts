@@ -372,29 +372,78 @@ export async function runPartnerDelivery(
     effectiveDestinationFolderId,
   });
 
-  // Preflight check: verify source and destination with driveId + mimeType logging
+  // Per-record preflight: explicit drive.files.get() calls with raw error logging
+  let sourceMeta: drive_v3.Schema$File;
+  let destMeta: drive_v3.Schema$File;
+  
+  // Check SOURCE access
   try {
-    const sourcePreflight = await drive.files.get({
+    const sourceRes = await drive.files.get({
       fileId: resolvedSourceFolderId,
-      fields: 'id,name,mimeType,driveId',
+      fields: 'id,name,mimeType,driveId,parents',
       supportsAllDrives: true,
     });
-    const destPreflight = await drive.files.get({
+    sourceMeta = sourceRes.data;
+    console.log(`[drive-access] SOURCE:`, {
+      id: sourceMeta.id,
+      name: sourceMeta.name,
+      mimeType: sourceMeta.mimeType,
+      driveId: sourceMeta.driveId ?? 'null (My Drive)',
+      parents: sourceMeta.parents ?? null,
+    });
+  } catch (sourceError: any) {
+    const statusCode = sourceError?.response?.status ?? sourceError?.code ?? 'unknown';
+    const responseData = sourceError?.response?.data ?? sourceError?.errors ?? null;
+    console.error(`[drive-access] SOURCE FAILED:`, {
+      fileId: resolvedSourceFolderId,
+      statusCode,
+      responseData,
+      errorMessage: sourceError?.message,
+      errorCode: sourceError?.code,
+    });
+    return fail(
+      `SOURCE access failed: status=${statusCode}, fileId=${resolvedSourceFolderId}. Check service account membership in Shared Drive.`,
+      400,
+      true,
+      authMode
+    );
+  }
+  
+  // Check DEST access
+  try {
+    const destRes = await drive.files.get({
       fileId: effectiveDestinationFolderId,
-      fields: 'id,name,mimeType,driveId',
+      fields: 'id,name,mimeType,driveId,parents',
       supportsAllDrives: true,
     });
-    
-    console.log(`[delivery/partner] ${requestId} Preflight check:`, {
-      sourceId: sourcePreflight.data.id,
-      sourceDriveId: sourcePreflight.data.driveId ?? 'null (My Drive)',
-      sourceMimeType: sourcePreflight.data.mimeType,
-      destId: destPreflight.data.id,
-      destDriveId: destPreflight.data.driveId ?? 'null (My Drive)',
-      destMimeType: destPreflight.data.mimeType,
+    destMeta = destRes.data;
+    console.log(`[drive-access] DEST:`, {
+      id: destMeta.id,
+      name: destMeta.name,
+      mimeType: destMeta.mimeType,
+      driveId: destMeta.driveId ?? 'null (My Drive)',
+      parents: destMeta.parents ?? null,
     });
-    
-    // Run the actual preflight validation
+  } catch (destError: any) {
+    const statusCode = destError?.response?.status ?? destError?.code ?? 'unknown';
+    const responseData = destError?.response?.data ?? destError?.errors ?? null;
+    console.error(`[drive-access] DEST FAILED:`, {
+      fileId: effectiveDestinationFolderId,
+      statusCode,
+      responseData,
+      errorMessage: destError?.message,
+      errorCode: destError?.code,
+    });
+    return fail(
+      `DEST access failed: status=${statusCode}, fileId=${effectiveDestinationFolderId}. Check service account membership in Shared Drive.`,
+      400,
+      true,
+      authMode
+    );
+  }
+  
+  // Run the actual preflight validation (type checks)
+  try {
     await preflightFolderCopy(drive, resolvedSourceFolderId, effectiveDestinationFolderId);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -467,9 +516,25 @@ export async function runPartnerDelivery(
       authMode,
       result: 'ok',
     };
-  } catch (e) {
+  } catch (e: any) {
     const raw = e instanceof Error ? e.message : String(e);
+    const statusCode = e?.response?.status ?? e?.code ?? 'unknown';
+    const responseData = e?.response?.data ?? e?.errors ?? null;
+    
+    // Log raw error details for diagnosis
+    console.error(`[delivery/partner] ${requestId} Copy operation failed:`, {
+      errorMessage: raw,
+      statusCode,
+      responseData,
+      errorCode: e?.code,
+      authMode,
+      sourceId: resolvedSourceFolderId,
+      destId: effectiveDestinationFolderId,
+    });
+    
     const is403404 =
+      statusCode === 403 ||
+      statusCode === 404 ||
       raw.includes('403') ||
       raw.includes('404') ||
       raw.includes('not found') ||
@@ -477,11 +542,11 @@ export async function runPartnerDelivery(
 
     let message: string;
     if (authMode === 'oauth' && is403404) {
-      message = 'OAuth copy failed—check token validity and source folder permissions.';
+      message = `OAuth copy failed (status=${statusCode})—check token validity and source folder permissions.`;
     } else if (authMode === 'wif_service_account' && is403404) {
-      message = `Service account cannot access source/destination. Ensure the service account is a MEMBER of the Shared Drive.`;
+      message = `Service account cannot access source/destination (status=${statusCode}). Ensure the service account is a MEMBER of the Shared Drive. Raw error: ${JSON.stringify(responseData)}`;
     } else {
-      message = raw;
+      message = `${raw} (status=${statusCode})`;
     }
     return fail(message, 500, true, authMode);
   }
