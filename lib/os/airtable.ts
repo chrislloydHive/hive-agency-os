@@ -118,11 +118,11 @@ function mapSource(airtableSource: string | undefined): CompanySource | undefine
 export async function fetchCompaniesFromAirtable(): Promise<Company[]> {
   try {
     const base = getBase();
-    // Sort by Name instead of Created At (field may not exist)
+    // Sort by Company Name (field exists, Name does not)
     const records = await base(COMPANIES_TABLE)
       .select({
         pageSize: 100,
-        sort: [{ field: 'Name', direction: 'asc' }],
+        sort: [{ field: 'Company Name', direction: 'asc' }],
       })
       .all();
 

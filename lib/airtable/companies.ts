@@ -394,11 +394,11 @@ export async function getCompanyById(
 export async function getAllCompanies(): Promise<CompanyRecord[]> {
   try {
     const base = getBase();
-    // Sort by Name instead of Created At (field may not exist)
+    // Sort by Company Name (field exists, Name does not)
     const records = await base(COMPANIES_TABLE)
       .select({
         pageSize: 100,
-        sort: [{ field: 'Name', direction: 'asc' }],
+        sort: [{ field: 'Company Name', direction: 'asc' }],
       })
       .all();
 
@@ -416,11 +416,11 @@ export async function getAllCompanies(): Promise<CompanyRecord[]> {
 export async function listCompaniesForOs(limit: number = 50): Promise<CompanyRecord[]> {
   try {
     const base = getBase();
-    // Sort by Name instead of Created At (field may not exist)
+    // Sort by Company Name (field exists, Name does not)
     const records = await base(COMPANIES_TABLE)
       .select({
         maxRecords: limit,
-        sort: [{ field: 'Name', direction: 'asc' }],
+        sort: [{ field: 'Company Name', direction: 'asc' }],
       })
       .all();
 
