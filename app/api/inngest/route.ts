@@ -61,30 +61,41 @@ const handlers = serve({
   ],
 });
 
-// Wrap handlers to read x-vercel-oidc-token header and log presence
-// Note: The actual token propagation is handled by middleware in lib/inngest/client.ts
-// This wrapper just logs the header presence for verification
+// Wrap handlers to read x-vercel-oidc-token header and set process.env.VERCEL_OIDC_TOKEN
+// This makes the token available to downstream code that checks process.env.VERCEL_OIDC_TOKEN
 type RouteContext = {
   params: Promise<Record<string, string>>;
 };
 
 export const GET = async (req: NextRequest, context: RouteContext) => {
-  const oidcToken = req.headers.get('x-vercel-oidc-token');
-  // Temporary console.log confirming presence
-  console.log('[Inngest Route] OIDC token present:', !!oidcToken);
+  const token = req.headers.get('x-vercel-oidc-token');
+  // Set process.env.VERCEL_OIDC_TOKEN for the duration of this request
+  if (token) {
+    process.env.VERCEL_OIDC_TOKEN = token;
+  }
+  // TEMPORARY log
+  console.log('[inngest] x-vercel-oidc-token present?', Boolean(token), 'len', token?.length ?? 0);
   return handlers.GET(req, context);
 };
 
 export const POST = async (req: NextRequest, context: RouteContext) => {
-  const oidcToken = req.headers.get('x-vercel-oidc-token');
-  // Temporary console.log confirming presence
-  console.log('[Inngest Route] OIDC token present:', !!oidcToken);
+  const token = req.headers.get('x-vercel-oidc-token');
+  // Set process.env.VERCEL_OIDC_TOKEN for the duration of this request
+  if (token) {
+    process.env.VERCEL_OIDC_TOKEN = token;
+  }
+  // TEMPORARY log
+  console.log('[inngest] x-vercel-oidc-token present?', Boolean(token), 'len', token?.length ?? 0);
   return handlers.POST(req, context);
 };
 
 export const PUT = async (req: NextRequest, context: RouteContext) => {
-  const oidcToken = req.headers.get('x-vercel-oidc-token');
-  // Temporary console.log confirming presence
-  console.log('[Inngest Route] OIDC token present:', !!oidcToken);
+  const token = req.headers.get('x-vercel-oidc-token');
+  // Set process.env.VERCEL_OIDC_TOKEN for the duration of this request
+  if (token) {
+    process.env.VERCEL_OIDC_TOKEN = token;
+  }
+  // TEMPORARY log
+  console.log('[inngest] x-vercel-oidc-token present?', Boolean(token), 'len', token?.length ?? 0);
   return handlers.PUT(req, context);
 };
