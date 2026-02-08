@@ -5,8 +5,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { resolveApprovedAt } from '@/lib/review/approvedAt';
-import { setSingleAssetApprovedClient, ensureCrasRecord, DELIVERY_BATCH_ID_FIELD } from '@/lib/airtable/reviewAssetStatus';
-import { getBase } from '@/lib/airtable';
+import { setSingleAssetApprovedClient, ensureCrasRecord } from '@/lib/airtable/reviewAssetStatus';
+import { getBase, getBaseId } from '@/lib/airtable';
 import { CREATIVE_REVIEW_ASSET_STATUS_TABLE } from '@/lib/airtable/deliveryWriteBack';
 
 // Field name for Source Folder ID (matches reviewAssetStatus.ts)
@@ -95,149 +95,110 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(payload, { status, headers: NO_STORE });
   }
 
-  // Fetch deliveryBatchId from CRAS record AFTER approval (if not in request)
-  // Airtable automation/formula may set it during/after approval write
+  // Resolve deliveryBatchId from CRAS Project link → Partner Delivery Batches query
   if (!finalDeliveryBatchId && 'recordId' in result) {
-    console.log(`[approve] deliveryBatchId not in request, fetching from CRAS record AFTER approval`);
+    console.log(`[approve] deliveryBatchId not in request, resolving from CRAS Project link`);
     try {
       const base = getBase();
+      const baseId = getBaseId() || 'unknown';
       const record = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(result.recordId);
       const fields = record.fields as Record<string, unknown>;
       
-      // Debug: Log all field names to see what's actually available
-      const fieldNames = Object.keys(fields);
-      console.log(`[approve] CRAS record ${result.recordId} has ${fieldNames.length} fields:`, fieldNames.sort().join(', '));
+      // Get Project linked record(s) from CRAS
+      const projectField = fields['Project'] as string[] | string | undefined;
+      const projectIds = Array.isArray(projectField) ? projectField : (typeof projectField === 'string' ? [projectField] : []);
       
-      // Check for variations of the field name (case/spacing)
-      const partnerBatchVariations = [
-        'Partner Delivery Batch',
-        'partner delivery batch',
-        'PartnerDeliveryBatch',
-        'Partner Delivery Batch ID',
-        'Delivery Batch',
-      ];
-      for (const variant of partnerBatchVariations) {
-        if (fields[variant] !== undefined) {
-          console.log(`[approve] Found field "${variant}":`, fields[variant], `type:`, typeof fields[variant]);
-        }
-      }
-      
-      // First check: "Partner Delivery Batch" linked record on CRAS
-      const partnerBatchLink = fields['Partner Delivery Batch'] as string[] | undefined;
-      console.log(`[approve] CRAS Partner Delivery Batch link:`, partnerBatchLink, `type:`, typeof partnerBatchLink, `isArray:`, Array.isArray(partnerBatchLink));
-      if (Array.isArray(partnerBatchLink) && partnerBatchLink.length > 0) {
-        const batchRecordId = partnerBatchLink[0];
-        console.log(`[approve] Found CRAS Partner Delivery Batch link: ${batchRecordId}`);
-        try {
-          const { AIRTABLE_TABLES: TABLES } = await import('@/lib/airtable/tables');
-          const batchRecord = await base(TABLES.PARTNER_DELIVERY_BATCHES).find(batchRecordId);
-          const batchFields = batchRecord.fields as Record<string, unknown>;
-          const batchId = typeof batchFields['Batch ID'] === 'string' ? (batchFields['Batch ID'] as string).trim() : null;
-          if (batchId) {
-            finalDeliveryBatchId = batchId;
-            console.log(`[approve] ✅ Extracted deliveryBatchId from CRAS Partner Delivery Batch link: ${finalDeliveryBatchId}`);
-          } else {
-            console.log(`[approve] ⚠️ CRAS Partner Delivery Batch record ${batchRecordId} has no Batch ID field`);
-          }
-        } catch (batchErr) {
-          const batchErrMsg = batchErr instanceof Error ? batchErr.message : String(batchErr);
-          console.error(`[approve] ❌ Failed to fetch Batch ID from CRAS Partner Delivery Batch link:`, batchErrMsg);
-        }
-      }
-      
-      // Second check: "Delivery Batch ID" text field on CRAS (if not found via link)
-      if (!finalDeliveryBatchId) {
-        // Check for variations of Delivery Batch ID field name
-        const deliveryBatchIdVariations = [
-          'Delivery Batch ID',
-          'delivery batch id',
-          'DeliveryBatchID',
-          'Delivery Batch Id',
-        ];
-        let batchRaw: unknown = undefined;
-        let foundFieldName: string | undefined = undefined;
-        for (const variant of deliveryBatchIdVariations) {
-          if (fields[variant] !== undefined) {
-            batchRaw = fields[variant];
-            foundFieldName = variant;
-            console.log(`[approve] Found Delivery Batch ID field "${variant}":`, batchRaw, `type:`, typeof batchRaw);
-            break;
-          }
-        }
-        if (!foundFieldName) {
-          batchRaw = fields[DELIVERY_BATCH_ID_FIELD];
-        }
-        console.log(`[approve] Fetched CRAS record ${result.recordId} after approval, checking field "${foundFieldName || DELIVERY_BATCH_ID_FIELD}"`);
-        console.log(`[approve] Raw batch field value:`, batchRaw, `type:`, typeof batchRaw, `isArray:`, Array.isArray(batchRaw));
+      if (projectIds.length === 0) {
+        console.error(`[approve] ❌ CRAS record ${result.recordId} has no Project link`);
+      } else {
+        // Use the first Project ID (CRAS should only link to one Project)
+        const projectId = projectIds[0];
+        console.log(`[approve] CRAS record ${result.recordId} links to Project: ${projectId}`);
         
-        if (Array.isArray(batchRaw) && batchRaw.length > 0 && typeof batchRaw[0] === 'string') {
-          finalDeliveryBatchId = (batchRaw[0] as string).trim();
-          console.log(`[approve] ✅ Extracted deliveryBatchId from CRAS array AFTER approval: ${finalDeliveryBatchId}`);
-        } else if (typeof batchRaw === 'string' && batchRaw.trim()) {
-          finalDeliveryBatchId = (batchRaw as string).trim();
-          console.log(`[approve] ✅ Extracted deliveryBatchId from CRAS string AFTER approval: ${finalDeliveryBatchId}`);
-        } else {
-          console.log(`[approve] ⚠️ CRAS Delivery Batch ID field is still empty/null AFTER approval:`, batchRaw);
+        // Query Partner Delivery Batches table in the same base as CRAS
+        const { AIRTABLE_TABLES: TABLES } = await import('@/lib/airtable/tables');
+        const tableName = TABLES.PARTNER_DELIVERY_BATCHES;
+        const projectLinkField = 'Project'; // Field name in Partner Delivery Batches table
+        
+        // Escape projectId for formula
+        const escapedProjectId = projectId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        const formula = `FIND("${escapedProjectId}", ARRAYJOIN({${projectLinkField}})) > 0`;
+        
+        console.log(`[approve] Querying Partner Delivery Batches:`, {
+          baseId: `${baseId.substring(0, 20)}...`,
+          tableName,
+          projectId,
+          formula,
+        });
+        
+        try {
+          const records = await base(tableName)
+            .select({ filterByFormula: formula })
+            .all();
           
-          // Fallback: Query Partner Delivery Batches table for records linked to this Project
-          // The Project record doesn't have a Delivery Batch ID field, but Partner Delivery Batch records link TO the Project
-          const projectId = resolved?.project?.recordId;
-          console.log(`[approve] Using projectId from resolved project:`, projectId);
-          if (projectId) {
-            console.log(`[approve] Attempting fallback: querying Partner Delivery Batches table for Project ${projectId}`);
-            try {
-              const { listBatchesByProjectId } = await import('@/lib/airtable/partnerDeliveryBatches');
-              const batches = await listBatchesByProjectId(projectId);
-              console.log(`[approve] Found ${batches.length} Partner Delivery Batch(es) linked to Project ${projectId}`);
-              
-              if (batches.length > 0) {
-                // Use the first batch (they're sorted: Active first, then by createdTime desc)
-                const firstBatch = batches[0];
-                console.log(`[approve] First batch details:`, {
-                  batchId: firstBatch.batchId,
-                  batchRecordId: firstBatch.batchRecordId,
-                  destinationFolderId: firstBatch.destinationFolderId,
-                  status: firstBatch.status,
-                });
-                if (firstBatch.batchId) {
-                  finalDeliveryBatchId = firstBatch.batchId;
-                  console.log(`[approve] ✅ Extracted deliveryBatchId from Partner Delivery Batch linked to Project: ${finalDeliveryBatchId}`);
-                } else {
-                  console.log(`[approve] ⚠️ Partner Delivery Batch record has no Batch ID`);
-                }
-              } else {
-                console.log(`[approve] ⚠️ No Partner Delivery Batches found linked to Project ${projectId}`);
-                console.log(`[approve] Debug: Checking if Partner Delivery Batches table exists and has records`);
-                // Try a direct query to see if the table exists and has any records
-                try {
-                  const { AIRTABLE_TABLES: TABLES } = await import('@/lib/airtable/tables');
-                  const allBatches = await base(TABLES.PARTNER_DELIVERY_BATCHES).select({ maxRecords: 5 }).firstPage();
-                  console.log(`[approve] Partner Delivery Batches table exists, found ${allBatches.length} total records (showing first 5)`);
-                  for (const batch of allBatches) {
-                    const batchFields = batch.fields as Record<string, unknown>;
-                    const projectField = batchFields['Project'];
-                    console.log(`[approve] Batch ${batch.id}: Project field =`, projectField, `type:`, typeof projectField, `isArray:`, Array.isArray(projectField));
-                  }
-                } catch (tableErr) {
-                  const tableErrMsg = tableErr instanceof Error ? tableErr.message : String(tableErr);
-                  console.error(`[approve] ❌ Failed to query Partner Delivery Batches table directly:`, tableErrMsg);
-                }
-              }
-            } catch (batchErr) {
-              const batchErrMsg = batchErr instanceof Error ? batchErr.message : String(batchErr);
-              console.error(`[approve] ❌ Failed to query Partner Delivery Batches for Project:`, batchErrMsg);
-              if (batchErr instanceof Error && batchErr.stack) {
-                console.error(`[approve] Error stack:`, batchErr.stack);
+          console.log(`[approve] Found ${records.length} Partner Delivery Batch(es) linked to Project ${projectId}`);
+          
+          if (records.length === 0) {
+            console.error(`[approve] ❌ No Partner Delivery Batches found:`, {
+              crasRecordId: result.recordId,
+              projectId,
+              baseId: `${baseId.substring(0, 20)}...`,
+              tableName,
+              formula,
+            });
+          } else {
+            // Map records to batch items with Batch ID
+            const batches: Array<{ batchId: string; status: string; createdTime: string; recordId: string }> = [];
+            for (const rec of records) {
+              const batchFields = rec.fields as Record<string, unknown>;
+              const batchIdRaw = batchFields['Batch ID'];
+              const batchId = typeof batchIdRaw === 'string' && batchIdRaw.trim() ? batchIdRaw.trim() : null;
+              if (batchId) {
+                const statusRaw = batchFields['Status'] ?? batchFields['Delivery Status'];
+                const status = typeof statusRaw === 'string' && statusRaw.trim() ? statusRaw.trim().toLowerCase() : '';
+                const createdTime = typeof (rec as { createdTime?: string }).createdTime === 'string'
+                  ? (rec as { createdTime: string }).createdTime
+                  : '';
+                batches.push({ batchId, status, createdTime, recordId: rec.id });
               }
             }
-          } else {
-            console.log(`[approve] ⚠️ No projectId available, cannot query Partner Delivery Batches`);
+            
+            if (batches.length === 0) {
+              console.error(`[approve] ❌ Partner Delivery Batch records found but none have Batch ID field`);
+            } else {
+              // Sort deterministically: Active status first, then newest Created time, else first
+              batches.sort((a, b) => {
+                const aActive = a.status === 'active' ? 0 : 1;
+                const bActive = b.status === 'active' ? 0 : 1;
+                if (aActive !== bActive) return aActive - bActive;
+                const aTime = a.createdTime ? new Date(a.createdTime).getTime() : 0;
+                const bTime = b.createdTime ? new Date(b.createdTime).getTime() : 0;
+                return bTime - aTime; // Newest first
+              });
+              
+              finalDeliveryBatchId = batches[0].batchId;
+              console.log(`[approve] ✅ Resolved deliveryBatchId from Partner Delivery Batch: ${finalDeliveryBatchId}`, {
+                selectedBatch: batches[0].recordId,
+                status: batches[0].status,
+                totalMatches: batches.length,
+              });
+            }
           }
+        } catch (queryErr) {
+          const queryErrMsg = queryErr instanceof Error ? queryErr.message : String(queryErr);
+          console.error(`[approve] ❌ Failed to query Partner Delivery Batches:`, {
+            crasRecordId: result.recordId,
+            projectId,
+            baseId: `${baseId.substring(0, 20)}...`,
+            tableName,
+            formula,
+            error: queryErrMsg,
+          });
         }
       }
     } catch (fetchErr) {
       const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-      console.error(`[approve] ❌ Failed to fetch deliveryBatchId from record after approval:`, errMsg);
+      console.error(`[approve] ❌ Failed to resolve deliveryBatchId:`, errMsg);
       if (fetchErr instanceof Error && fetchErr.stack) {
         console.error(`[approve] Error stack:`, fetchErr.stack);
       }
