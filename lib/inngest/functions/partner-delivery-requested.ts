@@ -39,12 +39,12 @@ export const partnerDeliveryRequested = inngest.createFunction(
   },
   { event: 'partner.delivery.requested' },
   async ({ event, step }) => {
-    // FIRST-LINE log (must be first statement)
+    // FIRST-LINE log (must be first statement in handler)
     console.log(`[inngest/partnerDelivery] START`, {
-      requestId: event.data?.requestId,
       name: event.name,
+      requestId: event.data?.requestId,
       crasRecordId: event.data?.crasRecordId,
-      deliveryBatchId: event.data?.batchId,
+      deliveryBatchId: event.data?.deliveryBatchId ?? event.data?.batchId,
       eventId: event.id,
     });
     
