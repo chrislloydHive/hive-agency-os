@@ -193,6 +193,12 @@ export async function POST(req: NextRequest) {
               if (batches.length > 0) {
                 // Use the first batch (they're sorted: Active first, then by createdTime desc)
                 const firstBatch = batches[0];
+                console.log(`[approve] First batch details:`, {
+                  batchId: firstBatch.batchId,
+                  batchRecordId: firstBatch.batchRecordId,
+                  destinationFolderId: firstBatch.destinationFolderId,
+                  status: firstBatch.status,
+                });
                 if (firstBatch.batchId) {
                   finalDeliveryBatchId = firstBatch.batchId;
                   console.log(`[approve] ✅ Extracted deliveryBatchId from Partner Delivery Batch linked to Project: ${finalDeliveryBatchId}`);
@@ -201,10 +207,28 @@ export async function POST(req: NextRequest) {
                 }
               } else {
                 console.log(`[approve] ⚠️ No Partner Delivery Batches found linked to Project ${projectId}`);
+                console.log(`[approve] Debug: Checking if Partner Delivery Batches table exists and has records`);
+                // Try a direct query to see if the table exists and has any records
+                try {
+                  const { AIRTABLE_TABLES: TABLES } = await import('@/lib/airtable/tables');
+                  const allBatches = await base(TABLES.PARTNER_DELIVERY_BATCHES).select({ maxRecords: 5 }).firstPage();
+                  console.log(`[approve] Partner Delivery Batches table exists, found ${allBatches.length} total records (showing first 5)`);
+                  for (const batch of allBatches) {
+                    const batchFields = batch.fields as Record<string, unknown>;
+                    const projectField = batchFields['Project'];
+                    console.log(`[approve] Batch ${batch.id}: Project field =`, projectField, `type:`, typeof projectField, `isArray:`, Array.isArray(projectField));
+                  }
+                } catch (tableErr) {
+                  const tableErrMsg = tableErr instanceof Error ? tableErr.message : String(tableErr);
+                  console.error(`[approve] ❌ Failed to query Partner Delivery Batches table directly:`, tableErrMsg);
+                }
               }
             } catch (batchErr) {
               const batchErrMsg = batchErr instanceof Error ? batchErr.message : String(batchErr);
               console.error(`[approve] ❌ Failed to query Partner Delivery Batches for Project:`, batchErrMsg);
+              if (batchErr instanceof Error && batchErr.stack) {
+                console.error(`[approve] Error stack:`, batchErr.stack);
+              }
             }
           } else {
             console.log(`[approve] ⚠️ No projectId available, cannot query Partner Delivery Batches`);
