@@ -9,6 +9,14 @@ export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 
+// GET handler for debugging
+export async function GET(req: NextRequest) {
+  return NextResponse.json(
+    { ok: true, message: 'Delivery endpoint is accessible. Use POST to trigger delivery.' },
+    { headers: NO_STORE }
+  );
+}
+
 export async function POST(req: NextRequest) {
   let body: {
     crasRecordId: string;
