@@ -116,72 +116,101 @@ export async function POST(req: NextRequest) {
         console.log(`[approve] CRAS record ${result.recordId} links to Project: ${projectId}`);
         
         // Query Partner Delivery Batches table in the same base as CRAS
+        // Note: Airtable formulas resolve {Project} to primary field values (names), not record IDs
+        // So we query with a coarse server-side filter, then filter client-side by record ID
         const { AIRTABLE_TABLES: TABLES } = await import('@/lib/airtable/tables');
         const tableName = TABLES.PARTNER_DELIVERY_BATCHES;
-        const projectLinkField = 'Project'; // Field name in Partner Delivery Batches table
+        const projectLinkField = 'Project';
         
-        // Escape projectId for formula
-        const escapedProjectId = projectId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        const formula = `FIND("${escapedProjectId}", ARRAYJOIN({${projectLinkField}})) > 0`;
+        // Optional coarse server-side filter for performance (Active or Delivering batches)
+        const coarseFormula = 'OR({Status}="Active",{Status}="Delivering")';
         
         console.log(`[approve] Querying Partner Delivery Batches:`, {
           baseId: `${baseId.substring(0, 20)}...`,
           tableName,
           projectId,
-          formula,
+          coarseFormula,
         });
         
         try {
+          // Query with coarse filter (or no filter if we want all batches)
           const records = await base(tableName)
-            .select({ filterByFormula: formula })
+            .select({ filterByFormula: coarseFormula })
             .all();
           
-          console.log(`[approve] Found ${records.length} Partner Delivery Batch(es) linked to Project ${projectId}`);
+          console.log(`[approve] Found ${records.length} Partner Delivery Batch(es) (coarse filter)`);
           
-          if (records.length === 0) {
-            console.error(`[approve] ❌ No Partner Delivery Batches found:`, {
+          // Filter client-side: keep only batches where Project linked record array includes projectId
+          const batches: Array<{ batchId: string; status: string; createdTime: string; recordId: string }> = [];
+          for (const rec of records) {
+            const batchFields = rec.fields as Record<string, unknown>;
+            
+            // Check if Project linked record array includes our projectId
+            const projectField = batchFields[projectLinkField];
+            const projectArray = Array.isArray(projectField) ? projectField : [];
+            if (!projectArray.includes(projectId)) {
+              continue; // Skip batches not linked to this project
+            }
+            
+            // Extract Batch ID
+            const batchIdRaw = batchFields['Batch ID'];
+            const batchId = typeof batchIdRaw === 'string' && batchIdRaw.trim() ? batchIdRaw.trim() : null;
+            if (!batchId) {
+              continue; // Skip batches without Batch ID
+            }
+            
+            // Extract status
+            const statusRaw = batchFields['Status'] ?? batchFields['Delivery Status'];
+            const status = typeof statusRaw === 'string' && statusRaw.trim() ? statusRaw.trim() : '';
+            
+            // Extract created time
+            const recWithTime = rec as unknown as { id: string; fields: Record<string, unknown>; createdTime?: string };
+            const createdTime = typeof recWithTime.createdTime === 'string' ? recWithTime.createdTime : '';
+            
+            // Also check for "Batch Created At" field if createdTime is missing
+            const batchCreatedAtRaw = batchFields['Batch Created At'];
+            const batchCreatedAt = typeof batchCreatedAtRaw === 'string' && batchCreatedAtRaw.trim() ? batchCreatedAtRaw.trim() : '';
+            const finalCreatedTime = createdTime || batchCreatedAt;
+            
+            batches.push({ batchId, status, createdTime: finalCreatedTime, recordId: rec.id });
+          }
+          
+          console.log(`[approve] Filtered to ${batches.length} batch(es) linked to Project ${projectId}`);
+          
+          if (batches.length === 0) {
+            console.error(`[approve] ❌ No Partner Delivery Batches found linked to Project:`, {
               crasRecordId: result.recordId,
               projectId,
               baseId: `${baseId.substring(0, 20)}...`,
               tableName,
-              formula,
+              batchesScanned: records.length,
             });
           } else {
-            // Map records to batch items with Batch ID
-            const batches: Array<{ batchId: string; status: string; createdTime: string; recordId: string }> = [];
-            for (const rec of records) {
-              const batchFields = rec.fields as Record<string, unknown>;
-              const batchIdRaw = batchFields['Batch ID'];
-              const batchId = typeof batchIdRaw === 'string' && batchIdRaw.trim() ? batchIdRaw.trim() : null;
-              if (batchId) {
-                const statusRaw = batchFields['Status'] ?? batchFields['Delivery Status'];
-                const status = typeof statusRaw === 'string' && statusRaw.trim() ? statusRaw.trim().toLowerCase() : '';
-                const recWithTime = rec as unknown as { id: string; fields: Record<string, unknown>; createdTime?: string };
-                const createdTime = typeof recWithTime.createdTime === 'string' ? recWithTime.createdTime : '';
-                batches.push({ batchId, status, createdTime, recordId: rec.id });
-              }
-            }
-            
-            if (batches.length === 0) {
-              console.error(`[approve] ❌ Partner Delivery Batch records found but none have Batch ID field`);
-            } else {
-              // Sort deterministically: Active status first, then newest Created time, else first
-              batches.sort((a, b) => {
-                const aActive = a.status === 'active' ? 0 : 1;
-                const bActive = b.status === 'active' ? 0 : 1;
-                if (aActive !== bActive) return aActive - bActive;
-                const aTime = a.createdTime ? new Date(a.createdTime).getTime() : 0;
-                const bTime = b.createdTime ? new Date(b.createdTime).getTime() : 0;
-                return bTime - aTime; // Newest first
-              });
+            // Sort deterministically: Active first, then Delivering, then newest Created time
+            batches.sort((a, b) => {
+              // Status priority: Active (0) > Delivering (1) > others (2)
+              const statusPriority = (s: string) => {
+                const lower = s.toLowerCase();
+                if (lower === 'active') return 0;
+                if (lower === 'delivering') return 1;
+                return 2;
+              };
+              const aPriority = statusPriority(a.status);
+              const bPriority = statusPriority(b.status);
+              if (aPriority !== bPriority) return aPriority - bPriority;
               
-              finalDeliveryBatchId = batches[0].batchId;
-              console.log(`[approve] ✅ Resolved deliveryBatchId from Partner Delivery Batch: ${finalDeliveryBatchId}`, {
-                selectedBatch: batches[0].recordId,
-                status: batches[0].status,
-                totalMatches: batches.length,
-              });
-            }
+              // Then by newest Created time
+              const aTime = a.createdTime ? new Date(a.createdTime).getTime() : 0;
+              const bTime = b.createdTime ? new Date(b.createdTime).getTime() : 0;
+              return bTime - aTime; // Newest first
+            });
+            
+            finalDeliveryBatchId = batches[0].batchId;
+            console.log(`[approve] ✅ Resolved deliveryBatchId from Partner Delivery Batch: ${finalDeliveryBatchId}`, {
+              selectedBatch: batches[0].recordId,
+              status: batches[0].status,
+              totalMatches: batches.length,
+            });
           }
         } catch (queryErr) {
           const queryErrMsg = queryErr instanceof Error ? queryErr.message : String(queryErr);
@@ -190,7 +219,6 @@ export async function POST(req: NextRequest) {
             projectId,
             baseId: `${baseId.substring(0, 20)}...`,
             tableName,
-            formula,
             error: queryErrMsg,
           });
         }
