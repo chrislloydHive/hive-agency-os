@@ -179,62 +179,35 @@ export async function POST(req: NextRequest) {
         } else {
           console.log(`[approve] ⚠️ CRAS Delivery Batch ID field is still empty/null AFTER approval:`, batchRaw);
           
-          // Fallback: Try fetching from Project record (automation might be async)
-          // Use resolved.project.recordId directly (we already have it from earlier)
-          // Match the logic from getDeliveryContextByProjectId: check linked "Partner Delivery Batch" first, then "Delivery Batch ID" text field
+          // Fallback: Query Partner Delivery Batches table for records linked to this Project
+          // The Project record doesn't have a Delivery Batch ID field, but Partner Delivery Batch records link TO the Project
           const projectId = resolved?.project?.recordId;
           console.log(`[approve] Using projectId from resolved project:`, projectId);
           if (projectId) {
-            console.log(`[approve] Attempting fallback: fetching Delivery Batch ID from Project record ${projectId}`);
+            console.log(`[approve] Attempting fallback: querying Partner Delivery Batches table for Project ${projectId}`);
             try {
-              const { AIRTABLE_TABLES } = await import('@/lib/airtable/tables');
-              const projectRecord = await base(AIRTABLE_TABLES.PROJECTS).find(projectId);
-              const fields = projectRecord.fields as Record<string, unknown>;
+              const { listBatchesByProjectId } = await import('@/lib/airtable/partnerDeliveryBatches');
+              const batches = await listBatchesByProjectId(projectId);
+              console.log(`[approve] Found ${batches.length} Partner Delivery Batch(es) linked to Project ${projectId}`);
               
-              // First check: "Partner Delivery Batch" linked record
-              const partnerBatchLink = fields['Partner Delivery Batch'] as string[] | undefined;
-              console.log(`[approve] Project Partner Delivery Batch link:`, partnerBatchLink, `type:`, typeof partnerBatchLink, `isArray:`, Array.isArray(partnerBatchLink));
-              if (Array.isArray(partnerBatchLink) && partnerBatchLink.length > 0) {
-                const batchRecordId = partnerBatchLink[0];
-                console.log(`[approve] Found Partner Delivery Batch link: ${batchRecordId}`);
-                try {
-                  const { AIRTABLE_TABLES: TABLES } = await import('@/lib/airtable/tables');
-                  const batchRecord = await base(TABLES.PARTNER_DELIVERY_BATCHES).find(batchRecordId);
-                  const batchFields = batchRecord.fields as Record<string, unknown>;
-                  const batchId = typeof batchFields['Batch ID'] === 'string' ? (batchFields['Batch ID'] as string).trim() : null;
-                  if (batchId) {
-                    finalDeliveryBatchId = batchId;
-                    console.log(`[approve] ✅ Extracted deliveryBatchId from Partner Delivery Batch link: ${finalDeliveryBatchId}`);
-                  } else {
-                    console.log(`[approve] ⚠️ Partner Delivery Batch record ${batchRecordId} has no Batch ID field`);
-                  }
-                } catch (batchErr) {
-                  const batchErrMsg = batchErr instanceof Error ? batchErr.message : String(batchErr);
-                  console.error(`[approve] ❌ Failed to fetch Batch ID from linked Partner Delivery Batch:`, batchErrMsg);
-                }
-              }
-              
-              // Second check: "Delivery Batch ID" text field (if not found via link)
-              if (!finalDeliveryBatchId) {
-                const projectBatchRaw = fields['Delivery Batch ID'];
-                console.log(`[approve] Project record Delivery Batch ID (text):`, projectBatchRaw, `type:`, typeof projectBatchRaw);
-                
-                if (Array.isArray(projectBatchRaw) && projectBatchRaw.length > 0 && typeof projectBatchRaw[0] === 'string') {
-                  finalDeliveryBatchId = (projectBatchRaw[0] as string).trim();
-                  console.log(`[approve] ✅ Extracted deliveryBatchId from Project array: ${finalDeliveryBatchId}`);
-                } else if (typeof projectBatchRaw === 'string' && projectBatchRaw.trim()) {
-                  finalDeliveryBatchId = (projectBatchRaw as string).trim();
-                  console.log(`[approve] ✅ Extracted deliveryBatchId from Project string: ${finalDeliveryBatchId}`);
+              if (batches.length > 0) {
+                // Use the first batch (they're sorted: Active first, then by createdTime desc)
+                const firstBatch = batches[0];
+                if (firstBatch.batchId) {
+                  finalDeliveryBatchId = firstBatch.batchId;
+                  console.log(`[approve] ✅ Extracted deliveryBatchId from Partner Delivery Batch linked to Project: ${finalDeliveryBatchId}`);
                 } else {
-                  console.log(`[approve] ⚠️ Project record also has no Delivery Batch ID`);
+                  console.log(`[approve] ⚠️ Partner Delivery Batch record has no Batch ID`);
                 }
+              } else {
+                console.log(`[approve] ⚠️ No Partner Delivery Batches found linked to Project ${projectId}`);
               }
-            } catch (projectErr) {
-              const projectErrMsg = projectErr instanceof Error ? projectErr.message : String(projectErr);
-              console.error(`[approve] ❌ Failed to fetch Delivery Batch ID from Project:`, projectErrMsg);
+            } catch (batchErr) {
+              const batchErrMsg = batchErr instanceof Error ? batchErr.message : String(batchErr);
+              console.error(`[approve] ❌ Failed to query Partner Delivery Batches for Project:`, batchErrMsg);
             }
           } else {
-            console.log(`[approve] ⚠️ No projectId available, cannot fetch from Project`);
+            console.log(`[approve] ⚠️ No projectId available, cannot query Partner Delivery Batches`);
           }
         }
       }
