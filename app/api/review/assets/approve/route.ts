@@ -156,9 +156,8 @@ export async function POST(req: NextRequest) {
               if (batchId) {
                 const statusRaw = batchFields['Status'] ?? batchFields['Delivery Status'];
                 const status = typeof statusRaw === 'string' && statusRaw.trim() ? statusRaw.trim().toLowerCase() : '';
-                const createdTime = typeof (rec as { createdTime?: string }).createdTime === 'string'
-                  ? (rec as { createdTime: string }).createdTime
-                  : '';
+                const recWithTime = rec as unknown as { id: string; fields: Record<string, unknown>; createdTime?: string };
+                const createdTime = typeof recWithTime.createdTime === 'string' ? recWithTime.createdTime : '';
                 batches.push({ batchId, status, createdTime, recordId: rec.id });
               }
             }
