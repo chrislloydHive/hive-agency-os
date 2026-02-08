@@ -37,7 +37,9 @@ export const partnerDeliveryRequested = inngest.createFunction(
   { event: 'partner.delivery.requested' },
   async ({ event, step }) => {
     const { crasRecordId, batchId, requestId, triggeredBy } = event.data;
-
+    // Log execution trace: eventId is unique per execution (retries get new eventId)
+    console.log(`[delivery-run] fn=partner-delivery-requested event=${event.name} eventId=${event.id} cras=${crasRecordId}`);
+    console.log(`[delivery-trigger] approval-event: crasRecordId=${crasRecordId}, requestId=${requestId}, triggeredBy=${triggeredBy}`);
     console.log(`[partner-delivery-requested] ⚡ Event received: crasRecordId=${crasRecordId}, requestId=${requestId}, triggeredBy=${triggeredBy}`);
 
     return await step.run('load-record', async () => {

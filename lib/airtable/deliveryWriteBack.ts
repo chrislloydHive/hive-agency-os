@@ -202,7 +202,11 @@ function buildDeliveryUpdate(
 
     const atAlias = resolveAlias(DELIVERY_FIELD_ALIASES.deliveredAt, writableNames);
     if (atAlias) {
-      fieldsToWrite[atAlias] = payload.deliveredAt;
+      // Ensure deliveredAt is a string (ISO 8601 format)
+      const deliveredAtIso = typeof payload.deliveredAt === 'string' 
+        ? payload.deliveredAt 
+        : new Date().toISOString();
+      fieldsToWrite[atAlias] = deliveredAtIso;
       written.push(atAlias);
     }
 
@@ -296,7 +300,11 @@ function buildDeliveryUpdateFallback(
     if (payload.deliveryError) {
       fieldsToWrite['Delivery Error'] = payload.deliveryError;
     }
-    fieldsToWrite['Delivered At'] = payload.deliveredAt;
+    // Ensure deliveredAt is a string (ISO 8601 format)
+    const deliveredAtIso = typeof payload.deliveredAt === 'string' 
+      ? payload.deliveredAt 
+      : new Date().toISOString();
+    fieldsToWrite['Delivered At'] = deliveredAtIso;
     fieldsToWrite['Delivered'] = payload.deliveredCheckbox;
     fieldsToWrite['Delivered Folder ID'] = payload.deliveredFolderId;
     fieldsToWrite['Delivered Folder URL'] = payload.deliveredFolderUrl;
@@ -383,6 +391,115 @@ export async function writeDeliveryToRecord(
     return { ok: true, written, skipped };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    const errorString = String(message);
+    
+    // Check if error is 422 INVALID_VALUE_FOR_COLUMN for Delivered At
+    const isInvalidDeliveredAt = errorString.includes('INVALID_VALUE_FOR_COLUMN') && 
+                                  (errorString.includes('Delivered At') || 
+                                   written.some(f => f.includes('Delivered At')));
+    
+    if (isInvalidDeliveredAt && payload.kind === 'success') {
+      // Find the Delivered At field alias that was written
+      let deliveredAtAlias: string | null = null;
+      let deliveredAtValue: string | null = null;
+      for (const fieldName of Object.keys(fieldsToWrite)) {
+        if (fieldName === 'Delivered At' || DELIVERY_FIELD_ALIASES.deliveredAt.includes(fieldName)) {
+          deliveredAtAlias = fieldName;
+          deliveredAtValue = String(fieldsToWrite[fieldName]);
+          break;
+        }
+      }
+      
+      // Fallback step 1: Try date-only format (YYYY-MM-DD) instead of full ISO
+      const deliveredAtDateOnly = deliveredAtValue ? deliveredAtValue.slice(0, 10) : new Date().toISOString().slice(0, 10);
+      console.log(`[deliveryWriteBack] Delivered At rejected (tried: "${deliveredAtValue}"); retrying with date-only format: "${deliveredAtDateOnly}"`);
+      
+      const dateOnlyFields: Record<string, unknown> = { ...fieldsToWrite };
+      if (deliveredAtAlias) {
+        dateOnlyFields[deliveredAtAlias] = deliveredAtDateOnly;
+      }
+      
+      try {
+        const base = getBase();
+        await base(tableName).update(recordId, dateOnlyFields as any);
+        console.log('[deliveryWriteBack] Written to', tableName, 'record', recordId, 'fields (fallback, date-only Delivered At):', written.join(', '));
+        return { ok: true, written, skipped };
+      } catch (dateOnlyErr) {
+        const dateOnlyMessage = dateOnlyErr instanceof Error ? dateOnlyErr.message : String(dateOnlyErr);
+        const dateOnlyErrorString = String(dateOnlyMessage);
+        const stillInvalidDeliveredAt = dateOnlyErrorString.includes('INVALID_VALUE_FOR_COLUMN') && 
+                                         (dateOnlyErrorString.includes('Delivered At') || 
+                                          deliveredAtAlias !== null);
+        
+        if (stillInvalidDeliveredAt) {
+          // Fallback step 2: Remove Delivered At entirely, but keep critical fields
+          console.log(`[deliveryWriteBack] Delivered At still rejected (tried date-only: "${deliveredAtDateOnly}"); removing field but keeping critical flags`);
+          
+          // Build fallback fields: remove Delivered At, keep everything else
+          const fallbackFields: Record<string, unknown> = { ...fieldsToWrite };
+          if (deliveredAtAlias) {
+            delete fallbackFields[deliveredAtAlias];
+          }
+          
+          // Ensure critical fields are present (use schema-aware resolution if available, otherwise use known aliases)
+          if (!schema || useFallback) {
+            // Fallback mode: use known field names directly
+            fallbackFields['Delivered'] = true;
+            if (payload.readyToDeliverWebhook === false) {
+              fallbackFields['Ready to Deliver (Webhook)'] = false;
+            }
+            // Clear "Needs Delivery" flag if it exists
+            fallbackFields['Needs Delivery'] = false;
+            if (payload.deliveredFolderUrl) {
+              fallbackFields['Delivered Folder URL'] = payload.deliveredFolderUrl;
+            }
+          } else {
+            // Schema-aware mode: resolve aliases
+            const checkboxAlias = resolveAlias(DELIVERY_FIELD_ALIASES.deliveredCheckbox, schema.writableNames);
+            if (checkboxAlias) {
+              fallbackFields[checkboxAlias] = true;
+            }
+            
+            if (payload.readyToDeliverWebhook === false) {
+              const webhookAlias = resolveAlias(DELIVERY_FIELD_ALIASES.readyToDeliverWebhook, schema.writableNames);
+              if (webhookAlias) {
+                fallbackFields[webhookAlias] = false;
+              }
+            }
+            
+            // Try to clear "Needs Delivery" flag if it exists
+            const needsDeliveryAlias = resolveAlias(['Needs Delivery'], schema.writableNames);
+            if (needsDeliveryAlias) {
+              fallbackFields[needsDeliveryAlias] = false;
+            }
+            
+            if (payload.deliveredFolderUrl) {
+              const urlAlias = resolveAlias(DELIVERY_FIELD_ALIASES.deliveredFolderOrFileUrl, schema.writableNames);
+              if (urlAlias) {
+                fallbackFields[urlAlias] = payload.deliveredFolderUrl;
+              }
+            }
+          }
+          
+          try {
+            const base = getBase();
+            await base(tableName).update(recordId, fallbackFields as any);
+            const fallbackWritten = Object.keys(fallbackFields);
+            console.log('[deliveryWriteBack] Written to', tableName, 'record', recordId, 'fields (final fallback, no Delivered At):', fallbackWritten.join(', '));
+            return { ok: true, written: fallbackWritten, skipped: [...skipped, { field: deliveredAtAlias || 'Delivered At', reason: 'INVALID_VALUE_FOR_COLUMN (removed)' }] };
+          } catch (finalErr) {
+            const finalMessage = finalErr instanceof Error ? finalErr.message : String(finalErr);
+            console.error('[deliveryWriteBack] Final fallback update also failed for record', recordId, ':', finalMessage);
+            return { ok: false, written: [], skipped, error: `Original: ${message}; Date-only: ${dateOnlyMessage}; Final: ${finalMessage}` };
+          }
+        } else {
+          // Date-only format worked, but some other field failed
+          console.error('[deliveryWriteBack] Date-only format accepted but update still failed for record', recordId, ':', dateOnlyMessage);
+          return { ok: false, written: [], skipped, error: `Original: ${message}; Date-only retry: ${dateOnlyMessage}` };
+        }
+      }
+    }
+    
     console.error('[deliveryWriteBack] Update failed for record', recordId, ':', message);
     return { ok: false, written: [], skipped, error: message };
   }

@@ -1008,20 +1008,62 @@ export async function copyDriveFolderTree(
     );
   }
 
-  const createRes = await drive.files.create({
-    requestBody: {
-      name: deliveredFolderName,
-      mimeType: FOLDER_MIMETYPE,
-      parents: [destinationParentFolderId],
-    },
-    fields: 'id,name,webViewLink',
-    supportsAllDrives: true,
-  });
-  const deliveredRootFolderId = createRes.data.id!;
-  const deliveredRootFolderUrl =
-    (createRes.data.webViewLink && createRes.data.webViewLink.trim()) ||
-    folderUrl(deliveredRootFolderId);
-  foldersCreated = 1;
+  // Idempotency check: check if folder with same name already exists
+  const escapedFolderName = deliveredFolderName.replace(/'/g, "\\'");
+  let deliveredRootFolderId: string;
+  let deliveredRootFolderUrl: string;
+  try {
+    const existingRes = await drive.files.list({
+      q: `'${destinationParentFolderId.replace(/'/g, "\\'")}' in parents and name = '${escapedFolderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: 'files(id, name, webViewLink)',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      pageSize: 1,
+    });
+    const existingFolders = existingRes.data.files ?? [];
+    if (existingFolders.length > 0) {
+      const existing = existingFolders[0];
+      deliveredRootFolderId = existing.id!;
+      deliveredRootFolderUrl =
+        (existing.webViewLink && existing.webViewLink.trim()) ||
+        folderUrl(deliveredRootFolderId);
+      console.log(`[drive] reuse folder: name="${deliveredFolderName}", folderId=${deliveredRootFolderId}`);
+      foldersCreated = 0; // Reused existing folder
+    } else {
+      // Create new folder
+      const createRes = await drive.files.create({
+        requestBody: {
+          name: deliveredFolderName,
+          mimeType: FOLDER_MIMETYPE,
+          parents: [destinationParentFolderId],
+        },
+        fields: 'id,name,webViewLink',
+        supportsAllDrives: true,
+      });
+      deliveredRootFolderId = createRes.data.id!;
+      deliveredRootFolderUrl =
+        (createRes.data.webViewLink && createRes.data.webViewLink.trim()) ||
+        folderUrl(deliveredRootFolderId);
+      foldersCreated = 1;
+    }
+  } catch (checkError) {
+    // If idempotency check fails, create folder anyway (non-critical)
+    console.warn(`[drive] Idempotency check failed for "${deliveredFolderName}", creating anyway:`, checkError instanceof Error ? checkError.message : String(checkError));
+    const createRes = await drive.files.create({
+      requestBody: {
+        name: deliveredFolderName,
+        mimeType: FOLDER_MIMETYPE,
+        parents: [destinationParentFolderId],
+      },
+      fields: 'id,name,webViewLink',
+      supportsAllDrives: true,
+    });
+    deliveredRootFolderId = createRes.data.id!;
+    deliveredRootFolderUrl =
+      (createRes.data.webViewLink && createRes.data.webViewLink.trim()) ||
+      folderUrl(deliveredRootFolderId);
+    foldersCreated = 1;
+  }
 
   async function recurse(
     sourceParentId: string,

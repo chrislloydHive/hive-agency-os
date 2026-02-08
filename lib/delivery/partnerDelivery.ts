@@ -679,21 +679,37 @@ export async function runPartnerDeliveryByBatch(params: {
     };
   }
 
+  // Idempotency check: check if folder with same name already exists
+  const escapedFolderName = deliveredFolderName.replace(/'/g, "\\'");
   let createdFolderId: string;
   try {
-    const createRes = await drive.files.create({
-      requestBody: {
-        name: deliveredFolderName,
-        mimeType: FOLDER_MIMETYPE,
-        parents: [destinationFolderId],
-      },
-      fields: 'id',
+    const existingRes = await drive.files.list({
+      q: `'${destinationFolderId.replace(/'/g, "\\'")}' in parents and name = '${escapedFolderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: 'files(id, name)',
       supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      pageSize: 1,
     });
-    createdFolderId = createRes.data.id!;
+    const existingFolders = existingRes.data.files ?? [];
+    if (existingFolders.length > 0) {
+      createdFolderId = existingFolders[0].id!;
+      console.log(`[drive] reuse folder: name="${deliveredFolderName}", folderId=${createdFolderId}`);
+    } else {
+      // Create new folder
+      const createRes = await drive.files.create({
+        requestBody: {
+          name: deliveredFolderName,
+          mimeType: FOLDER_MIMETYPE,
+          parents: [destinationFolderId],
+        },
+        fields: 'id',
+        supportsAllDrives: true,
+      });
+      createdFolderId = createRes.data.id!;
+    }
   } catch (e) {
     const raw = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: `Failed to create delivered folder: ${raw}`, statusCode: 500, authMode };
+    return { ok: false, error: `Failed to create or find delivered folder: ${raw}`, statusCode: 500, authMode };
   }
 
   const failures: Array<{ id: string; name?: string; reason: string }> = [];
@@ -806,23 +822,39 @@ export async function runPartnerDeliveryFromPortal(params: {
     };
   }
 
+  // Idempotency check: check if folder with same name already exists
+  const escapedFolderName = deliveredFolderName.replace(/'/g, "\\'");
   let createdFolderId: string;
   try {
-    const createRes = await drive.files.create({
-      requestBody: {
-        name: deliveredFolderName,
-        mimeType: FOLDER_MIMETYPE,
-        parents: [destinationFolderId],
-      },
-      fields: 'id',
+    const existingRes = await drive.files.list({
+      q: `'${destinationFolderId.replace(/'/g, "\\'")}' in parents and name = '${escapedFolderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: 'files(id, name)',
       supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      pageSize: 1,
     });
-    createdFolderId = createRes.data.id!;
+    const existingFolders = existingRes.data.files ?? [];
+    if (existingFolders.length > 0) {
+      createdFolderId = existingFolders[0].id!;
+      console.log(`[drive] reuse folder: name="${deliveredFolderName}", folderId=${createdFolderId}`);
+    } else {
+      // Create new folder
+      const createRes = await drive.files.create({
+        requestBody: {
+          name: deliveredFolderName,
+          mimeType: FOLDER_MIMETYPE,
+          parents: [destinationFolderId],
+        },
+        fields: 'id',
+        supportsAllDrives: true,
+      });
+      createdFolderId = createRes.data.id!;
+    }
   } catch (e) {
     const raw = e instanceof Error ? e.message : String(e);
     return {
       ok: false,
-      error: `Failed to create delivered folder: ${raw}`,
+      error: `Failed to create or find delivered folder: ${raw}`,
       statusCode: 500,
     };
   }

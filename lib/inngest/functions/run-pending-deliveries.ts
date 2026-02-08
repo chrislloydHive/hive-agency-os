@@ -6,20 +6,23 @@
 import { inngest } from '../client';
 import { runPendingDeliveries } from '@/lib/delivery/runPendingDeliveries';
 
-// Temporarily set to every 1 minute for faster testing/debugging
-// TODO: Change back to '*/5 * * * *' (every 5 minutes) once delivery is working
-const CRON_SCHEDULE = '*/1 * * * *'; // Every 1 minute (temporary for debugging)
+// DISABLED: This cron function is no longer used. Delivery is now event-driven via partnerDeliveryRequested.
+// Kept for reference but gated behind env flag to prevent accidental registration.
+const CRON_SCHEDULE = '*/1 * * * *'; // Every 1 minute (DISABLED)
 
-export const runPendingDeliveriesScheduled = inngest.createFunction(
-  {
-    id: 'partner-delivery-run-pending',
-    name: 'Run Pending Partner Deliveries',
-    retries: 2,
-    concurrency: { limit: 1 },
-  },
-  { cron: CRON_SCHEDULE },
-  async ({ event, step }) => {
-    console.log('[run-pending-deliveries] ⚡ Function triggered by cron:', CRON_SCHEDULE, 'event:', event.id);
+// Only export if explicitly enabled via env flag (should never be true in production)
+export const runPendingDeliveriesScheduled = process.env.ENABLE_PENDING_DELIVERY_CRON === 'true'
+  ? inngest.createFunction(
+      {
+        id: 'partner-delivery-run-pending',
+        name: 'Run Pending Partner Deliveries (DISABLED - use event-driven)',
+        retries: 2,
+        concurrency: { limit: 1 },
+      },
+      { cron: CRON_SCHEDULE },
+      async ({ event, step }) => {
+        console.log('[delivery-trigger] scheduled: ⚠️ CRON FUNCTION SHOULD NOT BE RUNNING');
+        console.log('[run-pending-deliveries] ⚡ Function triggered by cron:', CRON_SCHEDULE, 'event:', event.id);
     
     return await step.run('process-deliveries', async () => {
       try {
@@ -79,4 +82,5 @@ export const runPendingDeliveriesScheduled = inngest.createFunction(
       }
     });
   }
-);
+  )
+  : null; // Return null if env flag is not set, preventing registration

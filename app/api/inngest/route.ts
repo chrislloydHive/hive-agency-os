@@ -30,35 +30,46 @@ import {
 import { partnerDeliveryRequested } from '@/lib/inngest/functions/partner-delivery-requested';
 
 // Get the serve handlers
+const registeredFunctions = [
+  // GAP generation
+  generateFullGap,
+  // Engagement context gathering
+  engagementContextGathering,
+  // Website Lab
+  websiteDiagnostic,
+  websiteDiagnosticErrorHandler,
+  // Website Lab V5 Event Handlers (downstream, independent)
+  contextGraphProposeFromV5,
+  insightsAggregateV5,
+  signalsV5ThresholdBreached,
+  // Brand Lab
+  brandDiagnostic,
+  brandDiagnosticErrorHandler,
+  // Analytics Findings
+  refreshAnalyticsFindingsScheduled,
+  refreshAnalyticsFindingsManual,
+  // Program Recurring Deliverables
+  ensureUpcomingDeliverablesDaily,
+  ensureUpcomingDeliverablesOnDemand,
+  // Weekly Brief Generation
+  weeklyBriefMonday,
+  weeklyBriefOnDemand,
+  // Partner delivery: event-driven (triggered on approval)
+  partnerDeliveryRequested,
+];
+
+// Log registered functions at boot (temporary verification)
+if (typeof window === 'undefined') {
+  console.log('[inngest/route] Registered Inngest functions:', registeredFunctions.map(f => f.id || f.name || 'unknown').join(', '));
+  console.log('[inngest/route] Delivery functions:', registeredFunctions.filter(f => {
+    const id = f.id || '';
+    return id.includes('delivery') || id.includes('Delivery');
+  }).map(f => f.id || f.name || 'unknown').join(', '));
+}
+
 const handlers = serve({
   client: inngest,
-  functions: [
-    // GAP generation
-    generateFullGap,
-    // Engagement context gathering
-    engagementContextGathering,
-    // Website Lab
-    websiteDiagnostic,
-    websiteDiagnosticErrorHandler,
-    // Website Lab V5 Event Handlers (downstream, independent)
-    contextGraphProposeFromV5,
-    insightsAggregateV5,
-    signalsV5ThresholdBreached,
-    // Brand Lab
-    brandDiagnostic,
-    brandDiagnosticErrorHandler,
-    // Analytics Findings
-    refreshAnalyticsFindingsScheduled,
-    refreshAnalyticsFindingsManual,
-    // Program Recurring Deliverables
-    ensureUpcomingDeliverablesDaily,
-    ensureUpcomingDeliverablesOnDemand,
-    // Weekly Brief Generation
-    weeklyBriefMonday,
-    weeklyBriefOnDemand,
-    // Partner delivery: event-driven (triggered on approval)
-    partnerDeliveryRequested,
-  ],
+  functions: registeredFunctions,
 });
 
 // Wrap handlers to read x-vercel-oidc-token header and set process.env.VERCEL_OIDC_TOKEN
