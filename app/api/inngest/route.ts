@@ -28,6 +28,7 @@ import {
   weeklyBriefOnDemand,
 } from '@/lib/inngest/functions/weekly-brief';
 import { partnerDeliveryRequested } from '@/lib/inngest/functions/partner-delivery-requested';
+import { partnerDeliveryProbe } from '@/lib/inngest/functions/partner-delivery-probe';
 
 // Get the serve handlers
 const registeredFunctions = [
@@ -56,6 +57,8 @@ const registeredFunctions = [
   weeklyBriefOnDemand,
   // Partner delivery: event-driven (triggered on approval)
   partnerDeliveryRequested,
+  // Probe function for debugging event delivery
+  partnerDeliveryProbe,
 ];
 
 // Log registered functions at boot (once per process)
