@@ -234,6 +234,13 @@ export async function POST(req: NextRequest) {
   
   console.log(`[approve] Final deliveryBatchId after approval: ${finalDeliveryBatchId || 'undefined'}`);
 
+  // Generate requestId for correlation tracing
+  let requestId: string | undefined = undefined;
+  if ('recordId' in result) {
+    requestId = `approved-${result.recordId}-${Date.now()}`;
+    console.log(`[approve] requestId=${requestId}`);
+  }
+
   if ('alreadyApproved' in result) {
     // Still trigger delivery if batchId is set (idempotency will handle duplicates)
     if (finalDeliveryBatchId && 'recordId' in result) {
@@ -245,6 +252,7 @@ export async function POST(req: NextRequest) {
           body: JSON.stringify({
             crasRecordId: result.recordId,
             batchId: finalDeliveryBatchId,
+            requestId,
           }),
         }).catch((err) => {
           console.error('[approve] Failed to trigger delivery (already approved):', err);
@@ -273,6 +281,7 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({
           crasRecordId: result.recordId,
           batchId: finalDeliveryBatchId,
+          requestId,
         }),
       })
         .then(async (res) => {

@@ -184,7 +184,8 @@ export async function getRecord(
 export async function updateRecord(
   tableName: string,
   recordId: string,
-  fields: Record<string, unknown>
+  fields: Record<string, unknown>,
+  requestId?: string | null
 ): Promise<any> {
   const config = getAirtableConfig();
 
@@ -195,6 +196,9 @@ export async function updateRecord(
   // Temporary instrumentation: detect "Delivered At" field
   const hasDeliveredAt = Object.prototype.hasOwnProperty.call(fields, 'Delivered At');
   const fieldKeys = Object.keys(fields);
+
+  // Log correlation ID and update details before sending request
+  console.log(`[airtable/update] requestId`, requestId ?? null, `table`, tableName, `recordId`, recordId, `keys`, fieldKeys, `hasDeliveredAt`, hasDeliveredAt);
 
   console.log('[Airtable] Updating record:', {
     url: url.replace(config.apiKey, '***'),

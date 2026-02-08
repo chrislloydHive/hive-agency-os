@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
   let body: {
     crasRecordId: string;
     batchId?: string;
+    requestId?: string;
   };
   try {
     body = await req.json();
@@ -22,13 +23,14 @@ export async function POST(req: NextRequest) {
 
   const crasRecordId = (body.crasRecordId ?? '').toString().trim();
   const batchId = body.batchId ? String(body.batchId).trim() : undefined;
+  const requestId = body.requestId ? String(body.requestId).trim() : `approved-${Date.now().toString(36)}-${crasRecordId.slice(-8)}`;
+
+  // Log at first line for correlation tracing
+  console.log(`[delivery/approved] start`, { requestId, crasRecordId, deliveryBatchId: batchId });
 
   if (!crasRecordId) {
     return NextResponse.json({ error: 'Missing crasRecordId' }, { status: 400, headers: NO_STORE });
   }
-
-  // Generate a unique request ID for this delivery
-  const requestId = `approved-${Date.now().toString(36)}-${crasRecordId.slice(-8)}`;
 
   try {
     // Send Inngest event to trigger delivery
