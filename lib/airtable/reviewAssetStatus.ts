@@ -28,7 +28,7 @@ export const DELIVERY_BATCH_ID_FIELD = 'Delivery Batch ID';
 export const ASSET_APPROVED_CLIENT_FIELD = 'Asset Approved (Client)';
 
 /** Airtable field name for when client first saw the asset. Do not overwrite once set. */
-export const FIRST_SEEN_BY_CLIENT_AT_FIELD = 'First Seen By Client At';
+export const FIRST_SEEN_BY_CLIENT_AT_FIELD = 'First Seen by Client At';
 
 export type AssetStatusValue = 'New' | 'Seen' | 'Approved' | 'Needs Changes';
 
