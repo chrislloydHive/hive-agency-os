@@ -384,6 +384,18 @@ export async function writeDeliveryToRecord(
     return { ok: true, written: [], skipped };
   }
 
+  // Temporary instrumentation: detect "Delivered At" field before update
+  const hasDeliveredAt = Object.prototype.hasOwnProperty.call(fieldsToWrite, 'Delivered At');
+  const fieldKeys = Object.keys(fieldsToWrite);
+  const baseId = getBaseId();
+  console.log('[deliveryWriteBack] Pre-update instrumentation:', {
+    baseId: baseId ? `${baseId.substring(0, 20)}...` : 'unknown',
+    tableName,
+    recordId,
+    fieldKeys,
+    hasDeliveredAt,
+  });
+
   try {
     const base = getBase();
     await base(tableName).update(recordId, fieldsToWrite as any);

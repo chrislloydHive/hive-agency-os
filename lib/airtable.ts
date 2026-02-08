@@ -38,7 +38,66 @@ export function getBase(): Airtable.Base {
     }
     
     _baseId = baseId;
-    _base = new Airtable({ apiKey }).base(baseId);
+    const rawBase = new Airtable({ apiKey }).base(baseId);
+    
+    // Wrap base to intercept .update() calls for instrumentation
+    _base = new Proxy(rawBase, {
+      get(target, prop) {
+        const value = (target as any)[prop];
+        if (typeof value === 'function') {
+          // If accessing a table (e.g., base('Table Name')), wrap it to intercept .update()
+          return function(...args: any[]) {
+            const table = value.apply(target, args);
+            // Wrap the table's .update() method
+            return new Proxy(table, {
+              get(tableTarget, tableProp) {
+                const tableValue = (tableTarget as any)[tableProp];
+                if (tableProp === 'update' && typeof tableValue === 'function') {
+                  return function(recordIdOrArray: string | Array<{ id: string; fields: Record<string, unknown> }>, fieldsOrUndefined?: Record<string, unknown>) {
+                    // Temporary instrumentation: detect "Delivered At" field
+                    let hasDeliveredAt = false;
+                    let fieldKeys: string[] = [];
+                    let tableName = '';
+                    
+                    if (typeof recordIdOrArray === 'string' && fieldsOrUndefined) {
+                      // Single record update: base('Table').update(recordId, fields)
+                      hasDeliveredAt = Object.prototype.hasOwnProperty.call(fieldsOrUndefined, 'Delivered At');
+                      fieldKeys = Object.keys(fieldsOrUndefined);
+                      tableName = args[0] || 'unknown';
+                    } else if (Array.isArray(recordIdOrArray)) {
+                      // Batch update: base('Table').update([{ id, fields }, ...])
+                      for (const item of recordIdOrArray) {
+                        if (item.fields && Object.prototype.hasOwnProperty.call(item.fields, 'Delivered At')) {
+                          hasDeliveredAt = true;
+                          fieldKeys = Object.keys(item.fields);
+                          break;
+                        }
+                      }
+                      tableName = args[0] || 'unknown';
+                    }
+                    
+                    if (hasDeliveredAt) {
+                      console.log('[Airtable] SDK .update() instrumentation:', {
+                        baseId: baseId ? `${baseId.substring(0, 20)}...` : 'unknown',
+                        tableName,
+                        recordId: typeof recordIdOrArray === 'string' ? recordIdOrArray : 'batch',
+                        fieldKeys,
+                        hasDeliveredAt: true,
+                      });
+                    }
+                    
+                    // Call the original update method
+                    return tableValue.apply(tableTarget, arguments);
+                  };
+                }
+                return tableValue;
+              },
+            });
+          };
+        }
+        return value;
+      },
+    }) as Airtable.Base;
   }
   return _base;
 }

@@ -192,6 +192,10 @@ export async function updateRecord(
     tableName
   )}/${recordId}`;
 
+  // Temporary instrumentation: detect "Delivered At" field
+  const hasDeliveredAt = Object.prototype.hasOwnProperty.call(fields, 'Delivered At');
+  const fieldKeys = Object.keys(fields);
+
   console.log('[Airtable] Updating record:', {
     url: url.replace(config.apiKey, '***'),
     tableName,
@@ -199,6 +203,9 @@ export async function updateRecord(
     fieldCount: Object.keys(fields).length,
     fields: tableName === 'GAP-Heavy Run' ? fields : undefined, // Log fields for Heavy Run table
     hasCompanyField: tableName === 'GAP-Heavy Run' ? ('Company' in fields) : undefined,
+    // Temporary instrumentation for "Delivered At" debugging
+    hasDeliveredAt,
+    fieldKeys: hasDeliveredAt ? fieldKeys : undefined,
   });
 
   const response = await fetchWithRetry(url, {
