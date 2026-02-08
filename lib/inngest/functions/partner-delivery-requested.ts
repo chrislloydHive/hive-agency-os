@@ -8,6 +8,9 @@ import {
   getAssetStatusRecordById,
   isAlreadyDelivered,
 } from '@/lib/airtable/reviewAssetDelivery';
+import { getBase } from '@/lib/airtable';
+import { CREATIVE_REVIEW_ASSET_STATUS_TABLE } from '@/lib/airtable/deliveryWriteBack';
+import { DELIVERY_BATCH_ID_FIELD } from '@/lib/airtable/reviewAssetStatus';
 import {
   getDestinationFolderIdByBatchId,
   getBatchDetailsByRecordId,
@@ -66,13 +69,23 @@ export const partnerDeliveryRequested = inngest.createFunction(
           };
         }
 
-        // Verify approval status (optional check, proceed anyway if approved is true)
-        if (!record.assetApprovedClient) {
-          console.warn(`[partner-delivery-requested] Record ${crasRecordId} not approved, but proceeding with delivery`);
+        // Resolve destination folder from batch (use batchId from event, or fetch from record if needed)
+        let deliveryBatchIdRaw = batchId;
+        if (!deliveryBatchIdRaw) {
+          // Fallback: fetch batch ID from Airtable record
+          try {
+            const base = getBase();
+            const airtableRecord = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
+            const batchRaw = airtableRecord.fields[DELIVERY_BATCH_ID_FIELD];
+            if (Array.isArray(batchRaw) && batchRaw.length > 0 && typeof batchRaw[0] === 'string') {
+              deliveryBatchIdRaw = (batchRaw[0] as string).trim();
+            } else if (typeof batchRaw === 'string' && batchRaw.trim()) {
+              deliveryBatchIdRaw = (batchRaw as string).trim();
+            }
+          } catch (fetchErr) {
+            console.warn(`[partner-delivery-requested] Failed to fetch batch ID from record:`, fetchErr);
+          }
         }
-
-        // Resolve destination folder from batch
-        const deliveryBatchIdRaw = record.deliveryBatchId ?? batchId;
         if (!deliveryBatchIdRaw) {
           console.error(`[partner-delivery-requested] No delivery batch ID for record ${crasRecordId}`);
           return {
@@ -92,8 +105,8 @@ export const partnerDeliveryRequested = inngest.createFunction(
           };
         }
 
-        // Get source folder ID from record
-        const sourceFolderId = record.sourceFolderId;
+        // Get source folder ID from record (driveFileId is the Source Folder ID field)
+        const sourceFolderId = record.driveFileId;
         if (!sourceFolderId) {
           console.error(`[partner-delivery-requested] No source folder ID for record ${crasRecordId}`);
           return {
