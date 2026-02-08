@@ -87,6 +87,17 @@ type RouteContext = {
 };
 
 export const GET = async (req: NextRequest, context: RouteContext) => {
+  // Guard: Reject requests for the old disabled cron function
+  const url = new URL(req.url);
+  const fnId = url.searchParams.get('fnId');
+  if (fnId && fnId.includes('partner-delivery-run-pending')) {
+    console.warn('[inngest/route] ⚠️ Rejecting request for disabled cron function:', fnId);
+    return new Response(
+      JSON.stringify({ error: 'This function has been disabled. Use event-driven partnerDeliveryRequested instead.' }),
+      { status: 410, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
   const token = req.headers.get('x-vercel-oidc-token');
   // Set process.env.VERCEL_OIDC_TOKEN for the duration of this request
   if (token) {
@@ -98,6 +109,17 @@ export const GET = async (req: NextRequest, context: RouteContext) => {
 };
 
 export const POST = async (req: NextRequest, context: RouteContext) => {
+  // Guard: Reject requests for the old disabled cron function
+  const url = new URL(req.url);
+  const fnId = url.searchParams.get('fnId');
+  if (fnId && fnId.includes('partner-delivery-run-pending')) {
+    console.warn('[inngest/route] ⚠️ Rejecting request for disabled cron function:', fnId);
+    return new Response(
+      JSON.stringify({ error: 'This function has been disabled. Use event-driven partnerDeliveryRequested instead.' }),
+      { status: 410, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
   const token = req.headers.get('x-vercel-oidc-token');
   // Set process.env.VERCEL_OIDC_TOKEN for the duration of this request
   if (token) {
@@ -109,6 +131,17 @@ export const POST = async (req: NextRequest, context: RouteContext) => {
 };
 
 export const PUT = async (req: NextRequest, context: RouteContext) => {
+  // Guard: Reject requests for the old disabled cron function
+  const url = new URL(req.url);
+  const fnId = url.searchParams.get('fnId');
+  if (fnId && fnId.includes('partner-delivery-run-pending')) {
+    console.warn('[inngest/route] ⚠️ Rejecting request for disabled cron function:', fnId);
+    return new Response(
+      JSON.stringify({ error: 'This function has been disabled. Use event-driven partnerDeliveryRequested instead.' }),
+      { status: 410, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
   const token = req.headers.get('x-vercel-oidc-token');
   // Set process.env.VERCEL_OIDC_TOKEN for the duration of this request
   if (token) {
