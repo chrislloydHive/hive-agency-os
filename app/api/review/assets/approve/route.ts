@@ -114,6 +114,34 @@ export async function POST(req: NextRequest) {
         console.log(`[approve] ✅ Extracted deliveryBatchId from string AFTER approval: ${finalDeliveryBatchId}`);
       } else {
         console.log(`[approve] ⚠️ deliveryBatchId field is still empty/null AFTER approval:`, batchRaw);
+        
+        // Fallback: Try fetching from Project record (automation might be async)
+        const projectField = record.fields['Project'] as string[] | string | undefined;
+        const projectId = Array.isArray(projectField) ? projectField[0] : (typeof projectField === 'string' ? projectField : undefined);
+        if (projectId) {
+          console.log(`[approve] Attempting fallback: fetching Delivery Batch ID from Project record ${projectId}`);
+          try {
+            const { AIRTABLE_TABLES } = await import('@/lib/airtable/tables');
+            const projectRecord = await base(AIRTABLE_TABLES.PROJECTS).find(projectId);
+            const projectBatchRaw = projectRecord.fields['Delivery Batch ID'];
+            console.log(`[approve] Project record Delivery Batch ID:`, projectBatchRaw, `type:`, typeof projectBatchRaw);
+            
+            if (Array.isArray(projectBatchRaw) && projectBatchRaw.length > 0 && typeof projectBatchRaw[0] === 'string') {
+              finalDeliveryBatchId = (projectBatchRaw[0] as string).trim();
+              console.log(`[approve] ✅ Extracted deliveryBatchId from Project array: ${finalDeliveryBatchId}`);
+            } else if (typeof projectBatchRaw === 'string' && projectBatchRaw.trim()) {
+              finalDeliveryBatchId = (projectBatchRaw as string).trim();
+              console.log(`[approve] ✅ Extracted deliveryBatchId from Project string: ${finalDeliveryBatchId}`);
+            } else {
+              console.log(`[approve] ⚠️ Project record also has no Delivery Batch ID`);
+            }
+          } catch (projectErr) {
+            const projectErrMsg = projectErr instanceof Error ? projectErr.message : String(projectErr);
+            console.error(`[approve] ❌ Failed to fetch Delivery Batch ID from Project:`, projectErrMsg);
+          }
+        } else {
+          console.log(`[approve] ⚠️ CRAS record has no Project link, cannot fetch from Project`);
+        }
       }
     } catch (fetchErr) {
       const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
