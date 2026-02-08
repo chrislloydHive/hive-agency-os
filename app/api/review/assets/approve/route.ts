@@ -106,22 +106,41 @@ export async function POST(req: NextRequest) {
 
   // Trigger delivery via event-driven endpoint (if deliveryBatchId is set)
   if (deliveryBatchId && 'recordId' in result) {
+    console.log(`[approve] Triggering delivery: crasRecordId=${result.recordId}, batchId=${deliveryBatchId}`);
     try {
       // Fire-and-forget: call delivery endpoint asynchronously
       const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-      fetch(`${baseUrl}/api/delivery/partner/approved`, {
+      const deliveryUrl = `${baseUrl}/api/delivery/partner/approved`;
+      console.log(`[approve] Calling delivery endpoint: ${deliveryUrl}`);
+      fetch(deliveryUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           crasRecordId: result.recordId,
           batchId: deliveryBatchId,
         }),
-      }).catch((err) => {
-        console.error('[approve] Failed to trigger delivery:', err);
-      });
+      })
+        .then(async (res) => {
+          const text = await res.text();
+          if (res.ok) {
+            console.log(`[approve] Delivery triggered successfully: ${text}`);
+          } else {
+            console.error(`[approve] Delivery endpoint returned ${res.status}: ${text}`);
+          }
+        })
+        .catch((err) => {
+          console.error('[approve] Failed to trigger delivery:', err);
+        });
     } catch (err) {
       // Non-blocking: log error but don't fail the approval
       console.error('[approve] Error triggering delivery:', err);
+    }
+  } else {
+    if (!deliveryBatchId) {
+      console.log(`[approve] No deliveryBatchId provided, skipping delivery trigger`);
+    }
+    if (!('recordId' in result)) {
+      console.log(`[approve] No recordId in result, skipping delivery trigger`);
     }
   }
 
