@@ -104,6 +104,24 @@ export async function POST(req: NextRequest) {
       const record = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(result.recordId);
       const fields = record.fields as Record<string, unknown>;
       
+      // Debug: Log all field names to see what's actually available
+      const fieldNames = Object.keys(fields);
+      console.log(`[approve] CRAS record ${result.recordId} has ${fieldNames.length} fields:`, fieldNames.sort().join(', '));
+      
+      // Check for variations of the field name (case/spacing)
+      const partnerBatchVariations = [
+        'Partner Delivery Batch',
+        'partner delivery batch',
+        'PartnerDeliveryBatch',
+        'Partner Delivery Batch ID',
+        'Delivery Batch',
+      ];
+      for (const variant of partnerBatchVariations) {
+        if (fields[variant] !== undefined) {
+          console.log(`[approve] Found field "${variant}":`, fields[variant], `type:`, typeof fields[variant]);
+        }
+      }
+      
       // First check: "Partner Delivery Batch" linked record on CRAS
       const partnerBatchLink = fields['Partner Delivery Batch'] as string[] | undefined;
       console.log(`[approve] CRAS Partner Delivery Batch link:`, partnerBatchLink, `type:`, typeof partnerBatchLink, `isArray:`, Array.isArray(partnerBatchLink));
@@ -129,8 +147,27 @@ export async function POST(req: NextRequest) {
       
       // Second check: "Delivery Batch ID" text field on CRAS (if not found via link)
       if (!finalDeliveryBatchId) {
-        const batchRaw = fields[DELIVERY_BATCH_ID_FIELD];
-        console.log(`[approve] Fetched CRAS record ${result.recordId} after approval, checking field "${DELIVERY_BATCH_ID_FIELD}"`);
+        // Check for variations of Delivery Batch ID field name
+        const deliveryBatchIdVariations = [
+          'Delivery Batch ID',
+          'delivery batch id',
+          'DeliveryBatchID',
+          'Delivery Batch Id',
+        ];
+        let batchRaw: unknown = undefined;
+        let foundFieldName: string | undefined = undefined;
+        for (const variant of deliveryBatchIdVariations) {
+          if (fields[variant] !== undefined) {
+            batchRaw = fields[variant];
+            foundFieldName = variant;
+            console.log(`[approve] Found Delivery Batch ID field "${variant}":`, batchRaw, `type:`, typeof batchRaw);
+            break;
+          }
+        }
+        if (!foundFieldName) {
+          batchRaw = fields[DELIVERY_BATCH_ID_FIELD];
+        }
+        console.log(`[approve] Fetched CRAS record ${result.recordId} after approval, checking field "${foundFieldName || DELIVERY_BATCH_ID_FIELD}"`);
         console.log(`[approve] Raw batch field value:`, batchRaw, `type:`, typeof batchRaw, `isArray:`, Array.isArray(batchRaw));
         
         if (Array.isArray(batchRaw) && batchRaw.length > 0 && typeof batchRaw[0] === 'string') {
