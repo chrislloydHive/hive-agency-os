@@ -888,7 +888,7 @@ export async function copyFileToFolder(
         fields: 'files(id, name, webViewLink)',
         supportsAllDrives: true,
         includeItemsFromAllDrives: true,
-        maxResults: 1,
+        pageSize: 1,
       });
       const existingFiles = existingRes.data.files ?? [];
       if (existingFiles.length > 0) {
@@ -1045,7 +1045,7 @@ export async function copyDriveFolderTree(
               fields: 'files(id, name)',
               supportsAllDrives: true,
               includeItemsFromAllDrives: true,
-              maxResults: 1,
+              pageSize: 1,
             });
             const existingFolders = existingRes.data.files ?? [];
             if (existingFolders.length > 0) {
@@ -1103,7 +1103,7 @@ export async function copyDriveFolderTree(
             fields: 'files(id, name)',
             supportsAllDrives: true,
             includeItemsFromAllDrives: true,
-            maxResults: 1,
+            pageSize: 1,
           });
           const existingFiles = existingRes.data.files ?? [];
           if (existingFiles.length > 0) {
