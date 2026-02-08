@@ -75,46 +75,40 @@ export async function POST(req: NextRequest) {
 
   // Fetch deliveryBatchId from existing CRAS record BEFORE approval (if not in request)
   // This ensures we get the value even if it was set by Airtable automation/formula
+  // Note: resolved is already available from line 60, so we reuse it
   let finalDeliveryBatchId = deliveryBatchId;
-  if (!finalDeliveryBatchId) {
+  if (!finalDeliveryBatchId && resolved) {
     console.log(`[approve] deliveryBatchId not in request, fetching from existing CRAS record before approval`);
     try {
       const base = getBase();
-      // Find the existing record using the same logic as setSingleAssetApprovedClient
-      console.log(`[approve] Resolving project for token to fetch CRAS record`);
-      const resolved = await resolveReviewProject(token);
-      if (resolved) {
-        console.log(`[approve] Project resolved, building filter formula for driveFileId: ${driveFileId.substring(0, 20)}...`);
-        const tokenEsc = token.replace(/'/g, "\\'").replace(/"/g, '\\"');
-        const driveFileIdEsc = driveFileId.replace(/'/g, "\\'").replace(/"/g, '\\"');
-        // Use the same formula as findExisting() in reviewAssetStatus.ts
-        const formula = `AND({Review Token} = "${tokenEsc}", {${SOURCE_FOLDER_ID_FIELD}} = "${driveFileIdEsc}")`;
-        console.log(`[approve] Querying CRAS table with formula: ${formula.substring(0, 100)}...`);
-        const existingRecords = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE)
-          .select({ filterByFormula: formula, maxRecords: 1 })
-          .firstPage();
+      console.log(`[approve] Building filter formula for driveFileId: ${driveFileId.substring(0, 20)}...`);
+      const tokenEsc = token.replace(/'/g, "\\'").replace(/"/g, '\\"');
+      const driveFileIdEsc = driveFileId.replace(/'/g, "\\'").replace(/"/g, '\\"');
+      // Use the same formula as findExisting() in reviewAssetStatus.ts
+      const formula = `AND({Review Token} = "${tokenEsc}", {${SOURCE_FOLDER_ID_FIELD}} = "${driveFileIdEsc}")`;
+      console.log(`[approve] Querying CRAS table with formula: ${formula.substring(0, 100)}...`);
+      const existingRecords = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE)
+        .select({ filterByFormula: formula, maxRecords: 1 })
+        .firstPage();
+      
+      console.log(`[approve] Query returned ${existingRecords.length} record(s)`);
+      if (existingRecords.length > 0) {
+        const existingRecord = existingRecords[0];
+        const batchRaw = existingRecord.fields[DELIVERY_BATCH_ID_FIELD];
+        console.log(`[approve] Found existing record ${existingRecord.id}, checking field "${DELIVERY_BATCH_ID_FIELD}"`);
+        console.log(`[approve] Raw batch field value:`, batchRaw, `type:`, typeof batchRaw, `isArray:`, Array.isArray(batchRaw));
         
-        console.log(`[approve] Query returned ${existingRecords.length} record(s)`);
-        if (existingRecords.length > 0) {
-          const existingRecord = existingRecords[0];
-          const batchRaw = existingRecord.fields[DELIVERY_BATCH_ID_FIELD];
-          console.log(`[approve] Found existing record ${existingRecord.id}, checking field "${DELIVERY_BATCH_ID_FIELD}"`);
-          console.log(`[approve] Raw batch field value:`, batchRaw, `type:`, typeof batchRaw, `isArray:`, Array.isArray(batchRaw));
-          
-          if (Array.isArray(batchRaw) && batchRaw.length > 0 && typeof batchRaw[0] === 'string') {
-            finalDeliveryBatchId = (batchRaw[0] as string).trim();
-            console.log(`[approve] ✅ Extracted deliveryBatchId from array: ${finalDeliveryBatchId}`);
-          } else if (typeof batchRaw === 'string' && batchRaw.trim()) {
-            finalDeliveryBatchId = (batchRaw as string).trim();
-            console.log(`[approve] ✅ Extracted deliveryBatchId from string: ${finalDeliveryBatchId}`);
-          } else {
-            console.log(`[approve] ⚠️ deliveryBatchId field is empty or invalid in existing record:`, batchRaw);
-          }
+        if (Array.isArray(batchRaw) && batchRaw.length > 0 && typeof batchRaw[0] === 'string') {
+          finalDeliveryBatchId = (batchRaw[0] as string).trim();
+          console.log(`[approve] ✅ Extracted deliveryBatchId from array: ${finalDeliveryBatchId}`);
+        } else if (typeof batchRaw === 'string' && batchRaw.trim()) {
+          finalDeliveryBatchId = (batchRaw as string).trim();
+          console.log(`[approve] ✅ Extracted deliveryBatchId from string: ${finalDeliveryBatchId}`);
         } else {
-          console.log(`[approve] ⚠️ Could not find existing CRAS record to fetch deliveryBatchId (token: ${token.substring(0, 10)}..., driveFileId: ${driveFileId.substring(0, 20)}...)`);
+          console.log(`[approve] ⚠️ deliveryBatchId field is empty or invalid in existing record:`, batchRaw);
         }
       } else {
-        console.log(`[approve] ⚠️ Could not resolve project for token, skipping deliveryBatchId fetch`);
+        console.log(`[approve] ⚠️ Could not find existing CRAS record to fetch deliveryBatchId (token: ${token.substring(0, 10)}..., driveFileId: ${driveFileId.substring(0, 20)}...)`);
       }
     } catch (fetchErr) {
       const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
@@ -123,8 +117,10 @@ export async function POST(req: NextRequest) {
         console.error(`[approve] Error stack:`, fetchErr.stack);
       }
     }
-  } else {
+  } else if (finalDeliveryBatchId) {
     console.log(`[approve] Using deliveryBatchId from request: ${finalDeliveryBatchId}`);
+  } else if (!resolved) {
+    console.log(`[approve] ⚠️ Project not resolved, skipping deliveryBatchId fetch`);
   }
   
   console.log(`[approve] Final deliveryBatchId after fetch: ${finalDeliveryBatchId || 'undefined'}`);
