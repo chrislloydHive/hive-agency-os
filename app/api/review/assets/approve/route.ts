@@ -16,6 +16,35 @@ export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 
+/**
+ * Get the application origin URL deterministically.
+ * Tries request headers first, then env vars, then fallback.
+ */
+function getAppOrigin(req?: Request | NextRequest): string {
+  if (req) {
+    // Try x-forwarded-proto + x-forwarded-host (Vercel/proxy headers)
+    const proto = req.headers.get('x-forwarded-proto');
+    const host = req.headers.get('x-forwarded-host');
+    if (proto && host) {
+      return `${proto}://${host}`.replace(/\/$/, '');
+    }
+    
+    // Try origin header
+    const origin = req.headers.get('origin');
+    if (origin) {
+      return origin.replace(/\/$/, '');
+    }
+  }
+  
+  // Try APP_ORIGIN env var
+  if (process.env.APP_ORIGIN) {
+    return process.env.APP_ORIGIN.replace(/\/$/, '');
+  }
+  
+  // Fallback to production domain
+  return 'https://hiveagencyos.com';
+}
+
 export async function POST(req: NextRequest) {
   let body: {
     token?: string;
@@ -244,8 +273,8 @@ export async function POST(req: NextRequest) {
   if ('alreadyApproved' in result) {
     // Still trigger delivery if batchId is set (idempotency will handle duplicates)
     if (finalDeliveryBatchId && 'recordId' in result) {
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-      const deliveryUrl = `${baseUrl}/api/delivery/partner/approved`;
+      const origin = getAppOrigin(req);
+      const deliveryUrl = `${origin}/api/delivery/partner/approved`;
       console.log(`[approve] about to call delivery endpoint`, { requestId, url: deliveryUrl });
       try {
         const res = await fetch(deliveryUrl, {
@@ -272,8 +301,8 @@ export async function POST(req: NextRequest) {
 
   // Trigger delivery via event-driven endpoint (if deliveryBatchId is set)
   if (finalDeliveryBatchId && 'recordId' in result) {
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-    const deliveryUrl = `${baseUrl}/api/delivery/partner/approved`;
+    const origin = getAppOrigin(req);
+    const deliveryUrl = `${origin}/api/delivery/partner/approved`;
     console.log(`[approve] about to call delivery endpoint`, { requestId, url: deliveryUrl });
     try {
       const res = await fetch(deliveryUrl, {
