@@ -9,6 +9,9 @@ import { setSingleAssetApprovedClient, ensureCrasRecord, DELIVERY_BATCH_ID_FIELD
 import { getBase } from '@/lib/airtable';
 import { CREATIVE_REVIEW_ASSET_STATUS_TABLE } from '@/lib/airtable/deliveryWriteBack';
 
+// Field name for Source Folder ID (matches reviewAssetStatus.ts)
+const SOURCE_FOLDER_ID_FIELD = 'Source Folder ID';
+
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
@@ -80,9 +83,10 @@ export async function POST(req: NextRequest) {
       // Find the existing record using the same logic as setSingleAssetApprovedClient
       const resolved = await resolveReviewProject(token);
       if (resolved) {
-        const tokenEsc = token.replace(/'/g, "\\'");
-        const driveFileIdEsc = driveFileId.replace(/'/g, "\\'");
-        const formula = `AND({Review Token} = "${tokenEsc}", OR({Source Folder ID} = "${driveFileIdEsc}", {Drive File ID} = "${driveFileIdEsc}"))`;
+        const tokenEsc = token.replace(/'/g, "\\'").replace(/"/g, '\\"');
+        const driveFileIdEsc = driveFileId.replace(/'/g, "\\'").replace(/"/g, '\\"');
+        // Use the same formula as findExisting() in reviewAssetStatus.ts
+        const formula = `AND({Review Token} = "${tokenEsc}", {${SOURCE_FOLDER_ID_FIELD}} = "${driveFileIdEsc}")`;
         const existingRecords = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE)
           .select({ filterByFormula: formula, maxRecords: 1 })
           .firstPage();
