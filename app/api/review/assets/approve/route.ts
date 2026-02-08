@@ -5,7 +5,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { resolveApprovedAt } from '@/lib/review/approvedAt';
-import { setSingleAssetApprovedClient, ensureCrasRecord } from '@/lib/airtable/reviewAssetStatus';
+import { setSingleAssetApprovedClient, ensureCrasRecord, DELIVERY_BATCH_ID_FIELD } from '@/lib/airtable/reviewAssetStatus';
+import { getBase } from '@/lib/airtable';
+import { CREATIVE_REVIEW_ASSET_STATUS_TABLE } from '@/lib/airtable/deliveryWriteBack';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,7 +37,12 @@ export async function POST(req: NextRequest) {
   const approvedAt = resolveApprovedAt(body.approvedAt);
   const approvedByName = (body.approvedByName ?? '').toString().trim() || undefined;
   const approvedByEmail = (body.approvedByEmail ?? '').toString().trim() || undefined;
+  
+  // Debug: Log raw deliveryBatchId from body
+  console.log(`[approve] Raw body.deliveryBatchId:`, body.deliveryBatchId, `type:`, typeof body.deliveryBatchId);
   const deliveryBatchId = body.deliveryBatchId != null ? String(body.deliveryBatchId).trim() || undefined : undefined;
+  console.log(`[approve] Parsed deliveryBatchId:`, deliveryBatchId);
+  
   const tactic = (body.tactic ?? '').toString().trim() || undefined;
   const variant = (body.variant ?? '').toString().trim() || undefined;
   const filename = (body.filename ?? '').toString().trim() || undefined;
@@ -79,9 +86,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(payload, { status, headers: NO_STORE });
   }
 
+  // Resolve deliveryBatchId: use provided value, or fetch from CRAS record if missing
+  let finalDeliveryBatchId = deliveryBatchId;
+  if (!finalDeliveryBatchId && 'recordId' in result) {
+    try {
+      const base = getBase();
+      const record = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(result.recordId);
+      const batchRaw = record.fields[DELIVERY_BATCH_ID_FIELD];
+      if (Array.isArray(batchRaw) && batchRaw.length > 0 && typeof batchRaw[0] === 'string') {
+        finalDeliveryBatchId = (batchRaw[0] as string).trim();
+      } else if (typeof batchRaw === 'string' && batchRaw.trim()) {
+        finalDeliveryBatchId = (batchRaw as string).trim();
+      }
+      if (finalDeliveryBatchId) {
+        console.log(`[approve] Fetched deliveryBatchId from record: ${finalDeliveryBatchId}`);
+      }
+    } catch (fetchErr) {
+      console.warn(`[approve] Failed to fetch deliveryBatchId from record:`, fetchErr);
+    }
+  }
+
   if ('alreadyApproved' in result) {
     // Still trigger delivery if batchId is set (idempotency will handle duplicates)
-    if (deliveryBatchId && 'recordId' in result) {
+    if (finalDeliveryBatchId && 'recordId' in result) {
       try {
         const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
         fetch(`${baseUrl}/api/delivery/partner/approved`, {
@@ -89,7 +116,7 @@ export async function POST(req: NextRequest) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             crasRecordId: result.recordId,
-            batchId: deliveryBatchId,
+            batchId: finalDeliveryBatchId,
           }),
         }).catch((err) => {
           console.error('[approve] Failed to trigger delivery (already approved):', err);
@@ -105,8 +132,8 @@ export async function POST(req: NextRequest) {
   }
 
   // Trigger delivery via event-driven endpoint (if deliveryBatchId is set)
-  if (deliveryBatchId && 'recordId' in result) {
-    console.log(`[approve] Triggering delivery: crasRecordId=${result.recordId}, batchId=${deliveryBatchId}`);
+  if (finalDeliveryBatchId && 'recordId' in result) {
+    console.log(`[approve] Triggering delivery: crasRecordId=${result.recordId}, batchId=${finalDeliveryBatchId}`);
     try {
       // Fire-and-forget: call delivery endpoint asynchronously
       const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
@@ -117,7 +144,7 @@ export async function POST(req: NextRequest) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           crasRecordId: result.recordId,
-          batchId: deliveryBatchId,
+          batchId: finalDeliveryBatchId,
         }),
       })
         .then(async (res) => {
@@ -136,8 +163,8 @@ export async function POST(req: NextRequest) {
       console.error('[approve] Error triggering delivery:', err);
     }
   } else {
-    if (!deliveryBatchId) {
-      console.log(`[approve] No deliveryBatchId provided, skipping delivery trigger`);
+    if (!finalDeliveryBatchId) {
+      console.log(`[approve] No deliveryBatchId available (not in request and not in record), skipping delivery trigger`);
     }
     if (!('recordId' in result)) {
       console.log(`[approve] No recordId in result, skipping delivery trigger`);
