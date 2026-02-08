@@ -117,6 +117,13 @@ export const partnerDeliveryRequested = inngest.createFunction(
         }
 
         console.log(`[partner-delivery-requested] Resolved: sourceFolderId=${sourceFolderId}, destinationFolderId=${destinationFolderId}`);
+        console.log(`[partner-delivery-requested] About to call runPartnerDelivery:`, {
+          crasRecordId,
+          sourceFolderId,
+          deliveryBatchId: deliveryBatchIdRaw,
+          destinationFolderId,
+          hasOidcToken: !!process.env.VERCEL_OIDC_TOKEN,
+        });
 
         // Run delivery
         const deliveryResult = await runPartnerDelivery(
@@ -130,6 +137,13 @@ export const partnerDeliveryRequested = inngest.createFunction(
           },
           requestId || `event-${crasRecordId.slice(-8)}`
         );
+
+        console.log(`[partner-delivery-requested] runPartnerDelivery completed:`, {
+          ok: deliveryResult.ok,
+          result: deliveryResult.result,
+          error: 'error' in deliveryResult ? deliveryResult.error : undefined,
+          authMode: 'authMode' in deliveryResult ? deliveryResult.authMode : undefined,
+        });
 
         if (deliveryResult.ok) {
           if (deliveryResult.result === 'idempotent') {
