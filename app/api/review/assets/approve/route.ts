@@ -81,16 +81,20 @@ export async function POST(req: NextRequest) {
     try {
       const base = getBase();
       // Find the existing record using the same logic as setSingleAssetApprovedClient
+      console.log(`[approve] Resolving project for token to fetch CRAS record`);
       const resolved = await resolveReviewProject(token);
       if (resolved) {
+        console.log(`[approve] Project resolved, building filter formula for driveFileId: ${driveFileId.substring(0, 20)}...`);
         const tokenEsc = token.replace(/'/g, "\\'").replace(/"/g, '\\"');
         const driveFileIdEsc = driveFileId.replace(/'/g, "\\'").replace(/"/g, '\\"');
         // Use the same formula as findExisting() in reviewAssetStatus.ts
         const formula = `AND({Review Token} = "${tokenEsc}", {${SOURCE_FOLDER_ID_FIELD}} = "${driveFileIdEsc}")`;
+        console.log(`[approve] Querying CRAS table with formula: ${formula.substring(0, 100)}...`);
         const existingRecords = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE)
           .select({ filterByFormula: formula, maxRecords: 1 })
           .firstPage();
         
+        console.log(`[approve] Query returned ${existingRecords.length} record(s)`);
         if (existingRecords.length > 0) {
           const existingRecord = existingRecords[0];
           const batchRaw = existingRecord.fields[DELIVERY_BATCH_ID_FIELD];
@@ -107,8 +111,10 @@ export async function POST(req: NextRequest) {
             console.log(`[approve] ⚠️ deliveryBatchId field is empty or invalid in existing record:`, batchRaw);
           }
         } else {
-          console.log(`[approve] ⚠️ Could not find existing CRAS record to fetch deliveryBatchId`);
+          console.log(`[approve] ⚠️ Could not find existing CRAS record to fetch deliveryBatchId (token: ${token.substring(0, 10)}..., driveFileId: ${driveFileId.substring(0, 20)}...)`);
         }
+      } else {
+        console.log(`[approve] ⚠️ Could not resolve project for token, skipping deliveryBatchId fetch`);
       }
     } catch (fetchErr) {
       const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
@@ -120,6 +126,8 @@ export async function POST(req: NextRequest) {
   } else {
     console.log(`[approve] Using deliveryBatchId from request: ${finalDeliveryBatchId}`);
   }
+  
+  console.log(`[approve] Final deliveryBatchId after fetch: ${finalDeliveryBatchId || 'undefined'}`);
 
   const result = await setSingleAssetApprovedClient({
     token,
