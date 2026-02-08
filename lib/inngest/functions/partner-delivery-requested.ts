@@ -39,6 +39,15 @@ export const partnerDeliveryRequested = inngest.createFunction(
   },
   { event: 'partner.delivery.requested' },
   async ({ event, step }) => {
+    // FIRST-LINE log (must be first statement)
+    console.log(`[inngest/partnerDelivery] START`, {
+      requestId: event.data?.requestId,
+      name: event.name,
+      crasRecordId: event.data?.crasRecordId,
+      deliveryBatchId: event.data?.batchId,
+      eventId: event.id,
+    });
+    
     const { crasRecordId, batchId, requestId, triggeredBy } = event.data;
     // Log execution trace: eventId is unique per execution (retries get new eventId)
     console.log(`[delivery-run] fn=partner-delivery-requested event=${event.name} eventId=${event.id} cras=${crasRecordId}`);
@@ -117,6 +126,14 @@ export const partnerDeliveryRequested = inngest.createFunction(
         }
 
         console.log(`[partner-delivery-requested] Resolved: sourceFolderId=${sourceFolderId}, destinationFolderId=${destinationFolderId}`);
+        
+        // Log before calling delivery
+        console.log(`[inngest/partnerDelivery] calling delivery`, {
+          requestId,
+          crasRecordId,
+          deliveryBatchId: deliveryBatchIdRaw,
+        });
+        
         console.log(`[partner-delivery-requested] About to call runPartnerDelivery:`, {
           crasRecordId,
           sourceFolderId,

@@ -42,18 +42,37 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Send Inngest event to trigger delivery
-    await inngest.send({
+    const finalRequestId = requestId || `approved-${Date.now().toString(36)}-${crasRecordId.slice(-8)}`;
+    const eventPayload = {
       name: 'partner.delivery.requested',
       data: {
         crasRecordId,
         batchId: deliveryBatchId,
-        requestId: requestId || `approved-${Date.now().toString(36)}-${crasRecordId.slice(-8)}`,
+        requestId: finalRequestId,
         triggeredBy: 'approval',
       },
+    };
+    
+    // Log the exact event name and payload keys before sending
+    console.log(`[delivery/partner/approved] sending event`, {
+      name: eventPayload.name,
+      requestId: finalRequestId,
+      crasRecordId,
+      deliveryBatchId,
+      dataKeys: Object.keys(eventPayload.data),
+    });
+    
+    // Send Inngest event to trigger delivery
+    const res = await inngest.send(eventPayload);
+    
+    // Log the result of inngest.send()
+    console.log(`[delivery/partner/approved] send result`, {
+      requestId: finalRequestId,
+      resType: typeof res,
+      resKeys: res ? Object.keys(res) : [],
+      resValue: res ? JSON.stringify(res).slice(0, 200) : null,
     });
 
-    const finalRequestId = requestId || `approved-${Date.now().toString(36)}-${crasRecordId.slice(-8)}`;
     console.log(`[delivery/partner/approved] Event sent for CRAS record ${crasRecordId}, requestId=${finalRequestId}`);
 
     return NextResponse.json(

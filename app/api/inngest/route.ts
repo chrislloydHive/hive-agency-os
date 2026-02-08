@@ -58,21 +58,19 @@ const registeredFunctions = [
   partnerDeliveryRequested,
 ];
 
-// Log registered functions at boot (temporary verification)
+// Log registered functions at boot (once per process)
 if (typeof window === 'undefined') {
-  console.log('[inngest/route] Registered Inngest functions:', registeredFunctions.map(f => {
+  const functionIds = registeredFunctions.map(f => {
     const id = typeof f.id === 'function' ? f.id() : (f.id || f.name || 'unknown');
     return id;
-  }).join(', '));
-  console.log('[inngest/route] Delivery functions:', registeredFunctions.filter(f => {
-    const id = typeof f.id === 'function' ? f.id() : (f.id || f.name || '');
-    const name = f.name || '';
-    return (typeof id === 'string' && (id.includes('delivery') || id.includes('Delivery'))) ||
-           (typeof name === 'string' && (name.includes('delivery') || name.includes('Delivery')));
-  }).map(f => {
-    const id = typeof f.id === 'function' ? f.id() : (f.id || f.name || 'unknown');
-    return id;
-  }).join(', '));
+  });
+  console.log('[inngest/route] registered', functionIds);
+  
+  // Check if partner delivery function is registered
+  const hasPartnerDelivery = functionIds.some(id => 
+    typeof id === 'string' && (id.includes('partner-delivery') || id.includes('partnerDelivery'))
+  );
+  console.log('[inngest/route] partner-delivery-requested registered?', hasPartnerDelivery);
 }
 
 const handlers = serve({
