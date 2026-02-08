@@ -99,6 +99,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(payload, { status: 500, headers: NO_STORE });
   }
 
+  // Trigger delivery via event-driven endpoint for all approved records (if deliveryBatchId is set)
+  if (deliveryBatchId && toUpdate.length > 0) {
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+      // Fire-and-forget: trigger delivery for each record
+      toUpdate.forEach((recordId) => {
+        fetch(`${baseUrl}/api/delivery/partner/approved`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            crasRecordId: recordId,
+            batchId: deliveryBatchId,
+          }),
+        }).catch((err) => {
+          console.error(`[bulk-approve] Failed to trigger delivery for ${recordId}:`, err);
+        });
+      });
+    } catch (err) {
+      // Non-blocking: log error but don't fail the approval
+      console.error('[bulk-approve] Error triggering deliveries:', err);
+    }
+  }
+
   return NextResponse.json(
     { ok: true, approved: result.updated, alreadyApproved },
     { headers: NO_STORE }

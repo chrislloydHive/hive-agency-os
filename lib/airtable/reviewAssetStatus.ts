@@ -824,8 +824,8 @@ export interface SetSingleAssetApprovedClientArgs {
 export async function setSingleAssetApprovedClient(
   args: SetSingleAssetApprovedClientArgs
 ): Promise<
-  | { ok: true }
-  | { alreadyApproved: true }
+  | { ok: true; recordId: string }
+  | { alreadyApproved: true; recordId: string }
   | { error: string; airtableError?: unknown }
 > {
   const { token, driveFileId, approvedAt, approvedByName, approvedByEmail, deliveryBatchId } = args;
@@ -834,7 +834,7 @@ export async function setSingleAssetApprovedClient(
     return { error: 'Record not found' };
   }
   if (parseAssetApprovedClient(existing.fields[ASSET_APPROVED_CLIENT_FIELD])) {
-    return { alreadyApproved: true };
+    return { alreadyApproved: true, recordId: existing.id };
   }
   const osBase = getBase();
   const fields: Record<string, unknown> = {
@@ -855,7 +855,7 @@ export async function setSingleAssetApprovedClient(
   }
   try {
     await osBase(TABLE).update(existing.id, fields as any);
-    return { ok: true };
+    return { ok: true, recordId: existing.id };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { error: message, airtableError: err };

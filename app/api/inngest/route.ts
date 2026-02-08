@@ -27,7 +27,7 @@ import {
   weeklyBriefMonday,
   weeklyBriefOnDemand,
 } from '@/lib/inngest/functions/weekly-brief';
-import { runPendingDeliveriesScheduled } from '@/lib/inngest/functions/run-pending-deliveries';
+import { partnerDeliveryRequested } from '@/lib/inngest/functions/partner-delivery-requested';
 
 // Get the serve handlers
 const handlers = serve({
@@ -56,8 +56,8 @@ const handlers = serve({
     // Weekly Brief Generation
     weeklyBriefMonday,
     weeklyBriefOnDemand,
-    // Partner delivery: process CRAS Ready to Deliver (Webhook) without Airtable fetch
-    runPendingDeliveriesScheduled,
+    // Partner delivery: event-driven (triggered on approval)
+    partnerDeliveryRequested,
   ],
 });
 

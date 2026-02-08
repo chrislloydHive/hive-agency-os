@@ -80,10 +80,49 @@ export async function POST(req: NextRequest) {
   }
 
   if ('alreadyApproved' in result) {
+    // Still trigger delivery if batchId is set (idempotency will handle duplicates)
+    if (deliveryBatchId && 'recordId' in result) {
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+        fetch(`${baseUrl}/api/delivery/partner/approved`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            crasRecordId: result.recordId,
+            batchId: deliveryBatchId,
+          }),
+        }).catch((err) => {
+          console.error('[approve] Failed to trigger delivery (already approved):', err);
+        });
+      } catch (err) {
+        console.error('[approve] Error triggering delivery (already approved):', err);
+      }
+    }
     return NextResponse.json(
       { ok: true, alreadyApproved: true },
       { headers: NO_STORE }
     );
+  }
+
+  // Trigger delivery via event-driven endpoint (if deliveryBatchId is set)
+  if (deliveryBatchId && 'recordId' in result) {
+    try {
+      // Fire-and-forget: call delivery endpoint asynchronously
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+      fetch(`${baseUrl}/api/delivery/partner/approved`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          crasRecordId: result.recordId,
+          batchId: deliveryBatchId,
+        }),
+      }).catch((err) => {
+        console.error('[approve] Failed to trigger delivery:', err);
+      });
+    } catch (err) {
+      // Non-blocking: log error but don't fail the approval
+      console.error('[approve] Error triggering delivery:', err);
+    }
   }
 
   return NextResponse.json({ ok: true }, { headers: NO_STORE });
