@@ -11,14 +11,13 @@ export const partnerDeliveryProbe = inngest.createFunction(
   },
   { event: 'partner.delivery.requested' },
   async ({ event }) => {
-    // Log immediately when function is invoked
-    console.log(`[inngest/probe] received`, {
+    // First line log - must be first statement
+    console.log(`[inngest/probe] RECEIVED`, {
       name: event.name,
       requestId: event.data?.requestId,
       crasRecordId: event.data?.crasRecordId,
       batchId: event.data?.batchId,
       triggeredBy: event.data?.triggeredBy,
-      eventId: event.id,
     });
     
     // Return immediately - do nothing else
