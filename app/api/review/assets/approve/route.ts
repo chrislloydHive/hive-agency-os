@@ -116,8 +116,9 @@ export async function POST(req: NextRequest) {
         console.log(`[approve] ⚠️ deliveryBatchId field is still empty/null AFTER approval:`, batchRaw);
         
         // Fallback: Try fetching from Project record (automation might be async)
-        const projectField = record.fields['Project'] as string[] | string | undefined;
-        const projectId = Array.isArray(projectField) ? projectField[0] : (typeof projectField === 'string' ? projectField : undefined);
+        // Use resolved.project.recordId directly (we already have it from earlier)
+        const projectId = resolved?.project?.recordId;
+        console.log(`[approve] Using projectId from resolved project:`, projectId);
         if (projectId) {
           console.log(`[approve] Attempting fallback: fetching Delivery Batch ID from Project record ${projectId}`);
           try {
