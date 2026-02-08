@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     console.log(`[delivery/partner/approved] Event sent for CRAS record ${crasRecordId}, requestId=${requestId}`);
 
     return NextResponse.json(
-      { ok: true, requestId },
+      { ok: true, requestId, crasRecordId, batchId },
       { headers: NO_STORE }
     );
   } catch (err) {

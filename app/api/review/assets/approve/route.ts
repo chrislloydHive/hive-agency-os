@@ -254,9 +254,15 @@ export async function POST(req: NextRequest) {
             batchId: finalDeliveryBatchId,
             requestId,
           }),
-        }).catch((err) => {
-          console.error('[approve] Failed to trigger delivery (already approved):', err);
-        });
+        })
+          .then(async (res) => {
+            const text = await res.text();
+            const textPreview = text.length > 500 ? text.substring(0, 500) + '...' : text;
+            console.log(`[approve] delivery endpoint response`, { requestId, status: res.status, ok: res.ok, textPreview });
+          })
+          .catch((err) => {
+            console.error('[approve] Failed to trigger delivery (already approved):', err);
+          });
       } catch (err) {
         console.error('[approve] Error triggering delivery (already approved):', err);
       }
@@ -286,11 +292,8 @@ export async function POST(req: NextRequest) {
       })
         .then(async (res) => {
           const text = await res.text();
-          if (res.ok) {
-            console.log(`[approve] Delivery triggered successfully: ${text}`);
-          } else {
-            console.error(`[approve] Delivery endpoint returned ${res.status}: ${text}`);
-          }
+          const textPreview = text.length > 500 ? text.substring(0, 500) + '...' : text;
+          console.log(`[approve] delivery endpoint response`, { requestId, status: res.status, ok: res.ok, textPreview });
         })
         .catch((err) => {
           console.error('[approve] Failed to trigger delivery:', err);
