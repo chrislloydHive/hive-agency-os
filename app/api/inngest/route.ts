@@ -60,11 +60,19 @@ const registeredFunctions = [
 
 // Log registered functions at boot (temporary verification)
 if (typeof window === 'undefined') {
-  console.log('[inngest/route] Registered Inngest functions:', registeredFunctions.map(f => f.id || f.name || 'unknown').join(', '));
+  console.log('[inngest/route] Registered Inngest functions:', registeredFunctions.map(f => {
+    const id = typeof f.id === 'function' ? f.id() : (f.id || f.name || 'unknown');
+    return id;
+  }).join(', '));
   console.log('[inngest/route] Delivery functions:', registeredFunctions.filter(f => {
-    const id = f.id || '';
-    return id.includes('delivery') || id.includes('Delivery');
-  }).map(f => f.id || f.name || 'unknown').join(', '));
+    const id = typeof f.id === 'function' ? f.id() : (f.id || f.name || '');
+    const name = f.name || '';
+    return (typeof id === 'string' && (id.includes('delivery') || id.includes('Delivery'))) ||
+           (typeof name === 'string' && (name.includes('delivery') || name.includes('Delivery')));
+  }).map(f => {
+    const id = typeof f.id === 'function' ? f.id() : (f.id || f.name || 'unknown');
+    return id;
+  }).join(', '));
 }
 
 const handlers = serve({
