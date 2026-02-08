@@ -244,9 +244,11 @@ export async function POST(req: NextRequest) {
   if ('alreadyApproved' in result) {
     // Still trigger delivery if batchId is set (idempotency will handle duplicates)
     if (finalDeliveryBatchId && 'recordId' in result) {
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+      const deliveryUrl = `${baseUrl}/api/delivery/partner/approved`;
+      console.log(`[approve] about to call delivery endpoint`, { requestId, url: deliveryUrl });
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-        fetch(`${baseUrl}/api/delivery/partner/approved`, {
+        const res = await fetch(deliveryUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -254,18 +256,13 @@ export async function POST(req: NextRequest) {
             batchId: finalDeliveryBatchId,
             requestId,
           }),
-        })
-          .then(async (res) => {
-            const text = await res.text();
-            const textPreview = text.length > 500 ? text.substring(0, 500) + '...' : text;
-            console.log(`[approve] delivery endpoint response`, { requestId, status: res.status, ok: res.ok, textPreview });
-          })
-          .catch((err) => {
-            console.error('[approve] Failed to trigger delivery (already approved):', err);
-          });
+        });
+        const text = await res.text().catch(() => '');
+        console.log(`[approve] delivery endpoint response`, { requestId, status: res.status, ok: res.ok, text: text.slice(0, 500) });
       } catch (err) {
-        console.error('[approve] Error triggering delivery (already approved):', err);
+        console.log(`[approve] delivery endpoint fetch failed`, { requestId, err: err instanceof Error ? err.message : String(err) });
       }
+      console.log(`[approve] after calling delivery endpoint`, { requestId });
     }
     return NextResponse.json(
       { ok: true, alreadyApproved: true },
@@ -275,13 +272,11 @@ export async function POST(req: NextRequest) {
 
   // Trigger delivery via event-driven endpoint (if deliveryBatchId is set)
   if (finalDeliveryBatchId && 'recordId' in result) {
-    console.log(`[approve] Triggering delivery: crasRecordId=${result.recordId}, batchId=${finalDeliveryBatchId}`);
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+    const deliveryUrl = `${baseUrl}/api/delivery/partner/approved`;
+    console.log(`[approve] about to call delivery endpoint`, { requestId, url: deliveryUrl });
     try {
-      // Fire-and-forget: call delivery endpoint asynchronously
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-      const deliveryUrl = `${baseUrl}/api/delivery/partner/approved`;
-      console.log(`[approve] Calling delivery endpoint: ${deliveryUrl}`);
-      fetch(deliveryUrl, {
+      const res = await fetch(deliveryUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -289,19 +284,13 @@ export async function POST(req: NextRequest) {
           batchId: finalDeliveryBatchId,
           requestId,
         }),
-      })
-        .then(async (res) => {
-          const text = await res.text();
-          const textPreview = text.length > 500 ? text.substring(0, 500) + '...' : text;
-          console.log(`[approve] delivery endpoint response`, { requestId, status: res.status, ok: res.ok, textPreview });
-        })
-        .catch((err) => {
-          console.error('[approve] Failed to trigger delivery:', err);
-        });
+      });
+      const text = await res.text().catch(() => '');
+      console.log(`[approve] delivery endpoint response`, { requestId, status: res.status, ok: res.ok, text: text.slice(0, 500) });
     } catch (err) {
-      // Non-blocking: log error but don't fail the approval
-      console.error('[approve] Error triggering delivery:', err);
+      console.log(`[approve] delivery endpoint fetch failed`, { requestId, err: err instanceof Error ? err.message : String(err) });
     }
+    console.log(`[approve] after calling delivery endpoint`, { requestId });
   } else {
     if (!finalDeliveryBatchId) {
       console.log(`[approve] No deliveryBatchId available (not in request and not in record), skipping delivery trigger`);
