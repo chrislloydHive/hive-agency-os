@@ -281,6 +281,46 @@ function buildDeliveryUpdate(
   return { fieldsToWrite, written, skipped };
 }
 
+/**
+ * Build fields for direct REST update (fallback when schema fetch fails).
+ * Uses known field names from DELIVERY_FIELD_ALIASES.
+ */
+function buildDeliveryUpdateFallback(
+  payload: DeliveryWritePayload
+): Record<string, unknown> {
+  const fieldsToWrite: Record<string, unknown> = {};
+
+  if (payload.kind === 'success') {
+    // Try known field names directly (first alias from DELIVERY_FIELD_ALIASES)
+    fieldsToWrite['Delivery Status'] = payload.deliveryStatus;
+    if (payload.deliveryError) {
+      fieldsToWrite['Delivery Error'] = payload.deliveryError;
+    }
+    fieldsToWrite['Delivered At'] = payload.deliveredAt;
+    fieldsToWrite['Delivered'] = payload.deliveredCheckbox;
+    fieldsToWrite['Delivered Folder ID'] = payload.deliveredFolderId;
+    fieldsToWrite['Delivered Folder URL'] = payload.deliveredFolderUrl;
+    fieldsToWrite['Delivery Summary'] = payload.deliverySummary;
+    if (payload.readyToDeliverWebhook === false) {
+      fieldsToWrite['Ready to Deliver (Webhook)'] = false;
+    }
+    if (payload.deliveryFilesCount !== undefined) {
+      fieldsToWrite['Delivery Files Count'] = payload.deliveryFilesCount;
+    }
+    if (payload.deliveryFoldersCount !== undefined) {
+      fieldsToWrite['Delivery Folders Count'] = payload.deliveryFoldersCount;
+    }
+    if (payload.deliveryFailures !== undefined) {
+      fieldsToWrite['Delivery Failures'] = payload.deliveryFailures;
+    }
+  } else {
+    fieldsToWrite['Delivery Status'] = payload.deliveryStatus;
+    fieldsToWrite['Delivery Error'] = payload.deliveryError;
+  }
+
+  return fieldsToWrite;
+}
+
 export interface WriteDeliveryResult {
   ok: boolean;
   written: string[];
@@ -298,20 +338,37 @@ export async function writeDeliveryToRecord(
   payload: DeliveryWritePayload
 ): Promise<WriteDeliveryResult> {
   const baseId = getBaseId();
-  let schema: { fields: Map<string, TableFieldMeta>; writableNames: Set<string> };
+  let schema: { fields: Map<string, TableFieldMeta>; writableNames: Set<string> } | null = null;
+  let useFallback = false;
 
   try {
     schema = await getTableSchema(baseId, tableName);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn('[deliveryWriteBack] Schema fetch failed, skipping write:', message);
-    return { ok: false, written: [], skipped: [], error: message };
+    console.warn('[deliveryWriteBack] Schema fetch failed, using fallback direct update:', message);
+    useFallback = true;
   }
 
-  const { fieldsToWrite, written, skipped } = buildDeliveryUpdate(tableName, payload, schema);
+  let fieldsToWrite: Record<string, unknown>;
+  let written: string[];
+  let skipped: { field: string; reason: string }[];
 
-  if (skipped.length > 0) {
-    console.log('[deliveryWriteBack] Skipped fields:', skipped.map((s) => `${s.field}: ${s.reason}`).join('; '));
+  if (useFallback || !schema) {
+    // Fallback: use known field names directly
+    fieldsToWrite = buildDeliveryUpdateFallback(payload);
+    written = Object.keys(fieldsToWrite);
+    skipped = [];
+    console.log('[deliveryWriteBack] Using fallback direct update (no schema fetch)');
+  } else {
+    // Normal path: use schema-aware alias resolution
+    const result = buildDeliveryUpdate(tableName, payload, schema);
+    fieldsToWrite = result.fieldsToWrite;
+    written = result.written;
+    skipped = result.skipped;
+
+    if (skipped.length > 0) {
+      console.log('[deliveryWriteBack] Skipped fields:', skipped.map((s) => `${s.field}: ${s.reason}`).join('; '));
+    }
   }
 
   if (Object.keys(fieldsToWrite).length === 0) {

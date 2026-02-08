@@ -424,6 +424,10 @@ export async function runPartnerDelivery(
       driveId: destMeta.driveId ?? 'null (My Drive)',
       parents: destMeta.parents ?? null,
     });
+    
+    // Drive context log: compare source and destination drive locations
+    console.log(`[drive-context] SOURCE { id: ${sourceMeta.id}, driveId: ${sourceMeta.driveId ?? 'null (My Drive)'}, parents: ${JSON.stringify(sourceMeta.parents ?? null)} }`);
+    console.log(`[drive-context] DEST   { id: ${destMeta.id}, driveId: ${destMeta.driveId ?? 'null (My Drive)'}, parents: ${JSON.stringify(destMeta.parents ?? null)} }`);
   } catch (destError: any) {
     const statusCode = destError?.response?.status ?? destError?.code ?? 'unknown';
     const responseData = destError?.response?.data ?? destError?.errors ?? null;

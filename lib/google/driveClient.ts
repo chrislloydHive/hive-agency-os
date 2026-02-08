@@ -880,6 +880,32 @@ export async function copyFileToFolder(
     });
     const name = getRes.data.name ?? 'Copy';
 
+    // Idempotency check: check if file with same name already exists in destination
+    try {
+      const escapedName = name.replace(/'/g, "\\'");
+      const existingRes = await drive.files.list({
+        q: `'${destinationFolderId}' in parents and name = '${escapedName}' and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
+        fields: 'files(id, name, webViewLink)',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+        maxResults: 1,
+      });
+      const existingFiles = existingRes.data.files ?? [];
+      if (existingFiles.length > 0) {
+        const existing = existingFiles[0];
+        console.log(`[delivery] skipping copy; already exists: name="${name}", destFolderId=${destinationFolderId}, existingId=${existing.id}`);
+        const url = existing.webViewLink && existing.webViewLink.trim() ? existing.webViewLink : documentUrl(existing.id!, undefined);
+        return {
+          id: existing.id!,
+          name: existing.name ?? name,
+          url,
+        };
+      }
+    } catch (checkError) {
+      // If idempotency check fails, continue with copy (non-critical)
+      console.warn(`[delivery] Idempotency check failed, proceeding with copy:`, checkError instanceof Error ? checkError.message : String(checkError));
+    }
+
     const response = await drive.files.copy({
       fileId: sourceFileId,
       requestBody: {
@@ -1009,16 +1035,48 @@ export async function copyDriveFolderTree(
 
       if (mimeType === FOLDER_MIMETYPE) {
         try {
-          const createChild = await drive.files.create({
-            requestBody: {
-              name: item.name ?? 'Untitled folder',
-              mimeType: FOLDER_MIMETYPE,
-              parents: [destParentId],
-            },
-            fields: 'id',
-            supportsAllDrives: true,
-          });
-          const newFolderId = createChild.data.id!;
+          // Idempotency check: check if folder with same name already exists
+          const folderName = item.name ?? 'Untitled folder';
+          const escapedName = folderName.replace(/'/g, "\\'");
+          let newFolderId: string;
+          try {
+            const existingRes = await drive.files.list({
+              q: `'${destParentId}' in parents and name = '${escapedName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+              fields: 'files(id, name)',
+              supportsAllDrives: true,
+              includeItemsFromAllDrives: true,
+              maxResults: 1,
+            });
+            const existingFolders = existingRes.data.files ?? [];
+            if (existingFolders.length > 0) {
+              newFolderId = existingFolders[0].id!;
+              console.log(`[delivery] skipping copy; already exists: folder name="${folderName}", destFolderId=${destParentId}, existingId=${newFolderId}`);
+            } else {
+              const createChild = await drive.files.create({
+                requestBody: {
+                  name: folderName,
+                  mimeType: FOLDER_MIMETYPE,
+                  parents: [destParentId],
+                },
+                fields: 'id',
+                supportsAllDrives: true,
+              });
+              newFolderId = createChild.data.id!;
+            }
+          } catch (checkError) {
+            // If idempotency check fails, create folder anyway (non-critical)
+            console.warn(`[delivery] Idempotency check failed for folder "${folderName}", creating anyway:`, checkError instanceof Error ? checkError.message : String(checkError));
+            const createChild = await drive.files.create({
+              requestBody: {
+                name: folderName,
+                mimeType: FOLDER_MIMETYPE,
+                parents: [destParentId],
+              },
+              fields: 'id',
+              supportsAllDrives: true,
+            });
+            newFolderId = createChild.data.id!;
+          }
           foldersCreated++;
           await recurse(id, newFolderId);
         } catch (e) {
@@ -1035,13 +1093,38 @@ export async function copyDriveFolderTree(
       }
 
       try {
-        await drive.files.copy({
-          fileId: fileIdToCopy,
-          requestBody: { parents: [destParentId] },
-          fields: 'id',
-          supportsAllDrives: true,
-        });
-        filesCopied++;
+        // Idempotency check: check if file with same name already exists
+        const fileName = name ?? 'Untitled';
+        const escapedName = fileName.replace(/'/g, "\\'");
+        let shouldCopy = true;
+        try {
+          const existingRes = await drive.files.list({
+            q: `'${destParentId}' in parents and name = '${escapedName}' and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
+            fields: 'files(id, name)',
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true,
+            maxResults: 1,
+          });
+          const existingFiles = existingRes.data.files ?? [];
+          if (existingFiles.length > 0) {
+            console.log(`[delivery] skipping copy; already exists: file name="${fileName}", destFolderId=${destParentId}, existingId=${existingFiles[0].id}`);
+            shouldCopy = false;
+            filesCopied++; // Count as copied for stats
+          }
+        } catch (checkError) {
+          // If idempotency check fails, continue with copy (non-critical)
+          console.warn(`[delivery] Idempotency check failed for file "${fileName}", copying anyway:`, checkError instanceof Error ? checkError.message : String(checkError));
+        }
+        
+        if (shouldCopy) {
+          await drive.files.copy({
+            fileId: fileIdToCopy,
+            requestBody: { parents: [destParentId] },
+            fields: 'id',
+            supportsAllDrives: true,
+          });
+          filesCopied++;
+        }
       } catch (e) {
         const reason = e instanceof Error ? e.message : String(e);
         console.warn(`[Drive/copyFolderTree] Failed to copy file ${id}:`, reason);
