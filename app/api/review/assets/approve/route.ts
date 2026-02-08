@@ -89,20 +89,35 @@ export async function POST(req: NextRequest) {
   // Resolve deliveryBatchId: use provided value, or fetch from CRAS record if missing
   let finalDeliveryBatchId = deliveryBatchId;
   if (!finalDeliveryBatchId && 'recordId' in result) {
+    console.log(`[approve] deliveryBatchId not in request, fetching from CRAS record ${result.recordId}`);
     try {
       const base = getBase();
       const record = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(result.recordId);
+      console.log(`[approve] Fetched CRAS record, checking field "${DELIVERY_BATCH_ID_FIELD}"`);
       const batchRaw = record.fields[DELIVERY_BATCH_ID_FIELD];
+      console.log(`[approve] Raw batch field value:`, batchRaw, `type:`, typeof batchRaw, `isArray:`, Array.isArray(batchRaw));
+      
       if (Array.isArray(batchRaw) && batchRaw.length > 0 && typeof batchRaw[0] === 'string') {
         finalDeliveryBatchId = (batchRaw[0] as string).trim();
+        console.log(`[approve] Extracted deliveryBatchId from array: ${finalDeliveryBatchId}`);
       } else if (typeof batchRaw === 'string' && batchRaw.trim()) {
         finalDeliveryBatchId = (batchRaw as string).trim();
+        console.log(`[approve] Extracted deliveryBatchId from string: ${finalDeliveryBatchId}`);
+      } else {
+        console.log(`[approve] deliveryBatchId field is empty or invalid:`, batchRaw);
       }
+      
       if (finalDeliveryBatchId) {
-        console.log(`[approve] Fetched deliveryBatchId from record: ${finalDeliveryBatchId}`);
+        console.log(`[approve] ✅ Successfully fetched deliveryBatchId from record: ${finalDeliveryBatchId}`);
+      } else {
+        console.log(`[approve] ⚠️ deliveryBatchId field exists but is empty/null in CRAS record ${result.recordId}`);
       }
     } catch (fetchErr) {
-      console.warn(`[approve] Failed to fetch deliveryBatchId from record:`, fetchErr);
+      const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      console.error(`[approve] ❌ Failed to fetch deliveryBatchId from record ${result.recordId}:`, errMsg);
+      if (fetchErr instanceof Error && fetchErr.stack) {
+        console.error(`[approve] Error stack:`, fetchErr.stack);
+      }
     }
   }
 
