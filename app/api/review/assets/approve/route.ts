@@ -102,18 +102,45 @@ export async function POST(req: NextRequest) {
     try {
       const base = getBase();
       const record = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(result.recordId);
-      const batchRaw = record.fields[DELIVERY_BATCH_ID_FIELD];
-      console.log(`[approve] Fetched CRAS record ${result.recordId} after approval, checking field "${DELIVERY_BATCH_ID_FIELD}"`);
-      console.log(`[approve] Raw batch field value:`, batchRaw, `type:`, typeof batchRaw, `isArray:`, Array.isArray(batchRaw));
+      const fields = record.fields as Record<string, unknown>;
       
-      if (Array.isArray(batchRaw) && batchRaw.length > 0 && typeof batchRaw[0] === 'string') {
-        finalDeliveryBatchId = (batchRaw[0] as string).trim();
-        console.log(`[approve] ✅ Extracted deliveryBatchId from array AFTER approval: ${finalDeliveryBatchId}`);
-      } else if (typeof batchRaw === 'string' && batchRaw.trim()) {
-        finalDeliveryBatchId = (batchRaw as string).trim();
-        console.log(`[approve] ✅ Extracted deliveryBatchId from string AFTER approval: ${finalDeliveryBatchId}`);
-      } else {
-        console.log(`[approve] ⚠️ deliveryBatchId field is still empty/null AFTER approval:`, batchRaw);
+      // First check: "Partner Delivery Batch" linked record on CRAS
+      const partnerBatchLink = fields['Partner Delivery Batch'] as string[] | undefined;
+      console.log(`[approve] CRAS Partner Delivery Batch link:`, partnerBatchLink, `type:`, typeof partnerBatchLink, `isArray:`, Array.isArray(partnerBatchLink));
+      if (Array.isArray(partnerBatchLink) && partnerBatchLink.length > 0) {
+        const batchRecordId = partnerBatchLink[0];
+        console.log(`[approve] Found CRAS Partner Delivery Batch link: ${batchRecordId}`);
+        try {
+          const { AIRTABLE_TABLES: TABLES } = await import('@/lib/airtable/tables');
+          const batchRecord = await base(TABLES.PARTNER_DELIVERY_BATCHES).find(batchRecordId);
+          const batchFields = batchRecord.fields as Record<string, unknown>;
+          const batchId = typeof batchFields['Batch ID'] === 'string' ? (batchFields['Batch ID'] as string).trim() : null;
+          if (batchId) {
+            finalDeliveryBatchId = batchId;
+            console.log(`[approve] ✅ Extracted deliveryBatchId from CRAS Partner Delivery Batch link: ${finalDeliveryBatchId}`);
+          } else {
+            console.log(`[approve] ⚠️ CRAS Partner Delivery Batch record ${batchRecordId} has no Batch ID field`);
+          }
+        } catch (batchErr) {
+          const batchErrMsg = batchErr instanceof Error ? batchErr.message : String(batchErr);
+          console.error(`[approve] ❌ Failed to fetch Batch ID from CRAS Partner Delivery Batch link:`, batchErrMsg);
+        }
+      }
+      
+      // Second check: "Delivery Batch ID" text field on CRAS (if not found via link)
+      if (!finalDeliveryBatchId) {
+        const batchRaw = fields[DELIVERY_BATCH_ID_FIELD];
+        console.log(`[approve] Fetched CRAS record ${result.recordId} after approval, checking field "${DELIVERY_BATCH_ID_FIELD}"`);
+        console.log(`[approve] Raw batch field value:`, batchRaw, `type:`, typeof batchRaw, `isArray:`, Array.isArray(batchRaw));
+        
+        if (Array.isArray(batchRaw) && batchRaw.length > 0 && typeof batchRaw[0] === 'string') {
+          finalDeliveryBatchId = (batchRaw[0] as string).trim();
+          console.log(`[approve] ✅ Extracted deliveryBatchId from CRAS array AFTER approval: ${finalDeliveryBatchId}`);
+        } else if (typeof batchRaw === 'string' && batchRaw.trim()) {
+          finalDeliveryBatchId = (batchRaw as string).trim();
+          console.log(`[approve] ✅ Extracted deliveryBatchId from CRAS string AFTER approval: ${finalDeliveryBatchId}`);
+        } else {
+          console.log(`[approve] ⚠️ CRAS Delivery Batch ID field is still empty/null AFTER approval:`, batchRaw);
         
         // Fallback: Try fetching from Project record (automation might be async)
         // Use resolved.project.recordId directly (we already have it from earlier)
