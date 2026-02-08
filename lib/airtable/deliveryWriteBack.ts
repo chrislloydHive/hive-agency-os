@@ -402,8 +402,9 @@ export async function writeDeliveryToRecord(
       // Find the Delivered At field alias that was written
       let deliveredAtAlias: string | null = null;
       let deliveredAtValue: string | null = null;
+      const deliveredAtAliases = DELIVERY_FIELD_ALIASES.deliveredAt as readonly string[];
       for (const fieldName of Object.keys(fieldsToWrite)) {
-        if (fieldName === 'Delivered At' || DELIVERY_FIELD_ALIASES.deliveredAt.includes(fieldName)) {
+        if (fieldName === 'Delivered At' || deliveredAtAliases.includes(fieldName as any)) {
           deliveredAtAlias = fieldName;
           deliveredAtValue = String(fieldsToWrite[fieldName]);
           break;
