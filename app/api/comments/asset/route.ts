@@ -3,7 +3,7 @@
 // Creates and reads comments from the canonical Comments table with Target Type = "Asset".
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getCommentsBase } from '@/lib/airtable';
+import { getBase, getCommentsBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { createRecord } from '@/lib/airtable/client';
