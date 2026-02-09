@@ -7,6 +7,13 @@ import { inngest } from '@/lib/inngest/client';
 
 export const dynamic = 'force-dynamic';
 
+// TEMP instrumentation: Log Inngest config when endpoint is called
+console.log('[delivery/partner/approved] Inngest config check', {
+  hasEventKey: Boolean(process.env.INNGEST_EVENT_KEY),
+  eventKeyPrefix: process.env.INNGEST_EVENT_KEY?.slice(0, 8) ?? null,
+  clientId: 'hive-agency-os',
+});
+
 const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 
 // GET handler for debugging/verification

@@ -57,3 +57,14 @@ export const inngest = new Inngest({
   eventKey: process.env.INNGEST_EVENT_KEY,
   middleware: [vercelOidcMiddleware],
 });
+
+// TEMP instrumentation: Log Inngest config at boot (once per process)
+if (typeof window === 'undefined') {
+  console.log('[inngest/config]', {
+    hasEventKey: Boolean(process.env.INNGEST_EVENT_KEY),
+    eventKeyPrefix: process.env.INNGEST_EVENT_KEY?.slice(0, 8) ?? null,
+    hasSigningKey: Boolean(process.env.INNGEST_SIGNING_KEY),
+    signingKeyPrefix: process.env.INNGEST_SIGNING_KEY?.slice(0, 8) ?? null,
+    clientId: 'hive-agency-os',
+  });
+}
