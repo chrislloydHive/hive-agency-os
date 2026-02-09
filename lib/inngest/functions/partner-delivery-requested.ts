@@ -159,7 +159,7 @@ export const partnerDeliveryRequested = inngest.createFunction(
       batchId: event.data?.batchId ?? event.data?.deliveryBatchId,
     });
     
-    const { crasRecordId, batchId, requestId, triggeredBy } = event.data;
+    const { crasRecordId, batchId, batchRecordId: eventBatchRecordId, requestId, triggeredBy } = event.data;
     // Log execution trace: eventId is unique per execution (retries get new eventId)
     console.log(`[delivery-run] fn=partner-delivery-requested event=${event.name} eventId=${event.id} cras=${crasRecordId}`);
     console.log(`[delivery-trigger] approval-event: crasRecordId=${crasRecordId}, requestId=${requestId}, triggeredBy=${triggeredBy}`);
@@ -189,11 +189,16 @@ export const partnerDeliveryRequested = inngest.createFunction(
           };
         }
 
-        // Resolve destination folder from batch (use batchId from event, or fetch from record if needed)
-        let deliveryBatchIdRaw = batchId;
-        let batchRecordIdFromCras: string | null = null;
+        // Resolve destination folder from batch (use batchRecordId from event if available, then batchId, then fetch from record)
+        let deliveryBatchIdRaw = eventBatchRecordId || batchId;
+        let batchRecordIdFromCras: string | null = eventBatchRecordId || null;
         let projectIdFromCras: string | null = null;
-        if (!deliveryBatchIdRaw) {
+        
+        // If we have batchRecordId from event, use it directly
+        if (eventBatchRecordId && eventBatchRecordId.startsWith('rec')) {
+          batchRecordIdFromCras = eventBatchRecordId;
+          deliveryBatchIdRaw = eventBatchRecordId;
+        } else if (!deliveryBatchIdRaw) {
           // Fallback: fetch batch ID from Airtable record
           try {
             const base = getBase();

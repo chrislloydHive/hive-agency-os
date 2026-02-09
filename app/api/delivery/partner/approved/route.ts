@@ -4,6 +4,9 @@
 
 import { NextResponse } from 'next/server';
 import { inngest } from '@/lib/inngest/client';
+import { getBase } from '@/lib/airtable';
+import { CREATIVE_REVIEW_ASSET_STATUS_TABLE } from '@/lib/airtable/deliveryWriteBack';
+import { DELIVERY_BATCH_ID_FIELD } from '@/lib/airtable/reviewAssetStatus';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,16 +62,40 @@ export async function POST(req: Request) {
   }
 
   try {
+    // Fetch CRAS record to get batchRecordId from linked "Partner Delivery Batch" field
+    let batchRecordId: string | undefined = undefined;
+    try {
+      const base = getBase();
+      const crasRecord = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
+      const batchField = crasRecord.fields[DELIVERY_BATCH_ID_FIELD];
+      
+      // Check if it's a linked record (array of record IDs)
+      if (Array.isArray(batchField) && batchField.length > 0) {
+        const firstLink = batchField[0];
+        if (typeof firstLink === 'string' && firstLink.startsWith('rec')) {
+          batchRecordId = firstLink;
+        } else if (typeof firstLink === 'object' && firstLink !== null && 'id' in firstLink) {
+          batchRecordId = (firstLink as { id: string }).id;
+        }
+      }
+    } catch (fetchErr) {
+      console.warn(`[delivery/partner/approved] Failed to fetch CRAS record for batchRecordId:`, fetchErr);
+      // Continue without batchRecordId - fallback resolution will handle it
+    }
+
     const finalRequestId = requestId || `approved-${Date.now().toString(36)}-${crasRecordId.slice(-8)}`;
     const eventPayload = {
       name: 'partner.delivery.requested',
       data: {
         crasRecordId,
         batchId: deliveryBatchId,
+        batchRecordId,
         requestId: finalRequestId,
         triggeredBy: 'approval',
       },
     };
+    
+    console.log("[delivery/approved] emit", { crasRecordId, batchId: deliveryBatchId, batchRecordId });
     
     // Log the exact event name and payload keys before sending
     console.log(`[delivery/partner/approved] sending event`, {
