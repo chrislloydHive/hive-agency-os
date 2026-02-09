@@ -453,7 +453,15 @@ function AssetCard({
   onToggleSelect?: () => void;
   onDownloadAsset?: (assetId: string) => void | Promise<void>;
 }) {
-  const src = `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
+  // For animated images (GIF, animated WebP), use Google Drive direct view URL for proper animation
+  // This format works better for animated images than proxying through our API
+  const isAnimatedImage = asset.mimeType === 'image/gif' || 
+    (asset.mimeType === 'image/webp' && asset.name.toLowerCase().includes('animated'));
+  const driveDirectUrl = isAnimatedImage 
+    ? `https://drive.google.com/uc?export=view&id=${asset.fileId}`
+    : null;
+  
+  const src = driveDirectUrl || `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
   const isImage = asset.mimeType.startsWith('image/');
   const isVideo = asset.mimeType.startsWith('video/');
   const isAudio = asset.mimeType.startsWith('audio/');
