@@ -67,20 +67,63 @@ export async function POST(req: Request) {
     try {
       const base = getBase();
       const crasRecord = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
-      const batchField = crasRecord.fields[DELIVERY_BATCH_ID_FIELD];
+      
+      // Log all fields to debug
+      console.log(`[delivery/partner/approved] CRAS record fields:`, {
+        crasRecordId,
+        fieldNames: Object.keys(crasRecord.fields),
+        hasDeliveryBatchId: DELIVERY_BATCH_ID_FIELD in crasRecord.fields,
+        hasPartnerDeliveryBatch: 'Partner Delivery Batch' in crasRecord.fields,
+      });
+      
+      // Try "Partner Delivery Batch" field first (as user specified)
+      let batchField = crasRecord.fields['Partner Delivery Batch'] as string[] | string | undefined;
+      const fieldName = 'Partner Delivery Batch';
+      
+      // Fall back to "Delivery Batch ID" if "Partner Delivery Batch" doesn't exist
+      if (!batchField) {
+        batchField = crasRecord.fields[DELIVERY_BATCH_ID_FIELD] as string[] | string | undefined;
+        console.log(`[delivery/partner/approved] Using fallback field "${DELIVERY_BATCH_ID_FIELD}"`);
+      }
+      
+      console.log(`[delivery/partner/approved] Batch field value:`, {
+        fieldName: batchField ? (batchField === crasRecord.fields['Partner Delivery Batch'] ? 'Partner Delivery Batch' : DELIVERY_BATCH_ID_FIELD) : 'none',
+        type: typeof batchField,
+        isArray: Array.isArray(batchField),
+        value: Array.isArray(batchField) ? batchField : batchField,
+      });
       
       // Check if it's a linked record (array of record IDs)
       if (Array.isArray(batchField) && batchField.length > 0) {
         const firstLink = batchField[0];
         if (typeof firstLink === 'string' && firstLink.startsWith('rec')) {
           batchRecordId = firstLink;
+          console.log(`[delivery/partner/approved] Extracted batchRecordId from linked field: ${batchRecordId}`);
         } else if (typeof firstLink === 'object' && firstLink !== null && 'id' in firstLink) {
           batchRecordId = (firstLink as { id: string }).id;
+          console.log(`[delivery/partner/approved] Extracted batchRecordId from linked object: ${batchRecordId}`);
         }
+      } else if (typeof batchField === 'string' && batchField.startsWith('rec')) {
+        // Handle case where field is a single string record ID
+        batchRecordId = batchField;
+        console.log(`[delivery/partner/approved] Extracted batchRecordId from string field: ${batchRecordId}`);
+      } else if (batchField) {
+        console.warn(`[delivery/partner/approved] Batch field exists but is not a linked record:`, {
+          type: typeof batchField,
+          value: batchField,
+        });
+      } else {
+        console.warn(`[delivery/partner/approved] No batch field found in CRAS record ${crasRecordId}. Available fields:`, Object.keys(crasRecord.fields));
+      }
+      
+      if (!batchRecordId) {
+        const errorMsg = `CRAS record ${crasRecordId} is missing linked Partner Delivery Batch. Field value: ${JSON.stringify(batchField)}. Please ensure the CRAS record has a linked Partner Delivery Batch record.`;
+        console.error(`[delivery/partner/approved] CRITICAL: ${errorMsg}`);
+        throw new Error(errorMsg);
       }
     } catch (fetchErr) {
-      console.warn(`[delivery/partner/approved] Failed to fetch CRAS record for batchRecordId:`, fetchErr);
-      // Continue without batchRecordId - fallback resolution will handle it
+      console.error(`[delivery/partner/approved] Failed to fetch CRAS record for batchRecordId:`, fetchErr);
+      throw new Error(`Failed to fetch CRAS record ${crasRecordId} to extract batchRecordId: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`);
     }
 
     const finalRequestId = requestId || `approved-${Date.now().toString(36)}-${crasRecordId.slice(-8)}`;

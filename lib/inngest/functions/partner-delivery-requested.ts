@@ -157,9 +157,18 @@ export const partnerDeliveryRequested = inngest.createFunction(
       requestId: event.data?.requestId,
       crasRecordId: event.data?.crasRecordId,
       batchId: event.data?.batchId ?? event.data?.deliveryBatchId,
+      batchRecordId: event.data?.batchRecordId,
     });
     
     const { crasRecordId, batchId, batchRecordId: eventBatchRecordId, requestId, triggeredBy } = event.data;
+    
+    // Log batchRecordId presence for debugging
+    console.log(`[partner-delivery-requested] batchRecordId check:`, {
+      hasBatchRecordId: !!eventBatchRecordId,
+      batchRecordId: eventBatchRecordId,
+      batchId,
+      willUseRecordId: eventBatchRecordId && eventBatchRecordId.startsWith('rec'),
+    });
     // Log execution trace: eventId is unique per execution (retries get new eventId)
     console.log(`[delivery-run] fn=partner-delivery-requested event=${event.name} eventId=${event.id} cras=${crasRecordId}`);
     console.log(`[delivery-trigger] approval-event: crasRecordId=${crasRecordId}, requestId=${requestId}, triggeredBy=${triggeredBy}`);
