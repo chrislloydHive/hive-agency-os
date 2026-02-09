@@ -23,16 +23,69 @@ import {
 
 /**
  * Resolve destination folder ID for a CRAS record's batch reference.
+ * Returns both destination folder ID and batch record ID for logging.
  */
-async function resolveDestinationFolderId(deliveryBatchIdRaw: string): Promise<string | null> {
+async function resolveDestinationFolderId(
+  deliveryBatchIdRaw: string,
+  batchRecordIdFromCras?: string | null
+): Promise<{ destinationFolderId: string | null; batchRecordId: string | null; error?: string }> {
   const raw = deliveryBatchIdRaw.trim();
-  if (!raw) return null;
+  if (!raw) return { destinationFolderId: null, batchRecordId: null, error: 'Empty batch identifier' };
 
+  // If we already have a record ID from CRAS, use it directly
+  if (batchRecordIdFromCras && batchRecordIdFromCras.startsWith('rec')) {
+    const details = await getBatchDetailsByRecordId(batchRecordIdFromCras);
+    console.log("[delivery/destination]", {
+      batchId: deliveryBatchIdRaw,
+      batchRecordId: batchRecordIdFromCras,
+      destinationFolderId: details?.destinationFolderId || null,
+      source: 'CRAS link field',
+    });
+    return {
+      destinationFolderId: details?.destinationFolderId ?? null,
+      batchRecordId: batchRecordIdFromCras,
+      error: details ? undefined : `Batch record not found: ${batchRecordIdFromCras}`,
+    };
+  }
+
+  // If batchId is already a record ID, use it
   if (raw.startsWith('rec')) {
     const details = await getBatchDetailsByRecordId(raw);
-    return details?.destinationFolderId ?? null;
+    console.log("[delivery/destination]", {
+      batchId: deliveryBatchIdRaw,
+      batchRecordId: raw,
+      destinationFolderId: details?.destinationFolderId || null,
+      source: 'batchId is record ID',
+    });
+    return {
+      destinationFolderId: details?.destinationFolderId ?? null,
+      batchRecordId: raw,
+      error: details ? undefined : `Batch record not found: ${raw}`,
+    };
   }
-  return getDestinationFolderIdByBatchId(raw);
+
+  // Otherwise, it's a Batch ID name string - look it up
+  const details = await getBatchDetails(raw);
+  console.log("[delivery/destination]", {
+    batchId: raw,
+    batchRecordId: details?.recordId || null,
+    destinationFolderId: details?.destinationFolderId || null,
+    source: 'Batch ID name lookup',
+    warning: details ? undefined : `Batch not found by name "${raw}" - batch may have been renamed`,
+  });
+  
+  if (!details) {
+    return {
+      destinationFolderId: null,
+      batchRecordId: null,
+      error: `Batch not found by name "${raw}". Batch may have been renamed - ensure CRAS records use Partner Delivery Batch link field (record ID) instead of Batch ID text field.`,
+    };
+  }
+
+  return {
+    destinationFolderId: details.destinationFolderId,
+    batchRecordId: details.recordId,
+  };
 }
 
 export const partnerDeliveryRequested = inngest.createFunction(
@@ -84,6 +137,7 @@ export const partnerDeliveryRequested = inngest.createFunction(
 
         // Resolve destination folder from batch (use batchId from event, or fetch from record if needed)
         let deliveryBatchIdRaw = batchId;
+        let batchRecordIdFromCras: string | null = null;
         if (!deliveryBatchIdRaw) {
           // Fallback: fetch batch ID from Airtable record
           try {
@@ -91,8 +145,11 @@ export const partnerDeliveryRequested = inngest.createFunction(
             const airtableRecord = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
             const batchRaw = airtableRecord.fields[DELIVERY_BATCH_ID_FIELD];
             if (Array.isArray(batchRaw) && batchRaw.length > 0 && typeof batchRaw[0] === 'string') {
-              deliveryBatchIdRaw = (batchRaw[0] as string).trim();
+              // It's a linked record - use the record ID directly
+              batchRecordIdFromCras = (batchRaw[0] as string).trim();
+              deliveryBatchIdRaw = batchRecordIdFromCras;
             } else if (typeof batchRaw === 'string' && batchRaw.trim()) {
+              // It's a text field (Batch ID name)
               deliveryBatchIdRaw = (batchRaw as string).trim();
             }
           } catch (fetchErr) {
@@ -108,15 +165,20 @@ export const partnerDeliveryRequested = inngest.createFunction(
           };
         }
 
-        const destinationFolderId = await resolveDestinationFolderId(deliveryBatchIdRaw);
-        if (!destinationFolderId) {
-          console.error(`[partner-delivery-requested] Could not resolve destination for batch: ${deliveryBatchIdRaw}`);
+        // Resolve destination folder - prefer record ID lookup for stability
+        const destinationResult = await resolveDestinationFolderId(deliveryBatchIdRaw, batchRecordIdFromCras);
+        if (!destinationResult.destinationFolderId) {
+          console.error(`[partner-delivery-requested] Could not resolve destination for batch: ${deliveryBatchIdRaw}`, {
+            batchRecordId: destinationResult.batchRecordId,
+            error: destinationResult.error,
+          });
           return {
             ok: false,
-            error: `Could not resolve destination for batch: ${deliveryBatchIdRaw}`,
+            error: `Could not resolve destination for batch: ${deliveryBatchIdRaw}${destinationResult.batchRecordId ? ` (record ID: ${destinationResult.batchRecordId})` : ''}${destinationResult.error ? `. ${destinationResult.error}` : ''}`,
             crasRecordId,
           };
         }
+        const destinationFolderId = destinationResult.destinationFolderId;
 
         // Get source folder ID from record (driveFileId is the Source Folder ID field)
         const sourceFolderId = record.driveFileId;
