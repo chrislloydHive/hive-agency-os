@@ -28,7 +28,8 @@ export type StoryBlockType =
   | 'recommendation-list'
   | 'theme-card'
   | 'metric-highlight'
-  | 'chapter-divider';
+  | 'chapter-divider'
+  | 'media';
 
 /**
  * A story block with content
@@ -55,7 +56,8 @@ export type StoryBlockContent =
   | RecommendationListContent
   | ThemeCardContent
   | MetricHighlightContent
-  | ChapterDividerContent;
+  | ChapterDividerContent
+  | MediaBlockContent;
 
 export interface HeroBlockContent {
   type: 'hero';
@@ -150,6 +152,46 @@ export interface ChapterDividerContent {
   type: 'chapter-divider';
   nextChapter: string;
   teaser?: string;
+}
+
+export interface MediaBlockContent {
+  type: 'media';
+  /**
+   * Google Drive share link or file ID
+   */
+  driveUrl: string;
+  /**
+   * Optional filename to help detect file type
+   */
+  filename?: string;
+  /**
+   * Alt text for the asset
+   */
+  alt?: string;
+  /**
+   * Caption to display below the asset
+   */
+  caption?: string;
+  /**
+   * Maximum width (e.g., '800px' or 800)
+   */
+  maxWidth?: string | number;
+  /**
+   * Maximum height (e.g., '600px' or 600)
+   */
+  maxHeight?: string | number;
+  /**
+   * Alignment: 'left', 'center', 'right', or 'full-width'
+   */
+  align?: 'left' | 'center' | 'right' | 'full-width';
+  /**
+   * Whether to autoplay videos (muted)
+   */
+  autoplay?: boolean;
+  /**
+   * Whether to loop videos/GIFs
+   */
+  loop?: boolean;
 }
 
 /**

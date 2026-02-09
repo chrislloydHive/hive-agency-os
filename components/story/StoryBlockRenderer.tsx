@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { HealthScoreRing } from '@/components/qbr/HealthScoreRing';
+import { GoogleDriveAsset } from '@/components/media/GoogleDriveAsset';
 import type {
   StoryBlock,
   HeroBlockContent,
@@ -34,6 +35,7 @@ import type {
   ThemeCardContent,
   MetricHighlightContent,
   ChapterDividerContent,
+  MediaBlockContent,
 } from './types';
 
 interface StoryBlockRendererProps {
@@ -467,6 +469,45 @@ function ChapterDivider({ content }: { content: ChapterDividerContent }) {
   );
 }
 
+// Media Block
+function MediaBlock({ content }: { content: MediaBlockContent }) {
+  const alignClasses = {
+    left: 'items-start',
+    center: 'items-center',
+    right: 'items-end',
+    'full-width': 'items-center w-full',
+  };
+
+  const containerClasses = {
+    left: 'max-w-2xl',
+    center: 'max-w-4xl mx-auto',
+    right: 'max-w-2xl ml-auto',
+    'full-width': 'w-full',
+  };
+
+  const align = content.align || 'center';
+
+  return (
+    <div className={`py-8 flex flex-col ${alignClasses[align]}`}>
+      <div className={`w-full ${containerClasses[align]}`}>
+        <GoogleDriveAsset
+          driveUrl={content.driveUrl}
+          filename={content.filename}
+          alt={content.alt || 'Media asset'}
+          maxWidth={content.maxWidth}
+          maxHeight={content.maxHeight}
+          autoplay={content.autoplay}
+          loop={content.loop}
+          className="w-full"
+        />
+        {content.caption && (
+          <p className="mt-4 text-sm text-slate-400 text-center italic">{content.caption}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Main Block Renderer
 export const StoryBlockRenderer = forwardRef<HTMLDivElement, StoryBlockRendererProps>(
   function StoryBlockRenderer({ block }, ref) {
@@ -485,6 +526,7 @@ export const StoryBlockRenderer = forwardRef<HTMLDivElement, StoryBlockRendererP
         {content.type === 'theme-card' && <ThemeCard content={content} />}
         {content.type === 'metric-highlight' && <MetricHighlight content={content} />}
         {content.type === 'chapter-divider' && <ChapterDivider content={content} />}
+        {content.type === 'media' && <MediaBlock content={content} />}
       </div>
     );
   }

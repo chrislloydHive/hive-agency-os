@@ -324,9 +324,10 @@ export async function runPartnerDelivery(
     console.warn(`[delivery/partner] ${requestId} WARNING: No Tactic found on CRAS record ${airtableRecordId} (tactic="${tacticValue}", variant="${variantValue}"). Files will be delivered to root destination: ${destinationFolderId}. Set Tactic/Variant on CRAS records to enable subfolder routing.`);
   }
 
-  // Resolve source folder ID: if sourceFolderId is a file, use its parent folder
+  // Check if source is a file or folder - if it's a file, copy only that file (not the entire folder)
   let resolvedSourceFolderId = sourceFolderId;
   let sourceMimeType: string | null = null;
+  let isSourceFile = false;
   try {
     const sourceMeta = await drive.files.get({
       fileId: sourceFolderId,
@@ -336,24 +337,20 @@ export async function runPartnerDelivery(
     sourceMimeType = sourceMeta.data.mimeType ?? null;
     
     if (sourceMimeType !== FOLDER_MIMETYPE) {
-      // Source is a file, resolve its parent folder
-      const parents = sourceMeta.data.parents;
-      if (!parents || parents.length === 0) {
-        return fail(
-          `Source Folder ID points to a file (mimeType=${sourceMimeType}) with no parent folder. Use a folder ID instead.`,
-          400,
-          true,
-          authMode
-        );
-      }
-      resolvedSourceFolderId = parents[0];
-      console.log(`[delivery/partner] ${requestId} Source is a file, resolved to parent folder: sourceId=${sourceFolderId}, sourceMimeType=${sourceMimeType}, resolvedFolderId=${resolvedSourceFolderId}`);
+      // Source is a file - keep it as a file, don't resolve to parent folder
+      // This ensures we copy only the approved file, not all files in the folder
+      isSourceFile = true;
+      resolvedSourceFolderId = sourceFolderId; // Keep original file ID
+      console.log(`[delivery/partner] ${requestId} Source is a file - will copy only this file: sourceId=${sourceFolderId}, sourceMimeType=${sourceMimeType}`);
     } else {
-      console.log(`[delivery/partner] ${requestId} Source is a folder: sourceId=${sourceFolderId}, sourceMimeType=${sourceMimeType}, resolvedFolderId=${resolvedSourceFolderId}`);
+      // Source is a folder - copy entire folder tree
+      isSourceFile = false;
+      resolvedSourceFolderId = sourceFolderId;
+      console.log(`[delivery/partner] ${requestId} Source is a folder - will copy entire folder tree: sourceId=${sourceFolderId}, sourceMimeType=${sourceMimeType}`);
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    return fail(`Failed to resolve source folder: ${message}`, 400, true, authMode);
+    return fail(`Failed to resolve source: ${message}`, 400, true, authMode);
   }
 
   // Log source resolution details
@@ -376,10 +373,10 @@ export async function runPartnerDelivery(
   let sourceMeta: drive_v3.Schema$File;
   let destMeta: drive_v3.Schema$File;
   
-  // Check SOURCE access
+  // Check SOURCE access (use original sourceFolderId for file, resolvedSourceFolderId for folder)
   try {
     const sourceRes = await drive.files.get({
-      fileId: resolvedSourceFolderId,
+      fileId: sourceFolderId, // Use original ID to get file metadata
       fields: 'id,name,mimeType,driveId,parents',
       supportsAllDrives: true,
     });
@@ -446,12 +443,14 @@ export async function runPartnerDelivery(
     );
   }
   
-  // Run the actual preflight validation (type checks)
-  try {
-    await preflightFolderCopy(drive, resolvedSourceFolderId, effectiveDestinationFolderId);
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    return fail(message, 400, true, authMode);
+  // Run the actual preflight validation (type checks) - only for folders
+  if (!isSourceFile) {
+    try {
+      await preflightFolderCopy(drive, resolvedSourceFolderId, effectiveDestinationFolderId);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      return fail(message, 400, true, authMode);
+    }
   }
 
   if (dryRun) {
@@ -474,14 +473,14 @@ export async function runPartnerDelivery(
     };
   }
 
-  // Determine if source is a file or folder
-  const isFolder = sourceMeta.mimeType === FOLDER_MIMETYPE;
+  // Use the isSourceFile flag we determined earlier
+  const isFolder = !isSourceFile;
   const dateStr = new Date().toISOString().slice(0, 10);
   const deliveredFolderName = projectName 
     ? `Delivered – ${projectName.trim()} – ${dateStr}`
     : `Delivered – ${dateStr}`;
   
-  console.log(`[delivery/partner] ${requestId} Source type: ${isFolder ? 'folder' : 'file'}, sourceFolderId=${resolvedSourceFolderId}, destination=${effectiveDestinationFolderId}, folderName="${deliveredFolderName}"`);
+  console.log(`[delivery/partner] ${requestId} Source type: ${isFolder ? 'folder' : 'file'}, sourceId=${sourceFolderId}, resolvedSourceId=${resolvedSourceFolderId}, destination=${effectiveDestinationFolderId}, folderName="${deliveredFolderName}"`);
   console.log(`[delivery/partner] ${requestId} Destination folder URL: ${folderUrl(effectiveDestinationFolderId)}`);
 
   try {
@@ -529,9 +528,9 @@ export async function runPartnerDelivery(
         result: 'ok',
       };
     } else {
-      // Copy single file
-      console.log(`[delivery/partner] ${requestId} Copying single file: sourceFileId=${resolvedSourceFolderId}, destinationFolderId=${effectiveDestinationFolderId}`);
-      const fileResult = await copyFileToFolder(resolvedSourceFolderId, effectiveDestinationFolderId, {
+      // Copy single file (use original sourceFolderId, not resolvedSourceFolderId)
+      console.log(`[delivery/partner] ${requestId} Copying single file: sourceFileId=${sourceFolderId}, destinationFolderId=${effectiveDestinationFolderId}`);
+      const fileResult = await copyFileToFolder(sourceFolderId, effectiveDestinationFolderId, {
         drive,
         requestId,
       });
