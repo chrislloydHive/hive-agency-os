@@ -18,6 +18,8 @@ import {
 import {
   getDestinationFolderIdByBatchId,
   updateDeliveryResultToRecord,
+  getBatchDetails,
+  getBatchDetailsByRecordId,
 } from '@/lib/airtable/partnerDeliveryBatches';
 import {
   getApprovedAssetDriveIdsByBatchId,
@@ -848,8 +850,35 @@ export async function runPartnerDeliveryFromPortal(params: {
   // Use unified factory for WIF auth
   const drive = await getDriveClient({ vercelOidcToken: oidcToken ?? process.env.VERCEL_OIDC_TOKEN ?? null });
   const dateStr = new Date().toISOString().slice(0, 10);
-  const folderNameSuffix = deliveryBatchId || airtableRecordId;
+  
+  // Get batch record ID for stable folder key (not the editable Batch ID name)
+  let batchRecordId: string | null = null;
+  let batchName: string | null = null;
+  if (deliveryBatchId) {
+    // Check if deliveryBatchId is already a record ID (starts with 'rec')
+    if (deliveryBatchId.trim().startsWith('rec')) {
+      batchRecordId = deliveryBatchId.trim();
+      const batchDetails = await getBatchDetailsByRecordId(batchRecordId);
+      batchName = batchDetails?.deliveryBatchId || null;
+    } else {
+      // It's a Batch ID string (name) - look up the record ID
+      const batchDetails = await getBatchDetails(deliveryBatchId.trim());
+      batchRecordId = batchDetails?.recordId || null;
+      batchName = batchDetails?.deliveryBatchId || deliveryBatchId.trim();
+    }
+  }
+  
+  // Use stable batch record ID for folder key, but human-readable name for display
+  const folderKey = batchRecordId ? `delivery-batch-${batchRecordId}` : airtableRecordId;
+  const folderNameSuffix = batchName || airtableRecordId;
   const deliveredFolderName = `Delivered – ${folderNameSuffix} – ${dateStr}`;
+  
+  console.log("[delivery/batch]", {
+    batchRecordId,
+    batchName,
+    folderKey,
+    deliveredFolderName,
+  });
 
   if (dryRun) {
     return {
@@ -864,12 +893,15 @@ export async function runPartnerDeliveryFromPortal(params: {
     };
   }
 
-  // Idempotency check: check if folder with same name already exists
-  const escapedFolderName = deliveredFolderName.replace(/'/g, "\\'");
+  // Idempotency check: use stable folder key for lookup (not the display name)
+  // This ensures folder lookup works even if batch name changes
+  const stableFolderName = `Delivered – ${folderKey} – ${dateStr}`;
+  const escapedStableFolderName = stableFolderName.replace(/'/g, "\\'");
   let createdFolderId: string;
   try {
+    // First try to find folder by stable key
     const existingRes = await drive.files.list({
-      q: `'${destinationFolderId.replace(/'/g, "\\'")}' in parents and name = '${escapedFolderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      q: `'${destinationFolderId.replace(/'/g, "\\'")}' in parents and name = '${escapedStableFolderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
       fields: 'files(id, name)',
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
@@ -878,9 +910,22 @@ export async function runPartnerDeliveryFromPortal(params: {
     const existingFolders = existingRes.data.files ?? [];
     if (existingFolders.length > 0) {
       createdFolderId = existingFolders[0].id!;
-      console.log(`[drive] reuse folder: name="${deliveredFolderName}", folderId=${createdFolderId}`);
+      console.log(`[drive] reuse folder: stableKey="${stableFolderName}", folderId=${createdFolderId}`);
+      // Update folder name to current batch name if it changed
+      if (deliveredFolderName !== stableFolderName) {
+        try {
+          await drive.files.update({
+            fileId: createdFolderId,
+            requestBody: { name: deliveredFolderName },
+            supportsAllDrives: true,
+          });
+          console.log(`[drive] updated folder name to current batch name: "${deliveredFolderName}"`);
+        } catch (updateErr) {
+          console.warn(`[drive] failed to update folder name (non-critical):`, updateErr instanceof Error ? updateErr.message : updateErr);
+        }
+      }
     } else {
-      // Create new folder
+      // Create new folder with human-readable name
       const createRes = await drive.files.create({
         requestBody: {
           name: deliveredFolderName,
@@ -891,6 +936,7 @@ export async function runPartnerDeliveryFromPortal(params: {
         supportsAllDrives: true,
       });
       createdFolderId = createRes.data.id!;
+      console.log(`[drive] created new folder: name="${deliveredFolderName}", folderId=${createdFolderId}`);
     }
   } catch (e) {
     const raw = e instanceof Error ? e.message : String(e);
