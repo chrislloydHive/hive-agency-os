@@ -105,10 +105,11 @@ export async function GET(req: NextRequest) {
   }
   
   // Resolve CRAS ID from fileId if not provided
-  let resolvedCrasId = crasId;
+  let resolvedCrasId: string | undefined = crasId || undefined; // Convert null to undefined
   if (!resolvedCrasId && fileId) {
     try {
-      resolvedCrasId = await getCrasRecordIdByTokenAndFileId(token, fileId);
+      const resolved = await getCrasRecordIdByTokenAndFileId(token, fileId);
+      resolvedCrasId = resolved || undefined; // Convert null to undefined
     } catch (err) {
       console.warn('[comments/asset] Failed to resolve CRAS ID from fileId:', err);
     }
@@ -127,7 +128,7 @@ export async function GET(req: NextRequest) {
   
   try {
     // Query Comments table for asset comments
-    const crasIdEsc = String(crasId).replace(/"/g, '\\"');
+    const crasIdEsc = String(resolvedCrasId).replace(/"/g, '\\"');
     const formula = `AND(
       FIND("${crasIdEsc}", ARRAYJOIN({Target Asset})) > 0,
       {Target Type} = "Asset"
@@ -222,10 +223,11 @@ export async function POST(req: NextRequest) {
   const fileId = body.fileId;
   
   // If crasId not provided, try to resolve from token + fileId
-  let resolvedCrasId = crasId;
+  let resolvedCrasId: string | undefined = crasId;
   if (!resolvedCrasId && fileId) {
     try {
-      resolvedCrasId = await getCrasRecordIdByTokenAndFileId(finalToken, fileId);
+      const resolved = await getCrasRecordIdByTokenAndFileId(finalToken, fileId);
+      resolvedCrasId = resolved || undefined; // Convert null to undefined
     } catch (err) {
       console.warn('[comments/asset] Failed to resolve CRAS ID from fileId:', err);
     }
