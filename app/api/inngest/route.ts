@@ -74,6 +74,15 @@ if (typeof window === 'undefined') {
   if (!fnIds.includes('partner-delivery-probe')) {
     console.log('[inngest/route] MISSING probe registration');
   }
+  
+  // Log Inngest env vars for authentication verification
+  console.log('[inngest/env]', {
+    clientId: inngest.id,
+    hasEventKey: !!process.env.INNGEST_EVENT_KEY,
+    hasSigningKey: !!process.env.INNGEST_SIGNING_KEY,
+    eventKeyPrefix: (process.env.INNGEST_EVENT_KEY || '').slice(0, 8),
+    signingKeyPrefix: (process.env.INNGEST_SIGNING_KEY || '').slice(0, 8),
+  });
 }
 
 const handlers = serve({

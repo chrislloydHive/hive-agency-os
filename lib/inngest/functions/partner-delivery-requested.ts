@@ -44,8 +44,7 @@ export const partnerDeliveryRequested = inngest.createFunction(
       name: event.name,
       requestId: event.data?.requestId,
       crasRecordId: event.data?.crasRecordId,
-      deliveryBatchId: event.data?.deliveryBatchId ?? event.data?.batchId,
-      eventId: event.id,
+      batchId: event.data?.batchId ?? event.data?.deliveryBatchId,
     });
     
     const { crasRecordId, batchId, requestId, triggeredBy } = event.data;
