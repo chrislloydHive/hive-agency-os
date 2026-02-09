@@ -236,8 +236,8 @@ export async function POST(req: NextRequest) {
     const recordFields: Record<string, unknown> = {
       Body: trimmedBody.slice(0, 5000),
       Author: author,
-      Status: { name: 'Open' },
-      'Target Type': { name: 'Group' },
+      Status: 'Open', // Single-select: use string value
+      'Target Type': 'Group', // Single-select: use string value
       'Creative Review Groups': [{ id: groupId }],
       Created: createdAt,
     };
@@ -247,12 +247,22 @@ export async function POST(req: NextRequest) {
       recordFields['Author Email'] = trimmedAuthorEmail.slice(0, 200);
     }
     
+    console.log('[comments/group] Creating comment record:', {
+      table: AIRTABLE_TABLES.COMMENTS,
+      fields: Object.keys(recordFields),
+      groupId,
+      hasBody: !!trimmedBody,
+    });
+    
     const result = await createRecord(AIRTABLE_TABLES.COMMENTS, recordFields);
     const recordId = result?.id || result?.records?.[0]?.id;
     
     if (!recordId) {
+      console.error('[comments/group] Failed to get record ID from create response:', result);
       throw new Error('Failed to get record ID from create response');
     }
+    
+    console.log('[comments/group] Comment created successfully:', recordId);
     
     const comment: GroupComment = {
       id: recordId,

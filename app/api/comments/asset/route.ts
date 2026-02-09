@@ -267,8 +267,8 @@ export async function POST(req: NextRequest) {
     const recordFields: Record<string, unknown> = {
       Body: trimmedBody.slice(0, 5000),
       Author: author,
-      Status: { name: 'Open' },
-      'Target Type': { name: 'Asset' },
+      Status: 'Open', // Single-select: use string value
+      'Target Type': 'Asset', // Single-select: use string value
       'Target Asset': [{ id: resolvedCrasId }],
       Created: createdAt,
     };
@@ -293,12 +293,22 @@ export async function POST(req: NextRequest) {
       recordFields['Author Email'] = trimmedAuthorEmail.slice(0, 200);
     }
     
+    console.log('[comments/asset] Creating comment record:', {
+      table: AIRTABLE_TABLES.COMMENTS,
+      fields: Object.keys(recordFields),
+      crasId: resolvedCrasId,
+      hasBody: !!trimmedBody,
+    });
+    
     const result = await createRecord(AIRTABLE_TABLES.COMMENTS, recordFields);
     const recordId = result?.id || result?.records?.[0]?.id;
     
     if (!recordId) {
+      console.error('[comments/asset] Failed to get record ID from create response:', result);
       throw new Error('Failed to get record ID from create response');
     }
+    
+    console.log('[comments/asset] Comment created successfully:', recordId);
     
     const comment: AssetComment = {
       id: recordId,
