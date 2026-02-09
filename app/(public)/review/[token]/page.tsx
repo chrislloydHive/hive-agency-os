@@ -9,6 +9,7 @@ import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
+import { batchEnsureCrasRecords } from '@/lib/airtable/reviewAssetStatus';
 import ReviewPortalClient from './ReviewPortalClient';
 import type { Metadata } from 'next';
 
@@ -169,6 +170,7 @@ export default async function ReviewPage({
 
   // For each variant×tactic, list all files from the set folder
   const sections: TacticSectionData[] = [];
+  const allAssetsForCras: Array<{ fileId: string; filename: string; tactic: string; variant: string }> = [];
 
   for (const variant of VARIANTS) {
     for (const tactic of TACTICS) {
@@ -186,6 +188,27 @@ export default async function ReviewPage({
         fileCount: assets.length,
         groupId: folderInfo.groupId,
       });
+      
+      // Collect assets for batch CRAS creation
+      for (const asset of assets) {
+        allAssetsForCras.push({
+          fileId: asset.fileId,
+          filename: asset.name,
+          tactic,
+          variant,
+        });
+      }
+    }
+  }
+
+  // Batch ensure CRAS records exist for all displayed assets
+  if (allAssetsForCras.length > 0) {
+    try {
+      const result = await batchEnsureCrasRecords(token, project.recordId, allAssetsForCras);
+      console.log(`[review/page] Ensured CRAS records: ${result.created} created, ${result.errors} errors`);
+    } catch (err) {
+      // Log but don't fail page load - assets will still display
+      console.error('[review/page] Failed to ensure CRAS records:', err);
     }
   }
 

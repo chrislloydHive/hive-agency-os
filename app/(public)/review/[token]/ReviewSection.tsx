@@ -302,6 +302,9 @@ export default function ReviewSection({
   const hasFiles = assets.length > 0;
   const isGroupApproved = !!groupApprovalApprovedAt;
   
+  // Get identity hook early (needed for callbacks)
+  const { identity, requireIdentity } = useAuthorIdentity();
+  
   // Fetch group comments on mount
   useEffect(() => {
     if (!groupId) return;
@@ -368,8 +371,6 @@ export default function ReviewSection({
   const hasNewAssetsSinceApproval = (newSinceApprovalCount ?? 0) > 0;
   const allAssetsApproved = pendingCount === 0 && totalCount > 0;
   const shouldDisableApproveButton = isGroupApproved && allAssetsApproved && !hasNewAssetsSinceApproval;
-
-  const { identity, requireIdentity } = useAuthorIdentity();
 
   const openLightbox = (index: number) => setLightboxIndex(index);
   const closeLightbox = () => setLightboxIndex(null);

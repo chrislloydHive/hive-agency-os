@@ -570,6 +570,100 @@ export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<bool
 }
 
 /**
+ * Batch ensure CRAS records exist for multiple assets.
+ * Creates records with Status=New for any assets that don't have CRAS records yet.
+ * Returns count of records created.
+ */
+export async function batchEnsureCrasRecords(
+  token: string,
+  projectId: string,
+  assets: Array<{ fileId: string; filename?: string; tactic: string; variant: string }>
+): Promise<{ created: number; errors: number }> {
+  if (assets.length === 0) return { created: 0, errors: 0 };
+  
+  const osBase = getBase();
+  const now = new Date().toISOString();
+  let created = 0;
+  let errors = 0;
+  
+  // Check which assets already have CRAS records
+  const fileIds = assets.map(a => a.fileId);
+  const existingMap = new Map<string, boolean>();
+  
+  // Query existing records in batches (Airtable formula limit - use smaller batches for OR())
+  const QUERY_BATCH_SIZE = 20; // Smaller batches to avoid formula size limits
+  const tokenEsc = String(token).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
+  
+  for (let i = 0; i < fileIds.length; i += QUERY_BATCH_SIZE) {
+    const batch = fileIds.slice(i, i + QUERY_BATCH_SIZE);
+    const fileIdConditions = batch.map(fid => {
+      const fileEsc = String(fid).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
+      return `{${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}"`;
+    });
+    const formula = `AND({Review Token} = "${tokenEsc}", OR(${fileIdConditions.join(',')}))`;
+    
+    try {
+      const existing = await osBase(TABLE)
+        .select({ filterByFormula: formula })
+        .all();
+      
+      for (const record of existing) {
+        const fields = record.fields as Record<string, unknown>;
+        const fileId = fields[SOURCE_FOLDER_ID_FIELD] as string;
+        if (fileId) {
+          existingMap.set(fileId, true);
+        }
+      }
+    } catch (err) {
+      console.error('[reviewAssetStatus] Failed to check existing CRAS records:', err);
+      // Don't count as errors - we'll try to create anyway (idempotent)
+      continue;
+    }
+  }
+  
+  // Create records for assets that don't exist
+  const toCreate: Array<{ fileId: string; filename?: string; tactic: string; variant: string }> = [];
+  for (const asset of assets) {
+    if (!existingMap.has(asset.fileId)) {
+      toCreate.push(asset);
+    }
+  }
+  
+  if (toCreate.length === 0) {
+    return { created: 0, errors };
+  }
+  
+  // Create records in batches (Airtable allows up to 10 records per batch create)
+  const CREATE_BATCH_SIZE = 10;
+  for (let i = 0; i < toCreate.length; i += CREATE_BATCH_SIZE) {
+    const batch = toCreate.slice(i, i + CREATE_BATCH_SIZE);
+    try {
+      const recordsToCreate = batch.map(asset => ({
+        fields: {
+          'Review Token': token,
+          Project: [projectId],
+          [SOURCE_FOLDER_ID_FIELD]: asset.fileId,
+          Filename: (asset.filename ?? '').slice(0, 500),
+          Tactic: asset.tactic,
+          Variant: asset.variant,
+          Status: 'New',
+          'Last Activity At': now,
+        } as any,
+      }));
+      
+      // Airtable batch create
+      await osBase(TABLE).create(recordsToCreate);
+      created += batch.length;
+    } catch (err) {
+      console.error('[reviewAssetStatus] Failed to batch create CRAS records:', err);
+      errors += batch.length;
+    }
+  }
+  
+  return { created, errors };
+}
+
+/**
  * Mark asset as seen. Creates record with Status=Seen if new; otherwise updates Status (New→Seen) and timestamps.
  */
 export async function upsertSeen(args: UpsertSeenArgs): Promise<void> {
