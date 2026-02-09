@@ -67,14 +67,16 @@ export interface AirtableConfig {
 /**
  * Get Airtable configuration from environment variables
  * Throws if credentials are missing
+ * Uses same base resolution logic as getBase(): checks AIRTABLE_OS_BASE_ID first, then AIRTABLE_BASE_ID
  */
 export function getAirtableConfig(): AirtableConfig {
   const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN;
-  const baseId = process.env.AIRTABLE_BASE_ID;
+  // Check AIRTABLE_OS_BASE_ID first (for Hive OS routes), then fall back to AIRTABLE_BASE_ID
+  const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID;
 
   if (!apiKey || !baseId) {
     throw new Error(
-      'Airtable credentials not configured. Set AIRTABLE_API_KEY (or AIRTABLE_ACCESS_TOKEN) and AIRTABLE_BASE_ID.'
+      'Airtable credentials not configured. Set AIRTABLE_API_KEY (or AIRTABLE_ACCESS_TOKEN) and AIRTABLE_BASE_ID (or AIRTABLE_OS_BASE_ID).'
     );
   }
 
