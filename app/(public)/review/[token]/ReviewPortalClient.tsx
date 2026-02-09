@@ -44,6 +44,7 @@ interface TacticSectionData {
   tactic: string;
   assets: ReviewAsset[];
   fileCount: number;
+  groupId?: string; // Creative Review Sets record ID
   groupApprovalApprovedAt?: string | null;
   groupApprovalApprovedByName?: string | null;
   newSinceApprovalCount?: number;
@@ -774,6 +775,7 @@ function ReviewPortalClientInner({
                   initialFeedback={
                     reviewData[feedbackKey] ?? { approved: false, comments: '' }
                   }
+                  groupId={section.groupId}
                   onAssetStatusChange={updateAssetReviewState}
                   groupApprovalApprovedAt={section.groupApprovalApprovedAt}
                   groupApprovalApprovedByName={section.groupApprovalApprovedByName}

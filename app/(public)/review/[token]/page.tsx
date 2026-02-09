@@ -30,6 +30,7 @@ interface TacticSectionData {
   tactic: string;
   assets: ReviewAsset[];
   fileCount: number;
+  groupId?: string; // Creative Review Sets record ID
 }
 
 interface TacticFeedback {
@@ -154,15 +155,15 @@ export default async function ReviewPage({
     })
     .all();
 
-  // Map (variant, tactic) → folder ID
-  const folderMap = new Map<string, string>();
+  // Map (variant, tactic) → { folderId, groupId }
+  const folderMap = new Map<string, { folderId: string; groupId: string }>();
   for (const set of reviewSets) {
     const fields = set.fields as Record<string, unknown>;
     const variant = fields['Variant'] as string;
     const tactic = fields['Tactic'] as string;
     const folderId = fields['Folder ID'] as string;
     if (variant && tactic && folderId) {
-      folderMap.set(`${variant}:${tactic}`, folderId);
+      folderMap.set(`${variant}:${tactic}`, { folderId, groupId: set.id });
     }
   }
 
@@ -171,14 +172,20 @@ export default async function ReviewPage({
 
   for (const variant of VARIANTS) {
     for (const tactic of TACTICS) {
-      const folderId = folderMap.get(`${variant}:${tactic}`);
-      if (!folderId) {
+      const folderInfo = folderMap.get(`${variant}:${tactic}`);
+      if (!folderInfo) {
         sections.push({ variant, tactic, assets: [], fileCount: 0 });
         continue;
       }
 
-      const assets = await listAllFiles(drive, folderId);
-      sections.push({ variant, tactic, assets, fileCount: assets.length });
+      const assets = await listAllFiles(drive, folderInfo.folderId);
+      sections.push({ 
+        variant, 
+        tactic, 
+        assets, 
+        fileCount: assets.length,
+        groupId: folderInfo.groupId,
+      });
     }
   }
 

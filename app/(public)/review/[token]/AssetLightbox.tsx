@@ -121,16 +121,43 @@ export default function AssetLightbox({
     const fetchComments = async () => {
       setLoadingComments(true);
       try {
+        // Try CRAS ID from asset first, then use fileId (API will resolve)
+        const crasId = asset.airtableRecordId;
         const params = new URLSearchParams({
           token,
-          variant,
-          tactic,
-          fileId: asset.fileId,
         });
-        const res = await fetch(`/api/review/comments?${params}`);
+        if (crasId) {
+          params.append('crasId', crasId);
+        } else {
+          // API will resolve CRAS ID from fileId
+          params.append('fileId', asset.fileId);
+        }
+        
+        const res = await fetch(`/api/comments/asset?${params}`, {
+          cache: 'no-store',
+        });
         if (res.ok) {
           const data = await res.json();
-          setComments(data.comments || []);
+          setComments((data.comments || []).map((c: any) => ({
+            id: c.id,
+            comment: c.body,
+            createdAt: c.createdAt,
+            authorName: c.author,
+            authorEmail: c.authorEmail,
+          })));
+        } else {
+          // Fallback to old API
+          const oldParams = new URLSearchParams({
+            token,
+            variant,
+            tactic,
+            fileId: asset.fileId,
+          });
+          const oldRes = await fetch(`/api/review/comments?${oldParams}`);
+          if (oldRes.ok) {
+            const oldData = await oldRes.json();
+            setComments(oldData.comments || []);
+          }
         }
       } catch {
         // Silent fail
@@ -140,38 +167,72 @@ export default function AssetLightbox({
     };
 
     fetchComments();
-  }, [asset?.fileId, token, variant, tactic]);
+  }, [asset?.fileId, asset?.airtableRecordId, token, variant, tactic]);
 
   const submitComment = useCallback(async (currentIdentity: AuthorIdentity) => {
     if (!newComment.trim() || !asset || !currentIdentity) return;
 
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/review/comments?token=${encodeURIComponent(token)}`, {
+      // Use new API (will resolve CRAS ID from fileId if needed)
+      const payload: Record<string, unknown> = {
+        body: newComment.trim(),
+        authorName: currentIdentity.name,
+        authorEmail: currentIdentity.email,
+        tactic,
+        variant,
+        fileId: asset.fileId,
+      };
+      
+      if (asset.airtableRecordId) {
+        payload.crasId = asset.airtableRecordId;
+      }
+      
+      const res = await fetch(`/api/comments/asset?token=${encodeURIComponent(token)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
-        body: JSON.stringify({
-          token,
-          body: newComment.trim(),
-          authorName: currentIdentity.name,
-          authorEmail: currentIdentity.email,
-          tactic,
-          variantGroup: variant,
-          concept: '',
-          driveFileId: asset.fileId,
-          filename: asset.name,
-          variant,
-          fileId: asset.fileId,
-          fileName: asset.name,
-          comment: newComment.trim(),
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (res.ok) {
         const data = await res.json();
-        setComments((prev) => [...prev, data.comment]);
+        setComments((prev) => [{
+          id: data.comment.id,
+          comment: data.comment.body,
+          createdAt: data.comment.createdAt,
+          authorName: data.comment.author,
+          authorEmail: data.comment.authorEmail,
+        }, ...prev]);
         setNewComment('');
+      } else {
+        // Fallback to old API
+        const oldRes = await fetch(`/api/review/comments?token=${encodeURIComponent(token)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({
+            token,
+            body: newComment.trim(),
+            authorName: currentIdentity.name,
+            authorEmail: currentIdentity.email,
+            tactic,
+            variantGroup: variant,
+            concept: '',
+            driveFileId: asset.fileId,
+            filename: asset.name,
+            variant,
+            fileId: asset.fileId,
+            fileName: asset.name,
+            comment: newComment.trim(),
+          }),
+        });
+
+        if (oldRes.ok) {
+          const oldData = await oldRes.json();
+          setComments((prev) => [...prev, oldData.comment]);
+          setNewComment('');
+        }
       }
     } catch {
       // Silent fail

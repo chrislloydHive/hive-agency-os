@@ -185,6 +185,7 @@ interface ReviewSectionProps {
   fileCount: number;
   token: string;
   initialFeedback: TacticFeedback;
+  groupId?: string; // Creative Review Sets record ID
   onAssetStatusChange?: (variant: string, tactic: string, fileId: string, reviewState: ReviewState) => void;
   /** As-of group approval from Creative Review Group Approvals (section data from API). */
   groupApprovalApprovedAt?: string | null;
@@ -258,6 +259,7 @@ export default function ReviewSection({
   fileCount,
   token,
   initialFeedback,
+  groupId,
   onAssetStatusChange,
   groupApprovalApprovedAt,
   groupApprovalApprovedByName,
@@ -285,6 +287,12 @@ export default function ReviewSection({
   const [approvingGroup, setApprovingGroup] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingCommentRef = useRef<string | null>(null);
+  
+  // Group comments state
+  const [groupComments, setGroupComments] = useState<Array<{ id: string; body: string; author: string; authorEmail?: string; createdAt: string }>>([]);
+  const [loadingGroupComments, setLoadingGroupComments] = useState(false);
+  const [newGroupComment, setNewGroupComment] = useState('');
+  const [submittingGroupComment, setSubmittingGroupComment] = useState(false);
 
   // Lightbox state
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -293,6 +301,61 @@ export default function ReviewSection({
   const [feedbackExpanded, setFeedbackExpanded] = useState(false);
   const hasFiles = assets.length > 0;
   const isGroupApproved = !!groupApprovalApprovedAt;
+  
+  // Fetch group comments on mount
+  useEffect(() => {
+    if (!groupId) return;
+    
+    const fetchGroupComments = async () => {
+      setLoadingGroupComments(true);
+      try {
+        const res = await fetch(`/api/comments/group?token=${encodeURIComponent(token)}&groupId=${encodeURIComponent(groupId)}`, {
+          cache: 'no-store',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setGroupComments(data.comments || []);
+        }
+      } catch (err) {
+        console.error('[ReviewSection] Failed to fetch group comments:', err);
+      } finally {
+        setLoadingGroupComments(false);
+      }
+    };
+    
+    fetchGroupComments();
+  }, [groupId, token]);
+  
+  // Submit group comment
+  const handleSubmitGroupComment = useCallback(async () => {
+    if (!groupId || !newGroupComment.trim()) return;
+    
+    requireIdentity(async (currentIdentity) => {
+      setSubmittingGroupComment(true);
+      try {
+        const res = await fetch(`/api/comments/group?token=${encodeURIComponent(token)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            groupId,
+            body: newGroupComment.trim(),
+            authorName: currentIdentity.name,
+            authorEmail: currentIdentity.email,
+          }),
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          setGroupComments((prev) => [data.comment, ...prev]);
+          setNewGroupComment('');
+        }
+      } catch (err) {
+        console.error('[ReviewSection] Failed to submit group comment:', err);
+      } finally {
+        setSubmittingGroupComment(false);
+      }
+    });
+  }, [groupId, token, newGroupComment, requireIdentity]);
   
   // Button should be disabled if:
   // - Group is approved AND
@@ -607,10 +670,85 @@ export default function ReviewSection({
               <span className="text-xs text-gray-600">Saved {lastSaved}</span>
             )}
           </div>
+          
+          {/* Group Comments */}
+          {groupId && (
+            <div className="mt-4 border-t border-gray-700 pt-4">
+              <h4 className="mb-3 text-sm font-medium text-gray-300">Group Comments</h4>
+              
+              {/* Comments list */}
+              <div className="mb-3 space-y-3 max-h-64 overflow-y-auto">
+                {loadingGroupComments ? (
+                  <p className="text-center text-xs text-gray-500">Loading comments...</p>
+                ) : groupComments.length === 0 ? (
+                  <p className="text-center text-xs text-gray-500">No comments yet</p>
+                ) : (
+                  groupComments.map((comment) => (
+                    <div key={comment.id} className="rounded-md bg-gray-900/50 p-3">
+                      <div className="mb-1 flex items-center gap-2">
+                        <span className="text-xs font-medium text-gray-300">{comment.author}</span>
+                        {comment.authorEmail && (
+                          <span className="text-xs text-gray-500">({comment.authorEmail})</span>
+                        )}
+                        <span className="text-xs text-gray-600">
+                          {formatRelativeTime(comment.createdAt)}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-200 whitespace-pre-wrap">{comment.body}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+              
+              {/* Comment input */}
+              <div className="flex gap-2">
+                <textarea
+                  value={newGroupComment}
+                  onChange={(e) => setNewGroupComment(e.target.value)}
+                  placeholder="Add a comment..."
+                  rows={2}
+                  className="flex-1 rounded-md border border-gray-600 bg-gray-900 px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      handleSubmitGroupComment();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleSubmitGroupComment}
+                  disabled={!newGroupComment.trim() || submittingGroupComment}
+                  className="shrink-0 rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-gray-900 transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {submittingGroupComment ? 'Posting...' : 'Post'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       ) : null}
     </section>
   );
+}
+
+function formatRelativeTime(iso: string): string {
+  try {
+    const date = new Date(iso);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  } catch {
+    return '';
+  }
 }
 
 function formatShortDate(iso: string | null | undefined): string {
