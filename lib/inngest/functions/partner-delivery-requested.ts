@@ -15,6 +15,11 @@ import {
   getDestinationFolderIdByBatchId,
   getBatchDetailsByRecordId,
 } from '@/lib/airtable/partnerDeliveryBatches';
+import {
+  getDriveClient,
+  ensureChildFolderWithDrive,
+  copyDriveFolderTree,
+} from '@/lib/google/driveClient';
 
 /**
  * Resolve destination folder ID for a CRAS record's batch reference.
@@ -173,6 +178,18 @@ export const partnerDeliveryRequested = inngest.createFunction(
           } else {
             const fileUrl = 'deliveredFileUrl' in deliveryResult ? deliveryResult.deliveredFileUrl : undefined;
             console.log(`[partner-delivery-requested] Record ${crasRecordId} delivered successfully: url=${fileUrl ?? 'none'}`);
+            
+            // Add production assets delivery (after approved deliverables)
+            const productionAssetsResult = await addProductionAssets({
+              deliveryRootFolderId: deliveryResult.deliveredRootFolderId,
+              batchId: deliveryBatchIdRaw,
+              requestId: requestId || `event-${crasRecordId.slice(-8)}`,
+            });
+            
+            if (!productionAssetsResult.ok) {
+              console.warn(`[partner-delivery-requested] Production assets delivery failed (non-blocking):`, productionAssetsResult.error);
+            }
+            
             return {
               ok: true,
               result: 'delivered',
@@ -202,3 +219,80 @@ export const partnerDeliveryRequested = inngest.createFunction(
     });
   }
 );
+
+/**
+ * Add production assets to partner delivery package.
+ * Copies animated display production assets from source folder to _Production Assets/Animated Display.
+ * Non-blocking: logs warnings but does not fail delivery if this step fails.
+ */
+async function addProductionAssets(params: {
+  deliveryRootFolderId: string;
+  batchId: string;
+  requestId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { deliveryRootFolderId, batchId, requestId } = params;
+  
+  console.log(`[delivery/partner] production assets start`, { batchId, requestId });
+  
+  // Check if production assets folder ID is configured
+  const sourceFolderId = process.env.PROSPECTING_ANIMATED_PROD_ASSETS_FOLDER_ID?.trim();
+  if (!sourceFolderId) {
+    console.warn(`[delivery/partner] Production assets folder ID not configured (PROSPECTING_ANIMATED_PROD_ASSETS_FOLDER_ID), skipping`);
+    return { ok: true }; // Not an error - just not configured
+  }
+  
+  try {
+    // Get Drive client (use WIF/OIDC like the main delivery)
+    const drive = await getDriveClient({
+      vercelOidcToken: process.env.VERCEL_OIDC_TOKEN ?? null,
+    });
+    
+    // Ensure destination folder structure: _Production Assets/Animated Display
+    const productionAssetsRoot = await ensureChildFolderWithDrive(
+      drive,
+      deliveryRootFolderId,
+      '_Production Assets'
+    );
+    
+    console.log(`[delivery/partner] production assets destination ready`, {
+      sourceFolderId,
+      destParentFolderId: productionAssetsRoot.id,
+      destPath: '_Production Assets/Animated Display',
+    });
+    
+    // Copy all files and subfolders from source to destination
+    // copyDriveFolderTree will create/reuse "Animated Display" folder inside _Production Assets
+    const copyResult = await copyDriveFolderTree(
+      drive,
+      sourceFolderId,
+      productionAssetsRoot.id,
+      {
+        deliveredFolderName: 'Animated Display',
+        drive,
+      }
+    );
+    
+    console.log(`[delivery/partner] production assets copied`, {
+      sourceFolderId,
+      destParentFolderId: productionAssetsRoot.id,
+      fileCount: copyResult.filesCopied,
+      foldersCreated: copyResult.foldersCreated,
+      failures: copyResult.failures.length,
+    });
+    
+    if (copyResult.filesCopied === 0) {
+      console.warn(`[delivery/partner] Production assets folder is empty or inaccessible: ${sourceFolderId}`);
+    }
+    
+    if (copyResult.failures.length > 0) {
+      console.warn(`[delivery/partner] Production assets copy had ${copyResult.failures.length} failures:`, copyResult.failures);
+    }
+    
+    return { ok: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.warn(`[delivery/partner] Production assets delivery failed (non-blocking):`, errorMessage);
+    // Return ok: false but don't throw - this is non-blocking
+    return { ok: false, error: errorMessage };
+  }
+}
