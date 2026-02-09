@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { resolveApprovedAt } from '@/lib/review/approvedAt';
 import { upsertGroupApproval } from '@/lib/airtable/reviewGroupApprovals';
+import { propagateGroupApprovalToAssets } from '@/lib/airtable/reviewAssetStatus';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,6 +65,7 @@ export async function POST(req: NextRequest) {
 
   const approvedAt = resolveApprovedAt(body.approvedAt);
   try {
+    // Save group approval record
     await upsertGroupApproval({
       token,
       tactic,
@@ -72,6 +74,26 @@ export async function POST(req: NextRequest) {
       approvedByName,
       approvedByEmail,
     });
+    
+    // Propagate approval to all matching CRAS records
+    try {
+      const propagationResult = await propagateGroupApprovalToAssets(
+        token,
+        tactic,
+        variant,
+        approvedAt,
+        approvedByName,
+        approvedByEmail
+      );
+      console.log('[review/groups/approve] Propagated group approval to assets:', {
+        updated: propagationResult.updated,
+        error: propagationResult.error,
+      });
+    } catch (propErr) {
+      // Log but don't fail the request - group approval record is saved
+      console.error('[review/groups/approve] Failed to propagate group approval to assets:', propErr);
+    }
+    
     return NextResponse.json(
       { ok: true, approvedAt },
       { headers: NO_STORE }

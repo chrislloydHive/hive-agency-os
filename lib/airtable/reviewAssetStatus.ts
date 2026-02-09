@@ -768,15 +768,14 @@ export async function batchSetAssetApprovedClient(
   options?: BatchSetAssetApprovedClientOptions
 ): Promise<BatchSetAssetApprovedClientResult> {
   const osBase = getBase();
+  const now = new Date().toISOString();
   const fields: Record<string, unknown> = {
     [ASSET_APPROVED_CLIENT_FIELD]: true,
     Status: 'Approved',
+    'Approved At': options?.approvedAt || now, // Always set Approved At (use provided or current time)
   };
-  if (options?.approvedAt) {
-    fields['Approved At'] = options.approvedAt;
-    if (options.approvedByName !== undefined) fields['Approved By Name'] = String(options.approvedByName).slice(0, 100);
-    if (options.approvedByEmail !== undefined) fields['Approved By Email'] = String(options.approvedByEmail).slice(0, 200);
-  }
+  if (options?.approvedByName !== undefined) fields['Approved By Name'] = String(options.approvedByName).slice(0, 100);
+  if (options?.approvedByEmail !== undefined) fields['Approved By Email'] = String(options.approvedByEmail).slice(0, 200);
   if (options?.deliveryBatchId != null && String(options.deliveryBatchId).trim()) {
     const bid = String(options.deliveryBatchId).trim();
     fields[DELIVERY_BATCH_ID_FIELD] = bid.startsWith('rec') ? [bid] : bid;
@@ -837,15 +836,14 @@ export async function setSingleAssetApprovedClient(
     return { alreadyApproved: true, recordId: existing.id };
   }
   const osBase = getBase();
+  const now = new Date().toISOString();
   const fields: Record<string, unknown> = {
     [ASSET_APPROVED_CLIENT_FIELD]: true,
     Status: 'Approved',
+    'Approved At': approvedAt || now, // Always set Approved At (use provided or current time)
   };
-  if (approvedAt) {
-    fields['Approved At'] = approvedAt;
-    if (approvedByName !== undefined) fields['Approved By Name'] = String(approvedByName).slice(0, 100);
-    if (approvedByEmail !== undefined) fields['Approved By Email'] = String(approvedByEmail).slice(0, 200);
-  }
+  if (approvedByName !== undefined) fields['Approved By Name'] = String(approvedByName).slice(0, 100);
+  if (approvedByEmail !== undefined) fields['Approved By Email'] = String(approvedByEmail).slice(0, 200);
   if (deliveryBatchId != null && String(deliveryBatchId).trim()) {
     const bid = String(deliveryBatchId).trim();
     fields[DELIVERY_BATCH_ID_FIELD] = bid.startsWith('rec') ? [bid] : bid;
@@ -925,4 +923,84 @@ export async function batchSetFirstSeenByClientAt(
     }
   }
   return { updated, failedAt: null };
+}
+
+/**
+ * Propagate group approval to all matching CRAS records.
+ * Updates all assets in the group with the group approval timestamp and author info.
+ */
+export async function propagateGroupApprovalToAssets(
+  token: string,
+  tactic: string,
+  variant: string,
+  approvedAt: string,
+  approvedByName?: string,
+  approvedByEmail?: string
+): Promise<{ updated: number; error?: string }> {
+  const osBase = getBase();
+  const tokenEsc = String(token).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
+  const tacticEsc = String(tactic).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
+  const variantEsc = String(variant).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
+  
+  // Find all CRAS records matching this group
+  const formula = `AND(
+    {Review Token} = "${tokenEsc}",
+    {Tactic} = "${tacticEsc}",
+    {Variant} = "${variantEsc}"
+  )`;
+  
+  try {
+    const records = await osBase(TABLE)
+      .select({ filterByFormula: formula })
+      .all();
+    
+    if (records.length === 0) {
+      return { updated: 0 };
+    }
+    
+    // Prepare update fields
+    const updateFields: Record<string, unknown> = {
+      Status: 'Approved',
+      'Approved At': approvedAt,
+      [ASSET_APPROVED_CLIENT_FIELD]: true,
+    };
+    
+    if (approvedByName !== undefined) {
+      updateFields['Approved By Name'] = String(approvedByName).slice(0, 100);
+    }
+    if (approvedByEmail !== undefined) {
+      updateFields['Approved By Email'] = String(approvedByEmail).slice(0, 200);
+    }
+    
+    // Update records in batches
+    let updated = 0;
+    const BATCH_SIZE = 50; // Airtable API limit
+    
+    for (let i = 0; i < records.length; i += BATCH_SIZE) {
+      const batch = records.slice(i, i + BATCH_SIZE);
+      try {
+        await Promise.all(
+          batch.map((record) => {
+            // Skip if already approved with Approved At set (avoid overwriting)
+            const fields = record.fields as Record<string, unknown>;
+            if (fields['Approved At'] && fields['Status'] === 'Approved') {
+              return Promise.resolve();
+            }
+            return osBase(TABLE).update(record.id, updateFields as any);
+          })
+        );
+        updated += batch.length;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error('[reviewAssetStatus] Failed to propagate group approval:', message);
+        return { updated, error: message };
+      }
+    }
+    
+    return { updated };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[reviewAssetStatus] Failed to query CRAS records for group approval:', message);
+    return { updated: 0, error: message };
+  }
 }
