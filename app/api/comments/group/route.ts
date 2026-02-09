@@ -3,7 +3,7 @@
 // Creates and reads comments from the canonical Comments table with Target Type = "Group".
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getBase } from '@/lib/airtable';
+import { getCommentsBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { createRecord } from '@/lib/airtable/client';
@@ -113,7 +113,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
   }
   
-  const osBase = getBase();
+  const commentsBase = getCommentsBase();
   
   try {
     // Query Comments table for group comments
@@ -123,7 +123,7 @@ export async function GET(req: NextRequest) {
       {Target Type} = "Group"
     )`;
     
-    const records = await osBase(AIRTABLE_TABLES.COMMENTS)
+    const records = await commentsBase(AIRTABLE_TABLES.COMMENTS)
       .select({
         filterByFormula: formula,
         sort: [{ field: 'Created', direction: 'desc' }],
@@ -253,7 +253,10 @@ export async function POST(req: NextRequest) {
       hasBody: !!trimmedBody,
     });
     
-    const result = await createRecord(AIRTABLE_TABLES.COMMENTS, recordFields);
+    // Comments table is in a different base (appQLwoVH8JyGSTIo)
+    // Use AIRTABLE_COMMENTS_BASE_ID if set, otherwise use the provided base ID
+    const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+    const result = await createRecord(AIRTABLE_TABLES.COMMENTS, recordFields, commentsBaseId);
     const recordId = result?.id || result?.records?.[0]?.id;
     
     if (!recordId) {

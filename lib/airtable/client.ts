@@ -88,16 +88,20 @@ export function getAirtableConfig(): AirtableConfig {
  *
  * @param tableName - Name of the Airtable table
  * @param fields - Record fields as key-value pairs
+ * @param baseIdOverride - Optional base ID override (for tables in different bases)
  * @returns Created record data from Airtable
  * @throws Error if the API request fails
  */
 export async function createRecord(
   tableName: string,
-  fields: Record<string, unknown>
+  fields: Record<string, unknown>,
+  baseIdOverride?: string
 ): Promise<any> {
   const config = getAirtableConfig();
+  // Use override if provided, otherwise use default base
+  const baseId = baseIdOverride || config.baseId;
 
-  const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(
     tableName
   )}`;
 

@@ -181,6 +181,24 @@ export function getProjectsBase(): Airtable.Base {
   return _projectsBase;
 }
 
+let _commentsBase: Airtable.Base | null = null;
+/**
+ * Base to use for the Comments table.
+ * When AIRTABLE_COMMENTS_BASE_ID is set, Comments are read from that base; otherwise uses default base appQLwoVH8JyGSTIo.
+ * Use this when your Comments table lives in a different base than the OS base.
+ */
+export function getCommentsBase(): Airtable.Base {
+  if (!_commentsBase) {
+    const apiKey = env.AIRTABLE_API_KEY || process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+    const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+    if (!apiKey || !commentsBaseId) {
+      throw new Error('Airtable credentials not configured.');
+    }
+    _commentsBase = new Airtable({ apiKey }).base(commentsBaseId);
+  }
+  return _commentsBase;
+}
+
 // Export a function that returns the base, or use a getter pattern
 // For compatibility, we'll create a proxy that forwards all calls
 const base = new Proxy(function() {} as any, {
