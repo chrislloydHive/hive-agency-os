@@ -273,7 +273,7 @@ export default function ReviewSection({
   onDownloadAsset,
 }: ReviewSectionProps) {
   const counts = getSectionCounts(assets);
-  const { totalCount, newCount, pendingCount } = counts;
+  const { totalCount, newCount, pendingCount, approvedCount } = counts;
   const unapprovedFileIds = assets.filter((a) => !a.assetApprovedClient).map((a) => a.fileId);
   const newFileIds = assets.filter(isAssetNew).map((a) => a.fileId);
   const selectedUnapprovedCount = unapprovedFileIds.filter((id) => selectedFileIds.has(id)).length;
@@ -293,6 +293,18 @@ export default function ReviewSection({
   const [feedbackExpanded, setFeedbackExpanded] = useState(false);
   const hasFiles = assets.length > 0;
   const isGroupApproved = !!groupApprovalApprovedAt;
+  
+  // Button should be disabled if:
+  // - Group is approved AND
+  // - All current assets are approved (no pending) AND
+  // - No new assets added since approval
+  // Button should be enabled if:
+  // - Group is not approved, OR
+  // - There are pending assets, OR
+  // - New assets were added since approval (newSinceApprovalCount > 0)
+  const hasNewAssetsSinceApproval = (newSinceApprovalCount ?? 0) > 0;
+  const allAssetsApproved = pendingCount === 0 && totalCount > 0;
+  const shouldDisableApproveButton = isGroupApproved && allAssetsApproved && !hasNewAssetsSinceApproval;
 
   const { identity, requireIdentity } = useAuthorIdentity();
 
@@ -301,7 +313,10 @@ export default function ReviewSection({
 
   const saveComments = useCallback(
     async (fields: { comments?: string; approved?: boolean }) => {
-      if (!identity) return;
+      if (!identity) {
+        console.warn('[ReviewSection] Cannot save comments: identity not available');
+        return;
+      }
 
       setSaving(true);
       try {
@@ -320,11 +335,21 @@ export default function ReviewSection({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
-        if (res.ok) {
-          setLastSaved(new Date().toLocaleTimeString());
+        
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+          console.error('[ReviewSection] Failed to save comments:', errorData.error || res.statusText);
+          return;
         }
-      } catch {
-        // silent
+        
+        const result = await res.json();
+        if (result.ok) {
+          setLastSaved(new Date().toLocaleTimeString());
+        } else {
+          console.error('[ReviewSection] Comments save returned not ok:', result);
+        }
+      } catch (err) {
+        console.error('[ReviewSection] Error saving comments:', err);
       } finally {
         setSaving(false);
       }
@@ -333,8 +358,7 @@ export default function ReviewSection({
   );
 
   const handleGroupApprove = () => {
-    requireIdentity(async () => {
-      if (!identity) return;
+    requireIdentity(async (currentIdentity) => {
       setApprovingGroup(true);
       try {
         const res = await fetch('/api/review/groups/approve', {
@@ -345,15 +369,15 @@ export default function ReviewSection({
             token,
             tactic,
             variant,
-            approvedByName: identity.name,
-            approvedByEmail: identity.email,
+            approvedByName: currentIdentity.name,
+            approvedByEmail: currentIdentity.email,
             approvedAt: new Date().toISOString(),
           }),
         });
         if (res.ok) {
           const data = await res.json();
           const approvedAt = (data && data.approvedAt) || new Date().toISOString();
-          onGroupApproved?.(variant, tactic, approvedAt, identity.name, identity.email);
+          onGroupApproved?.(variant, tactic, approvedAt, currentIdentity.name, currentIdentity.email);
         }
       } catch {
         // silent
@@ -371,10 +395,54 @@ export default function ReviewSection({
 
     debounceRef.current = setTimeout(() => {
       if (pendingCommentRef.current && pendingCommentRef.current.trim()) {
-        requireIdentity(() => {
+        requireIdentity(async (currentIdentity) => {
+          if (!currentIdentity) {
+            console.error('[ReviewSection] Identity not provided by requireIdentity callback');
+            return;
+          }
+          
           if (pendingCommentRef.current) {
-            saveComments({ comments: pendingCommentRef.current });
+            const commentsToSave = pendingCommentRef.current;
             pendingCommentRef.current = null;
+            
+            // Save comments directly with provided identity
+            setSaving(true);
+            try {
+              const payload: Record<string, unknown> = {
+                variant,
+                tactic,
+                authorName: currentIdentity.name,
+                authorEmail: currentIdentity.email,
+                comments: commentsToSave,
+              };
+              const res = await fetch(`/api/review/feedback?token=${encodeURIComponent(token)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              });
+              
+              if (!res.ok) {
+                const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+                console.error('[ReviewSection] Failed to save comments:', {
+                  status: res.status,
+                  error: errorData.error || res.statusText,
+                  payload: { variant, tactic, hasIdentity: !!currentIdentity },
+                });
+                return;
+              }
+              
+              const result = await res.json();
+              if (result.ok) {
+                setLastSaved(new Date().toLocaleTimeString());
+                console.log('[ReviewSection] Comments saved successfully');
+              } else {
+                console.error('[ReviewSection] Comments save returned not ok:', result);
+              }
+            } catch (err) {
+              console.error('[ReviewSection] Error saving comments:', err);
+            } finally {
+              setSaving(false);
+            }
           }
         });
       }
@@ -496,15 +564,23 @@ export default function ReviewSection({
             <button
               type="button"
               onClick={handleGroupApprove}
-              disabled={approvingGroup}
+              disabled={approvingGroup || shouldDisableApproveButton}
               className={`shrink-0 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-                isGroupApproved
+                shouldDisableApproveButton
+                  ? 'border border-gray-700 bg-gray-800/40 text-gray-500 cursor-not-allowed'
+                  : isGroupApproved
                   ? 'border border-gray-600 bg-gray-800/60 text-gray-400 hover:bg-gray-700/60 hover:text-gray-300'
                   : 'bg-emerald-600 text-white hover:bg-emerald-700'
               }`}
-              title={isGroupApproved ? 'Unlock section for changes and re-approve' : undefined}
+              title={
+                shouldDisableApproveButton
+                  ? 'All assets approved - no action needed'
+                  : isGroupApproved
+                  ? 'Re-approve section (new assets added)'
+                  : 'Approve all assets in this section'
+              }
             >
-              {approvingGroup ? 'Saving…' : isGroupApproved ? 'Unlock for changes' : 'Approve'}
+              {approvingGroup ? 'Saving…' : 'Approve'}
             </button>
             <div className="hidden shrink-0 sm:block">
               {saving && <span className="text-xs text-gray-500">Saving...</span>}

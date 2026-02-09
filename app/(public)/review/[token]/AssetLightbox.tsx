@@ -6,7 +6,7 @@
 // Includes per-asset commenting with required author identity.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAuthorIdentity } from './AuthorIdentityContext';
+import { useAuthorIdentity, type AuthorIdentity } from './AuthorIdentityContext';
 import { VideoWithThumbnail } from './ReviewSection';
 import type { ReviewState } from './ReviewPortalClient';
 
@@ -142,8 +142,8 @@ export default function AssetLightbox({
     fetchComments();
   }, [asset?.fileId, token, variant, tactic]);
 
-  const submitComment = useCallback(async () => {
-    if (!newComment.trim() || !asset || !identity) return;
+  const submitComment = useCallback(async (currentIdentity: AuthorIdentity) => {
+    if (!newComment.trim() || !asset || !currentIdentity) return;
 
     setSubmitting(true);
     try {
@@ -154,8 +154,8 @@ export default function AssetLightbox({
         body: JSON.stringify({
           token,
           body: newComment.trim(),
-          authorName: identity.name,
-          authorEmail: identity.email,
+          authorName: currentIdentity.name,
+          authorEmail: currentIdentity.email,
           tactic,
           variantGroup: variant,
           concept: '',
@@ -178,19 +178,18 @@ export default function AssetLightbox({
     } finally {
       setSubmitting(false);
     }
-  }, [newComment, asset, identity, token, variant, tactic]);
+  }, [newComment, asset, token, variant, tactic]);
 
   const handleSubmitComment = () => {
     if (!newComment.trim()) return;
-    requireIdentity(() => {
-      submitComment();
+    requireIdentity((currentIdentity) => {
+      submitComment(currentIdentity);
     });
   };
 
   const handleApprove = useCallback(() => {
     if (!asset) return;
-    requireIdentity(async () => {
-      if (!identity) return;
+    requireIdentity(async (currentIdentity) => {
       setApproving(true);
       try {
         const res = await fetch('/api/review/assets/approve', {
@@ -201,8 +200,8 @@ export default function AssetLightbox({
             token,
             driveFileId: asset.fileId,
             approvedAt: new Date().toISOString(),
-            approvedByName: identity.name,
-            approvedByEmail: identity.email,
+            approvedByName: currentIdentity.name,
+            approvedByEmail: currentIdentity.email,
             deliveryBatchId: deliveryBatchId ?? undefined,
             tactic,
             variant,

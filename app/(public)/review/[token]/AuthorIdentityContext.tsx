@@ -15,7 +15,7 @@ interface AuthorIdentityContextValue {
   identity: AuthorIdentity | null;
   setIdentity: (identity: AuthorIdentity) => void;
   clearIdentity: () => void;
-  requireIdentity: (onComplete: () => void) => void;
+  requireIdentity: (onComplete: (identity: AuthorIdentity) => void) => void;
   isModalOpen: boolean;
 }
 
@@ -26,7 +26,7 @@ const AuthorIdentityContext = createContext<AuthorIdentityContextValue | null>(n
 export function AuthorIdentityProvider({ children }: { children: ReactNode }) {
   const [identity, setIdentityState] = useState<AuthorIdentity | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+  const [pendingAction, setPendingAction] = useState<((identity: AuthorIdentity) => void) | null>(null);
 
   // Load identity from localStorage on mount
   useEffect(() => {
@@ -52,9 +52,9 @@ export function AuthorIdentityProvider({ children }: { children: ReactNode }) {
     }
     setIsModalOpen(false);
 
-    // Execute pending action if any
+    // Execute pending action if any, passing the new identity
     if (pendingAction) {
-      pendingAction();
+      pendingAction(newIdentity);
       setPendingAction(null);
     }
   }, [pendingAction]);
@@ -68,9 +68,9 @@ export function AuthorIdentityProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const requireIdentity = useCallback((onComplete: () => void) => {
+  const requireIdentity = useCallback((onComplete: (identity: AuthorIdentity) => void) => {
     if (identity) {
-      onComplete();
+      onComplete(identity);
     } else {
       setPendingAction(() => onComplete);
       setIsModalOpen(true);

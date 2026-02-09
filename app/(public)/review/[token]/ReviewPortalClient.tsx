@@ -121,8 +121,7 @@ function EmptyStateCard({
   const { identity, requireIdentity } = useAuthorIdentity();
 
   const save = useCallback(
-    async (value: string) => {
-      if (!identity) return;
+    async (value: string, currentIdentity: { name: string; email: string }) => {
       setSaving(true);
       try {
         const res = await fetch(
@@ -134,8 +133,8 @@ function EmptyStateCard({
               variant,
               tactic: 'General',
               comments: value,
-              authorName: identity.name,
-              authorEmail: identity.email,
+              authorName: currentIdentity.name,
+              authorEmail: currentIdentity.email,
             }),
           }
         );
@@ -146,7 +145,7 @@ function EmptyStateCard({
         setSaving(false);
       }
     },
-    [variant, token, identity]
+    [variant, token]
   );
 
   const handleChange = useCallback(
@@ -156,9 +155,9 @@ function EmptyStateCard({
       pendingRef.current = value;
       debounceRef.current = setTimeout(() => {
         if (pendingRef.current?.trim()) {
-          requireIdentity(() => {
+          requireIdentity((currentIdentity) => {
             if (pendingRef.current) {
-              save(pendingRef.current);
+              save(pendingRef.current, currentIdentity);
               pendingRef.current = null;
             }
           });
