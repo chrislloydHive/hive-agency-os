@@ -228,13 +228,10 @@ export async function POST(req: NextRequest) {
   const createdAt = new Date().toISOString();
   
   try {
-    // Use just the name for Author field (Airtable doesn't accept angle brackets)
-    const author = trimmedAuthorName.slice(0, 100);
-    
     // Create comment record
+    // Note: Author field removed - it's not a text field (likely collaborator/link/single-select)
     const recordFields: Record<string, unknown> = {
       Body: trimmedBody.slice(0, 5000),
-      Author: author,
       Status: 'Open', // Single-select: use string value
       'Target Type': 'Group', // Single-select: use string value
       'Creative Review Groups': [{ id: groupId }],
@@ -252,6 +249,8 @@ export async function POST(req: NextRequest) {
       groupId,
       hasBody: !!trimmedBody,
     });
+    
+    console.log('[comments/group] Fields being sent to Comments table:', Object.keys(recordFields));
     
     // Comments table is in a different base (appQLwoVH8JyGSTIo)
     // Use AIRTABLE_COMMENTS_BASE_ID if set, otherwise use the provided base ID

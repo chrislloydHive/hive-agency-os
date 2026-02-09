@@ -198,17 +198,23 @@ export const partnerDeliveryRequested = inngest.createFunction(
           };
         }
 
-        // Resolve destination folder from batch (use batchRecordId from event if available, then batchId, then fetch from record)
-        let deliveryBatchIdRaw = eventBatchRecordId || batchId;
-        let batchRecordIdFromCras: string | null = eventBatchRecordId || null;
+        // Resolve destination folder from batch
+        // Priority: 1) batchRecordId from event, 2) batchId from event, 3) fetch from CRAS record
+        let deliveryBatchIdRaw: string | null = null;
+        let batchRecordIdFromCras: string | null = null;
         let projectIdFromCras: string | null = null;
         
-        // If we have batchRecordId from event, use it directly
+        // If we have batchRecordId from event, use it directly (preferred)
         if (eventBatchRecordId && eventBatchRecordId.startsWith('rec')) {
           batchRecordIdFromCras = eventBatchRecordId;
           deliveryBatchIdRaw = eventBatchRecordId;
-        } else if (!deliveryBatchIdRaw) {
-          // Fallback: fetch batch ID from Airtable record
+          console.log(`[partner-delivery-requested] Using batchRecordId from event: ${batchRecordIdFromCras}`);
+        } else if (batchId) {
+          // Fallback to batchId from event (might be a name string)
+          deliveryBatchIdRaw = batchId;
+          console.log(`[partner-delivery-requested] Using batchId from event: ${batchId}`);
+        } else {
+          // Last resort: fetch batch ID from Airtable record
           try {
             const base = getBase();
             const airtableRecord = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
@@ -217,9 +223,11 @@ export const partnerDeliveryRequested = inngest.createFunction(
               // It's a linked record - use the record ID directly
               batchRecordIdFromCras = (batchRaw[0] as string).trim();
               deliveryBatchIdRaw = batchRecordIdFromCras;
+              console.log(`[partner-delivery-requested] Fetched batchRecordId from CRAS record: ${batchRecordIdFromCras}`);
             } else if (typeof batchRaw === 'string' && batchRaw.trim()) {
               // It's a text field (Batch ID name)
               deliveryBatchIdRaw = (batchRaw as string).trim();
+              console.log(`[partner-delivery-requested] Fetched batchId from CRAS record: ${deliveryBatchIdRaw}`);
             }
             
             // Also get Project ID for fallback batch resolution

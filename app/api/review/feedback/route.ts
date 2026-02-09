@@ -171,9 +171,16 @@ export async function POST(req: NextRequest) {
 
     data[feedbackKey] = existing;
 
-    await osBase(AIRTABLE_TABLES.PROJECTS).update(recordId, {
-      'Client Review Data': JSON.stringify(data),
-    });
+    // Build update payload (exclude "Client Review Data" field as it doesn't exist in Airtable schema)
+    const updatePayload: Record<string, unknown> = {};
+    // Note: Client Review Data field removed - field doesn't exist in Airtable schema
+    
+    console.log("[review/feedback] fields", Object.keys(updatePayload));
+    
+    // Only update if there are fields to update
+    if (Object.keys(updatePayload).length > 0) {
+      await osBase(AIRTABLE_TABLES.PROJECTS).update(recordId, updatePayload as any);
+    }
 
     // On any approval toggle, update the Creative Review Sets record
     // Always overwrite: timestamp and author info are written for both approve and un-approve

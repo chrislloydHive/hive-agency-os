@@ -259,13 +259,10 @@ export async function POST(req: NextRequest) {
   const createdAt = new Date().toISOString();
   
   try {
-    // Use just the name for Author field (Airtable doesn't accept angle brackets)
-    const author = trimmedAuthorName.slice(0, 100);
-    
     // Create comment record
+    // Note: Author field removed - it's not a text field (likely collaborator/link/single-select)
     const recordFields: Record<string, unknown> = {
       Body: trimmedBody.slice(0, 5000),
-      Author: author,
       Status: 'Open', // Single-select: use string value
       'Target Type': 'Asset', // Single-select: use string value
       'Target Asset': [{ id: resolvedCrasId }],
@@ -292,17 +289,14 @@ export async function POST(req: NextRequest) {
       }
     }
     
-    // Add Author Email field if it exists in schema (optional)
-    if (trimmedAuthorEmail) {
-      recordFields['Author Email'] = trimmedAuthorEmail.slice(0, 200);
-    }
-    
     console.log('[comments/asset] Creating comment record:', {
       table: AIRTABLE_TABLES.COMMENTS,
       fields: Object.keys(recordFields),
       crasId: resolvedCrasId,
       hasBody: !!trimmedBody,
     });
+    
+    console.log('[comments/asset] Fields being sent to Comments table:', Object.keys(recordFields));
     
     // Comments table is in a different base (appQLwoVH8JyGSTIo)
     // Use AIRTABLE_COMMENTS_BASE_ID if set, otherwise use the provided base ID
