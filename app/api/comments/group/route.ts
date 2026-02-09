@@ -81,11 +81,11 @@ async function findOrCreateCreativeReviewSet(
     }
     
     // Create new record if not found
-    const created = await osBase(tableName).create({
+    const created = (await osBase(tableName).create({
       Project: [{ id: projectId }],
       Tactic: tactic,
       Variant: variant,
-    } as any);
+    } as any)) as unknown as { id: string };
     
     return created.id;
   } catch (err) {
