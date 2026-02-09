@@ -227,10 +227,8 @@ export async function POST(req: NextRequest) {
   const createdAt = new Date().toISOString();
   
   try {
-    // Build author string (format: "Name <email>" if email provided, else just "Name")
-    const author = trimmedAuthorEmail
-      ? `${trimmedAuthorName.slice(0, 100)} <${trimmedAuthorEmail.slice(0, 200)}>`
-      : trimmedAuthorName.slice(0, 100);
+    // Use just the name for Author field (Airtable doesn't accept angle brackets)
+    const author = trimmedAuthorName.slice(0, 100);
     
     // Create comment record
     const recordFields: Record<string, unknown> = {
