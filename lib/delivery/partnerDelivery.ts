@@ -474,52 +474,95 @@ export async function runPartnerDelivery(
     };
   }
 
-  const deliveredFolderName = `Delivered – ${(projectName ?? 'Delivery').trim() || 'Delivery'} – ${new Date().toISOString().slice(0, 10)}`;
-  console.log(`[delivery/partner] ${requestId} Copying folder tree: sourceFolderId=${resolvedSourceFolderId}, destination=${effectiveDestinationFolderId}, folderName="${deliveredFolderName}"`);
+  // Determine if source is a file or folder
+  const isFolder = sourceMeta.mimeType === FOLDER_MIMETYPE;
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const deliveredFolderName = projectName 
+    ? `Delivered – ${projectName.trim()} – ${dateStr}`
+    : `Delivered – ${dateStr}`;
+  
+  console.log(`[delivery/partner] ${requestId} Source type: ${isFolder ? 'folder' : 'file'}, sourceFolderId=${resolvedSourceFolderId}, destination=${effectiveDestinationFolderId}, folderName="${deliveredFolderName}"`);
   console.log(`[delivery/partner] ${requestId} Destination folder URL: ${folderUrl(effectiveDestinationFolderId)}`);
 
   try {
-    const result = await copyDriveFolderTree(drive, resolvedSourceFolderId, effectiveDestinationFolderId, {
-      deliveredFolderName,
-      drive,
-    });
-    console.log(`[delivery/partner] ${requestId} Copy completed: filesCopied=${result.filesCopied}, foldersCreated=${result.foldersCreated}, failures=${result.failures.length}, deliveredFolderId=${result.deliveredRootFolderId}`);
-    console.log(`[delivery/partner] ${requestId} Delivered folder URL: ${result.deliveredRootFolderUrl}`);
-    
-    if (result.filesCopied === 0) {
-      console.warn(`[delivery/partner] ${requestId} WARNING: Copy succeeded but 0 files were copied. Source folder ${resolvedSourceFolderId} may be empty or inaccessible. Check source folder: ${folderUrl(resolvedSourceFolderId)}`);
+    if (isFolder) {
+      // Copy entire folder tree
+      const result = await copyDriveFolderTree(drive, resolvedSourceFolderId, effectiveDestinationFolderId, {
+        deliveredFolderName,
+        drive,
+      });
+      console.log(`[delivery/partner] ${requestId} Copy completed: filesCopied=${result.filesCopied}, foldersCreated=${result.foldersCreated}, failures=${result.failures.length}, deliveredFolderId=${result.deliveredRootFolderId}`);
+      console.log(`[delivery/partner] ${requestId} Delivered folder URL: ${result.deliveredRootFolderUrl}`);
+      
+      if (result.filesCopied === 0) {
+        console.warn(`[delivery/partner] ${requestId} WARNING: Copy succeeded but 0 files were copied. Source folder ${resolvedSourceFolderId} may be empty or inaccessible. Check source folder: ${folderUrl(resolvedSourceFolderId)}`);
+      }
+      
+      if (result.failures.length > 0) {
+        console.warn(`[delivery/partner] ${requestId} Copy had ${result.failures.length} failures:`, result.failures);
+      }
+      
+      await updateAssetStatusDeliverySuccess(airtableRecordId, {
+        deliveredFolderId: result.deliveredRootFolderId,
+        deliveredFolderUrl: result.deliveredRootFolderUrl,
+        filesCopied: result.filesCopied,
+        foldersCreated: result.foldersCreated,
+        failures: result.failures.length > 0 ? result.failures : undefined,
+      });
+      logStructured({
+        requestId,
+        airtableRecordId,
+        sourceFolderId,
+        destinationFolderId: effectiveDestinationFolderId,
+        dryRun: false,
+        result: 'ok',
+        authMode,
+      });
+      return {
+        ok: true,
+        deliveredFileUrl: result.deliveredRootFolderUrl,
+        deliveredRootFolderId: result.deliveredRootFolderId,
+        foldersCreated: result.foldersCreated,
+        filesCopied: result.filesCopied,
+        failures: result.failures,
+        authMode,
+        result: 'ok',
+      };
+    } else {
+      // Copy single file
+      console.log(`[delivery/partner] ${requestId} Copying single file: sourceFileId=${resolvedSourceFolderId}, destinationFolderId=${effectiveDestinationFolderId}`);
+      const fileResult = await copyFileToFolder(resolvedSourceFolderId, effectiveDestinationFolderId, {
+        drive,
+        requestId,
+      });
+      console.log(`[delivery/partner] ${requestId} File copy completed: fileId=${fileResult.id}, fileName="${fileResult.name}", fileUrl=${fileResult.url}`);
+      
+      await updateAssetStatusDeliverySuccess(airtableRecordId, {
+        deliveredFolderId: effectiveDestinationFolderId,
+        deliveredFolderUrl: fileResult.url,
+        filesCopied: 1,
+        foldersCreated: 0,
+      });
+      logStructured({
+        requestId,
+        airtableRecordId,
+        sourceFolderId,
+        destinationFolderId: effectiveDestinationFolderId,
+        dryRun: false,
+        result: 'ok',
+        authMode,
+      });
+      return {
+        ok: true,
+        deliveredFileUrl: fileResult.url,
+        deliveredRootFolderId: effectiveDestinationFolderId,
+        foldersCreated: 0,
+        filesCopied: 1,
+        failures: [],
+        authMode,
+        result: 'ok',
+      };
     }
-    
-    if (result.failures.length > 0) {
-      console.warn(`[delivery/partner] ${requestId} Copy had ${result.failures.length} failures:`, result.failures);
-    }
-    
-    await updateAssetStatusDeliverySuccess(airtableRecordId, {
-      deliveredFolderId: result.deliveredRootFolderId,
-      deliveredFolderUrl: result.deliveredRootFolderUrl,
-      filesCopied: result.filesCopied,
-      foldersCreated: result.foldersCreated,
-      failures: result.failures.length > 0 ? result.failures : undefined,
-    });
-    logStructured({
-      requestId,
-      airtableRecordId,
-      sourceFolderId,
-      destinationFolderId: effectiveDestinationFolderId,
-      dryRun: false,
-      result: 'ok',
-      authMode,
-    });
-    return {
-      ok: true,
-      deliveredFileUrl: result.deliveredRootFolderUrl,
-      deliveredRootFolderId: result.deliveredRootFolderId,
-      foldersCreated: result.foldersCreated,
-      filesCopied: result.filesCopied,
-      failures: result.failures,
-      authMode,
-      result: 'ok',
-    };
   } catch (e: any) {
     const raw = e instanceof Error ? e.message : String(e);
     const statusCode = e?.response?.status ?? e?.code ?? 'unknown';
@@ -661,7 +704,7 @@ export async function runPartnerDeliveryByBatch(params: {
   }
 
   const dateStr = new Date().toISOString().slice(0, 10);
-  const deliveredFolderName = `Delivered – ${deliveryBatchId} – ${dateStr}`;
+  const deliveredFolderName = `Delivered – ${dateStr}`;
 
   if (dryRun) {
     return {
