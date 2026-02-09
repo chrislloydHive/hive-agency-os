@@ -180,14 +180,17 @@ export const partnerDeliveryRequested = inngest.createFunction(
             console.log(`[partner-delivery-requested] Record ${crasRecordId} delivered successfully: url=${fileUrl ?? 'none'}`);
             
             // Add production assets delivery (after approved deliverables)
-            const productionAssetsResult = await addProductionAssets({
-              deliveryRootFolderId: deliveryResult.deliveredRootFolderId,
-              batchId: deliveryBatchIdRaw,
-              requestId: requestId || `event-${crasRecordId.slice(-8)}`,
-            });
-            
-            if (!productionAssetsResult.ok) {
-              console.warn(`[partner-delivery-requested] Production assets delivery failed (non-blocking):`, productionAssetsResult.error);
+            // Only proceed if we have a deliveredRootFolderId (not dry-run or idempotent)
+            if ('deliveredRootFolderId' in deliveryResult && deliveryResult.deliveredRootFolderId) {
+              const productionAssetsResult = await addProductionAssets({
+                deliveryRootFolderId: deliveryResult.deliveredRootFolderId,
+                batchId: deliveryBatchIdRaw,
+                requestId: requestId || `event-${crasRecordId.slice(-8)}`,
+              });
+              
+              if (!productionAssetsResult.ok) {
+                console.warn(`[partner-delivery-requested] Production assets delivery failed (non-blocking):`, productionAssetsResult.error);
+              }
             }
             
             return {
