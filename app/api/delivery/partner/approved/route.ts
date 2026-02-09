@@ -25,6 +25,13 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  // FIRST-LINE log that always runs
+  console.log("[delivery/webhook] HIT", {
+    method: req.method,
+    url: req.url,
+    time: new Date().toISOString(),
+  });
+
   let body: {
     requestId?: string;
     crasRecordId?: string;
@@ -36,6 +43,9 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400, headers: NO_STORE });
   }
+
+  // Log parsed body
+  console.log("[delivery/webhook] BODY", body);
 
   const requestId = body.requestId ? String(body.requestId).trim() : undefined;
   const crasRecordId = body.crasRecordId ? String(body.crasRecordId).trim() : undefined;
