@@ -35,7 +35,7 @@ export const partnerDeliveryRequested = inngest.createFunction(
     id: 'partner-delivery-requested',
     name: 'Partner Delivery Requested (Event-Driven)',
     retries: 3,
-    concurrency: { limit: 10 }, // Allow multiple deliveries in parallel
+    concurrency: { limit: 5 }, // Match plan limit (was 10, reduced to 5)
   },
   { event: 'partner.delivery.requested' },
   async ({ event, step }) => {
