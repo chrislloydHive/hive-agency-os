@@ -121,17 +121,11 @@ export default function AssetLightbox({
     const fetchComments = async () => {
       setLoadingComments(true);
       try {
-        // Try CRAS ID from asset first, then use fileId (API will resolve)
-        const crasId = asset.airtableRecordId;
+        // API will resolve CRAS ID from fileId
         const params = new URLSearchParams({
           token,
+          fileId: asset.fileId,
         });
-        if (crasId) {
-          params.append('crasId', crasId);
-        } else {
-          // API will resolve CRAS ID from fileId
-          params.append('fileId', asset.fileId);
-        }
         
         const res = await fetch(`/api/comments/asset?${params}`, {
           cache: 'no-store',
@@ -167,14 +161,14 @@ export default function AssetLightbox({
     };
 
     fetchComments();
-  }, [asset?.fileId, asset?.airtableRecordId, token, variant, tactic]);
+  }, [asset?.fileId, token, variant, tactic]);
 
   const submitComment = useCallback(async (currentIdentity: AuthorIdentity) => {
     if (!newComment.trim() || !asset || !currentIdentity) return;
 
     setSubmitting(true);
     try {
-      // Use new API (will resolve CRAS ID from fileId if needed)
+      // Use new API (will resolve CRAS ID from fileId)
       const payload: Record<string, unknown> = {
         body: newComment.trim(),
         authorName: currentIdentity.name,
@@ -183,10 +177,6 @@ export default function AssetLightbox({
         variant,
         fileId: asset.fileId,
       };
-      
-      if (asset.airtableRecordId) {
-        payload.crasId = asset.airtableRecordId;
-      }
       
       const res = await fetch(`/api/comments/asset?token=${encodeURIComponent(token)}`, {
         method: 'POST',
