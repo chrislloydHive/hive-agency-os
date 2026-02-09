@@ -15,6 +15,7 @@ import {
   getDestinationFolderIdByBatchId,
   getBatchDetailsByRecordId,
   getBatchDetails,
+  listBatchesByProjectId,
 } from '@/lib/airtable/partnerDeliveryBatches';
 import {
   getDriveClient,
@@ -25,10 +26,12 @@ import {
 /**
  * Resolve destination folder ID for a CRAS record's batch reference.
  * Returns both destination folder ID and batch record ID for logging.
+ * Includes fallback to project-based batch lookup when name lookup fails.
  */
 async function resolveDestinationFolderId(
   deliveryBatchIdRaw: string,
-  batchRecordIdFromCras?: string | null
+  batchRecordIdFromCras?: string | null,
+  projectIdFromCras?: string | null
 ): Promise<{ destinationFolderId: string | null; batchRecordId: string | null; error?: string }> {
   const raw = deliveryBatchIdRaw.trim();
   if (!raw) return { destinationFolderId: null, batchRecordId: null, error: 'Empty batch identifier' };
@@ -66,7 +69,7 @@ async function resolveDestinationFolderId(
   }
 
   // Otherwise, it's a Batch ID name string - look it up
-  const details = await getBatchDetails(raw);
+  let details = await getBatchDetails(raw);
   console.log("[delivery/destination]", {
     batchId: raw,
     batchRecordId: details?.recordId || null,
@@ -75,11 +78,61 @@ async function resolveDestinationFolderId(
     warning: details ? undefined : `Batch not found by name "${raw}" - batch may have been renamed`,
   });
   
+  // If name lookup failed and we have a project ID, try fallback: find batches for project
+  if (!details && projectIdFromCras && projectIdFromCras.trim()) {
+    console.log("[delivery/destination] Name lookup failed, trying project-based fallback", {
+      batchId: raw,
+      projectId: projectIdFromCras,
+    });
+    
+    try {
+      const projectBatches = await listBatchesByProjectId(projectIdFromCras);
+      // Prefer active batches, then most recent
+      const activeBatches = projectBatches.filter(b => b.status?.toLowerCase() === 'active');
+      const batchesToCheck = activeBatches.length > 0 ? activeBatches : projectBatches;
+      
+      if (batchesToCheck.length === 1) {
+        // Only one batch for this project - use it
+        const fallbackBatch = batchesToCheck[0];
+        console.log("[delivery/destination] Found single batch for project (fallback)", {
+          batchId: raw,
+          projectId: projectIdFromCras,
+          fallbackBatchRecordId: fallbackBatch.batchRecordId,
+          fallbackBatchId: fallbackBatch.batchId,
+          destinationFolderId: fallbackBatch.destinationFolderId,
+        });
+        return {
+          destinationFolderId: fallbackBatch.destinationFolderId,
+          batchRecordId: fallbackBatch.batchRecordId,
+        };
+      } else if (batchesToCheck.length > 1) {
+        // Multiple batches - can't auto-resolve
+        console.warn("[delivery/destination] Multiple batches found for project, cannot auto-resolve", {
+          batchId: raw,
+          projectId: projectIdFromCras,
+          batchCount: batchesToCheck.length,
+          batchIds: batchesToCheck.map(b => b.batchId),
+        });
+        return {
+          destinationFolderId: null,
+          batchRecordId: null,
+          error: `Batch not found by name "${raw}" and project has ${batchesToCheck.length} batches. Please update CRAS record to use Partner Delivery Batch link field (record ID) instead of Batch ID text field.`,
+        };
+      }
+    } catch (projectErr) {
+      console.warn("[delivery/destination] Project-based fallback failed", {
+        batchId: raw,
+        projectId: projectIdFromCras,
+        error: projectErr instanceof Error ? projectErr.message : String(projectErr),
+      });
+    }
+  }
+  
   if (!details) {
     return {
       destinationFolderId: null,
       batchRecordId: null,
-      error: `Batch not found by name "${raw}". Batch may have been renamed - ensure CRAS records use Partner Delivery Batch link field (record ID) instead of Batch ID text field.`,
+      error: `Batch not found by name "${raw}". Batch may have been renamed - ensure CRAS records use Partner Delivery Batch link field (record ID) instead of Batch ID text field.${projectIdFromCras ? ` Tried project-based fallback but no single batch found for project ${projectIdFromCras}.` : ''}`,
     };
   }
 
@@ -139,6 +192,7 @@ export const partnerDeliveryRequested = inngest.createFunction(
         // Resolve destination folder from batch (use batchId from event, or fetch from record if needed)
         let deliveryBatchIdRaw = batchId;
         let batchRecordIdFromCras: string | null = null;
+        let projectIdFromCras: string | null = null;
         if (!deliveryBatchIdRaw) {
           // Fallback: fetch batch ID from Airtable record
           try {
@@ -152,6 +206,14 @@ export const partnerDeliveryRequested = inngest.createFunction(
             } else if (typeof batchRaw === 'string' && batchRaw.trim()) {
               // It's a text field (Batch ID name)
               deliveryBatchIdRaw = (batchRaw as string).trim();
+            }
+            
+            // Also get Project ID for fallback batch resolution
+            const projectRaw = airtableRecord.fields['Project'];
+            if (Array.isArray(projectRaw) && projectRaw.length > 0 && typeof projectRaw[0] === 'string') {
+              projectIdFromCras = (projectRaw[0] as string).trim();
+            } else if (typeof projectRaw === 'string' && projectRaw.trim()) {
+              projectIdFromCras = (projectRaw as string).trim();
             }
           } catch (fetchErr) {
             console.warn(`[partner-delivery-requested] Failed to fetch batch ID from record:`, fetchErr);
@@ -167,7 +229,11 @@ export const partnerDeliveryRequested = inngest.createFunction(
         }
 
         // Resolve destination folder - prefer record ID lookup for stability
-        const destinationResult = await resolveDestinationFolderId(deliveryBatchIdRaw, batchRecordIdFromCras);
+        const destinationResult = await resolveDestinationFolderId(
+          deliveryBatchIdRaw,
+          batchRecordIdFromCras,
+          projectIdFromCras
+        );
         if (!destinationResult.destinationFolderId) {
           console.error(`[partner-delivery-requested] Could not resolve destination for batch: ${deliveryBatchIdRaw}`, {
             batchRecordId: destinationResult.batchRecordId,
