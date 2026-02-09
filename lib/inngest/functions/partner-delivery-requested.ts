@@ -14,6 +14,7 @@ import { DELIVERY_BATCH_ID_FIELD } from '@/lib/airtable/reviewAssetStatus';
 import {
   getDestinationFolderIdByBatchId,
   getBatchDetailsByRecordId,
+  getBatchDetails,
 } from '@/lib/airtable/partnerDeliveryBatches';
 import {
   getDriveClient,
