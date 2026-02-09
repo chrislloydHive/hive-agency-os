@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuthorIdentity } from './AuthorIdentityContext';
+import { VideoWithThumbnail } from './ReviewSection';
 import type { ReviewState } from './ReviewPortalClient';
 
 interface ReviewAsset {
@@ -368,11 +369,11 @@ export default function AssetLightbox({
             />
           )}
           {isVideo && (
-            <video
+            <VideoWithThumbnail
               src={src}
+              className="max-h-[75vh] max-w-full"
               controls
               autoPlay
-              className="max-h-[75vh] max-w-full"
             />
           )}
           {isAudio && (

@@ -11,6 +11,147 @@ import { useAuthorIdentity } from './AuthorIdentityContext';
 import { getSectionCounts, isAssetNew } from './reviewAssetUtils';
 import type { ReviewState } from './ReviewPortalClient';
 
+/**
+ * Video component that extracts and displays the final frame as a thumbnail.
+ * Seeks to near the end of the video (95%) and captures that frame to use as poster.
+ */
+export function VideoWithThumbnail({ 
+  src, 
+  className,
+  controls = false,
+  autoPlay = false,
+}: { 
+  src: string; 
+  className?: string;
+  controls?: boolean;
+  autoPlay?: boolean;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [posterUrl, setPosterUrl] = useState<string | null>(null);
+  const [hasThumbnail, setHasThumbnail] = useState(false);
+  const attemptRef = useRef(0);
+  const maxAttempts = 3;
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || hasThumbnail) return;
+
+    const captureFrame = () => {
+      try {
+        // Check if video has valid dimensions
+        if (video.videoWidth === 0 || video.videoHeight === 0) {
+          if (attemptRef.current < maxAttempts) {
+            attemptRef.current += 1;
+            // Retry after a short delay
+            setTimeout(() => {
+              if (video.readyState >= 2) {
+                captureFrame();
+              }
+            }, 200);
+          }
+          return;
+        }
+        
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        // Draw the current video frame to canvas
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Convert to data URL for use as poster
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        setPosterUrl(dataUrl);
+        setHasThumbnail(true);
+      } catch (e) {
+        // CORS or other errors - silently fail, video will show without poster
+        if (attemptRef.current < maxAttempts) {
+          attemptRef.current += 1;
+        }
+      }
+    };
+
+    const seekToFinalFrame = () => {
+      try {
+        if (video.duration && video.duration > 0 && !isNaN(video.duration)) {
+          // Seek to 95% of video duration to get near-final frame
+          video.currentTime = Math.max(0, video.duration * 0.95);
+        } else {
+          // If duration not available yet, try seeking to a reasonable time
+          // Most videos are under 5 minutes, so try 4 minutes
+          video.currentTime = 240;
+        }
+      } catch (e) {
+        // Seeking failed - try to capture current frame anyway
+        if (video.readyState >= 2) {
+          captureFrame();
+        }
+      }
+    };
+
+    const handleLoadedMetadata = () => {
+      seekToFinalFrame();
+    };
+
+    const handleSeeked = () => {
+      // Frame should be ready after seeking - wait a bit for render
+      setTimeout(captureFrame, 150);
+    };
+
+    const handleLoadedData = () => {
+      // If metadata wasn't loaded but we have data, try capturing current frame
+      if (!hasThumbnail && video.readyState >= 2 && video.videoWidth > 0) {
+        captureFrame();
+      }
+    };
+
+    const handleCanPlay = () => {
+      // If we still don't have a thumbnail and video can play, try one more time
+      if (!hasThumbnail && video.videoWidth > 0) {
+        seekToFinalFrame();
+      }
+    };
+
+    // Add event listeners
+    video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('seeked', handleSeeked);
+    video.addEventListener('loadeddata', handleLoadedData);
+    video.addEventListener('canplay', handleCanPlay);
+
+    // If video is already loaded, try immediately
+    if (video.readyState >= 1) {
+      handleLoadedMetadata();
+    }
+
+    return () => {
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('seeked', handleSeeked);
+      video.removeEventListener('loadeddata', handleLoadedData);
+      video.removeEventListener('canplay', handleCanPlay);
+    };
+  }, [hasThumbnail]);
+
+  return (
+    <>
+      <canvas ref={canvasRef} className="hidden" />
+      <video
+        ref={videoRef}
+        src={src}
+        className={className}
+        muted={!autoPlay}
+        preload="metadata"
+        crossOrigin="anonymous"
+        poster={posterUrl || undefined}
+        controls={controls}
+        autoPlay={autoPlay}
+      />
+    </>
+  );
+}
+
 interface ReviewAsset {
   fileId: string;
   name: string;
@@ -431,9 +572,9 @@ function statusBadgeLabel(state: ReviewState | undefined): string {
 }
 
 function statusBadgeClass(state: ReviewState | undefined): string {
-  if (!state || state === 'new') return 'bg-gray-700 text-gray-300';
+  if (!state || state === 'new') return 'bg-amber-500 text-white font-semibold shadow-lg shadow-amber-500/50 border border-amber-400';
   if (state === 'seen') return 'bg-blue-900/60 text-blue-200';
-  if (state === 'approved') return 'bg-emerald-900/60 text-emerald-200';
+  if (state === 'approved') return 'bg-emerald-600 text-white font-semibold shadow-lg shadow-emerald-600/50 border border-emerald-400';
   if (state === 'needs_changes') return 'bg-amber-900/60 text-amber-200';
   return 'bg-gray-700 text-gray-300';
 }
@@ -468,7 +609,7 @@ function AssetCard({
   const isNew = isAssetNew(asset);
   const effectiveState: ReviewState | undefined = asset.assetApprovedClient ? 'approved' : asset.reviewState;
   const badgeLabel = isNew ? 'New' : statusBadgeLabel(effectiveState);
-  const badgeClass = isNew ? 'bg-gray-700 text-gray-300' : statusBadgeClass(effectiveState);
+  const badgeClass = isNew ? 'bg-amber-500 text-white font-semibold shadow-lg shadow-amber-500/50 border border-amber-400' : statusBadgeClass(effectiveState);
   const hasClickThrough = typeof asset.clickThroughUrl === 'string' && asset.clickThroughUrl.trim().length > 0;
 
   return (
@@ -502,7 +643,7 @@ function AssetCard({
       <div className="relative flex aspect-video items-center justify-center bg-gray-900">
         {/* Status badge: right of checkbox when checkbox present, else left-2 */}
         <span
-          className={`absolute ${onToggleSelect ? 'left-10' : 'left-2'} top-2 z-10 rounded px-2 py-0.5 text-xs font-medium ${badgeClass}`}
+          className={`absolute ${onToggleSelect ? 'left-10' : 'left-2'} top-2 z-10 rounded-md px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
           title={isNew ? 'Added since your last visit' : undefined}
         >
           {badgeLabel}
@@ -517,7 +658,7 @@ function AssetCard({
         )}
         {isVideo && (
           <div className="relative h-full w-full">
-            <video src={src} className="h-full w-full object-contain" muted />
+            <VideoWithThumbnail src={src} className="h-full w-full object-contain" />
             {/* Play icon overlay */}
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="rounded-full bg-black/60 p-3 transition-transform group-hover:scale-110">
