@@ -63,17 +63,17 @@ const registeredFunctions = [
 
 // Log registered functions at boot (once per process)
 if (typeof window === 'undefined') {
-  const functionIds = registeredFunctions.map(f => {
+  const fnIds = registeredFunctions.map(f => {
     const id = typeof f.id === 'function' ? f.id() : (f.id || f.name || 'unknown');
-    return id;
+    return String(id);
   });
-  console.log('[inngest/route] registered', functionIds);
+  console.log('[inngest/route] registeredCount', fnIds.length);
+  console.log('[inngest/route] registeredIds', fnIds);
   
-  // Check if partner delivery function is registered
-  const hasPartnerDelivery = functionIds.some(id => 
-    typeof id === 'string' && (id.includes('partner-delivery') || id.includes('partnerDelivery'))
-  );
-  console.log('[inngest/route] partner-delivery-requested registered?', hasPartnerDelivery);
+  // Hard assert: check if probe is registered
+  if (!fnIds.includes('partner-delivery-probe')) {
+    console.log('[inngest/route] MISSING probe registration');
+  }
 }
 
 const handlers = serve({
