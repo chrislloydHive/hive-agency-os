@@ -81,8 +81,9 @@ async function findOrCreateCreativeReviewSet(
     }
     
     // Create new record if not found
+    // Note: Project field expects array of record IDs, not objects with id property
     const created = (await osBase(tableName).create({
-      Project: [{ id: projectId }],
+      Project: [projectId],
       Tactic: tactic,
       Variant: variant,
     } as any)) as unknown as { id: string };
