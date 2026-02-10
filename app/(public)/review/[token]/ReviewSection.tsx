@@ -337,7 +337,14 @@ export default function ReviewSection({
   const { totalCount, newCount, pendingCount, approvedCount } = counts;
   const unapprovedFileIds = assets.filter((a) => !a.assetApprovedClient).map((a) => a.fileId);
   const newFileIds = assets.filter(isAssetNew).map((a) => a.fileId);
-  const selectedUnapprovedCount = unapprovedFileIds.filter((id) => selectedFileIds.has(id)).length;
+  
+  // Calculate selected unapproved assets in this section
+  const selectedUnapprovedInSection = assets.filter(
+    (a) => selectedFileIds.has(a.fileId) && !a.assetApprovedClient
+  );
+  const selectedUnapprovedCount = selectedUnapprovedInSection.length;
+  const selectedUnapprovedFileIds = selectedUnapprovedInSection.map((a) => a.fileId);
+  
   const allUnapprovedSelected = pendingCount > 0 && selectedUnapprovedCount === pendingCount;
   const someUnapprovedSelected = selectedUnapprovedCount > 0 && selectedUnapprovedCount < pendingCount;
   const [comments, setComments] = useState(initialFeedback.comments);
@@ -461,13 +468,6 @@ export default function ReviewSection({
       }
     });
   }, [groupId, token, newGroupComment, requireIdentity]);
-  
-  // Calculate selected unapproved assets in this section
-  const selectedUnapprovedInSection = assets.filter(
-    (a) => selectedFileIds.has(a.fileId) && !a.assetApprovedClient
-  );
-  const selectedUnapprovedCount = selectedUnapprovedInSection.length;
-  const selectedUnapprovedFileIds = selectedUnapprovedInSection.map((a) => a.fileId);
   
   // Button should be disabled if:
   // - No unapproved assets are selected (selectedUnapprovedCount === 0), OR
