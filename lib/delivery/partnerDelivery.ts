@@ -799,7 +799,7 @@ export async function runPartnerDelivery(
                 effectiveDestinationFolderId,
                 {
                   deliveredFolderName: folder.name,
-                  requestId,
+                  drive,
                 }
               );
               
@@ -819,7 +819,7 @@ export async function runPartnerDelivery(
             childFoldersFound: childFolders.length,
             foldersSelected: selectedFolders.length,
             fallbackUsed,
-            foldersCopied,
+            foldersCreated,
             filesCopied,
             failures: failures.length,
           });
