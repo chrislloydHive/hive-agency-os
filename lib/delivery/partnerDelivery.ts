@@ -292,6 +292,7 @@ export async function runPartnerDelivery(
   let tacticName: string | null = null;
   let variantName: string | null = null;
   let sourceName: string | null = null;
+  let sourceVariantFolderId: string | null = null; // Store variant folder ID for file-source mode
   
   try {
     const sourceMeta = await drive.files.get({
@@ -308,8 +309,6 @@ export async function runPartnerDelivery(
       sourceMimeType,
       isFolder: sourceMimeType === FOLDER_MIMETYPE,
     });
-    
-    let sourceVariantFolderId: string | null = null; // Store variant folder ID for file-source mode
     
     if (sourceMimeType !== FOLDER_MIMETYPE) {
       // Source is a FILE: variant = file.parent, tactic = variant.parent
