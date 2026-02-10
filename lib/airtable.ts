@@ -10,6 +10,14 @@ let _startupLogged = false;
 // to prevent log spam - only log once per combination per process
 const _logged403Errors = new Set<string>();
 
+// Airtable base health check cache
+export interface BaseHealthStatus {
+  osBase: { healthy: boolean; checked: boolean; baseId: string; apiKeyPrefix: string };
+  commentsBase: { healthy: boolean; checked: boolean; baseId: string; apiKeyPrefix: string };
+}
+
+let _baseHealthStatus: BaseHealthStatus | null = null;
+
 export function getBase(): Airtable.Base {
   if (!_base) {
     const apiKey = env.AIRTABLE_API_KEY || process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
@@ -107,6 +115,89 @@ export function getBase(): Airtable.Base {
  */
 export function getBaseId(): string | null {
   return _baseId;
+}
+
+/**
+ * Health check for Airtable bases - tests access to OS base and Comments base
+ * Runs lazily on first call, caches result
+ */
+export async function checkAirtableBaseHealth(): Promise<BaseHealthStatus> {
+  if (_baseHealthStatus) {
+    return _baseHealthStatus;
+  }
+
+  const apiKey = env.AIRTABLE_API_KEY || process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+  const apiKeyPrefix = apiKey ? apiKey.substring(0, 10) + '...' : 'missing';
+  
+  const osBaseId = getBaseId() || process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
+  const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+  
+  const healthStatus: BaseHealthStatus = {
+    osBase: { healthy: false, checked: false, baseId: osBaseId, apiKeyPrefix },
+    commentsBase: { healthy: false, checked: false, baseId: commentsBaseId, apiKeyPrefix },
+  };
+
+  // Test OS base - try to list 1 record from any table
+  try {
+    const osBase = getBase();
+    // Try a simple select on a common table (Companies is likely to exist)
+    await osBase('Companies').select({ maxRecords: 1 }).firstPage();
+    healthStatus.osBase.healthy = true;
+    healthStatus.osBase.checked = true;
+    console.log('[Airtable Health Check] OS base PASS:', {
+      baseId: osBaseId,
+      apiKeyPrefix,
+    });
+  } catch (err: unknown) {
+    healthStatus.osBase.checked = true;
+    const is403 = (err as any)?.statusCode === 403 || 
+                 (err instanceof Error && (err.message.includes('403') || err.message.includes('NOT_AUTHORIZED')));
+    if (is403) {
+      console.error('[Airtable Health Check] OS base FAIL (403):', {
+        baseId: osBaseId,
+        apiKeyPrefix,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } else {
+      console.warn('[Airtable Health Check] OS base FAIL (other error):', {
+        baseId: osBaseId,
+        apiKeyPrefix,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // Test Comments base - try to list 1 record from Comments table
+  try {
+    const commentsBase = getCommentsBase();
+    await commentsBase('Comments').select({ maxRecords: 1 }).firstPage();
+    healthStatus.commentsBase.healthy = true;
+    healthStatus.commentsBase.checked = true;
+    console.log('[Airtable Health Check] Comments base PASS:', {
+      baseId: commentsBaseId,
+      apiKeyPrefix,
+    });
+  } catch (err: unknown) {
+    healthStatus.commentsBase.checked = true;
+    const is403 = (err as any)?.statusCode === 403 || 
+                 (err instanceof Error && (err.message.includes('403') || err.message.includes('NOT_AUTHORIZED')));
+    if (is403) {
+      console.error('[Airtable Health Check] Comments base FAIL (403):', {
+        baseId: commentsBaseId,
+        apiKeyPrefix,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } else {
+      console.warn('[Airtable Health Check] Comments base FAIL (other error):', {
+        baseId: commentsBaseId,
+        apiKeyPrefix,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  _baseHealthStatus = healthStatus;
+  return healthStatus;
 }
 
 /**

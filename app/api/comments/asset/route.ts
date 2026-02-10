@@ -3,7 +3,7 @@
 // Creates and reads comments from the canonical Comments table with Target Type = "Asset".
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getBase, getCommentsBase } from '@/lib/airtable';
+import { getBase, getCommentsBase, getBaseId, checkAirtableBaseHealth } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { createRecord, AirtableNotAuthorizedError } from '@/lib/airtable/client';
@@ -290,13 +290,62 @@ export async function POST(req: NextRequest) {
   // Target Asset field links to table tbl4ITKYtfE3JLyb6, which may differ from the source table
   // Resolution happens in OS base (where assets live), not Comments base
   const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
-  const osBaseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
+  const actualOsBaseId = getBaseId() || process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
+  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+  const apiKeyPrefix = apiKey ? apiKey.substring(0, 10) + '...' : 'missing';
+  
+  // Log base configuration at start of handler
+  console.log('[comments/asset] Base configuration:', {
+    resolutionBaseId: actualOsBaseId, // OS base: CRAS and asset lookups
+    commentsBaseId, // Comments base: comment record creation
+    resolutionApiKeyPrefix: apiKeyPrefix,
+    commentsApiKeyPrefix: apiKeyPrefix, // Same API key used for both
+  });
+  
+  // Guard: Prevent silent misrouting - resolution base must differ from comments base
+  if (actualOsBaseId === commentsBaseId) {
+    console.error('[comments/asset] Misconfigured Airtable bases:', {
+      resolutionBaseId: actualOsBaseId,
+      commentsBaseId,
+      resolutionApiKeyPrefix: apiKeyPrefix,
+      commentsApiKeyPrefix: apiKeyPrefix,
+      error: 'resolution base equals comments base',
+    });
+    return NextResponse.json(
+      {
+        error: '[comments/asset] Misconfigured Airtable bases: resolution base equals comments base',
+        resolutionBaseId: actualOsBaseId,
+        commentsBaseId,
+      },
+      { status: 500 }
+    );
+  }
+  
+  // Health check: Verify Comments base access before proceeding
+  const healthStatus = await checkAirtableBaseHealth();
+  if (!healthStatus.commentsBase.healthy && healthStatus.commentsBase.checked) {
+    // Comments base failed health check (likely 403)
+    console.error('[comments/asset] Comments base health check failed:', {
+      baseId: healthStatus.commentsBase.baseId,
+      apiKeyPrefix: healthStatus.commentsBase.apiKeyPrefix,
+      osBaseHealthy: healthStatus.osBase.healthy,
+      osBaseId: healthStatus.osBase.baseId,
+    });
+    return NextResponse.json(
+      {
+        error: `Airtable PAT not authorized for Comments base ${healthStatus.commentsBase.baseId}. Fix base permissions or use correct PAT.`,
+        baseId: healthStatus.commentsBase.baseId,
+        apiKeyPrefix: healthStatus.commentsBase.apiKeyPrefix,
+      },
+      { status: 503 }
+    );
+  }
   
   let resolvedTargetAssetId: string;
   try {
     console.log('[comments/asset] Resolving Target Asset ID:', {
       incomingAssetId: crasIdString,
-      resolutionBaseId: osBaseId, // Assets resolved in OS base
+      resolutionBaseId: actualOsBaseId, // Assets resolved in OS base
       commentsBaseId, // Comments created in Comments base
     });
     resolvedTargetAssetId = await resolveTargetAssetRecordId({
@@ -306,7 +355,7 @@ export async function POST(req: NextRequest) {
     console.log('[comments/asset] Resolved Target Asset ID:', {
       incomingAssetId: crasIdString,
       resolvedAssetId: resolvedTargetAssetId,
-      resolutionBaseId: osBaseId,
+      resolutionBaseId: actualOsBaseId,
       commentsBaseId,
     });
   } catch (resolveErr) {
@@ -314,7 +363,7 @@ export async function POST(req: NextRequest) {
     console.error('[comments/asset] Failed to resolve Target Asset ID:', {
       incomingAssetId: crasIdString,
       error: errorMessage,
-      resolutionBaseId: osBaseId,
+      resolutionBaseId: actualOsBaseId,
       commentsBaseId,
     });
     return NextResponse.json({ 
@@ -385,8 +434,10 @@ export async function POST(req: NextRequest) {
     }
     
     console.log('[comments/asset] Creating comment record:', {
+      operation: 'airtable.create',
       table: AIRTABLE_TABLES.COMMENTS,
       baseId: commentsBaseId,
+      apiKeyPrefix,
       fields: Object.keys(recordFields),
       fieldValues: JSON.stringify(recordFields, null, 2),
       incomingAssetId: crasIdString,
