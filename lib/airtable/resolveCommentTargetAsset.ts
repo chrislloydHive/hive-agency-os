@@ -185,27 +185,28 @@ export async function resolveTargetAssetRecordId(params: {
   // Step 3: Fallback - Query expected linked table using lookup keys (only if no linked field found)
   // ONLY query OS base - target asset table is in OS base, not Comments base
   // This path is only used if Step 2 didn't find a linked field on the source record
+  const possibleTargetTableNames = [
+    'Creative Review Assets', // Most likely table name for tbl4ITKYtfE3JLyb6
+    'Assets',
+    'Creative Assets',
+    'Review Assets',
+    'Asset Records',
+  ];
+  
+  const possibleFieldNames = [
+    { name: 'Drive File ID', key: lookupKeys.driveFileId },
+    { name: 'Source Folder ID', key: lookupKeys.driveFileId },
+    { name: 'File ID', key: lookupKeys.driveFileId },
+    { name: 'Google Drive ID', key: lookupKeys.driveFileId },
+    { name: 'CRAS Record ID', key: lookupKeys.crasRecordId },
+    { name: 'CRAS ID', key: lookupKeys.crasRecordId },
+    { name: 'Asset ID (DB)', key: lookupKeys.crasRecordId },
+  ];
+  
   if (!lookupKeys.driveFileId && !lookupKeys.crasRecordId) {
     // No lookup keys available, can't proceed with fallback search
     console.warn('[resolveTargetAssetRecordId] No lookup keys available for fallback search');
   } else {
-    const possibleTargetTableNames = [
-      'Creative Review Assets', // Most likely table name for tbl4ITKYtfE3JLyb6
-      'Assets',
-      'Creative Assets',
-      'Review Assets',
-      'Asset Records',
-    ];
-    
-    const possibleFieldNames = [
-      { name: 'Drive File ID', key: lookupKeys.driveFileId },
-      { name: 'Source Folder ID', key: lookupKeys.driveFileId },
-      { name: 'File ID', key: lookupKeys.driveFileId },
-      { name: 'Google Drive ID', key: lookupKeys.driveFileId },
-      { name: 'CRAS Record ID', key: lookupKeys.crasRecordId },
-      { name: 'CRAS ID', key: lookupKeys.crasRecordId },
-      { name: 'Asset ID (DB)', key: lookupKeys.crasRecordId },
-    ];
     
     for (const tableName of possibleTargetTableNames) {
       for (const { name: fieldName, key } of possibleFieldNames) {
