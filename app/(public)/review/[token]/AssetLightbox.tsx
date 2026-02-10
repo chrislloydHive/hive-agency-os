@@ -196,7 +196,7 @@ export default function AssetLightbox({
       
       console.log('[AssetLightbox] Sending asset comment payload:', {
         ...payload,
-        body: payload.body.toString().substring(0, 50) + '...',
+        body: typeof payload.body === 'string' ? payload.body.substring(0, 50) + '...' : payload.body,
       });
       
       const res = await fetch(`/api/comments/asset?token=${encodeURIComponent(token)}`, {
