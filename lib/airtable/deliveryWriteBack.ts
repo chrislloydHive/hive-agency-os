@@ -23,7 +23,7 @@ const READ_ONLY_FIELD_TYPES = new Set([
 export const DELIVERY_FIELD_ALIASES = {
   deliveryStatus: ['Delivery Status'],
   deliveryError: ['Delivery Error'],
-  deliveredAt: ['Deliver At', 'Delivered At'], // CRAS uses "Deliver At"
+  deliveredAt: ['Delivered At'], // CRAS uses "Delivered At" (not "Deliver At")
   deliveredCheckbox: ['Delivered?', 'Delivered'], // CRAS uses "Delivered?"
   deliveredFolderId: ['Delivered Folder ID'],
   /** First alias wins if present; otherwise try second (Folder URL vs File URL). */
@@ -202,7 +202,7 @@ function buildDeliveryUpdate(
 
     const atAlias = resolveAlias(DELIVERY_FIELD_ALIASES.deliveredAt, writableNames);
     if (atAlias) {
-      // CRAS "Deliver At" field is date-only - use YYYY-MM-DD format
+      // CRAS "Delivered At" field is date-only - use YYYY-MM-DD format
       const deliverDate = typeof payload.deliveredAt === 'string' 
         ? payload.deliveredAt.slice(0, 10) // Extract date part if ISO string provided
         : new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
@@ -308,11 +308,11 @@ function buildDeliveryUpdateFallback(
     if (payload.deliveryError) {
       fieldsToWrite['Delivery Error'] = payload.deliveryError;
     }
-    // CRAS uses "Deliver At" (date-only field) - format as YYYY-MM-DD
+    // CRAS uses "Delivered At" (date-only field) - format as YYYY-MM-DD
     const deliverDate = typeof payload.deliveredAt === 'string' 
       ? payload.deliveredAt.slice(0, 10) // Extract date part if ISO string provided
       : new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
-    fieldsToWrite['Deliver At'] = deliverDate;
+    fieldsToWrite['Delivered At'] = deliverDate;
     // CRAS uses "Delivered?" (not "Delivered")
     fieldsToWrite['Delivered?'] = payload.deliveredCheckbox;
     fieldsToWrite['Delivered Folder ID'] = payload.deliveredFolderId;
@@ -416,7 +416,7 @@ export async function writeDeliveryToRecord(
   });
 
   // Extract deliverDate for logging (if present)
-  const deliverDateValue = fieldsToWrite['Deliver At'] || fieldsToWrite['Delivered At'] || null;
+  const deliverDateValue = fieldsToWrite['Delivered At'] || null;
   
   try {
     const base = getBase();
@@ -434,29 +434,28 @@ export async function writeDeliveryToRecord(
     const message = err instanceof Error ? err.message : String(err);
     const errorString = String(message);
     
-    // Check if error is 422 INVALID_VALUE_FOR_COLUMN for Deliver At (CRAS uses "Deliver At")
+    // Check if error is 422 INVALID_VALUE_FOR_COLUMN for Delivered At
     const isInvalidDeliveredAt = errorString.includes('INVALID_VALUE_FOR_COLUMN') && 
-                                  (errorString.includes('Deliver At') || 
-                                   errorString.includes('Delivered At') ||
-                                   written.some(f => f.includes('Deliver At') || f.includes('Delivered At')));
+                                  (errorString.includes('Delivered At') ||
+                                   written.some(f => f.includes('Delivered At')));
     
     if (isInvalidDeliveredAt && payload.kind === 'success') {
-      // Find the Deliver At field alias that was written (CRAS uses "Deliver At")
+      // Find the Delivered At field alias that was written
       let deliveredAtAlias: string | null = null;
       let deliveredAtValue: string | null = null;
       const deliveredAtAliases = DELIVERY_FIELD_ALIASES.deliveredAt as readonly string[];
       for (const fieldName of Object.keys(fieldsToWrite)) {
-        if (fieldName === 'Deliver At' || fieldName === 'Delivered At' || deliveredAtAliases.includes(fieldName as any)) {
+        if (fieldName === 'Delivered At' || deliveredAtAliases.includes(fieldName as any)) {
           deliveredAtAlias = fieldName;
           deliveredAtValue = String(fieldsToWrite[fieldName]);
           break;
         }
       }
       
-      // Fallback step 1: "Deliver At" should already be date-only, but if error occurs, try date-only format
+      // Fallback step 1: "Delivered At" should already be date-only, but if error occurs, try date-only format
       // Note: We already format as date-only, so this is a safety fallback
       const deliveredAtDateOnly = deliveredAtValue ? deliveredAtValue.slice(0, 10) : new Date().toISOString().slice(0, 10);
-      console.log(`[deliveryWriteBack] Deliver At rejected (tried: "${deliveredAtValue}"); retrying with date-only format: "${deliveredAtDateOnly}"`, {
+      console.log(`[deliveryWriteBack] Delivered At rejected (tried: "${deliveredAtValue}"); retrying with date-only format: "${deliveredAtDateOnly}"`, {
         baseId: baseId ? `${baseId.substring(0, 20)}...` : 'unknown',
         tableName,
         recordId,
@@ -478,8 +477,7 @@ export async function writeDeliveryToRecord(
         const dateOnlyMessage = dateOnlyErr instanceof Error ? dateOnlyErr.message : String(dateOnlyErr);
         const dateOnlyErrorString = String(dateOnlyMessage);
         const stillInvalidDeliveredAt = dateOnlyErrorString.includes('INVALID_VALUE_FOR_COLUMN') && 
-                                         (dateOnlyErrorString.includes('Deliver At') || 
-                                          dateOnlyErrorString.includes('Delivered At') ||
+                                         (dateOnlyErrorString.includes('Delivered At') ||
                                           deliveredAtAlias !== null);
         
         if (stillInvalidDeliveredAt) {
