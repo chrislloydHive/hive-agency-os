@@ -579,7 +579,12 @@ export async function POST(req: NextRequest) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
     
-    const incomingAssetId = typeof resolvedCrasId === 'string' ? resolvedCrasId : 'unknown';
+    // Compute incomingAssetId based on which ID was provided
+    const incomingAssetId = hasCrasRecordId && resolvedCrasId 
+      ? String(resolvedCrasId).trim() 
+      : (hasCreativeReviewAssetId && creativeReviewAssetId 
+          ? String(creativeReviewAssetId).trim() 
+          : 'unknown');
     
     // Check for 403 errors specifically (fallback for other 403 sources)
     const is403 = (err as any)?.statusCode === 403 || 
@@ -598,7 +603,9 @@ export async function POST(req: NextRequest) {
       is403,
       table: AIRTABLE_TABLES.COMMENTS,
       commentsBaseId,
-      incomingAssetId: crasIdString,
+      incomingAssetId,
+      hasCrasRecordId,
+      hasCreativeReviewAssetId,
       authMode: apiKey ? 'service_account' : 'none',
       tokenPrefix,
     });
@@ -622,7 +629,7 @@ export async function POST(req: NextRequest) {
     
     return NextResponse.json({ 
       error: errorMessage,
-      incomingAssetId: crasIdString,
+      incomingAssetId,
     }, { status: statusCode });
   }
 }
