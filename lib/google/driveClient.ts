@@ -890,17 +890,23 @@ export async function copyFileToFolder(
         includeItemsFromAllDrives: true,
         pageSize: 1,
       });
-      const existingFiles = existingRes.data.files ?? [];
-      if (existingFiles.length > 0) {
-        const existing = existingFiles[0];
-        console.log(`[delivery] skipping copy; already exists: name="${name}", destFolderId=${destinationFolderId}, existingId=${existing.id}`);
-        const url = existing.webViewLink && existing.webViewLink.trim() ? existing.webViewLink : documentUrl(existing.id!, undefined);
-        return {
-          id: existing.id!,
-          name: existing.name ?? name,
-          url,
-        };
-      }
+    const existingFiles = existingRes.data.files ?? [];
+    if (existingFiles.length > 0) {
+      const existing = existingFiles[0];
+      console.log(`[delivery/copy] SKIPPING`, {
+        sourceId: sourceFileId,
+        destFolderId: destinationFolderId,
+        destFolderUrl: folderUrl(destinationFolderId),
+        reason: `file already exists: "${name}"`,
+        existingId: existing.id,
+      });
+      const url = existing.webViewLink && existing.webViewLink.trim() ? existing.webViewLink : documentUrl(existing.id!, undefined);
+      return {
+        id: existing.id!,
+        name: existing.name ?? name,
+        url,
+      };
+    }
     } catch (checkError) {
       // If idempotency check fails, continue with copy (non-critical)
       console.warn(`[delivery] Idempotency check failed, proceeding with copy:`, checkError instanceof Error ? checkError.message : String(checkError));
@@ -918,6 +924,12 @@ export async function copyFileToFolder(
     const file = response.data;
     const url =
       (file.webViewLink && file.webViewLink.trim()) || documentUrl(file.id!, undefined);
+    console.log(`[delivery/copy] DONE`, {
+      sourceId: sourceFileId,
+      createdFileOrFolderId: file.id!,
+      fileName: file.name ?? name,
+      fileUrl: url,
+    });
     return {
       id: file.id!,
       name: file.name ?? name,
@@ -1092,7 +1104,13 @@ export async function copyDriveFolderTree(
             const existingFolders = existingRes.data.files ?? [];
             if (existingFolders.length > 0) {
               newFolderId = existingFolders[0].id!;
-              console.log(`[delivery] skipping copy; already exists: folder name="${folderName}", destFolderId=${destParentId}, existingId=${newFolderId}`);
+              console.log(`[delivery/copy] SKIPPING`, {
+                sourceId: id,
+                destFolderId: destParentId,
+                destFolderUrl: folderUrl(destParentId),
+                reason: `folder already exists: "${folderName}"`,
+                existingId: newFolderId,
+              });
             } else {
               const createChild = await drive.files.create({
                 requestBody: {
@@ -1149,7 +1167,13 @@ export async function copyDriveFolderTree(
           });
           const existingFiles = existingRes.data.files ?? [];
           if (existingFiles.length > 0) {
-            console.log(`[delivery] skipping copy; already exists: file name="${fileName}", destFolderId=${destParentId}, existingId=${existingFiles[0].id}`);
+            console.log(`[delivery/copy] SKIPPING`, {
+              sourceId: fileIdToCopy,
+              destFolderId: destParentId,
+              destFolderUrl: folderUrl(destParentId),
+              reason: `file already exists: "${fileName}"`,
+              existingId: existingFiles[0].id,
+            });
             shouldCopy = false;
             filesCopied++; // Count as copied for stats
           }
@@ -1159,11 +1183,22 @@ export async function copyDriveFolderTree(
         }
         
         if (shouldCopy) {
-          await drive.files.copy({
+          console.log(`[delivery/copy] START`, {
+            sourceId: fileIdToCopy,
+            destFolderId: destParentId,
+            destFolderUrl: folderUrl(destParentId),
+            reason: `copying file "${fileName}"`,
+          });
+          const copyRes = await drive.files.copy({
             fileId: fileIdToCopy,
             requestBody: { parents: [destParentId] },
             fields: 'id',
             supportsAllDrives: true,
+          });
+          console.log(`[delivery/copy] DONE`, {
+            sourceId: fileIdToCopy,
+            createdFileOrFolderId: copyRes.data.id!,
+            fileName,
           });
           filesCopied++;
         }

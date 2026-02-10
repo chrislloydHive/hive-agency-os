@@ -268,6 +268,15 @@ export const partnerDeliveryRequested = inngest.createFunction(
           };
         }
         const destinationFolderId = destinationResult.destinationFolderId;
+        const batchRecordId = destinationResult.batchRecordId;
+
+        // Log resolved destination folder
+        console.log(`[delivery/destination] RESOLVED`, {
+          destinationFolderId,
+          batchRecordId,
+          batchId: deliveryBatchIdRaw,
+          destinationFolderUrl: `https://drive.google.com/drive/folders/${destinationFolderId}`,
+        });
 
         // Get source folder ID from record (driveFileId is the Source Folder ID field)
         const sourceFolderId = record.driveFileId;
@@ -281,6 +290,13 @@ export const partnerDeliveryRequested = inngest.createFunction(
         }
 
         console.log(`[partner-delivery-requested] Resolved: sourceFolderId=${sourceFolderId}, destinationFolderId=${destinationFolderId}`);
+        console.log(`[delivery/copy] ASSET_TO_COPY`, {
+          crasRecordId,
+          sourceId: sourceFolderId,
+          sourceUrl: `https://drive.google.com/drive/folders/${sourceFolderId}`,
+          destFolderId: destinationFolderId,
+          destFolderUrl: `https://drive.google.com/drive/folders/${destinationFolderId}`,
+        });
         
         // Log before calling delivery
         console.log(`[inngest/partnerDelivery] calling delivery`, {
@@ -328,7 +344,15 @@ export const partnerDeliveryRequested = inngest.createFunction(
             };
           } else {
             const fileUrl = 'deliveredFileUrl' in deliveryResult ? deliveryResult.deliveredFileUrl : undefined;
+            const deliveredFolderId = 'deliveredRootFolderId' in deliveryResult ? deliveryResult.deliveredRootFolderId : undefined;
             console.log(`[partner-delivery-requested] Record ${crasRecordId} delivered successfully: url=${fileUrl ?? 'none'}`);
+            console.log(`[delivery/copy] FINAL_RESULT`, {
+              crasRecordId,
+              deliveredFolderId,
+              deliveredFolderUrl: fileUrl,
+              filesCopied: 'filesCopied' in deliveryResult ? deliveryResult.filesCopied : undefined,
+              foldersCreated: 'foldersCreated' in deliveryResult ? deliveryResult.foldersCreated : undefined,
+            });
             
             // Add production assets delivery (after approved deliverables)
             // Only proceed if we have a deliveredRootFolderId (not dry-run or idempotent)
@@ -391,7 +415,11 @@ async function addProductionAssets(params: {
   // Check if production assets folder ID is configured
   const sourceFolderId = process.env.PROSPECTING_ANIMATED_PROD_ASSETS_FOLDER_ID?.trim();
   if (!sourceFolderId) {
-    console.warn(`[delivery/partner] Production assets folder ID not configured (PROSPECTING_ANIMATED_PROD_ASSETS_FOLDER_ID), skipping`);
+    console.warn(`[delivery/skip] missing folder config`, {
+      envVarName: 'PROSPECTING_ANIMATED_PROD_ASSETS_FOLDER_ID',
+      assetType: 'Animated Display Production Assets',
+      batchRecordId: batchId,
+    });
     return { ok: true }; // Not an error - just not configured
   }
   

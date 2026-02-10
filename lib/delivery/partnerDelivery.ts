@@ -488,9 +488,21 @@ export async function runPartnerDelivery(
   try {
     if (isFolder) {
       // Copy entire folder tree
+      console.log(`[delivery/copy] START`, {
+        sourceId: resolvedSourceFolderId,
+        destFolderId: effectiveDestinationFolderId,
+        destFolderUrl: folderUrl(effectiveDestinationFolderId),
+        reason: 'copying folder tree',
+        sourceType: 'folder',
+      });
       const result = await copyDriveFolderTree(drive, resolvedSourceFolderId, effectiveDestinationFolderId, {
         deliveredFolderName,
         drive,
+      });
+      console.log(`[delivery/copy] DONE`, {
+        sourceId: resolvedSourceFolderId,
+        createdFileOrFolderId: result.deliveredRootFolderId,
+        deliveredFolderUrl: result.deliveredRootFolderUrl,
       });
       console.log(`[delivery/partner] ${requestId} Copy completed: filesCopied=${result.filesCopied}, foldersCreated=${result.foldersCreated}, failures=${result.failures.length}, deliveredFolderId=${result.deliveredRootFolderId}`);
       console.log(`[delivery/partner] ${requestId} Delivered folder URL: ${result.deliveredRootFolderUrl}`);
@@ -532,9 +544,22 @@ export async function runPartnerDelivery(
     } else {
       // Copy single file (use original sourceFolderId, not resolvedSourceFolderId)
       console.log(`[delivery/partner] ${requestId} Copying single file: sourceFileId=${sourceFolderId}, destinationFolderId=${effectiveDestinationFolderId}`);
+      console.log(`[delivery/copy] START`, {
+        sourceId: sourceFolderId,
+        destFolderId: effectiveDestinationFolderId,
+        destFolderUrl: folderUrl(effectiveDestinationFolderId),
+        reason: 'copying single file',
+        sourceType: 'file',
+      });
       const fileResult = await copyFileToFolder(sourceFolderId, effectiveDestinationFolderId, {
         drive,
         requestId,
+      });
+      console.log(`[delivery/copy] DONE`, {
+        sourceId: sourceFolderId,
+        createdFileOrFolderId: fileResult.id,
+        fileName: fileResult.name,
+        fileUrl: fileResult.url,
       });
       console.log(`[delivery/partner] ${requestId} File copy completed: fileId=${fileResult.id}, fileName="${fileResult.name}", fileUrl=${fileResult.url}`);
       
@@ -758,12 +783,33 @@ export async function runPartnerDeliveryByBatch(params: {
 
   const failures: Array<{ id: string; name?: string; reason: string }> = [];
   let filesCopied = 0;
+  console.log(`[delivery/copy] BATCH_COPY_START`, {
+    approvedCount: approved.length,
+    destFolderId: createdFolderId,
+    destFolderUrl: folderUrl(createdFolderId),
+    fileIds: approved.map(a => a.driveId),
+  });
   for (const { driveId } of approved) {
     try {
+      console.log(`[delivery/copy] START`, {
+        sourceId: driveId,
+        destFolderId: createdFolderId,
+        destFolderUrl: folderUrl(createdFolderId),
+        reason: 'copying approved asset',
+      });
       await copyFileToFolder(driveId, createdFolderId, { drive });
+      console.log(`[delivery/copy] DONE`, {
+        sourceId: driveId,
+        createdFileOrFolderId: 'copied',
+      });
       filesCopied++;
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
+      console.log(`[delivery/copy] SKIPPING`, {
+        sourceId: driveId,
+        destFolderId: createdFolderId,
+        reason: `copy failed: ${reason}`,
+      });
       failures.push({ id: driveId, reason });
     }
   }
@@ -949,12 +995,33 @@ export async function runPartnerDeliveryFromPortal(params: {
 
   const failures: PortalDeliveryFailure[] = [];
   let filesCopied = 0;
+  console.log(`[delivery/copy] PORTAL_BATCH_COPY_START`, {
+    approvedCount: approvedFileIds.length,
+    destFolderId: createdFolderId,
+    destFolderUrl: folderUrl(createdFolderId),
+    fileIds: approvedFileIds,
+  });
   for (const fileId of approvedFileIds) {
     try {
+      console.log(`[delivery/copy] START`, {
+        sourceId: fileId,
+        destFolderId: createdFolderId,
+        destFolderUrl: folderUrl(createdFolderId),
+        reason: 'copying approved asset from portal',
+      });
       await copyFileToFolder(fileId, createdFolderId, { drive });
+      console.log(`[delivery/copy] DONE`, {
+        sourceId: fileId,
+        createdFileOrFolderId: 'copied',
+      });
       filesCopied++;
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
+      console.log(`[delivery/copy] SKIPPING`, {
+        sourceId: fileId,
+        destFolderId: createdFolderId,
+        reason: `copy failed: ${reason}`,
+      });
       failures.push({ fileId, reason });
     }
   }
