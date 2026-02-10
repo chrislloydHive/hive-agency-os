@@ -44,7 +44,7 @@ export type DeliveryWritePayloadSuccess = {
   deliveredCheckbox: true;
   deliveredFolderId: string;
   deliveredFolderUrl: string;
-  deliverySummary: string;
+  deliverySummary: string | object; // Accept string or object (will be JSON stringified)
   deliveryError?: string;
   /** Optional: set to false to clear webhook trigger. */
   readyToDeliverWebhook?: false;
