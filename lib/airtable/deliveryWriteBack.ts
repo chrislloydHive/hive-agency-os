@@ -17,6 +17,7 @@ const READ_ONLY_FIELD_TYPES = new Set([
   'lastModifiedTime',
   'createdBy',
   'lastModifiedBy',
+  'computed', // Computed fields (like "Delivered?")
 ]);
 
 /** Logical delivery fields and their possible Airtable field names (aliases). Client PM OS / Creative Review Asset Status. */
@@ -210,10 +211,29 @@ function buildDeliveryUpdate(
       written.push(atAlias);
     }
 
+    // Skip "Delivered?" field - it's a computed/formula field and cannot be written
+    // The field is likely computed from "Delivered At" or other fields
+    // The schema check should already filter it out, but explicitly skip it to be safe
     const checkboxAlias = resolveAlias(DELIVERY_FIELD_ALIASES.deliveredCheckbox, writableNames);
-    if (checkboxAlias) {
-      fieldsToWrite[checkboxAlias] = payload.deliveredCheckbox;
-      written.push(checkboxAlias);
+    if (checkboxAlias && schema) {
+      // Double-check it's not a formula/computed field by checking field metadata
+      const checkboxMeta = schema.fields.get(checkboxAlias);
+      const isReadOnly = checkboxMeta && (
+        checkboxMeta.type === 'formula' || 
+        checkboxMeta.type === 'multipleLookupValues' ||
+        READ_ONLY_FIELD_TYPES.has(checkboxMeta.type)
+      );
+      if (!isReadOnly) {
+        fieldsToWrite[checkboxAlias] = payload.deliveredCheckbox;
+        written.push(checkboxAlias);
+      } else {
+        skipped.push({ field: checkboxAlias, reason: `computed/formula field (type: ${checkboxMeta?.type})` });
+      }
+    } else if (checkboxAlias && !schema) {
+      // Fallback mode: skip "Delivered?" to avoid errors (it's likely computed)
+      skipped.push({ field: checkboxAlias, reason: 'skipped in fallback mode (likely computed)' });
+    } else if (!checkboxAlias) {
+      skipped.push({ field: 'Delivered?', reason: 'field not found in schema (computed field)' });
     }
 
     const folderIdAlias = resolveAlias(DELIVERY_FIELD_ALIASES.deliveredFolderId, writableNames);
@@ -313,8 +333,9 @@ function buildDeliveryUpdateFallback(
       ? payload.deliveredAt.slice(0, 10) // Extract date part if ISO string provided
       : new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
     fieldsToWrite['Delivered At'] = deliverDate;
-    // CRAS uses "Delivered?" (not "Delivered")
-    fieldsToWrite['Delivered?'] = payload.deliveredCheckbox;
+    // Skip "Delivered?" - it's a computed/formula field and cannot be written
+    // The field is computed from "Delivered At" or other fields
+    // Don't include it in fallback payload to avoid INVALID_VALUE_FOR_COLUMN errors
     fieldsToWrite['Delivered Folder ID'] = payload.deliveredFolderId;
     fieldsToWrite['Delivered Folder URL'] = payload.deliveredFolderUrl;
     // CRAS uses "Deliver Summary (text/json)" - ensure it's JSON stringified (pretty-printed)
@@ -399,6 +420,28 @@ export async function writeDeliveryToRecord(
     return { ok: true, written: [], skipped };
   }
 
+  // Safety check: Remove "Delivered?" if present (it's a computed field and cannot be written)
+  // This prevents errors even if it was added earlier
+  if ('Delivered?' in fieldsToWrite) {
+    delete fieldsToWrite['Delivered?'];
+    if (!skipped.some(s => s.field === 'Delivered?')) {
+      skipped.push({ field: 'Delivered?', reason: 'computed/formula field (removed for safety)' });
+    }
+  }
+  if ('Delivered' in fieldsToWrite && !('Delivered At' in fieldsToWrite)) {
+    // Only remove "Delivered" if it's not the checkbox alias - check if it might be computed
+    // For safety, if schema is available, check the type
+    if (schema) {
+      const deliveredMeta = schema.fields.get('Delivered');
+      if (deliveredMeta && (deliveredMeta.type === 'formula' || READ_ONLY_FIELD_TYPES.has(deliveredMeta.type))) {
+        delete fieldsToWrite['Delivered'];
+        if (!skipped.some(s => s.field === 'Delivered')) {
+          skipped.push({ field: 'Delivered', reason: 'computed/formula field (removed for safety)' });
+        }
+      }
+    }
+  }
+  
   // Log payload fields being written - show exact field keys being sent to Airtable
   const fieldKeys = Object.keys(fieldsToWrite);
   console.log('[deliveryWriteBack] Writing to Airtable:', {
@@ -407,6 +450,7 @@ export async function writeDeliveryToRecord(
     recordId,
     fieldKeys: fieldKeys, // Exact field keys being sent
     fields: fieldKeys, // Alias for compatibility
+    skippedFields: skipped.map(s => `${s.field}: ${s.reason}`),
     fieldValues: Object.fromEntries(
       Object.entries(fieldsToWrite).map(([k, v]) => [
         k,
@@ -490,16 +534,19 @@ export async function writeDeliveryToRecord(
             retryPath: 'removed-delivered-at',
           });
           
-          // Build fallback fields: remove Delivered At, keep everything else
+          // Build fallback fields: remove Delivered At and Delivered? (computed field), keep everything else
           const fallbackFields: Record<string, unknown> = { ...fieldsToWrite };
           if (deliveredAtAlias) {
             delete fallbackFields[deliveredAtAlias];
           }
+          // Remove "Delivered?" - it's a computed/formula field and cannot be written
+          delete fallbackFields['Delivered?'];
+          delete fallbackFields['Delivered'];
           
           // Ensure critical fields are present (use schema-aware resolution if available, otherwise use known aliases)
+          // NOTE: Skip "Delivered?" - it's a computed/formula field and cannot be written
           if (!schema || useFallback) {
-            // Fallback mode: use CRAS exact field names
-            fallbackFields['Delivered?'] = true; // CRAS uses "Delivered?"
+            // Fallback mode: skip "Delivered?" (it's computed), write other critical fields
             if (payload.readyToDeliverWebhook === false) {
               fallbackFields['Ready to Deliver (Webhook)'] = false;
             }
@@ -509,10 +556,14 @@ export async function writeDeliveryToRecord(
               fallbackFields['Delivered Folder URL'] = payload.deliveredFolderUrl;
             }
           } else {
-            // Schema-aware mode: resolve aliases (will use "Delivered?" from DELIVERY_FIELD_ALIASES)
+            // Schema-aware mode: skip "Delivered?" if it's a formula field
             const checkboxAlias = resolveAlias(DELIVERY_FIELD_ALIASES.deliveredCheckbox, schema.writableNames);
             if (checkboxAlias) {
-              fallbackFields[checkboxAlias] = true;
+              const checkboxMeta = schema.fields.get(checkboxAlias);
+              // Only write if it's not a formula/computed field
+              if (checkboxMeta && checkboxMeta.type !== 'formula' && checkboxMeta.type !== 'multipleLookupValues') {
+                fallbackFields[checkboxAlias] = true;
+              }
             }
             
             if (payload.readyToDeliverWebhook === false) {
