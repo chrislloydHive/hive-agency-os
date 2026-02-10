@@ -10,6 +10,36 @@ import {
   batchSetAssetApprovedClient,
   ensureCrasRecord,
 } from '@/lib/airtable/reviewAssetStatus';
+import { resolveDeliveryBatchFromCras } from '@/lib/review/resolveDeliveryBatch';
+
+/**
+ * Get the application origin URL deterministically.
+ * Tries request headers first, then env vars, then fallback.
+ */
+function getAppOrigin(req?: Request | NextRequest): string {
+  if (req) {
+    // Try x-forwarded-proto + x-forwarded-host (Vercel/proxy headers)
+    const proto = req.headers.get('x-forwarded-proto');
+    const host = req.headers.get('x-forwarded-host');
+    if (proto && host) {
+      return `${proto}://${host}`.replace(/\/$/, '');
+    }
+    
+    // Try origin header
+    const origin = req.headers.get('origin');
+    if (origin) {
+      return origin.replace(/\/$/, '');
+    }
+  }
+  
+  // Try APP_ORIGIN env var
+  if (process.env.APP_ORIGIN) {
+    return process.env.APP_ORIGIN.replace(/\/$/, '');
+  }
+  
+  // Fallback to production domain
+  return 'https://hiveagencyos.com';
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -80,6 +110,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Log Airtable fields being written (before approval)
+  const approvalFields: Record<string, unknown> = {
+    'Asset Approved (Client)': true,
+    'Status': 'Approved',
+    'Approved At': approvedAt || new Date().toISOString(),
+  };
+  if (approvedByName !== undefined) approvalFields['Approved By Name'] = String(approvedByName).slice(0, 100);
+  if (approvedByEmail !== undefined) approvalFields['Approved By Email'] = String(approvedByEmail).slice(0, 200);
+  if (deliveryBatchId != null && String(deliveryBatchId).trim()) {
+    const bid = String(deliveryBatchId).trim();
+    approvalFields['Delivery Batch ID'] = bid.startsWith('rec') ? [bid] : bid;
+    approvalFields['Ready to Deliver (Webhook)'] = true;
+  }
+  console.log(`[bulk-approve] Writing Airtable fields for ${toUpdate.length} record(s):`, {
+    fieldKeys: Object.keys(approvalFields),
+    fields: approvalFields,
+  });
+
   const result = await batchSetAssetApprovedClient(toUpdate, {
     approvedAt,
     approvedByName,
@@ -99,27 +147,84 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(payload, { status: 500, headers: NO_STORE });
   }
 
-  // Trigger delivery via event-driven endpoint for all approved records (if deliveryBatchId is set)
-  if (deliveryBatchId && toUpdate.length > 0) {
-    try {
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-      // Fire-and-forget: trigger delivery for each record
-      toUpdate.forEach((recordId) => {
-        fetch(`${baseUrl}/api/delivery/partner/approved`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            crasRecordId: recordId,
+  // Resolve batchRecordId for each record (if deliveryBatchId not provided or needs resolution)
+  // Use shared resolution logic like single approve endpoint
+  const recordBatchMap = new Map<string, { batchId: string; batchRecordId: string }>();
+  
+  // If deliveryBatchId was provided, use it for all records
+  if (deliveryBatchId) {
+    // Try to resolve batchRecordId from first record (if not already a record ID)
+    if (!deliveryBatchId.startsWith('rec') && toUpdate.length > 0) {
+      const resolved = await resolveDeliveryBatchFromCras(toUpdate[0]);
+      if (resolved) {
+        for (const recordId of toUpdate) {
+          recordBatchMap.set(recordId, {
+            batchId: resolved.deliveryBatchId,
+            batchRecordId: resolved.batchRecordId,
+          });
+        }
+      } else {
+        // Fallback: use deliveryBatchId as-is (name string)
+        for (const recordId of toUpdate) {
+          recordBatchMap.set(recordId, {
             batchId: deliveryBatchId,
-          }),
-        }).catch((err) => {
-          console.error(`[bulk-approve] Failed to trigger delivery for ${recordId}:`, err);
+            batchRecordId: '', // Will be resolved by delivery endpoint
+          });
+        }
+      }
+    } else {
+      // deliveryBatchId is already a record ID
+      for (const recordId of toUpdate) {
+        recordBatchMap.set(recordId, {
+          batchId: deliveryBatchId,
+          batchRecordId: deliveryBatchId,
         });
-      });
-    } catch (err) {
-      // Non-blocking: log error but don't fail the approval
-      console.error('[bulk-approve] Error triggering deliveries:', err);
+      }
     }
+  } else {
+    // No deliveryBatchId provided - resolve from each CRAS record's Project link
+    console.log(`[bulk-approve] Resolving deliveryBatchId from CRAS Project links for ${toUpdate.length} record(s)`);
+    for (const recordId of toUpdate) {
+      const resolved = await resolveDeliveryBatchFromCras(recordId);
+      if (resolved) {
+        recordBatchMap.set(recordId, resolved);
+      }
+    }
+  }
+
+  // Trigger delivery via event-driven endpoint for all approved records
+  if (toUpdate.length > 0) {
+    const origin = getAppOrigin(req);
+    const deliveryUrl = `${origin}/api/delivery/partner/approved`;
+    
+    console.log(`[bulk-approve] Triggering delivery for ${toUpdate.length} record(s)`);
+    
+    // Fire-and-forget: trigger delivery for each record with resolved batchRecordId
+    toUpdate.forEach((recordId) => {
+      const batchInfo = recordBatchMap.get(recordId);
+      const batchId = batchInfo?.batchId || deliveryBatchId;
+      const batchRecordId = batchInfo?.batchRecordId;
+      
+      if (!batchId) {
+        console.warn(`[bulk-approve] No deliveryBatchId for record ${recordId}, skipping delivery trigger`);
+        return;
+      }
+      
+      const requestId = `bulk-approved-${recordId}-${Date.now()}`;
+      fetch(deliveryUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          crasRecordId: recordId,
+          batchId,
+          deliveryBatchRecordId: batchRecordId,
+          requestId,
+          triggeredBy: 'bulk-approval',
+        }),
+      }).catch((err) => {
+        console.error(`[bulk-approve] Failed to trigger delivery for ${recordId}:`, err);
+      });
+    });
   }
 
   return NextResponse.json(

@@ -6,8 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { resolveApprovedAt } from '@/lib/review/approvedAt';
 import { setSingleAssetApprovedClient, ensureCrasRecord } from '@/lib/airtable/reviewAssetStatus';
-import { getBase, getBaseId } from '@/lib/airtable';
-import { CREATIVE_REVIEW_ASSET_STATUS_TABLE } from '@/lib/airtable/deliveryWriteBack';
+import { resolveDeliveryBatchFromCras } from '@/lib/review/resolveDeliveryBatch';
 
 // Field name for Source Folder ID (matches reviewAssetStatus.ts)
 const SOURCE_FOLDER_ID_FIELD = 'Source Folder ID';
@@ -109,6 +108,24 @@ export async function POST(req: NextRequest) {
     console.log(`[approve] Using deliveryBatchId from request: ${finalDeliveryBatchId}`);
   }
 
+  // Log Airtable fields being written (before approval)
+  const approvalFields: Record<string, unknown> = {
+    'Asset Approved (Client)': true,
+    'Status': 'Approved',
+    'Approved At': approvedAt || new Date().toISOString(),
+  };
+  if (approvedByName !== undefined) approvalFields['Approved By Name'] = String(approvedByName).slice(0, 100);
+  if (approvedByEmail !== undefined) approvalFields['Approved By Email'] = String(approvedByEmail).slice(0, 200);
+  if (finalDeliveryBatchId != null && String(finalDeliveryBatchId).trim()) {
+    const bid = String(finalDeliveryBatchId).trim();
+    approvalFields['Delivery Batch ID'] = bid.startsWith('rec') ? [bid] : bid;
+    approvalFields['Ready to Deliver (Webhook)'] = true;
+  }
+  console.log(`[approve] Writing Airtable fields:`, {
+    fieldKeys: Object.keys(approvalFields),
+    fields: approvalFields,
+  });
+
   const result = await setSingleAssetApprovedClient({
     token,
     driveFileId,
@@ -125,141 +142,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(payload, { status, headers: NO_STORE });
   }
 
-  // Resolve deliveryBatchId from CRAS Project link → Partner Delivery Batches query
+  // Resolve deliveryBatchId from CRAS Project link → Partner Delivery Batches query (if not provided)
   if (!finalDeliveryBatchId && 'recordId' in result) {
     console.log(`[approve] deliveryBatchId not in request, resolving from CRAS Project link`);
-    try {
-      const base = getBase();
-      const baseId = getBaseId() || 'unknown';
-      const record = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(result.recordId);
-      const fields = record.fields as Record<string, unknown>;
-      
-      // Get Project linked record(s) from CRAS
-      const projectField = fields['Project'] as string[] | string | undefined;
-      const projectIds = Array.isArray(projectField) ? projectField : (typeof projectField === 'string' ? [projectField] : []);
-      
-      if (projectIds.length === 0) {
-        console.error(`[approve] ❌ CRAS record ${result.recordId} has no Project link`);
-      } else {
-        // Use the first Project ID (CRAS should only link to one Project)
-        const projectId = projectIds[0];
-        console.log(`[approve] CRAS record ${result.recordId} links to Project: ${projectId}`);
-        
-        // Query Partner Delivery Batches table in the same base as CRAS
-        // Note: Airtable formulas resolve {Project} to primary field values (names), not record IDs
-        // So we query with a coarse server-side filter, then filter client-side by record ID
-        const { AIRTABLE_TABLES: TABLES } = await import('@/lib/airtable/tables');
-        const tableName = TABLES.PARTNER_DELIVERY_BATCHES;
-        const projectLinkField = 'Project';
-        
-        // Optional coarse server-side filter for performance (Active or Delivering batches)
-        const coarseFormula = 'OR({Status}="Active",{Status}="Delivering")';
-        
-        console.log(`[approve] Querying Partner Delivery Batches:`, {
-          baseId: `${baseId.substring(0, 20)}...`,
-          tableName,
-          projectId,
-          coarseFormula,
-        });
-        
-        try {
-          // Query with coarse filter (or no filter if we want all batches)
-          const records = await base(tableName)
-            .select({ filterByFormula: coarseFormula })
-            .all();
-          
-          console.log(`[approve] Found ${records.length} Partner Delivery Batch(es) (coarse filter)`);
-          
-          // Filter client-side: keep only batches where Project linked record array includes projectId
-          const batches: Array<{ batchId: string; status: string; createdTime: string; recordId: string }> = [];
-          for (const rec of records) {
-            const batchFields = rec.fields as Record<string, unknown>;
-            
-            // Check if Project linked record array includes our projectId
-            const projectField = batchFields[projectLinkField];
-            const projectArray = Array.isArray(projectField) ? projectField : [];
-            if (!projectArray.includes(projectId)) {
-              continue; // Skip batches not linked to this project
-            }
-            
-            // Extract Batch ID
-            const batchIdRaw = batchFields['Batch ID'];
-            const batchId = typeof batchIdRaw === 'string' && batchIdRaw.trim() ? batchIdRaw.trim() : null;
-            if (!batchId) {
-              continue; // Skip batches without Batch ID
-            }
-            
-            // Extract status
-            const statusRaw = batchFields['Status'] ?? batchFields['Delivery Status'];
-            const status = typeof statusRaw === 'string' && statusRaw.trim() ? statusRaw.trim() : '';
-            
-            // Extract created time
-            const recWithTime = rec as unknown as { id: string; fields: Record<string, unknown>; createdTime?: string };
-            const createdTime = typeof recWithTime.createdTime === 'string' ? recWithTime.createdTime : '';
-            
-            // Also check for "Batch Created At" field if createdTime is missing
-            const batchCreatedAtRaw = batchFields['Batch Created At'];
-            const batchCreatedAt = typeof batchCreatedAtRaw === 'string' && batchCreatedAtRaw.trim() ? batchCreatedAtRaw.trim() : '';
-            const finalCreatedTime = createdTime || batchCreatedAt;
-            
-            batches.push({ batchId, status, createdTime: finalCreatedTime, recordId: rec.id });
-          }
-          
-          console.log(`[approve] Filtered to ${batches.length} batch(es) linked to Project ${projectId}`);
-          
-          if (batches.length === 0) {
-            console.error(`[approve] ❌ No Partner Delivery Batches found linked to Project:`, {
-              crasRecordId: result.recordId,
-              projectId,
-              baseId: `${baseId.substring(0, 20)}...`,
-              tableName,
-              batchesScanned: records.length,
-            });
-          } else {
-            // Sort deterministically: Active first, then Delivering, then newest Created time
-            batches.sort((a, b) => {
-              // Status priority: Active (0) > Delivering (1) > others (2)
-              const statusPriority = (s: string) => {
-                const lower = s.toLowerCase();
-                if (lower === 'active') return 0;
-                if (lower === 'delivering') return 1;
-                return 2;
-              };
-              const aPriority = statusPriority(a.status);
-              const bPriority = statusPriority(b.status);
-              if (aPriority !== bPriority) return aPriority - bPriority;
-              
-              // Then by newest Created time
-              const aTime = a.createdTime ? new Date(a.createdTime).getTime() : 0;
-              const bTime = b.createdTime ? new Date(b.createdTime).getTime() : 0;
-              return bTime - aTime; // Newest first
-            });
-            
-            finalDeliveryBatchId = batches[0].batchId;
-            selectedBatchRecordId = batches[0].recordId;
-            console.log(`[approve] ✅ Resolved deliveryBatchId from Partner Delivery Batch: ${finalDeliveryBatchId}`, {
-              selectedBatchRecordId,
-              status: batches[0].status,
-              totalMatches: batches.length,
-            });
-          }
-        } catch (queryErr) {
-          const queryErrMsg = queryErr instanceof Error ? queryErr.message : String(queryErr);
-          console.error(`[approve] ❌ Failed to query Partner Delivery Batches:`, {
-            crasRecordId: result.recordId,
-            projectId,
-            baseId: `${baseId.substring(0, 20)}...`,
-            tableName,
-            error: queryErrMsg,
-          });
-        }
-      }
-    } catch (fetchErr) {
-      const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-      console.error(`[approve] ❌ Failed to resolve deliveryBatchId:`, errMsg);
-      if (fetchErr instanceof Error && fetchErr.stack) {
-        console.error(`[approve] Error stack:`, fetchErr.stack);
-      }
+    const resolved = await resolveDeliveryBatchFromCras(result.recordId);
+    if (resolved) {
+      finalDeliveryBatchId = resolved.deliveryBatchId;
+      selectedBatchRecordId = resolved.batchRecordId;
     }
   }
   
