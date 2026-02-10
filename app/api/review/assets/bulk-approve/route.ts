@@ -187,7 +187,10 @@ export async function POST(req: NextRequest) {
     for (const recordId of toUpdate) {
       const resolved = await resolveDeliveryBatchFromCras(recordId);
       if (resolved) {
-        recordBatchMap.set(recordId, resolved);
+        recordBatchMap.set(recordId, {
+          batchId: resolved.deliveryBatchId,
+          batchRecordId: resolved.batchRecordId,
+        });
       }
     }
   }
