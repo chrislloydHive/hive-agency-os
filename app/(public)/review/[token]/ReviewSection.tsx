@@ -462,17 +462,21 @@ export default function ReviewSection({
     });
   }, [groupId, token, newGroupComment, requireIdentity]);
   
+  // Calculate selected unapproved assets in this section
+  const selectedUnapprovedInSection = assets.filter(
+    (a) => selectedFileIds.has(a.fileId) && !a.assetApprovedClient
+  );
+  const selectedUnapprovedCount = selectedUnapprovedInSection.length;
+  const selectedUnapprovedFileIds = selectedUnapprovedInSection.map((a) => a.fileId);
+  
   // Button should be disabled if:
-  // - Group is approved AND
-  // - All current assets are approved (no pending) AND
-  // - No new assets added since approval
-  // Button should be enabled if:
-  // - Group is not approved, OR
-  // - There are pending assets, OR
-  // - New assets were added since approval (newSinceApprovalCount > 0)
-  const hasNewAssetsSinceApproval = (newSinceApprovalCount ?? 0) > 0;
-  const allAssetsApproved = pendingCount === 0 && totalCount > 0;
-  const shouldDisableApproveButton = isGroupApproved && allAssetsApproved && !hasNewAssetsSinceApproval;
+  // - No unapproved assets are selected (selectedUnapprovedCount === 0), OR
+  // - All assets in group are already approved (pendingCount === 0), OR
+  // - Currently approving
+  const shouldDisableApproveButton = 
+    selectedUnapprovedCount === 0 || 
+    pendingCount === 0 || 
+    approvingGroup;
 
   const openLightbox = (index: number) => setLightboxIndex(index);
   const closeLightbox = () => setLightboxIndex(null);
@@ -524,29 +528,56 @@ export default function ReviewSection({
   );
 
   const handleGroupApprove = () => {
+    if (selectedUnapprovedCount === 0) return;
+    
     requireIdentity(async (currentIdentity) => {
       setApprovingGroup(true);
+      const approvedAt = new Date().toISOString();
+      const approvedByName = currentIdentity.name;
+      const approvedByEmail = currentIdentity.email;
+      
+      // Optimistically update local state to show Approved badges immediately
+      selectedUnapprovedFileIds.forEach((fileId) => {
+        onAssetStatusChange?.(variant, tactic, fileId, 'approved');
+      });
+      
       try {
-        const res = await fetch('/api/review/groups/approve', {
+        // Use bulk approve API to approve only selected assets
+        const res = await fetch('/api/review/assets/bulk-approve', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           cache: 'no-store',
           body: JSON.stringify({
             token,
-            tactic,
-            variant,
-            approvedByName: currentIdentity.name,
-            approvedByEmail: currentIdentity.email,
-            approvedAt: new Date().toISOString(),
+            fileIds: selectedUnapprovedFileIds,
+            approvedAt,
+            approvedByName,
+            approvedByEmail,
+            deliveryBatchId: deliveryBatchId ?? undefined,
+            sections: [{
+              variant,
+              tactic,
+              fileIds: selectedUnapprovedFileIds,
+            }],
           }),
         });
+        
         if (res.ok) {
           const data = await res.json();
-          const approvedAt = (data && data.approvedAt) || new Date().toISOString();
-          onGroupApproved?.(variant, tactic, approvedAt, currentIdentity.name, currentIdentity.email);
+          // Clear selection for this section's assets
+          selectedUnapprovedFileIds.forEach((fileId) => {
+            onToggleSelect?.(fileId);
+          });
+          // Optionally update group approval if all assets are now approved
+          // (This is optional - we can keep it simple and just approve selected assets)
+        } else {
+          // On error, refresh to revert optimistic update
+          const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+          console.error('[ReviewSection] Failed to approve selected assets:', errorData);
         }
-      } catch {
-        // silent
+      } catch (err) {
+        console.error('[ReviewSection] Error approving selected assets:', err);
+        // On error, refresh to revert optimistic update
       } finally {
         setApprovingGroup(false);
       }
@@ -672,17 +703,24 @@ export default function ReviewSection({
       {/* Asset grid — only when files exist; 4–5 columns so 10+ assets fit without cramping */}
       {hasFiles ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
-          {assets.map((asset, index) => (
-            <AssetCard
-              key={asset.fileId}
-              asset={asset}
-              token={token}
-              onClick={() => openLightbox(index)}
-              selected={selectedFileIds.has(asset.fileId)}
-              onToggleSelect={onToggleSelect ? () => onToggleSelect(asset.fileId) : undefined}
-              onDownloadAsset={onDownloadAsset}
-            />
-          ))}
+          {assets.map((asset, index) => {
+            const isApproved = asset.assetApprovedClient || false;
+            return (
+              <AssetCard
+                key={asset.fileId}
+                asset={asset}
+                token={token}
+                onClick={() => openLightbox(index)}
+                selected={selectedFileIds.has(asset.fileId)}
+                onToggleSelect={
+                  onToggleSelect && !isApproved 
+                    ? () => onToggleSelect(asset.fileId) 
+                    : undefined
+                }
+                onDownloadAsset={onDownloadAsset}
+              />
+            );
+          })}
         </div>
       ) : null}
 
@@ -730,23 +768,25 @@ export default function ReviewSection({
             <button
               type="button"
               onClick={handleGroupApprove}
-              disabled={approvingGroup || shouldDisableApproveButton}
+              disabled={shouldDisableApproveButton}
               className={`shrink-0 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
                 shouldDisableApproveButton
                   ? 'border border-gray-700 bg-gray-800/40 text-gray-500 cursor-not-allowed'
-                  : isGroupApproved
-                  ? 'border border-gray-600 bg-gray-800/60 text-gray-400 hover:bg-gray-700/60 hover:text-gray-300'
                   : 'bg-emerald-600 text-white hover:bg-emerald-700'
               }`}
               title={
                 shouldDisableApproveButton
-                  ? 'All assets approved - no action needed'
-                  : isGroupApproved
-                  ? 'Re-approve section (new assets added)'
-                  : 'Approve all assets in this section'
+                  ? pendingCount === 0
+                    ? 'All assets approved - no action needed'
+                    : 'Select assets to approve'
+                  : `Approve ${selectedUnapprovedCount} selected asset${selectedUnapprovedCount !== 1 ? 's' : ''}`
               }
             >
-              {approvingGroup ? 'Saving…' : 'Approve'}
+              {approvingGroup 
+                ? 'Approving…' 
+                : selectedUnapprovedCount > 0 
+                  ? `Approve (${selectedUnapprovedCount})`
+                  : 'Approve'}
             </button>
             <div className="hidden shrink-0 sm:block">
               {saving && <span className="text-xs text-gray-500">Saving...</span>}
@@ -908,9 +948,10 @@ function AssetCard({
   token: string;
   onClick: () => void;
   selected?: boolean;
-  onToggleSelect?: () => void;
+  onToggleSelect?: (() => void) | undefined;
   onDownloadAsset?: (assetId: string) => void | Promise<void>;
 }) {
+  const isApproved = asset.assetApprovedClient || false;
   // For animated images (GIF, animated WebP), use Google Drive direct view URL for proper animation
   // This format works better for animated images than proxying through our API
   const lowerName = asset.name.toLowerCase();
@@ -939,7 +980,8 @@ function AssetCard({
     >
     <div className="relative flex flex-1 flex-col">
       {/* Checkbox overlay: top-left, does not trigger card click */}
-      {onToggleSelect && (
+      {/* Only show checkbox if asset is not approved */}
+      {onToggleSelect && !isApproved && (
         <div className="absolute left-2 top-2 z-20">
           <input
             type="checkbox"
