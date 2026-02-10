@@ -87,12 +87,23 @@ async function listAllFiles(
     supportsAllDrives: true,
     includeItemsFromAllDrives: true,
   });
-  return (res.data.files ?? []).map((f) => ({
+  const files = (res.data.files ?? []).map((f) => ({
     fileId: f.id!,
     name: f.name!,
     mimeType: f.mimeType || 'application/octet-stream',
     modifiedTime: f.modifiedTime || '',
   }));
+  
+  // Deduplicate by fileId (keep first occurrence, which is most recent due to ordering)
+  const seen = new Set<string>();
+  return files.filter((f) => {
+    if (seen.has(f.fileId)) {
+      console.warn(`[review/assets] Duplicate fileId detected: ${f.fileId} (${f.name}), skipping duplicate`);
+      return false;
+    }
+    seen.add(f.fileId);
+    return true;
+  });
 }
 
 /** List direct children (files + folders) for diagnostics when 0 assets. */

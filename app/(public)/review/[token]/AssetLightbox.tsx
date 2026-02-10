@@ -344,8 +344,10 @@ export default function AssetLightbox({
     : null;
   
   const src = driveDirectUrl || `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
+  const lowerName = asset.name.toLowerCase();
   const isImage = asset.mimeType.startsWith('image/');
-  const isVideo = asset.mimeType.startsWith('video/');
+  // Detect video by mimeType or file extension (MP4 files might have incorrect mimeType from Drive)
+  const isVideo = asset.mimeType.startsWith('video/') || lowerName.endsWith('.mp4') || lowerName.endsWith('.mov') || lowerName.endsWith('.webm') || lowerName.endsWith('.avi');
   const isAudio = asset.mimeType.startsWith('audio/');
 
   const hasPrev = currentIndex > 0;

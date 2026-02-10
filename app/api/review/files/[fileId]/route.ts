@@ -123,6 +123,14 @@ export async function GET(
       'Content-Type': mimeType,
       'Cache-Control': 'public, max-age=300',
     };
+    
+    // Add CORS headers for video files to allow VideoWithThumbnail component to load them
+    if (mimeType.startsWith('video/') || fileName.toLowerCase().endsWith('.mp4') || fileName.toLowerCase().endsWith('.mov') || fileName.toLowerCase().endsWith('.webm')) {
+      headers['Access-Control-Allow-Origin'] = '*';
+      headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS';
+      headers['Access-Control-Allow-Headers'] = 'Range';
+      headers['Accept-Ranges'] = 'bytes';
+    }
 
     if (download) {
       // RFC 6266 — ASCII-safe filename + UTF-8 fallback
