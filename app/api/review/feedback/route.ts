@@ -3,10 +3,11 @@
 // Token-only auth. Writes to the Project record's "Client Review Data" field (JSON blob).
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getBase } from '@/lib/airtable';
+import { getBase, getCommentsBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { resolveApprovedAt } from '@/lib/review/approvedAt';
+import { createRecord } from '@/lib/airtable/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -142,81 +143,116 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid tactic' }, { status: 400 });
   }
 
-  if (approved === undefined && comments === undefined) {
-    return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
+  // Require comments to create a comment record
+  if (!comments || typeof comments !== 'string' || !comments.trim()) {
+    return NextResponse.json({ error: 'Comments are required to create a comment record' }, { status: 400 });
   }
 
   const osBase = getBase();
   const recordId = resolved.project.recordId;
+  const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
 
-  // Key is "Variant:Tactic" (e.g., "Prospecting:Display")
-  const feedbackKey = `${variant}:${tactic}`;
+  // Log incoming payload
+  console.log('[review/feedback] Incoming payload:', {
+    variant,
+    tactic,
+    approved,
+    comments: comments?.substring(0, 100),
+    authorName,
+    authorEmail,
+    projectRecordId: recordId,
+  });
 
   try {
-    // Read-modify-write the JSON blob
-    const record = await osBase(AIRTABLE_TABLES.PROJECTS).find(recordId);
-    const fields = record.fields as Record<string, unknown>;
-    const data = parseReviewData(fields['Client Review Data']);
+    // Find Creative Review Sets record for this variant/tactic combination
+    let groupRecordId: string | null = null;
+    try {
+      const setFormula = `AND(
+        FIND("${recordId}", ARRAYJOIN({Project})) > 0,
+        {Variant} = "${variant}",
+        {Tactic} = "${tactic}"
+      )`;
 
-    const existing = data[feedbackKey] ?? { approved: false, comments: '' };
+      const setRecords = await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_SETS)
+        .select({ filterByFormula: setFormula, maxRecords: 1 })
+        .firstPage();
 
-    // Merge updates
-    if (approved !== undefined) {
-      existing.approved = !!approved;
+      if (setRecords.length > 0) {
+        groupRecordId = setRecords[0].id;
+      }
+    } catch (setErr: any) {
+      console.warn('[review/feedback] Failed to find Creative Review Sets record:', setErr?.message ?? setErr);
     }
-    if (comments !== undefined) {
-      // Cap comment length to prevent abuse
-      existing.comments = String(comments).slice(0, 5000);
+
+    // Build comment body - include group context if we have it
+    let commentBody = comments.trim().slice(0, 5000);
+    if (!groupRecordId) {
+      // Include group identifiers in body prefix if we don't have a valid linked field
+      commentBody = `[Group:${variant}:${tactic}] ${commentBody}`;
     }
 
-    data[feedbackKey] = existing;
+    // Build comment record fields
+    const recordFields: Record<string, unknown> = {
+      Body: commentBody,
+      Status: 'Open',
+      'Target Type': 'Group',
+      'Author Email': authorEmail.trim().slice(0, 200),
+    };
 
-    // Build update payload (exclude "Client Review Data" field as it doesn't exist in Airtable schema)
-    const updatePayload: Record<string, unknown> = {};
-    // Note: Client Review Data field removed - field doesn't exist in Airtable schema
-    
-    console.log("[review/feedback] fields", Object.keys(updatePayload));
-    
-    // Only update if there are fields to update
-    if (Object.keys(updatePayload).length > 0) {
-      await osBase(AIRTABLE_TABLES.PROJECTS).update(recordId, updatePayload as any);
+    // Link to Creative Review Groups if we have a valid group record ID
+    // Note: Check if Comments table has a "Creative Review Groups" linked field
+    // For now, we'll try to set it, but if it fails, the comment will still be created
+    if (groupRecordId) {
+      recordFields['Creative Review Groups'] = [groupRecordId];
     }
+
+    // Log final fields object before create
+    console.log('[review/feedback] Creating comment with fields:', {
+      baseId: commentsBaseId,
+      tableName: AIRTABLE_TABLES.COMMENTS,
+      fields: recordFields,
+      groupRecordId: groupRecordId || 'none',
+    });
+
+    // Create comment record in Comments table
+    const result = await createRecord(AIRTABLE_TABLES.COMMENTS, recordFields, commentsBaseId);
+    const commentId = result?.id || result?.records?.[0]?.id;
+
+    if (!commentId) {
+      console.error('[review/feedback] Failed to get comment ID from create response:', result);
+      return NextResponse.json({ error: 'Failed to create comment record' }, { status: 500 });
+    }
+
+    console.log('[review/feedback] Comment created successfully:', {
+      baseId: commentsBaseId,
+      tableName: AIRTABLE_TABLES.COMMENTS,
+      commentId,
+      groupRecordId: groupRecordId || 'none',
+    });
 
     // On any approval toggle, update the Creative Review Sets record
     // Always overwrite: timestamp and author info are written for both approve and un-approve
-    if (approved !== undefined) {
+    if (approved !== undefined && groupRecordId) {
       try {
-        const setFormula = `AND(
-          FIND("${recordId}", ARRAYJOIN({Project})) > 0,
-          {Variant} = "${variant}",
-          {Tactic} = "${tactic}"
-        )`;
+        const approvedAt = resolveApprovedAt(body.approvedAt);
+        const updateFields: Record<string, unknown> = {
+          'Client Approved': !!approved,
+          'Approved At': approvedAt,
+          'Approved By Name': authorName.trim(),
+          'Approved By Email': authorEmail.trim(),
+        };
 
-        const setRecords = await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_SETS)
-          .select({ filterByFormula: setFormula, maxRecords: 1 })
-          .firstPage();
-
-        if (setRecords.length > 0) {
-          const approvedAt = resolveApprovedAt(body.approvedAt);
-          const updateFields: Record<string, unknown> = {
-            'Client Approved': !!approved,
-            'Approved At': approvedAt,
-            'Approved By Name': authorName.trim(),
-            'Approved By Email': authorEmail.trim(),
-          };
-
-          await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_SETS).update(
-            setRecords[0].id,
-            updateFields as any,
-          );
-        }
+        await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_SETS).update(
+          groupRecordId,
+          updateFields as any,
+        );
       } catch (setErr: any) {
         // Log but don't fail the main operation
         console.warn('[review/feedback] Creative Review Sets update failed:', setErr?.message ?? setErr);
       }
     }
 
-    return NextResponse.json({ ok: true, data });
+    return NextResponse.json({ ok: true, commentId, groupRecordId: groupRecordId || null });
   } catch (err: any) {
     console.error('[review/feedback] POST error:', err?.message ?? err);
     return NextResponse.json({ error: 'Failed to save feedback' }, { status: 500 });
