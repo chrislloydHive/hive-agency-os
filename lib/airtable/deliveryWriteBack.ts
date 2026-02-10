@@ -269,27 +269,9 @@ function buildDeliveryUpdate(
         written.push(webhookAlias);
       }
     }
-    if (payload.deliveryFilesCount !== undefined) {
-      const alias = resolveAlias(DELIVERY_FIELD_ALIASES.deliveryFilesCount, writableNames);
-      if (alias) {
-        fieldsToWrite[alias] = payload.deliveryFilesCount;
-        written.push(alias);
-      }
-    }
-    if (payload.deliveryFoldersCount !== undefined) {
-      const alias = resolveAlias(DELIVERY_FIELD_ALIASES.deliveryFoldersCount, writableNames);
-      if (alias) {
-        fieldsToWrite[alias] = payload.deliveryFoldersCount;
-        written.push(alias);
-      }
-    }
-    if (payload.deliveryFailures !== undefined) {
-      const alias = resolveAlias(DELIVERY_FIELD_ALIASES.deliveryFailures, writableNames);
-      if (alias) {
-        fieldsToWrite[alias] = payload.deliveryFailures;
-        written.push(alias);
-      }
-    }
+    // Skip optional delivery count fields - they don't exist in CRAS table
+    // Only write the 3 canonical fields: "Delivered At", "Deliver Summary (text/json)"
+    // Note: "Delivered?" is computed and cannot be written
   } else {
     const statusAlias = resolveAlias(DELIVERY_FIELD_ALIASES.deliveryStatus, writableNames);
     if (statusAlias) {
@@ -316,6 +298,18 @@ function buildDeliveryUpdate(
 /**
  * Build fields for direct REST update (fallback when schema fetch fails).
  * Uses known field names from DELIVERY_FIELD_ALIASES.
+ */
+/**
+ * Build fields for direct REST update (fallback when schema fetch fails).
+ * Uses known field names from DELIVERY_FIELD_ALIASES.
+ * 
+ * CRAS Table (appQLwoVH8JyGSTIo) - Canonical Fields:
+ * - "Delivered At" (date-only, YYYY-MM-DD format)
+ * - "Deliver Summary (text/json)" (JSON stringified)
+ * - "Delivered?" is COMPUTED and cannot be written (skipped)
+ * 
+ * Note: Other fields like "Delivery Status", "Delivered Folder ID", etc. are optional
+ * and only written if they exist in the payload.
  */
 function buildDeliveryUpdateFallback(
   payload: DeliveryWritePayload
@@ -348,15 +342,9 @@ function buildDeliveryUpdateFallback(
     if (payload.readyToDeliverWebhook === false) {
       fieldsToWrite['Ready to Deliver (Webhook)'] = false;
     }
-    if (payload.deliveryFilesCount !== undefined) {
-      fieldsToWrite['Delivery Files Count'] = payload.deliveryFilesCount;
-    }
-    if (payload.deliveryFoldersCount !== undefined) {
-      fieldsToWrite['Delivery Folders Count'] = payload.deliveryFoldersCount;
-    }
-    if (payload.deliveryFailures !== undefined) {
-      fieldsToWrite['Delivery Failures'] = payload.deliveryFailures;
-    }
+    // Skip optional delivery count fields - they don't exist in CRAS table
+    // Only write the 3 canonical fields: "Delivered At", "Deliver Summary (text/json)"
+    // Note: "Delivered?" is computed and cannot be written
   } else {
     fieldsToWrite['Delivery Status'] = payload.deliveryStatus;
     fieldsToWrite['Delivery Error'] = payload.deliveryError;
