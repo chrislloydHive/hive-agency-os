@@ -237,12 +237,13 @@ export async function resolveTargetAssetRecordId(params: {
     for (const { name: fieldName, key } of possibleFieldNames) {
       if (!key || typeof key !== 'string' || !key.trim()) continue;
       
+      // Declare formula outside try block so it's accessible in catch block
+      const keyEsc = String(key).trim().replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const formula = `{${fieldName}} = "${keyEsc}"`;
+      const commentsBaseIdActual = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+      const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+      
       try {
-        const keyEsc = String(key).trim().replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        const formula = `{${fieldName}} = "${keyEsc}"`;
-        const commentsBaseIdActual = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
-        const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
-        
         console.log('[resolveTargetAssetRecordId] Attempting airtable.select (Comments base):', {
           operation: 'airtable.select',
           baseId: commentsBaseIdActual,
@@ -270,29 +271,27 @@ export async function resolveTargetAssetRecordId(params: {
           });
           return resolvedAssetId;
         }
-        } catch (fieldErr) {
-          // Log 403 errors specifically
-          const is403 = (fieldErr as any)?.statusCode === 403 || 
-                       (fieldErr instanceof Error && fieldErr.message.includes('403')) ||
-                       (fieldErr instanceof Error && fieldErr.message.includes('NOT_AUTHORIZED'));
-          if (is403) {
-            const commentsBaseIdActual = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
-            const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
-            console.error('[resolveTargetAssetRecordId] 403 NOT_AUTHORIZED on airtable.select (Comments base):', {
-              operation: 'airtable.select',
-              baseId: commentsBaseIdActual,
-              tableName,
-              filterFormula: formula,
-              lookupField: fieldName,
-              lookupKey: key.trim(),
-              authMode: apiKey ? 'service_account' : 'none',
-              apiKeyPrefix: apiKey ? apiKey.substring(0, 10) + '...' : 'missing',
-              error: fieldErr instanceof Error ? fieldErr.message : String(fieldErr),
-            });
-          }
-          // Field or table doesn't exist, try next combination
-          continue;
+      } catch (fieldErr) {
+        // Log 403 errors specifically
+        const is403 = (fieldErr as any)?.statusCode === 403 || 
+                     (fieldErr instanceof Error && fieldErr.message.includes('403')) ||
+                     (fieldErr instanceof Error && fieldErr.message.includes('NOT_AUTHORIZED'));
+        if (is403) {
+          console.error('[resolveTargetAssetRecordId] 403 NOT_AUTHORIZED on airtable.select (Comments base):', {
+            operation: 'airtable.select',
+            baseId: commentsBaseIdActual,
+            tableName,
+            filterFormula: formula,
+            lookupField: fieldName,
+            lookupKey: key.trim(),
+            authMode: apiKey ? 'service_account' : 'none',
+            apiKeyPrefix: apiKey ? apiKey.substring(0, 10) + '...' : 'missing',
+            error: fieldErr instanceof Error ? fieldErr.message : String(fieldErr),
+          });
         }
+        // Field or table doesn't exist, try next combination
+        continue;
+      }
     }
   }
   
