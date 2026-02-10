@@ -224,18 +224,27 @@ export async function POST(req: NextRequest) {
   const fileId = body.fileId;
   
   // If crasId not provided, try to resolve from token + fileId
-  let resolvedCrasId: string | undefined = crasId;
+  let resolvedCrasId: string | undefined = typeof crasId === 'string' ? crasId : undefined;
   if (!resolvedCrasId && fileId) {
     try {
       const resolved = await getCrasRecordIdByTokenAndFileId(finalToken, fileId);
-      resolvedCrasId = resolved || undefined; // Convert null to undefined
+      // Ensure it's a string, not an object
+      resolvedCrasId = typeof resolved === 'string' ? resolved : undefined;
     } catch (err) {
       console.warn('[comments/asset] Failed to resolve CRAS ID from fileId:', err);
     }
   }
   
-  if (!resolvedCrasId) {
-    return NextResponse.json({ error: 'Missing crasId or fileId' }, { status: 400 });
+  if (!resolvedCrasId || typeof resolvedCrasId !== 'string') {
+    console.error('[comments/asset] Invalid crasId:', { crasId, resolvedCrasId, type: typeof resolvedCrasId });
+    return NextResponse.json({ error: 'Missing or invalid crasId or fileId' }, { status: 400 });
+  }
+  
+  // Ensure resolvedCrasId is a string (not an object)
+  resolvedCrasId = String(resolvedCrasId).trim();
+  if (!resolvedCrasId.startsWith('rec')) {
+    console.error('[comments/asset] crasId does not look like a valid Airtable record ID:', resolvedCrasId);
+    return NextResponse.json({ error: 'Invalid crasId format' }, { status: 400 });
   }
   
   if (!commentBody || typeof commentBody !== 'string' || !commentBody.trim()) {
@@ -262,11 +271,18 @@ export async function POST(req: NextRequest) {
     // Create comment record
     // Note: Author field removed - it's not a text field (likely collaborator/link/single-select)
     // Note: Created field removed - it's read-only (automatically set by Airtable)
+    // Note: Linked records must be array of record ID strings, not objects with id property
+    // Ensure resolvedCrasId is definitely a string
+    const crasIdString = String(resolvedCrasId).trim();
+    if (!crasIdString.startsWith('rec')) {
+      throw new Error(`Invalid CRAS ID format: ${crasIdString}`);
+    }
+    
     const recordFields: Record<string, unknown> = {
       Body: trimmedBody.slice(0, 5000),
       Status: 'Open', // Single-select: use string value
       'Target Type': 'Asset', // Single-select: use string value
-      'Target Asset': [{ id: resolvedCrasId }],
+      'Target Asset': [crasIdString], // Linked record: array of record ID strings (must be strings, not objects)
     };
     
     // Add Author Email field if it exists in schema (optional)
@@ -275,8 +291,9 @@ export async function POST(req: NextRequest) {
     }
     
     // Link Creative Review Groups if groupId provided
-    if (groupId) {
-      recordFields['Creative Review Groups'] = [{ id: groupId }];
+    // Ensure groupId is a string, not an object
+    if (groupId && typeof groupId === 'string' && groupId.trim().startsWith('rec')) {
+      recordFields['Creative Review Groups'] = [groupId.trim()]; // Linked record: array of record ID strings
     } else if (tactic && variant) {
       // Try to find/create group if tactic and variant provided
       const groupIdFromTactic = await findOrCreateCreativeReviewSet(
@@ -284,32 +301,87 @@ export async function POST(req: NextRequest) {
         tactic,
         variant
       );
-      if (groupIdFromTactic) {
-        recordFields['Creative Review Groups'] = [{ id: groupIdFromTactic }];
+      if (groupIdFromTactic && typeof groupIdFromTactic === 'string' && groupIdFromTactic.trim().startsWith('rec')) {
+        recordFields['Creative Review Groups'] = [groupIdFromTactic.trim()]; // Linked record: array of record ID strings
+      }
+    }
+    
+    // Comments table is in a different base (appQLwoVH8JyGSTIo)
+    // Use AIRTABLE_COMMENTS_BASE_ID if set, otherwise use the provided base ID
+    const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+    
+    // Validate all linked record fields are arrays of strings (not objects)
+    for (const [key, value] of Object.entries(recordFields)) {
+      if (Array.isArray(value)) {
+        for (let i = 0; i < value.length; i++) {
+          const item = value[i];
+          if (typeof item !== 'string') {
+            console.error(`[comments/asset] Invalid linked record value in field ${key}[${i}]:`, {
+              value: item,
+              type: typeof item,
+              isObject: typeof item === 'object',
+            });
+            throw new Error(`Field ${key} contains non-string value: ${JSON.stringify(item)}`);
+          }
+          if (!item.startsWith('rec')) {
+            console.warn(`[comments/asset] Linked record value in ${key}[${i}] does not start with 'rec':`, item);
+          }
+        }
       }
     }
     
     console.log('[comments/asset] Creating comment record:', {
       table: AIRTABLE_TABLES.COMMENTS,
-      baseId: process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo',
+      baseId: commentsBaseId,
       fields: Object.keys(recordFields),
-      fieldValues: recordFields,
+      fieldValues: JSON.stringify(recordFields, null, 2),
       crasId: resolvedCrasId,
+      crasIdType: typeof resolvedCrasId,
       hasBody: !!trimmedBody,
+      bodyLength: trimmedBody.length,
+      authorName: trimmedAuthorName,
+      authorEmail: trimmedAuthorEmail || 'none',
+      groupId: groupId || 'none',
+      groupIdType: typeof groupId,
     });
     
-    // Comments table is in a different base (appQLwoVH8JyGSTIo)
-    // Use AIRTABLE_COMMENTS_BASE_ID if set, otherwise use the provided base ID
-    const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
-    const result = await createRecord(AIRTABLE_TABLES.COMMENTS, recordFields, commentsBaseId);
+    let result;
+    try {
+      result = await createRecord(AIRTABLE_TABLES.COMMENTS, recordFields, commentsBaseId);
+      console.log('[comments/asset] createRecord returned:', {
+        hasId: !!result?.id,
+        hasRecords: !!result?.records,
+        recordsLength: result?.records?.length || 0,
+        fullResult: JSON.stringify(result, null, 2),
+      });
+    } catch (createErr) {
+      console.error('[comments/asset] createRecord threw error:', {
+        error: createErr instanceof Error ? createErr.message : String(createErr),
+        stack: createErr instanceof Error ? createErr.stack : undefined,
+        fields: recordFields,
+        baseId: commentsBaseId,
+      });
+      throw createErr;
+    }
+    
     const recordId = result?.id || result?.records?.[0]?.id;
     
     if (!recordId) {
-      console.error('[comments/asset] Failed to get record ID from create response:', result);
+      console.error('[comments/asset] Failed to get record ID from create response:', {
+        result,
+        resultType: typeof result,
+        resultKeys: result ? Object.keys(result) : [],
+        hasId: !!result?.id,
+        hasRecords: !!result?.records,
+      });
       throw new Error('Failed to get record ID from create response');
     }
     
-    console.log('[comments/asset] Comment created successfully:', recordId);
+    console.log('[comments/asset] Comment created successfully:', {
+      recordId,
+      table: AIRTABLE_TABLES.COMMENTS,
+      baseId: commentsBaseId,
+    });
     
     const comment: AssetComment = {
       id: recordId,

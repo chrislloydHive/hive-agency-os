@@ -10,7 +10,7 @@
 // Creative Review Comments table: Comment, Project, Tactic, Drive File ID, Filename, Author Name, Author Email, Created At.
 // Used for display in lightbox (filter by project + fileId).
 
-import { getBase } from '@/lib/airtable';
+import { getBase, getCommentsBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 
 // Comments table field names (exact)
@@ -108,29 +108,36 @@ async function findOrCreateVariantGroup(name: string): Promise<string | null> {
  * Does NOT write Drive File ID or Filename (they do not exist in Comments).
  */
 export async function createComment(fields: CreateCommentFields): Promise<{ id: string; createdAt: string }> {
-  const osBase = getBase();
+  // Note: This function uses the old Airtable SDK and may be deprecated
+  // New routes should use /api/comments/group or /api/comments/asset instead
+  // Comments table is in a different base (appQLwoVH8JyGSTIo)
+  // Author field removed - it's not a text field (likely collaborator/link/single-select)
+  // Created field removed - it's read-only (automatically set by Airtable)
+  
+  const commentsBase = getCommentsBase();
   const tableName = AIRTABLE_TABLES.COMMENTS;
   const createdAt = new Date().toISOString();
 
-  const author = `${fields.authorName.trim().slice(0, 100)} <${fields.authorEmail.trim().slice(0, 200)}>`;
-
   const recordFields: Record<string, unknown> = {
     [COMMENTS_FIELDS.BODY]: fields.body.slice(0, 5000),
-    [COMMENTS_FIELDS.AUTHOR]: author,
+    // Author field removed - not a text field
+    // Author Email field added if it exists in schema
+    'Author Email': fields.authorEmail.trim().slice(0, 200),
     [COMMENTS_FIELDS.STATUS]: DEFAULT_STATUS,
     [COMMENTS_FIELDS.SEVERITY]: DEFAULT_SEVERITY,
     [COMMENTS_FIELDS.CATEGORY]: DEFAULT_CATEGORY,
     [COMMENTS_FIELDS.TARGET_TYPE]: TARGET_TYPE_ASSET,
-    [COMMENTS_FIELDS.CREATED]: createdAt,
+    // Created field removed - read-only
   };
 
   const conceptId = fields.concept?.trim() ? await findOrCreateConcept(fields.concept.trim()) : null;
-  if (conceptId) recordFields[COMMENTS_FIELDS.TARGET_CONCEPT] = [conceptId];
+  if (conceptId) recordFields[COMMENTS_FIELDS.TARGET_CONCEPT] = [conceptId]; // Linked record: array of record ID strings
 
   const variantGroupId = fields.variantGroup?.trim() ? await findOrCreateVariantGroup(fields.variantGroup.trim()) : null;
-  if (variantGroupId) recordFields[COMMENTS_FIELDS.TARGET_VARIANT_GROUP] = [variantGroupId];
+  if (variantGroupId) recordFields[COMMENTS_FIELDS.TARGET_VARIANT_GROUP] = [variantGroupId]; // Linked record: array of record ID strings
 
-  const record = (await osBase(tableName).create(recordFields as any)) as unknown as { id: string };
+  // Use Comments base instead of default base
+  const record = (await commentsBase(tableName).create(recordFields as any)) as unknown as { id: string };
   return { id: record.id, createdAt };
 }
 

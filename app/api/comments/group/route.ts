@@ -198,13 +198,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
   }
   
-  const groupId = body.groupId;
+  const groupIdRaw = body.groupId;
   const commentBody = body.body;
   const authorName = body.authorName;
   const authorEmail = body.authorEmail;
   
-  if (!groupId) {
-    return NextResponse.json({ error: 'Missing groupId' }, { status: 400 });
+  // Ensure groupId is a string, not an object
+  const groupId = typeof groupIdRaw === 'string' ? groupIdRaw.trim() : String(groupIdRaw || '').trim();
+  
+  if (!groupId || !groupId.startsWith('rec')) {
+    console.error('[comments/group] Invalid groupId:', { groupIdRaw, groupId, type: typeof groupIdRaw });
+    return NextResponse.json({ error: 'Missing or invalid groupId' }, { status: 400 });
   }
   
   if (!commentBody || typeof commentBody !== 'string' || !commentBody.trim()) {
@@ -231,11 +235,18 @@ export async function POST(req: NextRequest) {
     // Create comment record
     // Note: Author field removed - it's not a text field (likely collaborator/link/single-select)
     // Note: Created field removed - it's read-only (automatically set by Airtable)
+    // Note: Linked records must be array of record ID strings, not objects with id property
+    // Ensure groupId is definitely a string
+    const groupIdString = String(groupId).trim();
+    if (!groupIdString.startsWith('rec')) {
+      throw new Error(`Invalid group ID format: ${groupIdString}`);
+    }
+    
     const recordFields: Record<string, unknown> = {
       Body: trimmedBody.slice(0, 5000),
       Status: 'Open', // Single-select: use string value
       'Target Type': 'Group', // Single-select: use string value
-      'Creative Review Groups': [{ id: groupId }],
+      'Creative Review Groups': [groupIdString], // Linked record: array of record ID strings (must be strings, not objects)
     };
     
     // Add Author Email field if it exists in schema (optional)
@@ -243,27 +254,80 @@ export async function POST(req: NextRequest) {
       recordFields['Author Email'] = trimmedAuthorEmail.slice(0, 200);
     }
     
-    console.log('[comments/group] Creating comment record:', {
-      table: AIRTABLE_TABLES.COMMENTS,
-      baseId: process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo',
-      fields: Object.keys(recordFields),
-      fieldValues: recordFields,
-      groupId,
-      hasBody: !!trimmedBody,
-    });
-    
     // Comments table is in a different base (appQLwoVH8JyGSTIo)
     // Use AIRTABLE_COMMENTS_BASE_ID if set, otherwise use the provided base ID
     const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
-    const result = await createRecord(AIRTABLE_TABLES.COMMENTS, recordFields, commentsBaseId);
+    
+    // Validate all linked record fields are arrays of strings (not objects)
+    for (const [key, value] of Object.entries(recordFields)) {
+      if (Array.isArray(value)) {
+        for (let i = 0; i < value.length; i++) {
+          const item = value[i];
+          if (typeof item !== 'string') {
+            console.error(`[comments/group] Invalid linked record value in field ${key}[${i}]:`, {
+              value: item,
+              type: typeof item,
+              isObject: typeof item === 'object',
+            });
+            throw new Error(`Field ${key} contains non-string value: ${JSON.stringify(item)}`);
+          }
+          if (!item.startsWith('rec')) {
+            console.warn(`[comments/group] Linked record value in ${key}[${i}] does not start with 'rec':`, item);
+          }
+        }
+      }
+    }
+    
+    console.log('[comments/group] Creating comment record:', {
+      table: AIRTABLE_TABLES.COMMENTS,
+      baseId: commentsBaseId,
+      fields: Object.keys(recordFields),
+      fieldValues: JSON.stringify(recordFields, null, 2),
+      groupId,
+      groupIdType: typeof groupId,
+      hasBody: !!trimmedBody,
+      bodyLength: trimmedBody.length,
+      authorName: trimmedAuthorName,
+      authorEmail: trimmedAuthorEmail || 'none',
+    });
+    
+    let result;
+    try {
+      result = await createRecord(AIRTABLE_TABLES.COMMENTS, recordFields, commentsBaseId);
+      console.log('[comments/group] createRecord returned:', {
+        hasId: !!result?.id,
+        hasRecords: !!result?.records,
+        recordsLength: result?.records?.length || 0,
+        fullResult: JSON.stringify(result, null, 2),
+      });
+    } catch (createErr) {
+      console.error('[comments/group] createRecord threw error:', {
+        error: createErr instanceof Error ? createErr.message : String(createErr),
+        stack: createErr instanceof Error ? createErr.stack : undefined,
+        fields: recordFields,
+        baseId: commentsBaseId,
+      });
+      throw createErr;
+    }
+    
     const recordId = result?.id || result?.records?.[0]?.id;
     
     if (!recordId) {
-      console.error('[comments/group] Failed to get record ID from create response:', result);
+      console.error('[comments/group] Failed to get record ID from create response:', {
+        result,
+        resultType: typeof result,
+        resultKeys: result ? Object.keys(result) : [],
+        hasId: !!result?.id,
+        hasRecords: !!result?.records,
+      });
       throw new Error('Failed to get record ID from create response');
     }
     
-    console.log('[comments/group] Comment created successfully:', recordId);
+    console.log('[comments/group] Comment created successfully:', {
+      recordId,
+      table: AIRTABLE_TABLES.COMMENTS,
+      baseId: commentsBaseId,
+    });
     
     const comment: GroupComment = {
       id: recordId,

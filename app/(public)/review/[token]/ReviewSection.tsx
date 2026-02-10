@@ -30,13 +30,15 @@ export function VideoWithThumbnail({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [posterUrl, setPosterUrl] = useState<string | null>(null);
   const [hasThumbnail, setHasThumbnail] = useState(false);
+  const [thumbnailError, setThumbnailError] = useState(false);
   const attemptRef = useRef(0);
-  const maxAttempts = 3;
+  const maxAttempts = 5;
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || hasThumbnail) return;
+    if (!video || !canvas || hasThumbnail || thumbnailError) return;
 
     const captureFrame = () => {
       try {
@@ -45,11 +47,13 @@ export function VideoWithThumbnail({
           if (attemptRef.current < maxAttempts) {
             attemptRef.current += 1;
             // Retry after a short delay
-            setTimeout(() => {
-              if (video.readyState >= 2) {
+            timeoutRef.current = setTimeout(() => {
+              if (video.readyState >= 2 && video.videoWidth > 0) {
                 captureFrame();
               }
-            }, 200);
+            }, 300);
+          } else {
+            setThumbnailError(true);
           }
           return;
         }
@@ -57,7 +61,15 @@ export function VideoWithThumbnail({
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         const ctx = canvas.getContext('2d');
-        if (!ctx) return;
+        if (!ctx) {
+          if (attemptRef.current < maxAttempts) {
+            attemptRef.current += 1;
+            timeoutRef.current = setTimeout(captureFrame, 300);
+          } else {
+            setThumbnailError(true);
+          }
+          return;
+        }
 
         // Draw the current video frame to canvas
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -67,9 +79,30 @@ export function VideoWithThumbnail({
         setPosterUrl(dataUrl);
         setHasThumbnail(true);
       } catch (e) {
-        // CORS or other errors - silently fail, video will show without poster
+        // CORS or other errors - try without crossOrigin or use fallback
+        console.warn('[VideoWithThumbnail] Failed to capture frame:', e);
         if (attemptRef.current < maxAttempts) {
           attemptRef.current += 1;
+          // Try capturing at current time instead of seeking
+          timeoutRef.current = setTimeout(() => {
+            if (video.readyState >= 2 && video.videoWidth > 0) {
+              try {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                  setPosterUrl(dataUrl);
+                  setHasThumbnail(true);
+                }
+              } catch (err) {
+                setThumbnailError(true);
+              }
+            }
+          }, 500);
+        } else {
+          setThumbnailError(true);
         }
       }
     };
@@ -78,7 +111,8 @@ export function VideoWithThumbnail({
       try {
         if (video.duration && video.duration > 0 && !isNaN(video.duration)) {
           // Seek to 95% of video duration to get near-final frame
-          video.currentTime = Math.max(0, video.duration * 0.95);
+          const targetTime = Math.max(0, video.duration * 0.95);
+          video.currentTime = targetTime;
         } else {
           // If duration not available yet, try seeking to a reasonable time
           // Most videos are under 5 minutes, so try 4 minutes
@@ -86,25 +120,28 @@ export function VideoWithThumbnail({
         }
       } catch (e) {
         // Seeking failed - try to capture current frame anyway
-        if (video.readyState >= 2) {
+        if (video.readyState >= 2 && video.videoWidth > 0) {
           captureFrame();
         }
       }
     };
 
     const handleLoadedMetadata = () => {
-      seekToFinalFrame();
+      // Wait a bit for video to be ready
+      timeoutRef.current = setTimeout(() => {
+        seekToFinalFrame();
+      }, 100);
     };
 
     const handleSeeked = () => {
       // Frame should be ready after seeking - wait a bit for render
-      setTimeout(captureFrame, 150);
+      timeoutRef.current = setTimeout(captureFrame, 200);
     };
 
     const handleLoadedData = () => {
       // If metadata wasn't loaded but we have data, try capturing current frame
       if (!hasThumbnail && video.readyState >= 2 && video.videoWidth > 0) {
-        captureFrame();
+        timeoutRef.current = setTimeout(captureFrame, 200);
       }
     };
 
@@ -115,11 +152,19 @@ export function VideoWithThumbnail({
       }
     };
 
+    const handleTimeUpdate = () => {
+      // If we're near the end and haven't captured yet, try now
+      if (!hasThumbnail && video.duration > 0 && video.currentTime >= video.duration * 0.9) {
+        captureFrame();
+      }
+    };
+
     // Add event listeners
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('seeked', handleSeeked);
     video.addEventListener('loadeddata', handleLoadedData);
     video.addEventListener('canplay', handleCanPlay);
+    video.addEventListener('timeupdate', handleTimeUpdate);
 
     // If video is already loaded, try immediately
     if (video.readyState >= 1) {
@@ -127,12 +172,19 @@ export function VideoWithThumbnail({
     }
 
     return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('seeked', handleSeeked);
       video.removeEventListener('loadeddata', handleLoadedData);
       video.removeEventListener('canplay', handleCanPlay);
+      video.removeEventListener('timeupdate', handleTimeUpdate);
     };
-  }, [hasThumbnail]);
+  }, [hasThumbnail, thumbnailError]);
+
+  // Try without crossOrigin if CORS fails - some proxies don't need it
+  const [useCrossOrigin, setUseCrossOrigin] = useState(true);
 
   return (
     <>
@@ -143,10 +195,17 @@ export function VideoWithThumbnail({
         className={className}
         muted={!autoPlay}
         preload="metadata"
-        crossOrigin="anonymous"
+        crossOrigin={useCrossOrigin ? "anonymous" : undefined}
         poster={posterUrl || undefined}
         controls={controls}
         autoPlay={autoPlay}
+        onError={(e) => {
+          // If error with crossOrigin, try without it
+          if (useCrossOrigin) {
+            console.warn('[VideoWithThumbnail] Video error with crossOrigin, retrying without');
+            setUseCrossOrigin(false);
+          }
+        }}
       />
     </>
   );
@@ -811,8 +870,10 @@ function AssetCard({
 }) {
   // For animated images (GIF, animated WebP), use Google Drive direct view URL for proper animation
   // This format works better for animated images than proxying through our API
+  const lowerName = asset.name.toLowerCase();
   const isAnimatedImage = asset.mimeType === 'image/gif' || 
-    (asset.mimeType === 'image/webp' && asset.name.toLowerCase().includes('animated'));
+    (asset.mimeType === 'image/webp' && (lowerName.includes('animated') || lowerName.includes('.gif'))) ||
+    lowerName.endsWith('.gif');
   const driveDirectUrl = isAnimatedImage 
     ? `https://drive.google.com/uc?export=view&id=${asset.fileId}`
     : null;

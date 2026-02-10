@@ -108,8 +108,10 @@ export async function createRecord(
   console.log('[Airtable] Creating record:', {
     url: url.replace(config.apiKey, '***'),
     tableName,
+    baseId: baseId.substring(0, 20) + '...',
     fieldCount: Object.keys(fields).length,
-    fields: (tableName === 'GAP-Heavy Run' || tableName === 'Diagnostic Runs') ? fields : undefined, // Log fields for Heavy Run and Diagnostic Runs tables
+    fieldKeys: Object.keys(fields),
+    fields: (tableName === 'GAP-Heavy Run' || tableName === 'Diagnostic Runs' || tableName === 'Comments') ? fields : undefined, // Log fields for Heavy Run, Diagnostic Runs, and Comments tables
   });
 
   const response = await fetchWithRetry(url, {
