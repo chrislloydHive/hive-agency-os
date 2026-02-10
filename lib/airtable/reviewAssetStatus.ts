@@ -863,25 +863,53 @@ export async function batchSetAssetApprovedClient(
 ): Promise<BatchSetAssetApprovedClientResult> {
   const osBase = getBase();
   const now = new Date().toISOString();
-  const fields: Record<string, unknown> = {
+  
+  // Build base fields (shared across all records)
+  const baseFields: Record<string, unknown> = {
     [ASSET_APPROVED_CLIENT_FIELD]: true,
     Status: 'Approved',
     'Approved At': options?.approvedAt || now, // Always set Approved At (use provided or current time)
   };
-  if (options?.approvedByName !== undefined) fields['Approved By Name'] = String(options.approvedByName).slice(0, 100);
-  if (options?.approvedByEmail !== undefined) fields['Approved By Email'] = String(options.approvedByEmail).slice(0, 200);
-  if (options?.deliveryBatchId != null && String(options.deliveryBatchId).trim()) {
+  if (options?.approvedByName !== undefined) baseFields['Approved By Name'] = String(options.approvedByName).slice(0, 100);
+  if (options?.approvedByEmail !== undefined) baseFields['Approved By Email'] = String(options.approvedByEmail).slice(0, 200);
+  
+  // Determine if Ready to Deliver (Webhook) should be set to TRUE
+  const shouldSetReadyToDeliver = options?.deliveryBatchId != null && String(options.deliveryBatchId).trim();
+  if (shouldSetReadyToDeliver) {
     const bid = String(options.deliveryBatchId).trim();
-    fields[DELIVERY_BATCH_ID_FIELD] = bid.startsWith('rec') ? [bid] : bid;
+    baseFields[DELIVERY_BATCH_ID_FIELD] = bid.startsWith('rec') ? [bid] : bid;
     // When a delivery batch is set, automatically mark as ready for delivery
     // This triggers the backend worker to process the delivery
-    fields[READY_TO_DELIVER_WEBHOOK_FIELD] = true;
+    baseFields[READY_TO_DELIVER_WEBHOOK_FIELD] = true;
   }
+  
   let updated = 0;
   for (let i = 0; i < recordIds.length; i += BULK_APPROVE_CHUNK_SIZE) {
     const chunk = recordIds.slice(i, i + BULK_APPROVE_CHUNK_SIZE);
     try {
-      await Promise.all(chunk.map((id) => osBase(TABLE).update(id, fields as any)));
+      // Create a fresh fields object for each record to avoid mutation issues
+      await Promise.all(chunk.map((id) => {
+        // Create a new object for each record (spread to avoid mutation)
+        const recordFields = { ...baseFields };
+        
+        // Log Ready to Deliver (Webhook) field presence and value
+        const readyToDeliverValue = recordFields[READY_TO_DELIVER_WEBHOOK_FIELD];
+        const readyToDeliverValuePresent = READY_TO_DELIVER_WEBHOOK_FIELD in recordFields;
+        console.log(`[batchSetAssetApprovedClient] Updating record ${id}:`, {
+          recordId: id,
+          readyToDeliverValuePresent,
+          readyToDeliverValue,
+          fieldKeys: Object.keys(recordFields),
+        });
+        
+        // Verify we never send ReadyToDeliver=false unless explicitly requested
+        if (readyToDeliverValuePresent && readyToDeliverValue !== true) {
+          console.warn(`[batchSetAssetApprovedClient] WARNING: Ready to Deliver (Webhook) is not TRUE for record ${id}, removing from payload to prevent accidental clearing`);
+          delete recordFields[READY_TO_DELIVER_WEBHOOK_FIELD];
+        }
+        
+        return osBase(TABLE).update(id, recordFields as any);
+      }));
       updated += chunk.length;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -938,6 +966,9 @@ export async function setSingleAssetApprovedClient(
   };
   if (approvedByName !== undefined) fields['Approved By Name'] = String(approvedByName).slice(0, 100);
   if (approvedByEmail !== undefined) fields['Approved By Email'] = String(approvedByEmail).slice(0, 200);
+  
+  // Only set Ready to Deliver (Webhook) if deliveryBatchId is provided (set to TRUE)
+  // Never include it in payload if it should be false/undefined to prevent accidental clearing
   if (deliveryBatchId != null && String(deliveryBatchId).trim()) {
     const bid = String(deliveryBatchId).trim();
     fields[DELIVERY_BATCH_ID_FIELD] = bid.startsWith('rec') ? [bid] : bid;
@@ -945,6 +976,23 @@ export async function setSingleAssetApprovedClient(
     // This triggers the backend worker to process the delivery
     fields[READY_TO_DELIVER_WEBHOOK_FIELD] = true;
   }
+  
+  // Log Ready to Deliver (Webhook) field presence and value
+  const readyToDeliverValue = fields[READY_TO_DELIVER_WEBHOOK_FIELD];
+  const readyToDeliverValuePresent = READY_TO_DELIVER_WEBHOOK_FIELD in fields;
+  console.log(`[setSingleAssetApprovedClient] Updating record ${existing.id}:`, {
+    recordId: existing.id,
+    readyToDeliverValuePresent,
+    readyToDeliverValue,
+    fieldKeys: Object.keys(fields),
+  });
+  
+  // Verify we never send ReadyToDeliver=false unless explicitly requested
+  if (readyToDeliverValuePresent && readyToDeliverValue !== true) {
+    console.warn(`[setSingleAssetApprovedClient] WARNING: Ready to Deliver (Webhook) is not TRUE for record ${existing.id}, removing from payload to prevent accidental clearing`);
+    delete fields[READY_TO_DELIVER_WEBHOOK_FIELD];
+  }
+  
   try {
     await osBase(TABLE).update(existing.id, fields as any);
     return { ok: true, recordId: existing.id };
