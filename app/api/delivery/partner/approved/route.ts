@@ -69,52 +69,41 @@ export async function POST(req: Request) {
 
   try {
     // Prefer batchRecordId from request body (already resolved by approve handler)
+    // Only fetch CRAS if needed for fallback
     let batchRecordId: string | undefined = deliveryBatchRecordId;
+    let crasRecord: any = null;
     
-    // Only fallback to CRAS link lookup if batchRecordId not provided in request
+    // Only fetch CRAS record if we need to fallback to CRAS field lookup
     if (!batchRecordId) {
       const base = getBase();
-      const crasRecord = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
+      crasRecord = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
       
-      // Debug: Log available fields and the Partner Delivery Batch field value
-      console.log("[delivery/partner/approved] CRAS keys", Object.keys(crasRecord.fields || {}));
-      console.log("[delivery/partner/approved] PDB raw", crasRecord.fields?.["Partner Delivery Batch"]);
-      
-      // Try multiple field name variations (fallback logic)
-      const batchLinks = crasRecord.fields["Partner Delivery Batch"] 
-        ?? crasRecord.fields["Partner Delivery Batches"] 
-        ?? crasRecord.fields["Partner Delivery Batch 2"]
-        ?? crasRecord.fields[DELIVERY_BATCH_ID_FIELD];
-      
-      let batchField = batchLinks as string[] | string | undefined;
-      
-      // Extract batchRecordId from linked record (array of record IDs)
-      if (Array.isArray(batchField) && batchField.length > 0) {
-        const firstLink = batchField[0];
+      // Try to extract batchRecordId from CRAS field (array of record IDs)
+      const crasBatchField = crasRecord?.fields?.["Partner Delivery Batch"];
+      if (Array.isArray(crasBatchField) && crasBatchField.length > 0) {
+        const firstLink = crasBatchField[0];
         if (typeof firstLink === 'string' && firstLink.startsWith('rec')) {
           batchRecordId = firstLink;
         } else if (typeof firstLink === 'object' && firstLink !== null && 'id' in firstLink) {
           batchRecordId = (firstLink as { id: string }).id;
         }
-      } else if (typeof batchField === 'string') {
-        // If it's a string, check if it's a record ID or a batch name
-        if (batchField.startsWith('rec')) {
-          batchRecordId = batchField;
-        } else {
-          // It's a batch name - look it up to get the record ID
-          const batchDetails = await getBatchDetails(batchField);
-          if (batchDetails) {
-            batchRecordId = batchDetails.recordId;
-          }
-        }
+      } else if (typeof crasBatchField === 'string' && crasBatchField.startsWith('rec')) {
+        batchRecordId = crasBatchField;
       }
-      
-      // If still no batchRecordId, throw error
-      if (!batchRecordId) {
-        const errorMsg = `CRAS record ${crasRecordId} is missing linked Partner Delivery Batch. Field value: ${JSON.stringify(batchField)}. Available fields: ${Object.keys(crasRecord.fields || {}).join(', ')}. Please ensure the CRAS record has a linked Partner Delivery Batch record.`;
-        console.error(`[delivery/partner/approved] CRITICAL: ${errorMsg}`);
-        throw new Error(errorMsg);
-      }
+    }
+    
+    // Log batch resolution for debugging
+    console.log("[delivery] batch resolution", {
+      fromRequest: deliveryBatchRecordId || null,
+      fromCRAS: crasRecord?.fields?.["Partner Delivery Batch"] || null,
+      resolvedBatchRecordId: batchRecordId || null,
+    });
+    
+    // Only throw error if BOTH request and CRAS are missing
+    if (!batchRecordId) {
+      const errorMsg = `No Partner Delivery Batch resolved for CRAS ${crasRecordId}`;
+      console.error(`[delivery/partner/approved] CRITICAL: ${errorMsg}`);
+      throw new Error(errorMsg);
     }
 
     const finalRequestId = requestId || `approved-${Date.now().toString(36)}-${crasRecordId.slice(-8)}`;
