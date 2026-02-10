@@ -390,29 +390,72 @@ export default function ReviewSection({
   
   // Submit group comment
   const handleSubmitGroupComment = useCallback(async () => {
-    if (!groupId || !newGroupComment.trim()) return;
+    if (!groupId || !newGroupComment.trim()) {
+      console.warn('[ReviewSection] Cannot submit group comment:', {
+        hasGroupId: !!groupId,
+        groupId,
+        hasComment: !!newGroupComment.trim(),
+        commentLength: newGroupComment.trim().length,
+      });
+      return;
+    }
+    
+    console.log('[ReviewSection] Submitting group comment:', {
+      groupId,
+      groupIdType: typeof groupId,
+      commentLength: newGroupComment.trim().length,
+      token: token ? 'present' : 'missing',
+    });
     
     requireIdentity(async (currentIdentity) => {
       setSubmittingGroupComment(true);
       try {
+        const payload = {
+          groupId,
+          body: newGroupComment.trim(),
+          authorName: currentIdentity.name,
+          authorEmail: currentIdentity.email,
+        };
+        
+        console.log('[ReviewSection] Sending group comment payload:', {
+          ...payload,
+          body: payload.body.substring(0, 50) + '...',
+        });
+        
         const res = await fetch(`/api/comments/group?token=${encodeURIComponent(token)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            groupId,
-            body: newGroupComment.trim(),
-            authorName: currentIdentity.name,
-            authorEmail: currentIdentity.email,
-          }),
+          body: JSON.stringify(payload),
+        });
+        
+        console.log('[ReviewSection] Group comment response:', {
+          ok: res.ok,
+          status: res.status,
+          statusText: res.statusText,
         });
         
         if (res.ok) {
           const data = await res.json();
+          console.log('[ReviewSection] Group comment created successfully:', {
+            hasComment: !!data.comment,
+            commentId: data.comment?.id,
+          });
           setGroupComments((prev) => [data.comment, ...prev]);
           setNewGroupComment('');
+        } else {
+          const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+          console.error('[ReviewSection] Failed to submit group comment:', {
+            status: res.status,
+            statusText: res.statusText,
+            error: errorData.error || errorData.message,
+            errorData,
+          });
         }
       } catch (err) {
-        console.error('[ReviewSection] Failed to submit group comment:', err);
+        console.error('[ReviewSection] Exception submitting group comment:', {
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+        });
       } finally {
         setSubmittingGroupComment(false);
       }

@@ -164,7 +164,23 @@ export default function AssetLightbox({
   }, [asset?.fileId, token, variant, tactic]);
 
   const submitComment = useCallback(async (currentIdentity: AuthorIdentity) => {
-    if (!newComment.trim() || !asset || !currentIdentity) return;
+    if (!newComment.trim() || !asset || !currentIdentity) {
+      console.warn('[AssetLightbox] Cannot submit comment:', {
+        hasComment: !!newComment.trim(),
+        hasAsset: !!asset,
+        hasIdentity: !!currentIdentity,
+      });
+      return;
+    }
+
+    console.log('[AssetLightbox] Submitting asset comment:', {
+      fileId: asset.fileId,
+      fileIdType: typeof asset.fileId,
+      tactic,
+      variant,
+      commentLength: newComment.trim().length,
+      token: token ? 'present' : 'missing',
+    });
 
     setSubmitting(true);
     try {
@@ -178,6 +194,11 @@ export default function AssetLightbox({
         fileId: asset.fileId,
       };
       
+      console.log('[AssetLightbox] Sending asset comment payload:', {
+        ...payload,
+        body: payload.body.toString().substring(0, 50) + '...',
+      });
+      
       const res = await fetch(`/api/comments/asset?token=${encodeURIComponent(token)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -185,8 +206,18 @@ export default function AssetLightbox({
         body: JSON.stringify(payload),
       });
 
+      console.log('[AssetLightbox] Asset comment response:', {
+        ok: res.ok,
+        status: res.status,
+        statusText: res.statusText,
+      });
+
       if (res.ok) {
         const data = await res.json();
+        console.log('[AssetLightbox] Asset comment created successfully:', {
+          hasComment: !!data.comment,
+          commentId: data.comment?.id,
+        });
         setComments((prev) => [{
           id: data.comment.id,
           comment: data.comment.body,
@@ -196,36 +227,58 @@ export default function AssetLightbox({
         }, ...prev]);
         setNewComment('');
       } else {
-        // Fallback to old API
-        const oldRes = await fetch(`/api/review/comments?token=${encodeURIComponent(token)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          cache: 'no-store',
-          body: JSON.stringify({
-            token,
-            body: newComment.trim(),
-            authorName: currentIdentity.name,
-            authorEmail: currentIdentity.email,
-            tactic,
-            variantGroup: variant,
-            concept: '',
-            driveFileId: asset.fileId,
-            filename: asset.name,
-            variant,
-            fileId: asset.fileId,
-            fileName: asset.name,
-            comment: newComment.trim(),
-          }),
+        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('[AssetLightbox] Failed to submit asset comment:', {
+          status: res.status,
+          statusText: res.statusText,
+          error: errorData.error || errorData.message,
+          errorData,
         });
+        
+        // Fallback to old API (for backward compatibility)
+        console.warn('[AssetLightbox] Attempting fallback to old API...');
+        try {
+          const oldRes = await fetch(`/api/review/comments?token=${encodeURIComponent(token)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body: JSON.stringify({
+              token,
+              body: newComment.trim(),
+              authorName: currentIdentity.name,
+              authorEmail: currentIdentity.email,
+              tactic,
+              variantGroup: variant,
+              concept: '',
+              driveFileId: asset.fileId,
+              filename: asset.name,
+              variant,
+              fileId: asset.fileId,
+              fileName: asset.name,
+              comment: newComment.trim(),
+            }),
+          });
 
-        if (oldRes.ok) {
-          const oldData = await oldRes.json();
-          setComments((prev) => [...prev, oldData.comment]);
-          setNewComment('');
+          if (oldRes.ok) {
+            const oldData = await oldRes.json();
+            console.log('[AssetLightbox] Fallback API succeeded');
+            setComments((prev) => [...prev, oldData.comment]);
+            setNewComment('');
+          } else {
+            console.error('[AssetLightbox] Fallback API also failed:', {
+              status: oldRes.status,
+              statusText: oldRes.statusText,
+            });
+          }
+        } catch (fallbackErr) {
+          console.error('[AssetLightbox] Fallback API exception:', fallbackErr);
         }
       }
-    } catch {
-      // Silent fail
+    } catch (err) {
+      console.error('[AssetLightbox] Exception submitting asset comment:', {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
     } finally {
       setSubmitting(false);
     }

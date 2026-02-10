@@ -105,10 +105,14 @@ export async function createRecord(
     tableName
   )}`;
 
+  const isCommentsTable = tableName === 'Comments';
   console.log('[Airtable] Creating record:', {
     url: url.replace(config.apiKey, '***'),
     tableName,
-    baseId: baseId.substring(0, 20) + '...',
+    baseId: isCommentsTable ? baseId : baseId.substring(0, 20) + '...', // Show full baseId for Comments table
+    baseIdOverride: baseIdOverride || 'none',
+    usingOverride: !!baseIdOverride,
+    defaultBaseId: config.baseId.substring(0, 20) + '...',
     fieldCount: Object.keys(fields).length,
     fieldKeys: Object.keys(fields),
     fields: (tableName === 'GAP-Heavy Run' || tableName === 'Diagnostic Runs' || tableName === 'Comments') ? fields : undefined, // Log fields for Heavy Run, Diagnostic Runs, and Comments tables

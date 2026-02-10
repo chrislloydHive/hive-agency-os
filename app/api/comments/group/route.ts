@@ -169,6 +169,7 @@ export async function GET(req: NextRequest) {
 
 // POST: Create group comment
 export async function POST(req: NextRequest) {
+  console.log('[comments/group] POST called');
   const token = req.nextUrl.searchParams.get('token');
   
   let body: {
@@ -180,12 +181,22 @@ export async function POST(req: NextRequest) {
   
   try {
     body = await req.json();
-  } catch {
+    console.log('[comments/group] Request body parsed:', {
+      hasBody: !!body.body,
+      bodyLength: body.body?.length || 0,
+      hasGroupId: !!body.groupId,
+      groupId: body.groupId,
+      hasAuthorName: !!body.authorName,
+      hasAuthorEmail: !!body.authorEmail,
+    });
+  } catch (err) {
+    console.error('[comments/group] Failed to parse JSON:', err);
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
   
   const finalToken = token || (body as any).token;
   if (!finalToken) {
+    console.error('[comments/group] Missing token');
     return NextResponse.json({ error: 'Missing token' }, { status: 401 });
   }
   
@@ -257,6 +268,11 @@ export async function POST(req: NextRequest) {
     // Comments table is in a different base (appQLwoVH8JyGSTIo)
     // Use AIRTABLE_COMMENTS_BASE_ID if set, otherwise use the provided base ID
     const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+    console.log('[comments/group] Comments base ID:', {
+      fromEnv: !!process.env.AIRTABLE_COMMENTS_BASE_ID,
+      commentsBaseId,
+      envVarValue: process.env.AIRTABLE_COMMENTS_BASE_ID || 'not set',
+    });
     
     // Validate all linked record fields are arrays of strings (not objects)
     for (const [key, value] of Object.entries(recordFields)) {

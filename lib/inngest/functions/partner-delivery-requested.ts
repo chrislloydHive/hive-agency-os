@@ -36,63 +36,73 @@ async function resolveDestinationFolderId(
   const raw = deliveryBatchIdRaw.trim();
   if (!raw) return { destinationFolderId: null, batchRecordId: null, error: 'Empty batch identifier' };
 
-  // If we already have a record ID from CRAS, use it directly
+  // CRITICAL: If batchRecordId exists, use it DIRECTLY - NO FALLBACKS
+  // This ensures we always use the correct Destination Folder ID from Partner Delivery Batches
   if (batchRecordIdFromCras && batchRecordIdFromCras.startsWith('rec')) {
     const details = await getBatchDetailsByRecordId(batchRecordIdFromCras);
-    console.log("[delivery/destination] RESOLVED from CRAS link", {
+    console.log("[delivery/destination] RESOLVED from batchRecordId (NO FALLBACK)", {
       batchId: deliveryBatchIdRaw,
       batchRecordId: batchRecordIdFromCras,
       destinationFolderId: details?.destinationFolderId || null,
       destinationFolderUrl: details?.destinationFolderId ? `https://drive.google.com/drive/folders/${details.destinationFolderId}` : null,
-      expectedFolderId: '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
-      matchesExpected: details?.destinationFolderId === '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
-      source: 'CRAS link field',
+      source: 'batchRecordId (direct lookup, no fallback)',
       fieldRead: 'Destination Folder ID',
     });
+    if (!details || !details.destinationFolderId) {
+      return {
+        destinationFolderId: null,
+        batchRecordId: batchRecordIdFromCras,
+        error: `Batch record ${batchRecordIdFromCras} not found or missing Destination Folder ID`,
+      };
+    }
     return {
-      destinationFolderId: details?.destinationFolderId ?? null,
+      destinationFolderId: details.destinationFolderId,
       batchRecordId: batchRecordIdFromCras,
-      error: details ? undefined : `Batch record not found: ${batchRecordIdFromCras}`,
     };
   }
 
-  // If batchId is already a record ID, use it
+  // If batchId is already a record ID, use it directly (no fallback)
   if (raw.startsWith('rec')) {
     const details = await getBatchDetailsByRecordId(raw);
-    console.log("[delivery/destination] RESOLVED from batchId record ID", {
+    console.log("[delivery/destination] RESOLVED from batchId record ID (NO FALLBACK)", {
       batchId: deliveryBatchIdRaw,
       batchRecordId: raw,
       destinationFolderId: details?.destinationFolderId || null,
       destinationFolderUrl: details?.destinationFolderId ? `https://drive.google.com/drive/folders/${details.destinationFolderId}` : null,
-      expectedFolderId: '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
-      matchesExpected: details?.destinationFolderId === '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
-      source: 'batchId is record ID',
+      source: 'batchId is record ID (direct lookup, no fallback)',
       fieldRead: 'Destination Folder ID',
     });
+    if (!details || !details.destinationFolderId) {
+      return {
+        destinationFolderId: null,
+        batchRecordId: raw,
+        error: `Batch record ${raw} not found or missing Destination Folder ID`,
+      };
+    }
     return {
-      destinationFolderId: details?.destinationFolderId ?? null,
+      destinationFolderId: details.destinationFolderId,
       batchRecordId: raw,
-      error: details ? undefined : `Batch record not found: ${raw}`,
     };
   }
 
   // Otherwise, it's a Batch ID name string - look it up
+  // NOTE: Fallback logic only used when batchRecordId is NOT present
+  // If batchRecordId exists, we should have already returned above
   let details = await getBatchDetails(raw);
   console.log("[delivery/destination] RESOLVED from Batch ID name", {
     batchId: raw,
     batchRecordId: details?.recordId || null,
     destinationFolderId: details?.destinationFolderId || null,
     destinationFolderUrl: details?.destinationFolderId ? `https://drive.google.com/drive/folders/${details.destinationFolderId}` : null,
-    expectedFolderId: '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
-    matchesExpected: details?.destinationFolderId === '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
     source: 'Batch ID name lookup',
     fieldRead: 'Destination Folder ID',
     warning: details ? undefined : `Batch not found by name "${raw}" - batch may have been renamed`,
   });
   
-  // If name lookup failed and we have a project ID, try fallback: find batches for project
-  if (!details && projectIdFromCras && projectIdFromCras.trim()) {
-    console.log("[delivery/destination] Name lookup failed, trying project-based fallback", {
+  // Fallback only if batchRecordId was NOT provided
+  // If batchRecordId exists, we should never reach here
+  if (!details && projectIdFromCras && projectIdFromCras.trim() && !batchRecordIdFromCras) {
+    console.log("[delivery/destination] Name lookup failed, trying project-based fallback (batchRecordId not provided)", {
       batchId: raw,
       projectId: projectIdFromCras,
     });
@@ -144,7 +154,7 @@ async function resolveDestinationFolderId(
     return {
       destinationFolderId: null,
       batchRecordId: null,
-      error: `Batch not found by name "${raw}". Batch may have been renamed - ensure CRAS records use Partner Delivery Batch link field (record ID) instead of Batch ID text field.${projectIdFromCras ? ` Tried project-based fallback but no single batch found for project ${projectIdFromCras}.` : ''}`,
+      error: `Batch not found by name "${raw}". Batch may have been renamed - ensure CRAS records use Partner Delivery Batch link field (record ID) instead of Batch ID text field.${projectIdFromCras && !batchRecordIdFromCras ? ` Tried project-based fallback but no single batch found for project ${projectIdFromCras}.` : ''}`,
     };
   }
 
@@ -153,8 +163,6 @@ async function resolveDestinationFolderId(
     batchRecordId: details.recordId,
     destinationFolderId: details.destinationFolderId,
     destinationFolderUrl: `https://drive.google.com/drive/folders/${details.destinationFolderId}`,
-    expectedFolderId: '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
-    matchesExpected: details.destinationFolderId === '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
     fieldRead: 'Destination Folder ID',
   });
   return {
@@ -220,20 +228,29 @@ export const partnerDeliveryRequested = inngest.createFunction(
         }
 
         // Resolve destination folder from batch
-        // Priority: 1) batchRecordId from event, 2) batchId from event, 3) fetch from CRAS record
+        // CRITICAL: If batchRecordId exists, use it DIRECTLY - NO FALLBACKS
+        // Priority: 1) batchRecordId from event, 2) batchId from event (if it's a record ID), 3) fetch from CRAS record
         let deliveryBatchIdRaw: string | null = null;
         let batchRecordIdFromCras: string | null = null;
         let projectIdFromCras: string | null = null;
+        let hasStableBatchRecordId = false;
         
-        // If we have batchRecordId from event, use it directly (preferred)
+        // If we have batchRecordId from event, use it directly (NO FALLBACKS)
         if (eventBatchRecordId && eventBatchRecordId.startsWith('rec')) {
           batchRecordIdFromCras = eventBatchRecordId;
           deliveryBatchIdRaw = eventBatchRecordId;
-          console.log(`[partner-delivery-requested] Using batchRecordId from event: ${batchRecordIdFromCras}`);
-        } else if (batchId) {
-          // Fallback to batchId from event (might be a name string)
+          hasStableBatchRecordId = true;
+          console.log(`[partner-delivery-requested] Using batchRecordId from event (NO FALLBACK): ${batchRecordIdFromCras}`);
+        } else if (batchId && batchId.startsWith('rec')) {
+          // batchId is already a record ID - use it directly (NO FALLBACKS)
+          batchRecordIdFromCras = batchId;
           deliveryBatchIdRaw = batchId;
-          console.log(`[partner-delivery-requested] Using batchId from event: ${batchId}`);
+          hasStableBatchRecordId = true;
+          console.log(`[partner-delivery-requested] Using batchId as record ID (NO FALLBACK): ${batchId}`);
+        } else if (batchId) {
+          // batchId is a name string - will need lookup (fallback allowed only if no batchRecordId)
+          deliveryBatchIdRaw = batchId;
+          console.log(`[partner-delivery-requested] Using batchId name from event: ${batchId} (will lookup, fallback allowed)`);
         } else {
           // Last resort: fetch batch ID from Airtable record
           try {
@@ -241,22 +258,25 @@ export const partnerDeliveryRequested = inngest.createFunction(
             const airtableRecord = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
             const batchRaw = airtableRecord.fields[DELIVERY_BATCH_ID_FIELD];
             if (Array.isArray(batchRaw) && batchRaw.length > 0 && typeof batchRaw[0] === 'string') {
-              // It's a linked record - use the record ID directly
+              // It's a linked record - use the record ID directly (NO FALLBACKS)
               batchRecordIdFromCras = (batchRaw[0] as string).trim();
               deliveryBatchIdRaw = batchRecordIdFromCras;
-              console.log(`[partner-delivery-requested] Fetched batchRecordId from CRAS record: ${batchRecordIdFromCras}`);
+              hasStableBatchRecordId = true;
+              console.log(`[partner-delivery-requested] Fetched batchRecordId from CRAS record (NO FALLBACK): ${batchRecordIdFromCras}`);
             } else if (typeof batchRaw === 'string' && batchRaw.trim()) {
-              // It's a text field (Batch ID name)
+              // It's a text field (Batch ID name) - fallback allowed
               deliveryBatchIdRaw = (batchRaw as string).trim();
-              console.log(`[partner-delivery-requested] Fetched batchId from CRAS record: ${deliveryBatchIdRaw}`);
+              console.log(`[partner-delivery-requested] Fetched batchId name from CRAS record: ${deliveryBatchIdRaw} (will lookup, fallback allowed)`);
             }
             
-            // Also get Project ID for fallback batch resolution
-            const projectRaw = airtableRecord.fields['Project'];
-            if (Array.isArray(projectRaw) && projectRaw.length > 0 && typeof projectRaw[0] === 'string') {
-              projectIdFromCras = (projectRaw[0] as string).trim();
-            } else if (typeof projectRaw === 'string' && projectRaw.trim()) {
-              projectIdFromCras = (projectRaw as string).trim();
+            // Only get Project ID for fallback if we don't have a stable batchRecordId
+            if (!hasStableBatchRecordId) {
+              const projectRaw = airtableRecord.fields['Project'];
+              if (Array.isArray(projectRaw) && projectRaw.length > 0 && typeof projectRaw[0] === 'string') {
+                projectIdFromCras = (projectRaw[0] as string).trim();
+              } else if (typeof projectRaw === 'string' && projectRaw.trim()) {
+                projectIdFromCras = (projectRaw as string).trim();
+              }
             }
           } catch (fetchErr) {
             console.warn(`[partner-delivery-requested] Failed to fetch batch ID from record:`, fetchErr);
@@ -271,11 +291,12 @@ export const partnerDeliveryRequested = inngest.createFunction(
           };
         }
 
-        // Resolve destination folder - prefer record ID lookup for stability
+        // Resolve destination folder
+        // If batchRecordId exists, resolveDestinationFolderId will NOT use fallbacks
         const destinationResult = await resolveDestinationFolderId(
           deliveryBatchIdRaw,
           batchRecordIdFromCras,
-          projectIdFromCras
+          hasStableBatchRecordId ? null : projectIdFromCras // Only pass projectId if no stable batchRecordId
         );
         if (!destinationResult.destinationFolderId) {
           console.error(`[partner-delivery-requested] Could not resolve destination for batch: ${deliveryBatchIdRaw}`, {
