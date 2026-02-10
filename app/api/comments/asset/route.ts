@@ -11,6 +11,219 @@ import { getCrasRecordIdByTokenAndFileId } from '@/lib/airtable/reviewAssetStatu
 
 export const dynamic = 'force-dynamic';
 
+// ============================================================================
+// Field Name Mapping (resilient to schema changes)
+// ============================================================================
+
+interface CommentsFieldMap {
+  targetCras: string | null;
+  targetAsset: string | null;
+  authorEmail: string | null;
+  creativeReviewGroups: string | null;
+  targetType: string | null;
+  body: string | null;
+  status: string | null;
+}
+
+const COMMENTS_FIELD_ALIASES = {
+  targetCras: ['Target CRAS', 'Target CRAS (link)', 'CRAS', 'Target CRAS Record'],
+  targetAsset: ['Target Asset', 'Asset', 'Target Asset (link)'],
+  authorEmail: ['Author Email', 'Author', 'Author email', 'Created By Email'],
+  creativeReviewGroups: ['Creative Review Groups', 'Review Group', 'Groups'],
+  targetType: ['Target Type', 'Target'],
+  body: ['Body', 'Comment', 'Text', 'Message'],
+  status: ['Status', 'Comment Status', 'State'],
+} as const;
+
+interface TableFieldMeta {
+  name: string;
+  type: string;
+}
+
+const schemaCache = new Map<
+  string,
+  { fields: Map<string, TableFieldMeta>; allFieldNames: Set<string>; fetchedAt: number }
+>();
+const SCHEMA_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Fetch table schema (field names) via Airtable Meta API or fallback to sample record.
+ */
+async function resolveExistingFields(
+  baseId: string,
+  tableName: string
+): Promise<Set<string>> {
+  const cacheKey = `${baseId}::${tableName}`;
+  const cached = schemaCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < SCHEMA_CACHE_TTL_MS) {
+    return cached.allFieldNames;
+  }
+
+  const token = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN;
+  if (!token) {
+    throw new Error('AIRTABLE_API_KEY / AIRTABLE_ACCESS_TOKEN required for schema fetch');
+  }
+
+  // Try Meta API first
+  try {
+    const url = `https://api.airtable.com/v0/meta/bases/${baseId}/tables`;
+    const tokenPrefix = token ? token.substring(0, 10) + '...' : 'missing';
+    
+    console.log('[comments/asset] BEFORE airtable.meta operation:', {
+      operation: 'airtable.meta',
+      baseId,
+      tableName,
+      url: url.replace(token, '***'),
+      tokenPrefix,
+    });
+    
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (res.ok) {
+      console.log('[comments/asset] AFTER airtable.meta operation: SUCCESS', {
+        operation: 'airtable.meta',
+        baseId,
+        tableName,
+        status: res.status,
+      });
+      const json = (await res.json()) as {
+        tables?: Array<{
+          name: string;
+          fields?: Array<{ name: string; type: string }>;
+        }>;
+      };
+      const table = json.tables?.find((t) => t.name === tableName);
+      const fields = new Map<string, TableFieldMeta>();
+      const allFieldNames = new Set<string>();
+
+      for (const f of table?.fields ?? []) {
+        const meta: TableFieldMeta = {
+          name: f.name,
+          type: f.type,
+        };
+        fields.set(f.name, meta);
+        allFieldNames.add(f.name);
+      }
+
+      schemaCache.set(cacheKey, { fields, allFieldNames, fetchedAt: Date.now() });
+      return allFieldNames;
+    } else {
+      // Not OK response
+      const errorText = await res.text();
+      const is403 = res.status === 403;
+      console.error('[comments/asset] 403 at operation airtable.meta on table ' + tableName + ' in base ' + baseId, {
+        operation: 'airtable.meta',
+        baseId,
+        tableName,
+        status: res.status,
+        url: url.replace(token, '***'),
+        tokenPrefix,
+        errorText: errorText.slice(0, 200),
+      });
+      if (is403) {
+        throw new Error(`403 NOT_AUTHORIZED at operation airtable.meta on table ${tableName} in base ${baseId}`);
+      }
+    }
+  } catch (err) {
+    const is403 = err instanceof Error && (err.message.includes('403') || err.message.includes('NOT_AUTHORIZED'));
+    if (is403) {
+      throw err; // Re-throw 403 errors
+    }
+    console.warn('[comments/asset] Meta API fetch failed, trying fallback:', err);
+  }
+
+  // Fallback: fetch a sample record to detect fields
+  try {
+    const commentsBase = getCommentsBase();
+    const commentsBaseIdActual = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+    const tokenPrefix = token ? token.substring(0, 10) + '...' : 'missing';
+    
+    console.log('[comments/asset] BEFORE airtable.select operation:', {
+      operation: 'airtable.select',
+      baseId: commentsBaseIdActual,
+      tableName,
+      recordId: 'none',
+      tokenPrefix,
+    });
+    
+    const records = await commentsBase(tableName)
+      .select({ maxRecords: 1 })
+      .firstPage();
+    
+    console.log('[comments/asset] AFTER airtable.select operation: SUCCESS', {
+      operation: 'airtable.select',
+      baseId: commentsBaseIdActual,
+      tableName,
+      recordCount: records.length,
+    });
+    
+    const allFieldNames = new Set<string>();
+    if (records.length > 0) {
+      Object.keys(records[0].fields).forEach((f) => allFieldNames.add(f));
+    }
+    
+    // Also add common fields that might not be in sample record
+    allFieldNames.add('Body');
+    allFieldNames.add('Status');
+    allFieldNames.add('Created');
+    
+    const fields = new Map<string, TableFieldMeta>();
+    Array.from(allFieldNames).forEach((name) => {
+      fields.set(name, { name, type: 'unknown' });
+    });
+    
+    schemaCache.set(cacheKey, { fields, allFieldNames, fetchedAt: Date.now() });
+    return allFieldNames;
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const is403 = errorMessage.includes('403') || errorMessage.includes('NOT_AUTHORIZED');
+    const commentsBaseIdActual = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+    const tokenPrefix = token ? token.substring(0, 10) + '...' : 'missing';
+    
+    if (is403) {
+      console.error('[comments/asset] 403 at operation airtable.select on table ' + tableName + ' in base ' + commentsBaseIdActual, {
+        operation: 'airtable.select',
+        baseId: commentsBaseIdActual,
+        tableName,
+        recordId: 'none',
+        tokenPrefix,
+        error: errorMessage,
+      });
+      throw new Error(`403 NOT_AUTHORIZED at operation airtable.select on table ${tableName} in base ${commentsBaseIdActual}`);
+    }
+    
+    console.error('[comments/asset] Fallback schema fetch failed:', err);
+    // Return minimal set of expected fields as fail-safe
+    return new Set(['Body', 'Status', 'Created', 'Target CRAS', 'Target Type']);
+  }
+}
+
+/**
+ * Resolve field names from aliases, returning the first match that exists in the schema.
+ */
+function resolveFieldMap(
+  existingFields: Set<string>
+): CommentsFieldMap {
+  function resolveAlias(aliases: readonly string[]): string | null {
+    for (const name of aliases) {
+      if (existingFields.has(name)) return name;
+    }
+    return null;
+  }
+
+  return {
+    targetCras: resolveAlias(COMMENTS_FIELD_ALIASES.targetCras),
+    targetAsset: resolveAlias(COMMENTS_FIELD_ALIASES.targetAsset),
+    authorEmail: resolveAlias(COMMENTS_FIELD_ALIASES.authorEmail),
+    creativeReviewGroups: resolveAlias(COMMENTS_FIELD_ALIASES.creativeReviewGroups),
+    targetType: resolveAlias(COMMENTS_FIELD_ALIASES.targetType),
+    body: resolveAlias(COMMENTS_FIELD_ALIASES.body),
+    status: resolveAlias(COMMENTS_FIELD_ALIASES.status),
+  };
+}
+
 const VALID_VARIANTS = new Set(['Prospecting', 'Retargeting']);
 const VALID_TACTICS = new Set([
   'Display', 'Social', 'Video', 'Audio', 'OOH', 'PMAX', 'Geofence', 'Search',
@@ -68,7 +281,19 @@ async function findOrCreateCreativeReviewSet(
     {Variant} = "${variantEsc}"
   )`;
   
+  const osBaseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
+  const token = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+  const tokenPrefix = token ? token.substring(0, 10) + '...' : 'missing';
+  
   try {
+    console.log('[comments/asset] BEFORE airtable.select operation:', {
+      operation: 'airtable.select',
+      baseId: osBaseId,
+      tableName,
+      recordId: 'none',
+      tokenPrefix,
+    });
+    
     const existing = await osBase(tableName)
       .select({
         filterByFormula: formula,
@@ -76,20 +301,56 @@ async function findOrCreateCreativeReviewSet(
       })
       .firstPage();
     
+    console.log('[comments/asset] AFTER airtable.select operation: SUCCESS', {
+      operation: 'airtable.select',
+      baseId: osBaseId,
+      tableName,
+      recordCount: existing.length,
+    });
+    
     if (existing.length > 0) {
       return existing[0].id;
     }
     
     // Create new record if not found
     // Note: Project field expects array of record IDs, not objects with id property
+    console.log('[comments/asset] BEFORE airtable.create operation:', {
+      operation: 'airtable.create',
+      baseId: osBaseId,
+      tableName,
+      recordId: 'none',
+      tokenPrefix,
+    });
+    
     const created = (await osBase(tableName).create({
       Project: [projectId],
       Tactic: tactic,
       Variant: variant,
     } as any)) as unknown as { id: string };
     
+    console.log('[comments/asset] AFTER airtable.create operation: SUCCESS', {
+      operation: 'airtable.create',
+      baseId: osBaseId,
+      tableName,
+      recordId: created.id,
+    });
+    
     return created.id;
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const is403 = errorMessage.includes('403') || errorMessage.includes('NOT_AUTHORIZED');
+    
+    if (is403) {
+      console.error('[comments/asset] 403 at operation airtable.select/create on table ' + tableName + ' in base ' + osBaseId, {
+        operation: 'airtable.select/create',
+        baseId: osBaseId,
+        tableName,
+        recordId: 'none',
+        tokenPrefix,
+        error: errorMessage,
+      });
+    }
+    
     console.error('[comments/asset] Failed to find or create Creative Review Set:', err);
     return null;
   }
@@ -126,61 +387,86 @@ export async function GET(req: NextRequest) {
   }
   
   const commentsBase = getCommentsBase();
+  const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+  
+  // Resolve existing fields and build field map
+  let existingFields: Set<string>;
+  let fieldMap: CommentsFieldMap;
+  try {
+    existingFields = await resolveExistingFields(commentsBaseId, AIRTABLE_TABLES.COMMENTS);
+    fieldMap = resolveFieldMap(existingFields);
+    
+    console.log('[comments/asset] GET - Resolved field names:', {
+      baseId: commentsBaseId,
+      tableName: AIRTABLE_TABLES.COMMENTS,
+      fieldMap,
+      existingFieldCount: existingFields.size,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[comments/asset] GET - Failed to resolve fields:', {
+      error: message,
+      baseId: commentsBaseId,
+      tableName: AIRTABLE_TABLES.COMMENTS,
+    });
+    // Graceful degradation - return empty array on schema resolution failure
+    return NextResponse.json({ ok: true, comments: [] }, { headers: NO_STORE_HEADERS });
+  }
+  
+  // Require Target CRAS field (schema must include it)
+  if (!fieldMap.targetCras) {
+    console.warn('[comments/asset] GET - Target CRAS field not found, returning empty results:', {
+      fieldMap,
+      existingFields: Array.from(existingFields).sort(),
+    });
+    return NextResponse.json({ ok: true, comments: [] }, { headers: NO_STORE_HEADERS });
+  }
   
   try {
-    // Query Comments table for asset comments
-    // Check both Target CRAS (preferred) and Target Asset (legacy/Option A) fields
+    // Build filter formula using Target CRAS field only
     const crasIdEsc = String(resolvedCrasId).replace(/"/g, '\\"');
-    const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+    const fieldEsc = String(fieldMap.targetCras).replace(/"/g, '\\"');
     
-    // Try formula with Target CRAS first (preferred schema)
-    let formula = `AND(
-      OR(
-        FIND("${crasIdEsc}", ARRAYJOIN({Target CRAS})) > 0,
-        FIND("${crasIdEsc}", ARRAYJOIN({Target Asset})) > 0
-      ),
-      {Target Type} = "Asset"
-    )`;
+    // Build formula with Target CRAS condition and optional Target Type filter
+    const targetCondition = `FIND("${crasIdEsc}", ARRAYJOIN({${fieldEsc}})) > 0`;
+    let formulaParts: string[] = [targetCondition];
     
-    let records;
-    try {
-      console.log('[comments/asset] Querying comments (with Target CRAS):', {
-        operation: 'airtable.select',
-        table: AIRTABLE_TABLES.COMMENTS,
-        baseId: commentsBaseId,
-        targetAssetId: resolvedCrasId,
-        queryFields: ['Target CRAS', 'Target Asset'],
-      });
-      
-      records = await commentsBase(AIRTABLE_TABLES.COMMENTS)
-        .select({
-          filterByFormula: formula,
-          sort: [{ field: 'Created', direction: 'desc' }],
-        })
-        .all();
-    } catch (formulaErr) {
-      // Option A fallback: If Target CRAS field doesn't exist, query only Target Asset
-      const errorMessage = formulaErr instanceof Error ? formulaErr.message : String(formulaErr);
-      if (errorMessage.includes('UNKNOWN_FIELD_NAME') || errorMessage.includes('Target CRAS')) {
-        console.warn('[comments/asset] Target CRAS field not found (Option A schema), querying Target Asset only:', {
-          error: errorMessage,
-        });
-        
-        formula = `AND(
-          FIND("${crasIdEsc}", ARRAYJOIN({Target Asset})) > 0,
-          {Target Type} = "Asset"
-        )`;
-        
-        records = await commentsBase(AIRTABLE_TABLES.COMMENTS)
-          .select({
-            filterByFormula: formula,
-            sort: [{ field: 'Created', direction: 'desc' }],
-          })
-          .all();
-      } else {
-        throw formulaErr;
-      }
+    // Add Target Type filter if field exists
+    if (fieldMap.targetType) {
+      const typeEsc = String(fieldMap.targetType).replace(/"/g, '\\"');
+      formulaParts.push(`{${typeEsc}} = "Asset"`);
     }
+    
+    const formula = formulaParts.length === 1 
+      ? formulaParts[0]
+      : `AND(${formulaParts.join(', ')})`;
+    
+    const token = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+    const tokenPrefix = token ? token.substring(0, 10) + '...' : 'missing';
+    
+    console.log('[comments/asset] BEFORE airtable.select operation:', {
+      operation: 'airtable.select',
+      baseId: commentsBaseId,
+      tableName: AIRTABLE_TABLES.COMMENTS,
+      recordId: 'none',
+      tokenPrefix,
+      targetAssetId: resolvedCrasId,
+      formula,
+    });
+    
+    const records = await commentsBase(AIRTABLE_TABLES.COMMENTS)
+      .select({
+        filterByFormula: formula,
+        sort: [{ field: 'Created', direction: 'desc' }],
+      })
+      .all();
+    
+    console.log('[comments/asset] AFTER airtable.select operation: SUCCESS', {
+      operation: 'airtable.select',
+      baseId: commentsBaseId,
+      tableName: AIRTABLE_TABLES.COMMENTS,
+      recordCount: records.length,
+    });
     
     const comments: AssetComment[] = records.map((r) => {
       const fields = r.fields as Record<string, unknown>;
@@ -195,14 +481,17 @@ export async function GET(req: NextRequest) {
         authorEmail = emailMatch[2].trim();
       }
       
-      // Check for separate Author Email field if it exists
-      if (!authorEmail && fields['Author Email']) {
-        authorEmail = fields['Author Email'] as string;
+      // Check for separate Author Email field if it exists (use resolved field name)
+      if (!authorEmail && fieldMap.authorEmail && fields[fieldMap.authorEmail]) {
+        authorEmail = fields[fieldMap.authorEmail] as string;
       }
+      
+      // Use resolved field names for body
+      const bodyValue = fieldMap.body ? (fields[fieldMap.body] as string) || '' : '';
       
       return {
         id: r.id,
-        body: (fields['Body'] as string) || '',
+        body: bodyValue,
         author: authorName,
         authorEmail,
         createdAt: (fields['Created'] as string) || new Date().toISOString(),
@@ -212,6 +501,23 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, comments }, { headers: NO_STORE_HEADERS });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    const is403 = message.includes('403') || 
+                 message.includes('NOT_AUTHORIZED') ||
+                 (err as any)?.statusCode === 403;
+    const token = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+    const tokenPrefix = token ? token.substring(0, 10) + '...' : 'missing';
+    
+    if (is403) {
+      console.error('[comments/asset] 403 at operation airtable.select on table ' + AIRTABLE_TABLES.COMMENTS + ' in base ' + commentsBaseId, {
+        operation: 'airtable.select',
+        baseId: commentsBaseId,
+        tableName: AIRTABLE_TABLES.COMMENTS,
+        recordId: 'none',
+        tokenPrefix,
+        error: message,
+      });
+    }
+    
     console.error('[comments/asset] GET error:', message);
     
     // Graceful degradation - return empty array on errors
@@ -375,42 +681,120 @@ export async function POST(req: NextRequest) {
     );
   }
   
+  // Resolve existing fields and build field map
+  let existingFields: Set<string>;
+  let fieldMap: CommentsFieldMap;
   try {
-    // Create comment record in Comments base
-    // Note: Author field removed - it's not a text field (likely collaborator/link/single-select)
+    existingFields = await resolveExistingFields(commentsBaseId, AIRTABLE_TABLES.COMMENTS);
+    fieldMap = resolveFieldMap(existingFields);
+    
+    console.log('[comments/asset] Resolved field names:', {
+      baseId: commentsBaseId,
+      tableName: AIRTABLE_TABLES.COMMENTS,
+      fieldMap,
+      existingFieldCount: existingFields.size,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[comments/asset] Failed to resolve fields:', {
+      error: message,
+      baseId: commentsBaseId,
+      tableName: AIRTABLE_TABLES.COMMENTS,
+    });
+    return NextResponse.json(
+      {
+        error: `Failed to resolve Airtable schema: ${message}. Check base permissions and table name.`,
+        baseId: commentsBaseId,
+      },
+      { status: 500 }
+    );
+  }
+  
+  // Validate required fields exist
+  if (!fieldMap.body) {
+    console.error('[comments/asset] Required field "Body" not found in schema:', {
+      existingFields: Array.from(existingFields).sort(),
+      triedAliases: COMMENTS_FIELD_ALIASES.body,
+    });
+    return NextResponse.json(
+      {
+        error: 'Required field "Body" not found in Comments table. Expected one of: ' + COMMENTS_FIELD_ALIASES.body.join(', '),
+        baseId: commentsBaseId,
+        existingFields: Array.from(existingFields).sort(),
+      },
+      { status: 500 }
+    );
+  }
+  
+  // Require Target CRAS field (schema must include it)
+  if (!fieldMap.targetCras) {
+    console.error('[comments/asset] Target CRAS field not found in schema:', {
+      hasCrasRecordId,
+      hasCreativeReviewAssetId,
+      fieldMap,
+      existingFields: Array.from(existingFields).sort(),
+    });
+    return NextResponse.json(
+      {
+        error: 'Target CRAS field not found in Comments table. Expected field: Target CRAS. Found fields: ' + Array.from(existingFields).sort().join(', '),
+        baseId: commentsBaseId,
+        triedTargetCras: COMMENTS_FIELD_ALIASES.targetCras,
+      },
+      { status: 500 }
+    );
+  }
+  
+  const targetField = fieldMap.targetCras;
+  
+  try {
+    // Create comment record in Comments base using resolved field names
     // Note: Created field removed - it's read-only (automatically set by Airtable)
     // Note: Linked records must be array of record ID strings, not objects with id property
     
     const recordFields: Record<string, unknown> = {
-      Body: trimmedBody.slice(0, 5000),
-      Status: 'Open', // Single-select: use string value
-      'Target Type': 'Asset', // Single-select: use string value
+      [fieldMap.body]: trimmedBody.slice(0, 5000),
     };
     
-    // Set target field based on provided ID
-    // If crasRecordId provided: write to Target CRAS (or Target Asset if Option A schema)
-    // If only creativeReviewAssetId provided: write to Target Asset (legacy)
+    // Add Status if field exists
+    if (fieldMap.status) {
+      recordFields[fieldMap.status] = 'Open';
+    }
+    
+    // Add Target Type if field exists
+    if (fieldMap.targetType) {
+      recordFields[fieldMap.targetType] = 'Asset';
+    }
+    
+    // Set Target CRAS field (required - schema must include it)
     if (hasCrasRecordId && resolvedCrasId) {
       const crasIdString = String(resolvedCrasId).trim();
-      // Prefer Target CRAS field, but use Target Asset if Option A schema (no Target CRAS field)
-      // Note: If Target CRAS doesn't exist, Airtable will return UNKNOWN_FIELD_NAME error
-      recordFields['Target CRAS'] = [crasIdString];
-      // For Option A compatibility: if Target CRAS field doesn't exist, use Target Asset instead
-      // This will be handled by Airtable error response if Target CRAS is missing
+      recordFields[fieldMap.targetCras] = [crasIdString];
     } else if (hasCreativeReviewAssetId) {
+      // Legacy: creativeReviewAssetId should not be used, but if provided, treat as CRAS ID
       const assetIdString = String(creativeReviewAssetId).trim();
-      recordFields['Target Asset'] = [assetIdString];
+      recordFields[fieldMap.targetCras] = [assetIdString];
     }
     
     // Add Author Email field if it exists in schema (optional)
-    if (trimmedAuthorEmail) {
-      recordFields['Author Email'] = trimmedAuthorEmail.slice(0, 200);
+    if (trimmedAuthorEmail && fieldMap.authorEmail) {
+      recordFields[fieldMap.authorEmail] = trimmedAuthorEmail.slice(0, 200);
+    } else if (trimmedAuthorEmail && !fieldMap.authorEmail) {
+      console.warn('[comments/asset] Author Email field not found, omitting:', {
+        triedAliases: COMMENTS_FIELD_ALIASES.authorEmail,
+        existingFields: Array.from(existingFields).sort(),
+      });
     }
     
-    // Link Creative Review Groups if groupId provided
-    // Ensure groupId is a string, not an object
+    // Link Creative Review Groups if groupId provided and field exists
     if (groupId && typeof groupId === 'string' && groupId.trim().startsWith('rec')) {
-      recordFields['Creative Review Groups'] = [groupId.trim()]; // Linked record: array of record ID strings
+      if (fieldMap.creativeReviewGroups) {
+        recordFields[fieldMap.creativeReviewGroups] = [groupId.trim()];
+      } else {
+        console.warn('[comments/asset] Creative Review Groups field not found, omitting:', {
+          triedAliases: COMMENTS_FIELD_ALIASES.creativeReviewGroups,
+          groupId,
+        });
+      }
     } else if (tactic && variant) {
       // Try to find/create group if tactic and variant provided
       const groupIdFromTactic = await findOrCreateCreativeReviewSet(
@@ -419,8 +803,30 @@ export async function POST(req: NextRequest) {
         variant
       );
       if (groupIdFromTactic && typeof groupIdFromTactic === 'string' && groupIdFromTactic.trim().startsWith('rec')) {
-        recordFields['Creative Review Groups'] = [groupIdFromTactic.trim()]; // Linked record: array of record ID strings
+        if (fieldMap.creativeReviewGroups) {
+          recordFields[fieldMap.creativeReviewGroups] = [groupIdFromTactic.trim()];
+        } else {
+          console.warn('[comments/asset] Creative Review Groups field not found, omitting:', {
+            triedAliases: COMMENTS_FIELD_ALIASES.creativeReviewGroups,
+            groupIdFromTactic,
+          });
+        }
       }
+    }
+    
+    // Log omitted fields
+    const omittedFields: string[] = [];
+    if (trimmedAuthorEmail && !fieldMap.authorEmail) {
+      omittedFields.push('Author Email');
+    }
+    if (groupId && !fieldMap.creativeReviewGroups) {
+      omittedFields.push('Creative Review Groups');
+    }
+    if (omittedFields.length > 0) {
+      console.warn('[comments/asset] Omitted fields (not found in schema):', {
+        omittedFields,
+        fieldMap,
+      });
     }
     
     // Comments base ID already resolved above
@@ -450,8 +856,7 @@ export async function POST(req: NextRequest) {
       }
     }
     
-    const targetId = hasCrasRecordId ? resolvedCrasId : (hasCreativeReviewAssetId ? String(creativeReviewAssetId).trim() : 'none');
-    const targetField = hasCrasRecordId ? 'Target CRAS (or Target Asset)' : 'Target Asset';
+    const targetId = hasCrasRecordId ? String(resolvedCrasId).trim() : (hasCreativeReviewAssetId ? String(creativeReviewAssetId).trim() : 'none');
     
     console.log('[comments/asset] Creating comment record:', {
       operation: 'airtable.create',
@@ -459,6 +864,7 @@ export async function POST(req: NextRequest) {
       baseId: commentsBaseId,
       apiKeyPrefix,
       fieldKeys: Object.keys(recordFields),
+      resolvedFieldMap: fieldMap,
       targetField,
       targetId,
       hasCrasRecordId,
@@ -468,59 +874,57 @@ export async function POST(req: NextRequest) {
       authorName: trimmedAuthorName,
       authorEmail: trimmedAuthorEmail || 'none',
       groupId: groupId || 'none',
+      omittedFields: omittedFields.length > 0 ? omittedFields : undefined,
+    });
+    
+    const token = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+    const tokenPrefix = token ? token.substring(0, 10) + '...' : 'missing';
+    const url = `https://api.airtable.com/v0/${commentsBaseId}/${encodeURIComponent(AIRTABLE_TABLES.COMMENTS)}`;
+    
+    console.log('[comments/asset] BEFORE airtable.create operation:', {
+      operation: 'airtable.create',
+      baseId: commentsBaseId,
+      tableName: AIRTABLE_TABLES.COMMENTS,
+      recordId: 'none',
+      url: url.replace(token, '***'),
+      tokenPrefix,
     });
     
     let result;
     try {
       result = await createRecord(AIRTABLE_TABLES.COMMENTS, recordFields, commentsBaseId);
-      console.log('[comments/asset] createRecord returned:', {
-        hasId: !!result?.id,
-        hasRecords: !!result?.records,
-        recordsLength: result?.records?.length || 0,
-        fullResult: JSON.stringify(result, null, 2),
+      console.log('[comments/asset] AFTER airtable.create operation: SUCCESS', {
+        operation: 'airtable.create',
+        baseId: commentsBaseId,
+        tableName: AIRTABLE_TABLES.COMMENTS,
+        recordId: result?.id || result?.records?.[0]?.id || 'unknown',
       });
     } catch (createErr) {
-      // Option A fallback: If Target CRAS field doesn't exist (UNKNOWN_FIELD_NAME), retry with Target Asset
       const errorMessage = createErr instanceof Error ? createErr.message : String(createErr);
-      const isUnknownField = errorMessage.includes('UNKNOWN_FIELD_NAME') && 
-                            (errorMessage.includes('Target CRAS') || recordFields['Target CRAS']);
+      const is403 = errorMessage.includes('403') || 
+                   errorMessage.includes('NOT_AUTHORIZED') ||
+                   (createErr as any)?.statusCode === 403;
       
-      if (isUnknownField && hasCrasRecordId && resolvedCrasId) {
-        console.warn('[comments/asset] Target CRAS field not found (Option A schema), retrying with Target Asset:', {
-          error: errorMessage,
-          crasId: String(resolvedCrasId).trim(),
-        });
-        
-        // Remove Target CRAS, use Target Asset instead
-        const fallbackFields = { ...recordFields };
-        delete fallbackFields['Target CRAS'];
-        fallbackFields['Target Asset'] = [String(resolvedCrasId).trim()];
-        
-        try {
-          result = await createRecord(AIRTABLE_TABLES.COMMENTS, fallbackFields, commentsBaseId);
-          console.log('[comments/asset] createRecord (Option A fallback) returned:', {
-            hasId: !!result?.id,
-            hasRecords: !!result?.records,
-            recordsLength: result?.records?.length || 0,
-          });
-        } catch (fallbackErr) {
-          console.error('[comments/asset] createRecord (Option A fallback) threw error:', {
-            error: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
-            stack: fallbackErr instanceof Error ? fallbackErr.stack : undefined,
-            fields: fallbackFields,
-            baseId: commentsBaseId,
-          });
-          throw fallbackErr;
-        }
-      } else {
-        console.error('[comments/asset] createRecord threw error:', {
-          error: errorMessage,
-          stack: createErr instanceof Error ? createErr.stack : undefined,
-          fields: recordFields,
+      if (is403) {
+        console.error('[comments/asset] 403 at operation airtable.create on table ' + AIRTABLE_TABLES.COMMENTS + ' in base ' + commentsBaseId, {
+          operation: 'airtable.create',
           baseId: commentsBaseId,
+          tableName: AIRTABLE_TABLES.COMMENTS,
+          recordId: 'none',
+          url: url.replace(token, '***'),
+          tokenPrefix,
+          error: errorMessage,
         });
-        throw createErr;
       }
+      
+      console.error('[comments/asset] createRecord threw error:', {
+        error: errorMessage,
+        stack: createErr instanceof Error ? createErr.stack : undefined,
+        fields: recordFields,
+        baseId: commentsBaseId,
+        targetField: fieldMap.targetCras,
+      });
+      throw createErr;
     }
     
     const recordId = result?.id || result?.records?.[0]?.id;
