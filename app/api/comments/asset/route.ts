@@ -3,12 +3,11 @@
 // Creates and reads comments from the canonical Comments table with Target Type = "Asset".
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getBase, getCommentsBase, getBaseId, checkAirtableBaseHealth } from '@/lib/airtable';
+import { getBase, getCommentsBase, checkAirtableBaseHealth } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { createRecord, AirtableNotAuthorizedError } from '@/lib/airtable/client';
 import { getCrasRecordIdByTokenAndFileId } from '@/lib/airtable/reviewAssetStatus';
-import { resolveTargetAssetRecordId } from '@/lib/airtable/resolveCommentTargetAsset';
 
 export const dynamic = 'force-dynamic';
 
@@ -130,18 +129,58 @@ export async function GET(req: NextRequest) {
   
   try {
     // Query Comments table for asset comments
+    // Check both Target CRAS (preferred) and Target Asset (legacy/Option A) fields
     const crasIdEsc = String(resolvedCrasId).replace(/"/g, '\\"');
-    const formula = `AND(
-      FIND("${crasIdEsc}", ARRAYJOIN({Target Asset})) > 0,
+    const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+    
+    // Try formula with Target CRAS first (preferred schema)
+    let formula = `AND(
+      OR(
+        FIND("${crasIdEsc}", ARRAYJOIN({Target CRAS})) > 0,
+        FIND("${crasIdEsc}", ARRAYJOIN({Target Asset})) > 0
+      ),
       {Target Type} = "Asset"
     )`;
     
-    const records = await commentsBase(AIRTABLE_TABLES.COMMENTS)
-      .select({
-        filterByFormula: formula,
-        sort: [{ field: 'Created', direction: 'desc' }],
-      })
-      .all();
+    let records;
+    try {
+      console.log('[comments/asset] Querying comments (with Target CRAS):', {
+        operation: 'airtable.select',
+        table: AIRTABLE_TABLES.COMMENTS,
+        baseId: commentsBaseId,
+        targetAssetId: resolvedCrasId,
+        queryFields: ['Target CRAS', 'Target Asset'],
+      });
+      
+      records = await commentsBase(AIRTABLE_TABLES.COMMENTS)
+        .select({
+          filterByFormula: formula,
+          sort: [{ field: 'Created', direction: 'desc' }],
+        })
+        .all();
+    } catch (formulaErr) {
+      // Option A fallback: If Target CRAS field doesn't exist, query only Target Asset
+      const errorMessage = formulaErr instanceof Error ? formulaErr.message : String(formulaErr);
+      if (errorMessage.includes('UNKNOWN_FIELD_NAME') || errorMessage.includes('Target CRAS')) {
+        console.warn('[comments/asset] Target CRAS field not found (Option A schema), querying Target Asset only:', {
+          error: errorMessage,
+        });
+        
+        formula = `AND(
+          FIND("${crasIdEsc}", ARRAYJOIN({Target Asset})) > 0,
+          {Target Type} = "Asset"
+        )`;
+        
+        records = await commentsBase(AIRTABLE_TABLES.COMMENTS)
+          .select({
+            filterByFormula: formula,
+            sort: [{ field: 'Created', direction: 'desc' }],
+          })
+          .all();
+      } else {
+        throw formulaErr;
+      }
+    }
     
     const comments: AssetComment[] = records.map((r) => {
       const fields = r.fields as Record<string, unknown>;
@@ -187,6 +226,8 @@ export async function POST(req: NextRequest) {
   
   let body: {
     crasId?: string;
+    crasRecordId?: string; // Preferred: CRAS record ID
+    creativeReviewAssetId?: string; // Legacy: Creative Review Asset record ID
     groupId?: string;
     body?: string;
     authorName?: string;
@@ -203,6 +244,8 @@ export async function POST(req: NextRequest) {
       bodyLength: body.body?.length || 0,
       hasFileId: !!body.fileId,
       hasCrasId: !!body.crasId,
+      hasCrasRecordId: !!body.crasRecordId,
+      hasCreativeReviewAssetId: !!body.creativeReviewAssetId,
       hasGroupId: !!body.groupId,
       hasAuthorName: !!body.authorName,
       hasAuthorEmail: !!body.authorEmail,
@@ -227,7 +270,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
   }
   
-  const crasId = body.crasId;
+  const crasId = body.crasId; // Legacy support
+  const crasRecordId = body.crasRecordId; // Preferred
+  const creativeReviewAssetId = body.creativeReviewAssetId; // Legacy
   const groupId = body.groupId;
   const commentBody = body.body;
   const authorName = body.authorName;
@@ -236,8 +281,8 @@ export async function POST(req: NextRequest) {
   const variant = body.variant;
   const fileId = body.fileId;
   
-  // If crasId not provided, try to resolve from token + fileId
-  let resolvedCrasId: string | undefined = typeof crasId === 'string' ? crasId : undefined;
+  // Resolve CRAS ID: prefer crasRecordId, fallback to crasId, then try fileId
+  let resolvedCrasId: string | undefined = typeof crasRecordId === 'string' ? crasRecordId : (typeof crasId === 'string' ? crasId : undefined);
   if (!resolvedCrasId && fileId) {
     try {
       const resolved = await getCrasRecordIdByTokenAndFileId(finalToken, fileId);
@@ -248,16 +293,43 @@ export async function POST(req: NextRequest) {
     }
   }
   
-  if (!resolvedCrasId || typeof resolvedCrasId !== 'string') {
-    console.error('[comments/asset] Invalid crasId:', { crasId, resolvedCrasId, type: typeof resolvedCrasId });
-    return NextResponse.json({ error: 'Missing or invalid crasId or fileId' }, { status: 400 });
+  // Validate: must have either crasRecordId (preferred) or creativeReviewAssetId (legacy)
+  const hasCrasRecordId = resolvedCrasId && typeof resolvedCrasId === 'string' && resolvedCrasId.trim().startsWith('rec');
+  const hasCreativeReviewAssetId = creativeReviewAssetId && typeof creativeReviewAssetId === 'string' && creativeReviewAssetId.trim().startsWith('rec');
+  
+  if (!hasCrasRecordId && !hasCreativeReviewAssetId) {
+    console.error('[comments/asset] Missing required ID:', {
+      hasCrasRecordId,
+      hasCreativeReviewAssetId,
+      crasRecordId,
+      crasId,
+      creativeReviewAssetId,
+      fileId,
+    });
+    return NextResponse.json(
+      { 
+        error: 'Missing required ID: provide either crasRecordId (preferred) or creativeReviewAssetId (legacy). Both must be valid Airtable record IDs starting with "rec".' 
+      },
+      { status: 400 }
+    );
   }
   
-  // Ensure resolvedCrasId is a string (not an object)
-  resolvedCrasId = String(resolvedCrasId).trim();
-  if (!resolvedCrasId.startsWith('rec')) {
-    console.error('[comments/asset] crasId does not look like a valid Airtable record ID:', resolvedCrasId);
-    return NextResponse.json({ error: 'Invalid crasId format' }, { status: 400 });
+  // Validate format if crasRecordId provided
+  if (hasCrasRecordId) {
+    resolvedCrasId = String(resolvedCrasId).trim();
+    if (!resolvedCrasId.startsWith('rec')) {
+      console.error('[comments/asset] crasRecordId does not look like a valid Airtable record ID:', resolvedCrasId);
+      return NextResponse.json({ error: 'Invalid crasRecordId format: must start with "rec"' }, { status: 400 });
+    }
+  }
+  
+  // Validate format if creativeReviewAssetId provided
+  if (hasCreativeReviewAssetId) {
+    const assetId = String(creativeReviewAssetId).trim();
+    if (!assetId.startsWith('rec')) {
+      console.error('[comments/asset] creativeReviewAssetId does not look like a valid Airtable record ID:', assetId);
+      return NextResponse.json({ error: 'Invalid creativeReviewAssetId format: must start with "rec"' }, { status: 400 });
+    }
   }
   
   if (!commentBody || typeof commentBody !== 'string' || !commentBody.trim()) {
@@ -277,49 +349,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Valid author email is required' }, { status: 400 });
   }
   
-  const osBase = getBase();
   const createdAt = new Date().toISOString();
   
-  // Ensure resolvedCrasId is definitely a string
-  const crasIdString = String(resolvedCrasId).trim();
-  if (!crasIdString.startsWith('rec')) {
-    return NextResponse.json({ error: `Invalid CRAS ID format: ${crasIdString}` }, { status: 400 });
-  }
-  
-  // Resolve asset record ID to the correct Target Asset record ID
-  // Target Asset field links to table tbl4ITKYtfE3JLyb6, which may differ from the source table
-  // Resolution happens in OS base (where assets live), not Comments base
   const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
-  const actualOsBaseId = getBaseId() || process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
   const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
   const apiKeyPrefix = apiKey ? apiKey.substring(0, 10) + '...' : 'missing';
-  
-  // Log base configuration at start of handler
-  console.log('[comments/asset] Base configuration:', {
-    resolutionBaseId: actualOsBaseId, // OS base: CRAS and asset lookups
-    commentsBaseId, // Comments base: comment record creation
-    resolutionApiKeyPrefix: apiKeyPrefix,
-    commentsApiKeyPrefix: apiKeyPrefix, // Same API key used for both
-  });
-  
-  // Guard: Prevent silent misrouting - resolution base must differ from comments base
-  if (actualOsBaseId === commentsBaseId) {
-    console.error('[comments/asset] Misconfigured Airtable bases:', {
-      resolutionBaseId: actualOsBaseId,
-      commentsBaseId,
-      resolutionApiKeyPrefix: apiKeyPrefix,
-      commentsApiKeyPrefix: apiKeyPrefix,
-      error: 'resolution base equals comments base',
-    });
-    return NextResponse.json(
-      {
-        error: '[comments/asset] Misconfigured Airtable bases: resolution base equals comments base',
-        resolutionBaseId: actualOsBaseId,
-        commentsBaseId,
-      },
-      { status: 500 }
-    );
-  }
   
   // Health check: Verify Comments base access before proceeding
   const healthStatus = await checkAirtableBaseHealth();
@@ -341,37 +375,6 @@ export async function POST(req: NextRequest) {
     );
   }
   
-  let resolvedTargetAssetId: string;
-  try {
-    console.log('[comments/asset] Resolving Target Asset ID:', {
-      incomingAssetId: crasIdString,
-      resolutionBaseId: actualOsBaseId, // Assets resolved in OS base
-      commentsBaseId, // Comments created in Comments base
-    });
-    resolvedTargetAssetId = await resolveTargetAssetRecordId({
-      incomingAssetId: crasIdString,
-      baseId: commentsBaseId, // Passed for logging only, resolution happens in OS base
-    });
-    console.log('[comments/asset] Resolved Target Asset ID:', {
-      incomingAssetId: crasIdString,
-      resolvedAssetId: resolvedTargetAssetId,
-      resolutionBaseId: actualOsBaseId,
-      commentsBaseId,
-    });
-  } catch (resolveErr) {
-    const errorMessage = resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
-    console.error('[comments/asset] Failed to resolve Target Asset ID:', {
-      incomingAssetId: crasIdString,
-      error: errorMessage,
-      resolutionBaseId: actualOsBaseId,
-      commentsBaseId,
-    });
-    return NextResponse.json({ 
-      error: errorMessage,
-      incomingAssetId: crasIdString,
-    }, { status: 400 });
-  }
-  
   try {
     // Create comment record in Comments base
     // Note: Author field removed - it's not a text field (likely collaborator/link/single-select)
@@ -382,8 +385,22 @@ export async function POST(req: NextRequest) {
       Body: trimmedBody.slice(0, 5000),
       Status: 'Open', // Single-select: use string value
       'Target Type': 'Asset', // Single-select: use string value
-      'Target Asset': [resolvedTargetAssetId], // Linked record: array of record ID strings (resolved to correct table)
     };
+    
+    // Set target field based on provided ID
+    // If crasRecordId provided: write to Target CRAS (or Target Asset if Option A schema)
+    // If only creativeReviewAssetId provided: write to Target Asset (legacy)
+    if (hasCrasRecordId && resolvedCrasId) {
+      const crasIdString = String(resolvedCrasId).trim();
+      // Prefer Target CRAS field, but use Target Asset if Option A schema (no Target CRAS field)
+      // Note: If Target CRAS doesn't exist, Airtable will return UNKNOWN_FIELD_NAME error
+      recordFields['Target CRAS'] = [crasIdString];
+      // For Option A compatibility: if Target CRAS field doesn't exist, use Target Asset instead
+      // This will be handled by Airtable error response if Target CRAS is missing
+    } else if (hasCreativeReviewAssetId) {
+      const assetIdString = String(creativeReviewAssetId).trim();
+      recordFields['Target Asset'] = [assetIdString];
+    }
     
     // Add Author Email field if it exists in schema (optional)
     if (trimmedAuthorEmail) {
@@ -433,22 +450,24 @@ export async function POST(req: NextRequest) {
       }
     }
     
+    const targetId = hasCrasRecordId ? resolvedCrasId : (hasCreativeReviewAssetId ? String(creativeReviewAssetId).trim() : 'none');
+    const targetField = hasCrasRecordId ? 'Target CRAS (or Target Asset)' : 'Target Asset';
+    
     console.log('[comments/asset] Creating comment record:', {
       operation: 'airtable.create',
       table: AIRTABLE_TABLES.COMMENTS,
       baseId: commentsBaseId,
       apiKeyPrefix,
-      fields: Object.keys(recordFields),
-      fieldValues: JSON.stringify(recordFields, null, 2),
-      incomingAssetId: crasIdString,
-      resolvedAssetId: resolvedTargetAssetId,
-      crasIdType: typeof resolvedCrasId,
+      fieldKeys: Object.keys(recordFields),
+      targetField,
+      targetId,
+      hasCrasRecordId,
+      hasCreativeReviewAssetId,
       hasBody: !!trimmedBody,
       bodyLength: trimmedBody.length,
       authorName: trimmedAuthorName,
       authorEmail: trimmedAuthorEmail || 'none',
       groupId: groupId || 'none',
-      groupIdType: typeof groupId,
     });
     
     let result;
@@ -461,13 +480,47 @@ export async function POST(req: NextRequest) {
         fullResult: JSON.stringify(result, null, 2),
       });
     } catch (createErr) {
-      console.error('[comments/asset] createRecord threw error:', {
-        error: createErr instanceof Error ? createErr.message : String(createErr),
-        stack: createErr instanceof Error ? createErr.stack : undefined,
-        fields: recordFields,
-        baseId: commentsBaseId,
-      });
-      throw createErr;
+      // Option A fallback: If Target CRAS field doesn't exist (UNKNOWN_FIELD_NAME), retry with Target Asset
+      const errorMessage = createErr instanceof Error ? createErr.message : String(createErr);
+      const isUnknownField = errorMessage.includes('UNKNOWN_FIELD_NAME') && 
+                            (errorMessage.includes('Target CRAS') || recordFields['Target CRAS']);
+      
+      if (isUnknownField && hasCrasRecordId && resolvedCrasId) {
+        console.warn('[comments/asset] Target CRAS field not found (Option A schema), retrying with Target Asset:', {
+          error: errorMessage,
+          crasId: String(resolvedCrasId).trim(),
+        });
+        
+        // Remove Target CRAS, use Target Asset instead
+        const fallbackFields = { ...recordFields };
+        delete fallbackFields['Target CRAS'];
+        fallbackFields['Target Asset'] = [String(resolvedCrasId).trim()];
+        
+        try {
+          result = await createRecord(AIRTABLE_TABLES.COMMENTS, fallbackFields, commentsBaseId);
+          console.log('[comments/asset] createRecord (Option A fallback) returned:', {
+            hasId: !!result?.id,
+            hasRecords: !!result?.records,
+            recordsLength: result?.records?.length || 0,
+          });
+        } catch (fallbackErr) {
+          console.error('[comments/asset] createRecord (Option A fallback) threw error:', {
+            error: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
+            stack: fallbackErr instanceof Error ? fallbackErr.stack : undefined,
+            fields: fallbackFields,
+            baseId: commentsBaseId,
+          });
+          throw fallbackErr;
+        }
+      } else {
+        console.error('[comments/asset] createRecord threw error:', {
+          error: errorMessage,
+          stack: createErr instanceof Error ? createErr.stack : undefined,
+          fields: recordFields,
+          baseId: commentsBaseId,
+        });
+        throw createErr;
+      }
     }
     
     const recordId = result?.id || result?.records?.[0]?.id;
@@ -526,8 +579,6 @@ export async function POST(req: NextRequest) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
     
-    // Extract resolved asset ID if it was set before the error
-    const resolvedAssetId = typeof resolvedTargetAssetId === 'string' ? resolvedTargetAssetId : 'unknown';
     const incomingAssetId = typeof resolvedCrasId === 'string' ? resolvedCrasId : 'unknown';
     
     // Check for 403 errors specifically (fallback for other 403 sources)
@@ -537,7 +588,6 @@ export async function POST(req: NextRequest) {
                  (err as any)?.error === 'NOT_AUTHORIZED';
     
     const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
-    const osBaseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
     const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
     const tokenPrefix = apiKey ? (apiKey.startsWith('pat') ? apiKey.substring(0, 10) + '...' : apiKey.substring(0, 10) + '...') : 'missing';
     
@@ -548,11 +598,7 @@ export async function POST(req: NextRequest) {
       is403,
       table: AIRTABLE_TABLES.COMMENTS,
       commentsBaseId,
-      osBaseId,
-      incomingAssetId,
-      resolvedAssetId,
-      resolutionBaseId: osBaseId, // Base used for resolution
-      createBaseId: commentsBaseId, // Base used for creating comment
+      incomingAssetId: crasIdString,
       authMode: apiKey ? 'service_account' : 'none',
       tokenPrefix,
     });
@@ -562,15 +608,12 @@ export async function POST(req: NextRequest) {
     if (is403) {
       errorMessage = `Airtable API 403 NOT_AUTHORIZED: ${message}. ` +
         `Operation: comments/asset POST (create comment record). ` +
-        `Resolution Base: ${osBaseId} (used to resolve asset record ID). ` +
         `Create Base: ${commentsBaseId} (used to create comment record). ` +
         `Table: ${AIRTABLE_TABLES.COMMENTS}. ` +
         `Auth Mode: ${apiKey ? 'service_account' : 'none'}, Token: ${tokenPrefix}. ` +
         `The PAT (Personal Access Token) lacks access to base ${commentsBaseId} and table "${AIRTABLE_TABLES.COMMENTS}". ` +
         `Check API key permissions in Airtable. ` +
-        `Incoming asset ID: ${incomingAssetId}, Resolved asset ID: ${resolvedAssetId}.`;
-    } else if (message.includes('ROW_TABLE_DOES_NOT_MATCH_LINKED_TABLE') || message.includes('tbl4ITKYtfE3JLyb6')) {
-      errorMessage = `Failed to create comment: ${message}. Incoming asset ID: ${incomingAssetId}. Resolved asset ID: ${resolvedAssetId}. Target Asset field expects records from table tbl4ITKYtfE3JLyb6.`;
+        `CRAS ID: ${incomingAssetId}.`;
     } else {
       errorMessage = `Failed to create comment: ${message}`;
     }
@@ -579,8 +622,7 @@ export async function POST(req: NextRequest) {
     
     return NextResponse.json({ 
       error: errorMessage,
-      incomingAssetId,
-      resolvedAssetId: resolvedAssetId !== 'unknown' ? resolvedAssetId : undefined,
+      incomingAssetId: crasIdString,
     }, { status: statusCode });
   }
 }
