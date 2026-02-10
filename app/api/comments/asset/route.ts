@@ -420,21 +420,6 @@ export async function POST(req: NextRequest) {
       recordFields['Author Email'] = trimmedAuthorEmail.slice(0, 200);
     }
     
-    // Link Creative Review Groups if groupId provided
-    if (groupId && typeof groupId === 'string' && groupId.trim().startsWith('rec')) {
-      recordFields['Creative Review Groups'] = [groupId.trim()];
-    } else if (tactic && variant) {
-      // Try to find/create group if tactic and variant provided
-      const groupIdFromTactic = await findOrCreateCreativeReviewSet(
-        resolved.project.recordId,
-        tactic,
-        variant
-      );
-      if (groupIdFromTactic && typeof groupIdFromTactic === 'string' && groupIdFromTactic.trim().startsWith('rec')) {
-        recordFields['Creative Review Groups'] = [groupIdFromTactic.trim()];
-      }
-    }
-    
     // Remove undefined values from recordFields
     Object.keys(recordFields).forEach((key) => {
       if (recordFields[key] === undefined) {
