@@ -443,6 +443,9 @@ export const partnerDeliveryRequested = inngest.createFunction(
 /**
  * Add production assets to partner delivery package.
  * Copies animated display production assets from source folder to _Production Assets/Animated Display.
+ * NOTE: This is for GLOBAL production assets (not variant-specific).
+ * Variant-specific production assets are handled by the main delivery logic in partnerDelivery.ts
+ * which copies production folders from the variant folder when an MP4 is approved.
  * Non-blocking: logs warnings but does not fail delivery if this step fails.
  */
 async function addProductionAssets(params: {
@@ -454,13 +457,16 @@ async function addProductionAssets(params: {
   
   console.log(`[delivery/partner] production assets start`, { batchId, requestId });
   
-  // Check if production assets folder ID is configured
-  const sourceFolderId = process.env.PROSPECTING_ANIMATED_PROD_ASSETS_FOLDER_ID?.trim();
+  // Check if production assets folder ID is configured (variant-agnostic env var)
+  // Supports both legacy PROSPECTING_ANIMATED_PROD_ASSETS_FOLDER_ID and generic ANIMATED_PROD_ASSETS_FOLDER_ID
+  const sourceFolderId = process.env.ANIMATED_PROD_ASSETS_FOLDER_ID?.trim() 
+    || process.env.PROSPECTING_ANIMATED_PROD_ASSETS_FOLDER_ID?.trim();
   if (!sourceFolderId) {
     console.warn(`[delivery/skip] missing folder config`, {
-      envVarName: 'PROSPECTING_ANIMATED_PROD_ASSETS_FOLDER_ID',
-      assetType: 'Animated Display Production Assets',
+      envVarName: 'ANIMATED_PROD_ASSETS_FOLDER_ID (or legacy PROSPECTING_ANIMATED_PROD_ASSETS_FOLDER_ID)',
+      assetType: 'Animated Display Production Assets (global)',
       batchRecordId: batchId,
+      note: 'Variant-specific production assets are handled by main delivery logic',
     });
     return { ok: true }; // Not an error - just not configured
   }

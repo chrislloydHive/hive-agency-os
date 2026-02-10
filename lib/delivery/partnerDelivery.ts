@@ -379,6 +379,7 @@ export async function runPartnerDelivery(
     console.log(`[delivery/partner] ${requestId} Derived folder structure from Drive hierarchy:`, {
       tacticName,
       variantName,
+      variantDerived: variantName || 'none',
       sourceName,
       sourceType: isSourceFile ? 'file' : 'folder',
     });
@@ -436,6 +437,7 @@ export async function runPartnerDelivery(
         destinationRoot: destinationFolderId,
         tacticFolder: tacticFolderName,
         variantFolder: variantName?.trim() || 'none',
+        variantName: variantName || 'none',
         finalDestinationId: effectiveDestinationFolderId,
         finalDestinationUrl: folderUrl(effectiveDestinationFolderId),
         path: `${tacticFolderName}${variantName ? `/${variantName.trim()}` : ''}`,
@@ -617,9 +619,12 @@ export async function runPartnerDelivery(
         destinationRootUrl: folderUrl(destinationFolderId),
         tacticFolder: tacticName || 'none',
         variantFolder: variantName || 'none',
+        variantName: variantName || 'none',
         finalDestinationId: result.deliveredRootFolderId,
         finalDestinationUrl: result.deliveredRootFolderUrl,
         path: `${tacticName ? `${tacticName}/` : ''}${variantName ? `${variantName}/` : ''}`,
+        filesCopied: result.filesCopied,
+        foldersCreated: result.foldersCreated,
       });
       
       if (result.filesCopied === 0) {
@@ -819,9 +824,12 @@ export async function runPartnerDelivery(
         destinationRootUrl: folderUrl(destinationFolderId),
         tacticFolder: tacticName || 'none',
         variantFolder: variantName || 'none',
+        variantName: variantName || 'none',
         finalDestinationId: effectiveDestinationFolderId,
         finalDestinationUrl: folderUrl(effectiveDestinationFolderId),
         path: `${tacticName ? `${tacticName}/` : ''}${variantName ? `${variantName}/` : ''}`,
+        filesCopied,
+        foldersCreated,
       });
       
       await updateAssetStatusDeliverySuccess(airtableRecordId, {
