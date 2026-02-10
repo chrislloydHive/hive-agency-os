@@ -104,6 +104,7 @@ export async function POST(req: NextRequest) {
 
   // Use deliveryBatchId from request if provided
   let finalDeliveryBatchId = deliveryBatchId;
+  let selectedBatchRecordId: string | undefined = undefined;
   if (finalDeliveryBatchId) {
     console.log(`[approve] Using deliveryBatchId from request: ${finalDeliveryBatchId}`);
   }
@@ -235,8 +236,9 @@ export async function POST(req: NextRequest) {
             });
             
             finalDeliveryBatchId = batches[0].batchId;
+            selectedBatchRecordId = batches[0].recordId;
             console.log(`[approve] ✅ Resolved deliveryBatchId from Partner Delivery Batch: ${finalDeliveryBatchId}`, {
-              selectedBatch: batches[0].recordId,
+              selectedBatchRecordId,
               status: batches[0].status,
               totalMatches: batches.length,
             });
@@ -275,7 +277,7 @@ export async function POST(req: NextRequest) {
     if (finalDeliveryBatchId && 'recordId' in result) {
       const origin = getAppOrigin(req);
       const deliveryUrl = `${origin}/api/delivery/partner/approved`;
-      console.log(`[approve] about to call delivery endpoint`, { requestId, url: deliveryUrl });
+      console.log("[approve] posting to delivery endpoint", { crasRecordId: result.recordId, deliveryBatchRecordId: selectedBatchRecordId, deliveryBatchId: finalDeliveryBatchId });
       try {
         const res = await fetch(deliveryUrl, {
           method: 'POST',
@@ -283,7 +285,9 @@ export async function POST(req: NextRequest) {
           body: JSON.stringify({
             crasRecordId: result.recordId,
             batchId: finalDeliveryBatchId,
+            deliveryBatchRecordId: selectedBatchRecordId,
             requestId,
+            triggeredBy: 'approval',
           }),
         });
         const text = await res.text().catch(() => '');
@@ -303,7 +307,7 @@ export async function POST(req: NextRequest) {
   if (finalDeliveryBatchId && 'recordId' in result) {
     const origin = getAppOrigin(req);
     const deliveryUrl = `${origin}/api/delivery/partner/approved`;
-    console.log(`[approve] about to call delivery endpoint`, { requestId, url: deliveryUrl });
+    console.log("[approve] posting to delivery endpoint", { crasRecordId: result.recordId, deliveryBatchRecordId: selectedBatchRecordId, deliveryBatchId: finalDeliveryBatchId });
     try {
       const res = await fetch(deliveryUrl, {
         method: 'POST',
@@ -311,7 +315,9 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({
           crasRecordId: result.recordId,
           batchId: finalDeliveryBatchId,
+          deliveryBatchRecordId: selectedBatchRecordId,
           requestId,
+          triggeredBy: 'approval',
         }),
       });
       const text = await res.text().catch(() => '');

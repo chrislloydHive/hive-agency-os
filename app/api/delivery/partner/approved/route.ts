@@ -41,6 +41,8 @@ export async function POST(req: Request) {
     crasRecordId?: string;
     deliveryBatchId?: string;
     batchId?: string;
+    deliveryBatchRecordId?: string;
+    triggeredBy?: string;
   };
   try {
     body = await req.json();
@@ -54,6 +56,9 @@ export async function POST(req: Request) {
   const requestId = body.requestId ? String(body.requestId).trim() : undefined;
   const crasRecordId = body.crasRecordId ? String(body.crasRecordId).trim() : undefined;
   const deliveryBatchId = body.deliveryBatchId || body.batchId ? String(body.deliveryBatchId || body.batchId).trim() : undefined;
+  const deliveryBatchRecordId = body.deliveryBatchRecordId ? String(body.deliveryBatchRecordId).trim() : undefined;
+  
+  console.log("[delivery/partner/approved] using batchRecordId from request?", { hasBodyBatchRecordId: !!deliveryBatchRecordId, deliveryBatchRecordId });
 
   // Log at first line for correlation tracing
   console.log(`[delivery/approved] start`, { requestId, crasRecordId, deliveryBatchId });
@@ -63,50 +68,53 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Fetch CRAS record to get batchRecordId from linked "Partner Delivery Batch" field
-    let batchRecordId: string | undefined = undefined;
+    // Prefer batchRecordId from request body (already resolved by approve handler)
+    let batchRecordId: string | undefined = deliveryBatchRecordId;
     
-    const base = getBase();
-    const crasRecord = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
-    
-    // Debug: Log available fields and the Partner Delivery Batch field value
-    console.log("[delivery/partner/approved] CRAS keys", Object.keys(crasRecord.fields || {}));
-    console.log("[delivery/partner/approved] PDB raw", crasRecord.fields?.["Partner Delivery Batch"]);
-    
-    // Try multiple field name variations (fallback logic)
-    const batchLinks = crasRecord.fields["Partner Delivery Batch"] 
-      ?? crasRecord.fields["Partner Delivery Batches"] 
-      ?? crasRecord.fields["Partner Delivery Batch 2"]
-      ?? crasRecord.fields[DELIVERY_BATCH_ID_FIELD];
-    
-    let batchField = batchLinks as string[] | string | undefined;
-    
-    // Extract batchRecordId from linked record (array of record IDs)
-    if (Array.isArray(batchField) && batchField.length > 0) {
-      const firstLink = batchField[0];
-      if (typeof firstLink === 'string' && firstLink.startsWith('rec')) {
-        batchRecordId = firstLink;
-      } else if (typeof firstLink === 'object' && firstLink !== null && 'id' in firstLink) {
-        batchRecordId = (firstLink as { id: string }).id;
-      }
-    } else if (typeof batchField === 'string') {
-      // If it's a string, check if it's a record ID or a batch name
-      if (batchField.startsWith('rec')) {
-        batchRecordId = batchField;
-      } else {
-        // It's a batch name - look it up to get the record ID
-        const batchDetails = await getBatchDetails(batchField);
-        if (batchDetails) {
-          batchRecordId = batchDetails.recordId;
+    // Only fallback to CRAS link lookup if batchRecordId not provided in request
+    if (!batchRecordId) {
+      const base = getBase();
+      const crasRecord = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
+      
+      // Debug: Log available fields and the Partner Delivery Batch field value
+      console.log("[delivery/partner/approved] CRAS keys", Object.keys(crasRecord.fields || {}));
+      console.log("[delivery/partner/approved] PDB raw", crasRecord.fields?.["Partner Delivery Batch"]);
+      
+      // Try multiple field name variations (fallback logic)
+      const batchLinks = crasRecord.fields["Partner Delivery Batch"] 
+        ?? crasRecord.fields["Partner Delivery Batches"] 
+        ?? crasRecord.fields["Partner Delivery Batch 2"]
+        ?? crasRecord.fields[DELIVERY_BATCH_ID_FIELD];
+      
+      let batchField = batchLinks as string[] | string | undefined;
+      
+      // Extract batchRecordId from linked record (array of record IDs)
+      if (Array.isArray(batchField) && batchField.length > 0) {
+        const firstLink = batchField[0];
+        if (typeof firstLink === 'string' && firstLink.startsWith('rec')) {
+          batchRecordId = firstLink;
+        } else if (typeof firstLink === 'object' && firstLink !== null && 'id' in firstLink) {
+          batchRecordId = (firstLink as { id: string }).id;
+        }
+      } else if (typeof batchField === 'string') {
+        // If it's a string, check if it's a record ID or a batch name
+        if (batchField.startsWith('rec')) {
+          batchRecordId = batchField;
+        } else {
+          // It's a batch name - look it up to get the record ID
+          const batchDetails = await getBatchDetails(batchField);
+          if (batchDetails) {
+            batchRecordId = batchDetails.recordId;
+          }
         }
       }
-    }
-    
-    // If still no batchRecordId, throw error
-    if (!batchRecordId) {
-      const errorMsg = `CRAS record ${crasRecordId} is missing linked Partner Delivery Batch. Field value: ${JSON.stringify(batchField)}. Available fields: ${Object.keys(crasRecord.fields || {}).join(', ')}. Please ensure the CRAS record has a linked Partner Delivery Batch record.`;
-      console.error(`[delivery/partner/approved] CRITICAL: ${errorMsg}`);
-      throw new Error(errorMsg);
+      
+      // If still no batchRecordId, throw error
+      if (!batchRecordId) {
+        const errorMsg = `CRAS record ${crasRecordId} is missing linked Partner Delivery Batch. Field value: ${JSON.stringify(batchField)}. Available fields: ${Object.keys(crasRecord.fields || {}).join(', ')}. Please ensure the CRAS record has a linked Partner Delivery Batch record.`;
+        console.error(`[delivery/partner/approved] CRITICAL: ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
     }
 
     const finalRequestId = requestId || `approved-${Date.now().toString(36)}-${crasRecordId.slice(-8)}`;
@@ -117,7 +125,7 @@ export async function POST(req: Request) {
         batchId: deliveryBatchId,
         batchRecordId,
         requestId: finalRequestId,
-        triggeredBy: 'approval',
+        triggeredBy: body.triggeredBy || 'approval',
       },
     };
     
