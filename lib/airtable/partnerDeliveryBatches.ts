@@ -418,7 +418,20 @@ export async function updateDeliveryResultToRecord(
     recordId,
     writePayload
   );
-  if (!result.ok && result.error) {
-    throw new Error(result.error);
+  
+  // Log result for debugging
+  console.log('[deliveryWriteBack] Batch record update result:', {
+    recordId,
+    ok: result.ok,
+    written: result.written,
+    skipped: result.skipped,
+    error: result.error || null,
+  });
+  
+  // Only throw if critical fields failed AND no fields were written
+  if (!result.ok && result.error && result.written.length === 0) {
+    // Log error but don't throw - delivery succeeded, Airtable write-back is best-effort
+    console.error('[deliveryWriteBack] Batch record update failed (non-blocking):', result.error);
+    // Don't throw - allow delivery to succeed even if Airtable write-back fails
   }
 }

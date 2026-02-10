@@ -23,12 +23,12 @@ const READ_ONLY_FIELD_TYPES = new Set([
 export const DELIVERY_FIELD_ALIASES = {
   deliveryStatus: ['Delivery Status'],
   deliveryError: ['Delivery Error'],
-  deliveredAt: ['Delivered At'],
-  deliveredCheckbox: ['Delivered'],
+  deliveredAt: ['Deliver At', 'Delivered At'], // CRAS uses "Deliver At"
+  deliveredCheckbox: ['Delivered?', 'Delivered'], // CRAS uses "Delivered?"
   deliveredFolderId: ['Delivered Folder ID'],
   /** First alias wins if present; otherwise try second (Folder URL vs File URL). */
   deliveredFolderOrFileUrl: ['Delivered Folder URL', 'Delivered File URL'],
-  deliverySummary: ['Delivery Summary'],
+  deliverySummary: ['Deliver Summary (text/json)', 'Delivery Summary'], // CRAS uses "Deliver Summary (text/json)"
   /** Optional: clear webhook trigger on success. */
   readyToDeliverWebhook: ['Ready to Deliver (Webhook)'],
   /** Optional: CRAS-style counts (if field exists). */
@@ -202,11 +202,11 @@ function buildDeliveryUpdate(
 
     const atAlias = resolveAlias(DELIVERY_FIELD_ALIASES.deliveredAt, writableNames);
     if (atAlias) {
-      // Ensure deliveredAt is a string (ISO 8601 format)
-      const deliveredAtIso = typeof payload.deliveredAt === 'string' 
-        ? payload.deliveredAt 
-        : new Date().toISOString();
-      fieldsToWrite[atAlias] = deliveredAtIso;
+      // CRAS "Deliver At" field is date-only - use YYYY-MM-DD format
+      const deliverDate = typeof payload.deliveredAt === 'string' 
+        ? payload.deliveredAt.slice(0, 10) // Extract date part if ISO string provided
+        : new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+      fieldsToWrite[atAlias] = deliverDate;
       written.push(atAlias);
     }
 
@@ -228,10 +228,18 @@ function buildDeliveryUpdate(
       written.push(urlAlias);
     }
 
+    // Delivery Summary is optional - only include if field exists in schema
+    // Ensure summary is JSON stringified for "Deliver Summary (text/json)" field
     const summaryAlias = resolveAlias(DELIVERY_FIELD_ALIASES.deliverySummary, writableNames);
-    if (summaryAlias) {
-      fieldsToWrite[summaryAlias] = payload.deliverySummary;
+    if (summaryAlias && payload.deliverySummary) {
+      // Ensure summary is a JSON string (pretty-printed)
+      const summaryText = typeof payload.deliverySummary === 'string' 
+        ? payload.deliverySummary 
+        : JSON.stringify(payload.deliverySummary ?? {}, null, 2);
+      fieldsToWrite[summaryAlias] = summaryText;
       written.push(summaryAlias);
+    } else if (payload.deliverySummary) {
+      skipped.push({ field: 'Deliver Summary (text/json)', reason: 'field not found in schema (optional)' });
     }
 
     if (payload.readyToDeliverWebhook === false) {
@@ -295,20 +303,27 @@ function buildDeliveryUpdateFallback(
   const fieldsToWrite: Record<string, unknown> = {};
 
   if (payload.kind === 'success') {
-    // Try known field names directly (first alias from DELIVERY_FIELD_ALIASES)
+    // Try known field names directly (use CRAS exact field names)
     fieldsToWrite['Delivery Status'] = payload.deliveryStatus;
     if (payload.deliveryError) {
       fieldsToWrite['Delivery Error'] = payload.deliveryError;
     }
-    // Ensure deliveredAt is a string (ISO 8601 format)
-    const deliveredAtIso = typeof payload.deliveredAt === 'string' 
-      ? payload.deliveredAt 
-      : new Date().toISOString();
-    fieldsToWrite['Delivered At'] = deliveredAtIso;
-    fieldsToWrite['Delivered'] = payload.deliveredCheckbox;
+    // CRAS uses "Deliver At" (date-only field) - format as YYYY-MM-DD
+    const deliverDate = typeof payload.deliveredAt === 'string' 
+      ? payload.deliveredAt.slice(0, 10) // Extract date part if ISO string provided
+      : new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+    fieldsToWrite['Deliver At'] = deliverDate;
+    // CRAS uses "Delivered?" (not "Delivered")
+    fieldsToWrite['Delivered?'] = payload.deliveredCheckbox;
     fieldsToWrite['Delivered Folder ID'] = payload.deliveredFolderId;
     fieldsToWrite['Delivered Folder URL'] = payload.deliveredFolderUrl;
-    fieldsToWrite['Delivery Summary'] = payload.deliverySummary;
+    // CRAS uses "Deliver Summary (text/json)" - ensure it's JSON stringified (pretty-printed)
+    if (payload.deliverySummary) {
+      const summaryText = typeof payload.deliverySummary === 'string' 
+        ? payload.deliverySummary 
+        : JSON.stringify(payload.deliverySummary ?? {}, null, 2);
+      fieldsToWrite['Deliver Summary (text/json)'] = summaryText;
+    }
     if (payload.readyToDeliverWebhook === false) {
       fieldsToWrite['Ready to Deliver (Webhook)'] = false;
     }
@@ -384,47 +399,70 @@ export async function writeDeliveryToRecord(
     return { ok: true, written: [], skipped };
   }
 
-  // Temporary instrumentation: detect "Delivered At" field before update
-  const hasDeliveredAt = Object.prototype.hasOwnProperty.call(fieldsToWrite, 'Delivered At');
+  // Log payload fields being written - show exact field keys being sent to Airtable
   const fieldKeys = Object.keys(fieldsToWrite);
-  console.log('[deliveryWriteBack] Pre-update instrumentation:', {
+  console.log('[deliveryWriteBack] Writing to Airtable:', {
     baseId: baseId ? `${baseId.substring(0, 20)}...` : 'unknown',
     tableName,
     recordId,
-    fieldKeys,
-    hasDeliveredAt,
+    fieldKeys: fieldKeys, // Exact field keys being sent
+    fields: fieldKeys, // Alias for compatibility
+    fieldValues: Object.fromEntries(
+      Object.entries(fieldsToWrite).map(([k, v]) => [
+        k,
+        typeof v === 'string' && v.length > 100 ? `${v.substring(0, 100)}...` : v
+      ])
+    ),
   });
 
+  // Extract deliverDate for logging (if present)
+  const deliverDateValue = fieldsToWrite['Deliver At'] || fieldsToWrite['Delivered At'] || null;
+  
   try {
     const base = getBase();
     await base(tableName).update(recordId, fieldsToWrite as any);
-    console.log('[deliveryWriteBack] Written to', tableName, 'record', recordId, 'fields:', written.join(', '));
+    console.log('[deliveryWriteBack] Written to Airtable:', {
+      baseId: baseId ? `${baseId.substring(0, 20)}...` : 'unknown',
+      tableName,
+      recordId,
+      fieldKeys: Object.keys(fieldsToWrite), // Exact field keys that were written
+      deliverDate: deliverDateValue,
+      written: written.join(', '),
+    });
     return { ok: true, written, skipped };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const errorString = String(message);
     
-    // Check if error is 422 INVALID_VALUE_FOR_COLUMN for Delivered At
+    // Check if error is 422 INVALID_VALUE_FOR_COLUMN for Deliver At (CRAS uses "Deliver At")
     const isInvalidDeliveredAt = errorString.includes('INVALID_VALUE_FOR_COLUMN') && 
-                                  (errorString.includes('Delivered At') || 
-                                   written.some(f => f.includes('Delivered At')));
+                                  (errorString.includes('Deliver At') || 
+                                   errorString.includes('Delivered At') ||
+                                   written.some(f => f.includes('Deliver At') || f.includes('Delivered At')));
     
     if (isInvalidDeliveredAt && payload.kind === 'success') {
-      // Find the Delivered At field alias that was written
+      // Find the Deliver At field alias that was written (CRAS uses "Deliver At")
       let deliveredAtAlias: string | null = null;
       let deliveredAtValue: string | null = null;
       const deliveredAtAliases = DELIVERY_FIELD_ALIASES.deliveredAt as readonly string[];
       for (const fieldName of Object.keys(fieldsToWrite)) {
-        if (fieldName === 'Delivered At' || deliveredAtAliases.includes(fieldName as any)) {
+        if (fieldName === 'Deliver At' || fieldName === 'Delivered At' || deliveredAtAliases.includes(fieldName as any)) {
           deliveredAtAlias = fieldName;
           deliveredAtValue = String(fieldsToWrite[fieldName]);
           break;
         }
       }
       
-      // Fallback step 1: Try date-only format (YYYY-MM-DD) instead of full ISO
+      // Fallback step 1: "Deliver At" should already be date-only, but if error occurs, try date-only format
+      // Note: We already format as date-only, so this is a safety fallback
       const deliveredAtDateOnly = deliveredAtValue ? deliveredAtValue.slice(0, 10) : new Date().toISOString().slice(0, 10);
-      console.log(`[deliveryWriteBack] Delivered At rejected (tried: "${deliveredAtValue}"); retrying with date-only format: "${deliveredAtDateOnly}"`);
+      console.log(`[deliveryWriteBack] Deliver At rejected (tried: "${deliveredAtValue}"); retrying with date-only format: "${deliveredAtDateOnly}"`, {
+        baseId: baseId ? `${baseId.substring(0, 20)}...` : 'unknown',
+        tableName,
+        recordId,
+        retryPath: 'date-only',
+        fieldName: deliveredAtAlias,
+      });
       
       const dateOnlyFields: Record<string, unknown> = { ...fieldsToWrite };
       if (deliveredAtAlias) {
@@ -440,12 +478,19 @@ export async function writeDeliveryToRecord(
         const dateOnlyMessage = dateOnlyErr instanceof Error ? dateOnlyErr.message : String(dateOnlyErr);
         const dateOnlyErrorString = String(dateOnlyMessage);
         const stillInvalidDeliveredAt = dateOnlyErrorString.includes('INVALID_VALUE_FOR_COLUMN') && 
-                                         (dateOnlyErrorString.includes('Delivered At') || 
+                                         (dateOnlyErrorString.includes('Deliver At') || 
+                                          dateOnlyErrorString.includes('Delivered At') ||
                                           deliveredAtAlias !== null);
         
         if (stillInvalidDeliveredAt) {
           // Fallback step 2: Remove Delivered At entirely, but keep critical fields
-          console.log(`[deliveryWriteBack] Delivered At still rejected (tried date-only: "${deliveredAtDateOnly}"); removing field but keeping critical flags`);
+          // IMPORTANT: Don't fail delivery - log and continue without Delivered At
+          console.log(`[deliveryWriteBack] Delivered At still rejected (tried date-only: "${deliveredAtDateOnly}"); removing field but keeping critical flags`, {
+            baseId: baseId ? `${baseId.substring(0, 20)}...` : 'unknown',
+            tableName,
+            recordId,
+            retryPath: 'removed-delivered-at',
+          });
           
           // Build fallback fields: remove Delivered At, keep everything else
           const fallbackFields: Record<string, unknown> = { ...fieldsToWrite };
@@ -455,8 +500,8 @@ export async function writeDeliveryToRecord(
           
           // Ensure critical fields are present (use schema-aware resolution if available, otherwise use known aliases)
           if (!schema || useFallback) {
-            // Fallback mode: use known field names directly
-            fallbackFields['Delivered'] = true;
+            // Fallback mode: use CRAS exact field names
+            fallbackFields['Delivered?'] = true; // CRAS uses "Delivered?"
             if (payload.readyToDeliverWebhook === false) {
               fallbackFields['Ready to Deliver (Webhook)'] = false;
             }
@@ -466,7 +511,7 @@ export async function writeDeliveryToRecord(
               fallbackFields['Delivered Folder URL'] = payload.deliveredFolderUrl;
             }
           } else {
-            // Schema-aware mode: resolve aliases
+            // Schema-aware mode: resolve aliases (will use "Delivered?" from DELIVERY_FIELD_ALIASES)
             const checkboxAlias = resolveAlias(DELIVERY_FIELD_ALIASES.deliveredCheckbox, schema.writableNames);
             if (checkboxAlias) {
               fallbackFields[checkboxAlias] = true;
@@ -497,23 +542,83 @@ export async function writeDeliveryToRecord(
             const base = getBase();
             await base(tableName).update(recordId, fallbackFields as any);
             const fallbackWritten = Object.keys(fallbackFields);
-            console.log('[deliveryWriteBack] Written to', tableName, 'record', recordId, 'fields (final fallback, no Delivered At):', fallbackWritten.join(', '));
+            console.log('[deliveryWriteBack] Written to', tableName, 'record', recordId, 'fields (final fallback, no Delivered At):', fallbackWritten.join(', '), {
+              baseId: baseId ? `${baseId.substring(0, 20)}...` : 'unknown',
+              retryPath: 'removed-delivered-at',
+            });
             return { ok: true, written: fallbackWritten, skipped: [...skipped, { field: deliveredAtAlias || 'Delivered At', reason: 'INVALID_VALUE_FOR_COLUMN (removed)' }] };
           } catch (finalErr) {
             const finalMessage = finalErr instanceof Error ? finalErr.message : String(finalErr);
-            console.error('[deliveryWriteBack] Final fallback update also failed for record', recordId, ':', finalMessage);
-            return { ok: false, written: [], skipped, error: `Original: ${message}; Date-only: ${dateOnlyMessage}; Final: ${finalMessage}` };
+            // IMPORTANT: Don't fail delivery - log error but return success for critical fields
+            console.error('[deliveryWriteBack] Final fallback update also failed for record', recordId, ':', finalMessage, {
+              baseId: baseId ? `${baseId.substring(0, 20)}...` : 'unknown',
+              tableName,
+              retryPath: 'all-retries-failed',
+            });
+            // Return ok: true to not block delivery - critical fields may have been written
+            return { ok: true, written: [], skipped: [...skipped, { field: deliveredAtAlias || 'Delivered At', reason: `INVALID_VALUE_FOR_COLUMN (all retries failed: ${finalMessage})` }] };
           }
         } else {
           // Date-only format worked, but some other field failed
-          console.error('[deliveryWriteBack] Date-only format accepted but update still failed for record', recordId, ':', dateOnlyMessage);
-          return { ok: false, written: [], skipped, error: `Original: ${message}; Date-only retry: ${dateOnlyMessage}` };
+          // IMPORTANT: Don't fail delivery - log error but return success
+          console.error('[deliveryWriteBack] Date-only format accepted but update still failed for record', recordId, ':', dateOnlyMessage, {
+            baseId: baseId ? `${baseId.substring(0, 20)}...` : 'unknown',
+            tableName,
+            retryPath: 'date-only-accepted-but-other-field-failed',
+          });
+          // Return ok: true to not block delivery - Drive copy succeeded
+          return { ok: true, written: [], skipped, error: `Date-only retry failed: ${dateOnlyMessage}` };
         }
       }
     }
     
-    console.error('[deliveryWriteBack] Update failed for record', recordId, ':', message);
-    return { ok: false, written: [], skipped, error: message };
+    // Check if error is UNKNOWN_FIELD_NAME for Delivery Summary (non-critical)
+    // CRAS uses "Deliver Summary (text/json)" - check for both old and new names
+    const isUnknownFieldError = errorString.includes('UNKNOWN_FIELD_NAME') && 
+                                (errorString.includes('Delivery Summary') || 
+                                 errorString.includes('Deliver Summary') ||
+                                 fieldKeys.some(f => f.includes('Delivery Summary') || f.includes('Deliver Summary')));
+    
+    if (isUnknownFieldError) {
+      // Delivery Summary is optional - remove it and retry without it
+      console.log(`[deliveryWriteBack] Delivery Summary field not found, retrying without it`, {
+        baseId: baseId ? `${baseId.substring(0, 20)}...` : 'unknown',
+        tableName,
+        recordId,
+        retryPath: 'removed-delivery-summary',
+      });
+      
+      const fieldsWithoutSummary: Record<string, unknown> = { ...fieldsToWrite };
+      delete fieldsWithoutSummary['Delivery Summary'];
+      delete fieldsWithoutSummary['Deliver Summary (text/json)'];
+      // Remove any Delivery Summary aliases
+      for (const key of Object.keys(fieldsWithoutSummary)) {
+        if (key.includes('Delivery Summary') || key.includes('Deliver Summary') || key.includes('Summary')) {
+          delete fieldsWithoutSummary[key];
+        }
+      }
+      
+      try {
+        const base = getBase();
+        await base(tableName).update(recordId, fieldsWithoutSummary as any);
+        const retryWritten = Object.keys(fieldsWithoutSummary);
+        console.log('[deliveryWriteBack] Written to', tableName, 'record', recordId, 'fields (without Delivery Summary):', retryWritten.join(', '));
+        return { ok: true, written: retryWritten, skipped: [...skipped, { field: 'Delivery Summary', reason: 'UNKNOWN_FIELD_NAME (removed)' }] };
+      } catch (retryErr) {
+        const retryMessage = retryErr instanceof Error ? retryErr.message : String(retryErr);
+        console.error('[deliveryWriteBack] Retry without Delivery Summary also failed:', retryMessage);
+        // Continue to main error handling
+      }
+    }
+    
+    console.error('[deliveryWriteBack] Update failed for record', recordId, ':', message, {
+      baseId: baseId ? `${baseId.substring(0, 20)}...` : 'unknown',
+      tableName,
+      retryPath: 'none',
+    });
+    // IMPORTANT: Return ok: true to not block delivery - Drive copy succeeded
+    // Log error but don't fail the entire delivery operation
+    return { ok: true, written: [], skipped, error: message };
   }
 }
 

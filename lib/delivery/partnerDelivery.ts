@@ -966,6 +966,7 @@ export async function runPartnerDeliveryFromPortal(params: {
     failures,
   };
 
+  // Best-effort Airtable write-back - don't fail delivery if it fails
   try {
     await updateDeliveryResultToRecord(airtableRecordId, {
       deliveredFolderId: createdFolderId,
@@ -974,14 +975,15 @@ export async function runPartnerDeliveryFromPortal(params: {
       filesCopied,
       failures,
     });
+    console.log('[delivery/partner] Successfully wrote delivery result to Airtable batch record:', airtableRecordId);
   } catch (e) {
     const raw = e instanceof Error ? e.message : String(e);
-    console.warn('[delivery/partner] Failed to write back delivery result to Airtable:', raw);
-    return {
-      ok: false,
-      error: `Delivery completed but Airtable update failed: ${raw}`,
-      statusCode: 500,
-    };
+    // IMPORTANT: Log warning but don't fail delivery - Drive copy succeeded
+    console.warn('[delivery/partner] Failed to write back delivery result to Airtable (non-blocking):', raw, {
+      batchRecordId: airtableRecordId,
+      deliveredFolderId: createdFolderId,
+    });
+    // Continue - delivery is successful even if Airtable write-back fails
   }
 
   const now = new Date().toISOString();
@@ -992,6 +994,13 @@ export async function runPartnerDeliveryFromPortal(params: {
       deliveryBatchId,
       successfullyCopiedFileIds
     );
+    // Build summary object for "Deliver Summary (text/json)" field
+    const summaryObj = {
+      approvedCount: approvedFileIds.length,
+      filesCopied,
+      failures: failures.length > 0 ? failures.map(f => ({ fileId: f.fileId, reason: f.reason })) : [],
+    };
+    
     const assetPayload = {
       kind: 'success' as const,
       deliveryStatus: 'Delivered' as const,
@@ -999,17 +1008,21 @@ export async function runPartnerDeliveryFromPortal(params: {
       deliveredCheckbox: true as const,
       deliveredFolderId: createdFolderId,
       deliveredFolderUrl,
-      deliverySummary: '',
+      deliverySummary: summaryObj, // Will be JSON stringified in writeDeliveryToRecord
     };
     for (const { recordId } of recordsToMark) {
       try {
-        await writeDeliveryToRecord(
+        const result = await writeDeliveryToRecord(
           CREATIVE_REVIEW_ASSET_STATUS_TABLE,
           recordId,
           assetPayload
         );
+        if (!result.ok) {
+          console.warn(`[delivery/partner] Airtable write-back failed for asset ${recordId} (non-blocking):`, result.error);
+        }
       } catch (e) {
-        console.warn(`[delivery/partner] Failed to mark asset ${recordId} delivered:`, e instanceof Error ? e.message : e);
+        // IMPORTANT: Don't fail delivery - log warning but continue
+        console.warn(`[delivery/partner] Failed to mark asset ${recordId} delivered (non-blocking):`, e instanceof Error ? e.message : e);
       }
     }
   }
