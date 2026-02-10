@@ -284,52 +284,13 @@ export async function runPartnerDelivery(
     };
   }
 
-  // Auto subfolder routing: {Destination Folder}/{Tactic}/{Variant?}; fallback to root if no Tactic
-  let effectiveDestinationFolderId = destinationFolderId;
-  const tacticValue = record.tactic?.trim() || '';
-  const variantValue = record.variant?.trim() || '';
-  let resolvedTacticFolderId: string | null = null;
-  let resolvedVariantFolderId: string | null = null;
-  
-  if (tacticValue) {
-    console.log(`[delivery/partner] ${requestId} Resolving subfolder path: ${tacticValue}${variantValue ? `/${variantValue}` : ''} under ${destinationFolderId} (tactic="${tacticValue}", variant="${variantValue}")`);
-    try {
-      // Resolve tactic folder first (find or create)
-      const existingTactic = await findChildFolderWithDrive(drive, destinationFolderId, tacticValue);
-      if (existingTactic) {
-        resolvedTacticFolderId = existingTactic.id;
-      } else {
-        const createdTactic = await createFolderWithDrive(drive, destinationFolderId, tacticValue);
-        resolvedTacticFolderId = createdTactic.id;
-      }
-      
-      // Resolve variant folder if provided
-      if (variantValue && resolvedTacticFolderId) {
-        const existingVariant = await findChildFolderWithDrive(drive, resolvedTacticFolderId, variantValue);
-        if (existingVariant) {
-          resolvedVariantFolderId = existingVariant.id;
-        } else {
-          const createdVariant = await createFolderWithDrive(drive, resolvedTacticFolderId, variantValue);
-          resolvedVariantFolderId = createdVariant.id;
-        }
-        effectiveDestinationFolderId = resolvedVariantFolderId;
-      } else {
-        effectiveDestinationFolderId = resolvedTacticFolderId;
-      }
-      console.log(`[delivery/partner] ${requestId} Subfolder resolved: ${effectiveDestinationFolderId}`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.warn(`[delivery/partner] ${requestId} ensureSubfolderPath failed, using root destination:`, msg);
-      // Continue with root destination
-    }
-  } else {
-    console.warn(`[delivery/partner] ${requestId} WARNING: No Tactic found on CRAS record ${airtableRecordId} (tactic="${tacticValue}", variant="${variantValue}"). Files will be delivered to root destination: ${destinationFolderId}. Set Tactic/Variant on CRAS records to enable subfolder routing.`);
-  }
-
-  // Check if source is a file or folder - if it's a file, copy only that file (not the entire folder)
+  // Check if source is a file or folder and derive tactic/variant from Drive hierarchy
   let resolvedSourceFolderId = sourceFolderId;
   let sourceMimeType: string | null = null;
   let isSourceFile = false;
+  let tacticName: string | null = null;
+  let variantName: string | null = null;
+  
   try {
     const sourceMeta = await drive.files.get({
       fileId: sourceFolderId,
@@ -339,20 +300,100 @@ export async function runPartnerDelivery(
     sourceMimeType = sourceMeta.data.mimeType ?? null;
     
     if (sourceMimeType !== FOLDER_MIMETYPE) {
-      // Source is a file - keep it as a file, don't resolve to parent folder
-      // This ensures we copy only the approved file, not all files in the folder
+      // Source is a file - derive tactic/variant from its parent hierarchy
       isSourceFile = true;
       resolvedSourceFolderId = sourceFolderId; // Keep original file ID
-      console.log(`[delivery/partner] ${requestId} Source is a file - will copy only this file: sourceId=${sourceFolderId}, sourceMimeType=${sourceMimeType}`);
+      console.log(`[delivery/partner] ${requestId} Source is a file - deriving tactic/variant from parent hierarchy`);
+      
+      // Get parent folder (variant)
+      const parents = sourceMeta.data.parents ?? [];
+      if (parents.length > 0) {
+        const variantMeta = await drive.files.get({
+          fileId: parents[0],
+          fields: 'id,name,parents',
+          supportsAllDrives: true,
+        });
+        variantName = variantMeta.data.name ?? null;
+        console.log(`[delivery/partner] ${requestId} Variant folder: "${variantName}" (id: ${parents[0]})`);
+        
+        // Get parent's parent (tactic)
+        const variantParents = variantMeta.data.parents ?? [];
+        if (variantParents.length > 0) {
+          const tacticMeta = await drive.files.get({
+            fileId: variantParents[0],
+            fields: 'id,name',
+            supportsAllDrives: true,
+          });
+          tacticName = tacticMeta.data.name ?? null;
+          console.log(`[delivery/partner] ${requestId} Tactic folder: "${tacticName}" (id: ${variantParents[0]})`);
+        }
+      }
     } else {
-      // Source is a folder - copy entire folder tree
+      // Source is a folder - that folder is variant, its parent is tactic
       isSourceFile = false;
       resolvedSourceFolderId = sourceFolderId;
-      console.log(`[delivery/partner] ${requestId} Source is a folder - will copy entire folder tree: sourceId=${sourceFolderId}, sourceMimeType=${sourceMimeType}`);
+      variantName = sourceMeta.data.name ?? null;
+      console.log(`[delivery/partner] ${requestId} Source is a folder - using as variant: "${variantName}"`);
+      
+      // Get parent folder (tactic)
+      const parents = sourceMeta.data.parents ?? [];
+      if (parents.length > 0) {
+        const tacticMeta = await drive.files.get({
+          fileId: parents[0],
+          fields: 'id,name',
+          supportsAllDrives: true,
+        });
+        tacticName = tacticMeta.data.name ?? null;
+        console.log(`[delivery/partner] ${requestId} Tactic folder: "${tacticName}" (id: ${parents[0]})`);
+      }
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    return fail(`Failed to resolve source: ${message}`, 400, true, authMode);
+    return fail(`Failed to resolve source hierarchy: ${message}`, 400, true, authMode);
+  }
+
+  // Resolve destination subfolder path: {Destination Folder}/{Tactic}/{Variant}
+  let effectiveDestinationFolderId = destinationFolderId;
+  let resolvedTacticFolderId: string | null = null;
+  let resolvedVariantFolderId: string | null = null;
+  
+  if (tacticName) {
+    console.log(`[delivery/partner] ${requestId} Resolving subfolder path from Drive hierarchy: ${tacticName}${variantName ? `/${variantName}` : ''} under ${destinationFolderId}`);
+    try {
+      // Resolve tactic folder first (find or create)
+      const existingTactic = await findChildFolderWithDrive(drive, destinationFolderId, tacticName);
+      if (existingTactic) {
+        resolvedTacticFolderId = existingTactic.id;
+        console.log(`[delivery/partner] ${requestId} Found existing tactic folder: "${tacticName}" (id: ${resolvedTacticFolderId})`);
+      } else {
+        const createdTactic = await createFolderWithDrive(drive, destinationFolderId, tacticName);
+        resolvedTacticFolderId = createdTactic.id;
+        console.log(`[delivery/partner] ${requestId} Created tactic folder: "${tacticName}" (id: ${resolvedTacticFolderId})`);
+      }
+      
+      // Resolve variant folder if provided
+      if (variantName && resolvedTacticFolderId) {
+        const existingVariant = await findChildFolderWithDrive(drive, resolvedTacticFolderId, variantName);
+        if (existingVariant) {
+          resolvedVariantFolderId = existingVariant.id;
+          console.log(`[delivery/partner] ${requestId} Found existing variant folder: "${variantName}" (id: ${resolvedVariantFolderId})`);
+        } else {
+          const createdVariant = await createFolderWithDrive(drive, resolvedTacticFolderId, variantName);
+          resolvedVariantFolderId = createdVariant.id;
+          console.log(`[delivery/partner] ${requestId} Created variant folder: "${variantName}" (id: ${resolvedVariantFolderId})`);
+        }
+        effectiveDestinationFolderId = resolvedVariantFolderId;
+      } else {
+        effectiveDestinationFolderId = resolvedTacticFolderId;
+      }
+      console.log(`[delivery/partner] ${requestId} Subfolder resolved: ${effectiveDestinationFolderId} (${folderUrl(effectiveDestinationFolderId)})`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[delivery/partner] ${requestId} Failed to create subfolder path, using root destination:`, msg);
+      // Continue with root destination
+    }
+  } else {
+    console.warn(`[delivery/partner] ${requestId} WARNING: Could not derive Tactic from source Drive hierarchy. Files will be delivered to root destination: ${destinationFolderId}`);
   }
 
   // Log source resolution details
@@ -362,13 +403,17 @@ export async function runPartnerDelivery(
     resolvedFolderId: resolvedSourceFolderId,
   });
 
-  // TEMPORARY debug log before delivery
-  console.log(`[delivery/partner] ${requestId} Pre-delivery debug:`, {
+  // Debug log before delivery
+  console.log(`[delivery/partner] ${requestId} Pre-delivery summary:`, {
     sourceId: resolvedSourceFolderId,
-    destinationFolderId: destinationFolderId,
+    sourceType: isSourceFile ? 'file' : 'folder',
+    tacticName,
+    variantName,
+    destinationRootFolderId: destinationFolderId,
     resolvedTacticFolderId,
     resolvedVariantFolderId,
     effectiveDestinationFolderId,
+    effectiveDestinationUrl: folderUrl(effectiveDestinationFolderId),
   });
 
   // Per-record preflight: explicit drive.files.get() calls with raw error logging
@@ -505,7 +550,8 @@ export async function runPartnerDelivery(
         deliveredFolderUrl: result.deliveredRootFolderUrl,
       });
       console.log(`[delivery/partner] ${requestId} Copy completed: filesCopied=${result.filesCopied}, foldersCreated=${result.foldersCreated}, failures=${result.failures.length}, deliveredFolderId=${result.deliveredRootFolderId}`);
-      console.log(`[delivery/partner] ${requestId} Delivered folder URL: ${result.deliveredRootFolderUrl}`);
+      console.log(`[delivery/partner] ${requestId} FINAL DESTINATION FOLDER URL: ${result.deliveredRootFolderUrl}`);
+      console.log(`[delivery/partner] ${requestId} Destination path: ${tacticName ? `${tacticName}/` : ''}${variantName ? `${variantName}/` : ''} (under root: ${folderUrl(destinationFolderId)})`);
       
       if (result.filesCopied === 0) {
         console.warn(`[delivery/partner] ${requestId} WARNING: Copy succeeded but 0 files were copied. Source folder ${resolvedSourceFolderId} may be empty or inaccessible. Check source folder: ${folderUrl(resolvedSourceFolderId)}`);
@@ -562,6 +608,8 @@ export async function runPartnerDelivery(
         fileUrl: fileResult.url,
       });
       console.log(`[delivery/partner] ${requestId} File copy completed: fileId=${fileResult.id}, fileName="${fileResult.name}", fileUrl=${fileResult.url}`);
+      console.log(`[delivery/partner] ${requestId} FINAL DESTINATION FOLDER URL: ${folderUrl(effectiveDestinationFolderId)}`);
+      console.log(`[delivery/partner] ${requestId} Destination path: ${tacticName ? `${tacticName}/` : ''}${variantName ? `${variantName}/` : ''} (under root: ${folderUrl(destinationFolderId)})`);
       
       await updateAssetStatusDeliverySuccess(airtableRecordId, {
         deliveredFolderId: effectiveDestinationFolderId,

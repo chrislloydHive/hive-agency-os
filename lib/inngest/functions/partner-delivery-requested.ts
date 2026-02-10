@@ -39,11 +39,13 @@ async function resolveDestinationFolderId(
   // If we already have a record ID from CRAS, use it directly
   if (batchRecordIdFromCras && batchRecordIdFromCras.startsWith('rec')) {
     const details = await getBatchDetailsByRecordId(batchRecordIdFromCras);
-    console.log("[delivery/destination]", {
+    console.log("[delivery/destination] RESOLVED from CRAS link", {
       batchId: deliveryBatchIdRaw,
       batchRecordId: batchRecordIdFromCras,
       destinationFolderId: details?.destinationFolderId || null,
+      destinationFolderUrl: details?.destinationFolderId ? `https://drive.google.com/drive/folders/${details.destinationFolderId}` : null,
       source: 'CRAS link field',
+      fieldRead: 'Destination Folder ID',
     });
     return {
       destinationFolderId: details?.destinationFolderId ?? null,
@@ -55,11 +57,13 @@ async function resolveDestinationFolderId(
   // If batchId is already a record ID, use it
   if (raw.startsWith('rec')) {
     const details = await getBatchDetailsByRecordId(raw);
-    console.log("[delivery/destination]", {
+    console.log("[delivery/destination] RESOLVED from batchId record ID", {
       batchId: deliveryBatchIdRaw,
       batchRecordId: raw,
       destinationFolderId: details?.destinationFolderId || null,
+      destinationFolderUrl: details?.destinationFolderId ? `https://drive.google.com/drive/folders/${details.destinationFolderId}` : null,
       source: 'batchId is record ID',
+      fieldRead: 'Destination Folder ID',
     });
     return {
       destinationFolderId: details?.destinationFolderId ?? null,
@@ -70,11 +74,13 @@ async function resolveDestinationFolderId(
 
   // Otherwise, it's a Batch ID name string - look it up
   let details = await getBatchDetails(raw);
-  console.log("[delivery/destination]", {
+  console.log("[delivery/destination] RESOLVED from Batch ID name", {
     batchId: raw,
     batchRecordId: details?.recordId || null,
     destinationFolderId: details?.destinationFolderId || null,
+    destinationFolderUrl: details?.destinationFolderId ? `https://drive.google.com/drive/folders/${details.destinationFolderId}` : null,
     source: 'Batch ID name lookup',
+    fieldRead: 'Destination Folder ID',
     warning: details ? undefined : `Batch not found by name "${raw}" - batch may have been renamed`,
   });
   
@@ -136,6 +142,13 @@ async function resolveDestinationFolderId(
     };
   }
 
+  console.log("[delivery/destination] FINAL RESOLUTION", {
+    batchId: raw,
+    batchRecordId: details.recordId,
+    destinationFolderId: details.destinationFolderId,
+    destinationFolderUrl: `https://drive.google.com/drive/folders/${details.destinationFolderId}`,
+    fieldRead: 'Destination Folder ID',
+  });
   return {
     destinationFolderId: details.destinationFolderId,
     batchRecordId: details.recordId,
