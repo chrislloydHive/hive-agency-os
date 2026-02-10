@@ -289,6 +289,7 @@ export async function runPartnerDelivery(
   let resolvedSourceFolderId = sourceFolderId;
   let sourceMimeType: string | null = null;
   let isSourceFile = false;
+  let isAnimated = false; // Only true for MP4/video files
   let tacticName: string | null = null;
   let variantName: string | null = null;
   let sourceName: string | null = null;
@@ -314,7 +315,16 @@ export async function runPartnerDelivery(
       // Source is a FILE: variant = file.parent, tactic = variant.parent
       isSourceFile = true;
       resolvedSourceFolderId = sourceFolderId; // Keep original file ID
-      console.log(`[delivery/partner] ${requestId} Source is a FILE - deriving tactic/variant from parent hierarchy`);
+      
+      // Detect if this is an animated asset (MP4/video)
+      const fileNameLower = (sourceName ?? '').toLowerCase();
+      isAnimated = fileNameLower.endsWith('.mp4') || (sourceMimeType ?? '').startsWith('video/');
+      
+      console.log(`[delivery/partner] ${requestId} Source is a FILE - deriving tactic/variant from parent hierarchy`, {
+        sourceName,
+        sourceMimeType,
+        isAnimated,
+      });
       
       // Get parent folder (variant)
       const parents = sourceMeta.data.parents ?? [];
@@ -673,8 +683,9 @@ export async function runPartnerDelivery(
       let filesCopied = 1; // The file we just copied
       const failures: Array<{ id: string; name?: string; reason: string }> = [];
       
-      // After copying the file, also copy child folders from the source variant folder
-      if (sourceVariantFolderId) {
+      // After copying the file, also copy production folders from the source variant folder
+      // ONLY for animated assets (MP4/video files)
+      if (isAnimated && sourceVariantFolderId) {
         console.log(`[delivery/partner] ${requestId} Source file parent (variant folder): id=${sourceVariantFolderId}, name="${variantName}"`);
         console.log(`[delivery/partner] ${requestId} Destination variant folder: id=${effectiveDestinationFolderId}, url=${folderUrl(effectiveDestinationFolderId)}`);
         
@@ -704,6 +715,8 @@ export async function runPartnerDelivery(
           console.log(`[delivery/partner] ${requestId} Child folders found: ${childFolders.length}`, {
             sourceFileId: sourceFolderId,
             sourceFileName: sourceName,
+            sourceMimeType,
+            isAnimated,
             variantFolderId: sourceVariantFolderId,
             variantFolderName: variantName,
             destVariantFolderId: effectiveDestinationFolderId,
@@ -712,13 +725,12 @@ export async function runPartnerDelivery(
             childFolderNames: childFolders.map(f => f.name).filter(Boolean),
           });
           
-          // Heuristics: identify production-assets folders
+          // Heuristics: identify production-assets folders by name keywords only
           const PRODUCTION_KEYWORDS = ['production', 'asset', 'source', 'build', 'project'];
-          const PRODUCTION_EXTENSIONS = ['psd', 'ai', 'aep', 'prproj', 'aegraphic', 'json', 'zip', 'png', 'jpg', 'jpeg', 'svg', 'gif', 'js', 'html', 'css'];
           
           const foldersToCopy: Array<{ id: string; name: string }> = [];
           
-          // Check each child folder against heuristics
+          // Check each child folder against heuristics (name keywords only)
           for (const childFolder of childFolders) {
             const childFolderId = childFolder.id;
             const childFolderName = childFolder.name ?? 'Untitled folder';
@@ -727,65 +739,21 @@ export async function runPartnerDelivery(
               continue;
             }
             
-            // Heuristic 1: Check if folder name contains production keywords
+            // Check if folder name contains production keywords (case-insensitive)
             const nameLower = childFolderName.toLowerCase();
             const matchesNameKeyword = PRODUCTION_KEYWORDS.some(keyword => nameLower.includes(keyword));
             
             if (matchesNameKeyword) {
               foldersToCopy.push({ id: childFolderId, name: childFolderName });
-              continue;
-            }
-            
-            // Heuristic 2: Check if folder contains files with production extensions
-            try {
-              let pageToken: string | undefined;
-              let hasProductionFile = false;
-              
-              do {
-                const res = await drive.files.list({
-                  q: `'${childFolderId.replace(/'/g, "\\'")}' in parents and trashed = false`,
-                  fields: 'nextPageToken, files(id, name, mimeType)',
-                  supportsAllDrives: true,
-                  includeItemsFromAllDrives: true,
-                  pageSize: 100,
-                  pageToken,
-                });
-                
-                const files = res.data.files ?? [];
-                for (const file of files) {
-                  if (file.mimeType === FOLDER_MIMETYPE) continue; // Skip subfolders
-                  
-                  const fileName = file.name ?? '';
-                  const ext = fileName.split('.').pop()?.toLowerCase();
-                  if (ext && PRODUCTION_EXTENSIONS.includes(ext)) {
-                    hasProductionFile = true;
-                    break;
-                  }
-                }
-                
-                if (hasProductionFile) break;
-                pageToken = res.data.nextPageToken ?? undefined;
-              } while (pageToken);
-              
-              if (hasProductionFile) {
-                foldersToCopy.push({ id: childFolderId, name: childFolderName });
-              }
-            } catch (checkErr: any) {
-              // If we can't check folder contents, skip this folder (don't include it)
-              console.warn(`[delivery/partner] ${requestId} Failed to check folder contents for ${childFolderName}:`, checkErr instanceof Error ? checkErr.message : String(checkErr));
             }
           }
           
-          // Fallback: if zero folders match heuristics, copy ALL child folders
-          const fallbackUsed = foldersToCopy.length === 0 && childFolders.length > 0;
-          const selectedFolders = fallbackUsed 
-            ? childFolders.map(f => ({ id: f.id!, name: f.name ?? 'Untitled folder' })).filter(f => f.id)
-            : foldersToCopy;
+          // If no folders match, do NOTHING (no fallback - avoid sending wrong stuff)
+          const selectedFolders = foldersToCopy;
           
           console.log(`[delivery/partner] ${requestId} Folder selection:`, {
             childFoldersFound: childFolders.length,
             foldersSelected: selectedFolders.length,
-            fallbackUsed,
             selectedFolderNames: selectedFolders.map(f => f.name),
           });
           
@@ -816,9 +784,16 @@ export async function runPartnerDelivery(
           }
           
           console.log(`[delivery/partner] ${requestId} Child folders copy summary:`, {
+            sourceFileId: sourceFolderId,
+            sourceFileName: sourceName,
+            sourceMimeType,
+            isAnimated,
+            variantFolderId: sourceVariantFolderId,
+            variantFolderName: variantName,
+            destVariantFolderId: effectiveDestinationFolderId,
+            destVariantFolderUrl: folderUrl(effectiveDestinationFolderId),
             childFoldersFound: childFolders.length,
             foldersSelected: selectedFolders.length,
-            fallbackUsed,
             foldersCreated,
             filesCopied,
             failures: failures.length,
@@ -828,6 +803,14 @@ export async function runPartnerDelivery(
           console.warn(`[delivery/partner] ${requestId} Failed to list child folders from variant folder ${sourceVariantFolderId}:`, reason);
           // Non-blocking: continue even if listing fails
         }
+      } else if (!isAnimated && isSourceFile) {
+        // Static display asset (jpg/png) - do NOT copy production folders
+        console.log(`[delivery/partner] ${requestId} Static display asset detected - skipping production folder copy`, {
+          sourceFileId: sourceFolderId,
+          sourceFileName: sourceName,
+          sourceMimeType,
+          isAnimated,
+        });
       }
       
       console.log(`[delivery/partner] ${requestId} FINAL DESTINATION FOLDER URL: ${folderUrl(effectiveDestinationFolderId)}`);
