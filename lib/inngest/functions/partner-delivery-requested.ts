@@ -44,6 +44,8 @@ async function resolveDestinationFolderId(
       batchRecordId: batchRecordIdFromCras,
       destinationFolderId: details?.destinationFolderId || null,
       destinationFolderUrl: details?.destinationFolderId ? `https://drive.google.com/drive/folders/${details.destinationFolderId}` : null,
+      expectedFolderId: '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
+      matchesExpected: details?.destinationFolderId === '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
       source: 'CRAS link field',
       fieldRead: 'Destination Folder ID',
     });
@@ -62,6 +64,8 @@ async function resolveDestinationFolderId(
       batchRecordId: raw,
       destinationFolderId: details?.destinationFolderId || null,
       destinationFolderUrl: details?.destinationFolderId ? `https://drive.google.com/drive/folders/${details.destinationFolderId}` : null,
+      expectedFolderId: '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
+      matchesExpected: details?.destinationFolderId === '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
       source: 'batchId is record ID',
       fieldRead: 'Destination Folder ID',
     });
@@ -79,6 +83,8 @@ async function resolveDestinationFolderId(
     batchRecordId: details?.recordId || null,
     destinationFolderId: details?.destinationFolderId || null,
     destinationFolderUrl: details?.destinationFolderId ? `https://drive.google.com/drive/folders/${details.destinationFolderId}` : null,
+    expectedFolderId: '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
+    matchesExpected: details?.destinationFolderId === '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
     source: 'Batch ID name lookup',
     fieldRead: 'Destination Folder ID',
     warning: details ? undefined : `Batch not found by name "${raw}" - batch may have been renamed`,
@@ -147,6 +153,8 @@ async function resolveDestinationFolderId(
     batchRecordId: details.recordId,
     destinationFolderId: details.destinationFolderId,
     destinationFolderUrl: `https://drive.google.com/drive/folders/${details.destinationFolderId}`,
+    expectedFolderId: '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
+    matchesExpected: details.destinationFolderId === '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
     fieldRead: 'Destination Folder ID',
   });
   return {

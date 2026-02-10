@@ -50,8 +50,40 @@ export interface DeliveryBatchDetails {
 
 function mapRecordToBatchDetails(record: { id: string; fields: Record<string, unknown> }, batchId: string): DeliveryBatchDetails | null {
   const f = record.fields;
+  
+  // Debug: Log all available fields and the Destination Folder ID field value
+  // Also check for alternative field names that might contain folder IDs
+  const allFields = Object.keys(f);
+  const folderIdFields = allFields.filter(key => 
+    key.toLowerCase().includes('folder') || 
+    key.toLowerCase().includes('destination') ||
+    (typeof f[key] === 'string' && (f[key] as string).length > 20 && (f[key] as string).includes('1HELQKO9dB'))
+  );
+  
+  console.log(`[delivery/batch] Reading batch details for record ${record.id}`, {
+    batchId,
+    availableFields: allFields,
+    folderIdRelatedFields: folderIdFields.map(key => ({ field: key, value: f[key] })),
+    destinationFolderIdRaw: f[DESTINATION_FOLDER_ID_FIELD],
+    destinationFolderIdType: typeof f[DESTINATION_FOLDER_ID_FIELD],
+    fieldName: DESTINATION_FOLDER_ID_FIELD,
+    expectedFolderId: '1HELQKO9dB__2u-umWJ2uCpuOmajR7jf0',
+  });
+  
   const dest = typeof f[DESTINATION_FOLDER_ID_FIELD] === 'string' ? (f[DESTINATION_FOLDER_ID_FIELD] as string).trim() : '';
-  if (!dest) return null;
+  
+  console.log(`[delivery/batch] Parsed destination folder ID`, {
+    batchId,
+    recordId: record.id,
+    rawValue: f[DESTINATION_FOLDER_ID_FIELD],
+    trimmedValue: dest,
+    isEmpty: !dest,
+  });
+  
+  if (!dest) {
+    console.warn(`[delivery/batch] Destination Folder ID is empty or missing for batch ${batchId} (record ${record.id})`);
+    return null;
+  }
 
   const vendorRaw = f[VENDOR_NAME_FIELD];
   const vendorName =
