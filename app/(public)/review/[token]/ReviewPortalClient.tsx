@@ -231,7 +231,7 @@ function ReviewPortalClientInner({
   const [apiCounts, setApiCounts] = useState<{ newApproved: number; approved: number; downloaded: number } | null>(null);
   const lastFetchedTokenRef = useRef<string | null>(null);
   const firstSeenInFlightRef = useRef<Set<string>>(new Set());
-  const { identity, clearIdentity } = useAuthorIdentity();
+  const { identity, clearIdentity, requireIdentity } = useAuthorIdentity();
 
   const updateAssetReviewState = useCallback(
     (variant: string, tactic: string, fileId: string, reviewState: ReviewState) => {
@@ -467,64 +467,101 @@ function ReviewPortalClientInner({
   const handleApproveSelected = useCallback(() => {
     const fileIds = Array.from(selectedFileIds);
     if (fileIds.length === 0) return;
-    const batchId = selectedBatchId ?? deliveryContext?.deliveryBatchId ?? undefined;
-    const sectionsForApprove = sections
-      .map((sec) => {
-        const fileIdsInSection = sec.assets
-          .filter((a) => selectedFileIds.has(a.fileId))
-          .map((a) => a.fileId);
-        if (fileIdsInSection.length === 0) return null;
-        return { variant: sec.variant, tactic: sec.tactic, fileIds: fileIdsInSection };
+    
+    requireIdentity((currentIdentity) => {
+      const batchId = selectedBatchId ?? deliveryContext?.deliveryBatchId ?? undefined;
+      const sectionsForApprove = sections
+        .map((sec) => {
+          const fileIdsInSection = sec.assets
+            .filter((a) => selectedFileIds.has(a.fileId))
+            .map((a) => a.fileId);
+          if (fileIdsInSection.length === 0) return null;
+          return { variant: sec.variant, tactic: sec.tactic, fileIds: fileIdsInSection };
+        })
+        .filter((s): s is { variant: string; tactic: string; fileIds: string[] } => s != null);
+      setBulkApproving(true);
+      setToast(null);
+      
+      // Optimistically update local state to show Approved badges immediately
+      const approvedAt = new Date().toISOString();
+      const approvedByName = currentIdentity.name;
+      const approvedByEmail = currentIdentity.email;
+      
+      setSections((prev) =>
+        prev.map((sec) => {
+          const hasSelectedAssets = sec.assets.some((a) => selectedFileIds.has(a.fileId));
+          if (!hasSelectedAssets) return sec;
+          return {
+            ...sec,
+            assets: sec.assets.map((a) => {
+              if (!selectedFileIds.has(a.fileId)) return a;
+              // Mark as approved immediately
+              return {
+                ...a,
+                assetApprovedClient: true,
+                reviewState: 'approved' as ReviewState,
+                approvedAt,
+                approvedByName,
+                approvedByEmail,
+                firstSeenByClientAt: a.firstSeenByClientAt ?? approvedAt,
+              };
+            }),
+          };
+        })
+      );
+      
+      fetch('/api/review/assets/bulk-approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({
+          token,
+          fileIds,
+          approvedAt,
+          approvedByName,
+          approvedByEmail,
+          deliveryBatchId: batchId ?? undefined,
+          sections: sectionsForApprove,
+        }),
       })
-      .filter((s): s is { variant: string; tactic: string; fileIds: string[] } => s != null);
-    setBulkApproving(true);
-    setToast(null);
-    fetch('/api/review/assets/bulk-approve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      cache: 'no-store',
-      body: JSON.stringify({
-        token,
-        fileIds,
-        approvedAt: new Date().toISOString(),
-        approvedByName: identity?.name,
-        approvedByEmail: identity?.email,
-        deliveryBatchId: batchId ?? undefined,
-        sections: sectionsForApprove,
-      }),
-    })
-      .then((res) => res.json())
-      .then((data: { ok?: boolean; approved?: number; alreadyApproved?: number; error?: string; partial?: boolean }) => {
-        if (data.ok === true) {
-          const approved = data.approved ?? 0;
-          const alreadyApproved = data.alreadyApproved ?? 0;
+        .then((res) => res.json())
+        .then((data: { ok?: boolean; approved?: number; alreadyApproved?: number; error?: string; partial?: boolean }) => {
+          if (data.ok === true) {
+            const approved = data.approved ?? 0;
+            const alreadyApproved = data.alreadyApproved ?? 0;
+            setToast({
+              message: `Approved ${approved} assets${alreadyApproved > 0 ? ` (${alreadyApproved} already approved)` : ''}.`,
+              type: 'success',
+            });
+            setSelectedFileIds(new Set());
+            // Refresh to get server state (in case of any discrepancies)
+            doRefresh();
+          } else {
+            const approved = data.approved ?? 0;
+            const partial = data.partial === true && approved > 0;
+            setToast({
+              message: partial
+                ? `Error: ${data.error ?? 'Update failed'}. ${approved} approved before failure.`
+                : (data.error ?? 'Bulk approve failed'),
+              type: 'error',
+            });
+            // On error, refresh to revert optimistic update
+            doRefresh();
+          }
+        })
+        .catch((err) => {
           setToast({
-            message: `Approved ${approved} assets${alreadyApproved > 0 ? ` (${alreadyApproved} already approved)` : ''}.`,
-            type: 'success',
-          });
-          setSelectedFileIds(new Set());
-          doRefresh();
-        } else {
-          const approved = data.approved ?? 0;
-          const partial = data.partial === true && approved > 0;
-          setToast({
-            message: partial
-              ? `Error: ${data.error ?? 'Update failed'}. ${approved} approved before failure.`
-              : (data.error ?? 'Bulk approve failed'),
+            message: err?.message ?? 'Bulk approve failed',
             type: 'error',
           });
-        }
-      })
-      .catch((err) => {
-        setToast({
-          message: err?.message ?? 'Bulk approve failed',
-          type: 'error',
+          // On error, refresh to revert optimistic update
+          doRefresh();
+        })
+        .finally(() => {
+          setBulkApproving(false);
         });
-      })
-      .finally(() => {
-        setBulkApproving(false);
-      });
-  }, [token, selectedFileIds, sections, selectedBatchId, deliveryContext?.deliveryBatchId, doRefresh, identity]);
+    });
+  }, [token, selectedFileIds, sections, selectedBatchId, deliveryContext?.deliveryBatchId, doRefresh, requireIdentity]);
 
   const handleMarkSeen = useCallback(() => {
     const batchId = selectedBatchId ?? deliveryContext?.deliveryBatchId;
