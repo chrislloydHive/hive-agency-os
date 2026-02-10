@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getBase, getCommentsBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
-import { createRecord } from '@/lib/airtable/client';
+import { createRecord, AirtableNotAuthorizedError } from '@/lib/airtable/client';
 import { getCrasRecordIdByTokenAndFileId } from '@/lib/airtable/reviewAssetStatus';
 import { resolveTargetAssetRecordId } from '@/lib/airtable/resolveCommentTargetAsset';
 
@@ -288,19 +288,33 @@ export async function POST(req: NextRequest) {
   
   // Resolve asset record ID to the correct Target Asset record ID
   // Target Asset field links to table tbl4ITKYtfE3JLyb6, which may differ from the source table
+  // Resolution happens in OS base (where assets live), not Comments base
   const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+  const osBaseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
   
   let resolvedTargetAssetId: string;
   try {
+    console.log('[comments/asset] Resolving Target Asset ID:', {
+      incomingAssetId: crasIdString,
+      resolutionBaseId: osBaseId, // Assets resolved in OS base
+      commentsBaseId, // Comments created in Comments base
+    });
     resolvedTargetAssetId = await resolveTargetAssetRecordId({
       incomingAssetId: crasIdString,
-      baseId: commentsBaseId,
+      baseId: commentsBaseId, // Passed for logging only, resolution happens in OS base
+    });
+    console.log('[comments/asset] Resolved Target Asset ID:', {
+      incomingAssetId: crasIdString,
+      resolvedAssetId: resolvedTargetAssetId,
+      resolutionBaseId: osBaseId,
+      commentsBaseId,
     });
   } catch (resolveErr) {
     const errorMessage = resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
     console.error('[comments/asset] Failed to resolve Target Asset ID:', {
       incomingAssetId: crasIdString,
       error: errorMessage,
+      resolutionBaseId: osBaseId,
       commentsBaseId,
     });
     return NextResponse.json({ 
@@ -310,16 +324,10 @@ export async function POST(req: NextRequest) {
   }
   
   try {
-    // Create comment record
+    // Create comment record in Comments base
     // Note: Author field removed - it's not a text field (likely collaborator/link/single-select)
     // Note: Created field removed - it's read-only (automatically set by Airtable)
     // Note: Linked records must be array of record ID strings, not objects with id property
-    
-    console.log('[comments/asset] Resolved Target Asset ID:', {
-      incomingAssetId: crasIdString,
-      resolvedAssetId: resolvedTargetAssetId,
-      commentsBaseId,
-    });
     
     const recordFields: Record<string, unknown> = {
       Body: trimmedBody.slice(0, 5000),
@@ -443,6 +451,27 @@ export async function POST(req: NextRequest) {
       { headers: NO_STORE_HEADERS }
     );
   } catch (err: unknown) {
+    // Fail-fast guard: catch AirtableNotAuthorizedError specifically
+    if (err instanceof AirtableNotAuthorizedError) {
+      // Log with all context: baseId + apiKeyPrefix + tableName + operation
+      console.error('[comments/asset] AirtableNotAuthorizedError:', {
+        baseId: err.baseId,
+        tableName: err.tableName,
+        operation: err.operation,
+        apiKeyPrefix: err.apiKeyPrefix,
+      });
+      
+      return NextResponse.json(
+        {
+          error: `Airtable PAT is not authorized for base ${err.baseId}; grant access or use correct token.`,
+          baseId: err.baseId,
+          tableName: err.tableName,
+          operation: err.operation,
+        },
+        { status: 503 }
+      );
+    }
+    
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
     
@@ -450,14 +479,16 @@ export async function POST(req: NextRequest) {
     const resolvedAssetId = typeof resolvedTargetAssetId === 'string' ? resolvedTargetAssetId : 'unknown';
     const incomingAssetId = typeof resolvedCrasId === 'string' ? resolvedCrasId : 'unknown';
     
-    // Check for 403 errors specifically
+    // Check for 403 errors specifically (fallback for other 403 sources)
     const is403 = (err as any)?.statusCode === 403 || 
                  message.includes('403') || 
                  message.includes('NOT_AUTHORIZED') ||
                  (err as any)?.error === 'NOT_AUTHORIZED';
     
     const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+    const osBaseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
     const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+    const tokenPrefix = apiKey ? (apiKey.startsWith('pat') ? apiKey.substring(0, 10) + '...' : apiKey.substring(0, 10) + '...') : 'missing';
     
     console.error('[comments/asset] POST error:', {
       message,
@@ -465,20 +496,27 @@ export async function POST(req: NextRequest) {
       error: err,
       is403,
       table: AIRTABLE_TABLES.COMMENTS,
-      baseId: commentsBaseId,
+      commentsBaseId,
+      osBaseId,
       incomingAssetId,
       resolvedAssetId,
+      resolutionBaseId: osBaseId, // Base used for resolution
+      createBaseId: commentsBaseId, // Base used for creating comment
       authMode: apiKey ? 'service_account' : 'none',
-      apiKeyPrefix: apiKey ? apiKey.substring(0, 10) + '...' : 'missing',
+      tokenPrefix,
     });
     
     // Enhanced error message for 403s
     let errorMessage: string;
     if (is403) {
       errorMessage = `Airtable API 403 NOT_AUTHORIZED: ${message}. ` +
-        `Operation: comments/asset POST, Base: ${commentsBaseId}, Table: ${AIRTABLE_TABLES.COMMENTS}, ` +
-        `Auth Mode: ${apiKey ? 'service_account' : 'none'}. ` +
-        `Check API key permissions for base ${commentsBaseId} and table "${AIRTABLE_TABLES.COMMENTS}". ` +
+        `Operation: comments/asset POST (create comment record). ` +
+        `Resolution Base: ${osBaseId} (used to resolve asset record ID). ` +
+        `Create Base: ${commentsBaseId} (used to create comment record). ` +
+        `Table: ${AIRTABLE_TABLES.COMMENTS}. ` +
+        `Auth Mode: ${apiKey ? 'service_account' : 'none'}, Token: ${tokenPrefix}. ` +
+        `The PAT (Personal Access Token) lacks access to base ${commentsBaseId} and table "${AIRTABLE_TABLES.COMMENTS}". ` +
+        `Check API key permissions in Airtable. ` +
         `Incoming asset ID: ${incomingAssetId}, Resolved asset ID: ${resolvedAssetId}.`;
     } else if (message.includes('ROW_TABLE_DOES_NOT_MATCH_LINKED_TABLE') || message.includes('tbl4ITKYtfE3JLyb6')) {
       errorMessage = `Failed to create comment: ${message}. Incoming asset ID: ${incomingAssetId}. Resolved asset ID: ${resolvedAssetId}. Target Asset field expects records from table tbl4ITKYtfE3JLyb6.`;
@@ -486,7 +524,7 @@ export async function POST(req: NextRequest) {
       errorMessage = `Failed to create comment: ${message}`;
     }
     
-    const statusCode = is403 ? 403 : 500;
+    const statusCode = is403 ? 503 : 500;
     
     return NextResponse.json({ 
       error: errorMessage,

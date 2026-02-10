@@ -4,6 +4,37 @@
 import { getBase } from '@/lib/airtable';
 
 // ============================================================================
+// Custom Error Classes
+// ============================================================================
+
+/**
+ * Custom error for Airtable authorization failures (403 NOT_AUTHORIZED)
+ */
+export class AirtableNotAuthorizedError extends Error {
+  constructor(
+    public readonly baseId: string,
+    public readonly tableName: string,
+    public readonly operation: string,
+    public readonly apiKeyPrefix: string,
+    message?: string
+  ) {
+    super(
+      message ||
+        `Airtable PAT is not authorized for base ${baseId}; grant access or use correct token.`
+    );
+    this.name = 'AirtableNotAuthorizedError';
+    // Log immediately with all context
+    console.error('[AirtableNotAuthorizedError]', {
+      baseId,
+      tableName,
+      operation,
+      apiKeyPrefix,
+      message: this.message,
+    });
+  }
+}
+
+// ============================================================================
 // Retry Logic for Rate Limits
 // ============================================================================
 
@@ -149,7 +180,7 @@ export async function createRecord(
     };
     console.error('[Airtable] API error:', errorDetails);
     
-    // Enhanced error message for 403 errors
+    // Enhanced error message for 403 errors - throw custom error for fail-fast
     if (response.status === 403) {
       let errorObj: any = {};
       try {
@@ -158,25 +189,24 @@ export async function createRecord(
         // Not JSON, use raw text
       }
       const errorMessage = errorObj?.error?.message || errorText;
-      const apiKeyPrefix = config.apiKey ? config.apiKey.substring(0, 20) + '...' : 'missing';
+      const fullBaseId = isCommentsTable ? baseId : baseId;
+      const displayBaseId = isCommentsTable ? baseId : baseId.substring(0, 20) + '...';
       
+      // Log with all context before throwing
       console.error('[Airtable] 403 NOT_AUTHORIZED detected:', {
-        operation: 'airtable.create',
-        baseId: isCommentsTable ? baseId : baseId.substring(0, 20) + '...',
-        baseIdFull: isCommentsTable ? baseId : undefined,
+        baseId: fullBaseId,
         tableName,
-        authMode: config.apiKey ? 'service_account' : 'none',
+        operation: 'airtable.create',
         apiKeyPrefix,
-        errorMessage,
-        errorText,
       });
       
-      throw new Error(
-        `Airtable API 403 NOT_AUTHORIZED: ${errorMessage}. ` +
-        `Operation: airtable.create, Base: ${isCommentsTable ? baseId : baseId.substring(0, 20) + '...'}, Table: ${tableName}, ` +
-        `Auth Mode: ${config.apiKey ? 'service_account' : 'none'}, API Key: ${apiKeyPrefix}. ` +
-        `Check API key permissions for base ${isCommentsTable ? baseId : baseId.substring(0, 20) + '...'} and table "${tableName}". ` +
-        `The API key may not have access to this base/table, or the base/table may not exist.`
+      // Throw custom error for fail-fast guard
+      throw new AirtableNotAuthorizedError(
+        fullBaseId,
+        tableName,
+        'airtable.create',
+        apiKeyPrefix,
+        errorMessage
       );
     }
     
