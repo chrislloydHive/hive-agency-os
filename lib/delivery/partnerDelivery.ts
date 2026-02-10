@@ -309,6 +309,8 @@ export async function runPartnerDelivery(
       isFolder: sourceMimeType === FOLDER_MIMETYPE,
     });
     
+    let sourceVariantFolderId: string | null = null; // Store variant folder ID for file-source mode
+    
     if (sourceMimeType !== FOLDER_MIMETYPE) {
       // Source is a FILE: variant = file.parent, tactic = variant.parent
       isSourceFile = true;
@@ -318,6 +320,7 @@ export async function runPartnerDelivery(
       // Get parent folder (variant)
       const parents = sourceMeta.data.parents ?? [];
       if (parents.length > 0) {
+        sourceVariantFolderId = parents[0]; // Store variant folder ID for later use
         const variantMeta = await drive.files.get({
           fileId: parents[0],
           fields: 'id,name,parents',
@@ -666,6 +669,168 @@ export async function runPartnerDelivery(
         fileUrl: fileResult.url,
       });
       console.log(`[delivery/partner] ${requestId} File copy completed: fileId=${fileResult.id}, fileName="${fileResult.name}", fileUrl=${fileResult.url}`);
+      
+      let foldersCreated = 0;
+      let filesCopied = 1; // The file we just copied
+      const failures: Array<{ id: string; name?: string; reason: string }> = [];
+      
+      // After copying the file, also copy child folders from the source variant folder
+      if (sourceVariantFolderId) {
+        console.log(`[delivery/partner] ${requestId} Source file parent (variant folder): id=${sourceVariantFolderId}, name="${variantName}"`);
+        console.log(`[delivery/partner] ${requestId} Destination variant folder: id=${effectiveDestinationFolderId}, url=${folderUrl(effectiveDestinationFolderId)}`);
+        
+        try {
+          // List children of source variant folder
+          const variantChildren: drive_v3.Schema$File[] = [];
+          let pageToken: string | undefined;
+          do {
+            const res = await drive.files.list({
+              q: `'${sourceVariantFolderId.replace(/'/g, "\\'")}' in parents and trashed = false`,
+              fields: 'nextPageToken, files(id, name, mimeType, shortcutDetails)',
+              supportsAllDrives: true,
+              includeItemsFromAllDrives: true,
+              pageSize: 100,
+              pageToken,
+            });
+            const list = res.data.files ?? [];
+            variantChildren.push(...list);
+            pageToken = res.data.nextPageToken ?? undefined;
+          } while (pageToken);
+          
+          // Find child folders (exclude the source file itself)
+          const childFolders = variantChildren.filter(
+            (item) => item.mimeType === FOLDER_MIMETYPE && item.id !== sourceFolderId
+          );
+          
+          console.log(`[delivery/partner] ${requestId} Child folders found: ${childFolders.length}`, {
+            sourceFileId: sourceFolderId,
+            sourceFileName: sourceName,
+            variantFolderId: sourceVariantFolderId,
+            variantFolderName: variantName,
+            destVariantFolderId: effectiveDestinationFolderId,
+            destVariantFolderUrl: folderUrl(effectiveDestinationFolderId),
+            childFoldersFound: childFolders.length,
+            childFolderNames: childFolders.map(f => f.name).filter(Boolean),
+          });
+          
+          // Heuristics: identify production-assets folders
+          const PRODUCTION_KEYWORDS = ['production', 'asset', 'source', 'build', 'project'];
+          const PRODUCTION_EXTENSIONS = ['psd', 'ai', 'aep', 'prproj', 'aegraphic', 'json', 'zip', 'png', 'jpg', 'jpeg', 'svg', 'gif', 'js', 'html', 'css'];
+          
+          const foldersToCopy: Array<{ id: string; name: string }> = [];
+          
+          // Check each child folder against heuristics
+          for (const childFolder of childFolders) {
+            const childFolderId = childFolder.id;
+            const childFolderName = childFolder.name ?? 'Untitled folder';
+            
+            if (!childFolderId) {
+              continue;
+            }
+            
+            // Heuristic 1: Check if folder name contains production keywords
+            const nameLower = childFolderName.toLowerCase();
+            const matchesNameKeyword = PRODUCTION_KEYWORDS.some(keyword => nameLower.includes(keyword));
+            
+            if (matchesNameKeyword) {
+              foldersToCopy.push({ id: childFolderId, name: childFolderName });
+              continue;
+            }
+            
+            // Heuristic 2: Check if folder contains files with production extensions
+            try {
+              let pageToken: string | undefined;
+              let hasProductionFile = false;
+              
+              do {
+                const res = await drive.files.list({
+                  q: `'${childFolderId.replace(/'/g, "\\'")}' in parents and trashed = false`,
+                  fields: 'nextPageToken, files(id, name, mimeType)',
+                  supportsAllDrives: true,
+                  includeItemsFromAllDrives: true,
+                  pageSize: 100,
+                  pageToken,
+                });
+                
+                const files = res.data.files ?? [];
+                for (const file of files) {
+                  if (file.mimeType === FOLDER_MIMETYPE) continue; // Skip subfolders
+                  
+                  const fileName = file.name ?? '';
+                  const ext = fileName.split('.').pop()?.toLowerCase();
+                  if (ext && PRODUCTION_EXTENSIONS.includes(ext)) {
+                    hasProductionFile = true;
+                    break;
+                  }
+                }
+                
+                if (hasProductionFile) break;
+                pageToken = res.data.nextPageToken ?? undefined;
+              } while (pageToken);
+              
+              if (hasProductionFile) {
+                foldersToCopy.push({ id: childFolderId, name: childFolderName });
+              }
+            } catch (checkErr: any) {
+              // If we can't check folder contents, skip this folder (don't include it)
+              console.warn(`[delivery/partner] ${requestId} Failed to check folder contents for ${childFolderName}:`, checkErr instanceof Error ? checkErr.message : String(checkErr));
+            }
+          }
+          
+          // Fallback: if zero folders match heuristics, copy ALL child folders
+          const fallbackUsed = foldersToCopy.length === 0 && childFolders.length > 0;
+          const selectedFolders = fallbackUsed 
+            ? childFolders.map(f => ({ id: f.id!, name: f.name ?? 'Untitled folder' })).filter(f => f.id)
+            : foldersToCopy;
+          
+          console.log(`[delivery/partner] ${requestId} Folder selection:`, {
+            childFoldersFound: childFolders.length,
+            foldersSelected: selectedFolders.length,
+            fallbackUsed,
+            selectedFolderNames: selectedFolders.map(f => f.name),
+          });
+          
+          // Copy each selected folder recursively
+          for (const folder of selectedFolders) {
+            try {
+              console.log(`[delivery/partner] ${requestId} Copying child folder: id=${folder.id}, name="${folder.name}"`);
+              const folderCopyResult = await copyDriveFolderTree(
+                drive,
+                folder.id,
+                effectiveDestinationFolderId,
+                {
+                  deliveredFolderName: folder.name,
+                  requestId,
+                }
+              );
+              
+              foldersCreated += folderCopyResult.foldersCreated;
+              filesCopied += folderCopyResult.filesCopied;
+              failures.push(...folderCopyResult.failures);
+              
+              console.log(`[delivery/partner] ${requestId} Child folder copied: name="${folder.name}", foldersCreated=${folderCopyResult.foldersCreated}, filesCopied=${folderCopyResult.filesCopied}`);
+            } catch (folderErr: any) {
+              const reason = folderErr instanceof Error ? folderErr.message : String(folderErr);
+              console.warn(`[delivery/partner] ${requestId} Failed to copy child folder ${folder.id} (${folder.name}):`, reason);
+              failures.push({ id: folder.id, name: folder.name, reason });
+            }
+          }
+          
+          console.log(`[delivery/partner] ${requestId} Child folders copy summary:`, {
+            childFoldersFound: childFolders.length,
+            foldersSelected: selectedFolders.length,
+            fallbackUsed,
+            foldersCopied,
+            filesCopied,
+            failures: failures.length,
+          });
+        } catch (listErr: any) {
+          const reason = listErr instanceof Error ? listErr.message : String(listErr);
+          console.warn(`[delivery/partner] ${requestId} Failed to list child folders from variant folder ${sourceVariantFolderId}:`, reason);
+          // Non-blocking: continue even if listing fails
+        }
+      }
+      
       console.log(`[delivery/partner] ${requestId} FINAL DESTINATION FOLDER URL: ${folderUrl(effectiveDestinationFolderId)}`);
       console.log(`[delivery/partner] ${requestId} Destination structure:`, {
         destinationRoot: destinationFolderId,
@@ -680,8 +845,8 @@ export async function runPartnerDelivery(
       await updateAssetStatusDeliverySuccess(airtableRecordId, {
         deliveredFolderId: effectiveDestinationFolderId,
         deliveredFolderUrl: fileResult.url,
-        filesCopied: 1,
-        foldersCreated: 0,
+        filesCopied,
+        foldersCreated,
       });
       logStructured({
         requestId,
@@ -696,9 +861,9 @@ export async function runPartnerDelivery(
         ok: true,
         deliveredFileUrl: fileResult.url,
         deliveredRootFolderId: effectiveDestinationFolderId,
-        foldersCreated: 0,
-        filesCopied: 1,
-        failures: [],
+        foldersCreated,
+        filesCopied,
+        failures,
         authMode,
         result: 'ok',
       };
