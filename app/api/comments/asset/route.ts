@@ -8,6 +8,7 @@ import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { createRecord } from '@/lib/airtable/client';
 import { getCrasRecordIdByTokenAndFileId } from '@/lib/airtable/reviewAssetStatus';
+import { resolveTargetAssetRecordId } from '@/lib/airtable/resolveCommentTargetAsset';
 
 export const dynamic = 'force-dynamic';
 
@@ -279,22 +280,52 @@ export async function POST(req: NextRequest) {
   const osBase = getBase();
   const createdAt = new Date().toISOString();
   
+  // Ensure resolvedCrasId is definitely a string
+  const crasIdString = String(resolvedCrasId).trim();
+  if (!crasIdString.startsWith('rec')) {
+    return NextResponse.json({ error: `Invalid CRAS ID format: ${crasIdString}` }, { status: 400 });
+  }
+  
+  // Resolve asset record ID to the correct Target Asset record ID
+  // Target Asset field links to table tbl4ITKYtfE3JLyb6, which may differ from the source table
+  const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+  
+  let resolvedTargetAssetId: string;
+  try {
+    resolvedTargetAssetId = await resolveTargetAssetRecordId({
+      incomingAssetId: crasIdString,
+      baseId: commentsBaseId,
+    });
+  } catch (resolveErr) {
+    const errorMessage = resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
+    console.error('[comments/asset] Failed to resolve Target Asset ID:', {
+      incomingAssetId: crasIdString,
+      error: errorMessage,
+      commentsBaseId,
+    });
+    return NextResponse.json({ 
+      error: errorMessage,
+      incomingAssetId: crasIdString,
+    }, { status: 400 });
+  }
+  
   try {
     // Create comment record
     // Note: Author field removed - it's not a text field (likely collaborator/link/single-select)
     // Note: Created field removed - it's read-only (automatically set by Airtable)
     // Note: Linked records must be array of record ID strings, not objects with id property
-    // Ensure resolvedCrasId is definitely a string
-    const crasIdString = String(resolvedCrasId).trim();
-    if (!crasIdString.startsWith('rec')) {
-      throw new Error(`Invalid CRAS ID format: ${crasIdString}`);
-    }
+    
+    console.log('[comments/asset] Resolved Target Asset ID:', {
+      incomingAssetId: crasIdString,
+      resolvedAssetId: resolvedTargetAssetId,
+      commentsBaseId,
+    });
     
     const recordFields: Record<string, unknown> = {
       Body: trimmedBody.slice(0, 5000),
       Status: 'Open', // Single-select: use string value
       'Target Type': 'Asset', // Single-select: use string value
-      'Target Asset': [crasIdString], // Linked record: array of record ID strings (must be strings, not objects)
+      'Target Asset': [resolvedTargetAssetId], // Linked record: array of record ID strings (resolved to correct table)
     };
     
     // Add Author Email field if it exists in schema (optional)
@@ -318,9 +349,7 @@ export async function POST(req: NextRequest) {
       }
     }
     
-    // Comments table is in a different base (appQLwoVH8JyGSTIo)
-    // Use AIRTABLE_COMMENTS_BASE_ID if set, otherwise use the provided base ID
-    const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+    // Comments base ID already resolved above
     console.log('[comments/asset] Comments base ID:', {
       fromEnv: !!process.env.AIRTABLE_COMMENTS_BASE_ID,
       commentsBaseId,
@@ -352,7 +381,8 @@ export async function POST(req: NextRequest) {
       baseId: commentsBaseId,
       fields: Object.keys(recordFields),
       fieldValues: JSON.stringify(recordFields, null, 2),
-      crasId: resolvedCrasId,
+      incomingAssetId: crasIdString,
+      resolvedAssetId: resolvedTargetAssetId,
       crasIdType: typeof resolvedCrasId,
       hasBody: !!trimmedBody,
       bodyLength: trimmedBody.length,
@@ -415,13 +445,53 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
+    
+    // Extract resolved asset ID if it was set before the error
+    const resolvedAssetId = typeof resolvedTargetAssetId === 'string' ? resolvedTargetAssetId : 'unknown';
+    const incomingAssetId = typeof resolvedCrasId === 'string' ? resolvedCrasId : 'unknown';
+    
+    // Check for 403 errors specifically
+    const is403 = (err as any)?.statusCode === 403 || 
+                 message.includes('403') || 
+                 message.includes('NOT_AUTHORIZED') ||
+                 (err as any)?.error === 'NOT_AUTHORIZED';
+    
+    const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
+    const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+    
     console.error('[comments/asset] POST error:', {
       message,
       stack,
       error: err,
+      is403,
       table: AIRTABLE_TABLES.COMMENTS,
-      baseId: process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo',
+      baseId: commentsBaseId,
+      incomingAssetId,
+      resolvedAssetId,
+      authMode: apiKey ? 'service_account' : 'none',
+      apiKeyPrefix: apiKey ? apiKey.substring(0, 10) + '...' : 'missing',
     });
-    return NextResponse.json({ error: `Failed to create comment: ${message}` }, { status: 500 });
+    
+    // Enhanced error message for 403s
+    let errorMessage: string;
+    if (is403) {
+      errorMessage = `Airtable API 403 NOT_AUTHORIZED: ${message}. ` +
+        `Operation: comments/asset POST, Base: ${commentsBaseId}, Table: ${AIRTABLE_TABLES.COMMENTS}, ` +
+        `Auth Mode: ${apiKey ? 'service_account' : 'none'}. ` +
+        `Check API key permissions for base ${commentsBaseId} and table "${AIRTABLE_TABLES.COMMENTS}". ` +
+        `Incoming asset ID: ${incomingAssetId}, Resolved asset ID: ${resolvedAssetId}.`;
+    } else if (message.includes('ROW_TABLE_DOES_NOT_MATCH_LINKED_TABLE') || message.includes('tbl4ITKYtfE3JLyb6')) {
+      errorMessage = `Failed to create comment: ${message}. Incoming asset ID: ${incomingAssetId}. Resolved asset ID: ${resolvedAssetId}. Target Asset field expects records from table tbl4ITKYtfE3JLyb6.`;
+    } else {
+      errorMessage = `Failed to create comment: ${message}`;
+    }
+    
+    const statusCode = is403 ? 403 : 500;
+    
+    return NextResponse.json({ 
+      error: errorMessage,
+      incomingAssetId,
+      resolvedAssetId: resolvedAssetId !== 'unknown' ? resolvedAssetId : undefined,
+    }, { status: statusCode });
   }
 }

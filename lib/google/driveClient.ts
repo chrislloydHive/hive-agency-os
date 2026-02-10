@@ -1081,62 +1081,62 @@ export async function copyDriveFolderTree(
     sourceParentId: string,
     destParentId: string
   ): Promise<void> {
-    const children = await listFolderChildren(drive, sourceParentId);
-    for (const item of children) {
+    // Incremental copy: list both source and destination children, copy only missing items
+    // FIX: Previously, idempotency checks were done per-item in the loop (lines ~1092-1179),
+    // which caused new assets added to existing folders to be skipped. Now we compute the diff
+    // upfront and only copy items that don't exist in destination (matched by name + mimeType).
+    const sourceChildren = await listFolderChildren(drive, sourceParentId);
+    const destChildren = await listFolderChildren(drive, destParentId);
+    
+    // Create a map of destination items by name + mimeType for fast lookup
+    const destMap = new Map<string, drive_v3.Schema$File>();
+    for (const destItem of destChildren) {
+      const key = `${destItem.name ?? ''}::${destItem.mimeType ?? ''}`;
+      destMap.set(key, destItem);
+    }
+    
+    console.log(`[Drive/copyFolderTree] Incremental copy: source has ${sourceChildren.length} items, destination has ${destChildren.length} items`);
+    
+    // Filter to only items that don't exist in destination (match by name + mimeType)
+    const itemsToCopy = sourceChildren.filter(sourceItem => {
+      const key = `${sourceItem.name ?? ''}::${sourceItem.mimeType ?? ''}`;
+      return !destMap.has(key);
+    });
+    
+    const missingCount = itemsToCopy.length;
+    console.log(`[Drive/copyFolderTree] Missing items to copy: ${missingCount} (${sourceChildren.length - missingCount} already exist)`);
+    
+    for (const item of itemsToCopy) {
       const id = item.id ?? '';
       const name = item.name ?? undefined;
       const mimeType = item.mimeType ?? '';
 
       if (mimeType === FOLDER_MIMETYPE) {
         try {
-          // Idempotency check: check if folder with same name already exists
+          // Folder already filtered out if it exists (matched by name + mimeType), so create it
           const folderName = item.name ?? 'Untitled folder';
-          const escapedName = folderName.replace(/'/g, "\\'");
-          let newFolderId: string;
-          try {
-            const existingRes = await drive.files.list({
-              q: `'${destParentId}' in parents and name = '${escapedName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-              fields: 'files(id, name)',
-              supportsAllDrives: true,
-              includeItemsFromAllDrives: true,
-              pageSize: 1,
-            });
-            const existingFolders = existingRes.data.files ?? [];
-            if (existingFolders.length > 0) {
-              newFolderId = existingFolders[0].id!;
-              console.log(`[delivery/copy] SKIPPING`, {
-                sourceId: id,
-                destFolderId: destParentId,
-                destFolderUrl: folderUrl(destParentId),
-                reason: `folder already exists: "${folderName}"`,
-                existingId: newFolderId,
-              });
-            } else {
-              const createChild = await drive.files.create({
-                requestBody: {
-                  name: folderName,
-                  mimeType: FOLDER_MIMETYPE,
-                  parents: [destParentId],
-                },
-                fields: 'id',
-                supportsAllDrives: true,
-              });
-              newFolderId = createChild.data.id!;
-            }
-          } catch (checkError) {
-            // If idempotency check fails, create folder anyway (non-critical)
-            console.warn(`[delivery] Idempotency check failed for folder "${folderName}", creating anyway:`, checkError instanceof Error ? checkError.message : String(checkError));
-            const createChild = await drive.files.create({
-              requestBody: {
-                name: folderName,
-                mimeType: FOLDER_MIMETYPE,
-                parents: [destParentId],
-              },
-              fields: 'id',
-              supportsAllDrives: true,
-            });
-            newFolderId = createChild.data.id!;
-          }
+          console.log(`[delivery/copy] START`, {
+            sourceId: id,
+            destFolderId: destParentId,
+            destFolderUrl: folderUrl(destParentId),
+            reason: `creating folder "${folderName}"`,
+            sourceType: 'folder',
+          });
+          const createChild = await drive.files.create({
+            requestBody: {
+              name: folderName,
+              mimeType: FOLDER_MIMETYPE,
+              parents: [destParentId],
+            },
+            fields: 'id',
+            supportsAllDrives: true,
+          });
+          const newFolderId = createChild.data.id!;
+          console.log(`[delivery/copy] DONE`, {
+            sourceId: id,
+            createdFileOrFolderId: newFolderId,
+            folderName,
+          });
           foldersCreated++;
           await recurse(id, newFolderId);
         } catch (e) {
@@ -1153,55 +1153,27 @@ export async function copyDriveFolderTree(
       }
 
       try {
-        // Idempotency check: check if file with same name already exists
+        // File already filtered out if it exists (matched by name + mimeType), so copy it
         const fileName = name ?? 'Untitled';
-        const escapedName = fileName.replace(/'/g, "\\'");
-        let shouldCopy = true;
-        try {
-          const existingRes = await drive.files.list({
-            q: `'${destParentId}' in parents and name = '${escapedName}' and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
-            fields: 'files(id, name)',
-            supportsAllDrives: true,
-            includeItemsFromAllDrives: true,
-            pageSize: 1,
-          });
-          const existingFiles = existingRes.data.files ?? [];
-          if (existingFiles.length > 0) {
-            console.log(`[delivery/copy] SKIPPING`, {
-              sourceId: fileIdToCopy,
-              destFolderId: destParentId,
-              destFolderUrl: folderUrl(destParentId),
-              reason: `file already exists: "${fileName}"`,
-              existingId: existingFiles[0].id,
-            });
-            shouldCopy = false;
-            filesCopied++; // Count as copied for stats
-          }
-        } catch (checkError) {
-          // If idempotency check fails, continue with copy (non-critical)
-          console.warn(`[delivery] Idempotency check failed for file "${fileName}", copying anyway:`, checkError instanceof Error ? checkError.message : String(checkError));
-        }
-        
-        if (shouldCopy) {
-          console.log(`[delivery/copy] START`, {
-            sourceId: fileIdToCopy,
-            destFolderId: destParentId,
-            destFolderUrl: folderUrl(destParentId),
-            reason: `copying file "${fileName}"`,
-          });
-          const copyRes = await drive.files.copy({
-            fileId: fileIdToCopy,
-            requestBody: { parents: [destParentId] },
-            fields: 'id',
-            supportsAllDrives: true,
-          });
-          console.log(`[delivery/copy] DONE`, {
-            sourceId: fileIdToCopy,
-            createdFileOrFolderId: copyRes.data.id!,
-            fileName,
-          });
-          filesCopied++;
-        }
+        console.log(`[delivery/copy] START`, {
+          sourceId: fileIdToCopy,
+          destFolderId: destParentId,
+          destFolderUrl: folderUrl(destParentId),
+          reason: `copying file "${fileName}"`,
+          sourceType: 'file',
+        });
+        const copyRes = await drive.files.copy({
+          fileId: fileIdToCopy,
+          requestBody: { parents: [destParentId] },
+          fields: 'id',
+          supportsAllDrives: true,
+        });
+        console.log(`[delivery/copy] DONE`, {
+          sourceId: fileIdToCopy,
+          createdFileOrFolderId: copyRes.data.id!,
+          fileName,
+        });
+        filesCopied++;
       } catch (e) {
         const reason = e instanceof Error ? e.message : String(e);
         console.warn(`[Drive/copyFolderTree] Failed to copy file ${id}:`, reason);
@@ -1210,21 +1182,27 @@ export async function copyDriveFolderTree(
     }
   }
 
-  // Pre-check: List source folder contents for diagnostics
+  // Pre-check: List source and destination folder contents for diagnostics
   try {
     const sourceChildren = await listFolderChildren(drive, sourceFolderId);
     const sourceFiles = sourceChildren.filter(f => f.mimeType !== FOLDER_MIMETYPE);
     const sourceFolders = sourceChildren.filter(f => f.mimeType === FOLDER_MIMETYPE);
     console.log(`[Drive/copyFolderTree] Source folder ${sourceFolderId} contains: ${sourceFiles.length} files, ${sourceFolders.length} folders`);
+    
+    const destChildren = await listFolderChildren(drive, deliveredRootFolderId);
+    const destFiles = destChildren.filter(f => f.mimeType !== FOLDER_MIMETYPE);
+    const destFolders = destChildren.filter(f => f.mimeType === FOLDER_MIMETYPE);
+    console.log(`[Drive/copyFolderTree] Destination folder ${deliveredRootFolderId} contains: ${destFiles.length} files, ${destFolders.length} folders`);
+    
     if (sourceFiles.length === 0 && sourceFolders.length === 0) {
       console.warn(`[Drive/copyFolderTree] WARNING: Source folder ${sourceFolderId} appears to be empty!`);
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.warn(`[Drive/copyFolderTree] Failed to list source folder contents for diagnostics:`, msg);
+    console.warn(`[Drive/copyFolderTree] Failed to list folder contents for diagnostics:`, msg);
   }
 
-  console.log(`[Drive/copyFolderTree] Starting recursive copy from ${sourceFolderId} to ${deliveredRootFolderId}`);
+  console.log(`[Drive/copyFolderTree] Starting incremental recursive copy from ${sourceFolderId} to ${deliveredRootFolderId}`);
   await recurse(sourceFolderId, deliveredRootFolderId);
   console.log(`[Drive/copyFolderTree] Copy complete: filesCopied=${filesCopied}, foldersCreated=${foldersCreated}, failures=${failures.length}`);
 

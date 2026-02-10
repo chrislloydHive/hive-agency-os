@@ -106,13 +106,19 @@ export async function createRecord(
   )}`;
 
   const isCommentsTable = tableName === 'Comments';
+  const apiKeyPrefix = config.apiKey ? config.apiKey.substring(0, 10) + '...' : 'missing';
+  
   console.log('[Airtable] Creating record:', {
+    operation: 'airtable.create',
     url: url.replace(config.apiKey, '***'),
     tableName,
     baseId: isCommentsTable ? baseId : baseId.substring(0, 20) + '...', // Show full baseId for Comments table
+    baseIdFull: isCommentsTable ? baseId : undefined, // Show full baseId for Comments table
     baseIdOverride: baseIdOverride || 'none',
     usingOverride: !!baseIdOverride,
     defaultBaseId: config.baseId.substring(0, 20) + '...',
+    authMode: config.apiKey ? 'service_account' : 'none',
+    apiKeyPrefix,
     fieldCount: Object.keys(fields).length,
     fieldKeys: Object.keys(fields),
     fields: (tableName === 'GAP-Heavy Run' || tableName === 'Diagnostic Runs' || tableName === 'Comments') ? fields : undefined, // Log fields for Heavy Run, Diagnostic Runs, and Comments tables
@@ -130,13 +136,50 @@ export async function createRecord(
   if (!response.ok) {
     const errorText = await response.text();
     const errorDetails = {
+      operation: 'airtable.create',
       status: response.status,
       statusText: response.statusText,
       errorText,
       url: url.replace(config.apiKey, '***'),
       tableName,
+      baseId: isCommentsTable ? baseId : baseId.substring(0, 20) + '...',
+      baseIdFull: isCommentsTable ? baseId : undefined,
+      authMode: config.apiKey ? 'service_account' : 'none',
+      apiKeyPrefix,
     };
     console.error('[Airtable] API error:', errorDetails);
+    
+    // Enhanced error message for 403 errors
+    if (response.status === 403) {
+      let errorObj: any = {};
+      try {
+        errorObj = JSON.parse(errorText);
+      } catch {
+        // Not JSON, use raw text
+      }
+      const errorMessage = errorObj?.error?.message || errorText;
+      const apiKeyPrefix = config.apiKey ? config.apiKey.substring(0, 20) + '...' : 'missing';
+      
+      console.error('[Airtable] 403 NOT_AUTHORIZED detected:', {
+        operation: 'airtable.create',
+        baseId: isCommentsTable ? baseId : baseId.substring(0, 20) + '...',
+        baseIdFull: isCommentsTable ? baseId : undefined,
+        tableName,
+        authMode: config.apiKey ? 'service_account' : 'none',
+        apiKeyPrefix,
+        errorMessage,
+        errorText,
+      });
+      
+      throw new Error(
+        `Airtable API 403 NOT_AUTHORIZED: ${errorMessage}. ` +
+        `Operation: airtable.create, Base: ${isCommentsTable ? baseId : baseId.substring(0, 20) + '...'}, Table: ${tableName}, ` +
+        `Auth Mode: ${config.apiKey ? 'service_account' : 'none'}, API Key: ${apiKeyPrefix}. ` +
+        `Check API key permissions for base ${isCommentsTable ? baseId : baseId.substring(0, 20) + '...'} and table "${tableName}". ` +
+        `The API key may not have access to this base/table, or the base/table may not exist.`
+      );
+    }
+    
     throw new Error(
       `Airtable API error (${response.status}): ${errorText}`
     );
