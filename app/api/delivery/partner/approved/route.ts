@@ -69,13 +69,17 @@ export async function POST(req: Request) {
     const base = getBase();
     const crasRecord = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
     
-    // Try "Partner Delivery Batch" field first (as user specified)
-    let batchField = crasRecord.fields['Partner Delivery Batch'] as string[] | string | undefined;
+    // Debug: Log available fields and the Partner Delivery Batch field value
+    console.log("[delivery/partner/approved] CRAS keys", Object.keys(crasRecord.fields || {}));
+    console.log("[delivery/partner/approved] PDB raw", crasRecord.fields?.["Partner Delivery Batch"]);
     
-    // Fall back to "Delivery Batch ID" if "Partner Delivery Batch" doesn't exist
-    if (!batchField) {
-      batchField = crasRecord.fields[DELIVERY_BATCH_ID_FIELD] as string[] | string | undefined;
-    }
+    // Try multiple field name variations (fallback logic)
+    const batchLinks = crasRecord.fields["Partner Delivery Batch"] 
+      ?? crasRecord.fields["Partner Delivery Batches"] 
+      ?? crasRecord.fields["Partner Delivery Batch 2"]
+      ?? crasRecord.fields[DELIVERY_BATCH_ID_FIELD];
+    
+    let batchField = batchLinks as string[] | string | undefined;
     
     // Extract batchRecordId from linked record (array of record IDs)
     if (Array.isArray(batchField) && batchField.length > 0) {
@@ -100,7 +104,7 @@ export async function POST(req: Request) {
     
     // If still no batchRecordId, throw error
     if (!batchRecordId) {
-      const errorMsg = `CRAS record ${crasRecordId} is missing linked Partner Delivery Batch. Field value: ${JSON.stringify(batchField)}. Please ensure the CRAS record has a linked Partner Delivery Batch record.`;
+      const errorMsg = `CRAS record ${crasRecordId} is missing linked Partner Delivery Batch. Field value: ${JSON.stringify(batchField)}. Available fields: ${Object.keys(crasRecord.fields || {}).join(', ')}. Please ensure the CRAS record has a linked Partner Delivery Batch record.`;
       console.error(`[delivery/partner/approved] CRITICAL: ${errorMsg}`);
       throw new Error(errorMsg);
     }
