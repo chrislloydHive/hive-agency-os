@@ -230,12 +230,12 @@ export async function POST(req: NextRequest) {
   try {
     // Create comment record
     // Note: Author field removed - it's not a text field (likely collaborator/link/single-select)
+    // Note: Created field removed - it's read-only (automatically set by Airtable)
     const recordFields: Record<string, unknown> = {
       Body: trimmedBody.slice(0, 5000),
       Status: 'Open', // Single-select: use string value
       'Target Type': 'Group', // Single-select: use string value
       'Creative Review Groups': [{ id: groupId }],
-      Created: createdAt,
     };
     
     // Add Author Email field if it exists in schema (optional)
@@ -245,12 +245,12 @@ export async function POST(req: NextRequest) {
     
     console.log('[comments/group] Creating comment record:', {
       table: AIRTABLE_TABLES.COMMENTS,
+      baseId: process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo',
       fields: Object.keys(recordFields),
+      fieldValues: recordFields,
       groupId,
       hasBody: !!trimmedBody,
     });
-    
-    console.log('[comments/group] Fields being sent to Comments table:', Object.keys(recordFields));
     
     // Comments table is in a different base (appQLwoVH8JyGSTIo)
     // Use AIRTABLE_COMMENTS_BASE_ID if set, otherwise use the provided base ID
@@ -279,7 +279,14 @@ export async function POST(req: NextRequest) {
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[comments/group] POST error:', message);
-    return NextResponse.json({ error: 'Failed to create comment' }, { status: 500 });
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error('[comments/group] POST error:', {
+      message,
+      stack,
+      error: err,
+      table: AIRTABLE_TABLES.COMMENTS,
+      baseId: process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo',
+    });
+    return NextResponse.json({ error: `Failed to create comment: ${message}` }, { status: 500 });
   }
 }
