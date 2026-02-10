@@ -202,31 +202,66 @@ export async function POST(req: NextRequest) {
     
     console.log(`[bulk-approve] Triggering delivery for ${toUpdate.length} record(s)`);
     
-    // Fire-and-forget: trigger delivery for each record with resolved batchRecordId
-    toUpdate.forEach((recordId) => {
+    // Trigger delivery for each record with resolved batchRecordId
+    // Use Promise.allSettled to handle all requests without blocking, but log responses
+    const deliveryPromises = toUpdate.map(async (recordId) => {
       const batchInfo = recordBatchMap.get(recordId);
       const batchId = batchInfo?.batchId || deliveryBatchId;
       const batchRecordId = batchInfo?.batchRecordId;
       
       if (!batchId) {
         console.warn(`[bulk-approve] No deliveryBatchId for record ${recordId}, skipping delivery trigger`);
-        return;
+        return { recordId, skipped: true };
       }
       
       const requestId = `bulk-approved-${recordId}-${Date.now()}`;
-      fetch(deliveryUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          crasRecordId: recordId,
-          batchId,
-          deliveryBatchRecordId: batchRecordId,
+      try {
+        const res = await fetch(deliveryUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            crasRecordId: recordId,
+            batchId,
+            deliveryBatchRecordId: batchRecordId,
+            requestId,
+            triggeredBy: 'bulk-approval',
+          }),
+        });
+        const text = await res.text().catch(() => '');
+        console.log(`[bulk-approve] delivery endpoint response for ${recordId}:`, {
           requestId,
-          triggeredBy: 'bulk-approval',
-        }),
-      }).catch((err) => {
-        console.error(`[bulk-approve] Failed to trigger delivery for ${recordId}:`, err);
-      });
+          recordId,
+          status: res.status,
+          ok: res.ok,
+          text: text.slice(0, 500),
+        });
+        
+        if (!res.ok) {
+          console.error(`[bulk-approve] Delivery endpoint returned error for ${recordId}:`, {
+            requestId,
+            recordId,
+            status: res.status,
+            statusText: res.statusText,
+            text: text.slice(0, 500),
+          });
+        }
+        
+        return { recordId, success: res.ok, status: res.status };
+      } catch (err) {
+        console.error(`[bulk-approve] Failed to trigger delivery for ${recordId}:`, {
+          requestId,
+          recordId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return { recordId, success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    });
+    
+    // Wait for all delivery triggers to complete (but don't block the response)
+    Promise.allSettled(deliveryPromises).then((results) => {
+      const successful = results.filter((r) => r.status === 'fulfilled' && r.value?.success).length;
+      const failed = results.filter((r) => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value?.success)).length;
+      console.log(`[bulk-approve] Delivery trigger summary: ${successful} successful, ${failed} failed out of ${toUpdate.length} total`);
     });
   }
 
