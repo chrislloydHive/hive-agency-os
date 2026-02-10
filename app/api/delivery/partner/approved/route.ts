@@ -78,24 +78,50 @@ export async function POST(req: Request) {
       const base = getBase();
       crasRecord = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
       
-      // Try to extract batchRecordId from CRAS field (array of record IDs)
-      const crasBatchField = crasRecord?.fields?.["Partner Delivery Batch"];
-      if (Array.isArray(crasBatchField) && crasBatchField.length > 0) {
-        const firstLink = crasBatchField[0];
+      // Try to extract batchRecordId from CRAS fields
+      // Check both "Partner Delivery Batch" (linked record) and "Delivery Batch ID" (can be text or linked record)
+      const partnerDeliveryBatchField = crasRecord?.fields?.["Partner Delivery Batch"];
+      const deliveryBatchIdField = crasRecord?.fields?.[DELIVERY_BATCH_ID_FIELD];
+      
+      // First try "Partner Delivery Batch" (linked record field)
+      if (Array.isArray(partnerDeliveryBatchField) && partnerDeliveryBatchField.length > 0) {
+        const firstLink = partnerDeliveryBatchField[0];
         if (typeof firstLink === 'string' && firstLink.startsWith('rec')) {
           batchRecordId = firstLink;
         } else if (typeof firstLink === 'object' && firstLink !== null && 'id' in firstLink) {
           batchRecordId = (firstLink as { id: string }).id;
         }
-      } else if (typeof crasBatchField === 'string' && crasBatchField.startsWith('rec')) {
-        batchRecordId = crasBatchField;
+      } else if (typeof partnerDeliveryBatchField === 'string' && partnerDeliveryBatchField.startsWith('rec')) {
+        batchRecordId = partnerDeliveryBatchField;
       }
+      
+      // Fallback: try "Delivery Batch ID" field (can be text or linked record)
+      if (!batchRecordId) {
+        if (Array.isArray(deliveryBatchIdField) && deliveryBatchIdField.length > 0) {
+          const firstLink = deliveryBatchIdField[0];
+          if (typeof firstLink === 'string' && firstLink.startsWith('rec')) {
+            batchRecordId = firstLink;
+          } else if (typeof firstLink === 'object' && firstLink !== null && 'id' in firstLink) {
+            batchRecordId = (firstLink as { id: string }).id;
+          }
+        } else if (typeof deliveryBatchIdField === 'string' && deliveryBatchIdField.startsWith('rec')) {
+          batchRecordId = deliveryBatchIdField;
+        }
+      }
+      
+      console.log("[delivery] CRAS field lookup", {
+        crasRecordId,
+        partnerDeliveryBatchField: partnerDeliveryBatchField || null,
+        deliveryBatchIdField: deliveryBatchIdField || null,
+        resolvedBatchRecordId: batchRecordId || null,
+      });
     }
     
     // Log batch resolution for debugging
     console.log("[delivery] batch resolution", {
       fromRequest: deliveryBatchRecordId || null,
-      fromCRAS: crasRecord?.fields?.["Partner Delivery Batch"] || null,
+      fromCRASPartnerDeliveryBatch: crasRecord?.fields?.["Partner Delivery Batch"] || null,
+      fromCRASDeliveryBatchId: crasRecord?.fields?.[DELIVERY_BATCH_ID_FIELD] || null,
       resolvedBatchRecordId: batchRecordId || null,
     });
     

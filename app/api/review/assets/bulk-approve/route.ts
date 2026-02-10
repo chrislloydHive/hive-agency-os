@@ -200,7 +200,23 @@ export async function POST(req: NextRequest) {
     const origin = getAppOrigin(req);
     const deliveryUrl = `${origin}/api/delivery/partner/approved`;
     
-    console.log(`[bulk-approve] Triggering delivery for ${toUpdate.length} record(s)`);
+    console.log(`[bulk-approve] Triggering delivery for ${toUpdate.length} record(s)`, {
+      recordIds: toUpdate,
+      recordBatchMapSize: recordBatchMap.size,
+      hasDeliveryBatchId: !!deliveryBatchId,
+    });
+    
+    // Log batch resolution summary
+    const recordsWithBatch = Array.from(recordBatchMap.entries()).map(([recordId, info]) => ({
+      recordId,
+      batchId: info.batchId,
+      batchRecordId: info.batchRecordId,
+    }));
+    console.log(`[bulk-approve] Batch resolution summary:`, {
+      recordsWithBatch: recordsWithBatch.length,
+      recordsWithoutBatch: toUpdate.length - recordsWithBatch.length,
+      batchInfo: recordsWithBatch,
+    });
     
     // Trigger delivery for each record with resolved batchRecordId
     // Use Promise.allSettled to handle all requests without blocking, but log responses
@@ -210,11 +226,23 @@ export async function POST(req: NextRequest) {
       const batchRecordId = batchInfo?.batchRecordId;
       
       if (!batchId) {
-        console.warn(`[bulk-approve] No deliveryBatchId for record ${recordId}, skipping delivery trigger`);
-        return { recordId, skipped: true };
+        console.warn(`[bulk-approve] No deliveryBatchId for record ${recordId}, skipping delivery trigger`, {
+          recordId,
+          hasBatchInfo: !!batchInfo,
+          hasDeliveryBatchId: !!deliveryBatchId,
+        });
+        return { recordId, skipped: true, reason: 'no_batch_id' };
       }
       
       const requestId = `bulk-approved-${recordId}-${Date.now()}`;
+      console.log(`[bulk-approve] Triggering delivery for record ${recordId}:`, {
+        requestId,
+        recordId,
+        batchId,
+        batchRecordId,
+        deliveryUrl,
+      });
+      
       try {
         const res = await fetch(deliveryUrl, {
           method: 'POST',
@@ -252,6 +280,7 @@ export async function POST(req: NextRequest) {
           requestId,
           recordId,
           error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
         });
         return { recordId, success: false, error: err instanceof Error ? err.message : String(err) };
       }
@@ -261,8 +290,21 @@ export async function POST(req: NextRequest) {
     Promise.allSettled(deliveryPromises).then((results) => {
       const successful = results.filter((r) => r.status === 'fulfilled' && r.value?.success).length;
       const failed = results.filter((r) => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value?.success)).length;
-      console.log(`[bulk-approve] Delivery trigger summary: ${successful} successful, ${failed} failed out of ${toUpdate.length} total`);
+      const skipped = results.filter((r) => r.status === 'fulfilled' && r.value?.skipped).length;
+      console.log(`[bulk-approve] Delivery trigger summary:`, {
+        total: toUpdate.length,
+        successful,
+        failed,
+        skipped,
+        results: results.map((r) => 
+          r.status === 'fulfilled' 
+            ? { recordId: r.value?.recordId, success: r.value?.success, skipped: r.value?.skipped, status: r.value?.status, error: r.value?.error }
+            : { status: 'rejected', error: r.reason }
+        ),
+      });
     });
+  } else {
+    console.warn(`[bulk-approve] No records to update, skipping delivery trigger`);
   }
 
   return NextResponse.json(
