@@ -8,6 +8,7 @@ import { google } from 'googleapis';
 import type { drive_v3 } from 'googleapis';
 import type { OAuth2Client } from 'google-auth-library';
 import { GoogleAuth } from 'google-auth-library';
+import type { Readable } from 'stream';
 
 // ============================================================================
 // Types
