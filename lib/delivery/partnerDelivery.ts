@@ -14,6 +14,7 @@ import {
   ensureSubfolderPath,
   findChildFolderWithDrive,
   createFolderWithDrive,
+  ensureChildFolderWithDrive,
 } from '@/lib/google/driveClient';
 import {
   getDestinationFolderIdByBatchId,
