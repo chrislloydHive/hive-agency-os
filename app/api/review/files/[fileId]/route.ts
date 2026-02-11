@@ -7,6 +7,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { getAllowedReviewFolderIds, getAllowedReviewFolderIdsFromJobFolder, getAllowedReviewFolderIdsFromClientProjectsFolder } from '@/lib/review/reviewFolders';
+import {
+  isGoogleWorkspaceFile,
+  getDefaultExportFormat,
+  getExportFileExtension,
+  exportGoogleWorkspaceFile,
+} from '@/lib/google/driveClient';
 import type { Readable } from 'stream';
 
 export const dynamic = 'force-dynamic';
@@ -105,14 +111,63 @@ export async function GET(
     return NextResponse.json({ error: 'File not found or access denied' }, { status: 404 });
   }
 
-  // Stream file content
-  try {
-    const res = await drive.files.get(
-      { fileId, alt: 'media', supportsAllDrives: true },
-      { responseType: 'stream' },
-    );
+  // Check if this is a Google Workspace file that needs export
+  const isGoogleDoc = isGoogleWorkspaceFile(mimeType);
+  const exportFormat = req.nextUrl.searchParams.get('format')?.trim() || null; // Optional: pdf, docx, etc.
+  
+  // Determine export mimeType if needed
+  let exportMimeType: string | null = null;
+  let finalFileName = fileName;
+  let finalMimeType = mimeType;
+  
+  if (isGoogleDoc) {
+    // If format specified, use it; otherwise use default
+    if (exportFormat) {
+      const formats = {
+        pdf: 'application/pdf',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        txt: 'text/plain',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        csv: 'text/csv',
+        pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        png: 'image/png',
+      };
+      exportMimeType = formats[exportFormat as keyof typeof formats] || null;
+    }
+    
+    // If no format specified or invalid format, use default
+    if (!exportMimeType) {
+      exportMimeType = getDefaultExportFormat(mimeType);
+    }
+    
+    if (exportMimeType) {
+      finalMimeType = exportMimeType;
+      finalFileName = getExportFileExtension(exportMimeType, fileName);
+      console.log(`[review/files] Exporting Google Workspace file: ${mimeType} -> ${exportMimeType}, filename: ${fileName} -> ${finalFileName}`);
+    } else {
+      return NextResponse.json(
+        { error: `Unsupported Google Workspace file type: ${mimeType}. Use ?format=pdf or ?format=docx` },
+        { status: 400 }
+      );
+    }
+  }
 
-    const stream = res.data as unknown as Readable;
+  // Stream file content (export for Google Docs, direct download for regular files)
+  try {
+    let stream: Readable;
+    
+    if (isGoogleDoc && exportMimeType) {
+      // Export Google Workspace file
+      stream = await exportGoogleWorkspaceFile(drive, fileId, exportMimeType);
+    } else {
+      // Regular file download
+      const res = await drive.files.get(
+        { fileId, alt: 'media', supportsAllDrives: true },
+        { responseType: 'stream' },
+      );
+      stream = res.data as unknown as Readable;
+    }
+
     const chunks: Buffer[] = [];
     for await (const chunk of stream) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
@@ -120,28 +175,33 @@ export async function GET(
     const body = Buffer.concat(chunks);
 
     const headers: Record<string, string> = {
-      'Content-Type': mimeType,
+      'Content-Type': finalMimeType,
       'Cache-Control': 'public, max-age=300',
     };
     
     // Add CORS headers for video files to allow VideoWithThumbnail component to load them
-    if (mimeType.startsWith('video/') || fileName.toLowerCase().endsWith('.mp4') || fileName.toLowerCase().endsWith('.mov') || fileName.toLowerCase().endsWith('.webm')) {
+    if (finalMimeType.startsWith('video/') || fileName.toLowerCase().endsWith('.mp4') || fileName.toLowerCase().endsWith('.mov') || fileName.toLowerCase().endsWith('.webm')) {
       headers['Access-Control-Allow-Origin'] = '*';
       headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS';
       headers['Access-Control-Allow-Headers'] = 'Range';
       headers['Accept-Ranges'] = 'bytes';
     }
 
-    if (download) {
+    // Always set download disposition for Google Docs (they're always downloaded, not viewed inline)
+    // For regular files, only set if ?dl=1 is present
+    if (download || isGoogleDoc) {
       // RFC 6266 — ASCII-safe filename + UTF-8 fallback
-      const ascii = fileName.replace(/[^\x20-\x7E]/g, '_');
+      const ascii = finalFileName.replace(/[^\x20-\x7E]/g, '_');
       headers['Content-Disposition'] =
-        `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+        `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(finalFileName)}`;
     }
 
     return new NextResponse(body, { status: 200, headers });
   } catch (err: any) {
-    console.error('[review/files] Drive stream error:', err?.message ?? err);
-    return NextResponse.json({ error: 'Failed to fetch file' }, { status: 500 });
+    console.error('[review/files] Drive stream/export error:', err?.message ?? err);
+    const errorMsg = isGoogleDoc 
+      ? 'Failed to export Google Workspace file. Ensure the file is accessible and try a different format.'
+      : 'Failed to fetch file';
+    return NextResponse.json({ error: errorMsg }, { status: 500 });
   }
 }

@@ -405,29 +405,18 @@ export async function runPartnerDelivery(
     console.log(`[delivery/partner] ${requestId} Resolving destination subfolder path (mirroring source): ${tacticFolderName}${variantName ? `/${variantName.trim()}` : ''} under destination root ${destinationFolderId}`);
     
     try {
-      // Resolve tactic folder first (find or create) - use verbatim name
-      const existingTactic = await findChildFolderWithDrive(drive, destinationFolderId, tacticFolderName);
-      if (existingTactic) {
-        resolvedTacticFolderId = existingTactic.id;
-        console.log(`[delivery/partner] ${requestId} Found existing TACTIC folder: "${tacticFolderName}" (id: ${resolvedTacticFolderId})`);
-      } else {
-        const createdTactic = await createFolderWithDrive(drive, destinationFolderId, tacticFolderName);
-        resolvedTacticFolderId = createdTactic.id;
-        console.log(`[delivery/partner] ${requestId} Created TACTIC folder: "${tacticFolderName}" (id: ${resolvedTacticFolderId})`);
-      }
+      // Resolve tactic folder first (find or create) - use idempotent ensureChildFolderWithDrive to avoid race conditions
+      // This handles concurrent deliveries trying to create the same folder
+      const tacticFolder = await ensureChildFolderWithDrive(drive, destinationFolderId, tacticFolderName);
+      resolvedTacticFolderId = tacticFolder.id;
+      console.log(`[delivery/partner] ${requestId} Ensured TACTIC folder: "${tacticFolderName}" (id: ${resolvedTacticFolderId})`);
       
-      // Resolve variant folder if provided - use verbatim name
+      // Resolve variant folder if provided - use idempotent ensureChildFolderWithDrive to avoid race conditions
       if (variantName && resolvedTacticFolderId) {
         const variantFolderName = variantName.trim();
-        const existingVariant = await findChildFolderWithDrive(drive, resolvedTacticFolderId, variantFolderName);
-        if (existingVariant) {
-          resolvedVariantFolderId = existingVariant.id;
-          console.log(`[delivery/partner] ${requestId} Found existing VARIANT folder: "${variantFolderName}" (id: ${resolvedVariantFolderId})`);
-        } else {
-          const createdVariant = await createFolderWithDrive(drive, resolvedTacticFolderId, variantFolderName);
-          resolvedVariantFolderId = createdVariant.id;
-          console.log(`[delivery/partner] ${requestId} Created VARIANT folder: "${variantFolderName}" (id: ${resolvedVariantFolderId})`);
-        }
+        const variantFolder = await ensureChildFolderWithDrive(drive, resolvedTacticFolderId, variantFolderName);
+        resolvedVariantFolderId = variantFolder.id;
+        console.log(`[delivery/partner] ${requestId} Ensured VARIANT folder: "${variantFolderName}" (id: ${resolvedVariantFolderId})`);
         effectiveDestinationFolderId = resolvedVariantFolderId;
       } else {
         effectiveDestinationFolderId = resolvedTacticFolderId;
@@ -683,6 +672,15 @@ export async function runPartnerDelivery(
         fileUrl: fileResult.url,
       });
       console.log(`[delivery/partner] ${requestId} File copy completed: fileId=${fileResult.id}, fileName="${fileResult.name}", fileUrl=${fileResult.url}`);
+      console.log(`[delivery/partner] ${requestId} Asset delivered to folder:`, {
+        sourceFileId: sourceFolderId,
+        sourceFileName: sourceName,
+        destinationFolderId: effectiveDestinationFolderId,
+        destinationFolderUrl: folderUrl(effectiveDestinationFolderId),
+        tacticName,
+        variantName,
+        path: `${tacticName ? `${tacticName}/` : ''}${variantName ? `${variantName}/` : ''}`,
+      });
       
       let foldersCreated = 0;
       let filesCopied = 1; // The file we just copied

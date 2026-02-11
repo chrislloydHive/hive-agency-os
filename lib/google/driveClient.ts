@@ -410,15 +410,147 @@ export async function createFolderWithDrive(
 
 /**
  * Ensure a folder exists under a parent (find or create), using the provided drive client.
+ * Handles race conditions: if creation fails because another process created it, retry the lookup.
  */
 export async function ensureChildFolderWithDrive(
   drive: drive_v3.Drive,
   parentId: string,
   name: string
 ): Promise<DriveFolder> {
+  // First check if folder already exists
   const existing = await findChildFolderWithDrive(drive, parentId, name);
   if (existing) return existing;
-  return createFolderWithDrive(drive, parentId, name);
+  
+  // Try to create - if it fails (e.g., duplicate name from concurrent creation), retry lookup
+  try {
+    return await createFolderWithDrive(drive, parentId, name);
+  } catch (createError: any) {
+    // If creation failed, check again - another process may have created it
+    // Common error codes: 409 (conflict), or errors mentioning duplicate/existing
+    const errorMessage = createError?.message || String(createError);
+    const isConflictError = createError?.code === 409 || 
+                           /duplicate|already exists|conflict/i.test(errorMessage);
+    
+    if (isConflictError) {
+      console.log(`[Drive] Folder creation conflict for "${name}" under ${parentId}, retrying lookup`);
+      // Wait a short time for folder to be fully created, then retry lookup
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const retryExisting = await findChildFolderWithDrive(drive, parentId, name);
+      if (retryExisting) {
+        console.log(`[Drive] Found folder after conflict: "${name}" (${retryExisting.id})`);
+        return retryExisting;
+      }
+    }
+    
+    // If not a conflict error or retry didn't find it, rethrow the original error
+    throw createError;
+  }
+}
+
+/**
+ * Export MIME type mappings for Google Workspace files.
+ * Maps Google Workspace internal mimeTypes to export formats.
+ */
+export const GOOGLE_WORKSPACE_EXPORT_FORMATS: Record<string, Record<string, string>> = {
+  'application/vnd.google-apps.document': {
+    pdf: 'application/pdf',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    txt: 'text/plain',
+    html: 'text/html',
+    rtf: 'application/rtf',
+    odt: 'application/vnd.oasis.opendocument.text',
+  },
+  'application/vnd.google-apps.spreadsheet': {
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    pdf: 'application/pdf',
+    csv: 'text/csv',
+    ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  },
+  'application/vnd.google-apps.presentation': {
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    pdf: 'application/pdf',
+    txt: 'text/plain',
+  },
+  'application/vnd.google-apps.drawing': {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    svg: 'image/svg+xml',
+    pdf: 'application/pdf',
+  },
+};
+
+/**
+ * Check if a mimeType is a Google Workspace file that needs export.
+ */
+export function isGoogleWorkspaceFile(mimeType: string): boolean {
+  return mimeType.startsWith('application/vnd.google-apps.');
+}
+
+/**
+ * Get the default export format for a Google Workspace file.
+ * Returns the export mimeType (e.g., 'application/pdf' for documents).
+ */
+export function getDefaultExportFormat(googleMimeType: string): string | null {
+  if (googleMimeType === 'application/vnd.google-apps.document') {
+    return 'application/pdf'; // PDF is most universal for documents
+  }
+  if (googleMimeType === 'application/vnd.google-apps.spreadsheet') {
+    return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'; // XLSX for spreadsheets
+  }
+  if (googleMimeType === 'application/vnd.google-apps.presentation') {
+    return 'application/vnd.openxmlformats-officedocument.presentationml.presentation'; // PPTX for presentations
+  }
+  if (googleMimeType === 'application/vnd.google-apps.drawing') {
+    return 'image/png'; // PNG for drawings
+  }
+  return null;
+}
+
+/**
+ * Get file extension for export format.
+ */
+export function getExportFileExtension(exportMimeType: string, originalFileName: string): string {
+  const extMap: Record<string, string> = {
+    'application/pdf': '.pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+    'text/plain': '.txt',
+    'text/html': '.html',
+    'application/rtf': '.rtf',
+    'application/vnd.oasis.opendocument.text': '.odt',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+    'text/csv': '.csv',
+    'application/vnd.oasis.opendocument.spreadsheet': '.ods',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+    'image/png': '.png',
+    'image/jpeg': '.jpg',
+    'image/svg+xml': '.svg',
+  };
+  
+  const ext = extMap[exportMimeType] || '';
+  const baseName = originalFileName.replace(/\.[^/.]+$/, ''); // Remove existing extension
+  return baseName + ext;
+}
+
+/**
+ * Export a Google Workspace file to a downloadable format.
+ * @param drive - Drive client instance
+ * @param fileId - Google Workspace file ID
+ * @param exportMimeType - Target export format (e.g., 'application/pdf')
+ * @returns Stream of exported file content
+ */
+export async function exportGoogleWorkspaceFile(
+  drive: drive_v3.Drive,
+  fileId: string,
+  exportMimeType: string
+): Promise<Readable> {
+  const res = await drive.files.export(
+    {
+      fileId,
+      mimeType: exportMimeType,
+    },
+    { responseType: 'stream' }
+  );
+  return res.data as unknown as Readable;
 }
 
 /**

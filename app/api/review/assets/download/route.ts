@@ -16,6 +16,12 @@ import {
 } from '@/lib/airtable/reviewAssetStatus';
 import { verifyDownloadSignature } from '@/lib/review/downloadSignature';
 import { getAndDeleteDownloadSession } from '@/lib/review/downloadSessionStore';
+import {
+  isGoogleWorkspaceFile,
+  getDefaultExportFormat,
+  getExportFileExtension,
+  exportGoogleWorkspaceFile,
+} from '@/lib/google/driveClient';
 
 export const dynamic = 'force-dynamic';
 
@@ -177,13 +183,63 @@ export async function GET(req: NextRequest) {
     logDownload(logContext, 'startedAt written');
   }
 
-  try {
-    const res = await drive.files.get(
-      { fileId: assetId, alt: 'media', supportsAllDrives: true },
-      { responseType: 'stream' }
-    );
+  // Check if this is a Google Workspace file that needs export
+  const isGoogleDoc = isGoogleWorkspaceFile(mimeType);
+  const exportFormat = req.nextUrl.searchParams.get('format')?.trim() || null; // Optional: pdf, docx, etc.
+  
+  // Determine export mimeType if needed
+  let exportMimeType: string | null = null;
+  let finalFileName = fileName;
+  let finalMimeType = mimeType;
+  
+  if (isGoogleDoc) {
+    // If format specified, use it; otherwise use default
+    if (exportFormat) {
+      const formats = {
+        pdf: 'application/pdf',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        txt: 'text/plain',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        csv: 'text/csv',
+        pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        png: 'image/png',
+      };
+      exportMimeType = formats[exportFormat as keyof typeof formats] || null;
+    }
+    
+    // If no format specified or invalid format, use default
+    if (!exportMimeType) {
+      exportMimeType = getDefaultExportFormat(mimeType);
+    }
+    
+    if (exportMimeType) {
+      finalMimeType = exportMimeType;
+      finalFileName = getExportFileExtension(exportMimeType, fileName);
+      console.log(`[review/assets/download] Exporting Google Workspace file: ${mimeType} -> ${exportMimeType}, filename: ${fileName} -> ${finalFileName}`);
+      logDownload(logContext, `exporting Google Workspace file: ${mimeType} -> ${exportMimeType}`);
+    } else {
+      return NextResponse.json(
+        { error: `Unsupported Google Workspace file type: ${mimeType}. Use ?format=pdf or ?format=docx` },
+        { status: 400, headers: { ...NO_STORE, ...EXTRA_HEADERS } }
+      );
+    }
+  }
 
-    const driveStream = res.data as unknown as Readable;
+  try {
+    let driveStream: Readable;
+    
+    if (isGoogleDoc && exportMimeType) {
+      // Export Google Workspace file
+      driveStream = await exportGoogleWorkspaceFile(drive, assetId, exportMimeType);
+    } else {
+      // Regular file download
+      const res = await drive.files.get(
+        { fileId: assetId, alt: 'media', supportsAllDrives: true },
+        { responseType: 'stream' }
+      );
+      driveStream = res.data as unknown as Readable;
+    }
+
     const passThrough = new PassThrough();
 
     driveStream.pipe(passThrough);
@@ -216,8 +272,8 @@ export async function GET(req: NextRequest) {
     const headers: Record<string, string> = {
       ...NO_STORE,
       ...EXTRA_HEADERS,
-      'Content-Type': mimeType,
-      'Content-Disposition': `attachment; filename="${safeFilename(fileName)}"`,
+      'Content-Type': finalMimeType,
+      'Content-Disposition': `attachment; filename="${safeFilename(finalFileName)}"`,
     };
 
     return new NextResponse(webReadable, {
@@ -226,11 +282,14 @@ export async function GET(req: NextRequest) {
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error('[review/assets/download] Drive stream error:', msg);
+    console.error('[review/assets/download] Drive stream/export error:', msg);
     logContext.aborted = true;
     logDownload(logContext, 'setup or drive error');
+    const errorMsg = isGoogleDoc 
+      ? 'Failed to export Google Workspace file. Ensure the file is accessible and try a different format.'
+      : 'Failed to fetch file';
     return NextResponse.json(
-      { error: 'Failed to fetch file' },
+      { error: errorMsg },
       { status: 500, headers: { ...NO_STORE, ...EXTRA_HEADERS } }
     );
   }
