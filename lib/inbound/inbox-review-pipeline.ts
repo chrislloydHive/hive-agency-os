@@ -36,10 +36,11 @@ export interface InboxReviewResult {
 
 /**
  * OpenAI response shape for inbox extraction
+ * Supports both legacy string[] format and new structured format
  */
 interface InboxExtractionResponse {
-  summary: string;
-  inbox_items: string[];
+  summary: string | string[];
+  inbox_items: string[] | Array<{ title: string; description: string }>;
 }
 
 // ============================================================================
@@ -546,17 +547,63 @@ function parseOpenAIResponse(content: string): InboxExtractionResponse {
 }
 
 /**
+ * Normalized inbox item structure (always used internally)
+ */
+interface NormalizedInboxItem {
+  title: string;
+  description: string;
+}
+
+/**
+ * Coerce inbox_items into normalized array of {title, description}
+ * Handles both legacy string[] format and new structured format
+ */
+function coerceInboxItems(
+  items: string[] | Array<{ title: string; description: string }> | undefined
+): NormalizedInboxItem[] {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  return items
+    .map((item) => {
+      // Legacy string format
+      if (typeof item === "string") {
+        const trimmed = item.trim();
+        return trimmed.length > 0 ? { title: trimmed, description: "" } : null;
+      }
+
+      // Structured format { title, description }
+      if (typeof item === "object" && item !== null && "title" in item) {
+        const title = typeof item.title === "string" ? item.title.trim() : "";
+        const description = typeof item.description === "string" ? item.description.trim() : "";
+        return title.length > 0 ? { title, description } : null;
+      }
+
+      return null;
+    })
+    .filter((item): item is NormalizedInboxItem => item !== null);
+}
+
+/**
+ * Coerce summary into string (handles both string and string[] formats)
+ */
+function coerceSummary(summary: string | string[] | undefined): string {
+  if (typeof summary === "string") {
+    return summary.trim();
+  }
+  if (Array.isArray(summary)) {
+    return summary.filter((s) => typeof s === "string").join(" ").trim();
+  }
+  return "";
+}
+
+/**
  * Validate and normalize the extraction response
  */
 function validateExtractionResponse(parsed: any): InboxExtractionResponse {
-  const summary = typeof parsed.summary === "string" ? parsed.summary : "";
-  let inbox_items: string[] = [];
-
-  if (Array.isArray(parsed.inbox_items)) {
-    inbox_items = parsed.inbox_items
-      .filter((item: any) => typeof item === "string" && item.trim().length > 0)
-      .map((item: string) => item.trim());
-  }
+  const summary = coerceSummary(parsed.summary) || "Unable to summarize email.";
+  const inbox_items = coerceInboxItems(parsed.inbox_items);
 
   return { summary, inbox_items };
 }
@@ -578,28 +625,25 @@ const FILLER_WORDS = new Set([
 ]);
 
 /**
- * Normalize a single inbox item to be glanceable (3-5 words max)
+ * Normalize a single inbox item title to be glanceable (max 8 words)
  *
  * Transformations:
  * - Trim whitespace
- * - Remove all punctuation
+ * - Collapse whitespace (but preserve spaces between words)
  * - Split into words
- * - Remove filler words
- * - Limit to first 5 words
+ * - Remove filler words (but keep first word if it's a verb)
+ * - Limit to first 8 words (increased from 5)
  *
- * @returns normalized item or null if too short (< 2 words)
+ * @returns normalized title or null if too short (< 2 words)
  */
-function normalizeInboxItem(item: string): string | null {
-  // Step 1: Trim and lowercase for processing
-  let text = item.trim();
+function normalizeInboxItemTitle(title: string): string | null {
+  // Step 1: Trim and collapse whitespace
+  let text = title.trim().replace(/\s+/g, " ");
 
-  // Step 2: Remove all punctuation
-  text = text.replace(/[^\w\s]/g, "");
-
-  // Step 3: Split into words
+  // Step 2: Split into words
   const words = text.split(/\s+/).filter((w) => w.length > 0);
 
-  // Step 4: Remove filler words (but keep first word if it's a verb)
+  // Step 3: Remove filler words (but keep first word if it's a verb)
   const filtered: string[] = [];
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
@@ -615,10 +659,10 @@ function normalizeInboxItem(item: string): string | null {
     }
   }
 
-  // Step 5: Limit to first 5 words
-  const limited = filtered.slice(0, 5);
+  // Step 4: Limit to first 8 words (increased from 5)
+  const limited = filtered.slice(0, 8);
 
-  // Step 6: If result is < 2 words, return null (will be dropped)
+  // Step 5: If result is < 2 words, return null (will be dropped)
   if (limited.length < 2) {
     return null;
   }
@@ -627,32 +671,38 @@ function normalizeInboxItem(item: string): string | null {
 }
 
 /**
- * Normalize all inbox items for glanceable task list display
+ * Normalize all inbox items for task list display
  *
- * - Normalizes each item (removes punctuation, filler words, limits to 5 words)
- * - Drops items with < 2 words
- * - Deduplicates (case-insensitive)
- * - Falls back to ["Review email"] if no valid items remain
+ * - Normalizes each item title (collapses whitespace, removes filler words, limits to 8 words)
+ * - Preserves descriptions as-is (only trims whitespace)
+ * - Drops items with < 2 words in title
+ * - Deduplicates by title (case-insensitive)
+ * - Falls back to single "Review email" item if no valid items remain
  */
-function normalizeInboxItems(items: string[]): string[] {
+function normalizeInboxItems(
+  items: NormalizedInboxItem[]
+): NormalizedInboxItem[] {
   const seen = new Set<string>();
-  const normalized: string[] = [];
+  const normalized: NormalizedInboxItem[] = [];
 
   for (const item of items) {
-    const norm = normalizeInboxItem(item);
+    const normalizedTitle = normalizeInboxItemTitle(item.title);
 
-    if (norm) {
-      const key = norm.toLowerCase();
+    if (normalizedTitle) {
+      const key = normalizedTitle.toLowerCase();
       if (!seen.has(key)) {
         seen.add(key);
-        normalized.push(norm);
+        normalized.push({
+          title: normalizedTitle,
+          description: item.description.trim(), // Preserve description, just trim
+        });
       }
     }
   }
 
   // Fallback if no valid items
   if (normalized.length === 0) {
-    return ["Review email"];
+    return [{ title: "Review email", description: "" }];
   }
 
   return normalized;
@@ -660,7 +710,7 @@ function normalizeInboxItems(items: string[]): string[] {
 
 /**
  * Extract summary and actionable items from email using OpenAI
- * Returns strict JSON: { summary: string, inbox_items: string[] }
+ * Returns strict JSON: { summary: string, inbox_items: Array<{title: string, description: string}> }
  */
 async function openaiExtractInboxItems(input: {
   subject: string;
@@ -690,18 +740,40 @@ RESPONSE FORMAT
 {
   "summary": "A concise 1–3 sentence summary of the email intent and key points",
   "inbox_items": [
-    "Verb noun noun",
-    "Verb noun"
+    {
+      "title": "Verb noun noun",
+      "description": "Full details including specs, ratios, sizes, etc."
+    }
   ]
 }
 
 ────────────────────────
+SPEC BLOCK DETECTION (MANDATORY)
+────────────────────────
+If the email contains ANY of the following, you MUST create ONE task per labeled spec block:
+- Keywords: "Ratio", "Recommended Size", "Minimum Size", "px"
+- Aspect ratios: "1.91:1", "1:1", "4:5", "4:1", etc.
+- Size specifications: dimensions like "1200x628", "960x1200", etc.
+
+Examples of spec block labels:
+- Landscape Image, Square Image, Portrait Image
+- Square Logo, Landscape Logo
+- Banner, Hero Image, Thumbnail
+- (Allow other labels too)
+
+Even if the ask language is generic ("can you resize?"), spec blocks imply work and MUST become separate tasks.
+
+Deduplicate repeated specs in the thread by merging into one task.
+
+────────────────────────
 HARD RULES FOR inbox_items (MANDATORY)
 ────────────────────────
-- 3–5 words MAXIMUM per item (hard cap)
-- Verb-first imperative phrasing ONLY
-- NO punctuation of any kind
-- NO filler words:
+- Title: 6–8 words MAXIMUM (increased from 5)
+- Title: Verb-first imperative phrasing ONLY
+- Title: Short, imperative verbs (Resize/Export/Update/Confirm)
+- Description: Put ALL spec details here (ratio, recommended/min sizes, dimensions)
+- Description: Include full context needed to complete the task
+- NO filler words in title:
   (the, a, an, to, for, with, on, of, and, or, whether, please, etc)
 
 ────────────────────────
@@ -709,13 +781,15 @@ VERB WHITELIST (PREFER THESE)
 ────────────────────────
 Use one of these verbs whenever possible:
 
+Resize
+Export
+Update
+Confirm
 Approve
 Review
-Confirm
 Decide
 Send
 Provide
-Update
 Schedule
 Share
 Request
@@ -732,18 +806,30 @@ DEDUPLICATION RULE
 ────────────────────────
 If multiple actions are similar, collapse them into ONE item.
 Prefer the most decisive verb (Approve > Review > Discuss).
+EXCEPTION: Each spec block MUST be its own task, even if similar.
 
 ────────────────────────
 GOOD EXAMPLES
 ────────────────────────
-- Approve revised budget
-- Confirm GTM installed
-- Decide audio launch
-- Review social display
-- Send asset update
-- Schedule intro call
-- Provide campaign assets
-- Update IO
+{
+  "title": "Resize landscape image",
+  "description": "Landscape Image (1.91:1, rec 1200x628, min 600x314)"
+}
+
+{
+  "title": "Export square logo",
+  "description": "Square Logo (1:1, rec 1200x1200, min 128x128)"
+}
+
+{
+  "title": "Approve revised budget",
+  "description": ""
+}
+
+{
+  "title": "Confirm GTM installed",
+  "description": ""
+}
 
 ────────────────────────
 EMAIL CONTEXT
@@ -904,30 +990,33 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
     debugId,
   });
 
-  const { summary } = extraction;
+  const summaryStr = typeof extraction.summary === "string" ? extraction.summary : Array.isArray(extraction.summary) ? extraction.summary.join(" ") : "";
   const rawInboxItems = extraction.inbox_items;
 
   console.log(
     "[INBOX_REVIEW_PIPELINE] raw extraction",
-    safeLog({ debugId, summaryLength: summary.length, rawItemCount: rawInboxItems.length, rawItems: rawInboxItems })
+    safeLog({ debugId, summaryLength: summaryStr.length, rawItemCount: Array.isArray(rawInboxItems) ? rawInboxItems.length : 0, rawItems: rawInboxItems })
   );
 
   // -------------------------------------------------------------------------
-  // STEP 2.5: Normalize inbox items for glanceable display
+  // STEP 2.5: Coerce and normalize inbox items
   // -------------------------------------------------------------------------
-  // Removes punctuation, filler words, limits to 5 words max
-  // Deduplicates and falls back to ["Review email"] if empty
-  const inbox_items = normalizeInboxItems(rawInboxItems);
+  // Coerce to structured format (handles both legacy string[] and new structured format)
+  const coercedItems = coerceInboxItems(rawInboxItems);
+  
+  // Normalize titles (collapses whitespace, removes filler words, limits to 8 words)
+  // Preserves descriptions as-is (only trims)
+  const inbox_items = normalizeInboxItems(coercedItems);
 
   console.log(
     "[INBOX_REVIEW_PIPELINE] normalized items",
-    safeLog({ debugId, normalizedCount: inbox_items.length, items: inbox_items })
+    safeLog({ debugId, normalizedCount: inbox_items.length, items: inbox_items.map(i => ({ title: i.title, descLength: i.description.length })) })
   );
 
   // -------------------------------------------------------------------------
   // STEP 3: Update SOURCE record with summary
   // -------------------------------------------------------------------------
-  const sourceDescription = `${summary}\n\n---\n\n**Snippet:**\n${truncate(snippet, 500)}`;
+  const sourceDescription = `${summaryStr}\n\n---\n\n**Snippet:**\n${truncate(snippet, 500)}`;
 
   const updateFields: Record<string, any> = {
     "Description": sourceDescription,
@@ -955,10 +1044,10 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
     safeLog({ debugId, sourceRecordId, sourceInboxItemLink })
   );
 
-  const childRecordsFields: Record<string, any>[] = inbox_items.map((itemTitle, idx) => {
+  const childRecordsFields: Record<string, any>[] = inbox_items.map((item, idx) => {
     const childFields: Record<string, any> = {
-      "Title": itemTitle,
-      "Description": summary,
+      "Title": item.title,
+      "Description": item.description || summaryStr, // Use item description if present, otherwise fallback to summary
       "Subject": subject || "(No subject)",
       "From Name": fromName,
       "From Email": fromEmail,
