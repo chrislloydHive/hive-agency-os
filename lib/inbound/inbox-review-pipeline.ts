@@ -334,7 +334,7 @@ function logFieldDiagnostics(
 // ============================================================================
 
 const ALLOWED_INBOX_SELECT_VALUES: Record<string, string[]> = {
-  "Status": ["New", "Reviewed", "Open", "Waiting on Client", "Blocked", "Done"],
+  "Status": ["New", "Reviewed", "Promoted", "Archived"],
   "Disposition": ["New", "Logged", "Task", "Reply Needed", "FYI", "Scheduling", "Creative Production", "Vendor / Partner", "Billing / Finance"],
   "Source": ["Gmail", "Manual", "Slack", "Other"],
 };
@@ -568,7 +568,7 @@ function coerceInboxItems(
   }
 
   // Default values for backward compatibility
-  const DEFAULT_STATUS = "Open";
+  const DEFAULT_STATUS = "New";
   const DEFAULT_DISPOSITION = "Task";
 
   return items
@@ -706,7 +706,7 @@ function normalizeInboxItems(
 ): NormalizedInboxItem[] {
   const seen = new Set<string>();
   const normalized: NormalizedInboxItem[] = [];
-  const DEFAULT_STATUS = "Open";
+  const DEFAULT_STATUS = "New";
   const DEFAULT_DISPOSITION = "Task";
 
   for (const item of items) {
@@ -769,7 +769,7 @@ RESPONSE FORMAT
     {
       "title": "Verb noun noun",
       "description": "Full details including specs, ratios, sizes, etc.",
-      "status": "Open|Waiting on Client|Blocked|Done",
+      "status": "New|Reviewed|Promoted|Archived",
       "disposition": "Task|Reply Needed|FYI|Scheduling|Creative Production|Vendor / Partner|Billing / Finance"
     }
   ]
@@ -801,7 +801,7 @@ HARD RULES FOR inbox_items (MANDATORY)
 - Title: Short, imperative verbs (Resize/Export/Update/Confirm)
 - Description: Put ALL spec details here (ratio, recommended/min sizes, dimensions)
 - Description: Include full context needed to complete the task
-- Status: One of: "Open", "Waiting on Client", "Blocked", "Done" (default: "Open")
+- Status: One of: "New", "Reviewed", "Promoted", "Archived" (default: "New")
 - Disposition: One of: "Task", "Reply Needed", "FYI", "Scheduling", "Creative Production", "Vendor / Partner", "Billing / Finance" (default: "Task")
 - NO filler words in title:
   (the, a, an, to, for, with, on, of, and, or, whether, please, etc)
@@ -844,28 +844,28 @@ GOOD EXAMPLES
 {
   "title": "Resize landscape image",
   "description": "Landscape Image (1.91:1, rec 1200x628, min 600x314)",
-  "status": "Open",
+  "status": "New",
   "disposition": "Creative Production"
 }
 
 {
   "title": "Export square logo",
   "description": "Square Logo (1:1, rec 1200x1200, min 128x128)",
-  "status": "Open",
+  "status": "New",
   "disposition": "Creative Production"
 }
 
 {
   "title": "Approve revised budget",
   "description": "",
-  "status": "Open",
+  "status": "New",
   "disposition": "Task"
 }
 
 {
   "title": "Confirm GTM installed",
   "description": "",
-  "status": "Waiting on Client",
+  "status": "Reviewed",
   "disposition": "Reply Needed"
 }
 
@@ -1083,7 +1083,7 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
   );
 
   // Sanitizer-safe defaults and allowlists
-  const DEFAULT_STATUS = "Open";
+  const DEFAULT_STATUS = "New";
   const DEFAULT_DISPOSITION = "Task";
   const ALLOWED_STATUS_VALUES = ALLOWED_INBOX_SELECT_VALUES["Status"] || [DEFAULT_STATUS];
   const ALLOWED_DISPOSITION_VALUES = ALLOWED_INBOX_SELECT_VALUES["Disposition"] || [DEFAULT_DISPOSITION];
