@@ -335,7 +335,7 @@ function logFieldDiagnostics(
 
 const ALLOWED_INBOX_SELECT_VALUES: Record<string, string[]> = {
   "Status": ["New", "Reviewed", "Promoted", "Archived"],
-  "Disposition": ["New", "Logged", "Task", "Reply Needed", "FYI", "Scheduling", "Creative Production", "Vendor / Partner", "Billing / Finance"],
+  "Disposition": ["New", "Logged", "Company Created", "Opportunity Created", "Duplicate", "Error"],
   "Source": ["Gmail", "Manual", "Slack", "Other"],
 };
 
@@ -569,7 +569,7 @@ function coerceInboxItems(
 
   // Default values for backward compatibility
   const DEFAULT_STATUS = "New";
-  const DEFAULT_DISPOSITION = "Task";
+  const DEFAULT_DISPOSITION = "New";
 
   return items
     .map((item) => {
@@ -770,7 +770,7 @@ RESPONSE FORMAT
       "title": "Verb noun noun",
       "description": "Full details including specs, ratios, sizes, etc.",
       "status": "New|Reviewed|Promoted|Archived",
-      "disposition": "Task|Reply Needed|FYI|Scheduling|Creative Production|Vendor / Partner|Billing / Finance"
+      "disposition": "New|Logged|Company Created|Opportunity Created|Duplicate|Error"
     }
   ]
 }
@@ -802,7 +802,7 @@ HARD RULES FOR inbox_items (MANDATORY)
 - Description: Put ALL spec details here (ratio, recommended/min sizes, dimensions)
 - Description: Include full context needed to complete the task
 - Status: One of: "New", "Reviewed", "Promoted", "Archived" (default: "New")
-- Disposition: One of: "Task", "Reply Needed", "FYI", "Scheduling", "Creative Production", "Vendor / Partner", "Billing / Finance" (default: "Task")
+- Disposition: One of: "New", "Logged", "Company Created", "Opportunity Created", "Duplicate", "Error" (default: "New")
 - NO filler words in title:
   (the, a, an, to, for, with, on, of, and, or, whether, please, etc)
 
@@ -845,28 +845,28 @@ GOOD EXAMPLES
   "title": "Resize landscape image",
   "description": "Landscape Image (1.91:1, rec 1200x628, min 600x314)",
   "status": "New",
-  "disposition": "Creative Production"
+  "disposition": "Logged"
 }
 
 {
   "title": "Export square logo",
   "description": "Square Logo (1:1, rec 1200x1200, min 128x128)",
   "status": "New",
-  "disposition": "Creative Production"
+  "disposition": "Logged"
 }
 
 {
   "title": "Approve revised budget",
   "description": "",
   "status": "New",
-  "disposition": "Task"
+  "disposition": "New"
 }
 
 {
   "title": "Confirm GTM installed",
   "description": "",
   "status": "Reviewed",
-  "disposition": "Reply Needed"
+  "disposition": "Logged"
 }
 
 ────────────────────────
