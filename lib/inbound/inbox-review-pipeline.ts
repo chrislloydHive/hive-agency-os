@@ -40,7 +40,7 @@ export interface InboxReviewResult {
  */
 interface InboxExtractionResponse {
   summary: string | string[];
-  inbox_items: string[] | Array<{ title: string; description: string }>;
+  inbox_items: string[] | Array<{ title: string; description: string; status?: string; disposition?: string }>;
 }
 
 // ============================================================================
@@ -334,8 +334,8 @@ function logFieldDiagnostics(
 // ============================================================================
 
 const ALLOWED_INBOX_SELECT_VALUES: Record<string, string[]> = {
-  "Status": ["New", "Reviewed"],
-  "Disposition": ["New", "Logged"],
+  "Status": ["New", "Reviewed", "Open", "Waiting on Client", "Blocked", "Done"],
+  "Disposition": ["New", "Logged", "Task", "Reply Needed", "FYI", "Scheduling", "Creative Production", "Vendor / Partner", "Billing / Finance"],
   "Source": ["Gmail", "Manual", "Slack", "Other"],
 };
 
@@ -552,32 +552,54 @@ function parseOpenAIResponse(content: string): InboxExtractionResponse {
 interface NormalizedInboxItem {
   title: string;
   description: string;
+  status: string;
+  disposition: string;
 }
 
 /**
- * Coerce inbox_items into normalized array of {title, description}
+ * Coerce inbox_items into normalized array of {title, description, status, disposition}
  * Handles both legacy string[] format and new structured format
  */
 function coerceInboxItems(
-  items: string[] | Array<{ title: string; description: string }> | undefined
+  items: string[] | Array<{ title: string; description?: string; status?: string; disposition?: string }> | undefined
 ): NormalizedInboxItem[] {
   if (!Array.isArray(items)) {
     return [];
   }
+
+  // Default values for backward compatibility
+  const DEFAULT_STATUS = "Open";
+  const DEFAULT_DISPOSITION = "Task";
 
   return items
     .map((item) => {
       // Legacy string format
       if (typeof item === "string") {
         const trimmed = item.trim();
-        return trimmed.length > 0 ? { title: trimmed, description: "" } : null;
+        return trimmed.length > 0
+          ? {
+              title: trimmed,
+              description: "",
+              status: DEFAULT_STATUS,
+              disposition: DEFAULT_DISPOSITION,
+            }
+          : null;
       }
 
-      // Structured format { title, description }
+      // Structured format { title, description?, status?, disposition? }
       if (typeof item === "object" && item !== null && "title" in item) {
         const title = typeof item.title === "string" ? item.title.trim() : "";
         const description = typeof item.description === "string" ? item.description.trim() : "";
-        return title.length > 0 ? { title, description } : null;
+        const status = typeof item.status === "string" ? item.status.trim() : DEFAULT_STATUS;
+        const disposition = typeof item.disposition === "string" ? item.disposition.trim() : DEFAULT_DISPOSITION;
+        return title.length > 0
+          ? {
+              title,
+              description,
+              status,
+              disposition,
+            }
+          : null;
       }
 
       return null;
@@ -674,7 +696,7 @@ function normalizeInboxItemTitle(title: string): string | null {
  * Normalize all inbox items for task list display
  *
  * - Normalizes each item title (collapses whitespace, removes filler words, limits to 8 words)
- * - Preserves descriptions as-is (only trims whitespace)
+ * - Preserves descriptions, status, and disposition as-is (only trims whitespace)
  * - Drops items with < 2 words in title
  * - Deduplicates by title (case-insensitive)
  * - Falls back to single "Review email" item if no valid items remain
@@ -684,6 +706,8 @@ function normalizeInboxItems(
 ): NormalizedInboxItem[] {
   const seen = new Set<string>();
   const normalized: NormalizedInboxItem[] = [];
+  const DEFAULT_STATUS = "Open";
+  const DEFAULT_DISPOSITION = "Task";
 
   for (const item of items) {
     const normalizedTitle = normalizeInboxItemTitle(item.title);
@@ -695,6 +719,8 @@ function normalizeInboxItems(
         normalized.push({
           title: normalizedTitle,
           description: item.description.trim(), // Preserve description, just trim
+          status: item.status || DEFAULT_STATUS,
+          disposition: item.disposition || DEFAULT_DISPOSITION,
         });
       }
     }
@@ -702,7 +728,7 @@ function normalizeInboxItems(
 
   // Fallback if no valid items
   if (normalized.length === 0) {
-    return [{ title: "Review email", description: "" }];
+    return [{ title: "Review email", description: "", status: DEFAULT_STATUS, disposition: DEFAULT_DISPOSITION }];
   }
 
   return normalized;
@@ -742,7 +768,9 @@ RESPONSE FORMAT
   "inbox_items": [
     {
       "title": "Verb noun noun",
-      "description": "Full details including specs, ratios, sizes, etc."
+      "description": "Full details including specs, ratios, sizes, etc.",
+      "status": "Open|Waiting on Client|Blocked|Done",
+      "disposition": "Task|Reply Needed|FYI|Scheduling|Creative Production|Vendor / Partner|Billing / Finance"
     }
   ]
 }
@@ -773,6 +801,8 @@ HARD RULES FOR inbox_items (MANDATORY)
 - Title: Short, imperative verbs (Resize/Export/Update/Confirm)
 - Description: Put ALL spec details here (ratio, recommended/min sizes, dimensions)
 - Description: Include full context needed to complete the task
+- Status: One of: "Open", "Waiting on Client", "Blocked", "Done" (default: "Open")
+- Disposition: One of: "Task", "Reply Needed", "FYI", "Scheduling", "Creative Production", "Vendor / Partner", "Billing / Finance" (default: "Task")
 - NO filler words in title:
   (the, a, an, to, for, with, on, of, and, or, whether, please, etc)
 
@@ -813,22 +843,30 @@ GOOD EXAMPLES
 ────────────────────────
 {
   "title": "Resize landscape image",
-  "description": "Landscape Image (1.91:1, rec 1200x628, min 600x314)"
+  "description": "Landscape Image (1.91:1, rec 1200x628, min 600x314)",
+  "status": "Open",
+  "disposition": "Creative Production"
 }
 
 {
   "title": "Export square logo",
-  "description": "Square Logo (1:1, rec 1200x1200, min 128x128)"
+  "description": "Square Logo (1:1, rec 1200x1200, min 128x128)",
+  "status": "Open",
+  "disposition": "Creative Production"
 }
 
 {
   "title": "Approve revised budget",
-  "description": ""
+  "description": "",
+  "status": "Open",
+  "disposition": "Task"
 }
 
 {
   "title": "Confirm GTM installed",
-  "description": ""
+  "description": "",
+  "status": "Waiting on Client",
+  "disposition": "Reply Needed"
 }
 
 ────────────────────────
@@ -1044,7 +1082,25 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
     safeLog({ debugId, sourceRecordId, sourceInboxItemLink })
   );
 
+  // Sanitizer-safe defaults and allowlists
+  const DEFAULT_STATUS = "Open";
+  const DEFAULT_DISPOSITION = "Task";
+  const ALLOWED_STATUS_VALUES = ALLOWED_INBOX_SELECT_VALUES["Status"] || [DEFAULT_STATUS];
+  const ALLOWED_DISPOSITION_VALUES = ALLOWED_INBOX_SELECT_VALUES["Disposition"] || [DEFAULT_DISPOSITION];
+
+  // Helper to clamp status/disposition to allowed values
+  const clampStatus = (value: string): string => {
+    return ALLOWED_STATUS_VALUES.includes(value) ? value : DEFAULT_STATUS;
+  };
+  const clampDisposition = (value: string): string => {
+    return ALLOWED_DISPOSITION_VALUES.includes(value) ? value : DEFAULT_DISPOSITION;
+  };
+
   const childRecordsFields: Record<string, any>[] = inbox_items.map((item, idx) => {
+    // Clamp status and disposition to allowed values before sanitization
+    const safeStatus = clampStatus(item.status || DEFAULT_STATUS);
+    const safeDisposition = clampDisposition(item.disposition || DEFAULT_DISPOSITION);
+
     const childFields: Record<string, any> = {
       "Title": item.title,
       "Description": item.description || summaryStr, // Use item description if present, otherwise fallback to summary
@@ -1057,8 +1113,8 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
       "Source": "Gmail",
       // Link to source record - using normalizeLinkedRecordId helper
       "Source Inbox Item": sourceInboxItemLink,
-      "Status": "New",
-      "Disposition": "New",
+      "Status": safeStatus,
+      "Disposition": safeDisposition,
     };
 
     // Log BEFORE sanitization to see raw fields
