@@ -1127,7 +1127,7 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
   // -------------------------------------------------------------------------
   return {
     inboxItemId: sourceRecordId,
-    summary,
+    summary: summaryStr,
     childItemIds,
   };
 }
