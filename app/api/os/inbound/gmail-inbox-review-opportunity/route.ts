@@ -463,7 +463,6 @@ export async function POST(req: Request) {
         ok: false,
         status: "partial",
         error: e?.message || String(e),
-        tasksCreated,
         opportunityAction: "skipped" as const,
         inboxItem: {
           id: inboxResult.inboxItemId,
