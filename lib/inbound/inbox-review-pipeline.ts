@@ -340,7 +340,7 @@ const ALLOWED_INBOX_SELECT_VALUES: Record<string, string[]> = {
   "Status": ["New", "Reviewed", "Promoted", "Archived"],
   "Disposition": ["New", "Logged", "Company Created", "Opportunity Created", "Duplicate", "Error"],
   "Source": ["Gmail", "Manual", "Slack", "Other"],
-  "AI Work Category": ["Creative Production", "Media Ops", "Reporting/Analytics", "Client Comms", "Project Management", "Finance/Billing", "Tech/Automation", "Other"],
+  "AI Work Category": ["Production", "Media Ops", "Reporting/Analytics", "Client Comms", "Project Management", "Finance/Billing", "Tech/Automation", "Other"],
 };
 
 // Fields that should NEVER be written by this pipeline
@@ -628,7 +628,7 @@ function coerceSummary(summary: string | string[] | undefined): string {
  * Valid categories for AI Work Category
  */
 const VALID_CATEGORIES = [
-  "Creative Production",
+  "Production",
   "Media Ops",
   "Reporting/Analytics",
   "Client Comms",
@@ -855,7 +855,7 @@ RESPONSE FORMAT
     "Concrete bullet point 2",
     "Concrete bullet point 3"
   ],
-  "category": "Creative Production|Media Ops|Reporting/Analytics|Client Comms|Project Management|Finance/Billing|Tech/Automation|Other",
+  "category": "Production|Media Ops|Reporting/Analytics|Client Comms|Project Management|Finance/Billing|Tech/Automation|Other",
   "inbox_items": [
     {
       "title": "Verb noun noun",
@@ -876,7 +876,7 @@ WORK SUMMARY REQUIREMENTS (MANDATORY)
   * Focus on what needs to be done, not context
   * If information is missing, use "Not specified" rather than hallucinating
 - category: Must be exactly one of:
-  * "Creative Production" - Creative assets, designs, videos, graphics
+  * "Production" - Creative assets, designs, videos, graphics
   * "Media Ops" - Media buying, campaign management, ad operations
   * "Reporting/Analytics" - Reports, dashboards, data analysis
   * "Client Comms" - Client communication, meetings, updates
@@ -1227,29 +1227,71 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
   const sourceDescription = `${summaryStr}\n\n---\n\n**Snippet:**\n${truncate(snippet, 500)}`;
 
   // Format AI Work Summary from one_liner and summary_bullets
-  const aiWorkSummary = formatAIWorkSummary(
-    extraction.one_liner || "Not specified",
-    extraction.summary_bullets || []
-  );
+  const oneLiner = extraction.one_liner || "Not specified";
+  const summaryBullets = extraction.summary_bullets || [];
+  const aiWorkSummary = formatAIWorkSummary(oneLiner, summaryBullets);
 
   // Prepare AI Summary JSON for debugging (optional field)
   const aiSummaryJSON = JSON.stringify({
-    one_liner: extraction.one_liner || "Not specified",
-    summary_bullets: extraction.summary_bullets || [],
+    one_liner: oneLiner,
+    summary_bullets: summaryBullets,
     category: extraction.category || "Other",
   }, null, 2);
+
+  console.log(
+    "[INBOX_REVIEW_PIPELINE] AI work summary data",
+    safeLog({
+      debugId,
+      oneLiner,
+      bulletsCount: summaryBullets.length,
+      bullets: summaryBullets,
+      category: extraction.category,
+      formattedSummary: aiWorkSummary,
+      summaryLength: aiWorkSummary.length,
+    })
+  );
 
   const updateFields: Record<string, any> = {
     "Description": sourceDescription,
     "Status": "Reviewed",
     "Disposition": "Logged",
-    // New AI work summary fields
+    // New AI work summary fields - ensure these are set
     "AI Work Summary": aiWorkSummary,
     "AI Work Category": extraction.category || "Other",
     "AI Summary JSON": aiSummaryJSON, // Optional: for debugging
   };
 
+  // Log fields before sanitization to debug
+  console.log(
+    "[INBOX_REVIEW_PIPELINE] Container record update fields BEFORE sanitization",
+    safeLog({
+      debugId,
+      sourceRecordId,
+      fieldKeys: Object.keys(updateFields),
+      aiWorkSummaryPresent: "AI Work Summary" in updateFields,
+      aiWorkSummaryValue: updateFields["AI Work Summary"],
+      aiWorkCategoryPresent: "AI Work Category" in updateFields,
+      aiWorkCategoryValue: updateFields["AI Work Category"],
+    })
+  );
+
   const sanitizedUpdateFields = sanitizeInboxFields(updateFields);
+  
+  // Log fields after sanitization to debug
+  console.log(
+    "[INBOX_REVIEW_PIPELINE] Container record update fields AFTER sanitization",
+    safeLog({
+      debugId,
+      sourceRecordId,
+      fieldKeys: Object.keys(sanitizedUpdateFields),
+      aiWorkSummaryPresent: "AI Work Summary" in sanitizedUpdateFields,
+      aiWorkSummaryValue: sanitizedUpdateFields["AI Work Summary"],
+      aiWorkCategoryPresent: "AI Work Category" in sanitizedUpdateFields,
+      aiWorkCategoryValue: sanitizedUpdateFields["AI Work Category"],
+      aiSummaryJSONPresent: "AI Summary JSON" in sanitizedUpdateFields,
+    })
+  );
+  
   await airtableUpdateRecord(sourceRecordId, sanitizedUpdateFields, debugId);
 
   console.log(
@@ -1260,6 +1302,7 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
       oneLiner: extraction.one_liner,
       category: extraction.category,
       bulletsCount: extraction.summary_bullets?.length || 0,
+      aiWorkSummaryWritten: "AI Work Summary" in sanitizedUpdateFields,
     })
   );
 
