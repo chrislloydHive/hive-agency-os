@@ -1,14 +1,16 @@
 // lib/inbound/inbox-review-pipeline.ts
-// Shared pipeline for Gmail inbox review + summarization
+// Shared pipeline for Gmail inbox review + summarization (SIMPLIFIED)
 //
 // Used by:
 // - /api/os/inbound/gmail-inbox-review
 // - /api/os/inbound/gmail-inbox-review-opportunity
 //
-// Behavior:
-// 1. Create ONE "source" Inbox record representing the email itself
-// 2. Extract actionable items with OpenAI (returns strict JSON)
-// 3. Create child Inbox records for each actionable item, linked to source
+// Behavior (SIMPLIFIED):
+// 1. Create ONE Inbox record representing the email (container record)
+// 2. Extract work summary (one_liner, summary_bullets, category) with OpenAI
+// 3. Update the same record with AI Work Summary and AI Work Category fields
+//
+// NOTE: No longer creates separate task records. One email = one Inbox record.
 
 // ============================================================================
 // Types
@@ -31,19 +33,18 @@ export interface InboxReviewInput {
 export interface InboxReviewResult {
   inboxItemId: string;
   summary: string;
-  childItemIds: string[];
+  // NOTE: Simplified workflow - no longer creates child task records
+  // One email = one Inbox record with AI summary fields
 }
 
 /**
- * OpenAI response shape for inbox extraction
- * Supports both legacy string[] format and new structured format
+ * OpenAI response shape for inbox extraction (simplified)
+ * Only extracts summary fields, no task breakdown
  */
 interface InboxExtractionResponse {
-  summary: string | string[];
   one_liner?: string;
   summary_bullets?: string[];
   category?: string;
-  inbox_items: string[] | Array<{ title: string; description: string; status?: string; disposition?: string }>;
 }
 
 // ============================================================================
@@ -542,16 +543,18 @@ function parseOpenAIResponse(content: string): InboxExtractionResponse {
     }
   }
 
-  // Fallback: Return default with empty inbox_items
+  // Fallback: Return default with "Not specified" values
   console.log("[INBOX_REVIEW_PIPELINE] Failed to parse OpenAI response, using fallback");
   return {
-    summary: trimmed || "Unable to summarize email.",
-    inbox_items: [],
+    one_liner: "Not specified",
+    summary_bullets: [],
+    category: "Other",
   };
 }
 
 /**
- * Normalized inbox item structure (always used internally)
+ * DEPRECATED: Task-related functions no longer used in simplified workflow.
+ * Kept for reference but not called.
  */
 interface NormalizedInboxItem {
   title: string;
@@ -561,8 +564,7 @@ interface NormalizedInboxItem {
 }
 
 /**
- * Coerce inbox_items into normalized array of {title, description, status, disposition}
- * Handles both legacy string[] format and new structured format
+ * DEPRECATED: No longer creates task records. Kept for reference.
  */
 function coerceInboxItems(
   items: string[] | Array<{ title: string; description?: string; status?: string; disposition?: string }> | undefined
@@ -671,7 +673,7 @@ function coerceSummaryBullets(bullets: any): string[] {
     return bullets
       .filter((b) => typeof b === "string" && b.trim().length > 0)
       .map((b) => b.trim())
-      .slice(0, 5); // Max 5 bullets
+      .slice(0, 8); // Max 8 bullets
   }
   return [];
 }
@@ -696,18 +698,14 @@ function formatAIWorkSummary(oneLiner: string, bullets: string[]): string {
 }
 
 /**
- * Validate and normalize the extraction response
+ * Validate and normalize the extraction response (simplified - no tasks)
  */
 function validateExtractionResponse(parsed: any): InboxExtractionResponse {
-  const summary = coerceSummary(parsed.summary) || "Unable to summarize email.";
-  const inbox_items = coerceInboxItems(parsed.inbox_items);
   const one_liner = coerceOneLiner(parsed.one_liner);
   const summary_bullets = coerceSummaryBullets(parsed.summary_bullets);
   const category = validateCategory(parsed.category);
 
   return {
-    summary,
-    inbox_items,
     one_liner,
     summary_bullets,
     category,
@@ -731,16 +729,8 @@ const FILLER_WORDS = new Set([
 ]);
 
 /**
+ * DEPRECATED: No longer creates task records. Kept for reference.
  * Normalize a single inbox item title to be glanceable (max 8 words)
- *
- * Transformations:
- * - Trim whitespace
- * - Collapse whitespace (but preserve spaces between words)
- * - Split into words
- * - Remove filler words (but keep first word if it's a verb)
- * - Limit to first 8 words (increased from 5)
- *
- * @returns normalized title or null if too short (< 2 words)
  */
 function normalizeInboxItemTitle(title: string): string | null {
   // Step 1: Trim and collapse whitespace
@@ -777,13 +767,8 @@ function normalizeInboxItemTitle(title: string): string | null {
 }
 
 /**
+ * DEPRECATED: No longer creates task records. Kept for reference.
  * Normalize all inbox items for task list display
- *
- * - Normalizes each item title (collapses whitespace, removes filler words, limits to 8 words)
- * - Preserves descriptions, status, and disposition as-is (only trims whitespace)
- * - Drops items with < 2 words in title
- * - Deduplicates by title (case-insensitive)
- * - Falls back to single "Review email" item if no valid items remain
  */
 function normalizeInboxItems(
   items: NormalizedInboxItem[]
@@ -819,8 +804,8 @@ function normalizeInboxItems(
 }
 
 /**
- * Extract summary and actionable items from email using OpenAI
- * Returns strict JSON: { summary: string, inbox_items: Array<{title: string, description: string}> }
+ * Extract work summary from email using OpenAI (simplified - no tasks)
+ * Returns JSON: { one_liner: string, summary_bullets: string[], category: string }
  */
 async function openaiExtractInboxItems(input: {
   subject: string;
@@ -837,9 +822,8 @@ async function openaiExtractInboxItems(input: {
   const prompt = `
 You are "Inbox GPT" for Hive OS.
 
-Analyze an inbound email and extract actionable inbox items.
-These items will appear as task-like records in a productivity inbox.
-They must be extremely short, glanceable, and command-style.
+Analyze an inbound email and extract a concise work summary.
+This summary will be stored on a single Inbox record for the email.
 
 You MUST respond with STRICT JSON ONLY.
 No markdown. No explanation. No commentary. JSON only.
@@ -848,33 +832,25 @@ No markdown. No explanation. No commentary. JSON only.
 RESPONSE FORMAT
 ────────────────────────
 {
-  "summary": "A concise 1–3 sentence summary of the email intent and key points",
   "one_liner": "Single sentence summary <= 140 characters describing the work to be done",
   "summary_bullets": [
     "Concrete bullet point 1 (no fluff, actionable)",
     "Concrete bullet point 2",
     "Concrete bullet point 3"
   ],
-  "category": "Production|Media Ops|Reporting/Analytics|Client Comms|Project Management|Finance/Billing|Tech/Automation|Other",
-  "inbox_items": [
-    {
-      "title": "Verb noun noun",
-      "description": "Full details including specs, ratios, sizes, etc.",
-      "status": "New|Reviewed|Promoted|Archived",
-      "disposition": "New|Logged|Company Created|Opportunity Created|Duplicate|Error"
-    }
-  ]
+  "category": "Production|Media Ops|Reporting/Analytics|Client Comms|Project Management|Finance/Billing|Tech/Automation|Other"
 }
 
 ────────────────────────
 WORK SUMMARY REQUIREMENTS (MANDATORY)
 ────────────────────────
 - one_liner: Maximum 140 characters. Single sentence describing what work needs to be done. Be specific and concrete.
-- summary_bullets: Array of 2-5 bullet points. Each bullet should be:
+- summary_bullets: Array of 2-8 bullet points. Each bullet should be:
   * Concrete and actionable (not vague)
   * No fluff or filler words
   * Focus on what needs to be done, not context
   * If information is missing, use "Not specified" rather than hallucinating
+  * Include technical specs verbatim if present (e.g., "Resize Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)")
 - category: Must be exactly one of:
   * "Production" - Creative assets, designs, videos, graphics
   * "Media Ops" - Media buying, campaign management, ad operations
@@ -885,28 +861,13 @@ WORK SUMMARY REQUIREMENTS (MANDATORY)
   * "Tech/Automation" - Technical work, automation, integrations
   * "Other" - Use only if none of the above fit
 - If category cannot be determined, use "Other"
-- If one_liner or summary_bullets cannot be determined, use "Not specified" or empty array
+- If one_liner cannot be determined, use "Not specified"
+- If summary_bullets cannot be determined, use empty array []
 
 ────────────────────────
-SPEC BLOCK DETECTION (MANDATORY)
+SPEC PRESERVATION RULE
 ────────────────────────
-If the email contains ANY of the following, you MUST create ONE task per labeled spec block:
-- Keywords: "Ratio", "Recommended Size", "Minimum Size", "px"
-- Aspect ratios: "1.91:1", "1:1", "4:5", "4:1", etc.
-- Size specifications: dimensions like "1200x628", "960x1200", etc.
-
-Examples of spec block labels:
-- Landscape Image, Square Image, Portrait Image
-- Square Logo, Landscape Logo
-- Banner, Hero Image, Thumbnail
-- (Allow other labels too)
-
-Even if the ask language is generic ("can you resize?"), spec blocks imply work and MUST become separate tasks.
-
-Deduplicate repeated specs in the thread by merging into one task.
-
-CRITICAL SPEC PRESERVATION RULE:
-When extracting spec blocks, copy the ENTIRE spec string EXACTLY as written:
+If the email contains technical specs (ratios, dimensions, sizes), preserve them VERBATIM in summary_bullets:
 - Preserve all parentheses content verbatim: "(4:1, rec 1200x300 px, min 512x128 px)"
 - Preserve ALL words exactly as written - do NOT truncate, abbreviate, or expand
 - If source says "recommended", output "recommended" (NOT "rec")
@@ -922,112 +883,36 @@ When extracting spec blocks, copy the ENTIRE spec string EXACTLY as written:
 - ZERO word substitutions - copy every word exactly as it appears in the source
 
 ────────────────────────
-HARD RULES FOR inbox_items (MANDATORY)
-────────────────────────
-- Title: 6–8 words MAXIMUM (increased from 5)
-- Title: Verb-first imperative phrasing ONLY
-- Title: Short, imperative verbs (Resize/Export/Update/Confirm)
-- Description: CRITICAL - Preserve spec strings VERBATIM
-  * Do NOT summarize, abbreviate, truncate, expand, or rewrite any technical spec text
-  * Copy EXACTLY as written: dimensions, aspect ratios, "rec", "min", "px", parentheses content
-  * Preserve full words exactly: "recommended" stays "recommended", "minimum" stays "minimum"
-  * Preserve abbreviations exactly: "rec" stays "rec", "min" stays "min"
-  * Do NOT convert "recommended" to "rec" or "minimum" to "min"
-  * Do NOT convert "rec" to "recommended" or "min" to "minimum"
-  * If input contains "Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)", output MUST be identical
-  * If input contains "Landscape Logo (4:1, recommended 1200x300 px, minimum 512x128 px)", output MUST be identical
-  * No transformations, no shortening for "cleanliness", no paraphrasing, no word substitutions
-  * Preserve all punctuation, spacing, and formatting exactly as provided
-  * ZERO word-level changes - copy every character exactly as it appears
-- Description: For non-spec items, include full context needed to complete the task
-- Status: One of: "New", "Reviewed", "Promoted", "Archived" (default: "New")
-- Disposition: One of: "New", "Logged", "Company Created", "Opportunity Created", "Duplicate", "Error" (default: "New")
-- NO filler words in title:
-  (the, a, an, to, for, with, on, of, and, or, whether, please, etc)
-
-────────────────────────
-VERB WHITELIST (PREFER THESE)
-────────────────────────
-Use one of these verbs whenever possible:
-
-Resize
-Export
-Update
-Confirm
-Approve
-Review
-Decide
-Send
-Provide
-Schedule
-Share
-Request
-Prepare
-Finalize
-Check
-Align
-Discuss
-
-Avoid inventing new verbs unless absolutely necessary.
-
-────────────────────────
-DEDUPLICATION RULE
-────────────────────────
-If multiple actions are similar, collapse them into ONE item.
-Prefer the most decisive verb (Approve > Review > Discuss).
-EXCEPTION: Each spec block MUST be its own task, even if similar.
-
-────────────────────────
-GOOD EXAMPLES (VERBATIM SPEC PRESERVATION)
+GOOD EXAMPLES
 ────────────────────────
 {
-  "title": "Resize landscape image",
-  "description": "Landscape Image (1.91:1, rec 1200x628, min 600x314)",
-  "status": "New",
-  "disposition": "Logged"
+  "one_liner": "Resize logos and images for social media campaign",
+  "summary_bullets": [
+    "Resize Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)",
+    "Resize Square Logo (1:1, rec 1200x1200, min 128x128)",
+    "Export Portrait Image (4:5, recommended 960x1200 px, minimum 480x600 px)"
+  ],
+  "category": "Production"
 }
 
 {
-  "title": "Export square logo",
-  "description": "Square Logo (1:1, rec 1200x1200, min 128x128)",
-  "status": "New",
-  "disposition": "Logged"
+  "one_liner": "Schedule client meeting to discuss Q2 campaign performance",
+  "summary_bullets": [
+    "Schedule 30-minute meeting with client",
+    "Prepare Q2 performance report",
+    "Discuss campaign optimizations"
+  ],
+  "category": "Client Comms"
 }
 
 {
-  "title": "Resize landscape logo",
-  "description": "Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)",
-  "status": "New",
-  "disposition": "Logged"
-}
-
-{
-  "title": "Resize portrait image",
-  "description": "Portrait Image (4:5, recommended 960x1200 px, minimum 480x600 px)",
-  "status": "New",
-  "disposition": "Logged"
-}
-
-CRITICAL: The description field above shows EXACT preservation. Examples:
-- If input says "Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)", output MUST be identical character-for-character.
-- If input says "Portrait Image (4:5, recommended 960x1200 px, minimum 480x600 px)", output MUST preserve "recommended" and "minimum" as full words.
-- If input says "Square Logo (1:1, rec 1200x1200, min 128x128)", output MUST preserve "rec" and "min" as abbreviations.
-- NEVER truncate "recommended" to "rec" or "minimum" to "min".
-- NEVER expand "rec" to "recommended" or "min" to "minimum".
-- Copy every word exactly as written in the source email.
-
-{
-  "title": "Approve revised budget",
-  "description": "",
-  "status": "New",
-  "disposition": "New"
-}
-
-{
-  "title": "Confirm GTM installed",
-  "description": "",
-  "status": "Reviewed",
-  "disposition": "Logged"
+  "one_liner": "Update monthly analytics dashboard with latest metrics",
+  "summary_bullets": [
+    "Pull latest data from GA4",
+    "Update dashboard visualizations",
+    "Add new conversion tracking metrics"
+  ],
+  "category": "Reporting/Analytics"
 }
 
 ────────────────────────
@@ -1044,20 +929,11 @@ ${truncate(snippet, 800) || "—"}
 Body:
 ${truncate(bodyText, 15000) || "—"}
 
-NOTE: Body is truncated to 15000 chars for API limits, but spec blocks must be preserved verbatim if present in the visible portion.
-
 ────────────────────────
 FINAL INSTRUCTION
 ────────────────────────
 Respond with JSON ONLY.
 No prose. No explanation. No extra keys.
-
-REMEMBER: Technical spec strings in descriptions must be copied VERBATIM with zero modifications.
-- If you see "Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)", output it EXACTLY as written.
-- If you see "Portrait Image (4:5, recommended 960x1200 px, minimum 480x600 px)", output it EXACTLY as written (preserve "recommended" and "minimum" as full words).
-- NEVER truncate words like "recommended" → "rec" or "minimum" → "min".
-- NEVER expand abbreviations like "rec" → "recommended" or "min" → "minimum".
-- Copy every word character-for-character exactly as it appears in the source email.
 `.trim();
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -1108,15 +984,17 @@ REMEMBER: Technical spec strings in descriptions must be copied VERBATIM with ze
 // ============================================================================
 
 /**
- * Run the inbox review pipeline:
+ * Run the inbox review pipeline (simplified):
  *
- * 1. Create SOURCE Inbox record (Title = "EMAIL: {Subject}")
- * 2. Extract actionable items with OpenAI
- * 3. Update source record with summary
- * 4. Create CHILD Inbox records for each actionable item (linked to source)
+ * 1. Create single Inbox record (Title = "EMAIL: {Subject}") with Trace ID
+ * 2. Extract work summary (one_liner, summary_bullets, category) with OpenAI
+ * 3. Update the same record with AI Work Summary and AI Work Category
+ *
+ * NOTE: Simplified workflow - no longer creates separate task records.
+ * One email = one Inbox record with AI summary fields.
  *
  * @param input - Email data and debugId
- * @returns { inboxItemId, summary, childItemIds }
+ * @returns { inboxItemId, summary }
  */
 export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<InboxReviewResult> {
   const {
@@ -1198,33 +1076,21 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
     debugId,
   });
 
-  const summaryStr = typeof extraction.summary === "string" ? extraction.summary : Array.isArray(extraction.summary) ? extraction.summary.join(" ") : "";
-  const rawInboxItems = extraction.inbox_items;
-
   console.log(
-    "[INBOX_REVIEW_PIPELINE] raw extraction",
-    safeLog({ debugId, summaryLength: summaryStr.length, rawItemCount: Array.isArray(rawInboxItems) ? rawInboxItems.length : 0, rawItems: rawInboxItems })
+    "[INBOX_REVIEW_PIPELINE] AI extraction completed",
+    safeLog({
+      debugId,
+      oneLiner: extraction.one_liner,
+      bulletsCount: extraction.summary_bullets?.length || 0,
+      category: extraction.category,
+    })
   );
 
   // -------------------------------------------------------------------------
-  // STEP 2.5: Coerce and normalize inbox items
+  // STEP 3: Update container record with AI work summary fields
   // -------------------------------------------------------------------------
-  // Coerce to structured format (handles both legacy string[] and new structured format)
-  const coercedItems = coerceInboxItems(rawInboxItems);
-  
-  // Normalize titles (collapses whitespace, removes filler words, limits to 8 words)
-  // Preserves descriptions as-is (only trims)
-  const inbox_items = normalizeInboxItems(coercedItems);
-
-  console.log(
-    "[INBOX_REVIEW_PIPELINE] normalized items",
-    safeLog({ debugId, normalizedCount: inbox_items.length, items: inbox_items.map(i => ({ title: i.title, descLength: i.description.length })) })
-  );
-
-  // -------------------------------------------------------------------------
-  // STEP 3: Update SOURCE record with summary and AI work summary fields
-  // -------------------------------------------------------------------------
-  const sourceDescription = `${summaryStr}\n\n---\n\n**Snippet:**\n${truncate(snippet, 500)}`;
+  // Create a simple description from snippet (no longer using AI summary for Description field)
+  const sourceDescription = `Email received from ${fromName || fromEmail || "unknown sender"}.\n\n**Snippet:**\n${truncate(snippet, 500)}`;
 
   // Format AI Work Summary from one_liner and summary_bullets
   const oneLiner = extraction.one_liner || "Not specified";
@@ -1295,7 +1161,7 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
   await airtableUpdateRecord(sourceRecordId, sanitizedUpdateFields, debugId);
 
   console.log(
-    "[INBOX_REVIEW_PIPELINE] SOURCE record updated with summary and AI work summary",
+    "[INBOX_REVIEW_PIPELINE] Container record updated with AI work summary",
     safeLog({
       debugId,
       sourceRecordId,
@@ -1307,121 +1173,10 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
   );
 
   // -------------------------------------------------------------------------
-  // STEP 4: Create CHILD Inbox records for each actionable item
-  // -------------------------------------------------------------------------
-
-  // Use helper to safely format linked record ID
-  const sourceInboxItemLink = normalizeLinkedRecordId(sourceRecordId);
-
-  console.log(
-    "[INBOX_REVIEW_PIPELINE] Preparing CHILD records with linked field",
-    safeLog({ debugId, sourceRecordId, sourceInboxItemLink })
-  );
-
-  // Sanitizer-safe defaults and allowlists
-  const DEFAULT_STATUS = "New";
-  const DEFAULT_DISPOSITION = "Task";
-  const ALLOWED_STATUS_VALUES = ALLOWED_INBOX_SELECT_VALUES["Status"] || [DEFAULT_STATUS];
-  const ALLOWED_DISPOSITION_VALUES = ALLOWED_INBOX_SELECT_VALUES["Disposition"] || [DEFAULT_DISPOSITION];
-
-  // Helper to clamp status/disposition to allowed values
-  const clampStatus = (value: string): string => {
-    return ALLOWED_STATUS_VALUES.includes(value) ? value : DEFAULT_STATUS;
-  };
-  const clampDisposition = (value: string): string => {
-    return ALLOWED_DISPOSITION_VALUES.includes(value) ? value : DEFAULT_DISPOSITION;
-  };
-
-  const childRecordsFields: Record<string, any>[] = inbox_items.map((item, idx) => {
-    // Clamp status and disposition to allowed values before sanitization
-    const safeStatus = clampStatus(item.status || DEFAULT_STATUS);
-    const safeDisposition = clampDisposition(item.disposition || DEFAULT_DISPOSITION);
-
-    const childFields: Record<string, any> = {
-      "Title": item.title,
-      // CRITICAL: Description must be preserved verbatim - no truncation or modification
-      // Spec strings like "Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)" must remain exact
-      "Description": item.description || summaryStr, // Use item description if present, otherwise fallback to summary
-      "Subject": subject || "(No subject)",
-      "From Name": fromName,
-      "From Email": fromEmail,
-      "Gmail URL": gmailUrl,
-      "Received At": receivedAt,
-      "Trace ID": debugId,
-      "Source": "Gmail",
-      // Link to source record - using normalizeLinkedRecordId helper
-      "Source Inbox Item": sourceInboxItemLink,
-      "Status": safeStatus,
-      "Disposition": safeDisposition,
-    };
-
-    // Log BEFORE sanitization to see raw fields
-    console.log(`[INBOX_REVIEW_PIPELINE] CHILD ${idx} BEFORE sanitization:`);
-    logFieldDiagnostics(childFields, idx, "BEFORE");
-
-    // Apply sanitizers:
-    // 1. sanitizeInboxFields - removes forbidden fields, validates select values
-    const afterInboxSanitize = sanitizeInboxFields(childFields);
-
-    // 2. sanitizeAllLinkedRecordFields - GENERIC sanitizer for ALL fields
-    //    Normalizes any linked-record-like values, removes problematic objects
-    const fullySanitized = sanitizeAllLinkedRecordFields(
-      afterInboxSanitize,
-      debugId,
-      `CHILD ${idx}`
-    );
-
-    // Log AFTER sanitization
-    console.log(`[INBOX_REVIEW_PIPELINE] CHILD ${idx} AFTER sanitization:`);
-    logFieldDiagnostics(fullySanitized, idx, "AFTER");
-
-    return fullySanitized;
-  });
-
-  // FINAL CHECK: Scan all records for any remaining objects that would cause issues
-  // Airtable Web API expects linked record fields as string arrays ["recXXX"], not object arrays
-  console.log("[INBOX_REVIEW_PIPELINE] FINAL CHECK - scanning for problematic fields:");
-  childRecordsFields.forEach((fields, idx) => {
-    for (const [fieldName, value] of Object.entries(fields)) {
-      if (wouldStringifyToObjectObject(value)) {
-        console.error(
-          `[INBOX_REVIEW_PIPELINE] CRITICAL: Record ${idx} field "${fieldName}" is STILL an object!`,
-          compactPreview(value)
-        );
-      }
-      if (Array.isArray(value)) {
-        value.forEach((item, itemIdx) => {
-          // Linked record arrays should contain strings only, not objects
-          if (wouldStringifyToObjectObject(item)) {
-            console.error(
-              `[INBOX_REVIEW_PIPELINE] CRITICAL: Record ${idx} field "${fieldName}"[${itemIdx}] is an object (should be string for linked records)!`,
-              compactPreview(item)
-            );
-          }
-        });
-      }
-    }
-  });
-
-  // Log final payload
-  console.log(
-    "[INBOX_REVIEW_PIPELINE] FINAL PAYLOAD for batch create:",
-    JSON.stringify(childRecordsFields, null, 2)
-  );
-
-  const childItemIds = await airtableCreateRecordsBatch(childRecordsFields, debugId);
-
-  console.log(
-    "[INBOX_REVIEW_PIPELINE] CHILD records created",
-    safeLog({ debugId, sourceRecordId, childCount: childItemIds.length, childItemIds })
-  );
-
-  // -------------------------------------------------------------------------
-  // Return result
+  // Return result (simplified - no child records)
   // -------------------------------------------------------------------------
   return {
     inboxItemId: sourceRecordId,
-    summary: summaryStr,
-    childItemIds,
+    summary: aiWorkSummary, // Return formatted summary instead of raw summary
   };
 }

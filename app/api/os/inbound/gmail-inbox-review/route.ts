@@ -75,10 +75,10 @@ export async function POST(req: Request) {
     const receivedAt = asStr(body.receivedAt || "").trim();
     const gmailUrl = asStr(body.gmailUrl || "").trim();
 
-    // ROUTING LOG: Confirm this endpoint is hit by "Summarize + Tasks" button
+    // ROUTING LOG: Confirm this endpoint is hit by "Summarize" button
     console.log("[GMAIL_INBOX_REVIEW] ========================================");
     console.log("[GMAIL_INBOX_REVIEW] ENDPOINT HIT: /api/os/inbound/gmail-inbox-review");
-    console.log("[GMAIL_INBOX_REVIEW] This creates SOURCE + CHILD Inbox records (NO Opportunity)");
+    console.log("[GMAIL_INBOX_REVIEW] This creates ONE Inbox record with AI summary (NO Opportunity, NO child tasks)");
     console.log("[GMAIL_INBOX_REVIEW] ========================================");
 
     console.log(
@@ -110,8 +110,7 @@ export async function POST(req: Request) {
       ok: true,
       status: "summarized",
       inboxItem: { id: result.inboxItemId },
-      childItems: result.childItemIds.map((id) => ({ id })),
-      childCount: result.childItemIds.length,
+      summary: result.summary,
       summarized: true,
     });
   } catch (e: any) {

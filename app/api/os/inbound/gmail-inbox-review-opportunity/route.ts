@@ -205,8 +205,7 @@ export async function POST(req: Request) {
   const debugId = `dbg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
   // Track partial results for error response
-  let inboxResult: { inboxItemId: string; summary: string; childItemIds: string[] } | null = null;
-  let tasksCreated = 0;
+  let inboxResult: { inboxItemId: string; summary: string } | null = null;
 
   try {
     // -------------------------------------------------------------------------
@@ -237,10 +236,10 @@ export async function POST(req: Request) {
     const receivedAt = asStr(body.receivedAt || "").trim();
     const gmailUrl = asStr(body.gmailUrl || "").trim();
 
-    // ROUTING LOG: Confirm this endpoint is hit by "Summarize + Tasks + Opp" button
+    // ROUTING LOG: Confirm this endpoint is hit by "Summarize + Opp" button
     console.log("[GMAIL_INBOX_REVIEW_OPP] ========================================");
     console.log("[GMAIL_INBOX_REVIEW_OPP] ENDPOINT HIT: /api/os/inbound/gmail-inbox-review-opportunity");
-    console.log("[GMAIL_INBOX_REVIEW_OPP] This creates SOURCE + CHILD Inbox records AND Opportunity");
+    console.log("[GMAIL_INBOX_REVIEW_OPP] This creates ONE Inbox record with AI summary AND Opportunity");
     console.log("[GMAIL_INBOX_REVIEW_OPP] ========================================");
 
     console.log(
@@ -284,7 +283,6 @@ export async function POST(req: Request) {
       return NextResponse.json({
         ok: true,
         status: "success",
-        tasksCreated,
         inboxItem: {
           id: inboxResult.inboxItemId,
           url: buildAirtableUrl(inboxResult.inboxItemId, INBOX_TABLE_ID),
@@ -341,7 +339,6 @@ export async function POST(req: Request) {
           return NextResponse.json({
             ok: true,
             status: "success",
-            tasksCreated,
             opportunityAction: "attached" as const,
             opportunity: {
               id: existingActivity.opportunityId,
