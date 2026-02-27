@@ -796,11 +796,18 @@ Deduplicate repeated specs in the thread by merging into one task.
 CRITICAL SPEC PRESERVATION RULE:
 When extracting spec blocks, copy the ENTIRE spec string EXACTLY as written:
 - Preserve all parentheses content verbatim: "(4:1, rec 1200x300 px, min 512x128 px)"
+- Preserve ALL words exactly as written - do NOT truncate, abbreviate, or expand
+- If source says "recommended", output "recommended" (NOT "rec")
+- If source says "minimum", output "minimum" (NOT "min")
+- If source says "rec", output "rec" (NOT "recommended")
+- If source says "min", output "min" (NOT "minimum")
 - Preserve all abbreviations: "rec", "min", "px" exactly as shown
+- Preserve all full words: "recommended", "minimum", "recommended size", "minimum size" exactly as shown
 - Preserve all spacing and punctuation
-- Do NOT summarize "rec" as "recommended" or "min" as "minimum"
+- Do NOT substitute words with abbreviations or vice versa
 - Do NOT drop "px" units or any dimension values
 - Do NOT rewrite or paraphrase - copy character-for-character
+- ZERO word substitutions - copy every word exactly as it appears in the source
 
 ────────────────────────
 HARD RULES FOR inbox_items (MANDATORY)
@@ -809,11 +816,17 @@ HARD RULES FOR inbox_items (MANDATORY)
 - Title: Verb-first imperative phrasing ONLY
 - Title: Short, imperative verbs (Resize/Export/Update/Confirm)
 - Description: CRITICAL - Preserve spec strings VERBATIM
-  * Do NOT summarize, abbreviate, or rewrite any technical spec text
+  * Do NOT summarize, abbreviate, truncate, expand, or rewrite any technical spec text
   * Copy EXACTLY as written: dimensions, aspect ratios, "rec", "min", "px", parentheses content
+  * Preserve full words exactly: "recommended" stays "recommended", "minimum" stays "minimum"
+  * Preserve abbreviations exactly: "rec" stays "rec", "min" stays "min"
+  * Do NOT convert "recommended" to "rec" or "minimum" to "min"
+  * Do NOT convert "rec" to "recommended" or "min" to "minimum"
   * If input contains "Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)", output MUST be identical
-  * No transformations, no shortening for "cleanliness", no paraphrasing
+  * If input contains "Landscape Logo (4:1, recommended 1200x300 px, minimum 512x128 px)", output MUST be identical
+  * No transformations, no shortening for "cleanliness", no paraphrasing, no word substitutions
   * Preserve all punctuation, spacing, and formatting exactly as provided
+  * ZERO word-level changes - copy every character exactly as it appears
 - Description: For non-spec items, include full context needed to complete the task
 - Status: One of: "New", "Reviewed", "Promoted", "Archived" (default: "New")
 - Disposition: One of: "New", "Logged", "Company Created", "Opportunity Created", "Duplicate", "Error" (default: "New")
@@ -876,7 +889,20 @@ GOOD EXAMPLES (VERBATIM SPEC PRESERVATION)
   "disposition": "Logged"
 }
 
-CRITICAL: The description field above shows EXACT preservation. If input says "Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)", output MUST be identical character-for-character.
+{
+  "title": "Resize portrait image",
+  "description": "Portrait Image (4:5, recommended 960x1200 px, minimum 480x600 px)",
+  "status": "New",
+  "disposition": "Logged"
+}
+
+CRITICAL: The description field above shows EXACT preservation. Examples:
+- If input says "Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)", output MUST be identical character-for-character.
+- If input says "Portrait Image (4:5, recommended 960x1200 px, minimum 480x600 px)", output MUST preserve "recommended" and "minimum" as full words.
+- If input says "Square Logo (1:1, rec 1200x1200, min 128x128)", output MUST preserve "rec" and "min" as abbreviations.
+- NEVER truncate "recommended" to "rec" or "minimum" to "min".
+- NEVER expand "rec" to "recommended" or "min" to "minimum".
+- Copy every word exactly as written in the source email.
 
 {
   "title": "Approve revised budget",
@@ -915,7 +941,11 @@ Respond with JSON ONLY.
 No prose. No explanation. No extra keys.
 
 REMEMBER: Technical spec strings in descriptions must be copied VERBATIM with zero modifications.
-If you see "Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)", output it EXACTLY as written.
+- If you see "Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)", output it EXACTLY as written.
+- If you see "Portrait Image (4:5, recommended 960x1200 px, minimum 480x600 px)", output it EXACTLY as written (preserve "recommended" and "minimum" as full words).
+- NEVER truncate words like "recommended" → "rec" or "minimum" → "min".
+- NEVER expand abbreviations like "rec" → "recommended" or "min" → "minimum".
+- Copy every word character-for-character exactly as it appears in the source email.
 `.trim();
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
