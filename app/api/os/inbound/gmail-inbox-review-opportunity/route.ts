@@ -421,7 +421,6 @@ export async function POST(req: Request) {
     const response: Record<string, any> = {
       ok: true,
       status: "success",
-      tasksCreated,
       opportunityAction,
       opportunity: {
         id: opportunity.id,
