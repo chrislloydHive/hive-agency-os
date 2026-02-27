@@ -40,6 +40,9 @@ export interface InboxReviewResult {
  */
 interface InboxExtractionResponse {
   summary: string | string[];
+  one_liner?: string;
+  summary_bullets?: string[];
+  category?: string;
   inbox_items: string[] | Array<{ title: string; description: string; status?: string; disposition?: string }>;
 }
 
@@ -337,6 +340,7 @@ const ALLOWED_INBOX_SELECT_VALUES: Record<string, string[]> = {
   "Status": ["New", "Reviewed", "Promoted", "Archived"],
   "Disposition": ["New", "Logged", "Company Created", "Opportunity Created", "Duplicate", "Error"],
   "Source": ["Gmail", "Manual", "Slack", "Other"],
+  "AI Work Category": ["Creative Production", "Media Ops", "Reporting/Analytics", "Client Comms", "Project Management", "Finance/Billing", "Tech/Automation", "Other"],
 };
 
 // Fields that should NEVER be written by this pipeline
@@ -621,13 +625,93 @@ function coerceSummary(summary: string | string[] | undefined): string {
 }
 
 /**
+ * Valid categories for AI Work Category
+ */
+const VALID_CATEGORIES = [
+  "Creative Production",
+  "Media Ops",
+  "Reporting/Analytics",
+  "Client Comms",
+  "Project Management",
+  "Finance/Billing",
+  "Tech/Automation",
+  "Other",
+] as const;
+
+/**
+ * Validate and normalize category
+ */
+function validateCategory(category: any): string {
+  if (typeof category === "string") {
+    const trimmed = category.trim();
+    if (VALID_CATEGORIES.includes(trimmed as any)) {
+      return trimmed;
+    }
+  }
+  return "Other"; // Default fallback
+}
+
+/**
+ * Coerce one_liner to string (max 140 chars)
+ */
+function coerceOneLiner(oneLiner: any): string {
+  if (typeof oneLiner === "string") {
+    const trimmed = oneLiner.trim();
+    // Truncate to 140 chars if longer
+    return trimmed.length > 140 ? trimmed.slice(0, 137) + "..." : trimmed;
+  }
+  return "Not specified";
+}
+
+/**
+ * Coerce summary_bullets to array of strings
+ */
+function coerceSummaryBullets(bullets: any): string[] {
+  if (Array.isArray(bullets)) {
+    return bullets
+      .filter((b) => typeof b === "string" && b.trim().length > 0)
+      .map((b) => b.trim())
+      .slice(0, 5); // Max 5 bullets
+  }
+  return [];
+}
+
+/**
+ * Format AI Work Summary from one_liner and summary_bullets
+ */
+function formatAIWorkSummary(oneLiner: string, bullets: string[]): string {
+  const parts: string[] = [];
+  
+  if (oneLiner && oneLiner !== "Not specified") {
+    parts.push(oneLiner);
+  }
+  
+  if (bullets.length > 0) {
+    bullets.forEach((bullet) => {
+      parts.push(`- ${bullet}`);
+    });
+  }
+  
+  return parts.join("\n") || "Not specified";
+}
+
+/**
  * Validate and normalize the extraction response
  */
 function validateExtractionResponse(parsed: any): InboxExtractionResponse {
   const summary = coerceSummary(parsed.summary) || "Unable to summarize email.";
   const inbox_items = coerceInboxItems(parsed.inbox_items);
+  const one_liner = coerceOneLiner(parsed.one_liner);
+  const summary_bullets = coerceSummaryBullets(parsed.summary_bullets);
+  const category = validateCategory(parsed.category);
 
-  return { summary, inbox_items };
+  return {
+    summary,
+    inbox_items,
+    one_liner,
+    summary_bullets,
+    category,
+  };
 }
 
 // ============================================================================
@@ -765,6 +849,13 @@ RESPONSE FORMAT
 ────────────────────────
 {
   "summary": "A concise 1–3 sentence summary of the email intent and key points",
+  "one_liner": "Single sentence summary <= 140 characters describing the work to be done",
+  "summary_bullets": [
+    "Concrete bullet point 1 (no fluff, actionable)",
+    "Concrete bullet point 2",
+    "Concrete bullet point 3"
+  ],
+  "category": "Creative Production|Media Ops|Reporting/Analytics|Client Comms|Project Management|Finance/Billing|Tech/Automation|Other",
   "inbox_items": [
     {
       "title": "Verb noun noun",
@@ -774,6 +865,27 @@ RESPONSE FORMAT
     }
   ]
 }
+
+────────────────────────
+WORK SUMMARY REQUIREMENTS (MANDATORY)
+────────────────────────
+- one_liner: Maximum 140 characters. Single sentence describing what work needs to be done. Be specific and concrete.
+- summary_bullets: Array of 2-5 bullet points. Each bullet should be:
+  * Concrete and actionable (not vague)
+  * No fluff or filler words
+  * Focus on what needs to be done, not context
+  * If information is missing, use "Not specified" rather than hallucinating
+- category: Must be exactly one of:
+  * "Creative Production" - Creative assets, designs, videos, graphics
+  * "Media Ops" - Media buying, campaign management, ad operations
+  * "Reporting/Analytics" - Reports, dashboards, data analysis
+  * "Client Comms" - Client communication, meetings, updates
+  * "Project Management" - Project planning, coordination, timelines
+  * "Finance/Billing" - Invoicing, budgets, financial matters
+  * "Tech/Automation" - Technical work, automation, integrations
+  * "Other" - Use only if none of the above fit
+- If category cannot be determined, use "Other"
+- If one_liner or summary_bullets cannot be determined, use "Not specified" or empty array
 
 ────────────────────────
 SPEC BLOCK DETECTION (MANDATORY)
@@ -1110,22 +1222,45 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
   );
 
   // -------------------------------------------------------------------------
-  // STEP 3: Update SOURCE record with summary
+  // STEP 3: Update SOURCE record with summary and AI work summary fields
   // -------------------------------------------------------------------------
   const sourceDescription = `${summaryStr}\n\n---\n\n**Snippet:**\n${truncate(snippet, 500)}`;
+
+  // Format AI Work Summary from one_liner and summary_bullets
+  const aiWorkSummary = formatAIWorkSummary(
+    extraction.one_liner || "Not specified",
+    extraction.summary_bullets || []
+  );
+
+  // Prepare AI Summary JSON for debugging (optional field)
+  const aiSummaryJSON = JSON.stringify({
+    one_liner: extraction.one_liner || "Not specified",
+    summary_bullets: extraction.summary_bullets || [],
+    category: extraction.category || "Other",
+  }, null, 2);
 
   const updateFields: Record<string, any> = {
     "Description": sourceDescription,
     "Status": "Reviewed",
     "Disposition": "Logged",
+    // New AI work summary fields
+    "AI Work Summary": aiWorkSummary,
+    "AI Work Category": extraction.category || "Other",
+    "AI Summary JSON": aiSummaryJSON, // Optional: for debugging
   };
 
   const sanitizedUpdateFields = sanitizeInboxFields(updateFields);
   await airtableUpdateRecord(sourceRecordId, sanitizedUpdateFields, debugId);
 
   console.log(
-    "[INBOX_REVIEW_PIPELINE] SOURCE record updated with summary",
-    safeLog({ debugId, sourceRecordId })
+    "[INBOX_REVIEW_PIPELINE] SOURCE record updated with summary and AI work summary",
+    safeLog({
+      debugId,
+      sourceRecordId,
+      oneLiner: extraction.one_liner,
+      category: extraction.category,
+      bulletsCount: extraction.summary_bullets?.length || 0,
+    })
   );
 
   // -------------------------------------------------------------------------
