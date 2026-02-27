@@ -793,14 +793,28 @@ Even if the ask language is generic ("can you resize?"), spec blocks imply work 
 
 Deduplicate repeated specs in the thread by merging into one task.
 
+CRITICAL SPEC PRESERVATION RULE:
+When extracting spec blocks, copy the ENTIRE spec string EXACTLY as written:
+- Preserve all parentheses content verbatim: "(4:1, rec 1200x300 px, min 512x128 px)"
+- Preserve all abbreviations: "rec", "min", "px" exactly as shown
+- Preserve all spacing and punctuation
+- Do NOT summarize "rec" as "recommended" or "min" as "minimum"
+- Do NOT drop "px" units or any dimension values
+- Do NOT rewrite or paraphrase - copy character-for-character
+
 ────────────────────────
 HARD RULES FOR inbox_items (MANDATORY)
 ────────────────────────
 - Title: 6–8 words MAXIMUM (increased from 5)
 - Title: Verb-first imperative phrasing ONLY
 - Title: Short, imperative verbs (Resize/Export/Update/Confirm)
-- Description: Put ALL spec details here (ratio, recommended/min sizes, dimensions)
-- Description: Include full context needed to complete the task
+- Description: CRITICAL - Preserve spec strings VERBATIM
+  * Do NOT summarize, abbreviate, or rewrite any technical spec text
+  * Copy EXACTLY as written: dimensions, aspect ratios, "rec", "min", "px", parentheses content
+  * If input contains "Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)", output MUST be identical
+  * No transformations, no shortening for "cleanliness", no paraphrasing
+  * Preserve all punctuation, spacing, and formatting exactly as provided
+- Description: For non-spec items, include full context needed to complete the task
 - Status: One of: "New", "Reviewed", "Promoted", "Archived" (default: "New")
 - Disposition: One of: "New", "Logged", "Company Created", "Opportunity Created", "Duplicate", "Error" (default: "New")
 - NO filler words in title:
@@ -839,7 +853,7 @@ Prefer the most decisive verb (Approve > Review > Discuss).
 EXCEPTION: Each spec block MUST be its own task, even if similar.
 
 ────────────────────────
-GOOD EXAMPLES
+GOOD EXAMPLES (VERBATIM SPEC PRESERVATION)
 ────────────────────────
 {
   "title": "Resize landscape image",
@@ -854,6 +868,15 @@ GOOD EXAMPLES
   "status": "New",
   "disposition": "Logged"
 }
+
+{
+  "title": "Resize landscape logo",
+  "description": "Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)",
+  "status": "New",
+  "disposition": "Logged"
+}
+
+CRITICAL: The description field above shows EXACT preservation. If input says "Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)", output MUST be identical character-for-character.
 
 {
   "title": "Approve revised budget",
@@ -881,13 +904,18 @@ Snippet:
 ${truncate(snippet, 800) || "—"}
 
 Body:
-${truncate(bodyText, 8000) || "—"}
+${truncate(bodyText, 15000) || "—"}
+
+NOTE: Body is truncated to 15000 chars for API limits, but spec blocks must be preserved verbatim if present in the visible portion.
 
 ────────────────────────
 FINAL INSTRUCTION
 ────────────────────────
 Respond with JSON ONLY.
 No prose. No explanation. No extra keys.
+
+REMEMBER: Technical spec strings in descriptions must be copied VERBATIM with zero modifications.
+If you see "Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)", output it EXACTLY as written.
 `.trim();
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -1103,6 +1131,8 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
 
     const childFields: Record<string, any> = {
       "Title": item.title,
+      // CRITICAL: Description must be preserved verbatim - no truncation or modification
+      // Spec strings like "Landscape Logo (4:1, rec 1200x300 px, min 512x128 px)" must remain exact
       "Description": item.description || summaryStr, // Use item description if present, otherwise fallback to summary
       "Subject": subject || "(No subject)",
       "From Name": fromName,
