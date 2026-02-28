@@ -986,7 +986,7 @@ No prose. No explanation. No extra keys.
 /**
  * Run the inbox review pipeline (simplified):
  *
- * 1. Create single Inbox record (Title = "EMAIL: {Subject}") with Trace ID
+ * 1. Create single Inbox record (Title = "EMAIL: {Subject}")
  * 2. Extract work summary (one_liner, summary_bullets, category) with OpenAI
  * 3. Update the same record with AI Work Summary and AI Work Category
  *
@@ -1033,7 +1033,7 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
     "Received At": receivedAt,
     "Snippet": truncate(snippet, 1000),
     "Body Text": truncate(bodyText, 10000),
-    "Trace ID": debugId,
+    // Trace ID removed - field no longer exists in Airtable
     "Source": "Gmail",
     "Status": "New",
     "Disposition": "New",
