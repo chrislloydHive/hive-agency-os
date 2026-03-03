@@ -173,6 +173,7 @@ export async function GET(req: NextRequest) {
   // List files from each variant folder (leaf folders only). Key must be variant:tactic to match folder map.
   const sections: TacticSectionData[] = [];
   const debug: { jobFolderId: string; tactic: string; variant: string; folderId: string; fileCount: number }[] = [];
+  const allAssetsForCras: Array<{ fileId: string; filename: string; tactic: string; variant: string }> = [];
 
   for (const variant of VARIANTS) {
     for (const tactic of TACTICS) {
@@ -189,6 +190,30 @@ export async function GET(req: NextRequest) {
       if (debugFlag) {
         debug.push({ jobFolderId, tactic, variant, folderId, fileCount: assets.length });
       }
+      
+      // Collect assets for CRAS sync (create records for new files)
+      for (const asset of assets) {
+        allAssetsForCras.push({
+          fileId: asset.fileId,
+          filename: asset.name,
+          tactic,
+          variant,
+        });
+      }
+    }
+  }
+
+  // Sync CRAS records: create records for any files that don't have CRAS records yet
+  // This ensures new uploads appear in CRAS when refresh is clicked
+  if (allAssetsForCras.length > 0) {
+    try {
+      const { batchEnsureCrasRecords } = await import('@/lib/airtable/reviewAssetStatus');
+      const folderIds = Array.from(folderMap.values());
+      const syncResult = await batchEnsureCrasRecords(token, project.recordId, allAssetsForCras, { folderIds });
+      console.log(`[review/assets] CRAS sync on refresh: ${syncResult.created} created, ${syncResult.skipped} skipped, ${syncResult.errors} errors`);
+    } catch (err) {
+      // Log but don't fail the request - assets will still display
+      console.error('[review/assets] Failed to sync CRAS records on refresh:', err);
     }
   }
 
