@@ -75,28 +75,49 @@ interface TacticSectionData {
   newSinceApprovalCount?: number;
 }
 
-/** List non-folder files in a Drive folder. Shared Drive safe. */
+/** List non-folder files in a Drive folder. Shared Drive safe. Handles pagination. */
 async function listAllFiles(
   drive: drive_v3.Drive,
   folderId: string,
 ): Promise<ReviewAsset[]> {
-  const res = await drive.files.list({
-    q: `'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
-    fields: 'files(id, name, mimeType, modifiedTime)',
-    orderBy: 'modifiedTime desc',
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-  });
-  const files = (res.data.files ?? []).map((f) => ({
-    fileId: f.id!,
-    name: f.name!,
-    mimeType: f.mimeType || 'application/octet-stream',
-    modifiedTime: f.modifiedTime || '',
-  }));
+  const allFiles: ReviewAsset[] = [];
+  let pageToken: string | undefined = undefined;
+  let pageCount = 0;
+  
+  do {
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime)',
+      orderBy: 'modifiedTime desc',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      pageSize: 1000, // Max page size
+      pageToken,
+    });
+    
+    const files = (res.data.files ?? []).map((f) => ({
+      fileId: f.id!,
+      name: f.name!,
+      mimeType: f.mimeType || 'application/octet-stream',
+      modifiedTime: f.modifiedTime || '',
+    }));
+    
+    allFiles.push(...files);
+    pageToken = res.data.nextPageToken ?? undefined;
+    pageCount++;
+    
+    if (pageToken) {
+      console.log(`[review/assets] Paginating Drive files list: page ${pageCount}, ${files.length} files in this page`);
+    }
+  } while (pageToken);
+  
+  if (pageCount > 1) {
+    console.log(`[review/assets] Retrieved ${allFiles.length} files across ${pageCount} pages from folder ${folderId}`);
+  }
   
   // Deduplicate by fileId (keep first occurrence, which is most recent due to ordering)
   const seen = new Set<string>();
-  return files.filter((f) => {
+  return allFiles.filter((f) => {
     if (seen.has(f.fileId)) {
       console.warn(`[review/assets] Duplicate fileId detected: ${f.fileId} (${f.name}), skipping duplicate`);
       return false;
@@ -209,12 +230,39 @@ export async function GET(req: NextRequest) {
     try {
       const { batchEnsureCrasRecords } = await import('@/lib/airtable/reviewAssetStatus');
       const folderIds = Array.from(folderMap.values());
+      
+      console.log(`[review/assets] Starting CRAS sync on refresh:`, {
+        projectId: project.recordId,
+        token: token.slice(0, 8) + '...',
+        totalFiles: allAssetsForCras.length,
+        folderIds,
+        sampleFileIds: allAssetsForCras.slice(0, 5).map(a => a.fileId),
+      });
+      
       const syncResult = await batchEnsureCrasRecords(token, project.recordId, allAssetsForCras, { folderIds });
-      console.log(`[review/assets] CRAS sync on refresh: ${syncResult.created} created, ${syncResult.skipped} skipped, ${syncResult.errors} errors`);
+      
+      console.log(`[review/assets] CRAS sync on refresh complete:`, {
+        created: syncResult.created,
+        skipped: syncResult.skipped,
+        errors: syncResult.errors,
+        totalFiles: allAssetsForCras.length,
+      });
+      
+      if (syncResult.errors > 0) {
+        console.error(`[review/assets] CRAS sync had ${syncResult.errors} errors - check logs above`);
+      }
     } catch (err) {
       // Log but don't fail the request - assets will still display
-      console.error('[review/assets] Failed to sync CRAS records on refresh:', err);
+      console.error('[review/assets] Failed to sync CRAS records on refresh:', {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        projectId: project.recordId,
+        token: token.slice(0, 8) + '...',
+        totalFiles: allAssetsForCras.length,
+      });
     }
+  } else {
+    console.log(`[review/assets] No files found for CRAS sync (allAssetsForCras.length = 0)`);
   }
 
   // Attach review state and click-through URL from Creative Review Asset Status + project primary (non-fatal if table missing)

@@ -238,28 +238,50 @@ export default async function ReviewPage({
 
 /**
  * List all non-trashed files in a folder, sorted by modified time descending.
+ * Handles pagination to ensure all files are retrieved.
  */
 async function listAllFiles(
   drive: ReturnType<typeof google.drive>,
   folderId: string,
 ): Promise<ReviewAsset[]> {
-  const res = await drive.files.list({
-    q: `'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
-    fields: 'files(id, name, mimeType, modifiedTime)',
-    orderBy: 'modifiedTime desc',
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-  });
-  const files = (res.data.files ?? []).map((f) => ({
-    fileId: f.id!,
-    name: f.name!,
-    mimeType: f.mimeType || 'application/octet-stream',
-    modifiedTime: f.modifiedTime || '',
-  }));
+  const allFiles: ReviewAsset[] = [];
+  let pageToken: string | undefined = undefined;
+  let pageCount = 0;
+  
+  do {
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime)',
+      orderBy: 'modifiedTime desc',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      pageSize: 1000, // Max page size
+      pageToken,
+    });
+    
+    const files = (res.data.files ?? []).map((f) => ({
+      fileId: f.id!,
+      name: f.name!,
+      mimeType: f.mimeType || 'application/octet-stream',
+      modifiedTime: f.modifiedTime || '',
+    }));
+    
+    allFiles.push(...files);
+    pageToken = res.data.nextPageToken ?? undefined;
+    pageCount++;
+    
+    if (pageToken) {
+      console.log(`[review/page] Paginating Drive files list: page ${pageCount}, ${files.length} files in this page`);
+    }
+  } while (pageToken);
+  
+  if (pageCount > 1) {
+    console.log(`[review/page] Retrieved ${allFiles.length} files across ${pageCount} pages from folder ${folderId}`);
+  }
   
   // Deduplicate by fileId (keep first occurrence, which is most recent due to ordering)
   const seen = new Set<string>();
-  return files.filter((f) => {
+  return allFiles.filter((f) => {
     if (seen.has(f.fileId)) {
       console.warn(`[review/page] Duplicate fileId detected: ${f.fileId} (${f.name}), skipping duplicate`);
       return false;
