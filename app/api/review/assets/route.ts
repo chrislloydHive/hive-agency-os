@@ -84,8 +84,11 @@ async function listAllFiles(
   let pageToken: string | undefined = undefined;
   let pageCount = 0;
   
+  // Type annotation to avoid circular reference issue
+  type DriveListResponse = Awaited<ReturnType<drive_v3.Drive['files']['list']>>;
+  
   while (true) {
-    const res = await drive.files.list({
+    const res: DriveListResponse = await drive.files.list({
       q: `'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
       fields: 'nextPageToken, files(id, name, mimeType, modifiedTime)',
       orderBy: 'modifiedTime desc',
