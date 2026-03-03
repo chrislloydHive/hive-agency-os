@@ -248,8 +248,8 @@ async function listAllFiles(
   let pageToken: string | undefined = undefined;
   let pageCount = 0;
   
-  do {
-    const res: Awaited<ReturnType<typeof drive.files.list>> = await drive.files.list({
+  while (true) {
+    const res = await drive.files.list({
       q: `'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
       fields: 'nextPageToken, files(id, name, mimeType, modifiedTime)',
       orderBy: 'modifiedTime desc',
@@ -272,8 +272,10 @@ async function listAllFiles(
     
     if (pageToken) {
       console.log(`[review/page] Paginating Drive files list: page ${pageCount}, ${files.length} files in this page`);
+    } else {
+      break;
     }
-  } while (pageToken);
+  }
   
   if (pageCount > 1) {
     console.log(`[review/page] Retrieved ${allFiles.length} files across ${pageCount} pages from folder ${folderId}`);
