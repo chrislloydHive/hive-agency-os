@@ -23,22 +23,24 @@ import { NextResponse } from "next/server";
 // ============================================================================
 
 const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY || "";
-const AIRTABLE_OS_BASE_ID = process.env.AIRTABLE_OS_BASE_ID || "";
+const AIRTABLE_OS_BASE_ID = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || "";
 const HIVE_INBOUND_SECRET = process.env.HIVE_INBOUND_SECRET || "";
-
-if (!AIRTABLE_API_KEY) {
-  throw new Error("Missing AIRTABLE_API_KEY environment variable.");
-}
-if (!AIRTABLE_OS_BASE_ID) {
-  throw new Error("Missing AIRTABLE_OS_BASE_ID environment variable.");
-}
-if (!HIVE_INBOUND_SECRET) {
-  throw new Error("Missing HIVE_INBOUND_SECRET environment variable.");
-}
 
 const COMPANIES_TABLE = "Companies";
 const OPPORTUNITIES_TABLE = "Opportunities";
 const AIRTABLE_BASE_URL = `https://api.airtable.com/v0/${AIRTABLE_OS_BASE_ID}`;
+
+function validateEnvVars() {
+  if (!AIRTABLE_API_KEY) {
+    throw new Error("Missing AIRTABLE_API_KEY environment variable.");
+  }
+  if (!AIRTABLE_OS_BASE_ID) {
+    throw new Error("Missing AIRTABLE_OS_BASE_ID or AIRTABLE_BASE_ID environment variable.");
+  }
+  if (!HIVE_INBOUND_SECRET) {
+    throw new Error("Missing HIVE_INBOUND_SECRET environment variable.");
+  }
+}
 
 // ============================================================================
 // Helpers
@@ -244,6 +246,9 @@ export async function POST(req: Request) {
   const debugId = `dbg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
   try {
+    // Validate environment variables at runtime
+    validateEnvVars();
+
     // -------------------------------------------------------------------------
     // Auth
     // -------------------------------------------------------------------------

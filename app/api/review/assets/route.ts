@@ -85,26 +85,27 @@ async function listAllFiles(
   let pageCount = 0;
   
   while (true) {
-    // Explicitly type to avoid circular reference
-    const res = await drive.files.list({
+    const listParams: drive_v3.Params$Resource$Files$List = {
       q: `'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
       fields: 'nextPageToken, files(id, name, mimeType, modifiedTime)',
       orderBy: 'modifiedTime desc',
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
-      pageSize: 1000, // Max page size
+      pageSize: 1000,
       pageToken,
-    });
-    
-    const files = (res.data.files ?? []).map((f) => ({
+    };
+    const res = await drive.files.list(listParams);
+    const data: drive_v3.Schema$FileList = res.data;
+
+    const files = (data.files ?? []).map((f) => ({
       fileId: f.id!,
       name: f.name!,
       mimeType: f.mimeType || 'application/octet-stream',
       modifiedTime: f.modifiedTime || '',
     }));
-    
+
     allFiles.push(...files);
-    const nextToken = res.data.nextPageToken ?? undefined;
+    const nextToken = data.nextPageToken ?? undefined;
     pageToken = nextToken;
     pageCount++;
     

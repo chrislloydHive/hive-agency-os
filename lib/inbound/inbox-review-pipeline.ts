@@ -52,7 +52,7 @@ interface InboxExtractionResponse {
 // ============================================================================
 
 const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY || "";
-const AIRTABLE_OS_BASE_ID = process.env.AIRTABLE_OS_BASE_ID || "";
+const AIRTABLE_OS_BASE_ID = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || "";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 

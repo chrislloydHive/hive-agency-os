@@ -1110,17 +1110,19 @@ async function listFolderChildren(
   const files: drive_v3.Schema$File[] = [];
   let pageToken: string | undefined;
   do {
-    const res = await drive.files.list({
+    const listParams: drive_v3.Params$Resource$Files$List = {
       q: `'${parentId.replace(/'/g, "\\'")}' in parents and trashed = false`,
       fields: 'nextPageToken, files(id, name, mimeType, shortcutDetails)',
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
       pageSize: 100,
       pageToken,
-    });
-    const list = res.data.files ?? [];
+    };
+    const res = await drive.files.list(listParams);
+    const data: drive_v3.Schema$FileList = res.data;
+    const list = data.files ?? [];
     files.push(...list);
-    pageToken = res.data.nextPageToken ?? undefined;
+    pageToken = data.nextPageToken ?? undefined;
   } while (pageToken);
   return files;
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY || "";
-const AIRTABLE_OS_BASE_ID = process.env.AIRTABLE_OS_BASE_ID || "";
+const AIRTABLE_OS_BASE_ID = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || "";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 
 // Make model configurable so you never get blocked by "model not found"
