@@ -202,10 +202,21 @@ export default async function ReviewPage({
   }
 
   // Batch ensure CRAS records exist for all displayed assets
+  // CRAS records are created BEFORE approval - this sync runs on portal load
   if (allAssetsForCras.length > 0) {
     try {
-      const result = await batchEnsureCrasRecords(token, project.recordId, allAssetsForCras);
-      console.log(`[review/page] Ensured CRAS records: ${result.created} created, ${result.errors} errors`);
+      // Collect folder IDs for logging
+      const folderIds = Array.from(folderMap.values()).map(f => f.folderId);
+      
+      const result = await batchEnsureCrasRecords(token, project.recordId, allAssetsForCras, { folderIds });
+      console.log(`[review/page] CRAS sync complete`, {
+        projectId: project.recordId,
+        folderIds,
+        filesScanned: allAssetsForCras.length,
+        recordsCreated: result.created,
+        recordsSkipped: result.skipped,
+        recordsErrors: result.errors,
+      });
     } catch (err) {
       // Log but don't fail page load - assets will still display
       console.error('[review/page] Failed to ensure CRAS records:', err);

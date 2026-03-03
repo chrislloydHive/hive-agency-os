@@ -90,17 +90,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid or expired token' }, { status: 404 });
   }
 
-  if (tactic && variant) {
-    await ensureCrasRecord({
-      token,
-      projectId: resolved.project.recordId,
-      driveFileId,
-      filename,
-      tactic,
-      variant,
-    });
-  }
-
   // Use deliveryBatchId from request if provided
   let finalDeliveryBatchId = deliveryBatchId;
   let selectedBatchRecordId: string | undefined = undefined;
@@ -108,24 +97,8 @@ export async function POST(req: NextRequest) {
     console.log(`[approve] Using deliveryBatchId from request: ${finalDeliveryBatchId}`);
   }
 
-  // Log Airtable fields being written (before approval)
-  const approvalFields: Record<string, unknown> = {
-    'Asset Approved (Client)': true,
-    'Status': 'Approved',
-    'Approved At': approvedAt || new Date().toISOString(),
-  };
-  if (approvedByName !== undefined) approvalFields['Approved By Name'] = String(approvedByName).slice(0, 100);
-  if (approvedByEmail !== undefined) approvalFields['Approved By Email'] = String(approvedByEmail).slice(0, 200);
-  if (finalDeliveryBatchId != null && String(finalDeliveryBatchId).trim()) {
-    const bid = String(finalDeliveryBatchId).trim();
-    approvalFields['Delivery Batch ID'] = bid.startsWith('rec') ? [bid] : bid;
-    approvalFields['Ready to Deliver (Webhook)'] = true;
-  }
-  console.log(`[approve] Writing Airtable fields:`, {
-    fieldKeys: Object.keys(approvalFields),
-    fields: approvalFields,
-  });
-
+  // Approve should ONLY update existing CRAS record (created by sync process on portal load)
+  // If record doesn't exist, setSingleAssetApprovedClient will create it first with warning
   const result = await setSingleAssetApprovedClient({
     token,
     driveFileId,
@@ -133,6 +106,11 @@ export async function POST(req: NextRequest) {
     approvedByName,
     approvedByEmail,
     deliveryBatchId: finalDeliveryBatchId ?? undefined,
+    // Pass project info for fallback record creation (should not be needed if sync works)
+    projectId: resolved.project.recordId,
+    filename,
+    tactic,
+    variant,
   });
 
   if ('error' in result) {

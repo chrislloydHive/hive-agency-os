@@ -556,11 +556,16 @@ export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<bool
   if (existing) return false;
   const osBase = getBase();
   const now = new Date().toISOString();
+  
+  // Construct Drive URL from file ID
+  const driveUrl = `https://drive.google.com/file/d/${args.driveFileId}/view`;
+  
   await osBase(TABLE).create({
     'Review Token': args.token,
     Project: [args.projectId],
-    [SOURCE_FOLDER_ID_FIELD]: args.driveFileId,
+    [SOURCE_FOLDER_ID_FIELD]: args.driveFileId, // Drive File ID as dedupe key
     Filename: (args.filename ?? '').slice(0, 500),
+    'Drive URL': driveUrl, // Drive URL for easy access
     Tactic: args.tactic,
     Variant: args.variant,
     Status: 'New',
@@ -572,21 +577,35 @@ export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<bool
 /**
  * Batch ensure CRAS records exist for multiple assets.
  * Creates records with Status=New for any assets that don't have CRAS records yet.
- * Returns count of records created.
+ * Uses Drive File ID as the primary dedupe key (via Source Folder ID field).
+ * Returns count of records created and skipped.
  */
 export async function batchEnsureCrasRecords(
   token: string,
   projectId: string,
-  assets: Array<{ fileId: string; filename?: string; tactic: string; variant: string }>
-): Promise<{ created: number; errors: number }> {
-  if (assets.length === 0) return { created: 0, errors: 0 };
+  assets: Array<{ fileId: string; filename?: string; tactic: string; variant: string }>,
+  options?: { folderIds?: string[] } // Optional: folder IDs for logging
+): Promise<{ created: number; errors: number; skipped: number }> {
+  if (assets.length === 0) {
+    console.log('[batchEnsureCrasRecords] No assets provided, skipping');
+    return { created: 0, errors: 0, skipped: 0 };
+  }
   
   const osBase = getBase();
   const now = new Date().toISOString();
   let created = 0;
   let errors = 0;
+  let skipped = 0;
   
-  // Check which assets already have CRAS records
+  // Log start of sync process
+  console.log('[batchEnsureCrasRecords] Starting CRAS sync', {
+    projectId,
+    folderIds: options?.folderIds || [],
+    filesScanned: assets.length,
+    token: token.slice(0, 8) + '...',
+  });
+  
+  // Check which assets already have CRAS records (using Drive File ID as dedupe key)
   const fileIds = assets.map(a => a.fileId);
   const existingMap = new Map<string, boolean>();
   
@@ -615,7 +634,7 @@ export async function batchEnsureCrasRecords(
         }
       }
     } catch (err) {
-      console.error('[reviewAssetStatus] Failed to check existing CRAS records:', err);
+      console.error('[batchEnsureCrasRecords] Failed to check existing CRAS records:', err);
       // Don't count as errors - we'll try to create anyway (idempotent)
       continue;
     }
@@ -626,11 +645,20 @@ export async function batchEnsureCrasRecords(
   for (const asset of assets) {
     if (!existingMap.has(asset.fileId)) {
       toCreate.push(asset);
+    } else {
+      skipped++;
     }
   }
   
   if (toCreate.length === 0) {
-    return { created: 0, errors };
+    console.log('[batchEnsureCrasRecords] Sync complete - all records already exist', {
+      projectId,
+      filesScanned: assets.length,
+      recordsCreated: 0,
+      recordsSkipped: skipped,
+      recordsErrors: errors,
+    });
+    return { created: 0, errors, skipped };
   }
   
   // Create records in batches (Airtable allows up to 10 records per batch create)
@@ -638,29 +666,45 @@ export async function batchEnsureCrasRecords(
   for (let i = 0; i < toCreate.length; i += CREATE_BATCH_SIZE) {
     const batch = toCreate.slice(i, i + CREATE_BATCH_SIZE);
     try {
-      const recordsToCreate = batch.map(asset => ({
-        fields: {
-          'Review Token': token,
-          Project: [projectId],
-          [SOURCE_FOLDER_ID_FIELD]: asset.fileId,
-          Filename: (asset.filename ?? '').slice(0, 500),
-          Tactic: asset.tactic,
-          Variant: asset.variant,
-          Status: 'New',
-          'Last Activity At': now,
-        } as any,
-      }));
+      const recordsToCreate = batch.map(asset => {
+        // Construct Drive URL from file ID
+        const driveUrl = `https://drive.google.com/file/d/${asset.fileId}/view`;
+        
+        return {
+          fields: {
+            'Review Token': token,
+            Project: [projectId],
+            [SOURCE_FOLDER_ID_FIELD]: asset.fileId, // Drive File ID as dedupe key
+            Filename: (asset.filename ?? '').slice(0, 500),
+            'Drive URL': driveUrl, // Drive URL for easy access
+            Tactic: asset.tactic,
+            Variant: asset.variant,
+            Status: 'New',
+            'Last Activity At': now,
+          } as any,
+        };
+      });
       
       // Airtable batch create
       await osBase(TABLE).create(recordsToCreate);
       created += batch.length;
     } catch (err) {
-      console.error('[reviewAssetStatus] Failed to batch create CRAS records:', err);
+      console.error('[batchEnsureCrasRecords] Failed to batch create CRAS records:', err);
       errors += batch.length;
     }
   }
   
-  return { created, errors };
+  // Log completion
+  console.log('[batchEnsureCrasRecords] Sync complete', {
+    projectId,
+    folderIds: options?.folderIds || [],
+    filesScanned: assets.length,
+    recordsCreated: created,
+    recordsSkipped: skipped,
+    recordsErrors: errors,
+  });
+  
+  return { created, errors, skipped };
 }
 
 /**
@@ -854,7 +898,8 @@ export interface BatchSetAssetApprovedClientOptions {
 
 /**
  * Set Asset Approved (Client) = true on the given Airtable record IDs.
- * Optionally sets Approved At / Approved By on each record so timestamps match the user's action.
+ * ONLY updates existing CRAS records. Records should already exist from sync process.
+ * If a record doesn't exist, logs a warning and skips it (should not happen if sync works correctly).
  * Updates in chunks of 10 (Airtable limit). Stops on first batch failure.
  */
 export async function batchSetAssetApprovedClient(
@@ -914,6 +959,12 @@ export async function batchSetAssetApprovedClient(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const airtableError = err;
+      
+      // Check if error is due to missing record (should not happen if sync works correctly)
+      if (message.includes('not found') || message.includes('NOT_FOUND') || (err as any)?.statusCode === 404) {
+        console.warn(`[batchSetAssetApprovedClient] WARNING: Record not found at index ${i}. This should not happen if CRAS sync process is working correctly. Skipping failed records.`);
+      }
+      
       return {
         updated,
         failedAt: i,
@@ -934,13 +985,18 @@ export interface SetSingleAssetApprovedClientArgs {
   approvedByEmail?: string;
   /** When set, write this to Delivery Batch ID on the CRAS record (Partner Delivery Batch link or Batch ID text). */
   deliveryBatchId?: string | null;
+  /** Optional: projectId, filename, tactic, variant for creating record if missing */
+  projectId?: string;
+  filename?: string;
+  tactic?: string;
+  variant?: string;
 }
 
 /**
  * Set Asset Approved (Client) = true for a single asset by token + driveFileId.
- * Optionally sets Approved At / Approved By so the timestamp reflects the user's action time.
- * Does not write Status; Airtable automation can set Needs Delivery etc.
- * Returns alreadyApproved if the checkbox was already true.
+ * ONLY updates existing CRAS record. If record doesn't exist, creates it first with Status="New",
+ * then immediately updates to "Approved" (with warning logged).
+ * Uses Drive File ID as the dedupe key.
  */
 export async function setSingleAssetApprovedClient(
   args: SetSingleAssetApprovedClientArgs
@@ -949,10 +1005,44 @@ export async function setSingleAssetApprovedClient(
   | { alreadyApproved: true; recordId: string }
   | { error: string; airtableError?: unknown }
 > {
-  const { token, driveFileId, approvedAt, approvedByName, approvedByEmail, deliveryBatchId } = args;
-  const existing = await findExisting(token, driveFileId);
+  const { token, driveFileId, approvedAt, approvedByName, approvedByEmail, deliveryBatchId, projectId, filename, tactic, variant } = args;
+  let existing = await findExisting(token, driveFileId);
+  
+  // If record doesn't exist, create it first (with warning)
   if (!existing) {
-    return { error: 'Record not found' };
+    if (!projectId) {
+      console.warn(`[setSingleAssetApprovedClient] WARNING: CRAS record not found for driveFileId=${driveFileId}, but projectId missing. Cannot create record.`);
+      return { error: 'Record not found and cannot create (missing projectId)' };
+    }
+    
+    console.warn(`[setSingleAssetApprovedClient] WARNING: CRAS record not found for driveFileId=${driveFileId}. Creating record with Status="New" first, then updating to "Approved". This should not happen if sync process is working correctly.`);
+    
+    const osBase = getBase();
+    const now = new Date().toISOString();
+    
+    try {
+      // Create record with Status="New"
+      const driveUrl = `https://drive.google.com/file/d/${driveFileId}/view`;
+      
+      const created = await osBase(TABLE).create({
+        'Review Token': token,
+        Project: [projectId],
+        [SOURCE_FOLDER_ID_FIELD]: driveFileId, // Drive File ID as dedupe key
+        Filename: (filename ?? '').slice(0, 500),
+        'Drive URL': driveUrl, // Drive URL for easy access
+        Tactic: tactic || '',
+        Variant: variant || '',
+        Status: 'New',
+        'Last Activity At': now,
+      } as any);
+      
+      existing = { id: created.id, fields: created.fields as Record<string, unknown> };
+      console.log(`[setSingleAssetApprovedClient] Created missing CRAS record: ${created.id}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[setSingleAssetApprovedClient] Failed to create missing CRAS record:`, err);
+      return { error: `Failed to create missing record: ${message}`, airtableError: err };
+    }
   }
   if (parseAssetApprovedClient(existing.fields[ASSET_APPROVED_CLIENT_FIELD])) {
     return { alreadyApproved: true, recordId: existing.id };
