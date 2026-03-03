@@ -1034,9 +1034,9 @@ export async function setSingleAssetApprovedClient(
         Variant: variant || '',
         Status: 'New',
         'Last Activity At': now,
-      } as any);
+      } as any) as unknown as { id: string; fields: Record<string, unknown> };
       
-      existing = { id: created.id, fields: created.fields as Record<string, unknown> };
+      existing = { id: created.id, fields: created.fields };
       console.log(`[setSingleAssetApprovedClient] Created missing CRAS record: ${created.id}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
