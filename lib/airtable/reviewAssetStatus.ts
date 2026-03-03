@@ -557,15 +557,12 @@ export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<bool
   const osBase = getBase();
   const now = new Date().toISOString();
   
-  // Construct Drive URL from file ID
-  const driveUrl = `https://drive.google.com/file/d/${args.driveFileId}/view`;
-  
   await osBase(TABLE).create({
     'Review Token': args.token,
     Project: [args.projectId],
     [SOURCE_FOLDER_ID_FIELD]: args.driveFileId, // Drive File ID as dedupe key
     Filename: (args.filename ?? '').slice(0, 500),
-    'Drive URL': driveUrl, // Drive URL for easy access
+    // Note: Drive URL field doesn't exist in CRAS table - removed to prevent 422 errors
     Tactic: args.tactic,
     Variant: args.variant,
     Status: 'New',
@@ -667,16 +664,13 @@ export async function batchEnsureCrasRecords(
     const batch = toCreate.slice(i, i + CREATE_BATCH_SIZE);
     try {
       const recordsToCreate = batch.map(asset => {
-        // Construct Drive URL from file ID
-        const driveUrl = `https://drive.google.com/file/d/${asset.fileId}/view`;
-        
         return {
           fields: {
             'Review Token': token,
             Project: [projectId],
             [SOURCE_FOLDER_ID_FIELD]: asset.fileId, // Drive File ID as dedupe key
             Filename: (asset.filename ?? '').slice(0, 500),
-            'Drive URL': driveUrl, // Drive URL for easy access
+            // Note: Drive URL field doesn't exist in CRAS table - removed to prevent 422 errors
             Tactic: asset.tactic,
             Variant: asset.variant,
             Status: 'New',
@@ -1022,14 +1016,12 @@ export async function setSingleAssetApprovedClient(
     
     try {
       // Create record with Status="New"
-      const driveUrl = `https://drive.google.com/file/d/${driveFileId}/view`;
-      
       const created = await osBase(TABLE).create({
         'Review Token': token,
         Project: [projectId],
         [SOURCE_FOLDER_ID_FIELD]: driveFileId, // Drive File ID as dedupe key
         Filename: (filename ?? '').slice(0, 500),
-        'Drive URL': driveUrl, // Drive URL for easy access
+        // Note: Drive URL field doesn't exist in CRAS table - removed to prevent 422 errors
         Tactic: tactic || '',
         Variant: variant || '',
         Status: 'New',
