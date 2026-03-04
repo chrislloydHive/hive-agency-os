@@ -75,6 +75,21 @@ interface TacticSectionData {
   newSinceApprovalCount?: number;
 }
 
+/** Normalize tactic name to canonical form (e.g., "PMax" → "PMAX", "Performance Max" → "PMAX"). */
+function normalizeTactic(name: string): string {
+  const lower = name.toLowerCase().trim();
+  // PMAX variations
+  if (lower === 'pmax' || lower === 'p-max' || lower === 'performance max' || lower === 'performancemax') {
+    return 'PMAX';
+  }
+  // OOH variations
+  if (lower === 'ooh' || lower === 'out of home' || lower === 'out-of-home') {
+    return 'OOH';
+  }
+  // Return original name with first letter capitalized for standard tactics
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
 /** List non-folder files in a Drive folder. Shared Drive safe. Handles pagination. */
 async function listAllFiles(
   drive: drive_v3.Drive,
@@ -83,7 +98,7 @@ async function listAllFiles(
   const allFiles: ReviewAsset[] = [];
   let pageToken: string | undefined = undefined;
   let pageCount = 0;
-  
+
   while (true) {
     const listParams: drive_v3.Params$Resource$Files$List = {
       q: `'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
@@ -108,23 +123,112 @@ async function listAllFiles(
     const nextToken = data.nextPageToken ?? undefined;
     pageToken = nextToken;
     pageCount++;
-    
+
     if (pageToken) {
       console.log(`[review/assets] Paginating Drive files list: page ${pageCount}, ${files.length} files in this page`);
     } else {
       break;
     }
   }
-  
+
   if (pageCount > 1) {
     console.log(`[review/assets] Retrieved ${allFiles.length} files across ${pageCount} pages from folder ${folderId}`);
   }
-  
+
   // Deduplicate by fileId (keep first occurrence, which is most recent due to ordering)
   const seen = new Set<string>();
   return allFiles.filter((f) => {
     if (seen.has(f.fileId)) {
       console.warn(`[review/assets] Duplicate fileId detected: ${f.fileId} (${f.name}), skipping duplicate`);
+      return false;
+    }
+    seen.add(f.fileId);
+    return true;
+  });
+}
+
+/**
+ * Recursively list all files in a Drive folder and all its subfolders.
+ * This ensures files in nested subfolders (like PMAX size folders) are discovered.
+ * Shared Drive safe. Handles pagination.
+ *
+ * @param drive - Google Drive API client
+ * @param folderId - Root folder ID to start listing from
+ * @param maxDepth - Maximum depth to recurse (default 10, prevents infinite loops)
+ * @param currentDepth - Current recursion depth (internal use)
+ */
+async function listAllFilesRecursive(
+  drive: drive_v3.Drive,
+  folderId: string,
+  maxDepth: number = 10,
+  currentDepth: number = 0,
+): Promise<ReviewAsset[]> {
+  if (currentDepth >= maxDepth) {
+    console.warn(`[review/assets] Max recursion depth (${maxDepth}) reached for folder ${folderId}, stopping traversal`);
+    return [];
+  }
+
+  const allFiles: ReviewAsset[] = [];
+  const subfolders: string[] = [];
+  let pageToken: string | undefined = undefined;
+
+  // First, list all direct children (both files and folders)
+  while (true) {
+    const listParams: drive_v3.Params$Resource$Files$List = {
+      q: `'${folderId}' in parents and trashed = false`,
+      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime)',
+      orderBy: 'modifiedTime desc',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      pageSize: 1000,
+      pageToken,
+    };
+    const res = await drive.files.list(listParams);
+    const data: drive_v3.Schema$FileList = res.data;
+
+    for (const f of data.files ?? []) {
+      if (f.mimeType === 'application/vnd.google-apps.folder') {
+        // It's a subfolder - add to list for recursive traversal
+        subfolders.push(f.id!);
+      } else {
+        // It's a file - add to results
+        allFiles.push({
+          fileId: f.id!,
+          name: f.name!,
+          mimeType: f.mimeType || 'application/octet-stream',
+          modifiedTime: f.modifiedTime || '',
+        });
+      }
+    }
+
+    const nextToken = data.nextPageToken ?? undefined;
+    pageToken = nextToken;
+    if (!pageToken) break;
+  }
+
+  // Log subfolder discovery at variant level (depth 0)
+  if (currentDepth === 0 && subfolders.length > 0) {
+    console.log(`[review/assets] Recursive traversal: found ${subfolders.length} subfolder(s) and ${allFiles.length} direct file(s) in folder ${folderId}`);
+  }
+
+  // Recursively process subfolders
+  for (const subfolderId of subfolders) {
+    const nestedFiles = await listAllFilesRecursive(drive, subfolderId, maxDepth, currentDepth + 1);
+    allFiles.push(...nestedFiles);
+  }
+
+  // Log total at root level
+  if (currentDepth === 0) {
+    console.log(`[review/assets] Recursive traversal complete: ${allFiles.length} total files from folder ${folderId} (including ${subfolders.length} subfolders)`);
+  }
+
+  // Deduplicate by fileId (keep first occurrence)
+  const seen = new Set<string>();
+  return allFiles.filter((f) => {
+    if (seen.has(f.fileId)) {
+      if (currentDepth === 0) {
+        console.warn(`[review/assets] Duplicate fileId detected: ${f.fileId} (${f.name}), skipping duplicate`);
+      }
       return false;
     }
     seen.add(f.fileId);
@@ -211,7 +315,8 @@ export async function GET(req: NextRequest) {
         if (debugFlag) debug.push({ jobFolderId, tactic, variant, folderId: '', fileCount: 0 });
         continue;
       }
-      const assets = await listAllFiles(drive, folderId);
+      // Use recursive listing to discover files in nested subfolders (e.g., PMAX size folders)
+      const assets = await listAllFilesRecursive(drive, folderId);
       sections.push({ variant, tactic, assets, fileCount: assets.length });
       if (debugFlag) {
         debug.push({ jobFolderId, tactic, variant, folderId, fileCount: assets.length });

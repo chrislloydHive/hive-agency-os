@@ -9,6 +9,31 @@ import { detectVariantFromPath } from '@/lib/review/reviewVariantDetection';
 const VARIANTS = ['Prospecting', 'Retargeting'] as const;
 const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video', 'Search'] as const;
 
+/**
+ * Normalize tactic name to canonical form.
+ * Handles variations like "PMax" → "PMAX", "Performance Max" → "PMAX", etc.
+ */
+function normalizeTactic(name: string): string | null {
+  const lower = name.toLowerCase().trim();
+
+  // PMAX variations
+  if (lower === 'pmax' || lower === 'p-max' || lower === 'performance max' || lower === 'performancemax') {
+    return 'PMAX';
+  }
+  // OOH variations
+  if (lower === 'ooh' || lower === 'out of home' || lower === 'out-of-home') {
+    return 'OOH';
+  }
+  // Standard tactics (case-insensitive match)
+  for (const tactic of TACTICS) {
+    if (lower === tactic.toLowerCase()) {
+      return tactic;
+    }
+  }
+  // Not a recognized tactic
+  return null;
+}
+
 /** Get child folder id by exact name. Shared Drive safe. */
 export async function getChildFolderId(
   drive: drive_v3.Drive,
@@ -108,7 +133,12 @@ export async function getReviewFolderMapFromJobFolder(
 
 /**
  * Build folder map from job folder, including only tactic→variant folders that exist.
- * Variant is detected via detectVariantFromPath so Remarketing, RTG, Re-targeting → Retargeting.
+ *
+ * This function now supports:
+ * 1. Exact tactic name matches (Audio, Display, PMAX, etc.)
+ * 2. Tactic name variations (PMax → PMAX, Performance Max → PMAX, etc.)
+ * 3. Variant detection via detectVariantFromPath (Remarketing, RTG → Retargeting)
+ *
  * Unknown child folders are logged (not silently skipped); skipped count is logged at end.
  */
 export async function getReviewFolderMapFromJobFolderPartial(
@@ -117,6 +147,9 @@ export async function getReviewFolderMapFromJobFolderPartial(
 ): Promise<ReviewFolderMapResult> {
   const map = new Map<string, string>();
   let skippedFolderCount = 0;
+  let skippedTacticFolderCount = 0;
+
+  // First, try exact tactic name matches
   for (const tactic of TACTICS) {
     const tacticFolderId = await getChildFolderId(drive, jobFolderId, tactic);
     if (!tacticFolderId) continue;
@@ -133,9 +166,70 @@ export async function getReviewFolderMapFromJobFolderPartial(
       }
     }
   }
-  if (skippedFolderCount > 0) {
-    console.warn(`[reviewFolders] getReviewFolderMapFromJobFolderPartial: skipped ${skippedFolderCount} folder(s) with unrecognized variant name (jobFolderId=${jobFolderId})`);
+
+  // Second pass: check for tactic name variations that weren't matched exactly
+  // This handles folders like "PMax", "Performance Max", etc.
+  const topLevelFolders = await listChildFolders(drive, jobFolderId);
+  const foundTactics = new Set<string>();
+
+  for (const folder of topLevelFolders) {
+    const normalizedTactic = normalizeTactic(folder.name);
+
+    if (normalizedTactic) {
+      // Check if we already processed this tactic (exact match)
+      const exactMatch = await getChildFolderId(drive, jobFolderId, normalizedTactic);
+      if (exactMatch === folder.id) {
+        // Already processed via exact match
+        foundTactics.add(normalizedTactic);
+        continue;
+      }
+
+      // This is a tactic variation (e.g., "PMax" folder when we were looking for "PMAX")
+      // Check if we already have entries for this tactic
+      const hasEntriesForTactic = Array.from(map.keys()).some(key => key.endsWith(`:${normalizedTactic}`));
+      if (hasEntriesForTactic) {
+        // Already found via exact match, skip variation
+        foundTactics.add(normalizedTactic);
+        continue;
+      }
+
+      // Process this tactic folder with variation name
+      console.log(`[reviewFolders] Found tactic variation: "${folder.name}" → "${normalizedTactic}" (folderId=${folder.id})`);
+      foundTactics.add(normalizedTactic);
+
+      const childFolders = await listChildFolders(drive, folder.id);
+      for (const variantFolder of childFolders) {
+        const variant = detectVariantFromPath(variantFolder.name);
+        if (variant) {
+          map.set(`${variant}:${normalizedTactic}`, variantFolder.id);
+        } else {
+          skippedFolderCount += 1;
+          console.warn(
+            `[reviewFolders] Skipped unknown variant folder (tactic=${normalizedTactic}, folderId=${variantFolder.id}, folderName=${variantFolder.name})`
+          );
+        }
+      }
+    } else {
+      // Not a recognized tactic - could be a non-tactic folder or unknown tactic
+      const isKnownTactic = TACTICS.some(t => t.toLowerCase() === folder.name.toLowerCase());
+      if (!isKnownTactic) {
+        skippedTacticFolderCount += 1;
+        console.log(
+          `[reviewFolders] Skipped non-tactic folder at job level (folderId=${folder.id}, folderName=${folder.name})`
+        );
+      }
+    }
   }
+
+  if (skippedFolderCount > 0) {
+    console.warn(`[reviewFolders] getReviewFolderMapFromJobFolderPartial: skipped ${skippedFolderCount} variant folder(s) with unrecognized name (jobFolderId=${jobFolderId})`);
+  }
+  if (skippedTacticFolderCount > 0) {
+    console.log(`[reviewFolders] getReviewFolderMapFromJobFolderPartial: skipped ${skippedTacticFolderCount} non-tactic folder(s) at job level (jobFolderId=${jobFolderId})`);
+  }
+
+  console.log(`[reviewFolders] Folder map built: ${map.size} variant folders found for tactics: ${Array.from(foundTactics).join(', ')} (jobFolderId=${jobFolderId})`);
+
   return { map, jobFolderId };
 }
 
