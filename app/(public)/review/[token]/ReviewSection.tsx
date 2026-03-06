@@ -34,21 +34,19 @@ interface PlacementGroup {
 }
 
 /**
- * A renderable item: either a standalone asset or a grouped placement.
+ * A renderable item: all assets are now wrapped in placement containers.
  */
-type RenderableItem =
-  | { type: 'standalone'; asset: ReviewAsset }
-  | { type: 'group'; group: PlacementGroup };
+type RenderableItem = { type: 'group'; group: PlacementGroup };
 
 /**
- * Group assets by placementGroupId. Assets without a groupId are returned as standalone.
- * Groups are sorted by the first asset's placementCardOrder; assets within groups are sorted by placementCardOrder.
+ * Group assets by placementGroupId. All assets are wrapped in placement containers
+ * for a consistent approval experience.
  *
  * Grouping rules:
  * 1. Assets with same Placement Group ID are grouped together
- * 2. Assets without Placement Group ID render as standalone
- * 3. Group name uses Placement Group Name, falls back to first asset name
- * 4. Assets within group are sorted by Placement Card Order
+ * 2. Assets without Placement Group ID become single-asset placements
+ * 3. Group name uses Placement Group Name, falls back to asset name
+ * 4. Assets within groups are sorted by Placement Card Order
  */
 function groupAssetsForRendering(assets: ReviewAsset[]): RenderableItem[] {
   const groupMap = new Map<string, ReviewAsset[]>();
@@ -70,7 +68,7 @@ function groupAssetsForRendering(assets: ReviewAsset[]): RenderableItem[] {
 
   const items: RenderableItem[] = [];
 
-  // Process groups
+  // Process multi-asset groups
   for (const [groupId, groupAssets] of groupMap) {
     // Sort by placementCardOrder (nulls go last)
     const sorted = [...groupAssets].sort((a, b) => {
@@ -100,9 +98,24 @@ function groupAssetsForRendering(assets: ReviewAsset[]): RenderableItem[] {
     items.push({ type: 'group', group });
   }
 
-  // Add standalone assets
+  // Wrap standalone assets as single-asset placements for consistent UI
   for (const asset of standaloneAssets) {
-    items.push({ type: 'standalone', asset });
+    const isApproved = asset.assetApprovedClient || false;
+    const hasNew = isAssetNew(asset);
+
+    // Create a synthetic placement group for this single asset
+    // Use fileId as groupId to ensure uniqueness
+    const group: PlacementGroup = {
+      groupId: `standalone-${asset.fileId}`,
+      groupName: asset.placementGroupName?.trim() || asset.name || 'Untitled',
+      placementType: asset.placementType || 'Placement',
+      assets: [asset],
+      allApproved: isApproved,
+      approvedCount: isApproved ? 1 : 0,
+      hasNew,
+    };
+
+    items.push({ type: 'group', group });
   }
 
   return items;
@@ -812,53 +825,25 @@ export default function ReviewSection({
       {/* Asset grid — only when files exist; 4–5 columns so 10+ assets fit without cramping */}
       {/* Renders both standalone assets and placement groups using renderableItems */}
       {hasFiles ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
-          {renderableItems.map((item) => {
-            if (item.type === 'group') {
-              const { group } = item;
-
-              // Render placement group with child assets
-              // Each child asset is individually selectable/approvable (no group approval logic)
-              return (
-                <PlacementGroupCard
-                  key={`group-${group.groupId}`}
-                  group={group}
-                  token={token}
-                  variant={variant}
-                  tactic={tactic}
-                  allAssets={assets}
-                  selectedFileIds={selectedFileIds}
-                  onToggleSelect={onToggleSelect}
-                  openLightbox={openLightbox}
-                  onDownloadAsset={onDownloadAsset}
-                  onAssetStatusChange={onAssetStatusChange}
-                  onApprovalResult={onSingleAssetApprovedResult}
-                  deliveryBatchId={deliveryBatchId}
-                />
-              );
-            } else {
-              // Standalone asset (no placement group)
-              const { asset } = item;
-              const isApproved = asset.assetApprovedClient || false;
-              const assetIndex = assets.findIndex((a) => a.fileId === asset.fileId);
-
-              return (
-                <AssetCard
-                  key={asset.fileId}
-                  asset={asset}
-                  token={token}
-                  onClick={() => openLightbox(assetIndex)}
-                  selected={selectedFileIds.has(asset.fileId)}
-                  onToggleSelect={
-                    onToggleSelect && !isApproved
-                      ? () => onToggleSelect(asset.fileId)
-                      : undefined
-                  }
-                  onDownloadAsset={onDownloadAsset}
-                />
-              );
-            }
-          })}
+        <div className="grid grid-cols-1 gap-4">
+          {/* All assets render in placement containers for consistent approval UX */}
+          {renderableItems.map(({ group }) => (
+            <PlacementGroupCard
+              key={`group-${group.groupId}`}
+              group={group}
+              token={token}
+              variant={variant}
+              tactic={tactic}
+              allAssets={assets}
+              selectedFileIds={selectedFileIds}
+              onToggleSelect={onToggleSelect}
+              openLightbox={openLightbox}
+              onDownloadAsset={onDownloadAsset}
+              onAssetStatusChange={onAssetStatusChange}
+              onApprovalResult={onSingleAssetApprovedResult}
+              deliveryBatchId={deliveryBatchId}
+            />
+          ))}
         </div>
       ) : null}
 
