@@ -5,11 +5,108 @@
 // Requires author identity before approval or commenting.
 // Assets can be clicked to open a lightbox for expanded preview.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AssetLightbox from './AssetLightbox';
 import { useAuthorIdentity } from './AuthorIdentityContext';
 import { getSectionCounts, isAssetNew } from './reviewAssetUtils';
 import type { ReviewState } from './ReviewPortalClient';
+
+// ============================================================================
+// Placement Grouping Types and Utilities (for Carousel/Grouped Assets)
+// ============================================================================
+
+/**
+ * A group of assets that form a single reviewable placement (e.g., carousel).
+ * All child assets share the same placementGroupId.
+ */
+interface PlacementGroup {
+  groupId: string;
+  groupName: string;
+  placementType: string;
+  /** Child assets sorted by placementCardOrder */
+  assets: ReviewAsset[];
+  /** True if ALL child assets are approved */
+  allApproved: boolean;
+  /** Count of approved child assets */
+  approvedCount: number;
+  /** True if ANY child asset is new (firstSeenByClientAt is null) */
+  hasNew: boolean;
+}
+
+/**
+ * A renderable item: either a standalone asset or a grouped placement.
+ */
+type RenderableItem =
+  | { type: 'standalone'; asset: ReviewAsset }
+  | { type: 'group'; group: PlacementGroup };
+
+/**
+ * Group assets by placementGroupId. Assets without a groupId are returned as standalone.
+ * Groups are sorted by the first asset's placementCardOrder; assets within groups are sorted by placementCardOrder.
+ *
+ * Grouping rules:
+ * 1. Assets with same Placement Group ID are grouped together
+ * 2. Assets without Placement Group ID render as standalone
+ * 3. Group name uses Placement Group Name, falls back to first asset name
+ * 4. Assets within group are sorted by Placement Card Order
+ */
+function groupAssetsForRendering(assets: ReviewAsset[]): RenderableItem[] {
+  const groupMap = new Map<string, ReviewAsset[]>();
+  const standaloneAssets: ReviewAsset[] = [];
+
+  for (const asset of assets) {
+    const groupId = asset.placementGroupId;
+    if (groupId && groupId.trim()) {
+      const existing = groupMap.get(groupId);
+      if (existing) {
+        existing.push(asset);
+      } else {
+        groupMap.set(groupId, [asset]);
+      }
+    } else {
+      standaloneAssets.push(asset);
+    }
+  }
+
+  const items: RenderableItem[] = [];
+
+  // Process groups
+  for (const [groupId, groupAssets] of groupMap) {
+    // Sort by placementCardOrder (nulls go last)
+    const sorted = [...groupAssets].sort((a, b) => {
+      const orderA = a.placementCardOrder ?? 999;
+      const orderB = b.placementCardOrder ?? 999;
+      return orderA - orderB;
+    });
+
+    const firstAsset = sorted[0];
+    const allApproved = sorted.every((a) => a.assetApprovedClient);
+    const approvedCount = sorted.filter((a) => a.assetApprovedClient).length;
+    const hasNew = sorted.some(isAssetNew);
+
+    // Use Placement Group Name if available, otherwise fall back to first asset name
+    const groupName = firstAsset.placementGroupName?.trim() || firstAsset.name || `Group ${groupId.slice(0, 8)}`;
+
+    const group: PlacementGroup = {
+      groupId,
+      groupName,
+      placementType: firstAsset.placementType || 'Placement',
+      assets: sorted,
+      allApproved,
+      approvedCount,
+      hasNew,
+    };
+
+    items.push({ type: 'group', group });
+  }
+
+  // Add standalone assets
+  for (const asset of standaloneAssets) {
+    items.push({ type: 'standalone', asset });
+  }
+
+  return items;
+}
 
 /**
  * Video component that extracts and displays the final frame as a thumbnail.
@@ -230,6 +327,15 @@ interface ReviewAsset {
   firstSeenAt?: string | null;
   lastSeenAt?: string | null;
   partnerDownloadedAt?: string | null;
+  // Placement grouping fields (for carousel/grouped assets)
+  /** Placement Group ID: groups multiple assets as one reviewable placement (e.g., carousel). */
+  placementGroupId?: string | null;
+  /** Display name for the grouped placement. */
+  placementGroupName?: string | null;
+  /** Placement type: "Carousel", "Static", etc. Controls rendering. */
+  placementType?: string | null;
+  /** Sort order within the group (1, 2, 3, 4 for carousel cards). */
+  placementCardOrder?: number | null;
 }
 
 interface TacticFeedback {
@@ -367,10 +473,13 @@ export default function ReviewSection({
   const [feedbackExpanded, setFeedbackExpanded] = useState(false);
   const hasFiles = assets.length > 0;
   const isGroupApproved = !!groupApprovalApprovedAt;
-  
+
+  // Group assets for rendering (placement groups together, standalone assets separate)
+  const renderableItems = useMemo(() => groupAssetsForRendering(assets), [assets]);
+
   // Get identity hook early (needed for callbacks)
   const { identity, requireIdentity } = useAuthorIdentity();
-  
+
   // Fetch group comments on mount
   useEffect(() => {
     if (!groupId) return;
@@ -701,25 +810,54 @@ export default function ReviewSection({
       )}
 
       {/* Asset grid — only when files exist; 4–5 columns so 10+ assets fit without cramping */}
+      {/* Renders both standalone assets and placement groups using renderableItems */}
       {hasFiles ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
-          {assets.map((asset, index) => {
-            const isApproved = asset.assetApprovedClient || false;
-            return (
-              <AssetCard
-                key={asset.fileId}
-                asset={asset}
-                token={token}
-                onClick={() => openLightbox(index)}
-                selected={selectedFileIds.has(asset.fileId)}
-                onToggleSelect={
-                  onToggleSelect && !isApproved 
-                    ? () => onToggleSelect(asset.fileId) 
-                    : undefined
-                }
-                onDownloadAsset={onDownloadAsset}
-              />
-            );
+          {renderableItems.map((item) => {
+            if (item.type === 'group') {
+              const { group } = item;
+
+              // Render placement group with child assets
+              // Each child asset is individually selectable/approvable (no group approval logic)
+              return (
+                <PlacementGroupCard
+                  key={`group-${group.groupId}`}
+                  group={group}
+                  token={token}
+                  variant={variant}
+                  tactic={tactic}
+                  allAssets={assets}
+                  selectedFileIds={selectedFileIds}
+                  onToggleSelect={onToggleSelect}
+                  openLightbox={openLightbox}
+                  onDownloadAsset={onDownloadAsset}
+                  onAssetStatusChange={onAssetStatusChange}
+                  onApprovalResult={onSingleAssetApprovedResult}
+                  deliveryBatchId={deliveryBatchId}
+                />
+              );
+            } else {
+              // Standalone asset (no placement group)
+              const { asset } = item;
+              const isApproved = asset.assetApprovedClient || false;
+              const assetIndex = assets.findIndex((a) => a.fileId === asset.fileId);
+
+              return (
+                <AssetCard
+                  key={asset.fileId}
+                  asset={asset}
+                  token={token}
+                  onClick={() => openLightbox(assetIndex)}
+                  selected={selectedFileIds.has(asset.fileId)}
+                  onToggleSelect={
+                    onToggleSelect && !isApproved
+                      ? () => onToggleSelect(asset.fileId)
+                      : undefined
+                  }
+                  onDownloadAsset={onDownloadAsset}
+                />
+              );
+            }
           })}
         </div>
       ) : null}
@@ -901,6 +1039,352 @@ function formatShortDate(iso: string | null | undefined): string {
   } catch {
     return '';
   }
+}
+
+// ============================================================================
+// PlacementGroupCard: Visually groups assets under a placement header
+// Includes "Approve Placement" button that approves ALL child assets using existing bulk-approve API
+// ============================================================================
+
+interface PlacementGroupCardProps {
+  group: PlacementGroup;
+  token: string;
+  variant: string;
+  tactic: string;
+  /** All assets from the section (for finding lightbox index) */
+  allAssets: ReviewAsset[];
+  selectedFileIds: Set<string>;
+  onToggleSelect?: (fileId: string) => void;
+  openLightbox: (index: number) => void;
+  onDownloadAsset?: (assetId: string) => void | Promise<void>;
+  /** Callback when asset status changes (for optimistic UI updates) */
+  onAssetStatusChange?: (variant: string, tactic: string, fileId: string, reviewState: ReviewState) => void;
+  /** Callback when approval completes (for toast notifications) */
+  onApprovalResult?: (success: boolean, message?: string) => void;
+  /** Delivery batch ID for linking approved assets to delivery */
+  deliveryBatchId?: string | null;
+}
+
+function PlacementGroupCard({
+  group,
+  token,
+  variant,
+  tactic,
+  allAssets,
+  selectedFileIds,
+  onToggleSelect,
+  openLightbox,
+  onDownloadAsset,
+  onAssetStatusChange,
+  onApprovalResult,
+  deliveryBatchId,
+}: PlacementGroupCardProps) {
+  const { assets, groupName, allApproved, approvedCount, hasNew, placementType } = group;
+  const pendingCount = assets.length - approvedCount;
+  const assetCount = assets.length;
+
+  // Check if this is a carousel placement (show card numbers)
+  const isCarousel = placementType?.toLowerCase() === 'carousel';
+
+  // Approval state
+  const [isApproving, setIsApproving] = useState(false);
+  const { requireIdentity } = useAuthorIdentity();
+
+  // Get unapproved assets in this placement
+  const unapprovedAssets = assets.filter((a) => !a.assetApprovedClient);
+  const unapprovedFileIds = unapprovedAssets.map((a) => a.fileId);
+
+  /**
+   * Approve all assets in this placement group.
+   * Uses the existing bulk-approve API to ensure all asset-level writebacks are preserved:
+   * - Approved status, Approved by, Approved at
+   * - Delivered Folder ID, Delivered Folder URL, Deliver Summary, Delivered At
+   * - Ready to Deliver webhook triggers
+   * - Any other existing asset-level automation
+   */
+  const handleApprovePlacement = useCallback(() => {
+    if (unapprovedFileIds.length === 0) return;
+
+    requireIdentity(async (currentIdentity) => {
+      setIsApproving(true);
+      const approvedAt = new Date().toISOString();
+      const approvedByName = currentIdentity.name;
+      const approvedByEmail = currentIdentity.email;
+
+      // Optimistically update local state for each asset
+      unapprovedFileIds.forEach((fileId) => {
+        onAssetStatusChange?.(variant, tactic, fileId, 'approved');
+      });
+
+      try {
+        // Call the same bulk-approve API used for individual asset approval
+        // This ensures all existing writebacks are preserved
+        const res = await fetch('/api/review/assets/bulk-approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({
+            token,
+            fileIds: unapprovedFileIds,
+            approvedAt,
+            approvedByName,
+            approvedByEmail,
+            deliveryBatchId: deliveryBatchId ?? undefined,
+            sections: [{
+              variant,
+              tactic,
+              fileIds: unapprovedFileIds,
+            }],
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const approved = data.approved ?? unapprovedFileIds.length;
+          onApprovalResult?.(true, `Approved ${approved} asset${approved !== 1 ? 's' : ''} in placement`);
+        } else {
+          const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+          console.error('[PlacementGroupCard] Failed to approve placement:', errorData);
+          onApprovalResult?.(false, errorData.error || 'Failed to approve placement');
+        }
+      } catch (err) {
+        console.error('[PlacementGroupCard] Error approving placement:', err);
+        onApprovalResult?.(false, 'Error approving placement');
+      } finally {
+        setIsApproving(false);
+      }
+    });
+  }, [
+    token,
+    variant,
+    tactic,
+    unapprovedFileIds,
+    deliveryBatchId,
+    onAssetStatusChange,
+    onApprovalResult,
+    requireIdentity,
+  ]);
+
+  return (
+    <div className="col-span-full rounded-lg border border-gray-700 bg-gray-800/30 p-4">
+      {/* Placement header */}
+      <div className="mb-4">
+        {/* Group name */}
+        <h3 className="text-base font-semibold text-gray-100">{groupName}</h3>
+
+        {/* Approval progress indicator */}
+        <div className="mt-1 flex items-center gap-2">
+          {allApproved ? (
+            <span className="flex items-center gap-1 text-sm font-medium text-emerald-400">
+              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              </svg>
+              Approved
+            </span>
+          ) : (
+            <span className="text-sm text-gray-400">
+              <span className="font-medium text-gray-200">{approvedCount}</span>
+              {' / '}
+              <span className="font-medium text-gray-200">{assetCount}</span>
+              {' Approved'}
+            </span>
+          )}
+
+          {hasNew && (
+            <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-xs font-medium text-amber-400">
+              New
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Carousel preview - horizontal strip layout */}
+      {isCarousel ? (
+        <div className="relative">
+          {/* Carousel container with horizontal scroll */}
+          <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-track-gray-800 scrollbar-thumb-gray-600">
+            {assets.map((asset, index) => {
+              const isApproved = asset.assetApprovedClient || false;
+              const assetIndex = allAssets.findIndex((a) => a.fileId === asset.fileId);
+              const cardNumber = asset.placementCardOrder ?? index + 1;
+              const isImage = asset.mimeType.startsWith('image/');
+              const isVideo = asset.mimeType.startsWith('video/') || asset.name.toLowerCase().endsWith('.mp4') || asset.name.toLowerCase().endsWith('.mov');
+
+              // Build thumbnail URL
+              const lowerName = asset.name.toLowerCase();
+              const isAnimatedImage = asset.mimeType === 'image/gif' ||
+                (asset.mimeType === 'image/webp' && (lowerName.includes('animated') || lowerName.includes('.gif')));
+              const src = isAnimatedImage
+                ? `https://drive.google.com/uc?export=view&id=${asset.fileId}`
+                : `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
+
+              return (
+                <button
+                  key={asset.fileId}
+                  type="button"
+                  onClick={() => openLightbox(assetIndex)}
+                  className={`group relative flex-shrink-0 overflow-hidden rounded-lg border-2 transition-all hover:border-amber-500 hover:shadow-lg hover:shadow-amber-500/20 focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                    isApproved ? 'border-emerald-500/50' : 'border-gray-600'
+                  } ${selectedFileIds.has(asset.fileId) ? 'ring-2 ring-amber-500' : ''}`}
+                  style={{ width: '140px' }}
+                >
+                  {/* Card number label - prominent positioning */}
+                  <div className="absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-gray-900/90 to-transparent px-2 py-1.5">
+                    <span className="text-xs font-bold text-white drop-shadow-md">
+                      Card {cardNumber}
+                    </span>
+                  </div>
+
+                  {/* Thumbnail */}
+                  <div className="aspect-square bg-gray-900">
+                    {isImage && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={src}
+                        alt={`Card ${cardNumber}`}
+                        className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                      />
+                    )}
+                    {isVideo && (
+                      <div className="relative h-full w-full">
+                        <VideoWithThumbnail
+                          src={src}
+                          className="h-full w-full object-cover"
+                        />
+                        {/* Video play icon overlay */}
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="rounded-full bg-black/60 p-2">
+                            <svg className="h-5 w-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                              <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {!isImage && !isVideo && (
+                      <div className="flex h-full w-full items-center justify-center text-gray-500">
+                        <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Approved indicator */}
+                  {isApproved && (
+                    <div className="absolute bottom-1 right-1 z-20 rounded-full bg-emerald-500 p-0.5">
+                      <svg className="h-3 w-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                  )}
+
+                  {/* Selection checkbox */}
+                  {onToggleSelect && !isApproved && (
+                    <div
+                      className="absolute bottom-1 left-1 z-20"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedFileIds.has(asset.fileId)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          onToggleSelect(asset.fileId);
+                        }}
+                        className="h-4 w-4 rounded border-gray-600 bg-gray-800 text-amber-500 focus:ring-amber-500"
+                        aria-label={selectedFileIds.has(asset.fileId) ? 'Deselect' : 'Select'}
+                      />
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Carousel indicator - shows this is a connected sequence */}
+          <div className="mt-2 flex items-center justify-center gap-1.5">
+            {assets.map((asset, index) => (
+              <div
+                key={asset.fileId}
+                className={`h-1.5 rounded-full transition-all ${
+                  asset.assetApprovedClient
+                    ? 'w-4 bg-emerald-500'
+                    : 'w-2 bg-gray-600'
+                }`}
+                title={`Card ${asset.placementCardOrder ?? index + 1}${asset.assetApprovedClient ? ' (Approved)' : ''}`}
+              />
+            ))}
+          </div>
+        </div>
+      ) : (
+        /* Standard grid layout for non-carousel placements */
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {assets.map((asset) => {
+            const isApproved = asset.assetApprovedClient || false;
+            const assetIndex = allAssets.findIndex((a) => a.fileId === asset.fileId);
+
+            return (
+              <AssetCard
+                key={asset.fileId}
+                asset={asset}
+                token={token}
+                onClick={() => openLightbox(assetIndex)}
+                selected={selectedFileIds.has(asset.fileId)}
+                onToggleSelect={
+                  onToggleSelect && !isApproved
+                    ? () => onToggleSelect(asset.fileId)
+                    : undefined
+                }
+                onDownloadAsset={onDownloadAsset}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {/* Placement action buttons */}
+      <div className="mt-4 flex items-center gap-3 border-t border-gray-700 pt-4">
+        {/* Approve Placement button - approves ALL assets in this placement group */}
+        {!allApproved && (
+          <button
+            type="button"
+            onClick={handleApprovePlacement}
+            disabled={isApproving || pendingCount === 0}
+            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isApproving ? 'Approving…' : `Approve Placement (${pendingCount})`}
+          </button>
+        )}
+
+        {/* All approved indicator */}
+        {allApproved && (
+          <span className="flex items-center gap-2 text-sm font-medium text-emerald-400">
+            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+            </svg>
+            Placement Approved
+          </span>
+        )}
+
+        {/* Request Changes button (placeholder - will open feedback flow) */}
+        {!allApproved && (
+          <button
+            type="button"
+            onClick={() => {
+              // TODO: Implement request changes flow
+              // For now, this could scroll to or focus the comments section
+              onApprovalResult?.(false, 'Request Changes: Please use the comments section below to provide feedback');
+            }}
+            disabled={isApproving}
+            className="rounded-md border border-gray-600 bg-gray-800 px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Request Changes
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function AssetDetailsLine({ asset }: { asset: { approvedAt?: string | null; approvedByName?: string | null; firstSeenAt?: string | null; lastSeenAt?: string | null } }) {

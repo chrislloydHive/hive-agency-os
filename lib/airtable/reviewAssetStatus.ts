@@ -81,6 +81,15 @@ export interface StatusRecord {
   deliveredFileUrl: string | null;
   /** When partner downloaded this asset in the portal; null = not downloaded. */
   partnerDownloadedAt: string | null;
+  // Placement grouping fields (for carousel/grouped assets)
+  /** Placement Group ID: groups multiple assets as one reviewable placement (e.g., carousel). */
+  placementGroupId: string | null;
+  /** Display name for the grouped placement. */
+  placementGroupName: string | null;
+  /** Placement type: "Carousel", "Static", etc. Controls rendering. */
+  placementType: string | null;
+  /** Sort order within the group (1, 2, 3, 4 for carousel cards). */
+  placementCardOrder: number | null;
 }
 
 function keyFrom(token: string, driveFileId: string): string {
@@ -135,12 +144,33 @@ function recordToStatus(r: { id: string; fields: Record<string, unknown> }, toke
     }
   }
   const partnerDownloadedAt = parseOptionalIsoString(f[PARTNER_DOWNLOADED_AT_FIELD]);
+
+  // Placement grouping fields (for carousel/grouped assets)
+  const placementGroupIdRaw = f['Placement Group ID'];
+  const placementGroupId = typeof placementGroupIdRaw === 'string' && placementGroupIdRaw.trim()
+    ? placementGroupIdRaw.trim()
+    : null;
+  const placementGroupNameRaw = f['Placement Group Name'];
+  const placementGroupName = typeof placementGroupNameRaw === 'string' && placementGroupNameRaw.trim()
+    ? placementGroupNameRaw.trim()
+    : null;
+  const placementTypeRaw = f['Placement Type'];
+  const placementType = typeof placementTypeRaw === 'string' && placementTypeRaw.trim()
+    ? placementTypeRaw.trim()
+    : null;
+  const placementCardOrderRaw = f['Placement Card Order'];
+  const placementCardOrder = typeof placementCardOrderRaw === 'number'
+    ? placementCardOrderRaw
+    : typeof placementCardOrderRaw === 'string' && !isNaN(parseInt(placementCardOrderRaw, 10))
+    ? parseInt(placementCardOrderRaw, 10)
+    : null;
+
   return {
     recordId: r.id,
     status: parseStatus(f['Status']),
     assetApprovedClient: parseAssetApprovedClient(f[ASSET_APPROVED_CLIENT_FIELD]),
     // Gracefully handle missing field (may not exist in all Airtable bases)
-    firstSeenByClientAt: f[FIRST_SEEN_BY_CLIENT_AT_FIELD] != null 
+    firstSeenByClientAt: f[FIRST_SEEN_BY_CLIENT_AT_FIELD] != null
       ? parseOptionalIsoString(f[FIRST_SEEN_BY_CLIENT_AT_FIELD])
       : null,
     firstSeenAt: (f['First Seen At'] as string) ?? null,
@@ -157,6 +187,10 @@ function recordToStatus(r: { id: string; fields: Record<string, unknown> }, toke
     deliveredFolderId,
     deliveredFileUrl,
     partnerDownloadedAt,
+    placementGroupId,
+    placementGroupName,
+    placementType,
+    placementCardOrder,
   };
 }
 

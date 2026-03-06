@@ -60,6 +60,15 @@ interface ReviewAsset {
   lastSeenAt?: string | null;
   /** When partner downloaded this asset in the portal; null = not downloaded. */
   partnerDownloadedAt?: string | null;
+  // Placement grouping fields (for carousel/grouped assets)
+  /** Placement Group ID: groups multiple assets as one reviewable placement (e.g., carousel). */
+  placementGroupId?: string | null;
+  /** Display name for the grouped placement. */
+  placementGroupName?: string | null;
+  /** Placement type: "Carousel", "Static", etc. Controls rendering. */
+  placementType?: string | null;
+  /** Sort order within the group (1, 2, 3, 4 for carousel cards). */
+  placementCardOrder?: number | null;
 }
 
 interface TacticSectionData {
@@ -464,6 +473,27 @@ export async function GET(req: NextRequest) {
     const rec = statusMap.get(key);
     return rec?.lastSeenAt ?? null;
   };
+  // Placement grouping field accessors
+  const toPlacementGroupId = (fileId: string): string | null => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.placementGroupId ?? null;
+  };
+  const toPlacementGroupName = (fileId: string): string | null => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.placementGroupName ?? null;
+  };
+  const toPlacementType = (fileId: string): string | null => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.placementType ?? null;
+  };
+  const toPlacementCardOrder = (fileId: string): number | null => {
+    const key = `${token}::${fileId}`;
+    const rec = statusMap.get(key);
+    return rec?.placementCardOrder ?? null;
+  };
   for (const section of sections) {
     for (const asset of section.assets) {
       const a = asset as ReviewAsset;
@@ -482,6 +512,11 @@ export async function GET(req: NextRequest) {
       a.firstSeenAt = toFirstSeenAt(asset.fileId);
       a.lastSeenAt = toLastSeenAt(asset.fileId);
       a.partnerDownloadedAt = toPartnerDownloadedAt(asset.fileId);
+      // Placement grouping fields
+      a.placementGroupId = toPlacementGroupId(asset.fileId);
+      a.placementGroupName = toPlacementGroupName(asset.fileId);
+      a.placementType = toPlacementType(asset.fileId);
+      a.placementCardOrder = toPlacementCardOrder(asset.fileId);
     }
   }
 

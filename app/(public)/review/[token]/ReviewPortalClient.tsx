@@ -37,6 +37,15 @@ interface ReviewAsset {
   firstSeenAt?: string | null;
   lastSeenAt?: string | null;
   partnerDownloadedAt?: string | null;
+  // Placement grouping fields (for carousel/grouped assets)
+  /** Placement Group ID: groups multiple assets as one reviewable placement (e.g., carousel). */
+  placementGroupId?: string | null;
+  /** Display name for the grouped placement. */
+  placementGroupName?: string | null;
+  /** Placement type: "Carousel", "Static", etc. Controls rendering. */
+  placementType?: string | null;
+  /** Sort order within the group (1, 2, 3, 4 for carousel cards). */
+  placementCardOrder?: number | null;
 }
 
 interface TacticSectionData {
