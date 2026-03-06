@@ -350,21 +350,18 @@ export default function AssetLightbox({
   const isVideo = asset.mimeType.startsWith('video/') || lowerName.endsWith('.mp4') || lowerName.endsWith('.mov') || lowerName.endsWith('.webm') || lowerName.endsWith('.avi');
   const isAudio = asset.mimeType.startsWith('audio/');
 
-  const canNavigate = assets.length > 1;
+  const hasPrev = currentIndex > 0;
+  const hasNext = currentIndex < assets.length - 1;
 
-  // Navigate to previous asset (decrease index with wrapping)
+  // Navigate to previous asset (decrease index, no wrapping)
   const goToPrev = useCallback(() => {
-    if (!canNavigate) return;
-    const prevIndex = (currentIndex - 1 + assets.length) % assets.length;
-    onNavigate(prevIndex);
-  }, [canNavigate, currentIndex, assets.length, onNavigate]);
+    if (hasPrev) onNavigate(currentIndex - 1);
+  }, [hasPrev, currentIndex, onNavigate]);
 
-  // Navigate to next asset (increase index with wrapping)
+  // Navigate to next asset (increase index, no wrapping)
   const goToNext = useCallback(() => {
-    if (!canNavigate) return;
-    const nextIndex = (currentIndex + 1) % assets.length;
-    onNavigate(nextIndex);
-  }, [canNavigate, currentIndex, assets.length, onNavigate]);
+    if (hasNext) onNavigate(currentIndex + 1);
+  }, [hasNext, currentIndex, onNavigate]);
 
   // Handle keyboard navigation (only when not typing)
   useEffect(() => {
@@ -439,7 +436,7 @@ export default function AssetLightbox({
       </button>
 
       {/* Navigation: Previous (left arrow, decreases index) */}
-      {canNavigate && (
+      {hasPrev && (
         <button
           onClick={goToPrev}
           className="absolute left-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-gray-800/80 p-3 text-gray-300 transition-colors hover:bg-gray-700 hover:text-white"
@@ -452,7 +449,7 @@ export default function AssetLightbox({
       )}
 
       {/* Navigation: Next (right arrow, increases index) */}
-      {canNavigate && (
+      {hasNext && (
         <button
           onClick={goToNext}
           className={`absolute top-1/2 z-10 -translate-y-1/2 rounded-full bg-gray-800/80 p-3 text-gray-300 transition-colors hover:bg-gray-700 hover:text-white ${
