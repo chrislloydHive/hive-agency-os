@@ -822,11 +822,10 @@ export default function ReviewSection({
         </div>
       )}
 
-      {/* Asset grid — only when files exist; 4–5 columns so 10+ assets fit without cramping */}
-      {/* Renders both standalone assets and placement groups using renderableItems */}
+      {/* Asset grid — multi-column for single-asset placements, full-width for multi-asset */}
+      {/* Renders all assets in placement containers for consistent approval UX */}
       {hasFiles ? (
-        <div className="grid grid-cols-1 gap-4">
-          {/* All assets render in placement containers for consistent approval UX */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {renderableItems.map(({ group }) => (
             <PlacementGroupCard
               key={`group-${group.groupId}`}
@@ -1071,6 +1070,9 @@ function PlacementGroupCard({
   // Check if this is a carousel placement (show card numbers)
   const isCarousel = placementType?.toLowerCase() === 'carousel';
 
+  // Multi-asset placements span full width; single-asset placements fit in grid cells
+  const isMultiAsset = assetCount > 1;
+
   // Approval state
   const [isApproving, setIsApproving] = useState(false);
   const { requireIdentity } = useAuthorIdentity();
@@ -1151,9 +1153,9 @@ function PlacementGroupCard({
   ]);
 
   return (
-    <div className="col-span-full rounded-lg border border-gray-700 bg-gray-800/30 p-4">
+    <div className={`rounded-lg border border-gray-700 bg-gray-800/30 p-4 ${isMultiAsset ? 'col-span-full' : ''}`}>
       {/* Placement header */}
-      <div className="mb-4">
+      <div className={isMultiAsset ? 'mb-4' : 'mb-3'}>
         {/* Group name */}
         <h3 className="text-base font-semibold text-gray-100">{groupName}</h3>
 
@@ -1302,9 +1304,33 @@ function PlacementGroupCard({
             ))}
           </div>
         </div>
-      ) : (
-        /* Standard grid layout for non-carousel placements */
+      ) : isMultiAsset ? (
+        /* Grid layout for multi-asset non-carousel placements */
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {assets.map((asset) => {
+            const isApproved = asset.assetApprovedClient || false;
+            const assetIndex = allAssets.findIndex((a) => a.fileId === asset.fileId);
+
+            return (
+              <AssetCard
+                key={asset.fileId}
+                asset={asset}
+                token={token}
+                onClick={() => openLightbox(assetIndex)}
+                selected={selectedFileIds.has(asset.fileId)}
+                onToggleSelect={
+                  onToggleSelect && !isApproved
+                    ? () => onToggleSelect(asset.fileId)
+                    : undefined
+                }
+                onDownloadAsset={onDownloadAsset}
+              />
+            );
+          })}
+        </div>
+      ) : (
+        /* Compact layout for single-asset placements */
+        <div>
           {assets.map((asset) => {
             const isApproved = asset.assetApprovedClient || false;
             const assetIndex = allAssets.findIndex((a) => a.fileId === asset.fileId);
@@ -1329,26 +1355,28 @@ function PlacementGroupCard({
       )}
 
       {/* Placement action buttons */}
-      <div className="mt-4 flex items-center gap-3 border-t border-gray-700 pt-4">
-        {/* Approve Placement button - approves ALL assets in this placement group */}
+      <div className={`flex items-center gap-2 ${isMultiAsset ? 'mt-4 border-t border-gray-700 pt-4' : 'mt-3'}`}>
+        {/* Approve button - approves all assets in this placement group */}
         {!allApproved && (
           <button
             type="button"
             onClick={handleApprovePlacement}
             disabled={isApproving || pendingCount === 0}
-            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className={`rounded-md bg-emerald-600 font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 ${
+              isMultiAsset ? 'px-4 py-2 text-sm' : 'px-3 py-1.5 text-xs'
+            }`}
           >
-            {isApproving ? 'Approving…' : `Approve Placement (${pendingCount})`}
+            {isApproving ? 'Approving…' : isMultiAsset ? `Approve Placement (${pendingCount})` : 'Approve'}
           </button>
         )}
 
-        {/* All approved indicator */}
+        {/* Approved indicator */}
         {allApproved && (
-          <span className="flex items-center gap-2 text-sm font-medium text-emerald-400">
-            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+          <span className={`flex items-center gap-1.5 font-medium text-emerald-400 ${isMultiAsset ? 'text-sm' : 'text-xs'}`}>
+            <svg className={isMultiAsset ? 'h-5 w-5' : 'h-4 w-4'} fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
             </svg>
-            Placement Approved
+            Approved
           </span>
         )}
 
@@ -1362,9 +1390,11 @@ function PlacementGroupCard({
               onApprovalResult?.(false, 'Request Changes: Please use the comments section below to provide feedback');
             }}
             disabled={isApproving}
-            className="rounded-md border border-gray-600 bg-gray-800 px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className={`rounded-md border border-gray-600 bg-gray-800 font-medium text-gray-300 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50 ${
+              isMultiAsset ? 'px-4 py-2 text-sm' : 'px-3 py-1.5 text-xs'
+            }`}
           >
-            Request Changes
+            {isMultiAsset ? 'Request Changes' : 'Changes'}
           </button>
         )}
       </div>
