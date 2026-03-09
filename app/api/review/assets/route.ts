@@ -28,6 +28,24 @@ const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video
 // Only these variants will be visible; all other folders are filtered out
 const ALLOWED_PORTAL_VARIANTS = ['Prospecting', 'Retargeting'] as const;
 
+// Folders to exclude from recursive asset discovery
+// These internal/production folders exist in Drive but should not appear in client portal
+const EXCLUDED_SUBFOLDER_NAMES = [
+  'Animated Display Assets',
+  'Animated',
+  'Animation',
+  'Animations',
+  'Production',
+  'Delivery',
+  'Archive',
+  'Old',
+  'Backup',
+  'Source',
+  'Source Files',
+  'Working Files',
+  'Internal',
+] as const;
+
 export type ReviewState = 'new' | 'seen' | 'approved' | 'needs_changes';
 
 interface ReviewAsset {
@@ -182,8 +200,16 @@ async function listAllFilesRecursive(
   }
 
   const allFiles: ReviewAsset[] = [];
-  const subfolders: string[] = [];
+  const subfolders: Array<{ id: string; name: string }> = [];
   let pageToken: string | undefined = undefined;
+
+  // Helper to check if folder should be excluded (case-insensitive)
+  const isExcludedFolder = (name: string): boolean => {
+    const lowerName = name.toLowerCase().trim();
+    return EXCLUDED_SUBFOLDER_NAMES.some(
+      (excluded) => lowerName === excluded.toLowerCase() || lowerName.includes(excluded.toLowerCase())
+    );
+  };
 
   // First, list all direct children (both files and folders)
   while (true) {
@@ -201,8 +227,14 @@ async function listAllFilesRecursive(
 
     for (const f of data.files ?? []) {
       if (f.mimeType === 'application/vnd.google-apps.folder') {
-        // It's a subfolder - add to list for recursive traversal
-        subfolders.push(f.id!);
+        const folderName = f.name ?? '';
+        // Filter out excluded folders (internal/production folders)
+        if (isExcludedFolder(folderName)) {
+          console.log(`[review/assets] Skipping excluded folder: "${folderName}" (id=${f.id})`);
+          continue;
+        }
+        // It's an allowed subfolder - add to list for recursive traversal
+        subfolders.push({ id: f.id!, name: folderName });
       } else {
         // It's a file - add to results
         allFiles.push({
@@ -221,12 +253,12 @@ async function listAllFilesRecursive(
 
   // Log subfolder discovery at variant level (depth 0)
   if (currentDepth === 0 && subfolders.length > 0) {
-    console.log(`[review/assets] Recursive traversal: found ${subfolders.length} subfolder(s) and ${allFiles.length} direct file(s) in folder ${folderId}`);
+    console.log(`[review/assets] Recursive traversal: found ${subfolders.length} allowed subfolder(s) and ${allFiles.length} direct file(s) in folder ${folderId}`);
   }
 
-  // Recursively process subfolders
-  for (const subfolderId of subfolders) {
-    const nestedFiles = await listAllFilesRecursive(drive, subfolderId, maxDepth, currentDepth + 1);
+  // Recursively process allowed subfolders
+  for (const subfolder of subfolders) {
+    const nestedFiles = await listAllFilesRecursive(drive, subfolder.id, maxDepth, currentDepth + 1);
     allFiles.push(...nestedFiles);
   }
 
