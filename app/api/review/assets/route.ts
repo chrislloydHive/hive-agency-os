@@ -24,6 +24,10 @@ export const dynamic = 'force-dynamic';
 const VARIANTS = ['Prospecting', 'Retargeting'] as const;
 const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video', 'Search'] as const;
 
+// Whitelist of allowed folders for client portal display
+// Only these variants will be visible; all other folders are filtered out
+const ALLOWED_PORTAL_VARIANTS = ['Prospecting', 'Retargeting'] as const;
+
 export type ReviewState = 'new' | 'seen' | 'approved' | 'needs_changes';
 
 interface ReviewAsset {
@@ -633,8 +637,14 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Filter sections to only include allowed variants for portal display
+  // This ensures internal folders (Animated Display Assets, production folders, etc.) are not shown
+  const portalSections = sections.filter((s) =>
+    ALLOWED_PORTAL_VARIANTS.includes(s.variant as typeof ALLOWED_PORTAL_VARIANTS[number])
+  );
+
   const partnerLastSeenAt = deliveryContext?.partnerLastSeenAt ?? null;
-  const allAssets = sections.flatMap((s) => s.assets) as ReviewAsset[];
+  const allAssets = portalSections.flatMap((s) => s.assets) as ReviewAsset[];
   const approvedCount = allAssets.filter((a) => a.assetApprovedClient).length;
   const downloadedCount = allAssets.filter((a) => a.partnerDownloadedAt).length;
   const newApprovedCount = allAssets.filter((a) => {
@@ -642,6 +652,7 @@ export async function GET(req: NextRequest) {
     if (!partnerLastSeenAt) return true;
     return !!(a.approvedAt && new Date(a.approvedAt) > new Date(partnerLastSeenAt));
   }).length;
+  const portalTotalFiles = portalSections.reduce((sum, s) => sum + s.fileCount, 0);
 
   const payload: Record<string, unknown> = {
     ok: true,
@@ -649,8 +660,8 @@ export async function GET(req: NextRequest) {
     token,
     projectId: project.recordId,
     lastFetchedAt,
-    count: { sections: sections.length, files: totalFiles },
-    sections,
+    count: { sections: portalSections.length, files: portalTotalFiles },
+    sections: portalSections,
     deliveryBatches,
     ...(selectedBatchId && { selectedBatchId }),
     ...(deliveryContext && { deliveryContext }),

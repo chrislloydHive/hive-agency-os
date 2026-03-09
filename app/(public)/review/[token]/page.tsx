@@ -16,6 +16,8 @@ import type { Metadata } from 'next';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+// Whitelist of allowed folders for client portal display
+// Only these variants will be visible; all other folders (internal, production, delivery) are filtered out
 const VARIANTS = ['Prospecting', 'Retargeting'] as const;
 const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video', 'Search'] as const;
 
