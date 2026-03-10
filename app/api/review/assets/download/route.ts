@@ -8,7 +8,6 @@ import { Readable } from 'stream';
 import { PassThrough } from 'stream';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
-import { getAllowedReviewFolderIdsFromJobFolder, getAllowedReviewFolderIdsFromClientProjectsFolder } from '@/lib/review/reviewFolders';
 import {
   getCrasRecordIdByTokenAndFileId,
   setPartnerDownloadedAt,
@@ -98,35 +97,16 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const { project, auth } = resolved;
+  const { auth } = resolved;
   const drive = google.drive({ version: 'v3', auth });
 
-  const allowedFolderIds = project.jobFolderId
-    ? await getAllowedReviewFolderIdsFromJobFolder(drive, project.jobFolderId)
-    : await (async () => {
-        const clientProjectsFolderId = process.env.CAR_TOYS_PROJECTS_FOLDER_ID ?? '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_';
-        if (clientProjectsFolderId) {
-          const fromClient = await getAllowedReviewFolderIdsFromClientProjectsFolder(
-            drive,
-            project.name,
-            clientProjectsFolderId
-          );
-          if (fromClient?.length) return fromClient;
-        }
-        return null;
-      })();
-
-  if (!allowedFolderIds || allowedFolderIds.length === 0) {
+  // Validate via CRAS record (authoritative source for asset→project mapping)
+  const crasRecordId = await getCrasRecordIdByTokenAndFileId(token, assetId);
+  if (!crasRecordId) {
     return NextResponse.json(
-      { error: 'No review folders configured' },
+      { error: 'File not found for this review' },
       { status: 403, headers: { ...NO_STORE, ...EXTRA_HEADERS } }
     );
-  }
-
-  // Also treat the job folder itself as allowed (files may sit at any depth)
-  const allowedSet = new Set(allowedFolderIds);
-  if (project.jobFolderId) {
-    allowedSet.add(project.jobFolderId);
   }
 
   let mimeType: string;
@@ -136,42 +116,9 @@ export async function GET(req: NextRequest) {
   try {
     const meta = await drive.files.get({
       fileId: assetId,
-      fields: 'id,name,mimeType,size,parents',
+      fields: 'id,name,mimeType,size',
       supportsAllDrives: true,
     });
-
-    // Walk up parent chain (max 5 levels) to check if file is under the job folder
-    let isAllowed = false;
-    let currentParents = meta.data.parents ?? [];
-    for (let depth = 0; depth < 5 && currentParents.length > 0; depth++) {
-      if (currentParents.some((pid) => allowedSet.has(pid))) {
-        isAllowed = true;
-        break;
-      }
-      const nextParents: string[] = [];
-      for (const pid of currentParents) {
-        try {
-          const parentMeta = await drive.files.get({
-            fileId: pid,
-            fields: 'parents',
-            supportsAllDrives: true,
-          });
-          if (parentMeta.data.parents) {
-            nextParents.push(...parentMeta.data.parents);
-          }
-        } catch {
-          // Parent inaccessible — skip
-        }
-      }
-      currentParents = nextParents;
-    }
-
-    if (!isAllowed) {
-      return NextResponse.json(
-        { error: 'File not in allowed folders' },
-        { status: 403, headers: { ...NO_STORE, ...EXTRA_HEADERS } }
-      );
-    }
 
     mimeType = (meta.data.mimeType as string) || 'application/octet-stream';
     fileName = (meta.data.name as string) || assetId;

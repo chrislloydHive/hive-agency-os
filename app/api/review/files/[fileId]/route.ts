@@ -1,12 +1,12 @@
 // app/api/review/files/[fileId]/route.ts
 // Proxies Google Drive file content for the Client Review Portal.
 // Requires a valid review token as a query parameter.
-// Validates that the file is a descendant of the project's job folder (walks up to 5 parent levels).
+// Validates that the file has a CRAS (Creative Review Asset Status) record for the token.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
-import { getAllowedReviewFolderIds, getAllowedReviewFolderIdsFromJobFolder, getAllowedReviewFolderIdsFromClientProjectsFolder } from '@/lib/review/reviewFolders';
+import { getCrasRecordIdByTokenAndFileId } from '@/lib/airtable/reviewAssetStatus';
 import {
   isGoogleWorkspaceFile,
   getDefaultExportFormat,
@@ -67,81 +67,33 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
   }
 
-  const { project, auth } = resolved;
+  const { auth } = resolved;
   const drive = google.drive({ version: 'v3', auth });
 
   const download = req.nextUrl.searchParams.get('dl') === '1';
 
-  // Build the set of ancestor folder IDs that are considered "allowed".
-  // Includes variant folders (leaf) AND the job folder itself so that
-  // files nested in subfolders can be validated by walking up the parent chain.
-  const allowedFolderIds = project.jobFolderId
-    ? await getAllowedReviewFolderIdsFromJobFolder(drive, project.jobFolderId)
-    : await (async () => {
-        const clientProjectsFolderId = process.env.CAR_TOYS_PROJECTS_FOLDER_ID ?? '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_';
-        if (clientProjectsFolderId) {
-          const fromClient = await getAllowedReviewFolderIdsFromClientProjectsFolder(drive, project.name, clientProjectsFolderId);
-          if (fromClient?.length) return fromClient;
-        }
-        const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID;
-        if (!rootFolderId) return null;
-        return getAllowedReviewFolderIds(drive, project.hubName, rootFolderId);
-      })();
-
-  if (!allowedFolderIds || allowedFolderIds.length === 0) {
-    return NextResponse.json({ error: 'No review folders configured' }, { status: 403 });
+  // Validate that the file has a CRAS record for this token.
+  // Assets are discovered via Airtable (not Drive folders), so a CRAS record
+  // is the authoritative proof that this file belongs to the project.
+  const crasRecordId = await getCrasRecordIdByTokenAndFileId(token, fileId);
+  if (!crasRecordId) {
+    return NextResponse.json({ error: 'File not found for this review' }, { status: 403 });
   }
 
-  // Also treat the job folder itself as allowed (files may sit at any depth)
-  const allowedSet = new Set(allowedFolderIds);
-  if (project.jobFolderId) {
-    allowedSet.add(project.jobFolderId);
-  }
-
-  // Validate that the file is a descendant of the job folder by walking up parents (max 5 levels).
-  // This handles files in subfolders (e.g., Video/Prospecting/Drafts/asset.mp4).
+  // Get file metadata from Drive
+  let mimeType: string;
+  let fileName: string;
   try {
     const fileMeta = await drive.files.get({
       fileId,
-      fields: 'parents, mimeType, name',
+      fields: 'mimeType, name',
       supportsAllDrives: true,
     });
 
-    var mimeType = fileMeta.data.mimeType || 'application/octet-stream';
-    var fileName = fileMeta.data.name || fileId;
-
-    let isAllowed = false;
-    let currentParents = fileMeta.data.parents || [];
-
-    for (let depth = 0; depth < 5 && currentParents.length > 0; depth++) {
-      if (currentParents.some((pid) => allowedSet.has(pid))) {
-        isAllowed = true;
-        break;
-      }
-      // Walk up: get parents of current parents
-      const nextParents: string[] = [];
-      for (const pid of currentParents) {
-        try {
-          const parentMeta = await drive.files.get({
-            fileId: pid,
-            fields: 'parents',
-            supportsAllDrives: true,
-          });
-          if (parentMeta.data.parents) {
-            nextParents.push(...parentMeta.data.parents);
-          }
-        } catch {
-          // Parent inaccessible — skip
-        }
-      }
-      currentParents = nextParents;
-    }
-
-    if (!isAllowed) {
-      return NextResponse.json({ error: 'File not in allowed folders' }, { status: 403 });
-    }
+    mimeType = fileMeta.data.mimeType || 'application/octet-stream';
+    fileName = fileMeta.data.name || fileId;
   } catch (err: any) {
-    console.error('[review/files] Validation error:', err?.message ?? err);
+    console.error('[review/files] Drive metadata error:', err?.message ?? err);
     return NextResponse.json({ error: 'File not found or access denied' }, { status: 404 });
   }
 
