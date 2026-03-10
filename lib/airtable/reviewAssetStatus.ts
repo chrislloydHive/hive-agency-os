@@ -57,14 +57,11 @@ export const READY_TO_DELIVER_WEBHOOK_FIELD = 'Ready to Deliver (Webhook)';
 // Partner Delivery Pipeline Fields (state machine)
 // ============================================================================
 
-/** Airtable field: Is Approved – true when client approves asset. */
-export const IS_APPROVED_FIELD = 'Is Approved';
+/** Airtable field: Delivery Triggered – true when client approves asset (checkbox). */
+export const IS_APPROVED_FIELD = 'Delivery Triggered';
 
-/** Airtable field: Needs Delivery – true when asset is approved and ready for delivery pipeline. */
-export const NEEDS_DELIVERY_FIELD = 'Needs Delivery';
-
-/** Airtable field: Needs Delivery At – timestamp when asset became ready for delivery. */
-export const NEEDS_DELIVERY_AT_FIELD = 'Needs Delivery At';
+/** Airtable field: Ready to Deliver (Webhook) – true when asset is approved and ready for delivery pipeline (checkbox). */
+export const NEEDS_DELIVERY_FIELD = 'Ready to Deliver (Webhook)';
 
 /** Airtable field: Delivery Status – state machine status for delivery pipeline. */
 export const DELIVERY_STATUS_FIELD = 'Delivery Status';
@@ -996,7 +993,6 @@ export async function batchSetAssetApprovedClient(
     // Delivery pipeline state machine fields
     [IS_APPROVED_FIELD]: true,
     [NEEDS_DELIVERY_FIELD]: true,
-    [NEEDS_DELIVERY_AT_FIELD]: now,
     [DELIVERY_STATUS_FIELD]: 'Ready for Delivery',
   };
   if (options?.approvedByName !== undefined) baseFields['Approved By Name'] = String(options.approvedByName).slice(0, 100);
@@ -1008,35 +1004,50 @@ export async function batchSetAssetApprovedClient(
     baseFields[DELIVERY_BATCH_ID_FIELD] = bid.startsWith('rec') ? [bid] : bid;
   }
 
+  // Core approval fields (must exist) — used as fallback if full update fails
+  const coreFields: Record<string, unknown> = {
+    [ASSET_APPROVED_CLIENT_FIELD]: true,
+    Status: 'Approved',
+    'Approved At': options?.approvedAt || now,
+  };
+  if (options?.approvedByName !== undefined) coreFields['Approved By Name'] = String(options.approvedByName).slice(0, 100);
+  if (options?.approvedByEmail !== undefined) coreFields['Approved By Email'] = String(options.approvedByEmail).slice(0, 200);
+
   let updated = 0;
   for (let i = 0; i < recordIds.length; i += BULK_APPROVE_CHUNK_SIZE) {
     const chunk = recordIds.slice(i, i + BULK_APPROVE_CHUNK_SIZE);
     try {
       await Promise.all(chunk.map((id) => {
-        const recordFields = { ...baseFields };
         console.log(`[batchSetAssetApprovedClient] Updating record ${id}:`, {
           recordId: id,
-          deliveryStatus: recordFields[DELIVERY_STATUS_FIELD],
-          needsDelivery: recordFields[NEEDS_DELIVERY_FIELD],
-          fieldKeys: Object.keys(recordFields),
+          fieldKeys: Object.keys(baseFields),
         });
-        return osBase(TABLE).update(id, recordFields as any);
+        return osBase(TABLE).update(id, { ...baseFields } as any);
       }));
       updated += chunk.length;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const airtableError = err;
 
-      if (message.includes('not found') || message.includes('NOT_FOUND') || (err as any)?.statusCode === 404) {
-        console.warn(`[batchSetAssetApprovedClient] WARNING: Record not found at index ${i}. This should not happen if CRAS sync process is working correctly.`);
+      // If the error is about unknown fields (delivery pipeline fields), retry with core fields only
+      const isFieldError = message.includes('UNKNOWN_FIELD') || message.includes('unknown field') || message.includes('Cannot create field');
+      if (isFieldError) {
+        console.warn(`[batchSetAssetApprovedClient] Full update failed (unknown field), retrying chunk with core approval fields only:`, message);
+        try {
+          await Promise.all(chunk.map((id) => osBase(TABLE).update(id, { ...coreFields } as any)));
+          updated += chunk.length;
+          continue; // Core-only succeeded, move to next chunk
+        } catch (retryErr) {
+          const retryMessage = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          console.error(`[batchSetAssetApprovedClient] Core-only retry also failed:`, retryMessage);
+          return { updated, failedAt: i, error: retryMessage, airtableError: retryErr };
+        }
       }
 
-      return {
-        updated,
-        failedAt: i,
-        error: message,
-        airtableError,
-      };
+      if (message.includes('not found') || message.includes('NOT_FOUND') || (err as any)?.statusCode === 404) {
+        console.warn(`[batchSetAssetApprovedClient] WARNING: Record not found at index ${i}.`);
+      }
+
+      return { updated, failedAt: i, error: message, airtableError: err };
     }
   }
   return { updated, failedAt: null };
@@ -1123,7 +1134,6 @@ export async function setSingleAssetApprovedClient(
     // Delivery pipeline state machine fields
     [IS_APPROVED_FIELD]: true,
     [NEEDS_DELIVERY_FIELD]: true,
-    [NEEDS_DELIVERY_AT_FIELD]: now,
     [DELIVERY_STATUS_FIELD]: 'Ready for Delivery',
   };
   if (approvedByName !== undefined) fields['Approved By Name'] = String(approvedByName).slice(0, 100);
@@ -1137,8 +1147,6 @@ export async function setSingleAssetApprovedClient(
 
   console.log(`[setSingleAssetApprovedClient] Updating record ${existing.id}:`, {
     recordId: existing.id,
-    deliveryStatus: fields[DELIVERY_STATUS_FIELD],
-    needsDelivery: fields[NEEDS_DELIVERY_FIELD],
     fieldKeys: Object.keys(fields),
   });
 
@@ -1147,6 +1155,25 @@ export async function setSingleAssetApprovedClient(
     return { ok: true, recordId: existing.id };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // If delivery pipeline fields cause failure, retry with core approval fields only
+    const isFieldError = message.includes('UNKNOWN_FIELD') || message.includes('unknown field') || message.includes('Cannot create field');
+    if (isFieldError) {
+      console.warn(`[setSingleAssetApprovedClient] Full update failed (unknown field), retrying with core fields:`, message);
+      const coreFields: Record<string, unknown> = {
+        [ASSET_APPROVED_CLIENT_FIELD]: true,
+        Status: 'Approved',
+        'Approved At': approvedAt || now,
+      };
+      if (approvedByName !== undefined) coreFields['Approved By Name'] = String(approvedByName).slice(0, 100);
+      if (approvedByEmail !== undefined) coreFields['Approved By Email'] = String(approvedByEmail).slice(0, 200);
+      try {
+        await osBase(TABLE).update(existing.id, coreFields as any);
+        return { ok: true, recordId: existing.id };
+      } catch (retryErr) {
+        const retryMessage = retryErr instanceof Error ? retryErr.message : String(retryErr);
+        return { error: retryMessage, airtableError: retryErr };
+      }
+    }
     return { error: message, airtableError: err };
   }
 }
