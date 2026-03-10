@@ -1,7 +1,7 @@
 // app/api/review/files/[fileId]/route.ts
 // Proxies Google Drive file content for the Client Review Portal.
 // Requires a valid review token as a query parameter.
-// Validates that the file's parent is one of the project's variant folders (Drive traversal: job → tactic → variant).
+// Validates that the file is a descendant of the project's job folder (walks up to 5 parent levels).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
@@ -72,6 +72,9 @@ export async function GET(
 
   const download = req.nextUrl.searchParams.get('dl') === '1';
 
+  // Build the set of ancestor folder IDs that are considered "allowed".
+  // Includes variant folders (leaf) AND the job folder itself so that
+  // files nested in subfolders can be validated by walking up the parent chain.
   const allowedFolderIds = project.jobFolderId
     ? await getAllowedReviewFolderIdsFromJobFolder(drive, project.jobFolderId)
     : await (async () => {
@@ -89,7 +92,14 @@ export async function GET(
     return NextResponse.json({ error: 'No review folders configured' }, { status: 403 });
   }
 
-  // Validate that fileId's parent is one of the allowed variant folders
+  // Also treat the job folder itself as allowed (files may sit at any depth)
+  const allowedSet = new Set(allowedFolderIds);
+  if (project.jobFolderId) {
+    allowedSet.add(project.jobFolderId);
+  }
+
+  // Validate that the file is a descendant of the job folder by walking up parents (max 5 levels).
+  // This handles files in subfolders (e.g., Video/Prospecting/Drafts/asset.mp4).
   try {
     const fileMeta = await drive.files.get({
       fileId,
@@ -97,15 +107,39 @@ export async function GET(
       supportsAllDrives: true,
     });
 
-    const parents = fileMeta.data.parents || [];
-    const isAllowed = parents.some((parentId) => allowedFolderIds.includes(parentId));
+    var mimeType = fileMeta.data.mimeType || 'application/octet-stream';
+    var fileName = fileMeta.data.name || fileId;
+
+    let isAllowed = false;
+    let currentParents = fileMeta.data.parents || [];
+
+    for (let depth = 0; depth < 5 && currentParents.length > 0; depth++) {
+      if (currentParents.some((pid) => allowedSet.has(pid))) {
+        isAllowed = true;
+        break;
+      }
+      // Walk up: get parents of current parents
+      const nextParents: string[] = [];
+      for (const pid of currentParents) {
+        try {
+          const parentMeta = await drive.files.get({
+            fileId: pid,
+            fields: 'parents',
+            supportsAllDrives: true,
+          });
+          if (parentMeta.data.parents) {
+            nextParents.push(...parentMeta.data.parents);
+          }
+        } catch {
+          // Parent inaccessible — skip
+        }
+      }
+      currentParents = nextParents;
+    }
 
     if (!isAllowed) {
       return NextResponse.json({ error: 'File not in allowed folders' }, { status: 403 });
     }
-
-    var mimeType = fileMeta.data.mimeType || 'application/octet-stream';
-    var fileName = fileMeta.data.name || fileId;
   } catch (err: any) {
     console.error('[review/files] Validation error:', err?.message ?? err);
     return NextResponse.json({ error: 'File not found or access denied' }, { status: 404 });

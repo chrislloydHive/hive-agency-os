@@ -123,6 +123,12 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // Also treat the job folder itself as allowed (files may sit at any depth)
+  const allowedSet = new Set(allowedFolderIds);
+  if (project.jobFolderId) {
+    allowedSet.add(project.jobFolderId);
+  }
+
   let mimeType: string;
   let fileName: string;
   let size: number | undefined;
@@ -134,8 +140,32 @@ export async function GET(req: NextRequest) {
       supportsAllDrives: true,
     });
 
-    const parents = meta.data.parents ?? [];
-    const isAllowed = parents.some((p) => allowedFolderIds.includes(p));
+    // Walk up parent chain (max 5 levels) to check if file is under the job folder
+    let isAllowed = false;
+    let currentParents = meta.data.parents ?? [];
+    for (let depth = 0; depth < 5 && currentParents.length > 0; depth++) {
+      if (currentParents.some((pid) => allowedSet.has(pid))) {
+        isAllowed = true;
+        break;
+      }
+      const nextParents: string[] = [];
+      for (const pid of currentParents) {
+        try {
+          const parentMeta = await drive.files.get({
+            fileId: pid,
+            fields: 'parents',
+            supportsAllDrives: true,
+          });
+          if (parentMeta.data.parents) {
+            nextParents.push(...parentMeta.data.parents);
+          }
+        } catch {
+          // Parent inaccessible — skip
+        }
+      }
+      currentParents = nextParents;
+    }
+
     if (!isAllowed) {
       return NextResponse.json(
         { error: 'File not in allowed folders' },
