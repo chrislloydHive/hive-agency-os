@@ -233,13 +233,15 @@ export async function getReviewFolderMapFromJobFolderPartial(
   return { map, jobFolderId };
 }
 
-/** All variant folder IDs when job folder ID is known (for file proxy allowlist). */
+/** All variant folder IDs when job folder ID is known (for file proxy allowlist).
+ *  Uses partial map so missing tactic/variant folders don't block all previews. */
 export async function getAllowedReviewFolderIdsFromJobFolder(
   drive: drive_v3.Drive,
   jobFolderId: string,
 ): Promise<string[] | null> {
-  const result = await getReviewFolderMapFromJobFolder(drive, jobFolderId);
-  return result ? [...result.map.values()] : null;
+  const result = await getReviewFolderMapFromJobFolderPartial(drive, jobFolderId);
+  const ids = [...result.map.values()];
+  return ids.length > 0 ? ids : null;
 }
 
 /**
