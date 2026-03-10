@@ -10,6 +10,10 @@ import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { batchEnsureCrasRecords } from '@/lib/airtable/reviewAssetStatus';
+import {
+  getReviewFolderMapFromJobFolderPartial,
+  getReviewFolderMapFromClientProjectsFolder,
+} from '@/lib/review/reviewFolders';
 import ReviewPortalClient from './ReviewPortalClient';
 import type { Metadata } from 'next';
 
@@ -150,27 +154,57 @@ export default async function ReviewPage({
     // If read fails, start with empty feedback
   }
 
-  // Fetch Creative Review Sets for this project (one per variant×tactic)
+  // ── Build folder map: CRS first, then fall back to job folder structure ──
   const osBase = getBase();
-  const reviewSets = await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_SETS)
-    .select({
-      filterByFormula: `FIND("${project.recordId}", ARRAYJOIN({Project})) > 0`,
-    })
-    .all();
+  const folderMap = new Map<string, { folderId: string; groupId?: string }>();
 
-  // Map (variant, tactic) → { folderId, groupId }
-  const folderMap = new Map<string, { folderId: string; groupId: string }>();
-  for (const set of reviewSets) {
-    const fields = set.fields as Record<string, unknown>;
-    const variant = fields['Variant'] as string;
-    const tactic = fields['Tactic'] as string;
-    const folderId = fields['Folder ID'] as string;
-    if (variant && tactic && folderId) {
-      folderMap.set(`${variant}:${tactic}`, { folderId, groupId: set.id });
+  // Try Creative Review Sets first
+  try {
+    const reviewSets = await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_SETS)
+      .select({
+        filterByFormula: `FIND("${project.recordId}", ARRAYJOIN({Project})) > 0`,
+      })
+      .all();
+
+    for (const set of reviewSets) {
+      const fields = set.fields as Record<string, unknown>;
+      const variant = fields['Variant'] as string;
+      const tactic = fields['Tactic'] as string;
+      const folderId = fields['Folder ID'] as string;
+      if (variant && tactic && folderId) {
+        folderMap.set(`${variant}:${tactic}`, { folderId, groupId: set.id });
+      }
+    }
+    console.log(`[review/page] CRS folder map: ${folderMap.size} entries from ${reviewSets.length} CRS records`);
+  } catch (err) {
+    console.warn('[review/page] CRS query failed (will fall back to job folder):', err instanceof Error ? err.message : err);
+  }
+
+  // Fall back to job folder structure (same as assets API) when CRS is empty
+  if (folderMap.size === 0) {
+    console.log('[review/page] CRS returned 0 folders — falling back to job folder discovery');
+    try {
+      const folderResult = project.jobFolderId
+        ? await getReviewFolderMapFromJobFolderPartial(drive, project.jobFolderId)
+        : await (async () => {
+            const clientProjectsFolderId = process.env.CAR_TOYS_PROJECTS_FOLDER_ID ?? '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_';
+            if (clientProjectsFolderId) {
+              return getReviewFolderMapFromClientProjectsFolder(drive, project.name, clientProjectsFolderId);
+            }
+            return null;
+          })();
+      if (folderResult) {
+        for (const [key, folderId] of folderResult.map.entries()) {
+          folderMap.set(key, { folderId });
+        }
+        console.log(`[review/page] Job folder map: ${folderMap.size} variant folders found`);
+      }
+    } catch (err) {
+      console.error('[review/page] Job folder discovery failed:', err instanceof Error ? err.message : err);
     }
   }
 
-  // For each variant×tactic, list all files from the set folder
+  // For each variant×tactic, list all files from the folder
   const sections: TacticSectionData[] = [];
   const allAssetsForCras: Array<{ fileId: string; filename: string; tactic: string; variant: string }> = [];
 
@@ -183,14 +217,14 @@ export default async function ReviewPage({
       }
 
       const assets = await listAllFiles(drive, folderInfo.folderId);
-      sections.push({ 
-        variant, 
-        tactic, 
-        assets, 
+      sections.push({
+        variant,
+        tactic,
+        assets,
         fileCount: assets.length,
         groupId: folderInfo.groupId,
       });
-      
+
       // Collect assets for batch CRAS creation
       for (const asset of assets) {
         allAssetsForCras.push({
