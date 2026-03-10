@@ -304,7 +304,7 @@ function ReviewPortalClientInner({
           selectedBatchId?: string | null;
           counts?: { newApproved: number; approved: number; downloaded: number };
         }) => {
-          if (data.ok === true && data.version === 'review-assets-v1' && Array.isArray(data.sections)) {
+          if (data.ok === true && (data.version === 'review-assets-v1' || data.version === 'review-assets-v2-airtable-first') && Array.isArray(data.sections)) {
             setSections(data.sections);
             setRefreshError(null);
             if (Array.isArray(data.deliveryBatches)) {
