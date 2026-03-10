@@ -55,6 +55,16 @@ export const READY_TO_DELIVER_WEBHOOK_FIELD = 'Ready to Deliver (Webhook)';
 
 export interface StatusRecord {
   recordId: string;
+  /** Drive File ID (from Source Folder ID field). */
+  driveFileId: string;
+  /** Asset filename from CRAS record. */
+  filename: string | null;
+  /** Tactic category (Audio, Display, Video, etc.). */
+  tactic: string | null;
+  /** Variant (Prospecting, Retargeting). */
+  variant: string | null;
+  /** Hidden flag - if true, asset should not appear in portal. */
+  hidden: boolean;
   status: AssetStatusValue;
   /** Client approval checkbox; used for bulk approve and to avoid re-updating. */
   assetApprovedClient: boolean;
@@ -145,6 +155,18 @@ function recordToStatus(r: { id: string; fields: Record<string, unknown> }, toke
   }
   const partnerDownloadedAt = parseOptionalIsoString(f[PARTNER_DOWNLOADED_AT_FIELD]);
 
+  // Extract Tactic, Variant, Filename for Airtable-first display
+  const filenameRaw = f['Filename'];
+  const filename = typeof filenameRaw === 'string' && filenameRaw.trim() ? filenameRaw.trim() : null;
+  const tacticRaw = f['Tactic'];
+  const tactic = typeof tacticRaw === 'string' && tacticRaw.trim() ? tacticRaw.trim() : null;
+  const variantRaw = f['Variant'];
+  const variant = typeof variantRaw === 'string' && variantRaw.trim() ? variantRaw.trim() : null;
+
+  // Hidden flag - explicit field to exclude from portal display
+  const hiddenRaw = f['Hidden'];
+  const hidden = hiddenRaw === true || hiddenRaw === 'true' || hiddenRaw === 1;
+
   // Placement grouping fields (for carousel/grouped assets)
   const placementGroupIdRaw = f['Placement Group ID'];
   const placementGroupId = typeof placementGroupIdRaw === 'string' && placementGroupIdRaw.trim()
@@ -167,6 +189,11 @@ function recordToStatus(r: { id: string; fields: Record<string, unknown> }, toke
 
   return {
     recordId: r.id,
+    driveFileId,
+    filename,
+    tactic,
+    variant,
+    hidden,
     status: parseStatus(f['Status']),
     assetApprovedClient: parseAssetApprovedClient(f[ASSET_APPROVED_CLIENT_FIELD]),
     // Gracefully handle missing field (may not exist in all Airtable bases)

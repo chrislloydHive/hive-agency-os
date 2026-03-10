@@ -1,13 +1,14 @@
 // app/api/review/assets/route.ts
 // Returns asset list (sections with files) for the Client Review Portal.
-// Folder map is built by traversing Drive: jobFolder → tactic → variant (new schema).
-// Called by the client on page load; refresh returns fresh Drive data.
+// AIRTABLE-FIRST APPROACH: Assets are discovered from CRAS records in Airtable,
+// not by traversing Drive folders. This ensures all assets with CRAS records
+// are shown regardless of their Drive folder location.
+// Drive API is only used for file metadata (mimeType, modifiedTime).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
-import { getReviewFolderMap, getReviewFolderMapFromJobFolderPartial, getReviewFolderMapFromClientProjectsFolder } from '@/lib/review/reviewFolders';
-import { listAssetStatuses, getDriveFileIdsForBatch } from '@/lib/airtable/reviewAssetStatus';
+import { listAssetStatuses, getDriveFileIdsForBatch, type StatusRecord } from '@/lib/airtable/reviewAssetStatus';
 import { getGroupApprovals, groupKey } from '@/lib/airtable/reviewGroupApprovals';
 import {
   getDeliveryContextByProjectId,
@@ -24,27 +25,17 @@ export const dynamic = 'force-dynamic';
 const VARIANTS = ['Prospecting', 'Retargeting'] as const;
 const TACTICS = ['Audio', 'Display', 'Geofence', 'OOH', 'PMAX', 'Social', 'Video', 'Search'] as const;
 
-// Whitelist of allowed folders for client portal display
-// Only these variants will be visible; all other folders are filtered out
-const ALLOWED_PORTAL_VARIANTS = ['Prospecting', 'Retargeting'] as const;
-
-// Folders to exclude from recursive asset discovery
-// These internal/production folders exist in Drive but should not appear in client portal
-const EXCLUDED_SUBFOLDER_NAMES = [
-  'Animated Display Assets',
-  'Animated',
-  'Animation',
-  'Animations',
-  'Production',
-  'Delivery',
-  'Archive',
-  'Old',
-  'Backup',
-  'Source',
-  'Source Files',
-  'Working Files',
-  'Internal',
-] as const;
+/** Normalize tactic name to canonical form (e.g., "PMax" → "PMAX", "Performance Max" → "PMAX"). */
+function normalizeTactic(name: string): string {
+  const lower = name.toLowerCase().trim();
+  if (lower === 'pmax' || lower === 'p-max' || lower === 'performance max' || lower === 'performancemax') {
+    return 'PMAX';
+  }
+  if (lower === 'ooh' || lower === 'out of home' || lower === 'out-of-home') {
+    return 'OOH';
+  }
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
 
 export type ReviewState = 'new' | 'seen' | 'approved' | 'needs_changes';
 
@@ -106,202 +97,93 @@ interface TacticSectionData {
   newSinceApprovalCount?: number;
 }
 
-/** Normalize tactic name to canonical form (e.g., "PMax" → "PMAX", "Performance Max" → "PMAX"). */
-function normalizeTactic(name: string): string {
-  const lower = name.toLowerCase().trim();
-  // PMAX variations
-  if (lower === 'pmax' || lower === 'p-max' || lower === 'performance max' || lower === 'performancemax') {
-    return 'PMAX';
-  }
-  // OOH variations
-  if (lower === 'ooh' || lower === 'out of home' || lower === 'out-of-home') {
-    return 'OOH';
-  }
-  // Return original name with first letter capitalized for standard tactics
-  return name.charAt(0).toUpperCase() + name.slice(1);
-}
-
-/** List non-folder files in a Drive folder. Shared Drive safe. Handles pagination. */
-async function listAllFiles(
-  drive: drive_v3.Drive,
-  folderId: string,
-): Promise<ReviewAsset[]> {
-  const allFiles: ReviewAsset[] = [];
-  let pageToken: string | undefined = undefined;
-  let pageCount = 0;
-
-  while (true) {
-    const listParams: drive_v3.Params$Resource$Files$List = {
-      q: `'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
-      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime)',
-      orderBy: 'modifiedTime desc',
-      supportsAllDrives: true,
-      includeItemsFromAllDrives: true,
-      pageSize: 1000,
-      pageToken,
-    };
-    const res = await drive.files.list(listParams);
-    const data: drive_v3.Schema$FileList = res.data;
-
-    const files = (data.files ?? []).map((f) => ({
-      fileId: f.id!,
-      name: f.name!,
-      mimeType: f.mimeType || 'application/octet-stream',
-      modifiedTime: f.modifiedTime || '',
-    }));
-
-    allFiles.push(...files);
-    const nextToken = data.nextPageToken ?? undefined;
-    pageToken = nextToken;
-    pageCount++;
-
-    if (pageToken) {
-      console.log(`[review/assets] Paginating Drive files list: page ${pageCount}, ${files.length} files in this page`);
-    } else {
-      break;
-    }
-  }
-
-  if (pageCount > 1) {
-    console.log(`[review/assets] Retrieved ${allFiles.length} files across ${pageCount} pages from folder ${folderId}`);
-  }
-
-  // Deduplicate by fileId (keep first occurrence, which is most recent due to ordering)
-  const seen = new Set<string>();
-  return allFiles.filter((f) => {
-    if (seen.has(f.fileId)) {
-      console.warn(`[review/assets] Duplicate fileId detected: ${f.fileId} (${f.name}), skipping duplicate`);
-      return false;
-    }
-    seen.add(f.fileId);
-    return true;
-  });
+/** Drive file metadata (mimeType, modifiedTime) fetched in batches. */
+interface DriveFileMeta {
+  mimeType: string;
+  modifiedTime: string;
 }
 
 /**
- * Recursively list all files in a Drive folder and all its subfolders.
- * This ensures files in nested subfolders (like PMAX size folders) are discovered.
- * Shared Drive safe. Handles pagination.
- *
- * @param drive - Google Drive API client
- * @param folderId - Root folder ID to start listing from
- * @param maxDepth - Maximum depth to recurse (default 10, prevents infinite loops)
- * @param currentDepth - Current recursion depth (internal use)
+ * Fetch Drive file metadata (mimeType, modifiedTime) for a batch of file IDs.
+ * Uses files.get in parallel. Returns a Map of fileId → metadata.
  */
-async function listAllFilesRecursive(
+async function batchGetDriveFileMeta(
   drive: drive_v3.Drive,
-  folderId: string,
-  maxDepth: number = 10,
-  currentDepth: number = 0,
-): Promise<ReviewAsset[]> {
-  if (currentDepth >= maxDepth) {
-    console.warn(`[review/assets] Max recursion depth (${maxDepth}) reached for folder ${folderId}, stopping traversal`);
-    return [];
-  }
+  fileIds: string[],
+): Promise<Map<string, DriveFileMeta>> {
+  const metaMap = new Map<string, DriveFileMeta>();
+  const BATCH_SIZE = 100; // Limit parallel requests
 
-  const allFiles: ReviewAsset[] = [];
-  const subfolders: Array<{ id: string; name: string }> = [];
-  let pageToken: string | undefined = undefined;
-
-  // Helper to check if folder should be excluded (case-insensitive)
-  const isExcludedFolder = (name: string): boolean => {
-    const lowerName = name.toLowerCase().trim();
-    return EXCLUDED_SUBFOLDER_NAMES.some(
-      (excluded) => lowerName === excluded.toLowerCase() || lowerName.includes(excluded.toLowerCase())
+  for (let i = 0; i < fileIds.length; i += BATCH_SIZE) {
+    const batch = fileIds.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(async (fileId) => {
+        const res = await drive.files.get({
+          fileId,
+          fields: 'mimeType, modifiedTime',
+          supportsAllDrives: true,
+        });
+        return { fileId, mimeType: res.data.mimeType ?? 'application/octet-stream', modifiedTime: res.data.modifiedTime ?? '' };
+      })
     );
-  };
 
-  // First, list all direct children (both files and folders)
-  while (true) {
-    const listParams: drive_v3.Params$Resource$Files$List = {
-      q: `'${folderId}' in parents and trashed = false`,
-      fields: 'nextPageToken, files(id, name, mimeType, modifiedTime)',
-      orderBy: 'modifiedTime desc',
-      supportsAllDrives: true,
-      includeItemsFromAllDrives: true,
-      pageSize: 1000,
-      pageToken,
-    };
-    const res = await drive.files.list(listParams);
-    const data: drive_v3.Schema$FileList = res.data;
-
-    for (const f of data.files ?? []) {
-      if (f.mimeType === 'application/vnd.google-apps.folder') {
-        const folderName = f.name ?? '';
-        // Filter out excluded folders (internal/production folders)
-        if (isExcludedFolder(folderName)) {
-          console.log(`[review/assets] Skipping excluded folder: "${folderName}" (id=${f.id})`);
-          continue;
-        }
-        // It's an allowed subfolder - add to list for recursive traversal
-        subfolders.push({ id: f.id!, name: folderName });
-      } else {
-        // It's a file - add to results
-        allFiles.push({
-          fileId: f.id!,
-          name: f.name!,
-          mimeType: f.mimeType || 'application/octet-stream',
-          modifiedTime: f.modifiedTime || '',
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        metaMap.set(result.value.fileId, {
+          mimeType: result.value.mimeType,
+          modifiedTime: result.value.modifiedTime,
         });
       }
     }
-
-    const nextToken = data.nextPageToken ?? undefined;
-    pageToken = nextToken;
-    if (!pageToken) break;
   }
 
-  // Log subfolder discovery at variant level (depth 0)
-  if (currentDepth === 0 && subfolders.length > 0) {
-    console.log(`[review/assets] Recursive traversal: found ${subfolders.length} allowed subfolder(s) and ${allFiles.length} direct file(s) in folder ${folderId}`);
-  }
-
-  // Recursively process allowed subfolders
-  for (const subfolder of subfolders) {
-    const nestedFiles = await listAllFilesRecursive(drive, subfolder.id, maxDepth, currentDepth + 1);
-    allFiles.push(...nestedFiles);
-  }
-
-  // Log total at root level
-  if (currentDepth === 0) {
-    console.log(`[review/assets] Recursive traversal complete: ${allFiles.length} total files from folder ${folderId} (including ${subfolders.length} subfolders)`);
-  }
-
-  // Deduplicate by fileId (keep first occurrence)
-  const seen = new Set<string>();
-  return allFiles.filter((f) => {
-    if (seen.has(f.fileId)) {
-      if (currentDepth === 0) {
-        console.warn(`[review/assets] Duplicate fileId detected: ${f.fileId} (${f.name}), skipping duplicate`);
-      }
-      return false;
-    }
-    seen.add(f.fileId);
-    return true;
-  });
+  return metaMap;
 }
 
-/** List direct children (files + folders) for diagnostics when 0 assets. */
-async function listDirectChildren(
-  drive: drive_v3.Drive,
-  folderId: string,
-): Promise<{ fileCount: number; folderCount: number; fileNames: string[]; folderNames: string[] }> {
-  const res = await drive.files.list({
-    q: `'${folderId}' in parents and trashed = false`,
-    fields: 'files(name, mimeType)',
-    pageSize: 50,
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-  });
-  const files = res.data.files ?? [];
-  const fileNames: string[] = [];
-  const folderNames: string[] = [];
-  for (const f of files) {
-    const name = f.name ?? '(no name)';
-    if (f.mimeType === 'application/vnd.google-apps.folder') folderNames.push(name);
-    else fileNames.push(name);
-  }
-  return { fileCount: fileNames.length, folderCount: folderNames.length, fileNames, folderNames };
+/**
+ * Convert StatusRecord from CRAS to ReviewAsset for portal display.
+ * Uses CRAS data as the source of truth; enriches with Drive metadata when available.
+ */
+function statusRecordToReviewAsset(
+  rec: StatusRecord,
+  primaryLandingPageUrl: string | null,
+  driveMeta?: DriveFileMeta,
+): ReviewAsset {
+  const toReviewState = (): ReviewState => {
+    if (rec.assetApprovedClient) return 'approved';
+    const s = rec.status.toLowerCase();
+    if (s === 'needs changes') return 'needs_changes';
+    if (s === 'seen') return 'seen';
+    return 'new';
+  };
+
+  const clickThroughUrl = rec.landingPageOverrideUrl ?? rec.effectiveLandingPageUrl ?? primaryLandingPageUrl ?? null;
+
+  return {
+    fileId: rec.driveFileId,
+    name: rec.filename ?? rec.driveFileId, // Fallback to fileId if no filename
+    mimeType: driveMeta?.mimeType ?? 'application/octet-stream',
+    modifiedTime: driveMeta?.modifiedTime ?? '',
+    reviewState: toReviewState(),
+    clickThroughUrl,
+    firstSeenByClientAt: rec.firstSeenByClientAt,
+    assetApprovedClient: rec.assetApprovedClient,
+    deliveredAt: rec.deliveredAt,
+    delivered: rec.delivered,
+    deliveredFolderId: rec.deliveredFolderId,
+    deliveredFileUrl: rec.deliveredFileUrl,
+    airtableRecordId: rec.recordId,
+    approvedAt: rec.approvedAt,
+    approvedByName: rec.approvedByName,
+    approvedByEmail: rec.approvedByEmail,
+    firstSeenAt: rec.firstSeenAt,
+    lastSeenAt: rec.lastSeenAt,
+    partnerDownloadedAt: rec.partnerDownloadedAt,
+    placementGroupId: rec.placementGroupId,
+    placementGroupName: rec.placementGroupName,
+    placementType: rec.placementType,
+    placementCardOrder: rec.placementCardOrder,
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -315,438 +197,285 @@ export async function GET(req: NextRequest) {
     const batchIdParam = req.nextUrl.searchParams.get('batchId')?.trim() || null;
 
     const resolved = await resolveReviewProject(token);
-  if (!resolved) {
-    return NextResponse.json({ error: 'Invalid or expired token' }, { status: 404 });
-  }
+    if (!resolved) {
+      return NextResponse.json({ error: 'Invalid or expired token' }, { status: 404 });
+    }
 
-  const { project, auth } = resolved;
-  const drive = google.drive({ version: 'v3', auth });
+    const { project, auth } = resolved;
+    const drive = google.drive({ version: 'v3', auth });
 
-  const folderResult = project.jobFolderId
-    ? await getReviewFolderMapFromJobFolderPartial(drive, project.jobFolderId)
-    : await (async () => {
-        const clientProjectsFolderId = process.env.CAR_TOYS_PROJECTS_FOLDER_ID ?? '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_';
-        if (clientProjectsFolderId) {
-          const fromClient = await getReviewFolderMapFromClientProjectsFolder(drive, project.name, clientProjectsFolderId);
-          if (fromClient) return fromClient;
-        }
-        const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID;
-        if (!rootFolderId) return null;
-        return getReviewFolderMap(drive, project.hubName, rootFolderId);
-      })();
+    // ═══════════════════════════════════════════════════════════════════════════
+    // AIRTABLE-FIRST APPROACH: Fetch all CRAS records for this token first.
+    // Assets are shown based on CRAS records, not Drive folder traversal.
+    // This ensures all assets with CRAS records are displayed regardless of
+    // their Drive folder location.
+    // ═══════════════════════════════════════════════════════════════════════════
 
-  if (!folderResult) {
-    return NextResponse.json(
-      project.jobFolderId
-        ? { error: 'Review folders not found under job folder. Run scaffold first.' }
-        : { error: 'Server misconfigured or review folders not found. Run scaffold first.' },
-      { status: 404 },
-    );
-  }
-  const { map: folderMap, jobFolderId } = folderResult;
+    let statusMap: Map<string, StatusRecord>;
+    try {
+      statusMap = await listAssetStatuses(token);
+      console.log(`[review/assets] AIRTABLE-FIRST: Found ${statusMap.size} CRAS records for token ${token.slice(0, 8)}...`);
+    } catch (err) {
+      console.error('[review/assets] listAssetStatuses failed:', err instanceof Error ? err.message : err);
+      return NextResponse.json(
+        { error: 'Failed to load asset statuses from Airtable', detail: err instanceof Error ? err.message : String(err) },
+        { status: 500 }
+      );
+    }
 
-  // List files from each variant folder (leaf folders only). Key must be variant:tactic to match folder map.
-  const sections: TacticSectionData[] = [];
-  const debug: { jobFolderId: string; tactic: string; variant: string; folderId: string; fileCount: number }[] = [];
-  const allAssetsForCras: Array<{ fileId: string; filename: string; tactic: string; variant: string }> = [];
+    const primaryLandingPageUrl = project.primaryLandingPageUrl ?? null;
 
-  for (const variant of VARIANTS) {
-    for (const tactic of TACTICS) {
-      const mapKey = `${variant}:${tactic}`;
-      const folderId = folderMap.get(mapKey);
-      if (!folderId) {
-        console.warn(`[review/assets] Missing folder for ${mapKey}, skipping section`);
-        sections.push({ variant, tactic, assets: [], fileCount: 0 });
-        if (debugFlag) debug.push({ jobFolderId, tactic, variant, folderId: '', fileCount: 0 });
+    // Filter out hidden assets and collect all CRAS records
+    const visibleCrasRecords: StatusRecord[] = [];
+    const allCrasRecords = Array.from(statusMap.values());
+    for (const rec of allCrasRecords) {
+      // Only filter by explicit Hidden field, not by folder location
+      if (rec.hidden) {
+        console.log(`[review/assets] Skipping hidden asset: ${rec.driveFileId} (${rec.filename})`);
         continue;
       }
-      // Use recursive listing to discover files in nested subfolders (e.g., PMAX size folders)
-      const assets = await listAllFilesRecursive(drive, folderId);
-      sections.push({ variant, tactic, assets, fileCount: assets.length });
-      if (debugFlag) {
-        debug.push({ jobFolderId, tactic, variant, folderId, fileCount: assets.length });
+      visibleCrasRecords.push(rec);
+    }
+
+    console.log(`[review/assets] After hidden filter: ${visibleCrasRecords.length} visible assets`);
+
+    // Optionally fetch Drive metadata (mimeType, modifiedTime) for all visible assets
+    // This is non-blocking - if Drive API fails, we still show assets with defaults
+    let driveMetaMap = new Map<string, DriveFileMeta>();
+    const fileIdsForMeta = visibleCrasRecords.map(r => r.driveFileId);
+    if (fileIdsForMeta.length > 0) {
+      try {
+        driveMetaMap = await batchGetDriveFileMeta(drive, fileIdsForMeta);
+        console.log(`[review/assets] Fetched Drive metadata for ${driveMetaMap.size}/${fileIdsForMeta.length} files`);
+      } catch (err) {
+        console.warn('[review/assets] batchGetDriveFileMeta failed (non-fatal):', err instanceof Error ? err.message : err);
       }
-      
-      // Collect assets for CRAS sync (create records for new files)
-      for (const asset of assets) {
-        allAssetsForCras.push({
-          fileId: asset.fileId,
-          filename: asset.name,
-          tactic,
+    }
+
+    // Group CRAS records by tactic/variant and convert to ReviewAsset format
+    const sectionMap = new Map<string, ReviewAsset[]>();
+
+    // Initialize all sections (even empty ones)
+    for (const variant of VARIANTS) {
+      for (const tactic of TACTICS) {
+        sectionMap.set(`${variant}:${tactic}`, []);
+      }
+    }
+
+    // Populate sections from CRAS records
+    for (const rec of visibleCrasRecords) {
+      const rawTactic = rec.tactic ?? '';
+      const rawVariant = rec.variant ?? '';
+
+      // Normalize tactic/variant names
+      const tactic = normalizeTactic(rawTactic);
+      const variant = rawVariant.charAt(0).toUpperCase() + rawVariant.slice(1);
+
+      // Only include assets with valid tactic/variant that match our display categories
+      if (!TACTICS.includes(tactic as typeof TACTICS[number])) {
+        console.warn(`[review/assets] Unknown tactic "${rawTactic}" for asset ${rec.driveFileId}, skipping`);
+        continue;
+      }
+      if (!VARIANTS.includes(variant as typeof VARIANTS[number])) {
+        console.warn(`[review/assets] Unknown variant "${rawVariant}" for asset ${rec.driveFileId}, skipping`);
+        continue;
+      }
+
+      const key = `${variant}:${tactic}`;
+      const driveMeta = driveMetaMap.get(rec.driveFileId);
+      const asset = statusRecordToReviewAsset(rec, primaryLandingPageUrl, driveMeta);
+
+      const sectionAssets = sectionMap.get(key);
+      if (sectionAssets) {
+        sectionAssets.push(asset);
+      }
+    }
+
+    // Build sections array
+    const sections: TacticSectionData[] = [];
+    for (const variant of VARIANTS) {
+      for (const tactic of TACTICS) {
+        const key = `${variant}:${tactic}`;
+        const assets = sectionMap.get(key) ?? [];
+        sections.push({
           variant,
+          tactic,
+          assets,
+          fileCount: assets.length,
         });
       }
     }
-  }
 
-  // Sync CRAS records: create records for any files that don't have CRAS records yet
-  // This ensures new uploads appear in CRAS when refresh is clicked
-  if (allAssetsForCras.length > 0) {
+    // Attach group approval (as-of) and newSinceApprovalCount per section
+    let groupApprovals: Record<string, { approvedAt: string; approvedByName: string | null; approvedByEmail: string | null }> = {};
     try {
-      const { batchEnsureCrasRecords } = await import('@/lib/airtable/reviewAssetStatus');
-      const folderIds = Array.from(folderMap.values());
-      
-      console.log(`[review/assets] Starting CRAS sync on refresh:`, {
-        projectId: project.recordId,
-        token: token.slice(0, 8) + '...',
-        totalFiles: allAssetsForCras.length,
-        folderIds,
-        sampleFileIds: allAssetsForCras.slice(0, 5).map(a => a.fileId),
-      });
-      
-      const syncResult = await batchEnsureCrasRecords(token, project.recordId, allAssetsForCras, { folderIds });
-      
-      console.log(`[review/assets] CRAS sync on refresh complete:`, {
-        created: syncResult.created,
-        skipped: syncResult.skipped,
-        errors: syncResult.errors,
-        totalFiles: allAssetsForCras.length,
-      });
-      
-      if (syncResult.errors > 0) {
-        console.error(`[review/assets] CRAS sync had ${syncResult.errors} errors - check logs above`);
-      }
+      groupApprovals = await getGroupApprovals(token);
     } catch (err) {
-      // Log but don't fail the request - assets will still display
-      console.error('[review/assets] Failed to sync CRAS records on refresh:', {
-        error: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined,
-        projectId: project.recordId,
-        token: token.slice(0, 8) + '...',
-        totalFiles: allAssetsForCras.length,
-      });
+      console.warn('[review/assets] getGroupApprovals failed (table may be missing):', err instanceof Error ? err.message : err);
     }
-  } else {
-    console.log(`[review/assets] No files found for CRAS sync (allAssetsForCras.length = 0)`);
-  }
-
-  // Attach review state and click-through URL from Creative Review Asset Status + project primary (non-fatal if table missing)
-  let statusMap: Awaited<ReturnType<typeof listAssetStatuses>>;
-  try {
-    statusMap = await listAssetStatuses(token);
-  } catch (err) {
-    console.warn('[review/assets] listAssetStatuses failed (table may be missing):', err instanceof Error ? err.message : err);
-    statusMap = new Map();
-  }
-  const primaryLandingPageUrl = project.primaryLandingPageUrl ?? null;
-  const toReviewState = (fileId: string): ReviewState => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    if (!rec) return 'new';
-    if (rec.assetApprovedClient) return 'approved';
-    const s = rec.status.toLowerCase();
-    if (s === 'needs changes') return 'needs_changes';
-    return s as ReviewState;
-  };
-  const toClickThroughUrl = (fileId: string): string | null => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    const override = rec?.landingPageOverrideUrl ?? rec?.effectiveLandingPageUrl ?? null;
-    return override || primaryLandingPageUrl || null;
-  };
-  const toFirstSeenByClientAt = (fileId: string): string | null => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.firstSeenByClientAt ?? null;
-  };
-  const toAssetApprovedClient = (fileId: string): boolean => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.assetApprovedClient ?? false;
-  };
-  const toDeliveredAt = (fileId: string): string | null => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.deliveredAt ?? null;
-  };
-  const toDelivered = (fileId: string): boolean => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.delivered ?? false;
-  };
-  const toDeliveredFolderId = (fileId: string): string | null => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.deliveredFolderId ?? null;
-  };
-  const toDeliveredFileUrl = (fileId: string): string | null => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.deliveredFileUrl ?? null;
-  };
-  const toAirtableRecordId = (fileId: string): string | undefined => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.recordId;
-  };
-  const toApprovedAt = (fileId: string): string | null => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.approvedAt ?? null;
-  };
-  const toPartnerDownloadedAt = (fileId: string): string | null => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.partnerDownloadedAt ?? null;
-  };
-  const toApprovedByName = (fileId: string): string | null => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.approvedByName ?? null;
-  };
-  const toApprovedByEmail = (fileId: string): string | null => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.approvedByEmail ?? null;
-  };
-  const toFirstSeenAt = (fileId: string): string | null => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.firstSeenAt ?? null;
-  };
-  const toLastSeenAt = (fileId: string): string | null => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.lastSeenAt ?? null;
-  };
-  // Placement grouping field accessors
-  const toPlacementGroupId = (fileId: string): string | null => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.placementGroupId ?? null;
-  };
-  const toPlacementGroupName = (fileId: string): string | null => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.placementGroupName ?? null;
-  };
-  const toPlacementType = (fileId: string): string | null => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.placementType ?? null;
-  };
-  const toPlacementCardOrder = (fileId: string): number | null => {
-    const key = `${token}::${fileId}`;
-    const rec = statusMap.get(key);
-    return rec?.placementCardOrder ?? null;
-  };
-  for (const section of sections) {
-    for (const asset of section.assets) {
-      const a = asset as ReviewAsset;
-      a.reviewState = toReviewState(asset.fileId);
-      a.clickThroughUrl = toClickThroughUrl(asset.fileId);
-      a.firstSeenByClientAt = toFirstSeenByClientAt(asset.fileId);
-      a.assetApprovedClient = toAssetApprovedClient(asset.fileId);
-      a.deliveredAt = toDeliveredAt(asset.fileId);
-      a.delivered = toDelivered(asset.fileId);
-      a.deliveredFolderId = toDeliveredFolderId(asset.fileId);
-      a.deliveredFileUrl = toDeliveredFileUrl(asset.fileId);
-      a.airtableRecordId = toAirtableRecordId(asset.fileId);
-      a.approvedAt = toApprovedAt(asset.fileId);
-      a.approvedByName = toApprovedByName(asset.fileId);
-      a.approvedByEmail = toApprovedByEmail(asset.fileId);
-      a.firstSeenAt = toFirstSeenAt(asset.fileId);
-      a.lastSeenAt = toLastSeenAt(asset.fileId);
-      a.partnerDownloadedAt = toPartnerDownloadedAt(asset.fileId);
-      // Placement grouping fields
-      a.placementGroupId = toPlacementGroupId(asset.fileId);
-      a.placementGroupName = toPlacementGroupName(asset.fileId);
-      a.placementType = toPlacementType(asset.fileId);
-      a.placementCardOrder = toPlacementCardOrder(asset.fileId);
+    for (const section of sections) {
+      const key = groupKey(section.tactic, section.variant);
+      const approval = groupApprovals[key];
+      if (approval) {
+        section.groupApprovalApprovedAt = approval.approvedAt;
+        section.groupApprovalApprovedByName = approval.approvedByName ?? null;
+        section.groupApprovalApprovedByEmail = approval.approvedByEmail ?? null;
+        const approvedAtMs = new Date(approval.approvedAt).getTime();
+        section.newSinceApprovalCount = section.assets.filter(
+          (a) => a.modifiedTime && new Date(a.modifiedTime).getTime() > approvedAtMs
+        ).length;
+      } else {
+        section.groupApprovalApprovedAt = null;
+        section.groupApprovalApprovedByName = null;
+        section.groupApprovalApprovedByEmail = null;
+        section.newSinceApprovalCount = 0;
+      }
     }
-  }
 
-  // Attach group approval (as-of) and newSinceApprovalCount per section (non-fatal if table missing)
-  let groupApprovals: Record<string, { approvedAt: string; approvedByName: string | null; approvedByEmail: string | null }> = {};
-  try {
-    groupApprovals = await getGroupApprovals(token);
-  } catch (err) {
-    console.warn('[review/assets] getGroupApprovals failed (table may be missing):', err instanceof Error ? err.message : err);
-  }
-  for (const section of sections) {
-    const key = groupKey(section.tactic, section.variant);
-    const approval = groupApprovals[key];
-    if (approval) {
-      section.groupApprovalApprovedAt = approval.approvedAt;
-      section.groupApprovalApprovedByName = approval.approvedByName ?? null;
-      section.groupApprovalApprovedByEmail = approval.approvedByEmail ?? null;
-      const approvedAtMs = new Date(approval.approvedAt).getTime();
-      section.newSinceApprovalCount = section.assets.filter(
-        (a) => a.modifiedTime && new Date(a.modifiedTime).getTime() > approvedAtMs
-      ).length;
-    } else {
-      section.groupApprovalApprovedAt = null;
-      section.groupApprovalApprovedByName = null;
-      section.groupApprovalApprovedByEmail = null;
-      section.newSinceApprovalCount = 0;
-    }
-  }
+    const totalFiles = sections.reduce((sum, s) => sum + s.assets.length, 0);
+    const lastFetchedAt = new Date().toISOString();
 
-  const totalFiles = sections.reduce((sum, s) => sum + s.assets.length, 0);
-  const lastFetchedAt = new Date().toISOString();
+    // Delivery batches handling
+    let deliveryBatches: BatchContext[] = [];
+    let selectedBatchId: string | null = null;
+    let deliveryContext: BatchContext | null = null;
 
-  // Option B: multiple batches per project; partner can switch via ?batchId=
-  let deliveryBatches: BatchContext[] = [];
-  let selectedBatchId: string | null = null;
-  let deliveryContext: BatchContext | null = null;
-
-  try {
-    deliveryBatches = await listBatchesByProjectId(project.recordId);
-  } catch (err) {
-    console.warn('[review/assets] listBatchesByProjectId failed:', err instanceof Error ? err.message : err);
-  }
-
-  const defaultBatchId = await getProjectDefaultBatchId(project.recordId).catch(() => null);
-
-  if (deliveryBatches.length > 0) {
-    const batchIds = new Set(deliveryBatches.map((b) => b.batchId));
-    if (batchIdParam && batchIds.has(batchIdParam)) {
-      selectedBatchId = batchIdParam;
-    } else if (defaultBatchId && batchIds.has(defaultBatchId)) {
-      selectedBatchId = defaultBatchId;
-    } else {
-      const firstActive = deliveryBatches.find((b) => (b.status ?? '').toLowerCase() === 'active');
-      selectedBatchId = (firstActive ?? deliveryBatches[0]).batchId;
-    }
-  }
-
-  if (selectedBatchId && deliveryBatches.length > 0) {
-    const selectedBatch = deliveryBatches.find((b) => b.batchId === selectedBatchId) ?? null;
-    if (selectedBatch) {
-      const details = await getBatchDetails(selectedBatchId);
-      const detailsInBase =
-        !details && process.env.PARTNER_DELIVERY_BASE_ID?.trim()
-          ? await getBatchDetailsInBase(selectedBatchId, process.env.PARTNER_DELIVERY_BASE_ID.trim())
-          : null;
-      const d = details ?? detailsInBase;
-      deliveryContext = {
-        ...selectedBatch,
-        partnerLastSeenAt: d?.partnerLastSeenAt ?? undefined,
-        // Backward compat for UI expecting deliveryContext.deliveryBatchId / .recordId
-        recordId: selectedBatch.batchRecordId,
-        deliveryBatchId: selectedBatch.batchId,
-      } as BatchContext & { recordId: string; deliveryBatchId: string };
-    }
-  }
-
-  if (!deliveryContext && deliveryBatches.length === 0) {
     try {
-      const ctx = await getDeliveryContextByProjectId(project.recordId);
-      if (ctx) {
-        selectedBatchId = ctx.deliveryBatchId;
+      deliveryBatches = await listBatchesByProjectId(project.recordId);
+    } catch (err) {
+      console.warn('[review/assets] listBatchesByProjectId failed:', err instanceof Error ? err.message : err);
+    }
+
+    const defaultBatchId = await getProjectDefaultBatchId(project.recordId).catch(() => null);
+
+    if (deliveryBatches.length > 0) {
+      const batchIds = new Set(deliveryBatches.map((b) => b.batchId));
+      if (batchIdParam && batchIds.has(batchIdParam)) {
+        selectedBatchId = batchIdParam;
+      } else if (defaultBatchId && batchIds.has(defaultBatchId)) {
+        selectedBatchId = defaultBatchId;
+      } else {
+        const firstActive = deliveryBatches.find((b) => (b.status ?? '').toLowerCase() === 'active');
+        selectedBatchId = (firstActive ?? deliveryBatches[0]).batchId;
+      }
+    }
+
+    if (selectedBatchId && deliveryBatches.length > 0) {
+      const selectedBatch = deliveryBatches.find((b) => b.batchId === selectedBatchId) ?? null;
+      if (selectedBatch) {
+        const details = await getBatchDetails(selectedBatchId);
+        const detailsInBase =
+          !details && process.env.PARTNER_DELIVERY_BASE_ID?.trim()
+            ? await getBatchDetailsInBase(selectedBatchId, process.env.PARTNER_DELIVERY_BASE_ID.trim())
+            : null;
+        const d = details ?? detailsInBase;
         deliveryContext = {
-          batchRecordId: ctx.recordId,
-          batchId: ctx.deliveryBatchId,
-          destinationFolderId: ctx.destinationFolderId,
-          destinationFolderUrl: `https://drive.google.com/drive/folders/${ctx.destinationFolderId}`,
-          vendorName: ctx.vendorName,
-          partnerName: ctx.vendorName,
-          partnerLastSeenAt: ctx.partnerLastSeenAt,
-          recordId: ctx.recordId,
-          deliveryBatchId: ctx.deliveryBatchId,
+          ...selectedBatch,
+          partnerLastSeenAt: d?.partnerLastSeenAt ?? undefined,
+          recordId: selectedBatch.batchRecordId,
+          deliveryBatchId: selectedBatch.batchId,
         } as BatchContext & { recordId: string; deliveryBatchId: string };
       }
-    } catch (err) {
-      console.warn('[review/assets] getDeliveryContextByProjectId failed:', err instanceof Error ? err.message : err);
     }
-  }
 
-  // Scope assets to the selected batch when we have one (batchId param or defaulted selectedBatchId)
-  let batchFileIds: Set<string> | null = null;
-  if (selectedBatchId) {
-    const selectedBatchRecordId = deliveryBatches.find((b) => b.batchId === selectedBatchId)?.batchRecordId ?? null;
-    try {
-      batchFileIds = await getDriveFileIdsForBatch(token, selectedBatchId, selectedBatchRecordId);
-    } catch (err) {
-      console.warn('[review/assets] getDriveFileIdsForBatch failed:', err instanceof Error ? err.message : err);
-    }
-  }
-
-  if (batchFileIds !== null) {
-    for (const section of sections) {
-      section.assets = section.assets.filter((a) => batchFileIds!.has(a.fileId));
-      section.fileCount = section.assets.length;
-    }
-  }
-
-  // Filter sections to only include allowed variants for portal display
-  // This ensures internal folders (Animated Display Assets, production folders, etc.) are not shown
-  const portalSections = sections.filter((s) =>
-    ALLOWED_PORTAL_VARIANTS.includes(s.variant as typeof ALLOWED_PORTAL_VARIANTS[number])
-  );
-
-  const partnerLastSeenAt = deliveryContext?.partnerLastSeenAt ?? null;
-  const allAssets = portalSections.flatMap((s) => s.assets) as ReviewAsset[];
-  const approvedCount = allAssets.filter((a) => a.assetApprovedClient).length;
-  const downloadedCount = allAssets.filter((a) => a.partnerDownloadedAt).length;
-  const newApprovedCount = allAssets.filter((a) => {
-    if (!a.assetApprovedClient || a.partnerDownloadedAt) return false;
-    if (!partnerLastSeenAt) return true;
-    return !!(a.approvedAt && new Date(a.approvedAt) > new Date(partnerLastSeenAt));
-  }).length;
-  const portalTotalFiles = portalSections.reduce((sum, s) => sum + s.fileCount, 0);
-
-  const payload: Record<string, unknown> = {
-    ok: true,
-    version: 'review-assets-v1',
-    token,
-    projectId: project.recordId,
-    lastFetchedAt,
-    count: { sections: portalSections.length, files: portalTotalFiles },
-    sections: portalSections,
-    deliveryBatches,
-    ...(selectedBatchId && { selectedBatchId }),
-    ...(deliveryContext && { deliveryContext }),
-    counts: {
-      newApproved: newApprovedCount,
-      approved: approvedCount,
-      downloaded: downloadedCount,
-    },
-  };
-  if (debugFlag) {
-    payload.debug = debug;
-    payload.folderResolution = {
-      jobFolderId,
-      projectName: project.name,
-      hubName: project.hubName,
-      usedJobFolderFromProject: !!project.jobFolderId,
-    };
-  }
-  if (totalFiles === 0) {
-    const firstVariantFolderId = folderMap.size > 0 ? (folderMap.values().next().value as string) : undefined;
-    const hint: Record<string, unknown> = {
-      message: 'No files found in variant folders. Expected: job folder → tactic (Audio, Display, …) → Prospecting/Retargeting; files must be direct children of those variant folders.',
-      jobFolderId,
-      jobFolderUrl: `https://drive.google.com/drive/folders/${jobFolderId}`,
-      variantFoldersFound: folderMap.size,
-      checkAirtableField: 'Creative Review Hub Folder ID (on Project)',
-    };
-    if (firstVariantFolderId) {
-      hint.sampleVariantFolderUrl = `https://drive.google.com/drive/folders/${firstVariantFolderId}`;
+    if (!deliveryContext && deliveryBatches.length === 0) {
       try {
-        const children = await listDirectChildren(drive, firstVariantFolderId);
-        hint.sampleFolderInspect = {
-          directFileCount: children.fileCount,
-          directFolderCount: children.folderCount,
-          sampleFileNames: children.fileNames.slice(0, 10),
-          sampleFolderNames: children.folderNames.slice(0, 10),
-          hint: children.folderCount > 0 && children.fileCount === 0
-            ? 'Files may be inside subfolders; move them to be direct children of the variant folder.'
-            : undefined,
-        };
-      } catch (inspectErr) {
-        hint.sampleFolderInspect = { error: inspectErr instanceof Error ? inspectErr.message : String(inspectErr) };
+        const ctx = await getDeliveryContextByProjectId(project.recordId);
+        if (ctx) {
+          selectedBatchId = ctx.deliveryBatchId;
+          deliveryContext = {
+            batchRecordId: ctx.recordId,
+            batchId: ctx.deliveryBatchId,
+            destinationFolderId: ctx.destinationFolderId,
+            destinationFolderUrl: `https://drive.google.com/drive/folders/${ctx.destinationFolderId}`,
+            vendorName: ctx.vendorName,
+            partnerName: ctx.vendorName,
+            partnerLastSeenAt: ctx.partnerLastSeenAt,
+            recordId: ctx.recordId,
+            deliveryBatchId: ctx.deliveryBatchId,
+          } as BatchContext & { recordId: string; deliveryBatchId: string };
+        }
+      } catch (err) {
+        console.warn('[review/assets] getDeliveryContextByProjectId failed:', err instanceof Error ? err.message : err);
       }
     }
-    payload.emptyAssetsHint = hint;
-    console.warn('[review/assets] 0 files', { projectName: project.name, jobFolderId, variantFoldersFound: folderMap.size });
-  }
 
-  return NextResponse.json(payload, {
-    headers: {
-      'Cache-Control': 'no-store, max-age=0',
-    },
-  });
+    // Scope assets to the selected batch when we have one
+    let batchFileIds: Set<string> | null = null;
+    if (selectedBatchId) {
+      const selectedBatchRecordId = deliveryBatches.find((b) => b.batchId === selectedBatchId)?.batchRecordId ?? null;
+      try {
+        batchFileIds = await getDriveFileIdsForBatch(token, selectedBatchId, selectedBatchRecordId);
+      } catch (err) {
+        console.warn('[review/assets] getDriveFileIdsForBatch failed:', err instanceof Error ? err.message : err);
+      }
+    }
+
+    if (batchFileIds !== null) {
+      for (const section of sections) {
+        section.assets = section.assets.filter((a) => batchFileIds!.has(a.fileId));
+        section.fileCount = section.assets.length;
+      }
+    }
+
+    // No longer filter by ALLOWED_PORTAL_VARIANTS - all sections with assets are shown
+    // The filtering is now done by Tactic/Variant fields in Airtable
+    const portalSections = sections;
+
+    const partnerLastSeenAt = deliveryContext?.partnerLastSeenAt ?? null;
+    const allAssets = portalSections.flatMap((s) => s.assets) as ReviewAsset[];
+    const approvedCount = allAssets.filter((a) => a.assetApprovedClient).length;
+    const downloadedCount = allAssets.filter((a) => a.partnerDownloadedAt).length;
+    const newApprovedCount = allAssets.filter((a) => {
+      if (!a.assetApprovedClient || a.partnerDownloadedAt) return false;
+      if (!partnerLastSeenAt) return true;
+      return !!(a.approvedAt && new Date(a.approvedAt) > new Date(partnerLastSeenAt));
+    }).length;
+    const portalTotalFiles = portalSections.reduce((sum, s) => sum + s.fileCount, 0);
+
+    const payload: Record<string, unknown> = {
+      ok: true,
+      version: 'review-assets-v2-airtable-first', // Version bump to indicate new approach
+      token,
+      projectId: project.recordId,
+      lastFetchedAt,
+      count: { sections: portalSections.length, files: portalTotalFiles },
+      sections: portalSections,
+      deliveryBatches,
+      ...(selectedBatchId && { selectedBatchId }),
+      ...(deliveryContext && { deliveryContext }),
+      counts: {
+        newApproved: newApprovedCount,
+        approved: approvedCount,
+        downloaded: downloadedCount,
+      },
+    };
+
+    if (debugFlag) {
+      payload.debug = {
+        approach: 'airtable-first',
+        totalCrasRecords: statusMap.size,
+        visibleAssets: visibleCrasRecords.length,
+        driveMetaFetched: driveMetaMap.size,
+      };
+    }
+
+    if (totalFiles === 0) {
+      const hint: Record<string, unknown> = {
+        message: 'No CRAS records found for this review token. Assets are sourced from Airtable Creative Review Asset Status table.',
+        checkAirtableTable: 'Creative Review Asset Status',
+        checkField: 'Review Token',
+        tokenPrefix: token.slice(0, 8) + '...',
+      };
+      payload.emptyAssetsHint = hint;
+      console.warn('[review/assets] 0 files (Airtable-first)', { projectName: project.name, crasRecordsCount: statusMap.size });
+    }
+
+    return NextResponse.json(payload, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
