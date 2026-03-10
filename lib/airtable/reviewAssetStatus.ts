@@ -53,6 +53,28 @@ export const PARTNER_DOWNLOAD_STARTED_AT_FIELD = 'Partner Download Started At';
 /** Airtable field: Ready to Deliver (Webhook) – when true, backend worker runs delivery (no Airtable fetch). */
 export const READY_TO_DELIVER_WEBHOOK_FIELD = 'Ready to Deliver (Webhook)';
 
+// ============================================================================
+// Partner Delivery Pipeline Fields (state machine)
+// ============================================================================
+
+/** Airtable field: Is Approved – true when client approves asset. */
+export const IS_APPROVED_FIELD = 'Is Approved';
+
+/** Airtable field: Needs Delivery – true when asset is approved and ready for delivery pipeline. */
+export const NEEDS_DELIVERY_FIELD = 'Needs Delivery';
+
+/** Airtable field: Needs Delivery At – timestamp when asset became ready for delivery. */
+export const NEEDS_DELIVERY_AT_FIELD = 'Needs Delivery At';
+
+/** Airtable field: Delivery Status – state machine status for delivery pipeline. */
+export const DELIVERY_STATUS_FIELD = 'Delivery Status';
+
+/** Airtable field: Delivery Error – error message if delivery fails. */
+export const DELIVERY_ERROR_FIELD = 'Delivery Error';
+
+/** Delivery status values for the state machine. */
+export type DeliveryStatusValue = 'Ready for Delivery' | 'Delivering' | 'Delivered' | 'Failed';
+
 export interface StatusRecord {
   recordId: string;
   /** Drive File ID (from Source Folder ID field). */
@@ -953,8 +975,9 @@ export interface BatchSetAssetApprovedClientOptions {
 
 /**
  * Set Asset Approved (Client) = true on the given Airtable record IDs.
+ * Sets delivery pipeline fields: Is Approved, Needs Delivery, Needs Delivery At, Delivery Status.
+ * Does NOT trigger immediate delivery - delivery runs from batch activation.
  * ONLY updates existing CRAS records. Records should already exist from sync process.
- * If a record doesn't exist, logs a warning and skips it (should not happen if sync works correctly).
  * Updates in chunks of 10 (Airtable limit). Stops on first batch failure.
  */
 export async function batchSetAssetApprovedClient(
@@ -963,63 +986,51 @@ export async function batchSetAssetApprovedClient(
 ): Promise<BatchSetAssetApprovedClientResult> {
   const osBase = getBase();
   const now = new Date().toISOString();
-  
+
   // Build base fields (shared across all records)
+  // Sets approval fields + delivery pipeline state machine fields
   const baseFields: Record<string, unknown> = {
     [ASSET_APPROVED_CLIENT_FIELD]: true,
     Status: 'Approved',
-    'Approved At': options?.approvedAt || now, // Always set Approved At (use provided or current time)
+    'Approved At': options?.approvedAt || now,
+    // Delivery pipeline state machine fields
+    [IS_APPROVED_FIELD]: true,
+    [NEEDS_DELIVERY_FIELD]: true,
+    [NEEDS_DELIVERY_AT_FIELD]: now,
+    [DELIVERY_STATUS_FIELD]: 'Ready for Delivery',
   };
   if (options?.approvedByName !== undefined) baseFields['Approved By Name'] = String(options.approvedByName).slice(0, 100);
   if (options?.approvedByEmail !== undefined) baseFields['Approved By Email'] = String(options.approvedByEmail).slice(0, 200);
-  
-  // Determine if Ready to Deliver (Webhook) should be set to TRUE
-  const shouldSetReadyToDeliver = options?.deliveryBatchId != null && String(options.deliveryBatchId).trim();
-  if (shouldSetReadyToDeliver) {
+
+  // Set Delivery Batch ID if provided (does NOT trigger immediate delivery)
+  if (options?.deliveryBatchId != null && String(options.deliveryBatchId).trim()) {
     const bid = String(options.deliveryBatchId).trim();
     baseFields[DELIVERY_BATCH_ID_FIELD] = bid.startsWith('rec') ? [bid] : bid;
-    // When a delivery batch is set, automatically mark as ready for delivery
-    // This triggers the backend worker to process the delivery
-    baseFields[READY_TO_DELIVER_WEBHOOK_FIELD] = true;
   }
-  
+
   let updated = 0;
   for (let i = 0; i < recordIds.length; i += BULK_APPROVE_CHUNK_SIZE) {
     const chunk = recordIds.slice(i, i + BULK_APPROVE_CHUNK_SIZE);
     try {
-      // Create a fresh fields object for each record to avoid mutation issues
       await Promise.all(chunk.map((id) => {
-        // Create a new object for each record (spread to avoid mutation)
         const recordFields = { ...baseFields };
-        
-        // Log Ready to Deliver (Webhook) field presence and value
-        const readyToDeliverValue = recordFields[READY_TO_DELIVER_WEBHOOK_FIELD];
-        const readyToDeliverValuePresent = READY_TO_DELIVER_WEBHOOK_FIELD in recordFields;
         console.log(`[batchSetAssetApprovedClient] Updating record ${id}:`, {
           recordId: id,
-          readyToDeliverValuePresent,
-          readyToDeliverValue,
+          deliveryStatus: recordFields[DELIVERY_STATUS_FIELD],
+          needsDelivery: recordFields[NEEDS_DELIVERY_FIELD],
           fieldKeys: Object.keys(recordFields),
         });
-        
-        // Verify we never send ReadyToDeliver=false unless explicitly requested
-        if (readyToDeliverValuePresent && readyToDeliverValue !== true) {
-          console.warn(`[batchSetAssetApprovedClient] WARNING: Ready to Deliver (Webhook) is not TRUE for record ${id}, removing from payload to prevent accidental clearing`);
-          delete recordFields[READY_TO_DELIVER_WEBHOOK_FIELD];
-        }
-        
         return osBase(TABLE).update(id, recordFields as any);
       }));
       updated += chunk.length;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const airtableError = err;
-      
-      // Check if error is due to missing record (should not happen if sync works correctly)
+
       if (message.includes('not found') || message.includes('NOT_FOUND') || (err as any)?.statusCode === 404) {
-        console.warn(`[batchSetAssetApprovedClient] WARNING: Record not found at index ${i}. This should not happen if CRAS sync process is working correctly. Skipping failed records.`);
+        console.warn(`[batchSetAssetApprovedClient] WARNING: Record not found at index ${i}. This should not happen if CRAS sync process is working correctly.`);
       }
-      
+
       return {
         updated,
         failedAt: i,
@@ -1102,40 +1113,35 @@ export async function setSingleAssetApprovedClient(
   }
   const osBase = getBase();
   const now = new Date().toISOString();
+
+  // Set approval fields + delivery pipeline state machine fields
+  // Does NOT trigger immediate delivery - delivery runs from batch activation
   const fields: Record<string, unknown> = {
     [ASSET_APPROVED_CLIENT_FIELD]: true,
     Status: 'Approved',
-    'Approved At': approvedAt || now, // Always set Approved At (use provided or current time)
+    'Approved At': approvedAt || now,
+    // Delivery pipeline state machine fields
+    [IS_APPROVED_FIELD]: true,
+    [NEEDS_DELIVERY_FIELD]: true,
+    [NEEDS_DELIVERY_AT_FIELD]: now,
+    [DELIVERY_STATUS_FIELD]: 'Ready for Delivery',
   };
   if (approvedByName !== undefined) fields['Approved By Name'] = String(approvedByName).slice(0, 100);
   if (approvedByEmail !== undefined) fields['Approved By Email'] = String(approvedByEmail).slice(0, 200);
-  
-  // Only set Ready to Deliver (Webhook) if deliveryBatchId is provided (set to TRUE)
-  // Never include it in payload if it should be false/undefined to prevent accidental clearing
+
+  // Set Delivery Batch ID if provided (does NOT trigger immediate delivery)
   if (deliveryBatchId != null && String(deliveryBatchId).trim()) {
     const bid = String(deliveryBatchId).trim();
     fields[DELIVERY_BATCH_ID_FIELD] = bid.startsWith('rec') ? [bid] : bid;
-    // When a delivery batch is set, automatically mark as ready for delivery
-    // This triggers the backend worker to process the delivery
-    fields[READY_TO_DELIVER_WEBHOOK_FIELD] = true;
   }
-  
-  // Log Ready to Deliver (Webhook) field presence and value
-  const readyToDeliverValue = fields[READY_TO_DELIVER_WEBHOOK_FIELD];
-  const readyToDeliverValuePresent = READY_TO_DELIVER_WEBHOOK_FIELD in fields;
+
   console.log(`[setSingleAssetApprovedClient] Updating record ${existing.id}:`, {
     recordId: existing.id,
-    readyToDeliverValuePresent,
-    readyToDeliverValue,
+    deliveryStatus: fields[DELIVERY_STATUS_FIELD],
+    needsDelivery: fields[NEEDS_DELIVERY_FIELD],
     fieldKeys: Object.keys(fields),
   });
-  
-  // Verify we never send ReadyToDeliver=false unless explicitly requested
-  if (readyToDeliverValuePresent && readyToDeliverValue !== true) {
-    console.warn(`[setSingleAssetApprovedClient] WARNING: Ready to Deliver (Webhook) is not TRUE for record ${existing.id}, removing from payload to prevent accidental clearing`);
-    delete fields[READY_TO_DELIVER_WEBHOOK_FIELD];
-  }
-  
+
   try {
     await osBase(TABLE).update(existing.id, fields as any);
     return { ok: true, recordId: existing.id };
@@ -1288,4 +1294,225 @@ export async function propagateGroupApprovalToAssets(
     console.error('[reviewAssetStatus] Failed to query CRAS records for group approval:', message);
     return { updated: 0, error: message };
   }
+}
+
+// ============================================================================
+// Partner Delivery Pipeline - Batch Activation & Delivery Execution
+// ============================================================================
+
+export interface EligibleDeliveryRecord {
+  recordId: string;
+  driveFileId: string;
+  filename: string | null;
+}
+
+/**
+ * Get CRAS records eligible for delivery (for batch activation).
+ * Returns records where:
+ *   - Is Approved = true
+ *   - Needs Delivery = true
+ *   - Delivery Status = 'Ready for Delivery'
+ *   - Delivered = false (not yet delivered)
+ */
+export async function getEligibleForDelivery(): Promise<EligibleDeliveryRecord[]> {
+  const base = getBase();
+  const formula = `AND(
+    {${IS_APPROVED_FIELD}} = TRUE(),
+    {${NEEDS_DELIVERY_FIELD}} = TRUE(),
+    {${DELIVERY_STATUS_FIELD}} = "Ready for Delivery",
+    OR({${DELIVERED_CHECKBOX_FIELD}} = FALSE(), {${DELIVERED_CHECKBOX_FIELD}} = BLANK())
+  )`;
+
+  const records = await base(TABLE)
+    .select({ filterByFormula: formula })
+    .all();
+
+  const out: EligibleDeliveryRecord[] = [];
+  for (const r of records) {
+    const f = r.fields as Record<string, unknown>;
+    const driveFileId = typeof f[SOURCE_FOLDER_ID_FIELD] === 'string' ? (f[SOURCE_FOLDER_ID_FIELD] as string).trim() : '';
+    if (!driveFileId) continue;
+
+    const filenameRaw = f['Filename'];
+    const filename = typeof filenameRaw === 'string' && filenameRaw.trim() ? filenameRaw.trim() : null;
+
+    out.push({ recordId: r.id, driveFileId, filename });
+  }
+
+  console.log(`[getEligibleForDelivery] Found ${out.length} records eligible for delivery`);
+  return out;
+}
+
+/**
+ * Link eligible CRAS records to a delivery batch (batch activation).
+ * Updates records to set Delivery Batch ID.
+ */
+export async function linkRecordsToBatch(
+  recordIds: string[],
+  batchRecordId: string
+): Promise<{ updated: number; error?: string }> {
+  if (recordIds.length === 0) return { updated: 0 };
+
+  const base = getBase();
+  const BATCH_SIZE = 10;
+  let updated = 0;
+
+  for (let i = 0; i < recordIds.length; i += BATCH_SIZE) {
+    const chunk = recordIds.slice(i, i + BATCH_SIZE);
+    try {
+      await Promise.all(
+        chunk.map((id) =>
+          base(TABLE).update(id, {
+            [DELIVERY_BATCH_ID_FIELD]: [batchRecordId],
+          } as any)
+        )
+      );
+      updated += chunk.length;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[linkRecordsToBatch] Failed at index ${i}:`, message);
+      return { updated, error: message };
+    }
+  }
+
+  console.log(`[linkRecordsToBatch] Linked ${updated} records to batch ${batchRecordId}`);
+  return { updated };
+}
+
+/**
+ * Set Delivery Status = 'Delivering' on records (before starting delivery).
+ */
+export async function setDeliveryStatusDelivering(recordIds: string[]): Promise<{ updated: number; error?: string }> {
+  if (recordIds.length === 0) return { updated: 0 };
+
+  const base = getBase();
+  const BATCH_SIZE = 10;
+  let updated = 0;
+
+  for (let i = 0; i < recordIds.length; i += BATCH_SIZE) {
+    const chunk = recordIds.slice(i, i + BATCH_SIZE);
+    try {
+      await Promise.all(
+        chunk.map((id) =>
+          base(TABLE).update(id, {
+            [DELIVERY_STATUS_FIELD]: 'Delivering',
+          } as any)
+        )
+      );
+      updated += chunk.length;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[setDeliveryStatusDelivering] Failed at index ${i}:`, message);
+      return { updated, error: message };
+    }
+  }
+
+  return { updated };
+}
+
+/**
+ * Mark a single CRAS record as delivered (after successful file copy).
+ * Sets: Delivered = true, Delivered At, Delivery Status = 'Delivered', clears Delivery Error.
+ */
+export async function markAssetDelivered(
+  recordId: string,
+  deliveredFolderId?: string,
+  deliveredFileUrl?: string
+): Promise<{ ok: true } | { error: string }> {
+  const base = getBase();
+  const now = new Date().toISOString();
+
+  const fields: Record<string, unknown> = {
+    [DELIVERED_CHECKBOX_FIELD]: true,
+    [DELIVERED_AT_FIELD]: now,
+    [DELIVERY_STATUS_FIELD]: 'Delivered',
+    [NEEDS_DELIVERY_FIELD]: false, // Clear needs delivery flag
+    [DELIVERY_ERROR_FIELD]: '', // Clear any previous error
+  };
+
+  if (deliveredFolderId) {
+    fields[DELIVERED_FOLDER_ID_FIELD] = deliveredFolderId;
+  }
+  // Try to set delivered URL field
+  if (deliveredFileUrl) {
+    fields[DELIVERED_URL_FIELD_ALIASES[0]] = deliveredFileUrl;
+  }
+
+  try {
+    await base(TABLE).update(recordId, fields as any);
+    console.log(`[markAssetDelivered] Record ${recordId} marked as delivered`);
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[markAssetDelivered] Failed for record ${recordId}:`, message);
+    return { error: message };
+  }
+}
+
+/**
+ * Mark a single CRAS record as failed delivery.
+ * Sets: Delivery Status = 'Failed', Delivery Error = error message.
+ * Does NOT set Delivered = true.
+ */
+export async function markAssetDeliveryFailed(
+  recordId: string,
+  errorMessage: string
+): Promise<{ ok: true } | { error: string }> {
+  const base = getBase();
+
+  const fields: Record<string, unknown> = {
+    [DELIVERY_STATUS_FIELD]: 'Failed',
+    [DELIVERY_ERROR_FIELD]: String(errorMessage).slice(0, 2000),
+    // Keep Needs Delivery = true so it can be retried
+  };
+
+  try {
+    await base(TABLE).update(recordId, fields as any);
+    console.log(`[markAssetDeliveryFailed] Record ${recordId} marked as failed: ${errorMessage}`);
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[markAssetDeliveryFailed] Failed to update record ${recordId}:`, message);
+    return { error: message };
+  }
+}
+
+/**
+ * Get CRAS records linked to a batch that are ready for delivery.
+ * Returns records where:
+ *   - Delivery Batch ID = batchRecordId
+ *   - Delivery Status = 'Ready for Delivery' (or 'Failed' for retry)
+ *   - Delivered = false
+ */
+export async function getBatchRecordsReadyForDelivery(
+  batchRecordId: string
+): Promise<EligibleDeliveryRecord[]> {
+  const base = getBase();
+  const batchEsc = String(batchRecordId).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
+
+  // Match by linked record ID (array contains)
+  const formula = `AND(
+    FIND("${batchEsc}", ARRAYJOIN({${DELIVERY_BATCH_ID_FIELD}})) > 0,
+    OR({${DELIVERY_STATUS_FIELD}} = "Ready for Delivery", {${DELIVERY_STATUS_FIELD}} = "Failed"),
+    OR({${DELIVERED_CHECKBOX_FIELD}} = FALSE(), {${DELIVERED_CHECKBOX_FIELD}} = BLANK())
+  )`;
+
+  const records = await base(TABLE)
+    .select({ filterByFormula: formula })
+    .all();
+
+  const out: EligibleDeliveryRecord[] = [];
+  for (const r of records) {
+    const f = r.fields as Record<string, unknown>;
+    const driveFileId = typeof f[SOURCE_FOLDER_ID_FIELD] === 'string' ? (f[SOURCE_FOLDER_ID_FIELD] as string).trim() : '';
+    if (!driveFileId) continue;
+
+    const filenameRaw = f['Filename'];
+    const filename = typeof filenameRaw === 'string' && filenameRaw.trim() ? filenameRaw.trim() : null;
+
+    out.push({ recordId: r.id, driveFileId, filename });
+  }
+
+  console.log(`[getBatchRecordsReadyForDelivery] Found ${out.length} records for batch ${batchRecordId}`);
+  return out;
 }

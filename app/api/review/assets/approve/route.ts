@@ -1,48 +1,17 @@
 // app/api/review/assets/approve/route.ts
 // POST: Set Asset Approved (Client) = true for a single asset. Optionally sets Approved At
 // from client so the timestamp reflects when the user clicked (avoids automation timezone skew).
+// NOTE: Approval sets delivery pipeline fields but does NOT trigger immediate delivery.
+// Delivery runs from batch activation (when Make Active = true on Partner Delivery Batch).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { resolveApprovedAt } from '@/lib/review/approvedAt';
-import { setSingleAssetApprovedClient, ensureCrasRecord } from '@/lib/airtable/reviewAssetStatus';
-import { resolveDeliveryBatchFromCras } from '@/lib/review/resolveDeliveryBatch';
-
-// Field name for Source Folder ID (matches reviewAssetStatus.ts)
-const SOURCE_FOLDER_ID_FIELD = 'Source Folder ID';
+import { setSingleAssetApprovedClient } from '@/lib/airtable/reviewAssetStatus';
 
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
-
-/**
- * Get the application origin URL deterministically.
- * Tries request headers first, then env vars, then fallback.
- */
-function getAppOrigin(req?: Request | NextRequest): string {
-  if (req) {
-    // Try x-forwarded-proto + x-forwarded-host (Vercel/proxy headers)
-    const proto = req.headers.get('x-forwarded-proto');
-    const host = req.headers.get('x-forwarded-host');
-    if (proto && host) {
-      return `${proto}://${host}`.replace(/\/$/, '');
-    }
-    
-    // Try origin header
-    const origin = req.headers.get('origin');
-    if (origin) {
-      return origin.replace(/\/$/, '');
-    }
-  }
-  
-  // Try APP_ORIGIN env var
-  if (process.env.APP_ORIGIN) {
-    return process.env.APP_ORIGIN.replace(/\/$/, '');
-  }
-  
-  // Fallback to production domain
-  return 'https://hiveagencyos.com';
-}
 
 export async function POST(req: NextRequest) {
   let body: {
@@ -90,13 +59,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid or expired token' }, { status: 404 });
   }
 
-  // Use deliveryBatchId from request if provided
-  let finalDeliveryBatchId = deliveryBatchId;
-  let selectedBatchRecordId: string | undefined = undefined;
-  if (finalDeliveryBatchId) {
-    console.log(`[approve] Using deliveryBatchId from request: ${finalDeliveryBatchId}`);
-  }
-
   // Approve should ONLY update existing CRAS record (created by sync process on portal load)
   // If record doesn't exist, setSingleAssetApprovedClient will create it first with warning
   const result = await setSingleAssetApprovedClient({
@@ -105,7 +67,7 @@ export async function POST(req: NextRequest) {
     approvedAt,
     approvedByName,
     approvedByEmail,
-    deliveryBatchId: finalDeliveryBatchId ?? undefined,
+    deliveryBatchId: deliveryBatchId ?? undefined,
     // Pass project info for fallback record creation (should not be needed if sync works)
     projectId: resolved.project.recordId,
     filename,
@@ -120,86 +82,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(payload, { status, headers: NO_STORE });
   }
 
-  // Resolve deliveryBatchId from CRAS Project link → Partner Delivery Batches query (if not provided)
-  if (!finalDeliveryBatchId && 'recordId' in result) {
-    console.log(`[approve] deliveryBatchId not in request, resolving from CRAS Project link`);
-    const resolved = await resolveDeliveryBatchFromCras(result.recordId);
-    if (resolved) {
-      finalDeliveryBatchId = resolved.deliveryBatchId;
-      selectedBatchRecordId = resolved.batchRecordId;
-    }
-  }
-  
-  console.log(`[approve] Final deliveryBatchId after approval: ${finalDeliveryBatchId || 'undefined'}`);
+  // Note: Delivery is NOT triggered immediately on approval.
+  // Assets are marked with Needs Delivery = true, Delivery Status = 'Ready for Delivery'.
+  // Actual delivery runs from batch activation (when Make Active = true on Partner Delivery Batch).
 
-  // Generate requestId for correlation tracing
-  let requestId: string | undefined = undefined;
-  if ('recordId' in result) {
-    requestId = `approved-${result.recordId}-${Date.now()}`;
-    console.log(`[approve] requestId=${requestId}`);
-  }
+  console.log(`[approve] Asset approved successfully. Delivery pipeline fields set (no immediate delivery).`, {
+    recordId: 'recordId' in result ? result.recordId : undefined,
+    deliveryBatchId: deliveryBatchId || 'undefined',
+  });
 
   if ('alreadyApproved' in result) {
-    // Still trigger delivery if batchId is set (idempotency will handle duplicates)
-    if (finalDeliveryBatchId && 'recordId' in result) {
-      const origin = getAppOrigin(req);
-      const deliveryUrl = `${origin}/api/delivery/partner/approved`;
-      console.log("[approve] posting to delivery endpoint", { crasRecordId: result.recordId, deliveryBatchRecordId: selectedBatchRecordId, deliveryBatchId: finalDeliveryBatchId });
-      try {
-        const res = await fetch(deliveryUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            crasRecordId: result.recordId,
-            batchId: finalDeliveryBatchId,
-            deliveryBatchRecordId: selectedBatchRecordId,
-            requestId,
-            triggeredBy: 'approval',
-          }),
-        });
-        const text = await res.text().catch(() => '');
-        console.log(`[approve] delivery endpoint response`, { requestId, status: res.status, ok: res.ok, text: text.slice(0, 500) });
-      } catch (err) {
-        console.log(`[approve] delivery endpoint fetch failed`, { requestId, err: err instanceof Error ? err.message : String(err) });
-      }
-      console.log(`[approve] after calling delivery endpoint`, { requestId });
-    }
     return NextResponse.json(
       { ok: true, alreadyApproved: true },
       { headers: NO_STORE }
     );
-  }
-
-  // Trigger delivery via event-driven endpoint (if deliveryBatchId is set)
-  if (finalDeliveryBatchId && 'recordId' in result) {
-    const origin = getAppOrigin(req);
-    const deliveryUrl = `${origin}/api/delivery/partner/approved`;
-    console.log("[approve] posting to delivery endpoint", { crasRecordId: result.recordId, deliveryBatchRecordId: selectedBatchRecordId, deliveryBatchId: finalDeliveryBatchId });
-    try {
-      const res = await fetch(deliveryUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          crasRecordId: result.recordId,
-          batchId: finalDeliveryBatchId,
-          deliveryBatchRecordId: selectedBatchRecordId,
-          requestId,
-          triggeredBy: 'approval',
-        }),
-      });
-      const text = await res.text().catch(() => '');
-      console.log(`[approve] delivery endpoint response`, { requestId, status: res.status, ok: res.ok, text: text.slice(0, 500) });
-    } catch (err) {
-      console.log(`[approve] delivery endpoint fetch failed`, { requestId, err: err instanceof Error ? err.message : String(err) });
-    }
-    console.log(`[approve] after calling delivery endpoint`, { requestId });
-  } else {
-    if (!finalDeliveryBatchId) {
-      console.log(`[approve] No deliveryBatchId available (not in request and not in record), skipping delivery trigger`);
-    }
-    if (!('recordId' in result)) {
-      console.log(`[approve] No recordId in result, skipping delivery trigger`);
-    }
   }
 
   return NextResponse.json({ ok: true }, { headers: NO_STORE });
