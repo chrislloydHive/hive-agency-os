@@ -13,6 +13,7 @@ import {
   setPartnerDownloadedAt,
   setPartnerDownloadStartedAt,
 } from '@/lib/airtable/reviewAssetStatus';
+import { getAllowedReviewFolderIds, getAllowedReviewFolderIdsFromJobFolder, getAllowedReviewFolderIdsFromClientProjectsFolder } from '@/lib/review/reviewFolders';
 import { verifyDownloadSignature } from '@/lib/review/downloadSignature';
 import { getAndDeleteDownloadSession } from '@/lib/review/downloadSessionStore';
 import {
@@ -97,14 +98,26 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const { auth } = resolved;
+  const { project, auth } = resolved;
   const drive = google.drive({ version: 'v3', auth });
 
-  // Validate via CRAS record (authoritative source for asset→project mapping)
-  const crasRecordId = await getCrasRecordIdByTokenAndFileId(token, assetId);
-  if (!crasRecordId) {
+  // Resolve variant folder IDs for validation (folder-based, not CRAS-based, to avoid Airtable rate limits)
+  const allowedFolderIds = project.jobFolderId
+    ? await getAllowedReviewFolderIdsFromJobFolder(drive, project.jobFolderId)
+    : await (async () => {
+        const clientProjectsFolderId = process.env.CAR_TOYS_PROJECTS_FOLDER_ID ?? '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_';
+        if (clientProjectsFolderId) {
+          const fromClient = await getAllowedReviewFolderIdsFromClientProjectsFolder(drive, project.name, clientProjectsFolderId);
+          if (fromClient?.length) return fromClient;
+        }
+        const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID;
+        if (!rootFolderId) return null;
+        return getAllowedReviewFolderIds(drive, project.hubName, rootFolderId);
+      })();
+
+  if (!allowedFolderIds || allowedFolderIds.length === 0) {
     return NextResponse.json(
-      { error: 'File not found for this review' },
+      { error: 'No review folders configured' },
       { status: 403, headers: { ...NO_STORE, ...EXTRA_HEADERS } }
     );
   }
@@ -112,23 +125,34 @@ export async function GET(req: NextRequest) {
   let mimeType: string;
   let fileName: string;
   let size: number | undefined;
+  let parents: string[];
 
   try {
     const meta = await drive.files.get({
       fileId: assetId,
-      fields: 'id,name,mimeType,size',
+      fields: 'id,name,mimeType,size,parents',
       supportsAllDrives: true,
     });
 
     mimeType = (meta.data.mimeType as string) || 'application/octet-stream';
     fileName = (meta.data.name as string) || assetId;
     size = meta.data.size != null ? Number(meta.data.size) : undefined;
+    parents = meta.data.parents ?? [];
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[review/assets/download] Drive metadata error:', msg);
     return NextResponse.json(
       { error: 'File not found or access denied' },
       { status: 404, headers: { ...NO_STORE, ...EXTRA_HEADERS } }
+    );
+  }
+
+  // Validate that the file's direct parent is a variant folder
+  const isAllowed = parents.some((parentId) => allowedFolderIds.includes(parentId));
+  if (!isAllowed) {
+    return NextResponse.json(
+      { error: 'File not in allowed folders' },
+      { status: 403, headers: { ...NO_STORE, ...EXTRA_HEADERS } }
     );
   }
 

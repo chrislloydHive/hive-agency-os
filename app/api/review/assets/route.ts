@@ -100,11 +100,12 @@ interface TacticSectionData {
   newSinceApprovalCount?: number;
 }
 
-/** Drive file metadata (mimeType, modifiedTime, parents) fetched in batches. */
+/** Drive file metadata (mimeType, modifiedTime, parents, trashed) fetched in batches. */
 interface DriveFileMeta {
   mimeType: string;
   modifiedTime: string;
   parents: string[];
+  trashed: boolean;
 }
 
 /**
@@ -124,7 +125,7 @@ async function batchGetDriveFileMeta(
       batch.map(async (fileId) => {
         const res = await drive.files.get({
           fileId,
-          fields: 'mimeType, modifiedTime, parents',
+          fields: 'mimeType, modifiedTime, parents, trashed',
           supportsAllDrives: true,
         });
         return {
@@ -132,6 +133,7 @@ async function batchGetDriveFileMeta(
           mimeType: res.data.mimeType ?? 'application/octet-stream',
           modifiedTime: res.data.modifiedTime ?? '',
           parents: res.data.parents ?? [],
+          trashed: res.data.trashed ?? false,
         };
       })
     );
@@ -142,6 +144,7 @@ async function batchGetDriveFileMeta(
           mimeType: result.value.mimeType,
           modifiedTime: result.value.modifiedTime,
           parents: result.value.parents,
+          trashed: result.value.trashed,
         });
       }
     }
@@ -320,7 +323,7 @@ export async function GET(req: NextRequest) {
       }
 
       // Only show files whose Drive parent is a known variant folder.
-      // This excludes files in subfolders and files no longer in Drive.
+      // This excludes files in subfolders, trashed files, and files no longer in Drive.
       if (allowedParentIds.size > 0) {
         const driveMeta = driveMetaMap.get(rec.driveFileId);
         if (!driveMeta) {
@@ -328,6 +331,14 @@ export async function GET(req: NextRequest) {
           skippedParentCount++;
           if (skippedParentCount <= 5) {
             console.log(`[review/assets] Skipping asset ${rec.driveFileId} (${rec.filename}) — not found in Drive`);
+          }
+          continue;
+        }
+        if (driveMeta.trashed) {
+          // File is in Drive trash — skip
+          skippedParentCount++;
+          if (skippedParentCount <= 5) {
+            console.log(`[review/assets] Skipping asset ${rec.driveFileId} (${rec.filename}) — trashed in Drive`);
           }
           continue;
         }

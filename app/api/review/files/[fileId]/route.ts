@@ -1,12 +1,12 @@
 // app/api/review/files/[fileId]/route.ts
 // Proxies Google Drive file content for the Client Review Portal.
 // Requires a valid review token as a query parameter.
-// Validates that the file has a CRAS (Creative Review Asset Status) record for the token.
+// Validates that the file's direct parent is a known variant folder.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
-import { getCrasRecordIdByTokenAndFileId } from '@/lib/airtable/reviewAssetStatus';
+import { getAllowedReviewFolderIds, getAllowedReviewFolderIdsFromJobFolder, getAllowedReviewFolderIdsFromClientProjectsFolder } from '@/lib/review/reviewFolders';
 import {
   isGoogleWorkspaceFile,
   getDefaultExportFormat,
@@ -67,47 +67,61 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
   }
 
-  const { auth } = resolved;
+  const { project, auth } = resolved;
   const drive = google.drive({ version: 'v3', auth });
 
   const download = req.nextUrl.searchParams.get('dl') === '1';
 
-  // Validate that the file has a CRAS record for this token.
-  // Assets are discovered via Airtable (not Drive folders), so a CRAS record
-  // is the authoritative proof that this file belongs to the project.
-  const crasRecordId = await getCrasRecordIdByTokenAndFileId(token, fileId);
-  if (!crasRecordId) {
-    return NextResponse.json({ error: 'File not found for this review' }, { status: 403 });
+  // Resolve variant folder IDs (uses partial map — missing tactics don't block everything)
+  const allowedFolderIds = project.jobFolderId
+    ? await getAllowedReviewFolderIdsFromJobFolder(drive, project.jobFolderId)
+    : await (async () => {
+        const clientProjectsFolderId = process.env.CAR_TOYS_PROJECTS_FOLDER_ID ?? '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_';
+        if (clientProjectsFolderId) {
+          const fromClient = await getAllowedReviewFolderIdsFromClientProjectsFolder(drive, project.name, clientProjectsFolderId);
+          if (fromClient?.length) return fromClient;
+        }
+        const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID;
+        if (!rootFolderId) return null;
+        return getAllowedReviewFolderIds(drive, project.hubName, rootFolderId);
+      })();
+
+  if (!allowedFolderIds || allowedFolderIds.length === 0) {
+    return NextResponse.json({ error: 'No review folders configured' }, { status: 403 });
   }
 
-  // Get file metadata from Drive
-  let mimeType: string;
-  let fileName: string;
+  // Validate that the file's direct parent is a variant folder
   try {
     const fileMeta = await drive.files.get({
       fileId,
-      fields: 'mimeType, name',
+      fields: 'parents, mimeType, name',
       supportsAllDrives: true,
     });
 
-    mimeType = fileMeta.data.mimeType || 'application/octet-stream';
-    fileName = fileMeta.data.name || fileId;
+    const parents = fileMeta.data.parents || [];
+    const isAllowed = parents.some((parentId) => allowedFolderIds.includes(parentId));
+
+    if (!isAllowed) {
+      return NextResponse.json({ error: 'File not in allowed folders' }, { status: 403 });
+    }
+
+    var mimeType = fileMeta.data.mimeType || 'application/octet-stream';
+    var fileName = fileMeta.data.name || fileId;
   } catch (err: any) {
-    console.error('[review/files] Drive metadata error:', err?.message ?? err);
+    console.error('[review/files] Validation error:', err?.message ?? err);
     return NextResponse.json({ error: 'File not found or access denied' }, { status: 404 });
   }
 
   // Check if this is a Google Workspace file that needs export
   const isGoogleDoc = isGoogleWorkspaceFile(mimeType);
-  const exportFormat = req.nextUrl.searchParams.get('format')?.trim() || null; // Optional: pdf, docx, etc.
-  
+  const exportFormat = req.nextUrl.searchParams.get('format')?.trim() || null;
+
   // Determine export mimeType if needed
   let exportMimeType: string | null = null;
   let finalFileName = fileName;
   let finalMimeType = mimeType;
-  
+
   if (isGoogleDoc) {
-    // If format specified, use it; otherwise use default
     if (exportFormat) {
       const formats = {
         pdf: 'application/pdf',
@@ -120,12 +134,11 @@ export async function GET(
       };
       exportMimeType = formats[exportFormat as keyof typeof formats] || null;
     }
-    
-    // If no format specified or invalid format, use default
+
     if (!exportMimeType) {
       exportMimeType = getDefaultExportFormat(mimeType);
     }
-    
+
     if (exportMimeType) {
       finalMimeType = exportMimeType;
       finalFileName = getExportFileExtension(exportMimeType, fileName);
@@ -141,12 +154,10 @@ export async function GET(
   // Stream file content (export for Google Docs, direct download for regular files)
   try {
     let stream: Readable;
-    
+
     if (isGoogleDoc && exportMimeType) {
-      // Export Google Workspace file
       stream = await exportGoogleWorkspaceFile(drive, fileId, exportMimeType);
     } else {
-      // Regular file download
       const res = await drive.files.get(
         { fileId, alt: 'media', supportsAllDrives: true },
         { responseType: 'stream' },
@@ -164,7 +175,7 @@ export async function GET(
       'Content-Type': finalMimeType,
       'Cache-Control': 'public, max-age=300',
     };
-    
+
     // Add CORS headers for video files to allow VideoWithThumbnail component to load them
     if (finalMimeType.startsWith('video/') || fileName.toLowerCase().endsWith('.mp4') || fileName.toLowerCase().endsWith('.mov') || fileName.toLowerCase().endsWith('.webm')) {
       headers['Access-Control-Allow-Origin'] = '*';
@@ -173,10 +184,7 @@ export async function GET(
       headers['Accept-Ranges'] = 'bytes';
     }
 
-    // Always set download disposition for Google Docs (they're always downloaded, not viewed inline)
-    // For regular files, only set if ?dl=1 is present
     if (download || isGoogleDoc) {
-      // RFC 6266 — ASCII-safe filename + UTF-8 fallback
       const ascii = finalFileName.replace(/[^\x20-\x7E]/g, '_');
       headers['Content-Disposition'] =
         `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(finalFileName)}`;
@@ -185,7 +193,7 @@ export async function GET(
     return new NextResponse(body, { status: 200, headers });
   } catch (err: any) {
     console.error('[review/files] Drive stream/export error:', err?.message ?? err);
-    const errorMsg = isGoogleDoc 
+    const errorMsg = isGoogleDoc
       ? 'Failed to export Google Workspace file. Ensure the file is accessible and try a different format.'
       : 'Failed to fetch file';
     return NextResponse.json({ error: errorMsg }, { status: 500 });
