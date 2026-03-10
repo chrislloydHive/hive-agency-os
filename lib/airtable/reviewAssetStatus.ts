@@ -97,6 +97,8 @@ export interface StatusRecord {
   variant: string | null;
   /** Hidden flag - if true, asset should not appear in portal. */
   hidden: boolean;
+  /** Show in Client Portal checkbox — when true, asset appears in the client review portal. */
+  showInClientPortal: boolean;
   status: AssetStatusValue;
   /** Client approval checkbox; used for bulk approve and to avoid re-updating. */
   assetApprovedClient: boolean;
@@ -199,6 +201,10 @@ function recordToStatus(r: { id: string; fields: Record<string, unknown> }, toke
   const hiddenRaw = f['Hidden'];
   const hidden = hiddenRaw === true || hiddenRaw === 'true' || hiddenRaw === 1;
 
+  // Show in Client Portal checkbox — controls portal visibility
+  const showInClientPortalRaw = f['Show in Client Portal'];
+  const showInClientPortal = showInClientPortalRaw === true || showInClientPortalRaw === 'true' || showInClientPortalRaw === 1;
+
   // Placement grouping fields (for carousel/grouped assets)
   const placementGroupIdRaw = f['Placement Group ID'];
   const placementGroupId = typeof placementGroupIdRaw === 'string' && placementGroupIdRaw.trim()
@@ -226,6 +232,7 @@ function recordToStatus(r: { id: string; fields: Record<string, unknown> }, toke
     tactic,
     variant,
     hidden,
+    showInClientPortal,
     status: parseStatus(f['Status']),
     assetApprovedClient: parseAssetApprovedClient(f[ASSET_APPROVED_CLIENT_FIELD]),
     // Gracefully handle missing field (may not exist in all Airtable bases)
@@ -791,6 +798,7 @@ export async function batchEnsureCrasRecords(
           Tactic: asset.tactic,
           Variant: asset.variant,
           Status: 'New',
+          'Show in Client Portal': true,
           ...(includeOptional ? { 'Last Activity At': now } : {}),
         } as any,
       }));

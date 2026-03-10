@@ -17,10 +17,7 @@ import {
   getBatchDetailsInBase,
   type BatchContext,
 } from '@/lib/airtable/partnerDeliveryBatches';
-import {
-  getReviewFolderMapFromJobFolderPartial,
-  getReviewFolderMapFromClientProjectsFolder,
-} from '@/lib/review/reviewFolders';
+// Folder map imports removed — portal visibility now controlled by "Show in Client Portal" CRAS field
 import type { drive_v3 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
@@ -243,22 +240,31 @@ export async function GET(req: NextRequest) {
 
     const primaryLandingPageUrl = project.primaryLandingPageUrl ?? null;
 
-    // Filter out hidden assets and collect all CRAS records
-    const visibleCrasRecords: StatusRecord[] = [];
+    // Filter assets: Show in Client Portal checkbox is the primary gate.
+    // Hidden assets are always excluded. Assets without Show in Client Portal
+    // are excluded unless the field isn't set on ANY record (backwards compat).
     const allCrasRecords = Array.from(statusMap.values());
+    const anyHavePortalFlag = allCrasRecords.some(r => r.showInClientPortal);
+
+    const visibleCrasRecords: StatusRecord[] = [];
+    let skippedHiddenCount = 0;
+    let skippedPortalFlagCount = 0;
     for (const rec of allCrasRecords) {
-      // Only filter by explicit Hidden field, not by folder location
       if (rec.hidden) {
-        console.log(`[review/assets] Skipping hidden asset: ${rec.driveFileId} (${rec.filename})`);
+        skippedHiddenCount++;
+        continue;
+      }
+      // If any records have Show in Client Portal set, use it as the filter
+      if (anyHavePortalFlag && !rec.showInClientPortal) {
+        skippedPortalFlagCount++;
         continue;
       }
       visibleCrasRecords.push(rec);
     }
 
-    console.log(`[review/assets] After hidden filter: ${visibleCrasRecords.length} visible assets`);
+    console.log(`[review/assets] Filtering: ${allCrasRecords.length} total, ${visibleCrasRecords.length} visible, ${skippedHiddenCount} hidden, ${skippedPortalFlagCount} not in portal`);
 
-    // Optionally fetch Drive metadata (mimeType, modifiedTime) for all visible assets
-    // This is non-blocking - if Drive API fails, we still show assets with defaults
+    // Fetch Drive metadata (mimeType, modifiedTime) for visible assets
     let driveMetaMap = new Map<string, DriveFileMeta>();
     const fileIdsForMeta = visibleCrasRecords.map(r => r.driveFileId);
     if (fileIdsForMeta.length > 0) {
@@ -268,29 +274,6 @@ export async function GET(req: NextRequest) {
       } catch (err) {
         console.warn('[review/assets] batchGetDriveFileMeta failed (non-fatal):', err instanceof Error ? err.message : err);
       }
-    }
-
-    // Resolve variant folder IDs so we can verify each file is a direct child
-    // of a Prospecting or Retargeting folder (not in a subfolder).
-    let allowedParentIds = new Set<string>();
-    try {
-      const folderResult = project.jobFolderId
-        ? await getReviewFolderMapFromJobFolderPartial(drive, project.jobFolderId)
-        : await (async () => {
-            const clientProjectsFolderId = process.env.CAR_TOYS_PROJECTS_FOLDER_ID ?? '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_';
-            if (clientProjectsFolderId) {
-              return getReviewFolderMapFromClientProjectsFolder(drive, project.name, clientProjectsFolderId);
-            }
-            return null;
-          })();
-      if (folderResult) {
-        for (const folderId of folderResult.map.values()) {
-          allowedParentIds.add(folderId);
-        }
-        console.log(`[review/assets] Resolved ${allowedParentIds.size} variant folder IDs for parent filtering`);
-      }
-    } catch (err) {
-      console.warn('[review/assets] Failed to resolve folder map (parent filtering disabled):', err instanceof Error ? err.message : err);
     }
 
     // Group CRAS records by tactic/variant and convert to ReviewAsset format
@@ -303,11 +286,9 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Populate sections from CRAS records.
-    // Only files that are direct children of a variant folder are included.
+    // Populate sections from CRAS records
     let skippedTacticVariantCount = 0;
-    let skippedParentCount = 0;
-    const skippedFiles: Array<{ fileId: string; filename: string | null; reason: string; parents?: string[] }> = [];
+    const skippedFiles: Array<{ fileId: string; filename: string | null; reason: string }> = [];
 
     for (const rec of visibleCrasRecords) {
       const rawTactic = rec.tactic ?? '';
@@ -326,28 +307,6 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // Only show files whose Drive parent is a known variant folder.
-      // This excludes files in subfolders, trashed files, and files no longer in Drive.
-      if (allowedParentIds.size > 0) {
-        const driveMeta = driveMetaMap.get(rec.driveFileId);
-        if (!driveMeta) {
-          skippedParentCount++;
-          skippedFiles.push({ fileId: rec.driveFileId, filename: rec.filename, reason: 'not found in Drive metadata' });
-          continue;
-        }
-        if (driveMeta.trashed) {
-          skippedParentCount++;
-          skippedFiles.push({ fileId: rec.driveFileId, filename: rec.filename, reason: 'trashed in Drive' });
-          continue;
-        }
-        const parents = driveMeta.parents;
-        if (!parents.some((pid) => allowedParentIds.has(pid))) {
-          skippedParentCount++;
-          skippedFiles.push({ fileId: rec.driveFileId, filename: rec.filename, reason: 'parent not in variant folders', parents });
-          continue;
-        }
-      }
-
       const key = `${variant}:${tactic}`;
       const driveMeta = driveMetaMap.get(rec.driveFileId);
       const asset = statusRecordToReviewAsset(rec, primaryLandingPageUrl, driveMeta);
@@ -360,9 +319,6 @@ export async function GET(req: NextRequest) {
 
     if (skippedTacticVariantCount > 0) {
       console.log(`[review/assets] Skipped ${skippedTacticVariantCount} assets with missing/unrecognized tactic/variant`);
-    }
-    if (skippedParentCount > 0) {
-      console.log(`[review/assets] Skipped ${skippedParentCount} assets not in variant folders`);
     }
     if (skippedFiles.length > 0) {
       console.log(`[review/assets] Skipped files detail:`, JSON.stringify(skippedFiles));
@@ -534,10 +490,11 @@ export async function GET(req: NextRequest) {
         totalCrasRecords: statusMap.size,
         visibleAssets: visibleCrasRecords.length,
         driveMetaFetched: driveMetaMap.size,
-        allowedParentFolderIds: [...allowedParentIds],
+        anyHavePortalFlag,
+        skippedHidden: skippedHiddenCount,
+        skippedNotInPortal: skippedPortalFlagCount,
         skippedFiles,
         skippedTacticVariantCount,
-        skippedParentCount,
       };
     }
 
