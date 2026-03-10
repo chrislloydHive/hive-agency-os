@@ -209,7 +209,14 @@ export default async function ReviewPage({
     try {
       // Collect folder IDs for logging
       const folderIds = Array.from(folderMap.values()).map(f => f.folderId);
-      
+
+      // Log every file found from Drive so we can track which ones get CRAS records
+      console.log(`[review/page] Drive files found for CRAS sync`, {
+        projectId: project.recordId,
+        totalFiles: allAssetsForCras.length,
+        files: allAssetsForCras.map(a => ({ fileId: a.fileId, filename: a.filename, tactic: a.tactic, variant: a.variant })),
+      });
+
       const result = await batchEnsureCrasRecords(token, project.recordId, allAssetsForCras, { folderIds });
       console.log(`[review/page] CRAS sync complete`, {
         projectId: project.recordId,
