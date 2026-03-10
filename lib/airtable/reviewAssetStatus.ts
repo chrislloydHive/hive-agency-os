@@ -311,13 +311,28 @@ export async function listAssetStatuses(token: string): Promise<Map<string, Stat
     .all();
 
   const map = new Map<string, StatusRecord>();
+  let duplicateCount = 0;
   for (const r of records) {
     const fields = r.fields as Record<string, unknown>;
     const driveFileId = (fields[SOURCE_FOLDER_ID_FIELD] as string) ?? '';
     if (driveFileId) {
       const key = keyFrom(token, driveFileId);
-      map.set(key, recordToStatus(r as { id: string; fields: Record<string, unknown> }, token, driveFileId));
+      const existing = map.get(key);
+      if (existing) {
+        duplicateCount++;
+        // Prefer the approved record; if both same approval state, keep the existing (older) one
+        const newRec = recordToStatus(r as { id: string; fields: Record<string, unknown> }, token, driveFileId);
+        if (!existing.assetApprovedClient && newRec.assetApprovedClient) {
+          map.set(key, newRec);
+        }
+        // Otherwise keep existing (which was approved or came first)
+      } else {
+        map.set(key, recordToStatus(r as { id: string; fields: Record<string, unknown> }, token, driveFileId));
+      }
     }
+  }
+  if (duplicateCount > 0) {
+    console.warn(`[listAssetStatuses] Found ${duplicateCount} duplicate CRAS records for token ${token.slice(0, 8)}... (kept approved/older records)`);
   }
   return map;
 }
