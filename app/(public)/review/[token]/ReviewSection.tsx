@@ -777,25 +777,78 @@ export default function ReviewSection({
 
   const showFeedbackControls = hasFiles || feedbackExpanded;
 
+  // Tactic-specific accent colors for visual distinction
+  const tacticStyles: Record<string, { bg: string; border: string; icon: string; text: string }> = {
+    Audio: { bg: 'bg-purple-500/10', border: 'border-purple-500/30', icon: 'text-purple-400', text: 'text-purple-300' },
+    Display: { bg: 'bg-blue-500/10', border: 'border-blue-500/30', icon: 'text-blue-400', text: 'text-blue-300' },
+    Geofence: { bg: 'bg-green-500/10', border: 'border-green-500/30', icon: 'text-green-400', text: 'text-green-300' },
+    OOH: { bg: 'bg-orange-500/10', border: 'border-orange-500/30', icon: 'text-orange-400', text: 'text-orange-300' },
+    PMAX: { bg: 'bg-red-500/10', border: 'border-red-500/30', icon: 'text-red-400', text: 'text-red-300' },
+    Social: { bg: 'bg-pink-500/10', border: 'border-pink-500/30', icon: 'text-pink-400', text: 'text-pink-300' },
+    Video: { bg: 'bg-cyan-500/10', border: 'border-cyan-500/30', icon: 'text-cyan-400', text: 'text-cyan-300' },
+    Search: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', icon: 'text-yellow-400', text: 'text-yellow-300' },
+  };
+  const style = tacticStyles[tactic] || { bg: 'bg-gray-500/10', border: 'border-gray-500/30', icon: 'text-gray-400', text: 'text-gray-300' };
+
+  // Tactic icons
+  const tacticIcons: Record<string, React.ReactNode> = {
+    Audio: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />,
+    Display: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />,
+    Geofence: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />,
+    OOH: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />,
+    PMAX: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />,
+    Social: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />,
+    Video: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />,
+    Search: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />,
+  };
+
   return (
-    <section className={hasFiles ? 'mb-10' : 'mb-4'}>
-      {hasFiles ? (
-        <>
-          {/* Orientation: section name + total + new (single clear line) */}
-          <p className="mb-1 text-base font-medium text-gray-200" aria-live="polite">
-            {tactic} ads · {totalCount} total
-            {newCount > 0 ? ` · ${newCount} new since your last visit` : ''}
-          </p>
-          {/* Status: pending or all approved */}
-          <p className="mb-3 text-sm text-gray-400">
-            {pendingCount > 0 ? (
-              <>{pendingCount} pending approval</>
-            ) : (
-              <>All approved</>
-            )}
-          </p>
-          {/* Selection controls: below orientation + status */}
-          <div className="mb-4 flex flex-wrap items-center gap-4">
+    <section className={`mb-8 overflow-hidden rounded-xl border ${style.border} ${style.bg}`}>
+      {/* Section Header */}
+      <div className="border-b border-gray-700/50 bg-gray-800/50 px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            {/* Tactic Icon */}
+            <div className={`flex h-10 w-10 items-center justify-center rounded-lg bg-gray-900/50`}>
+              <svg className={`h-5 w-5 ${style.icon}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                {tacticIcons[tactic] || <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />}
+              </svg>
+            </div>
+            {/* Tactic Name & Stats */}
+            <div>
+              <h2 className={`text-lg font-bold ${style.text}`}>{tactic}</h2>
+              {hasFiles ? (
+                <p className="text-sm text-gray-400">
+                  {totalCount} asset{totalCount !== 1 ? 's' : ''}
+                  {newCount > 0 && <span className="ml-2 text-amber-400">· {newCount} new</span>}
+                </p>
+              ) : (
+                <p className="text-sm text-gray-500">No files yet</p>
+              )}
+            </div>
+          </div>
+          {/* Approval Status Badge */}
+          {hasFiles && (
+            <div className="flex items-center gap-3">
+              {pendingCount > 0 ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 px-3 py-1 text-sm font-medium text-amber-300">
+                  <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+                  {pendingCount} pending
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-3 py-1 text-sm font-medium text-emerald-300">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  All approved
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        {/* Selection controls */}
+        {hasFiles && (
+          <div className="mt-3 flex flex-wrap items-center gap-4">
             {onSelectAllUnapprovedInSection && pendingCount > 0 && (
               <SelectAllUnapprovedCheckbox
                 checked={allUnapprovedSelected}
@@ -814,66 +867,48 @@ export default function ReviewSection({
               </button>
             )}
           </div>
-        </>
-      ) : (
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <h2 className="text-lg font-semibold text-amber-400">{tactic}</h2>
-          <span className="text-sm text-gray-500">— No files yet</span>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Asset grid — multi-column for single-asset placements, full-width for multi-asset */}
       {/* Renders all assets in placement containers for consistent approval UX */}
       {hasFiles ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {renderableItems.map(({ group }) => (
-            <PlacementGroupCard
-              key={`group-${group.groupId}`}
-              group={group}
-              token={token}
-              variant={variant}
-              tactic={tactic}
-              allAssets={assets}
-              selectedFileIds={selectedFileIds}
-              onToggleSelect={onToggleSelect}
-              openLightbox={openLightbox}
-              onDownloadAsset={onDownloadAsset}
-              onAssetStatusChange={onAssetStatusChange}
-              onApprovalResult={onSingleAssetApprovedResult}
-              deliveryBatchId={deliveryBatchId}
-            />
-          ))}
+        <div className="p-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {renderableItems.map(({ group }) => (
+              <PlacementGroupCard
+                key={`group-${group.groupId}`}
+                group={group}
+                token={token}
+                variant={variant}
+                tactic={tactic}
+                allAssets={assets}
+                selectedFileIds={selectedFileIds}
+                onToggleSelect={onToggleSelect}
+                openLightbox={openLightbox}
+                onDownloadAsset={onDownloadAsset}
+                onAssetStatusChange={onAssetStatusChange}
+                onApprovalResult={onSingleAssetApprovedResult}
+                deliveryBatchId={deliveryBatchId}
+              />
+            ))}
+          </div>
         </div>
       ) : null}
 
-      {/* Lightbox */}
-      {lightboxIndex !== null && (
-        <AssetLightbox
-          assets={assets}
-          currentIndex={lightboxIndex}
-          variant={variant}
-          tactic={tactic}
-          token={token}
-          onClose={closeLightbox}
-          onNavigate={setLightboxIndex}
-          onAssetStatusChange={onAssetStatusChange}
-          onApprovedResult={onSingleAssetApprovedResult}
-          onPartnerDownload={onPartnerDownload}
-          deliveryBatchId={deliveryBatchId}
-        />
-      )}
-
       {/* Feedback controls: visible when files exist, or behind "Add feedback" when empty */}
       {!hasFiles && !feedbackExpanded ? (
-        <button
-          type="button"
-          onClick={() => setFeedbackExpanded(true)}
-          className="mt-2 text-sm text-amber-400 hover:text-amber-300 hover:underline"
-        >
-          Add feedback
-        </button>
+        <div className="p-5 pt-0">
+          <button
+            type="button"
+            onClick={() => setFeedbackExpanded(true)}
+            className="text-sm text-amber-400 hover:text-amber-300 hover:underline"
+          >
+            Add feedback
+          </button>
+        </div>
       ) : showFeedbackControls ? (
-        <div className={`rounded-lg border border-gray-700 bg-gray-800/50 p-4 ${hasFiles ? 'mt-4' : 'mt-2'}`}>
+        <div className={`mx-5 mb-5 rounded-lg border border-gray-700 bg-gray-900/50 p-4 ${hasFiles ? '' : 'mt-0'}`}>
           {!hasFiles && (
             <div className="mb-3 flex items-center justify-between">
               <span className="text-xs text-gray-500">Feedback for empty tactic</span>
@@ -993,6 +1028,23 @@ export default function ReviewSection({
           )}
         </div>
       ) : null}
+
+      {/* Lightbox - rendered outside the card but inside the section */}
+      {lightboxIndex !== null && (
+        <AssetLightbox
+          assets={assets}
+          currentIndex={lightboxIndex}
+          variant={variant}
+          tactic={tactic}
+          token={token}
+          onClose={closeLightbox}
+          onNavigate={setLightboxIndex}
+          onAssetStatusChange={onAssetStatusChange}
+          onApprovedResult={onSingleAssetApprovedResult}
+          onPartnerDownload={onPartnerDownload}
+          deliveryBatchId={deliveryBatchId}
+        />
+      )}
     </section>
   );
 }

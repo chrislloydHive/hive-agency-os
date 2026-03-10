@@ -747,33 +747,62 @@ function ReviewPortalClientInner({
           </div>
         )}
 
-        {/* Variant Tabs: variant name + total assets only */}
-        <div className="mb-6 flex gap-2 border-b border-gray-700">
-          {variants.map((variant) => {
-            const isActive = variant === activeVariant;
-            const variantSections = sections.filter((s) => s.variant === variant);
-            const totalAssets = variantSections.reduce((sum, s) => sum + s.fileCount, 0);
+        {/* Variant Tabs: prominent pill-style tabs for Prospecting/Retargeting */}
+        <div className="mb-8">
+          <p className="mb-3 text-sm font-medium uppercase tracking-wider text-gray-500">
+            Select Campaign Type
+          </p>
+          <div className="flex flex-wrap gap-3">
+            {variants.map((variant) => {
+              const isActive = variant === activeVariant;
+              const variantSections = sections.filter((s) => s.variant === variant);
+              const totalAssets = variantSections.reduce((sum, s) => sum + s.fileCount, 0);
+              const approvedInVariant = variantSections.reduce(
+                (sum, s) => sum + s.assets.filter((a) => a.assetApprovedClient).length,
+                0
+              );
 
-            return (
-              <button
-                key={variant}
-                onClick={() => setActiveVariant(variant)}
-                className={`relative px-3 py-2 text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'text-amber-400'
-                    : 'text-gray-400 hover:text-gray-200'
-                }`}
-              >
-                {variant}
-                <span className="ml-2 text-xs text-gray-500">
-                  ({totalAssets} assets)
-                </span>
-                {isActive && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-400" />
-                )}
-              </button>
-            );
-          })}
+              return (
+                <button
+                  key={variant}
+                  onClick={() => setActiveVariant(variant)}
+                  className={`group relative flex items-center gap-3 rounded-xl px-5 py-4 text-left transition-all ${
+                    isActive
+                      ? 'bg-amber-500/20 ring-2 ring-amber-500 ring-offset-2 ring-offset-gray-900'
+                      : 'bg-gray-800/80 hover:bg-gray-700/80 ring-1 ring-gray-700'
+                  }`}
+                >
+                  {/* Icon */}
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${
+                    isActive ? 'bg-amber-500/30' : 'bg-gray-700'
+                  }`}>
+                    {variant === 'Prospecting' ? (
+                      <svg className={`h-5 w-5 ${isActive ? 'text-amber-400' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    ) : (
+                      <svg className={`h-5 w-5 ${isActive ? 'text-amber-400' : 'text-gray-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                    )}
+                  </div>
+                  {/* Text */}
+                  <div>
+                    <p className={`text-lg font-semibold ${isActive ? 'text-white' : 'text-gray-200'}`}>
+                      {variant}
+                    </p>
+                    <p className={`text-sm ${isActive ? 'text-amber-300/80' : 'text-gray-500'}`}>
+                      {totalAssets} assets · {approvedInVariant} approved
+                    </p>
+                  </div>
+                  {/* Active indicator */}
+                  {isActive && (
+                    <div className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-amber-500" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Action bar when 1+ selected */}
