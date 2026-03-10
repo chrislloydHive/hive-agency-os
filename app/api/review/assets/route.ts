@@ -263,25 +263,34 @@ export async function GET(req: NextRequest) {
     }
 
     // Populate sections from CRAS records
+    // Assets with missing/unknown tactic/variant go to a default section
+    const DEFAULT_SECTION = 'Prospecting:Display';
+    let unknownTacticVariantCount = 0;
+
     for (const rec of visibleCrasRecords) {
       const rawTactic = rec.tactic ?? '';
       const rawVariant = rec.variant ?? '';
 
       // Normalize tactic/variant names
-      const tactic = normalizeTactic(rawTactic);
-      const variant = rawVariant.charAt(0).toUpperCase() + rawVariant.slice(1);
+      const tactic = rawTactic ? normalizeTactic(rawTactic) : '';
+      const variant = rawVariant ? rawVariant.charAt(0).toUpperCase() + rawVariant.slice(1) : '';
 
-      // Only include assets with valid tactic/variant that match our display categories
-      if (!TACTICS.includes(tactic as typeof TACTICS[number])) {
-        console.warn(`[review/assets] Unknown tactic "${rawTactic}" for asset ${rec.driveFileId}, skipping`);
-        continue;
-      }
-      if (!VARIANTS.includes(variant as typeof VARIANTS[number])) {
-        console.warn(`[review/assets] Unknown variant "${rawVariant}" for asset ${rec.driveFileId}, skipping`);
-        continue;
+      // Determine section key - use default if tactic/variant is missing or invalid
+      let key: string;
+      const validTactic = TACTICS.includes(tactic as typeof TACTICS[number]);
+      const validVariant = VARIANTS.includes(variant as typeof VARIANTS[number]);
+
+      if (validTactic && validVariant) {
+        key = `${variant}:${tactic}`;
+      } else {
+        // Put in default section instead of skipping
+        key = DEFAULT_SECTION;
+        unknownTacticVariantCount++;
+        if (unknownTacticVariantCount <= 5) {
+          console.log(`[review/assets] Asset ${rec.driveFileId} has unknown tactic/variant ("${rawTactic}"/"${rawVariant}"), placing in default section`);
+        }
       }
 
-      const key = `${variant}:${tactic}`;
       const driveMeta = driveMetaMap.get(rec.driveFileId);
       const asset = statusRecordToReviewAsset(rec, primaryLandingPageUrl, driveMeta);
 
@@ -289,6 +298,10 @@ export async function GET(req: NextRequest) {
       if (sectionAssets) {
         sectionAssets.push(asset);
       }
+    }
+
+    if (unknownTacticVariantCount > 0) {
+      console.log(`[review/assets] ${unknownTacticVariantCount} assets with unknown tactic/variant placed in default section (${DEFAULT_SECTION})`);
     }
 
     // Build sections array
