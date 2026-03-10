@@ -138,7 +138,8 @@ async function batchGetDriveFileMeta(
       })
     );
 
-    for (const result of results) {
+    for (let j = 0; j < results.length; j++) {
+      const result = results[j];
       if (result.status === 'fulfilled') {
         metaMap.set(result.value.fileId, {
           mimeType: result.value.mimeType,
@@ -146,6 +147,10 @@ async function batchGetDriveFileMeta(
           parents: result.value.parents,
           trashed: result.value.trashed,
         });
+      } else {
+        const failedFileId = batch[j];
+        const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        console.error(`[review/assets] batchGetDriveFileMeta FAILED for fileId=${failedFileId}:`, reason);
       }
     }
   }
