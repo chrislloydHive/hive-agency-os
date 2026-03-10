@@ -320,11 +320,19 @@ export async function GET(req: NextRequest) {
       }
 
       // Only show files whose Drive parent is a known variant folder.
-      // This excludes files in subfolders (e.g. Display/Prospecting/Animated Display Assets/).
+      // This excludes files in subfolders and files no longer in Drive.
       if (allowedParentIds.size > 0) {
         const driveMeta = driveMetaMap.get(rec.driveFileId);
-        const parents = driveMeta?.parents ?? [];
-        if (parents.length > 0 && !parents.some((pid) => allowedParentIds.has(pid))) {
+        if (!driveMeta) {
+          // File not found in Drive (deleted/moved/inaccessible) — skip
+          skippedParentCount++;
+          if (skippedParentCount <= 5) {
+            console.log(`[review/assets] Skipping asset ${rec.driveFileId} (${rec.filename}) — not found in Drive`);
+          }
+          continue;
+        }
+        const parents = driveMeta.parents;
+        if (!parents.some((pid) => allowedParentIds.has(pid))) {
           skippedParentCount++;
           if (skippedParentCount <= 5) {
             console.log(`[review/assets] Skipping asset ${rec.driveFileId} (${rec.filename}) — not a direct child of a variant folder`);
