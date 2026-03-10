@@ -70,7 +70,7 @@ export const DELIVERY_STATUS_FIELD = 'Delivery Status';
 export const DELIVERY_ERROR_FIELD = 'Delivery Error';
 
 /** Delivery status values for the state machine. */
-export type DeliveryStatusValue = 'Ready for Delivery' | 'Delivering' | 'Delivered' | 'Failed';
+export type DeliveryStatusValue = 'Not Delivered' | 'Delivering' | 'Delivered' | 'Error';
 
 /** Check if an Airtable error is a field/schema error that warrants retry without optional fields. */
 function isAirtableFieldError(err: unknown): boolean {
@@ -1024,7 +1024,7 @@ export async function batchSetAssetApprovedClient(
     // Delivery pipeline state machine fields
     [IS_APPROVED_FIELD]: true,
     [NEEDS_DELIVERY_FIELD]: true,
-    [DELIVERY_STATUS_FIELD]: 'Ready for Delivery',
+    [DELIVERY_STATUS_FIELD]: 'Not Delivered',
   };
   if (options?.approvedByName !== undefined) baseFields['Approved By Name'] = String(options.approvedByName).slice(0, 100);
   if (options?.approvedByEmail !== undefined) baseFields['Approved By Email'] = String(options.approvedByEmail).slice(0, 200);
@@ -1177,7 +1177,7 @@ export async function setSingleAssetApprovedClient(
     // Delivery pipeline state machine fields
     [IS_APPROVED_FIELD]: true,
     [NEEDS_DELIVERY_FIELD]: true,
-    [DELIVERY_STATUS_FIELD]: 'Ready for Delivery',
+    [DELIVERY_STATUS_FIELD]: 'Not Delivered',
   };
   if (approvedByName !== undefined) fields['Approved By Name'] = String(approvedByName).slice(0, 100);
   if (approvedByEmail !== undefined) fields['Approved By Email'] = String(approvedByEmail).slice(0, 200);
@@ -1381,7 +1381,7 @@ export interface EligibleDeliveryRecord {
  * Returns records where:
  *   - Is Approved = true
  *   - Needs Delivery = true
- *   - Delivery Status = 'Ready for Delivery'
+ *   - Delivery Status = 'Not Delivered'
  *   - Delivered = false (not yet delivered)
  */
 export async function getEligibleForDelivery(): Promise<EligibleDeliveryRecord[]> {
@@ -1389,7 +1389,7 @@ export async function getEligibleForDelivery(): Promise<EligibleDeliveryRecord[]
   const formula = `AND(
     {${IS_APPROVED_FIELD}} = TRUE(),
     {${NEEDS_DELIVERY_FIELD}} = TRUE(),
-    {${DELIVERY_STATUS_FIELD}} = "Ready for Delivery",
+    {${DELIVERY_STATUS_FIELD}} = "Not Delivered",
     OR({${DELIVERED_CHECKBOX_FIELD}} = FALSE(), {${DELIVERED_CHECKBOX_FIELD}} = BLANK())
   )`;
 
@@ -1521,7 +1521,7 @@ export async function markAssetDelivered(
 
 /**
  * Mark a single CRAS record as failed delivery.
- * Sets: Delivery Status = 'Failed', Delivery Error = error message.
+ * Sets: Delivery Status = 'Error', Delivery Error = error message.
  * Does NOT set Delivered = true.
  */
 export async function markAssetDeliveryFailed(
@@ -1531,7 +1531,7 @@ export async function markAssetDeliveryFailed(
   const base = getBase();
 
   const fields: Record<string, unknown> = {
-    [DELIVERY_STATUS_FIELD]: 'Failed',
+    [DELIVERY_STATUS_FIELD]: 'Error',
     [DELIVERY_ERROR_FIELD]: String(errorMessage).slice(0, 2000),
     // Keep Needs Delivery = true so it can be retried
   };
@@ -1551,7 +1551,7 @@ export async function markAssetDeliveryFailed(
  * Get CRAS records linked to a batch that are ready for delivery.
  * Returns records where:
  *   - Delivery Batch ID = batchRecordId
- *   - Delivery Status = 'Ready for Delivery' (or 'Failed' for retry)
+ *   - Delivery Status = 'Not Delivered' (or 'Error' for retry)
  *   - Delivered = false
  */
 export async function getBatchRecordsReadyForDelivery(
@@ -1563,7 +1563,7 @@ export async function getBatchRecordsReadyForDelivery(
   // Match by linked record ID (array contains)
   const formula = `AND(
     FIND("${batchEsc}", ARRAYJOIN({${DELIVERY_BATCH_ID_FIELD}})) > 0,
-    OR({${DELIVERY_STATUS_FIELD}} = "Ready for Delivery", {${DELIVERY_STATUS_FIELD}} = "Failed"),
+    OR({${DELIVERY_STATUS_FIELD}} = "Not Delivered", {${DELIVERY_STATUS_FIELD}} = "Error"),
     OR({${DELIVERED_CHECKBOX_FIELD}} = FALSE(), {${DELIVERED_CHECKBOX_FIELD}} = BLANK())
   )`;
 
