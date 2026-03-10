@@ -74,62 +74,97 @@ export async function POST(req: Request) {
     let crasRecord: any = null;
     
     // Only fetch CRAS record if we need to fallback to CRAS field lookup
+    let resolutionPath = 'request-body';
     if (!batchRecordId) {
       const base = getBase();
       crasRecord = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
-      
-      // Try to extract batchRecordId from CRAS fields
-      // Check both "Partner Delivery Batch" (linked record) and "Delivery Batch ID" (can be text or linked record)
+
       const partnerDeliveryBatchField = crasRecord?.fields?.["Partner Delivery Batch"];
       const deliveryBatchIdField = crasRecord?.fields?.[DELIVERY_BATCH_ID_FIELD];
-      
-      // First try "Partner Delivery Batch" (linked record field)
+
+      // ── Path 1: "Partner Delivery Batch" linked record field ──
       if (Array.isArray(partnerDeliveryBatchField) && partnerDeliveryBatchField.length > 0) {
         const firstLink = partnerDeliveryBatchField[0];
         if (typeof firstLink === 'string' && firstLink.startsWith('rec')) {
           batchRecordId = firstLink;
+          resolutionPath = 'cras-linked-record:Partner Delivery Batch';
         } else if (typeof firstLink === 'object' && firstLink !== null && 'id' in firstLink) {
           batchRecordId = (firstLink as { id: string }).id;
+          resolutionPath = 'cras-linked-record:Partner Delivery Batch';
         }
       } else if (typeof partnerDeliveryBatchField === 'string' && partnerDeliveryBatchField.startsWith('rec')) {
         batchRecordId = partnerDeliveryBatchField;
+        resolutionPath = 'cras-linked-record:Partner Delivery Batch';
       }
-      
-      // Fallback: try "Delivery Batch ID" field (can be text or linked record)
+
+      // ── Path 2: "Delivery Batch ID" field (linked record OR text) ──
       if (!batchRecordId) {
+        // 2a: Linked record (array of rec IDs)
         if (Array.isArray(deliveryBatchIdField) && deliveryBatchIdField.length > 0) {
           const firstLink = deliveryBatchIdField[0];
           if (typeof firstLink === 'string' && firstLink.startsWith('rec')) {
             batchRecordId = firstLink;
+            resolutionPath = 'cras-linked-record:Delivery Batch ID';
           } else if (typeof firstLink === 'object' && firstLink !== null && 'id' in firstLink) {
             batchRecordId = (firstLink as { id: string }).id;
+            resolutionPath = 'cras-linked-record:Delivery Batch ID';
+          } else if (typeof firstLink === 'string' && firstLink.trim()) {
+            // Text value inside array — look up by Batch ID
+            const batchDetails = await getBatchDetails(firstLink.trim());
+            if (batchDetails) {
+              batchRecordId = batchDetails.recordId;
+              resolutionPath = `cras-text-lookup:Delivery Batch ID (value="${firstLink.trim()}")`;
+            }
           }
-        } else if (typeof deliveryBatchIdField === 'string' && deliveryBatchIdField.startsWith('rec')) {
-          batchRecordId = deliveryBatchIdField;
+        } else if (typeof deliveryBatchIdField === 'string' && deliveryBatchIdField.trim()) {
+          // 2b: Plain text value — look up batch record by Batch ID
+          const textBatchId = deliveryBatchIdField.trim();
+          if (textBatchId.startsWith('rec')) {
+            batchRecordId = textBatchId;
+            resolutionPath = 'cras-record-id:Delivery Batch ID';
+          } else {
+            const batchDetails = await getBatchDetails(textBatchId);
+            if (batchDetails) {
+              batchRecordId = batchDetails.recordId;
+              resolutionPath = `cras-text-lookup:Delivery Batch ID (value="${textBatchId}")`;
+            } else {
+              console.warn(`[delivery/partner/approved] Delivery Batch ID text value "${textBatchId}" not found in Partner Delivery Batches table`);
+            }
+          }
         }
       }
-      
+
       console.log("[delivery] CRAS field lookup", {
         crasRecordId,
-        partnerDeliveryBatchField: partnerDeliveryBatchField || null,
-        deliveryBatchIdField: deliveryBatchIdField || null,
-        resolvedBatchRecordId: batchRecordId || null,
+        resolutionPath,
+        partnerDeliveryBatchField: partnerDeliveryBatchField ?? null,
+        deliveryBatchIdField: deliveryBatchIdField ?? null,
+        resolvedBatchRecordId: batchRecordId ?? null,
       });
     }
-    
-    // Log batch resolution for debugging
+
     console.log("[delivery] batch resolution", {
-      fromRequest: deliveryBatchRecordId || null,
-      fromCRASPartnerDeliveryBatch: crasRecord?.fields?.["Partner Delivery Batch"] || null,
-      fromCRASDeliveryBatchId: crasRecord?.fields?.[DELIVERY_BATCH_ID_FIELD] || null,
-      resolvedBatchRecordId: batchRecordId || null,
+      resolutionPath,
+      fromRequest: deliveryBatchRecordId ?? null,
+      resolvedBatchRecordId: batchRecordId ?? null,
     });
-    
-    // Only throw error if BOTH request and CRAS are missing
+
     if (!batchRecordId) {
+      // Include CRAS field values for debugging
+      const debugFields = crasRecord?.fields ? {
+        'Partner Delivery Batch': crasRecord.fields['Partner Delivery Batch'] ?? null,
+        'Delivery Batch ID': crasRecord.fields[DELIVERY_BATCH_ID_FIELD] ?? null,
+        'Delivery Status': crasRecord.fields['Delivery Status'] ?? null,
+        'Filename': crasRecord.fields['Filename'] ?? null,
+        'Source Folder ID': crasRecord.fields['Source Folder ID'] ?? null,
+        'Ready to Deliver (Webhook)': crasRecord.fields['Ready to Deliver (Webhook)'] ?? null,
+      } : 'CRAS record not fetched';
       const errorMsg = `No Partner Delivery Batch resolved for CRAS ${crasRecordId}`;
-      console.error(`[delivery/partner/approved] CRITICAL: ${errorMsg}`);
-      throw new Error(errorMsg);
+      console.error(`[delivery/partner/approved] CRITICAL: ${errorMsg}`, { debugFields });
+      return NextResponse.json(
+        { error: `Failed to trigger delivery: ${errorMsg}`, crasFields: debugFields },
+        { status: 422, headers: NO_STORE }
+      );
     }
 
     const finalRequestId = requestId || `approved-${Date.now().toString(36)}-${crasRecordId.slice(-8)}`;
