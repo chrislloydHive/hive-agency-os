@@ -1,9 +1,8 @@
 // app/api/review/assets/route.ts
 // Returns asset list (sections with files) for the Client Review Portal.
-// AIRTABLE-FIRST APPROACH: Assets are discovered from CRAS records in Airtable,
-// not by traversing Drive folders. This ensures all assets with CRAS records
-// are shown regardless of their Drive folder location.
-// Drive API is only used for file metadata (mimeType, modifiedTime).
+// AIRTABLE-FIRST APPROACH: Assets are discovered from CRAS records in Airtable.
+// Only files whose Drive parent is a recognized variant folder (Prospecting/Retargeting)
+// are shown — files in subfolders within variant folders are excluded.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
@@ -18,6 +17,10 @@ import {
   getBatchDetailsInBase,
   type BatchContext,
 } from '@/lib/airtable/partnerDeliveryBatches';
+import {
+  getReviewFolderMapFromJobFolderPartial,
+  getReviewFolderMapFromClientProjectsFolder,
+} from '@/lib/review/reviewFolders';
 import type { drive_v3 } from 'googleapis';
 
 export const dynamic = 'force-dynamic';
@@ -97,22 +100,23 @@ interface TacticSectionData {
   newSinceApprovalCount?: number;
 }
 
-/** Drive file metadata (mimeType, modifiedTime) fetched in batches. */
+/** Drive file metadata (mimeType, modifiedTime, parents) fetched in batches. */
 interface DriveFileMeta {
   mimeType: string;
   modifiedTime: string;
+  parents: string[];
 }
 
 /**
- * Fetch Drive file metadata (mimeType, modifiedTime) for a batch of file IDs.
- * Uses files.get in parallel. Returns a Map of fileId → metadata.
+ * Fetch Drive file metadata for a batch of file IDs.
+ * Includes parents so the caller can verify files are direct children of variant folders.
  */
 async function batchGetDriveFileMeta(
   drive: drive_v3.Drive,
   fileIds: string[],
 ): Promise<Map<string, DriveFileMeta>> {
   const metaMap = new Map<string, DriveFileMeta>();
-  const BATCH_SIZE = 100; // Limit parallel requests
+  const BATCH_SIZE = 100;
 
   for (let i = 0; i < fileIds.length; i += BATCH_SIZE) {
     const batch = fileIds.slice(i, i + BATCH_SIZE);
@@ -120,10 +124,15 @@ async function batchGetDriveFileMeta(
       batch.map(async (fileId) => {
         const res = await drive.files.get({
           fileId,
-          fields: 'mimeType, modifiedTime',
+          fields: 'mimeType, modifiedTime, parents',
           supportsAllDrives: true,
         });
-        return { fileId, mimeType: res.data.mimeType ?? 'application/octet-stream', modifiedTime: res.data.modifiedTime ?? '' };
+        return {
+          fileId,
+          mimeType: res.data.mimeType ?? 'application/octet-stream',
+          modifiedTime: res.data.modifiedTime ?? '',
+          parents: res.data.parents ?? [],
+        };
       })
     );
 
@@ -132,6 +141,7 @@ async function batchGetDriveFileMeta(
         metaMap.set(result.value.fileId, {
           mimeType: result.value.mimeType,
           modifiedTime: result.value.modifiedTime,
+          parents: result.value.parents,
         });
       }
     }
@@ -252,6 +262,29 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Resolve variant folder IDs so we can verify each file is a direct child
+    // of a Prospecting or Retargeting folder (not in a subfolder).
+    let allowedParentIds = new Set<string>();
+    try {
+      const folderResult = project.jobFolderId
+        ? await getReviewFolderMapFromJobFolderPartial(drive, project.jobFolderId)
+        : await (async () => {
+            const clientProjectsFolderId = process.env.CAR_TOYS_PROJECTS_FOLDER_ID ?? '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_';
+            if (clientProjectsFolderId) {
+              return getReviewFolderMapFromClientProjectsFolder(drive, project.name, clientProjectsFolderId);
+            }
+            return null;
+          })();
+      if (folderResult) {
+        for (const folderId of folderResult.map.values()) {
+          allowedParentIds.add(folderId);
+        }
+        console.log(`[review/assets] Resolved ${allowedParentIds.size} variant folder IDs for parent filtering`);
+      }
+    } catch (err) {
+      console.warn('[review/assets] Failed to resolve folder map (parent filtering disabled):', err instanceof Error ? err.message : err);
+    }
+
     // Group CRAS records by tactic/variant and convert to ReviewAsset format
     const sectionMap = new Map<string, ReviewAsset[]>();
 
@@ -262,10 +295,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Populate sections from CRAS records
-    // Assets with missing/unknown tactic/variant go to a default section
-    const DEFAULT_SECTION = 'Prospecting:Display';
-    let unknownTacticVariantCount = 0;
+    // Populate sections from CRAS records.
+    // Only files that are direct children of a variant folder are included.
+    let skippedTacticVariantCount = 0;
+    let skippedParentCount = 0;
 
     for (const rec of visibleCrasRecords) {
       const rawTactic = rec.tactic ?? '';
@@ -275,22 +308,32 @@ export async function GET(req: NextRequest) {
       const tactic = rawTactic ? normalizeTactic(rawTactic) : '';
       const variant = rawVariant ? rawVariant.charAt(0).toUpperCase() + rawVariant.slice(1) : '';
 
-      // Determine section key - use default if tactic/variant is missing or invalid
-      let key: string;
       const validTactic = TACTICS.includes(tactic as typeof TACTICS[number]);
       const validVariant = VARIANTS.includes(variant as typeof VARIANTS[number]);
 
-      if (validTactic && validVariant) {
-        key = `${variant}:${tactic}`;
-      } else {
-        // Put in default section instead of skipping
-        key = DEFAULT_SECTION;
-        unknownTacticVariantCount++;
-        if (unknownTacticVariantCount <= 5) {
-          console.log(`[review/assets] Asset ${rec.driveFileId} has unknown tactic/variant ("${rawTactic}"/"${rawVariant}"), placing in default section`);
+      if (!validTactic || !validVariant) {
+        skippedTacticVariantCount++;
+        if (skippedTacticVariantCount <= 5) {
+          console.log(`[review/assets] Skipping asset ${rec.driveFileId} (${rec.filename}) — unrecognized tactic/variant ("${rawTactic}"/"${rawVariant}")`);
+        }
+        continue;
+      }
+
+      // Only show files whose Drive parent is a known variant folder.
+      // This excludes files in subfolders (e.g. Display/Prospecting/Animated Display Assets/).
+      if (allowedParentIds.size > 0) {
+        const driveMeta = driveMetaMap.get(rec.driveFileId);
+        const parents = driveMeta?.parents ?? [];
+        if (parents.length > 0 && !parents.some((pid) => allowedParentIds.has(pid))) {
+          skippedParentCount++;
+          if (skippedParentCount <= 5) {
+            console.log(`[review/assets] Skipping asset ${rec.driveFileId} (${rec.filename}) — not a direct child of a variant folder`);
+          }
+          continue;
         }
       }
 
+      const key = `${variant}:${tactic}`;
       const driveMeta = driveMetaMap.get(rec.driveFileId);
       const asset = statusRecordToReviewAsset(rec, primaryLandingPageUrl, driveMeta);
 
@@ -300,8 +343,11 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (unknownTacticVariantCount > 0) {
-      console.log(`[review/assets] ${unknownTacticVariantCount} assets with unknown tactic/variant placed in default section (${DEFAULT_SECTION})`);
+    if (skippedTacticVariantCount > 0) {
+      console.log(`[review/assets] Skipped ${skippedTacticVariantCount} assets with missing/unrecognized tactic/variant`);
+    }
+    if (skippedParentCount > 0) {
+      console.log(`[review/assets] Skipped ${skippedParentCount} assets not in variant folders (in subfolders)`);
     }
 
     // Build sections array
