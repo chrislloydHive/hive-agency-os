@@ -636,18 +636,28 @@ export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<bool
   if (existing) return false;
   const osBase = getBase();
   const now = new Date().toISOString();
-  
-  await osBase(TABLE).create({
+
+  const coreFields: Record<string, unknown> = {
     'Review Token': args.token,
     Project: [args.projectId],
-    [SOURCE_FOLDER_ID_FIELD]: args.driveFileId, // Drive File ID as dedupe key
+    [SOURCE_FOLDER_ID_FIELD]: args.driveFileId,
     Filename: (args.filename ?? '').slice(0, 500),
-    // Note: Drive URL field doesn't exist in CRAS table - removed to prevent 422 errors
     Tactic: args.tactic,
     Variant: args.variant,
     Status: 'New',
-    'Last Activity At': now,
-  } as any);
+  };
+
+  try {
+    await osBase(TABLE).create({ ...coreFields, 'Last Activity At': now } as any);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('UNKNOWN_FIELD') || msg.includes('unknown field') || msg.includes('Cannot create field')) {
+      console.warn('[ensureCrasRecord] Retrying without optional fields:', msg);
+      await osBase(TABLE).create(coreFields as any);
+    } else {
+      throw err;
+    }
+  }
   return true;
 }
 
@@ -742,29 +752,40 @@ export async function batchEnsureCrasRecords(
   const CREATE_BATCH_SIZE = 10;
   for (let i = 0; i < toCreate.length; i += CREATE_BATCH_SIZE) {
     const batch = toCreate.slice(i, i + CREATE_BATCH_SIZE);
+
+    const buildRecords = (includeOptional: boolean) =>
+      batch.map(asset => ({
+        fields: {
+          'Review Token': token,
+          Project: [projectId],
+          [SOURCE_FOLDER_ID_FIELD]: asset.fileId,
+          Filename: (asset.filename ?? '').slice(0, 500),
+          Tactic: asset.tactic,
+          Variant: asset.variant,
+          Status: 'New',
+          ...(includeOptional ? { 'Last Activity At': now } : {}),
+        } as any,
+      }));
+
     try {
-      const recordsToCreate = batch.map(asset => {
-        return {
-          fields: {
-            'Review Token': token,
-            Project: [projectId],
-            [SOURCE_FOLDER_ID_FIELD]: asset.fileId, // Drive File ID as dedupe key
-            Filename: (asset.filename ?? '').slice(0, 500),
-            // Note: Drive URL field doesn't exist in CRAS table - removed to prevent 422 errors
-            Tactic: asset.tactic,
-            Variant: asset.variant,
-            Status: 'New',
-            'Last Activity At': now,
-          } as any,
-        };
-      });
-      
-      // Airtable batch create
-      await osBase(TABLE).create(recordsToCreate);
+      await osBase(TABLE).create(buildRecords(true));
       created += batch.length;
     } catch (err) {
-      console.error('[batchEnsureCrasRecords] Failed to batch create CRAS records:', err);
-      errors += batch.length;
+      const msg = err instanceof Error ? err.message : String(err);
+      const isFieldError = msg.includes('UNKNOWN_FIELD') || msg.includes('unknown field') || msg.includes('Cannot create field');
+      if (isFieldError) {
+        console.warn('[batchEnsureCrasRecords] Retrying batch without optional fields:', msg);
+        try {
+          await osBase(TABLE).create(buildRecords(false));
+          created += batch.length;
+        } catch (retryErr) {
+          console.error('[batchEnsureCrasRecords] Core-only retry also failed:', retryErr);
+          errors += batch.length;
+        }
+      } else {
+        console.error('[batchEnsureCrasRecords] Failed to batch create CRAS records:', err);
+        errors += batch.length;
+      }
     }
   }
   
@@ -808,16 +829,14 @@ export async function upsertSeen(args: UpsertSeenArgs): Promise<void> {
     try {
       await osBase(TABLE).create(createFields as any);
     } catch (err) {
-      // If field doesn't exist (422), remove it and retry without it
       const message = err instanceof Error ? err.message : String(err);
-      const isFieldMissing = typeof err === 'object' && err !== null && 
-        ('statusCode' in err && (err as { statusCode: number }).statusCode === 422) ||
-        message.includes('UNKNOWN_FIELD_NAME') ||
-        message.includes(FIRST_SEEN_BY_CLIENT_AT_FIELD);
-      
-      if (isFieldMissing && FIRST_SEEN_BY_CLIENT_AT_FIELD in createFields) {
-        console.warn(`[reviewAssetStatus] Field "${FIRST_SEEN_BY_CLIENT_AT_FIELD}" not found in Airtable. Creating record without it.`);
+      const isFieldError = message.includes('UNKNOWN_FIELD') || message.includes('unknown field') || message.includes('Cannot create field') ||
+        (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 422);
+
+      if (isFieldError) {
+        console.warn(`[upsertSeen] Create failed with unknown field, retrying without optional fields:`, message);
         delete createFields[FIRST_SEEN_BY_CLIENT_AT_FIELD];
+        delete createFields['Last Activity At'];
         await osBase(TABLE).create(createFields as any);
       } else {
         throw err;
@@ -1097,26 +1116,38 @@ export async function setSingleAssetApprovedClient(
     const osBase = getBase();
     const now = new Date().toISOString();
     
+    const coreCreateFields: Record<string, unknown> = {
+      'Review Token': token,
+      Project: [projectId],
+      [SOURCE_FOLDER_ID_FIELD]: driveFileId,
+      Filename: (filename ?? '').slice(0, 500),
+      Tactic: tactic || '',
+      Variant: variant || '',
+      Status: 'New',
+    };
+
     try {
-      // Create record with Status="New"
       const created = await osBase(TABLE).create({
-        'Review Token': token,
-        Project: [projectId],
-        [SOURCE_FOLDER_ID_FIELD]: driveFileId, // Drive File ID as dedupe key
-        Filename: (filename ?? '').slice(0, 500),
-        // Note: Drive URL field doesn't exist in CRAS table - removed to prevent 422 errors
-        Tactic: tactic || '',
-        Variant: variant || '',
-        Status: 'New',
-        'Last Activity At': now,
+        ...coreCreateFields, 'Last Activity At': now,
       } as any) as unknown as { id: string; fields: Record<string, unknown> };
-      
       existing = { id: created.id, fields: created.fields };
       console.log(`[setSingleAssetApprovedClient] Created missing CRAS record: ${created.id}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[setSingleAssetApprovedClient] Failed to create missing CRAS record:`, err);
-      return { error: `Failed to create missing record: ${message}`, airtableError: err };
+      const isFieldError = message.includes('UNKNOWN_FIELD') || message.includes('unknown field') || message.includes('Cannot create field');
+      if (isFieldError) {
+        console.warn(`[setSingleAssetApprovedClient] Retrying create without optional fields:`, message);
+        try {
+          const created = await osBase(TABLE).create(coreCreateFields as any) as unknown as { id: string; fields: Record<string, unknown> };
+          existing = { id: created.id, fields: created.fields };
+        } catch (retryErr) {
+          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          return { error: `Failed to create missing record: ${retryMsg}`, airtableError: retryErr };
+        }
+      } else {
+        console.error(`[setSingleAssetApprovedClient] Failed to create missing CRAS record:`, err);
+        return { error: `Failed to create missing record: ${message}`, airtableError: err };
+      }
     }
   }
   if (parseAssetApprovedClient(existing.fields[ASSET_APPROVED_CLIENT_FIELD])) {
