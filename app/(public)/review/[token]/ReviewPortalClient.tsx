@@ -238,6 +238,7 @@ function ReviewPortalClientInner({
   const [activePartnerTab, setActivePartnerTab] = useState<'new' | 'all_approved' | 'downloaded'>('new');
   const [markingSeen, setMarkingSeen] = useState(false);
   const [apiCounts, setApiCounts] = useState<{ newApproved: number; approved: number; downloaded: number } | null>(null);
+  const [hideApproved, setHideApproved] = useState(false);
   const lastFetchedTokenRef = useRef<string | null>(null);
   const firstSeenInFlightRef = useRef<Set<string>>(new Set());
   const { identity, clearIdentity, requireIdentity } = useAuthorIdentity();
@@ -427,13 +428,27 @@ function ReviewPortalClientInner({
     deliveryContext != null
       ? partnerFilterSections(activeSections, activePartnerTab)
       : activeSections;
-  const totalFiles = partnerFilteredSections.reduce((sum, s) => sum + s.fileCount, 0);
+
+  // "Needs Review" filter: hide approved assets when toggled on
+  const displaySections = useMemo(() => {
+    if (!hideApproved) return partnerFilteredSections;
+    return partnerFilteredSections.map((sec) => {
+      const filtered = sec.assets.filter((a) => !a.assetApprovedClient);
+      return { ...sec, assets: filtered, fileCount: filtered.length };
+    });
+  }, [partnerFilteredSections, hideApproved]);
+
+  const totalFiles = displaySections.reduce((sum, s) => sum + s.fileCount, 0);
+  const totalApprovedInVariant = activeSections.reduce(
+    (sum, s) => sum + s.assets.filter((a) => a.assetApprovedClient).length, 0
+  );
+  const totalInVariant = activeSections.reduce((sum, s) => sum + s.fileCount, 0);
   const sectionsToRender =
     totalFiles === 0
       ? []
       : showEmptyTactics
-        ? partnerFilteredSections
-        : partnerFilteredSections.filter((s) => s.fileCount > 0);
+        ? displaySections
+        : displaySections.filter((s) => s.fileCount > 0);
   const selectedCount = selectedFileIds.size;
 
   const toggleSelection = useCallback((fileId: string) => {
@@ -826,6 +841,31 @@ function ReviewPortalClientInner({
           </div>
         )}
 
+        {/* Filter: Needs Review toggle */}
+        {totalInVariant > 0 && totalApprovedInVariant > 0 && (
+          <div className="mb-4 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setHideApproved((v) => !v)}
+              className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                hideApproved
+                  ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200 ring-1 ring-gray-700'
+              }`}
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+              </svg>
+              {hideApproved ? 'Needs Review' : 'Needs Review'}
+            </button>
+            {hideApproved && (
+              <span className="text-xs text-gray-500">
+                Showing {totalInVariant - totalApprovedInVariant} of {totalInVariant} assets ({totalApprovedInVariant} approved hidden)
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Content: empty-state card or tactic sections */}
         {totalFiles === 0 ? (
           <EmptyStateCard
@@ -869,7 +909,7 @@ function ReviewPortalClientInner({
             })}
 
             {/* Show empty tactics toggle */}
-            {partnerFilteredSections.some((s) => s.fileCount === 0) && (
+            {displaySections.some((s) => s.fileCount === 0) && (
               <button
                 type="button"
                 onClick={() => setShowEmptyTactics(!showEmptyTactics)}
