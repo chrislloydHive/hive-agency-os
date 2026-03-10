@@ -72,6 +72,19 @@ export const DELIVERY_ERROR_FIELD = 'Delivery Error';
 /** Delivery status values for the state machine. */
 export type DeliveryStatusValue = 'Ready for Delivery' | 'Delivering' | 'Delivered' | 'Failed';
 
+/** Check if an Airtable error is a field/schema error that warrants retry without optional fields. */
+function isAirtableFieldError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes('UNKNOWN_FIELD') ||
+    msg.includes('unknown field') ||
+    msg.includes('Cannot create field') ||
+    msg.includes('INVALID_MULTIPLE_CHOICE_OPTIONS') ||
+    msg.includes('INVALID_SELECT_OPTION') ||
+    (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 422)
+  );
+}
+
 export interface StatusRecord {
   recordId: string;
   /** Drive File ID (from Source Folder ID field). */
@@ -772,7 +785,7 @@ export async function batchEnsureCrasRecords(
       created += batch.length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const isFieldError = msg.includes('UNKNOWN_FIELD') || msg.includes('unknown field') || msg.includes('Cannot create field');
+      const isFieldError = isAirtableFieldError(err);
       if (isFieldError) {
         console.warn('[batchEnsureCrasRecords] Retrying batch without optional fields:', msg);
         try {
@@ -830,8 +843,7 @@ export async function upsertSeen(args: UpsertSeenArgs): Promise<void> {
       await osBase(TABLE).create(createFields as any);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const isFieldError = message.includes('UNKNOWN_FIELD') || message.includes('unknown field') || message.includes('Cannot create field') ||
-        (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 422);
+      const isFieldError = isAirtableFieldError(err);
 
       if (isFieldError) {
         console.warn(`[upsertSeen] Create failed with unknown field, retrying without optional fields:`, message);
@@ -1048,7 +1060,7 @@ export async function batchSetAssetApprovedClient(
       const message = err instanceof Error ? err.message : String(err);
 
       // If the error is about unknown fields (delivery pipeline fields), retry with core fields only
-      const isFieldError = message.includes('UNKNOWN_FIELD') || message.includes('unknown field') || message.includes('Cannot create field');
+      const isFieldError = isAirtableFieldError(err);
       if (isFieldError) {
         console.warn(`[batchSetAssetApprovedClient] Full update failed (unknown field), retrying chunk with core approval fields only:`, message);
         try {
@@ -1134,7 +1146,7 @@ export async function setSingleAssetApprovedClient(
       console.log(`[setSingleAssetApprovedClient] Created missing CRAS record: ${created.id}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const isFieldError = message.includes('UNKNOWN_FIELD') || message.includes('unknown field') || message.includes('Cannot create field');
+      const isFieldError = isAirtableFieldError(err);
       if (isFieldError) {
         console.warn(`[setSingleAssetApprovedClient] Retrying create without optional fields:`, message);
         try {
@@ -1187,7 +1199,7 @@ export async function setSingleAssetApprovedClient(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // If delivery pipeline fields cause failure, retry with core approval fields only
-    const isFieldError = message.includes('UNKNOWN_FIELD') || message.includes('unknown field') || message.includes('Cannot create field');
+    const isFieldError = isAirtableFieldError(err);
     if (isFieldError) {
       console.warn(`[setSingleAssetApprovedClient] Full update failed (unknown field), retrying with core fields:`, message);
       const coreFields: Record<string, unknown> = {

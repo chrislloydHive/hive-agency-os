@@ -302,6 +302,7 @@ export async function GET(req: NextRequest) {
     // Only files that are direct children of a variant folder are included.
     let skippedTacticVariantCount = 0;
     let skippedParentCount = 0;
+    const skippedFiles: Array<{ fileId: string; filename: string | null; reason: string; parents?: string[] }> = [];
 
     for (const rec of visibleCrasRecords) {
       const rawTactic = rec.tactic ?? '';
@@ -316,9 +317,7 @@ export async function GET(req: NextRequest) {
 
       if (!validTactic || !validVariant) {
         skippedTacticVariantCount++;
-        if (skippedTacticVariantCount <= 5) {
-          console.log(`[review/assets] Skipping asset ${rec.driveFileId} (${rec.filename}) — unrecognized tactic/variant ("${rawTactic}"/"${rawVariant}")`);
-        }
+        skippedFiles.push({ fileId: rec.driveFileId, filename: rec.filename, reason: `unrecognized tactic/variant ("${rawTactic}"/"${rawVariant}")` });
         continue;
       }
 
@@ -327,27 +326,19 @@ export async function GET(req: NextRequest) {
       if (allowedParentIds.size > 0) {
         const driveMeta = driveMetaMap.get(rec.driveFileId);
         if (!driveMeta) {
-          // File not found in Drive (deleted/moved/inaccessible) — skip
           skippedParentCount++;
-          if (skippedParentCount <= 5) {
-            console.log(`[review/assets] Skipping asset ${rec.driveFileId} (${rec.filename}) — not found in Drive`);
-          }
+          skippedFiles.push({ fileId: rec.driveFileId, filename: rec.filename, reason: 'not found in Drive metadata' });
           continue;
         }
         if (driveMeta.trashed) {
-          // File is in Drive trash — skip
           skippedParentCount++;
-          if (skippedParentCount <= 5) {
-            console.log(`[review/assets] Skipping asset ${rec.driveFileId} (${rec.filename}) — trashed in Drive`);
-          }
+          skippedFiles.push({ fileId: rec.driveFileId, filename: rec.filename, reason: 'trashed in Drive' });
           continue;
         }
         const parents = driveMeta.parents;
         if (!parents.some((pid) => allowedParentIds.has(pid))) {
           skippedParentCount++;
-          if (skippedParentCount <= 5) {
-            console.log(`[review/assets] Skipping asset ${rec.driveFileId} (${rec.filename}) — not a direct child of a variant folder`);
-          }
+          skippedFiles.push({ fileId: rec.driveFileId, filename: rec.filename, reason: 'parent not in variant folders', parents });
           continue;
         }
       }
@@ -366,7 +357,10 @@ export async function GET(req: NextRequest) {
       console.log(`[review/assets] Skipped ${skippedTacticVariantCount} assets with missing/unrecognized tactic/variant`);
     }
     if (skippedParentCount > 0) {
-      console.log(`[review/assets] Skipped ${skippedParentCount} assets not in variant folders (in subfolders)`);
+      console.log(`[review/assets] Skipped ${skippedParentCount} assets not in variant folders`);
+    }
+    if (skippedFiles.length > 0) {
+      console.log(`[review/assets] Skipped files detail:`, JSON.stringify(skippedFiles));
     }
 
     // Build sections array
@@ -535,6 +529,10 @@ export async function GET(req: NextRequest) {
         totalCrasRecords: statusMap.size,
         visibleAssets: visibleCrasRecords.length,
         driveMetaFetched: driveMetaMap.size,
+        allowedParentFolderIds: [...allowedParentIds],
+        skippedFiles,
+        skippedTacticVariantCount,
+        skippedParentCount,
       };
     }
 
