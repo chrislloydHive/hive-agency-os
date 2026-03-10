@@ -4,10 +4,11 @@
 
 import { NextResponse } from 'next/server';
 import { inngest } from '@/lib/inngest/client';
-import { getBase } from '@/lib/airtable';
+import { getBase, getProjectsBase } from '@/lib/airtable';
 import { CREATIVE_REVIEW_ASSET_STATUS_TABLE } from '@/lib/airtable/deliveryWriteBack';
 import { DELIVERY_BATCH_ID_FIELD } from '@/lib/airtable/reviewAssetStatus';
-import { getBatchDetails, getBatchDetailsByRecordId } from '@/lib/airtable/partnerDeliveryBatches';
+import { getBatchDetails, getBatchDetailsByRecordId, getDeliveryContextByProjectId, listBatchesByProjectId } from '@/lib/airtable/partnerDeliveryBatches';
+import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 
 export const dynamic = 'force-dynamic';
 
@@ -130,6 +131,49 @@ export async function POST(req: Request) {
             } else {
               console.warn(`[delivery/partner/approved] Delivery Batch ID text value "${textBatchId}" not found in Partner Delivery Batches table`);
             }
+          }
+        }
+      }
+
+      // ── Path 3: Review Token → Project → Batch (fallback when CRAS has no batch fields) ──
+      if (!batchRecordId) {
+        const reviewToken = crasRecord?.fields?.['Review Token'];
+        if (typeof reviewToken === 'string' && reviewToken.trim()) {
+          console.log('[delivery/partner/approved] Path 3: Resolving batch via Review Token → Project → Batch');
+          try {
+            const projectsBase = getProjectsBase();
+            const tokenEsc = reviewToken.trim().replace(/"/g, '\\"');
+            const REVIEW_TOKEN_FIELD = process.env.REVIEW_PORTAL_TOKEN_FIELD?.trim() || 'Client Review Portal Token';
+            const projectRecords = await projectsBase(AIRTABLE_TABLES.PROJECTS)
+              .select({
+                filterByFormula: `{${REVIEW_TOKEN_FIELD}} = "${tokenEsc}"`,
+                maxRecords: 1,
+              })
+              .firstPage();
+
+            if (projectRecords.length > 0) {
+              const projectRecordId = projectRecords[0].id;
+              console.log(`[delivery/partner/approved] Path 3: Found project ${projectRecordId} from token`);
+
+              // Try listBatchesByProjectId first (finds active batches)
+              const batches = await listBatchesByProjectId(projectRecordId);
+              if (batches.length > 0) {
+                batchRecordId = batches[0].batchRecordId;
+                resolutionPath = `cras-review-token:listBatchesByProjectId (project=${projectRecordId}, batch=${batches[0].batchId})`;
+              } else {
+                // Fallback to getDeliveryContextByProjectId
+                const ctx = await getDeliveryContextByProjectId(projectRecordId);
+                if (ctx) {
+                  batchRecordId = ctx.recordId;
+                  resolutionPath = `cras-review-token:getDeliveryContextByProjectId (project=${projectRecordId}, batch=${ctx.deliveryBatchId})`;
+                }
+              }
+            } else {
+              console.warn(`[delivery/partner/approved] Path 3: No project found for Review Token "${reviewToken.slice(0, 12)}..."`);
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(`[delivery/partner/approved] Path 3 failed:`, msg);
           }
         }
       }
