@@ -72,12 +72,60 @@ const HEADER_FIELDS = [
 
 /**
  * Canonical Creative Review template Sheet ID.
- * Env var CREATIVE_REVIEW_SHEET_TEMPLATE_ID overrides if set,
- * but the hardcoded default is the authoritative source of truth.
+ *
+ * Resolution order:
+ *   1. process.env.GOOGLE_DRIVE_TEMPLATE_ID  (preferred)
+ *   2. process.env.CREATIVE_REVIEW_SHEET_TEMPLATE_ID  (legacy alias)
+ *   3. DEFAULT_CREATIVE_REVIEW_TEMPLATE_SHEET_ID constant fallback
+ *
+ * This ID is ONLY a Google Drive file pointer. It must NEVER be used as a
+ * review portal token — token generation lives in `generateReviewPortalToken`
+ * and is fully decoupled from any Drive file ID.
  */
-const CREATIVE_REVIEW_TEMPLATE_SHEET_ID =
-  process.env.CREATIVE_REVIEW_SHEET_TEMPLATE_ID ||
+const DEFAULT_CREATIVE_REVIEW_TEMPLATE_SHEET_ID =
   '1EO3TdPG3N9zISMjdggVXTq3ZPvdpPE4kxR0fZWl5mAA';
+
+const CREATIVE_REVIEW_TEMPLATE_SHEET_ID =
+  process.env.GOOGLE_DRIVE_TEMPLATE_ID ||
+  process.env.CREATIVE_REVIEW_SHEET_TEMPLATE_ID ||
+  DEFAULT_CREATIVE_REVIEW_TEMPLATE_SHEET_ID;
+
+/**
+ * Generate a cryptographically secure review portal token.
+ * Decoupled from any Google Drive file ID — never reuse file IDs as tokens.
+ */
+function generateReviewPortalToken(): string {
+  const token = randomBytes(32).toString('hex');
+  console.log('[creative/scaffold] Generated new review portal token (length=%d)', token.length);
+  return token;
+}
+
+/**
+ * Verify a Google Drive file exists and is accessible to the current OAuth client.
+ * Returns true on success, false otherwise. Logs the outcome for debugging.
+ */
+async function validateDriveFile(
+  drive: drive_v3.Drive,
+  fileId: string,
+  label: string,
+): Promise<boolean> {
+  try {
+    const res = await drive.files.get({
+      fileId,
+      fields: 'id, name, mimeType, trashed',
+      supportsAllDrives: true,
+    });
+    if (res.data.trashed) {
+      console.error(`[creative/scaffold] ${label} ${fileId} is in trash`);
+      return false;
+    }
+    console.log(`[creative/scaffold] ${label} ${fileId} validated: name="${res.data.name}", mimeType=${res.data.mimeType}`);
+    return true;
+  } catch (err: any) {
+    console.error(`[creative/scaffold] ${label} ${fileId} validation FAILED:`, err?.message ?? err);
+    return false;
+  }
+}
 
 // ============================================================================
 // Auth
@@ -427,6 +475,40 @@ export async function POST(req: Request) {
     );
     const tacticRows: TacticRowData[] = tacticRowsArrays.flat();
 
+    // Validate the template file exists and is accessible BEFORE attempting copy.
+    // Without this check, drive.files.copy throws "File not found" deep in the
+    // call stack and the frontend can end up with no token.
+    console.log(`[creative/scaffold] Using template ID: ${templateId} (source: ${
+      process.env.GOOGLE_DRIVE_TEMPLATE_ID
+        ? 'GOOGLE_DRIVE_TEMPLATE_ID'
+        : process.env.CREATIVE_REVIEW_SHEET_TEMPLATE_ID
+          ? 'CREATIVE_REVIEW_SHEET_TEMPLATE_ID'
+          : 'DEFAULT_CONSTANT'
+    })`);
+    if (!templateId || typeof templateId !== 'string' || templateId.trim().length === 0) {
+      console.error('[creative/scaffold] Template ID is missing or invalid');
+      return NextResponse.json(
+        {
+          ok: false,
+          scaffoldStatus: 'error',
+          error: 'Template ID is missing or invalid. Set GOOGLE_DRIVE_TEMPLATE_ID env var.',
+        },
+        { status: 200 },
+      );
+    }
+    const templateOk = await validateDriveFile(drive, templateId, 'Creative Review template');
+    if (!templateOk) {
+      return NextResponse.json(
+        {
+          ok: false,
+          scaffoldStatus: 'error',
+          error: 'Template file not found or inaccessible',
+          templateId,
+        },
+        { status: 200 },
+      );
+    }
+
     // Copy sheet template into job folder (same folder as tactic/variant tree)
     const copied = await copyTemplate(drive, templateId, jobFolder.id, hubName);
     const sheetUrl = copied.url;
@@ -498,7 +580,7 @@ export async function POST(req: Request) {
     const existingToken = typeof projectFields['Client Review Portal Token'] === 'string'
       ? projectFields['Client Review Portal Token'].trim()
       : '';
-    const reviewToken = existingToken || randomBytes(32).toString('hex');
+    const reviewToken = existingToken || generateReviewPortalToken();
     const reviewPortalUrl = `${getAppBaseUrl()}/review/${reviewToken}`;
 
     const jobFolderUrl = folderUrl(jobFolder.id);
@@ -529,6 +611,7 @@ export async function POST(req: Request) {
       jobFolderId: jobFolder.id,
       jobFolderUrl: jobFolderUrl,
       clientReviewPortalUrl: reviewPortalUrl,
+      clientReviewPortalToken: reviewToken,
       creativeReviewHubFolderId: jobFolder.id,
       creativeReviewHubFolderUrl: jobFolderUrl,
       clientReviewFolderUrl: jobFolderUrl,
