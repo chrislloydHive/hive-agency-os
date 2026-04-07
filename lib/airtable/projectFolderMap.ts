@@ -11,12 +11,8 @@ import { AIRTABLE_TABLES } from './tables';
 
 const PROJECTS_TABLE = AIRTABLE_TABLES.PROJECTS;
 
-/** Field name aliases for the Creative Review Hub folder on Projects. */
-const CRH_FOLDER_FIELD_ALIASES = [
-  'Creative Review Hub Folder ID',
-  'CRH Folder ID',
-  'Job Folder ID',
-] as const;
+/** Real Airtable field name for the Creative Review Hub folder on Projects. */
+const CRH_FOLDER_FIELD = 'Creative Review Hub Folder ID';
 
 /** Field name aliases for the Client Review Portal token on Projects. */
 const REVIEW_TOKEN_FIELD_ALIASES = [
@@ -57,12 +53,11 @@ export async function getProjectsByCreativeReviewHubFolderId(): Promise<
 > {
   const base = getBase();
   const map = new Map<string, ProjectFolderMapping>();
+  let skipped = 0;
 
-  // Filter to records where any known alias of the CRH folder field is non-empty.
-  const orClauses = CRH_FOLDER_FIELD_ALIASES.map(
-    (name) => `{${name}} != ""`
-  ).join(',');
-  const filterFormula = `OR(${orClauses})`;
+  // Use the exact Airtable field name only — aliasing here causes
+  // INVALID_FILTER_BY_FORMULA against fields that don't exist on the table.
+  const filterFormula = `{${CRH_FOLDER_FIELD}} != ""`;
 
   try {
     const records = await base(PROJECTS_TABLE)
@@ -71,8 +66,15 @@ export async function getProjectsByCreativeReviewHubFolderId(): Promise<
 
     for (const record of records) {
       const fields = record.fields as Record<string, unknown>;
-      const folderId = readStringField(fields, CRH_FOLDER_FIELD_ALIASES);
-      if (!folderId) continue;
+      const rawFolderId = fields[CRH_FOLDER_FIELD];
+      const folderId =
+        typeof rawFolderId === 'string' && rawFolderId.trim()
+          ? rawFolderId.trim()
+          : undefined;
+      if (!folderId) {
+        skipped++;
+        continue;
+      }
       const projectName = (fields['Name'] as string) || '(unnamed)';
       const reviewToken = readStringField(fields, REVIEW_TOKEN_FIELD_ALIASES);
       map.set(folderId, {
@@ -88,6 +90,11 @@ export async function getProjectsByCreativeReviewHubFolderId(): Promise<
       err
     );
   }
+
+  console.log(`[projectFolderMap] loaded projects: ${map.size}`);
+  console.log(
+    `[projectFolderMap] skipped projects with no CRH folder: ${skipped}`
+  );
 
   return map;
 }
