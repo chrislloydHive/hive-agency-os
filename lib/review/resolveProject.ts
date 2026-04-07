@@ -226,7 +226,7 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
     
     // Prepare project info for error page
     const jobFolderIdRaw =
-      fields['Creative Review Hub Folder ID'] ?? fields['CRH Folder ID'] ?? fields['Job Folder ID'];
+      fields['Creative Review Hub Folder ID'];
     const jobFolderId =
       typeof jobFolderIdRaw === 'string' && jobFolderIdRaw.trim()
         ? jobFolderIdRaw.trim()
@@ -260,7 +260,7 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
   });
 
   const jobFolderIdRaw =
-    fields['Creative Review Hub Folder ID'] ?? fields['CRH Folder ID'] ?? fields['Job Folder ID'];
+    fields['Creative Review Hub Folder ID'];
   const jobFolderId =
     typeof jobFolderIdRaw === 'string' && jobFolderIdRaw.trim()
       ? jobFolderIdRaw.trim()

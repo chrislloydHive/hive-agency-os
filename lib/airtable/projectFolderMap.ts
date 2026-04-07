@@ -57,12 +57,14 @@ export async function getProjectsByCreativeReviewHubFolderId(): Promise<
 
   // Use the exact Airtable field name only — aliasing here causes
   // INVALID_FILTER_BY_FORMULA against fields that don't exist on the table.
-  const filterFormula = `{${CRH_FOLDER_FIELD}} != ""`;
+  const filterFormula = `{Creative Review Hub Folder ID} != ""`;
 
   try {
     const records = await base(PROJECTS_TABLE)
       .select({ filterByFormula: filterFormula })
       .all();
+
+    console.log('[projectFolderMap] loaded projects:', records.length);
 
     for (const record of records) {
       const fields = record.fields as Record<string, unknown>;
