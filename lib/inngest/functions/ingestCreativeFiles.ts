@@ -160,10 +160,17 @@ export const ingestCreativeFilesScheduled = inngest.createFunction(
     );
 
     // Drive client (service account / WIF — same pattern as other crons).
-    const drive = await step.run('init-drive', async () => {
-      const oidcToken = process.env.VERCEL_OIDC_TOKEN || undefined;
-      return await getDriveClient({ vercelOidcToken: oidcToken });
-    });
+    // NOTE: must NOT be built inside step.run — Inngest JSON-serializes step
+    // return values, which would strip the methods off the googleapis client
+    // and cause "drive.files.list is not a function".
+    const oidcToken = process.env.VERCEL_OIDC_TOKEN || undefined;
+    const drive = await getDriveClient({ vercelOidcToken: oidcToken });
+    console.log('[ingest-cron] drive client keys:', Object.keys(drive));
+    if (typeof drive?.files?.list !== 'function') {
+      throw new Error(
+        '[ingest-cron] getDriveClient did not return a valid drive_v3.Drive (drive.files.list missing)'
+      );
+    }
 
     const projects = await step.run('load-projects', async () => {
       const map = await getProjectsByCreativeReviewHubFolderId();
@@ -187,7 +194,7 @@ export const ingestCreativeFilesScheduled = inngest.createFunction(
 
       let files: DiscoveredFile[];
       try {
-        files = await listFilesRecursive(drive as drive_v3.Drive, project.folderId);
+        files = await listFilesRecursive(drive, project.folderId);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(
