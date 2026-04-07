@@ -1,12 +1,19 @@
 // app/api/review/files/[fileId]/route.ts
 // Proxies Google Drive file content for the Client Review Portal.
 // Requires a valid review token as a query parameter.
-// Validates that the file's direct parent is a known variant folder.
+//
+// Authorization model: a file is servable iff there exists a CRAS (Creative
+// Review Asset Status) record for (token, fileId). CRAS is the source of
+// truth for which files belong to a review — files can live anywhere in
+// Drive (the new ingestion path supports arbitrary subfolders under each
+// project's Creative Review Hub folder). A short-TTL in-process cache
+// collapses bursts of thumbnail requests for the same review so we don't
+// hammer Airtable.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
-import { getAllowedReviewFolderIds, getAllowedReviewFolderIdsFromJobFolder, getAllowedReviewFolderIdsFromClientProjectsFolder } from '@/lib/review/reviewFolders';
+import { getCrasRecordIdByTokenAndFileId } from '@/lib/airtable/reviewAssetStatus';
 import {
   isGoogleWorkspaceFile,
   getDefaultExportFormat,
@@ -21,6 +28,32 @@ export const dynamic = 'force-dynamic';
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
 const RATE_LIMIT_MAX_REQUESTS = 100; // 100 requests per minute per IP
+
+// Short-TTL cache for CRAS authorization lookups.
+// Bursts of thumbnail requests (same token, many fileIds) and repeated requests
+// for the same fileId (carousel re-renders, lightbox open/close) all collapse
+// here so we don't rate-limit ourselves against Airtable.
+const AUTH_CACHE_TTL_MS = 5 * 60_000;
+const authCache = new Map<string, number>(); // key = `${token}::${fileId}` → expiresAt
+
+async function isFileAuthorized(token: string, fileId: string): Promise<boolean> {
+  const key = `${token}::${fileId}`;
+  const now = Date.now();
+  const cached = authCache.get(key);
+  if (cached && cached > now) return true;
+
+  const recordId = await getCrasRecordIdByTokenAndFileId(token, fileId);
+  if (!recordId) return false;
+
+  authCache.set(key, now + AUTH_CACHE_TTL_MS);
+  // Periodic cleanup
+  if (authCache.size > 2000) {
+    for (const [k, exp] of authCache.entries()) {
+      if (exp <= now) authCache.delete(k);
+    }
+  }
+  return true;
+}
 
 function checkRateLimit(ip: string): boolean {
   const now = Date.now();
@@ -67,48 +100,35 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
   }
 
-  const { project, auth } = resolved;
+  const { auth } = resolved;
   const drive = google.drive({ version: 'v3', auth });
 
   const download = req.nextUrl.searchParams.get('dl') === '1';
 
-  // Resolve variant folder IDs (uses partial map — missing tactics don't block everything)
-  const allowedFolderIds = project.jobFolderId
-    ? await getAllowedReviewFolderIdsFromJobFolder(drive, project.jobFolderId)
-    : await (async () => {
-        const clientProjectsFolderId = process.env.CAR_TOYS_PROJECTS_FOLDER_ID ?? '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_';
-        if (clientProjectsFolderId) {
-          const fromClient = await getAllowedReviewFolderIdsFromClientProjectsFolder(drive, project.name, clientProjectsFolderId);
-          if (fromClient?.length) return fromClient;
-        }
-        const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID;
-        if (!rootFolderId) return null;
-        return getAllowedReviewFolderIds(drive, project.hubName, rootFolderId);
-      })();
-
-  if (!allowedFolderIds || allowedFolderIds.length === 0) {
-    return NextResponse.json({ error: 'No review folders configured' }, { status: 403 });
+  // Authorize via CRAS record. Cached briefly to absorb thumbnail bursts.
+  const authorized = await isFileAuthorized(token, fileId);
+  if (!authorized) {
+    return NextResponse.json({ error: 'File not found for this review' }, { status: 403 });
   }
 
-  // Validate that the file's direct parent is a variant folder
+  // Fetch Drive metadata; reject trashed files so stale CRAS rows can't leak content.
+  let mimeType: string;
+  let fileName: string;
   try {
     const fileMeta = await drive.files.get({
       fileId,
-      fields: 'parents, mimeType, name',
+      fields: 'mimeType, name, trashed',
       supportsAllDrives: true,
     });
 
-    const parents = fileMeta.data.parents || [];
-    const isAllowed = parents.some((parentId) => allowedFolderIds.includes(parentId));
-
-    if (!isAllowed) {
-      return NextResponse.json({ error: 'File not in allowed folders' }, { status: 403 });
+    if (fileMeta.data.trashed) {
+      return NextResponse.json({ error: 'File not available' }, { status: 404 });
     }
 
-    var mimeType = fileMeta.data.mimeType || 'application/octet-stream';
-    var fileName = fileMeta.data.name || fileId;
+    mimeType = fileMeta.data.mimeType || 'application/octet-stream';
+    fileName = fileMeta.data.name || fileId;
   } catch (err: any) {
-    console.error('[review/files] Validation error:', err?.message ?? err);
+    console.error('[review/files] Drive metadata error:', err?.message ?? err);
     return NextResponse.json({ error: 'File not found or access denied' }, { status: 404 });
   }
 

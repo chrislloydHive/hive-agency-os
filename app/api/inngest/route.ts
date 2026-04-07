@@ -29,6 +29,7 @@ import {
 } from '@/lib/inngest/functions/weekly-brief';
 import { partnerDeliveryRequested } from '@/lib/inngest/functions/partner-delivery-requested';
 import { partnerDeliveryProbe } from '@/lib/inngest/functions/partner-delivery-probe';
+import { ingestCreativeFilesScheduled } from '@/lib/inngest/functions/ingestCreativeFiles';
 
 // Get the serve handlers
 const registeredFunctions = [
@@ -59,6 +60,8 @@ const registeredFunctions = [
   partnerDeliveryRequested,
   // Probe function for debugging event delivery
   partnerDeliveryProbe,
+  // Creative ingestion: poll CRH folders → create CRAS records
+  ingestCreativeFilesScheduled,
 ];
 
 // Log registered functions at boot (once per process)
