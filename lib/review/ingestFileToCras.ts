@@ -14,6 +14,7 @@ import {
   type ProjectFolderMapping,
 } from '@/lib/airtable/projectFolderMap';
 import { ensureCrasRecord } from '@/lib/airtable/reviewAssetStatus';
+import { ensurePartnerDeliverySetup } from '@/lib/delivery/ensurePartnerDeliverySetup';
 
 export interface IngestFileInput {
   /** Drive file ID. */
@@ -211,6 +212,24 @@ export async function ingestFileToCras(
         projectId: matched.projectId,
         fileId: file.fileId,
       });
+      // Auto-provision partner delivery on first CRAS for this project.
+      // Wrapped so failures never break ingestion (the helper also catches
+      // and logs internally — this is belt + suspenders).
+      try {
+        await ensurePartnerDeliverySetup({
+          projectId: matched.projectId,
+          projectName: matched.projectName,
+        });
+      } catch (deliveryErr) {
+        const dmsg =
+          deliveryErr instanceof Error
+            ? deliveryErr.message
+            : String(deliveryErr);
+        console.error(
+          '[ingest] ensurePartnerDeliverySetup threw (ignored):',
+          dmsg
+        );
+      }
     } else {
       console.log('[ingest] CRAS already exists', {
         projectId: matched.projectId,
