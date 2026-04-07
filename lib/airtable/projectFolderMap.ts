@@ -77,7 +77,9 @@ export async function getProjectsByCreativeReviewHubFolderId(): Promise<
         skipped++;
         continue;
       }
-      const projectName = (fields['Name'] as string) || '(unnamed)';
+      const projectName =
+        readStringField(fields, ['Project', 'Name', 'Project Name', 'Title']) ||
+        '(unnamed)';
       const reviewToken = readStringField(fields, REVIEW_TOKEN_FIELD_ALIASES);
       map.set(folderId, {
         projectId: record.id,

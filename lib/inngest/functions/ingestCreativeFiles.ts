@@ -27,6 +27,26 @@ const MAX_TRAVERSAL_DEPTH = 8;
 const MAX_FILES_PER_PROJECT = 1000;
 const INGEST_BATCH_SIZE = 10;
 const PAGE_SIZE = 200;
+const DRIVE_LIST_TIMEOUT_MS = 30_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(
+      () => reject(new Error(`[timeout] ${label} exceeded ${ms}ms`)),
+      ms
+    );
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      }
+    );
+  });
+}
 
 const CRAS_TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 const SOURCE_FOLDER_ID_FIELD = 'Source Folder ID';
@@ -63,14 +83,18 @@ async function listFilesRecursive(
     do {
       let res;
       try {
-        res = await drive.files.list({
-          q: `'${folderId}' in parents and trashed = false`,
-          fields: 'nextPageToken, files(id, name, mimeType, parents)',
-          pageSize: PAGE_SIZE,
-          pageToken,
-          supportsAllDrives: true,
-          includeItemsFromAllDrives: true,
-        });
+        res = await withTimeout(
+          drive.files.list({
+            q: `'${folderId}' in parents and trashed = false`,
+            fields: 'nextPageToken, files(id, name, mimeType, parents)',
+            pageSize: PAGE_SIZE,
+            pageToken,
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true,
+          }),
+          DRIVE_LIST_TIMEOUT_MS,
+          `drive.files.list folder=${folderId}`
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(
@@ -185,74 +209,94 @@ export const ingestCreativeFilesScheduled = inngest.createFunction(
     let totalCreated = 0;
     let totalErrors = 0;
 
+    // Each project is its own step so Inngest checkpoints between them.
+    // If one project hangs/errors, the others still complete on retry.
     for (const project of projects) {
-      console.log('[ingest-cron] scanning project:', {
-        projectName: project.projectName,
-        projectId: project.projectId,
-        crhFolderId: project.folderId,
-      });
-
-      let files: DiscoveredFile[];
+      const stepId = `scan-${project.projectId}`;
       try {
-        files = await listFilesRecursive(drive, project.folderId);
+        const summary = await step.run(stepId, async () => {
+          console.log('[ingest-cron] scanning project:', {
+            projectName: project.projectName,
+            projectId: project.projectId,
+            crhFolderId: project.folderId,
+          });
+
+          let files: DiscoveredFile[];
+          try {
+            files = await listFilesRecursive(drive, project.folderId);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(
+              `[ingest-cron] traversal failed for project ${project.projectName}: ${msg}`
+            );
+            return { filesFound: 0, newFiles: 0, created: 0, errors: 1 };
+          }
+
+          console.log(`[ingest-cron] files found: ${files.length}`, {
+            projectId: project.projectId,
+          });
+
+          if (files.length === 0) {
+            return { filesFound: 0, newFiles: 0, created: 0, errors: 0 };
+          }
+
+          const existing = await getExistingCrasFileIdsForProject(project.projectId);
+          const newFiles = files.filter((f) => {
+            if (existing.has(f.id)) {
+              console.log('[ingest-cron] skipped existing file:', { fileId: f.id });
+              return false;
+            }
+            return true;
+          });
+
+          console.log(`[ingest-cron] new files: ${newFiles.length}`, {
+            projectId: project.projectId,
+          });
+
+          if (newFiles.length === 0) {
+            return { filesFound: files.length, newFiles: 0, created: 0, errors: 0 };
+          }
+
+          const payloads: IngestFileInput[] = newFiles.map((f) => ({
+            fileId: f.id,
+            fileName: f.name,
+            folderId: f.parents[0] ?? project.folderId,
+            parentFolderIds: f.parentChain,
+          }));
+
+          let created = 0;
+          let errors = 0;
+          for (const batch of chunk(payloads, INGEST_BATCH_SIZE)) {
+            for (const p of batch) {
+              console.log('[ingest-cron] sending file:', {
+                fileId: p.fileId,
+                fileName: p.fileName,
+              });
+            }
+            try {
+              const r = await ingestFilesToCras(batch);
+              created += r.created;
+              errors += r.errors;
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.error('[ingest-cron] batch ingest failed:', msg);
+              errors += batch.length;
+            }
+          }
+
+          return { filesFound: files.length, newFiles: newFiles.length, created, errors };
+        });
+
+        totalFilesFound += summary.filesFound;
+        totalNewFiles += summary.newFiles;
+        totalCreated += summary.created;
+        totalErrors += summary.errors;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(
-          `[ingest-cron] traversal failed for project ${project.projectName}: ${msg}`
+          `[ingest-cron] step ${stepId} threw: ${msg}`
         );
         totalErrors++;
-        continue;
-      }
-
-      console.log(`[ingest-cron] files found: ${files.length}`, {
-        projectId: project.projectId,
-      });
-      totalFilesFound += files.length;
-
-      if (files.length === 0) continue;
-
-      // Dedupe against existing CRAS records (Option A).
-      const existing = await getExistingCrasFileIdsForProject(project.projectId);
-      const newFiles = files.filter((f) => {
-        if (existing.has(f.id)) {
-          console.log('[ingest-cron] skipped existing file:', { fileId: f.id });
-          return false;
-        }
-        return true;
-      });
-
-      console.log(`[ingest-cron] new files: ${newFiles.length}`, {
-        projectId: project.projectId,
-      });
-      totalNewFiles += newFiles.length;
-
-      if (newFiles.length === 0) continue;
-
-      // Convert to ingest payloads.
-      const payloads: IngestFileInput[] = newFiles.map((f) => ({
-        fileId: f.id,
-        fileName: f.name,
-        folderId: f.parents[0] ?? project.folderId,
-        parentFolderIds: f.parentChain,
-      }));
-
-      // Batch through ingestFilesToCras to limit concurrency.
-      for (const batch of chunk(payloads, INGEST_BATCH_SIZE)) {
-        for (const p of batch) {
-          console.log('[ingest-cron] sending file:', {
-            fileId: p.fileId,
-            fileName: p.fileName,
-          });
-        }
-        try {
-          const summary = await ingestFilesToCras(batch);
-          totalCreated += summary.created;
-          totalErrors += summary.errors;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.error('[ingest-cron] batch ingest failed:', msg);
-          totalErrors += batch.length;
-        }
       }
     }
 

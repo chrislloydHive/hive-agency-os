@@ -92,6 +92,43 @@ function parseTask(raw: string): ParsedTask {
   };
 }
 
+// --- Structured-task helpers (for Anthropic-extracted task arrays) ---
+
+interface StructuredTaskInput {
+  title?: unknown;
+  list?: unknown;
+  priority?: unknown;
+  due?: unknown;
+  person?: unknown;
+  context?: unknown;
+}
+
+const VALID_PRIORITIES = new Set(["high", "medium", "low"]);
+
+/** Map a structured task object (from the Gmail add-on / Anthropic) to ParsedTask. */
+function fromStructured(t: StructuredTaskInput): ParsedTask | null {
+  const title = typeof t.title === "string" ? t.title.trim() : "";
+  if (!title) return null;
+
+  // Priority: trust the model if it returned a known value; otherwise infer from title.
+  const rawPriority = typeof t.priority === "string" ? t.priority.toLowerCase() : "";
+  const priority = VALID_PRIORITIES.has(rawPriority)
+    ? (rawPriority as "high" | "medium" | "low")
+    : parsePriority(title);
+
+  // Due: prefer the model's natural-language string; try to normalize, else pass through.
+  let dueDate: string | null = null;
+  if (typeof t.due === "string" && t.due.trim()) {
+    dueDate = parseDueDate(t.due) ?? t.due.trim();
+  }
+
+  // List: structured `list` is one of inbox|my_tasks|waiting_on|someday — none of those
+  // map cleanly to Work/Personal, so fall back to the keyword heuristic on the title.
+  const list = parseList(title);
+
+  return { title, dueDate, priority, list };
+}
+
 // --- Route handler ---
 
 export async function POST(request: Request) {
@@ -101,12 +138,24 @@ export async function POST(request: Request) {
 
     console.log("[reminders/create] Raw tasks:", tasks);
 
-    if (!tasks || typeof tasks !== "string" || tasks.trim().length === 0) {
+    let parsed: ParsedTask[];
+
+    if (Array.isArray(tasks)) {
+      // Structured array form (Gmail add-on, post-Anthropic upgrade).
+      parsed = tasks
+        .map((t) => fromStructured(t as StructuredTaskInput))
+        .filter((t): t is ParsedTask => t !== null);
+      if (parsed.length === 0) {
+        return NextResponse.json({ error: "No tasks provided" }, { status: 400 });
+      }
+    } else if (typeof tasks === "string" && tasks.trim().length > 0) {
+      // Legacy plain-text form: one task per line.
+      const lines = normalizeTasks(tasks);
+      parsed = lines.map(parseTask);
+    } else {
       return NextResponse.json({ error: "No tasks provided" }, { status: 400 });
     }
 
-    const lines = normalizeTasks(tasks);
-    const parsed: ParsedTask[] = lines.map(parseTask);
     console.log("[reminders/create] Parsed tasks:", parsed);
 
     const encoded = encodeURIComponent(JSON.stringify(parsed));
