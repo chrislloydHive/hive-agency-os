@@ -21,7 +21,6 @@
 
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
-import { listBatchesByProjectId } from '@/lib/airtable/partnerDeliveryBatches';
 import {
   getDriveClient,
   ensureChildFolderWithDrive,
@@ -70,19 +69,24 @@ export async function ensurePartnerDeliverySetup(
         projectId: args.projectId,
       });
 
-      // 1) Skip if any batch already exists for this project.
+      // 1) Skip if ANY batch row exists for this project. Use a direct count
+      // query — do NOT rely on listBatchesByProjectId, which filters out rows
+      // with an empty Destination Folder ID and would let us create duplicates
+      // every tick when folder provisioning is failing.
       try {
-        const batches = await listBatchesByProjectId(args.projectId);
-        if (batches.length > 0) {
+        const exists = await hasAnyBatchForProject(args.projectId);
+        if (exists) {
           console.log('[delivery-init] batch exists — skipping');
           return { status: 'exists' };
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(
-          '[delivery-init] batch lookup failed (continuing to create):',
+          '[delivery-init] batch lookup failed (NOT creating to avoid duplicates):',
           msg
         );
+        // Bail rather than create — better to skip a tick than spam duplicates.
+        return { status: 'error', error: msg };
       }
 
       console.log('[delivery-init] creating batch');
@@ -168,6 +172,21 @@ export async function createPartnerDeliveryFolderTree(
 
   console.log('[delivery-init] folder created:', { folderId: projectFolder.id });
   return projectFolder.id;
+}
+
+/**
+ * Direct existence check: returns true if ANY row in Partner Delivery Batches
+ * is linked to the given project, regardless of whether other fields are set.
+ * Bypasses the field-validation filter in listBatchesByProjectId.
+ */
+async function hasAnyBatchForProject(projectId: string): Promise<boolean> {
+  const base = getBase();
+  const escaped = projectId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const formula = `FIND("${escaped}", ARRAYJOIN({Project})) > 0`;
+  const records = await base(TABLE)
+    .select({ filterByFormula: formula, maxRecords: 1, fields: [] })
+    .firstPage();
+  return records.length > 0;
 }
 
 interface CreateBatchArgs {
