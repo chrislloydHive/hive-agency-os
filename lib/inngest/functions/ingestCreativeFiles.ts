@@ -58,6 +58,43 @@ interface DiscoveredFile {
   parents: string[];
   /** Ancestor chain (file's parent first, walking up to the CRH root). */
   parentChain: string[];
+  /** Inferred from a parent folder name matching a canonical Tactic. */
+  tactic?: string;
+  /** Inferred from a parent folder name matching a canonical Variant. */
+  variant?: string;
+}
+
+/** Canonical single-select option values from the CRAS Airtable table. */
+const TACTIC_OPTIONS = [
+  'Audio',
+  'Display',
+  'Geofence',
+  'OOH',
+  'PMAX',
+  'Social',
+  'Video',
+  'Search',
+] as const;
+const VARIANT_OPTIONS = ['Prospecting', 'Retargeting'] as const;
+
+/** Match a folder name (case-insensitive) to a canonical select option. */
+function matchOption<T extends string>(
+  name: string,
+  options: readonly T[]
+): T | undefined {
+  const norm = name.trim().toLowerCase();
+  if (!norm) return undefined;
+  for (const opt of options) {
+    if (opt.toLowerCase() === norm) return opt;
+  }
+  // Loose: PMAX variants, "Performance Max", "OOH" / "Out of Home", etc.
+  if (norm === 'pmax' || norm === 'p-max' || norm === 'performance max' || norm === 'performancemax') {
+    return options.find((o) => o === ('PMAX' as T));
+  }
+  if (norm === 'out of home' || norm === 'out-of-home') {
+    return options.find((o) => o === ('OOH' as T));
+  }
+  return undefined;
 }
 
 /**
@@ -70,6 +107,10 @@ async function listFilesRecursive(
   rootFolderId: string
 ): Promise<DiscoveredFile[]> {
   const out: DiscoveredFile[] = [];
+  // Folder name lookup populated as we traverse — used to infer Tactic/Variant
+  // from the file's parent chain when building the CRAS payload.
+  const nameByFolderId = new Map<string, string>();
+
   // BFS queue of { folderId, chain } where chain is the ancestor list
   // [parentFolderId, grandparent, ..., rootFolderId].
   const queue: Array<{ folderId: string; chain: string[]; depth: number }> = [
@@ -109,6 +150,7 @@ async function listFilesRecursive(
         if (!f.id) continue;
         const isFolder = f.mimeType === 'application/vnd.google-apps.folder';
         if (isFolder) {
+          nameByFolderId.set(f.id, f.name ?? '');
           if (depth + 1 < MAX_TRAVERSAL_DEPTH) {
             queue.push({
               folderId: f.id,
@@ -117,11 +159,24 @@ async function listFilesRecursive(
             });
           }
         } else {
+          // Infer tactic/variant from any ancestor folder name in the chain.
+          let tactic: string | undefined;
+          let variant: string | undefined;
+          for (const ancestorId of chain) {
+            const folderName = nameByFolderId.get(ancestorId);
+            if (!folderName) continue;
+            if (!tactic) tactic = matchOption(folderName, TACTIC_OPTIONS);
+            if (!variant) variant = matchOption(folderName, VARIANT_OPTIONS);
+            if (tactic && variant) break;
+          }
+
           out.push({
             id: f.id,
             name: f.name ?? '',
             parents: f.parents ?? [folderId],
             parentChain: chain,
+            tactic,
+            variant,
           });
           if (out.length >= MAX_FILES_PER_PROJECT) break;
         }
@@ -263,6 +318,8 @@ export const ingestCreativeFilesScheduled = inngest.createFunction(
             fileName: f.name,
             folderId: f.parents[0] ?? project.folderId,
             parentFolderIds: f.parentChain,
+            tactic: f.tactic,
+            variant: f.variant,
           }));
 
           let created = 0;
