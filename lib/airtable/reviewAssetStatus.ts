@@ -678,6 +678,11 @@ export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<bool
     [SOURCE_FOLDER_ID_FIELD]: args.driveFileId,
     Filename: (args.filename ?? '').slice(0, 500),
     Status: 'New',
+    // Match batchEnsureCrasRecords: visible to client by default. Without
+    // this, the assets API filters new records out because some pre-existing
+    // records have the flag set, triggering its "any has flag → hide all
+    // without it" gate.
+    'Show in Client Portal': true,
   };
   // Tactic / Variant are single-select fields. Airtable rejects empty strings
   // ("" can't be a select option), so only set them when we actually have a

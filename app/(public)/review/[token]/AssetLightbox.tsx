@@ -335,15 +335,11 @@ export default function AssetLightbox({
 
   if (!asset) return null;
 
-  // For animated images (GIF, animated WebP), use Google Drive direct view URL for proper animation
-  // This format works better for animated images than proxying through our API
-  const isAnimatedImage = asset.mimeType === 'image/gif' || 
-    (asset.mimeType === 'image/webp' && asset.name.toLowerCase().includes('animated'));
-  const driveDirectUrl = isAnimatedImage 
-    ? `https://drive.google.com/uc?export=view&id=${asset.fileId}`
-    : null;
-  
-  const src = driveDirectUrl || `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
+  // All files (including animated GIFs / animated WebP) go through our file
+  // proxy. The streaming proxy serves the correct Content-Type and browsers
+  // animate GIFs natively. drive.google.com/uc?export=view (the previous
+  // approach) requires public sharing and is rate-limited / deprecated.
+  const src = `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
   const lowerName = asset.name.toLowerCase();
   const isImage = asset.mimeType.startsWith('image/');
   // Detect video by mimeType or file extension (MP4 files might have incorrect mimeType from Drive)

@@ -1249,13 +1249,8 @@ function PlacementGroupCard({
               const isImage = asset.mimeType.startsWith('image/');
               const isVideo = asset.mimeType.startsWith('video/') || asset.name.toLowerCase().endsWith('.mp4') || asset.name.toLowerCase().endsWith('.mov');
 
-              // Build thumbnail URL
-              const lowerName = asset.name.toLowerCase();
-              const isAnimatedImage = asset.mimeType === 'image/gif' ||
-                (asset.mimeType === 'image/webp' && (lowerName.includes('animated') || lowerName.includes('.gif')));
-              const src = isAnimatedImage
-                ? `https://drive.google.com/uc?export=view&id=${asset.fileId}`
-                : `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
+              // All assets (including animated GIFs) go through the file proxy.
+              const src = `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
 
               return (
                 <button
@@ -1503,17 +1498,13 @@ function AssetCard({
   onDownloadAsset?: (assetId: string) => void | Promise<void>;
 }) {
   const isApproved = asset.assetApprovedClient || false;
-  // For animated images (GIF, animated WebP), use Google Drive direct view URL for proper animation
-  // This format works better for animated images than proxying through our API
+  // All files (including animated GIFs / animated WebP) go through our file
+  // proxy. The proxy now streams the response with the correct Content-Type,
+  // and browsers animate GIFs natively from <img src=…>. The previous code
+  // pointed at https://drive.google.com/uc?export=view which requires the
+  // file to be publicly shared and is otherwise rate-limited / deprecated.
   const lowerName = asset.name.toLowerCase();
-  const isAnimatedImage = asset.mimeType === 'image/gif' || 
-    (asset.mimeType === 'image/webp' && (lowerName.includes('animated') || lowerName.includes('.gif'))) ||
-    lowerName.endsWith('.gif');
-  const driveDirectUrl = isAnimatedImage 
-    ? `https://drive.google.com/uc?export=view&id=${asset.fileId}`
-    : null;
-  
-  const src = driveDirectUrl || `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
+  const src = `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
   const isImage = asset.mimeType.startsWith('image/');
   // Detect video by mimeType or file extension (MP4 files might have incorrect mimeType from Drive)
   const isVideo = asset.mimeType.startsWith('video/') || lowerName.endsWith('.mp4') || lowerName.endsWith('.mov') || lowerName.endsWith('.webm') || lowerName.endsWith('.avi');
