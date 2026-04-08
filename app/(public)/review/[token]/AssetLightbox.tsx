@@ -570,6 +570,16 @@ export default function AssetLightbox({
             >
               {approving ? 'Approving…' : asset.assetApprovedClient ? 'Approved' : 'Approve'}
             </button>
+            <a
+              href={`/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}&dl=1`}
+              download={asset.name}
+              className="inline-flex items-center gap-1 rounded-md bg-gray-700 px-3 py-1.5 text-xs font-medium text-gray-200 transition-colors hover:bg-gray-600 hover:text-white"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
+              </svg>
+              Download
+            </a>
             <button
               onClick={() => setShowComments(!showComments)}
               className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
