@@ -677,10 +677,13 @@ export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<bool
     Project: [args.projectId],
     [SOURCE_FOLDER_ID_FIELD]: args.driveFileId,
     Filename: (args.filename ?? '').slice(0, 500),
-    Tactic: args.tactic,
-    Variant: args.variant,
     Status: 'New',
   };
+  // Tactic / Variant are single-select fields. Airtable rejects empty strings
+  // ("" can't be a select option), so only set them when we actually have a
+  // value — otherwise leave the field unset.
+  if (args.tactic && args.tactic.trim()) coreFields.Tactic = args.tactic.trim();
+  if (args.variant && args.variant.trim()) coreFields.Variant = args.variant.trim();
 
   try {
     await osBase(TABLE).create({ ...coreFields, 'Last Activity At': now } as any);

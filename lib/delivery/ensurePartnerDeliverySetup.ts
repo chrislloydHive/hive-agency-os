@@ -178,15 +178,14 @@ interface CreateBatchArgs {
 
 async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
   const base = getBase();
-  const batchId = `auto-${args.projectId}-${Date.now()}`;
-  const name = `${args.projectName} - ${PARTNER_NAME}`;
+  // The Partner Delivery Batches table's primary field is "Batch ID", not
+  // "Name". Use a human-friendly Batch ID so the row label is readable in
+  // the Airtable UI without needing a separate Name field.
+  const batchId = `${args.projectName} - ${PARTNER_NAME}`;
 
-  // Build the field set. Some installs use slightly different field names —
-  // retry without optional fields if Airtable rejects an unknown column.
   const fullFields: Record<string, unknown> = {
-    Name: name,
-    Project: [args.projectId],
     'Batch ID': batchId,
+    Project: [args.projectId],
     Status: 'Active',
     'Vendor Name': PARTNER_NAME,
   };
@@ -209,7 +208,7 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
         msg
       );
       const minimal: Record<string, unknown> = {
-        Name: name,
+        'Batch ID': batchId,
         Project: [args.projectId],
       };
       if (args.destinationFolderId) {
