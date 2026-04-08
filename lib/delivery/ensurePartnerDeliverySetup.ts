@@ -1,45 +1,24 @@
 // lib/delivery/ensurePartnerDeliverySetup.ts
 // One-time, idempotent provisioning for a project's Partner Delivery pipeline.
 //
-// On the first CRAS record for a project we want to be ready to deliver to the
-// partner with no manual Airtable steps. This module:
-//
-//   1. Checks Partner Delivery Batches for an existing batch on the project.
-//   2. If none exists, creates the Drive folder tree
-//        Operations/Partners/Brkthru/{Project Name}/
-//          ├── Display/Prospecting
-//          ├── Display/Retargeting
-//          ├── Video
-//          └── Audio
-//   3. Creates a Partner Delivery Batch record linked to the project with the
-//      newly-created root folder ID.
+// Division of labor:
+//   - This module: create one Partner Delivery Batches row per project, with
+//     `Create Partner Batch = true` to trigger the Airtable automation.
+//   - Airtable automation `Initialize Partner Delivery Batch`: runs a script
+//     that creates the Drive folders, links assets, and sets `Status`.
+//   - Human flips `Make Active` when ready to deliver; `Start Delivery`
+//     automation handles the actual handoff.
 //
 // Safe to call from multiple ingest events at once: an in-process promise lock
-// collapses concurrent calls per projectId so we never double-create a batch.
-// Drive folder creation is also idempotent (ensureChildFolderWithDrive handles
-// races and dedupes by name).
+// collapses concurrent calls per projectId, and `hasAnyBatchForProject` is the
+// authoritative existence check before any write.
 
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
-import {
-  getDriveClient,
-  ensureChildFolderWithDrive,
-  type DriveFolder,
-} from '@/lib/google/driveClient';
 
 const TABLE = AIRTABLE_TABLES.PARTNER_DELIVERY_BATCHES;
 
 const PARTNER_NAME = 'Brkthru';
-
-/**
- * Drive folder under which all partner delivery roots live. Required for
- * folder provisioning; if unset we still create the Airtable batch but skip
- * folder creation (and log).
- *
- * Set this to the Drive ID of the "Operations/Partners/Brkthru" folder, or to
- * the parent that the Operations/Partners/Brkthru chain should hang from.
- */
-const PARTNER_DELIVERY_ROOT_ENV = 'PARTNER_DELIVERY_ROOT_FOLDER_ID';
 
 /** Per-process lock so concurrent ingestions don't race. */
 const inflight = new Map<string, Promise<EnsureDeliverySetupResult>>();
@@ -51,8 +30,7 @@ export interface EnsureDeliverySetupArgs {
 
 export type EnsureDeliverySetupResult =
   | { status: 'exists' }
-  | { status: 'created'; batchRecordId: string; destinationFolderId: string | null }
-  | { status: 'skipped-no-root' }
+  | { status: 'created'; batchRecordId: string }
   | { status: 'error'; error: string };
 
 export async function ensurePartnerDeliverySetup(
@@ -89,32 +67,18 @@ export async function ensurePartnerDeliverySetup(
         return { status: 'error', error: msg };
       }
 
-      console.log('[delivery-init] creating batch');
+      console.log('[delivery-init] creating batch (Create Partner Batch=true → Airtable script will provision folders)');
 
-      // 2) Create the Drive folder tree.
-      let destinationFolderId: string | null = null;
-      try {
-        destinationFolderId = await createPartnerDeliveryFolderTree(
-          args.projectName
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[delivery-init] folder creation failed:', msg);
-        // Continue: we still want the Airtable batch even if folders failed.
-      }
-
-      // 3) Create the Airtable batch record.
+      // Create the Airtable batch row. Setting `Create Partner Batch: true`
+      // triggers the `Initialize Partner Delivery Batch` automation which
+      // runs a script that creates Drive folders and sets Status.
       try {
         const batchRecordId = await createBatchRecord({
           projectId: args.projectId,
           projectName: args.projectName,
-          destinationFolderId,
         });
-        console.log('[delivery-init] batch created', {
-          batchRecordId,
-          destinationFolderId,
-        });
-        return { status: 'created', batchRecordId, destinationFolderId };
+        console.log('[delivery-init] batch created', { batchRecordId });
+        return { status: 'created', batchRecordId };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[delivery-init] batch creation failed:', msg);
@@ -129,49 +93,6 @@ export async function ensurePartnerDeliverySetup(
 
   inflight.set(key, promise);
   return promise;
-}
-
-/**
- * Create (or find) the partner delivery folder tree for a project and return
- * the project root folder ID. Returns null if the partner root env var is
- * unset — caller logs and continues.
- */
-export async function createPartnerDeliveryFolderTree(
-  projectName: string
-): Promise<string | null> {
-  const partnerRootId = process.env[PARTNER_DELIVERY_ROOT_ENV]?.trim();
-  if (!partnerRootId) {
-    console.warn(
-      `[delivery-init] ${PARTNER_DELIVERY_ROOT_ENV} not set — skipping Drive folder creation`
-    );
-    return null;
-  }
-
-  console.log('[delivery-init] creating drive folder', {
-    parent: partnerRootId,
-    partner: PARTNER_NAME,
-    projectName,
-  });
-
-  const oidcToken = process.env.VERCEL_OIDC_TOKEN || undefined;
-  const drive = await getDriveClient({ vercelOidcToken: oidcToken });
-
-  // Project root: Operations/Partners/Brkthru/{Project Name}
-  const projectFolder: DriveFolder = await ensureChildFolderWithDrive(
-    drive,
-    partnerRootId,
-    projectName
-  );
-
-  // Subfolders. Display has Prospecting/Retargeting; Video and Audio are flat.
-  const display = await ensureChildFolderWithDrive(drive, projectFolder.id, 'Display');
-  await ensureChildFolderWithDrive(drive, display.id, 'Prospecting');
-  await ensureChildFolderWithDrive(drive, display.id, 'Retargeting');
-  await ensureChildFolderWithDrive(drive, projectFolder.id, 'Video');
-  await ensureChildFolderWithDrive(drive, projectFolder.id, 'Audio');
-
-  console.log('[delivery-init] folder created:', { folderId: projectFolder.id });
-  return projectFolder.id;
 }
 
 /**
@@ -192,25 +113,23 @@ async function hasAnyBatchForProject(projectId: string): Promise<boolean> {
 interface CreateBatchArgs {
   projectId: string;
   projectName: string;
-  destinationFolderId: string | null;
 }
 
 async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
   const base = getBase();
-  // The Partner Delivery Batches table's primary field is "Batch ID", not
-  // "Name". Use a human-friendly Batch ID so the row label is readable in
-  // the Airtable UI without needing a separate Name field.
+  // Primary field is "Batch ID". Make it human-readable.
   const batchId = `${args.projectName} - ${PARTNER_NAME}`;
 
+  // `Create Partner Batch: true` triggers the Airtable automation
+  // `Initialize Partner Delivery Batch` which runs a script to create the
+  // Drive folders, link eligible CRAS records, and set Status. We do not
+  // set Status or Destination Folder ID — the script owns those.
   const fullFields: Record<string, unknown> = {
     'Batch ID': batchId,
     Project: [args.projectId],
-    Status: 'Active',
     'Vendor Name': PARTNER_NAME,
+    'Create Partner Batch': true,
   };
-  if (args.destinationFolderId) {
-    fullFields['Destination Folder ID'] = args.destinationFolderId;
-  }
 
   try {
     const created = await base(TABLE).create(fullFields as any);
@@ -229,10 +148,8 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
       const minimal: Record<string, unknown> = {
         'Batch ID': batchId,
         Project: [args.projectId],
+        'Create Partner Batch': true,
       };
-      if (args.destinationFolderId) {
-        minimal['Destination Folder ID'] = args.destinationFolderId;
-      }
       const created = await base(TABLE).create(minimal as any);
       return (created as any).id as string;
     }
