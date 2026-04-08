@@ -112,14 +112,20 @@ export async function GET(
   }
 
   // Fetch Drive metadata; reject trashed files so stale CRAS rows can't leak content.
+  // Wrapped in a 15s timeout so a hung Drive call surfaces as 504 instead of
+  // hanging the request indefinitely (which would deadlock the browser tab).
   let mimeType: string;
   let fileName: string;
   try {
-    const fileMeta = await drive.files.get({
-      fileId,
-      fields: 'mimeType, name, trashed',
-      supportsAllDrives: true,
-    });
+    const fileMeta = await withTimeout(
+      drive.files.get({
+        fileId,
+        fields: 'mimeType, name, trashed',
+        supportsAllDrives: true,
+      }),
+      15_000,
+      `drive.files.get meta fileId=${fileId}`
+    );
 
     if (fileMeta.data.trashed) {
       return NextResponse.json({ error: 'File not available' }, { status: 404 });
@@ -129,7 +135,7 @@ export async function GET(
     fileName = fileMeta.data.name || fileId;
   } catch (err: any) {
     console.error('[review/files] Drive metadata error:', err?.message ?? err);
-    return NextResponse.json({ error: 'File not found or access denied' }, { status: 404 });
+    return NextResponse.json({ error: 'File not found or access denied' }, { status: 504 });
   }
 
   // Check if this is a Google Workspace file that needs export
@@ -171,46 +177,71 @@ export async function GET(
     }
   }
 
-  // Stream file content (export for Google Docs, direct download for regular files)
+  // Stream file content directly. Critical:
+  //   1) Forward the Range header so video players get partial content.
+  //   2) Stream straight through without buffering (no Buffer.concat) so we
+  //      don't OOM the serverless function on large videos.
   try {
-    let stream: Readable;
-
     if (isGoogleDoc && exportMimeType) {
-      stream = await exportGoogleWorkspaceFile(drive, fileId, exportMimeType);
-    } else {
-      const res = await drive.files.get(
-        { fileId, alt: 'media', supportsAllDrives: true },
-        { responseType: 'stream' },
-      );
-      stream = res.data as unknown as Readable;
+      // Google Docs export: small enough to buffer, no Range support upstream.
+      const stream = await exportGoogleWorkspaceFile(drive, fileId, exportMimeType);
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const body = Buffer.concat(chunks);
+      const headers: Record<string, string> = {
+        'Content-Type': finalMimeType,
+        'Cache-Control': 'no-store',
+      };
+      const ascii = finalFileName.replace(/[^\x20-\x7E]/g, '_');
+      headers['Content-Disposition'] =
+        `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(finalFileName)}`;
+      return new NextResponse(body, { status: 200, headers });
     }
 
-    const chunks: Buffer[] = [];
-    for await (const chunk of stream) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    const body = Buffer.concat(chunks);
+    // Regular Drive file: pass Range through and stream the response body.
+    const rangeHeader = req.headers.get('range') ?? undefined;
+    const upstream = await drive.files.get(
+      { fileId, alt: 'media', supportsAllDrives: true },
+      {
+        responseType: 'stream',
+        headers: rangeHeader ? { Range: rangeHeader } : undefined,
+      }
+    );
+
+    const upstreamHeaders = upstream.headers as Record<string, string | undefined>;
+    const upstreamStatus = (upstream as { status?: number }).status ?? 200;
 
     const headers: Record<string, string> = {
       'Content-Type': finalMimeType,
       'Cache-Control': 'public, max-age=300',
+      'Accept-Ranges': 'bytes',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+      'Access-Control-Allow-Headers': 'Range',
     };
 
-    // Add CORS headers for video files to allow VideoWithThumbnail component to load them
-    if (finalMimeType.startsWith('video/') || fileName.toLowerCase().endsWith('.mp4') || fileName.toLowerCase().endsWith('.mov') || fileName.toLowerCase().endsWith('.webm')) {
-      headers['Access-Control-Allow-Origin'] = '*';
-      headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS';
-      headers['Access-Control-Allow-Headers'] = 'Range';
-      headers['Accept-Ranges'] = 'bytes';
+    // Forward content length / range from upstream when present.
+    if (upstreamHeaders['content-length']) {
+      headers['Content-Length'] = upstreamHeaders['content-length'] as string;
+    }
+    if (upstreamHeaders['content-range']) {
+      headers['Content-Range'] = upstreamHeaders['content-range'] as string;
     }
 
-    if (download || isGoogleDoc) {
+    if (download) {
       const ascii = finalFileName.replace(/[^\x20-\x7E]/g, '_');
       headers['Content-Disposition'] =
         `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(finalFileName)}`;
     }
 
-    return new NextResponse(body, { status: 200, headers });
+    // Convert the Node Readable stream to a Web ReadableStream so we can hand
+    // it directly to NextResponse without buffering.
+    const nodeStream = upstream.data as unknown as Readable;
+    const webStream = nodeReadableToWebStream(nodeStream);
+
+    return new Response(webStream, { status: upstreamStatus, headers });
   } catch (err: any) {
     console.error('[review/files] Drive stream/export error:', err?.message ?? err);
     const errorMsg = isGoogleDoc
@@ -218,4 +249,36 @@ export async function GET(
       : 'Failed to fetch file';
     return NextResponse.json({ error: errorMsg }, { status: 500 });
   }
+}
+
+/* ----------------------------- helpers ----------------------------- */
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(
+      () => reject(new Error(`[timeout] ${label} exceeded ${ms}ms`)),
+      ms
+    );
+    p.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); }
+    );
+  });
+}
+
+function nodeReadableToWebStream(node: Readable): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      node.on('data', (chunk: Buffer | string) => {
+        controller.enqueue(
+          typeof chunk === 'string' ? new TextEncoder().encode(chunk) : new Uint8Array(chunk)
+        );
+      });
+      node.on('end', () => controller.close());
+      node.on('error', (err) => controller.error(err));
+    },
+    cancel() {
+      node.destroy();
+    },
+  });
 }
