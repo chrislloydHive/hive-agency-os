@@ -19,6 +19,7 @@ import {
   ingestFilesToCras,
   type IngestFileInput,
 } from '@/lib/review/ingestFileToCras';
+import { ensurePartnerDeliverySetup } from '@/lib/delivery/ensurePartnerDeliverySetup';
 
 const CRON_SCHEDULE = '*/5 * * * *';
 
@@ -297,6 +298,26 @@ export const ingestCreativeFilesScheduled = inngest.createFunction(
           `[ingest-cron] step ${stepId} threw: ${msg}`
         );
         totalErrors++;
+      }
+
+      // Self-healing partner delivery provisioning. The original hook in
+      // ingestFileToCras only fires on the FIRST CRAS row for a project, so
+      // projects whose CRAS records pre-date that hook never get provisioned.
+      // ensurePartnerDeliverySetup is idempotent (existing-batch check), so
+      // running it every tick is a no-op for already-provisioned projects and
+      // backfills any that are missing.
+      try {
+        await step.run(`ensure-delivery-${project.projectId}`, async () => {
+          return await ensurePartnerDeliverySetup({
+            projectId: project.projectId,
+            projectName: project.projectName,
+          });
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[ingest-cron] ensurePartnerDeliverySetup failed for ${project.projectName}: ${msg}`
+        );
       }
     }
 
