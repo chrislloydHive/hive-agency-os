@@ -120,20 +120,23 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
   // Primary field is "Batch ID". Make it human-readable.
   const batchId = `${args.projectName} - ${PARTNER_NAME}`;
 
-  // `Create Partner Batch: true` triggers the Airtable automation
-  // `Initialize Partner Delivery Batch` which runs a script to create the
-  // Drive folders, link eligible CRAS records, and set Status. We do not
-  // set Status or Destination Folder ID — the script owns those.
-  const fullFields: Record<string, unknown> = {
+  // CRITICAL: Airtable's "When record matches conditions" trigger does NOT
+  // fire on records that already match at creation time — only on records
+  // that TRANSITION from not-matching to matching. So we must create the row
+  // first with Create Partner Batch = false, then update it to true in a
+  // second call. The update is the transition the Initialize Partner Delivery
+  // Batch automation watches for.
+  const createFields: Record<string, unknown> = {
     'Batch ID': batchId,
     Project: [args.projectId],
     'Vendor Name': PARTNER_NAME,
-    'Create Partner Batch': true,
+    'Create Partner Batch': false,
   };
 
+  let recordId: string;
   try {
-    const created = await base(TABLE).create(fullFields as any);
-    return (created as any).id as string;
+    const created = await base(TABLE).create(createFields as any);
+    recordId = (created as any).id as string;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (
@@ -148,11 +151,30 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
       const minimal: Record<string, unknown> = {
         'Batch ID': batchId,
         Project: [args.projectId],
-        'Create Partner Batch': true,
+        'Create Partner Batch': false,
       };
       const created = await base(TABLE).create(minimal as any);
-      return (created as any).id as string;
+      recordId = (created as any).id as string;
+    } else {
+      throw err;
     }
-    throw err;
   }
+
+  // Second write: flip Create Partner Batch to true. THIS is what fires the
+  // Initialize Partner Delivery Batch automation in Airtable.
+  try {
+    await base(TABLE).update(recordId, {
+      'Create Partner Batch': true,
+    } as any);
+    console.log('[delivery-init] flipped Create Partner Batch to true', { recordId });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(
+      '[delivery-init] failed to flip Create Partner Batch (folders will not provision):',
+      msg
+    );
+    // Don't throw — the row exists, you can flip the checkbox manually.
+  }
+
+  return recordId;
 }
