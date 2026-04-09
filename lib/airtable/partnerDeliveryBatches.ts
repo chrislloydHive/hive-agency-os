@@ -407,6 +407,55 @@ export async function getDeliveryContextByProjectId(
   return details;
 }
 
+/**
+ * Get the project name for a batch by resolving its linked Project record.
+ * Reads the batch's "Project" link field, then fetches the Project record's "Name".
+ * Returns null if no project is linked or the name cannot be resolved.
+ */
+export async function getProjectNameByBatchRecordId(
+  batchRecordId: string
+): Promise<string | null> {
+  const id = String(batchRecordId).trim();
+  if (!id) return null;
+
+  const base = getBase();
+  try {
+    const record = await base(TABLE).find(id);
+    const f = record.fields as Record<string, unknown>;
+
+    // Project is a linked record field (array of record IDs)
+    const projectLinks = f[BATCH_PROJECT_LINK_FIELD];
+    let projectRecordId: string | null = null;
+    if (Array.isArray(projectLinks) && projectLinks.length > 0 && typeof projectLinks[0] === 'string') {
+      projectRecordId = projectLinks[0];
+    } else if (typeof projectLinks === 'string' && (projectLinks as string).startsWith('rec')) {
+      projectRecordId = projectLinks;
+    }
+
+    if (!projectRecordId) {
+      console.warn(`[delivery/batch] No Project linked to batch ${batchRecordId}`);
+      return null;
+    }
+
+    // Fetch the project record to get its Name
+    const projectRecord = await base(AIRTABLE_TABLES.PROJECTS).find(projectRecordId);
+    const projectName = typeof projectRecord.fields['Name'] === 'string'
+      ? (projectRecord.fields['Name'] as string).trim()
+      : null;
+
+    console.log(`[delivery/batch] Resolved project name for batch ${batchRecordId}:`, {
+      projectRecordId,
+      projectName,
+    });
+
+    return projectName;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[delivery/batch] Failed to get project name for batch ${batchRecordId}:`, msg);
+    return null;
+  }
+}
+
 export interface DeliveryResultPayload {
   deliveredFolderId: string;
   deliveredFolderUrl: string;

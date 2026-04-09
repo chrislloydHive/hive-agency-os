@@ -394,24 +394,43 @@ export async function runPartnerDelivery(
     return fail(`Failed to resolve source hierarchy: ${message}`, 400, true, authMode);
   }
 
-  // Resolve destination subfolder path: {Destination Root}/{Tactic}/{Variant}
+  // Resolve destination subfolder path: {Destination Root}/{Project Name}/{Tactic}/{Variant}
   // Mirror source folder structure exactly using verbatim folder names from Drive
   let effectiveDestinationFolderId = destinationFolderId;
+  let resolvedProjectFolderId: string | null = null;
   let resolvedTacticFolderId: string | null = null;
   let resolvedVariantFolderId: string | null = null;
-  
+
+  // Create or reuse project folder under destination root (if projectName is provided)
+  let tacticParentFolderId = destinationFolderId;
+  if (projectName) {
+    const projectFolderName = projectName.trim();
+    console.log(`[delivery/partner] ${requestId} Resolving PROJECT folder: "${projectFolderName}" under destination root ${destinationFolderId}`);
+    try {
+      const projectFolder = await ensureChildFolderWithDrive(drive, destinationFolderId, projectFolderName);
+      resolvedProjectFolderId = projectFolder.id;
+      tacticParentFolderId = resolvedProjectFolderId;
+      console.log(`[delivery/partner] ${requestId} Ensured PROJECT folder: "${projectFolderName}" (id: ${resolvedProjectFolderId})`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[delivery/partner] ${requestId} Failed to create project folder:`, { error: msg, projectName: projectFolderName });
+      console.warn(`[delivery/partner] ${requestId} Using destination root as fallback (no project folder)`);
+    }
+  } else {
+    console.warn(`[delivery/partner] ${requestId} No projectName provided - tactic folder will be created directly under destination root`);
+  }
+
   if (tacticName) {
     // Use verbatim tactic name from Drive (no normalization)
     const tacticFolderName = tacticName.trim();
-    console.log(`[delivery/partner] ${requestId} Resolving destination subfolder path (mirroring source): ${tacticFolderName}${variantName ? `/${variantName.trim()}` : ''} under destination root ${destinationFolderId}`);
-    
+    console.log(`[delivery/partner] ${requestId} Resolving destination subfolder path (mirroring source): ${projectName ? `${projectName.trim()}/` : ''}${tacticFolderName}${variantName ? `/${variantName.trim()}` : ''} under destination root ${destinationFolderId}`);
+
     try {
-      // Resolve tactic folder first (find or create) - use idempotent ensureChildFolderWithDrive to avoid race conditions
-      // This handles concurrent deliveries trying to create the same folder
-      const tacticFolder = await ensureChildFolderWithDrive(drive, destinationFolderId, tacticFolderName);
+      // Resolve tactic folder under project folder (or destination root if no project)
+      const tacticFolder = await ensureChildFolderWithDrive(drive, tacticParentFolderId, tacticFolderName);
       resolvedTacticFolderId = tacticFolder.id;
-      console.log(`[delivery/partner] ${requestId} Ensured TACTIC folder: "${tacticFolderName}" (id: ${resolvedTacticFolderId})`);
-      
+      console.log(`[delivery/partner] ${requestId} Ensured TACTIC folder: "${tacticFolderName}" (id: ${resolvedTacticFolderId}) under parent ${tacticParentFolderId}`);
+
       // Resolve variant folder if provided - use idempotent ensureChildFolderWithDrive to avoid race conditions
       if (variantName && resolvedTacticFolderId) {
         const variantFolderName = variantName.trim();
@@ -422,15 +441,16 @@ export async function runPartnerDelivery(
       } else {
         effectiveDestinationFolderId = resolvedTacticFolderId;
       }
-      
+
       console.log(`[delivery/partner] ${requestId} FINAL DESTINATION FOLDER:`, {
         destinationRoot: destinationFolderId,
+        projectFolder: projectName?.trim() || 'none',
         tacticFolder: tacticFolderName,
         variantFolder: variantName?.trim() || 'none',
         variantName: variantName || 'none',
         finalDestinationId: effectiveDestinationFolderId,
         finalDestinationUrl: folderUrl(effectiveDestinationFolderId),
-        path: `${tacticFolderName}${variantName ? `/${variantName.trim()}` : ''}`,
+        path: `${projectName ? `${projectName.trim()}/` : ''}${tacticFolderName}${variantName ? `/${variantName.trim()}` : ''}`,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -441,11 +461,22 @@ export async function runPartnerDelivery(
         destinationRoot: destinationFolderId,
         stack: e instanceof Error ? e.stack : undefined,
       });
-      // Continue with root destination as fallback
-      console.warn(`[delivery/partner] ${requestId} Using root destination as fallback: ${destinationFolderId}`);
+      // Continue with project folder (or root) as fallback
+      if (resolvedProjectFolderId) {
+        effectiveDestinationFolderId = resolvedProjectFolderId;
+        console.warn(`[delivery/partner] ${requestId} Using project folder as fallback: ${resolvedProjectFolderId}`);
+      } else {
+        console.warn(`[delivery/partner] ${requestId} Using root destination as fallback: ${destinationFolderId}`);
+      }
     }
   } else {
-    console.warn(`[delivery/partner] ${requestId} WARNING: Could not derive Tactic from source Drive hierarchy. Files will be delivered to root destination: ${destinationFolderId}`);
+    // No tactic derived — use project folder if available, otherwise root
+    if (resolvedProjectFolderId) {
+      effectiveDestinationFolderId = resolvedProjectFolderId;
+      console.warn(`[delivery/partner] ${requestId} WARNING: Could not derive Tactic from source Drive hierarchy. Files will be delivered to project folder: ${resolvedProjectFolderId}`);
+    } else {
+      console.warn(`[delivery/partner] ${requestId} WARNING: Could not derive Tactic from source Drive hierarchy. Files will be delivered to root destination: ${destinationFolderId}`);
+    }
   }
 
   // Log source resolution details

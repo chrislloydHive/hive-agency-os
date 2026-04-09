@@ -16,6 +16,7 @@ import {
   getBatchDetailsByRecordId,
   getBatchDetails,
   listBatchesByProjectId,
+  getProjectNameByBatchRecordId,
 } from '@/lib/airtable/partnerDeliveryBatches';
 import {
   getDriveClient,
@@ -312,11 +313,18 @@ export const partnerDeliveryRequested = inngest.createFunction(
         const destinationFolderId = destinationResult.destinationFolderId;
         const batchRecordId = destinationResult.batchRecordId;
 
+        // Resolve project name from batch's linked Project record
+        let projectName: string | null = null;
+        if (batchRecordId) {
+          projectName = await getProjectNameByBatchRecordId(batchRecordId);
+        }
+
         // Log resolved destination folder
         console.log(`[delivery/destination] RESOLVED`, {
           destinationFolderId,
           batchRecordId,
           batchId: deliveryBatchIdRaw,
+          projectName,
           destinationFolderUrl: `https://drive.google.com/drive/folders/${destinationFolderId}`,
         });
 
@@ -363,6 +371,7 @@ export const partnerDeliveryRequested = inngest.createFunction(
             deliveryBatchId: deliveryBatchIdRaw,
             destinationFolderId,
             dryRun: false,
+            projectName: projectName ?? undefined,
             oidcToken: process.env.VERCEL_OIDC_TOKEN ?? undefined,
           },
           requestId || `event-${crasRecordId.slice(-8)}`
