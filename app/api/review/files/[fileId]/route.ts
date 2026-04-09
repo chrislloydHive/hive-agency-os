@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { getCrasRecordIdByTokenAndFileId } from '@/lib/airtable/reviewAssetStatus';
+import { getDriveClient } from '@/lib/google/driveClient';
 import {
   isGoogleWorkspaceFile,
   getDefaultExportFormat,
@@ -101,7 +102,8 @@ export async function GET(
   }
 
   const { auth } = resolved;
-  const drive = google.drive({ version: 'v3', auth });
+  let drive = google.drive({ version: 'v3', auth });
+  let usingFallback = false;
 
   const download = req.nextUrl.searchParams.get('dl') === '1';
 
@@ -111,31 +113,63 @@ export async function GET(
     return NextResponse.json({ error: 'File not found for this review' }, { status: 403 });
   }
 
-  // Fetch Drive metadata; reject trashed files so stale CRAS rows can't leak content.
-  // Wrapped in a 15s timeout so a hung Drive call surfaces as 504 instead of
-  // hanging the request indefinitely (which would deadlock the browser tab).
+  // Fetch Drive metadata. The portal proxy uses per-company OAuth, but the
+  // ingest cron uses the service account / WIF identity. Some files (typically
+  // those uploaded directly to a shared drive by a partner) are visible to the
+  // service account but NOT the per-company OAuth — Drive returns 404 for them.
+  // To fix that without breaking files OAuth can see, fall back to the service
+  // account when OAuth gets 404. The CRAS auth check above is the real
+  // authorization gate, so swapping the Drive identity doesn't relax security.
   let mimeType: string;
   let fileName: string;
   try {
-    const fileMeta = await withTimeout(
-      drive.files.get({
-        fileId,
-        fields: 'mimeType, name, trashed',
-        supportsAllDrives: true,
-      }),
-      15_000,
-      `drive.files.get meta fileId=${fileId}`
-    );
-
+    const fileMeta = await fetchMetaWithFallback();
     if (fileMeta.data.trashed) {
       return NextResponse.json({ error: 'File not available' }, { status: 404 });
     }
-
     mimeType = fileMeta.data.mimeType || 'application/octet-stream';
     fileName = fileMeta.data.name || fileId;
   } catch (err: any) {
     console.error('[review/files] Drive metadata error:', err?.message ?? err);
     return NextResponse.json({ error: 'File not found or access denied' }, { status: 504 });
+  }
+
+  async function fetchMetaWithFallback() {
+    try {
+      return await withTimeout(
+        drive.files.get({
+          fileId,
+          fields: 'mimeType, name, trashed',
+          supportsAllDrives: true,
+        }),
+        15_000,
+        `drive.files.get meta fileId=${fileId}`
+      );
+    } catch (err: any) {
+      const code = err?.code ?? err?.response?.status;
+      if (code === 404 || code === 403) {
+        console.warn(
+          `[review/files] OAuth got ${code} for ${fileId}; retrying with service account`
+        );
+        const oidcToken = process.env.VERCEL_OIDC_TOKEN || undefined;
+        const saDrive = await getDriveClient({ vercelOidcToken: oidcToken });
+        const meta = await withTimeout(
+          saDrive.files.get({
+            fileId,
+            fields: 'mimeType, name, trashed',
+            supportsAllDrives: true,
+          }),
+          15_000,
+          `drive.files.get meta(SA) fileId=${fileId}`
+        );
+        // Switch the active drive client to the service account so the
+        // subsequent body fetch also uses it.
+        drive = saDrive;
+        usingFallback = true;
+        return meta;
+      }
+      throw err;
+    }
   }
 
   // Check if this is a Google Workspace file that needs export
