@@ -24,6 +24,8 @@ import {
 import type { Readable } from 'stream';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 // Basic rate limiting: track requests per IP per minute
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
