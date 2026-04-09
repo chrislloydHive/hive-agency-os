@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { getCrasRecordIdByTokenAndFileId } from '@/lib/airtable/reviewAssetStatus';
-import { getDriveClient } from '@/lib/google/driveClient';
+import { getDriveClient, getDriveClientWithServiceAccount } from '@/lib/google/driveClient';
 import {
   isGoogleWorkspaceFile,
   getDefaultExportFormat,
@@ -151,8 +151,7 @@ export async function GET(
         console.warn(
           `[review/files] OAuth got ${code} for ${fileId}; retrying with service account`
         );
-        const oidcToken = process.env.VERCEL_OIDC_TOKEN || undefined;
-        const saDrive = await getDriveClient({ vercelOidcToken: oidcToken });
+        const saDrive = getDriveClientWithServiceAccount();
         const meta = await withTimeout(
           saDrive.files.get({
             fileId,
@@ -258,8 +257,7 @@ export async function GET(
         `[review/files] body fetch returned ${upstreamStatus} for ${fileId}; retrying body with service account`
       );
       try {
-        const oidcToken = process.env.VERCEL_OIDC_TOKEN || undefined;
-        const saDrive = await getDriveClient({ vercelOidcToken: oidcToken });
+        const saDrive = getDriveClientWithServiceAccount();
         upstream = await saDrive.files.get(
           { fileId, alt: 'media', supportsAllDrives: true },
           {
