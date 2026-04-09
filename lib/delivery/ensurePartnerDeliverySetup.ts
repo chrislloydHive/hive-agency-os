@@ -123,10 +123,47 @@ interface CreateBatchArgs {
   projectName: string;
 }
 
+/**
+ * Cached lookup of the Brkthru company record ID. The Airtable
+ * `Initialize Partner Delivery Batch` script reads the Partner linked field
+ * to determine which partner the batch is for; without it the script throws
+ * "Could not determine Partner". We resolve it once per process and reuse.
+ */
+let brkthruCompanyIdCache: string | null = null;
+
+async function getBrkthruCompanyId(): Promise<string | null> {
+  if (brkthruCompanyIdCache) return brkthruCompanyIdCache;
+  try {
+    const base = getBase();
+    const records = await base('Companies')
+      .select({
+        filterByFormula: `LOWER({Name}) = "${PARTNER_NAME.toLowerCase()}"`,
+        maxRecords: 1,
+      })
+      .firstPage();
+    if (records.length === 0) {
+      console.warn(
+        `[delivery-init] no Companies row found for Name="${PARTNER_NAME}"`
+      );
+      return null;
+    }
+    brkthruCompanyIdCache = (records[0] as { id: string }).id;
+    return brkthruCompanyIdCache;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn('[delivery-init] Brkthru lookup failed:', msg);
+    return null;
+  }
+}
+
 async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
   const base = getBase();
   // Primary field is "Batch ID". Make it human-readable.
   const batchId = `${args.projectName} - ${PARTNER_NAME}`;
+
+  // Look up the Brkthru company so we can populate the Partner linked field.
+  // The Initialize Partner Delivery Batch script in Airtable requires it.
+  const partnerCompanyId = await getBrkthruCompanyId();
 
   // CRITICAL: Airtable's "When record matches conditions" trigger does NOT
   // fire on records that already match at creation time — only on records
@@ -134,12 +171,18 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
   // first with Create Partner Batch = false, then update it to true in a
   // second call. The update is the transition the Initialize Partner Delivery
   // Batch automation watches for.
+  // Note: don't set Vendor Name — the Partner Delivery Batches table in this
+  // base doesn't have that field, and including it forces a UNKNOWN_FIELD
+  // retry on every create. The partner identity is encoded in the Batch ID
+  // ("{Project Name} - Brkthru") which is enough.
   const createFields: Record<string, unknown> = {
     'Batch ID': batchId,
     Project: [args.projectId],
-    'Vendor Name': PARTNER_NAME,
     'Create Partner Batch': false,
   };
+  if (partnerCompanyId) {
+    createFields.Partner = [partnerCompanyId];
+  }
 
   let recordId: string;
   try {
@@ -161,6 +204,9 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
         Project: [args.projectId],
         'Create Partner Batch': false,
       };
+      if (partnerCompanyId) {
+        minimal.Partner = [partnerCompanyId];
+      }
       const created = await base(TABLE).create(minimal as any);
       recordId = (created as any).id as string;
     } else {
