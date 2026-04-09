@@ -47,14 +47,22 @@ export async function ensurePartnerDeliverySetup(
         projectId: args.projectId,
       });
 
-      // 1) Skip if ANY batch row exists for this project. Use a direct count
-      // query — do NOT rely on listBatchesByProjectId, which filters out rows
-      // with an empty Destination Folder ID and would let us create duplicates
-      // every tick when folder provisioning is failing.
+      // 1) Skip if a batch row already exists for this project. Look up by
+      // Batch ID (the primary field) — we set it deterministically below to
+      // "{Project Name} - Brkthru". A primary-field lookup is fast and
+      // reliable.
+      //
+      // DO NOT try to filter on the {Project} linked field — Airtable's
+      // ARRAYJOIN({Project}) returns the linked records' primary-field values
+      // (project names), not record IDs, so FIND("rec...", ARRAYJOIN(...))
+      // never matches and you get unbounded duplicate creation.
+      const expectedBatchId = `${args.projectName} - ${PARTNER_NAME}`;
       try {
-        const exists = await hasAnyBatchForProject(args.projectId);
+        const exists = await hasBatchWithBatchId(expectedBatchId);
         if (exists) {
-          console.log('[delivery-init] batch exists — skipping');
+          console.log('[delivery-init] batch exists — skipping', {
+            batchId: expectedBatchId,
+          });
           return { status: 'exists' };
         }
       } catch (err) {
@@ -96,16 +104,16 @@ export async function ensurePartnerDeliverySetup(
 }
 
 /**
- * Direct existence check: returns true if ANY row in Partner Delivery Batches
- * is linked to the given project, regardless of whether other fields are set.
- * Bypasses the field-validation filter in listBatchesByProjectId.
+ * Returns true if a row already exists in Partner Delivery Batches with the
+ * given Batch ID. Uses the table's primary field, so the lookup is fast and
+ * always works regardless of other fields' state.
  */
-async function hasAnyBatchForProject(projectId: string): Promise<boolean> {
+async function hasBatchWithBatchId(batchId: string): Promise<boolean> {
   const base = getBase();
-  const escaped = projectId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  const formula = `FIND("${escaped}", ARRAYJOIN({Project})) > 0`;
+  const escaped = batchId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const formula = `{Batch ID} = "${escaped}"`;
   const records = await base(TABLE)
-    .select({ filterByFormula: formula, maxRecords: 1, fields: [] })
+    .select({ filterByFormula: formula, maxRecords: 1 })
     .firstPage();
   return records.length > 0;
 }
