@@ -235,17 +235,63 @@ export async function GET(
     }
 
     // Regular Drive file: pass Range through and stream the response body.
+    // Drive sometimes allows metadata access via OAuth but denies content
+    // download (returns 404/403 on the body fetch). When that happens, fall
+    // back to the service account / WIF identity that the cron uses.
     const rangeHeader = req.headers.get('range') ?? undefined;
-    const upstream = await drive.files.get(
+    let upstream = await drive.files.get(
       { fileId, alt: 'media', supportsAllDrives: true },
       {
         responseType: 'stream',
         headers: rangeHeader ? { Range: rangeHeader } : undefined,
-      }
+        validateStatus: () => true,
+      } as any
     );
 
+    let upstreamStatus =
+      (upstream as { status?: number }).status ?? 200;
+    if (
+      !usingFallback &&
+      (upstreamStatus === 404 || upstreamStatus === 403)
+    ) {
+      console.warn(
+        `[review/files] body fetch returned ${upstreamStatus} for ${fileId}; retrying body with service account`
+      );
+      try {
+        const oidcToken = process.env.VERCEL_OIDC_TOKEN || undefined;
+        const saDrive = await getDriveClient({ vercelOidcToken: oidcToken });
+        upstream = await saDrive.files.get(
+          { fileId, alt: 'media', supportsAllDrives: true },
+          {
+            responseType: 'stream',
+            headers: rangeHeader ? { Range: rangeHeader } : undefined,
+            validateStatus: () => true,
+          } as any
+        );
+        upstreamStatus = (upstream as { status?: number }).status ?? 200;
+        usingFallback = true;
+        console.log(
+          `[review/files] body fetch via service account returned ${upstreamStatus} for ${fileId}`
+        );
+      } catch (saErr: any) {
+        console.error(
+          '[review/files] service account body fetch threw:',
+          saErr?.message ?? saErr
+        );
+      }
+    }
+
+    if (upstreamStatus >= 400) {
+      console.error(
+        `[review/files] giving up; final upstream status ${upstreamStatus} for ${fileId}`
+      );
+      return NextResponse.json(
+        { error: 'File not accessible' },
+        { status: upstreamStatus === 404 ? 404 : 502 }
+      );
+    }
+
     const upstreamHeaders = upstream.headers as Record<string, string | undefined>;
-    const upstreamStatus = (upstream as { status?: number }).status ?? 200;
 
     const headers: Record<string, string> = {
       'Content-Type': finalMimeType,
