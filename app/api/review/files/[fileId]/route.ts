@@ -127,7 +127,12 @@ export async function GET(
   // user couldn't see.
   let drive: drive_v3.Drive;
   try {
-    const oidcToken = process.env.VERCEL_OIDC_TOKEN || undefined;
+    // Vercel OIDC token comes from the per-request header, not env. Fall back
+    // to env for local dev where the header isn't injected.
+    const oidcToken =
+      req.headers.get('x-vercel-oidc-token')?.trim() ||
+      process.env.VERCEL_OIDC_TOKEN ||
+      undefined;
     drive = await getDriveClient({ vercelOidcToken: oidcToken });
   } catch (err: any) {
     console.error('[review/files] failed to build SA drive client:', err?.message ?? err);
