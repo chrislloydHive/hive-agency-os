@@ -17,7 +17,6 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const raw = url.searchParams.get("tasks");
-    const wantDownload = url.searchParams.get("download") === "1";
 
     if (!raw) {
       return new Response("Missing tasks param", {
@@ -28,51 +27,25 @@ export async function GET(request: Request) {
 
     let tasks: TaskInput[];
     try {
-      // searchParams.get already URL-decodes once. Some callers pass a
-      // double-encoded value, so try a second decode if the first parse fails.
-      let candidate = raw;
       try {
-        tasks = JSON.parse(candidate) as TaskInput[];
+        tasks = JSON.parse(raw) as TaskInput[];
       } catch {
-        candidate = decodeURIComponent(raw);
-        tasks = JSON.parse(candidate) as TaskInput[];
+        tasks = JSON.parse(decodeURIComponent(raw)) as TaskInput[];
       }
-      if (!Array.isArray(tasks)) {
-        return new Response("tasks must be a JSON array", {
-          status: 400,
-          headers: { "Content-Type": "text/plain" },
-        });
-      }
+      if (!Array.isArray(tasks)) throw new Error("not an array");
     } catch {
-      return new Response("Invalid tasks payload (not JSON)", {
+      return new Response("Invalid tasks payload", {
         status: 400,
         headers: { "Content-Type": "text/plain" },
       });
     }
 
-    // ?download=1 → serve raw .ics as a forced download. This is what the
-    // landing-page button hits; double-clicking the downloaded file on macOS
-    // opens Reminders (because each component is a VTODO).
-    if (wantDownload) {
-      const ics = buildIcs(tasks);
-      return new Response(ics, {
-        status: 200,
-        headers: {
-          "Content-Type": "text/calendar; charset=utf-8",
-          "Content-Disposition": 'attachment; filename="tasks.ics"',
-          "Cache-Control": "no-store",
-        },
-      });
-    }
-
-    // Default: HTML landing page with a Download button + plain task list.
-    // Browsers don't auto-route inline text/calendar to Reminders, so we need
-    // an explicit user action.
-    const html = renderLandingHtml(tasks, url);
-    return new Response(html, {
+    const ics = buildIcs(tasks);
+    return new Response(ics, {
       status: 200,
       headers: {
-        "Content-Type": "text/html; charset=utf-8",
+        "Content-Type": "text/calendar; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="tasks.ics"',
         "Cache-Control": "no-store",
       },
     });
@@ -84,73 +57,6 @@ export async function GET(request: Request) {
       headers: { "Content-Type": "text/plain" },
     });
   }
-}
-
-/* ----------------------------- HTML landing ----------------------------- */
-
-function renderLandingHtml(tasks: TaskInput[], requestUrl: URL): string {
-  const downloadHref =
-    requestUrl.pathname +
-    "?" +
-    new URLSearchParams({
-      tasks: requestUrl.searchParams.get("tasks") ?? "",
-      download: "1",
-    }).toString();
-
-  const items = tasks
-    .map((t) => {
-      const title = typeof t.title === "string" ? escapeHtml(t.title) : "(untitled)";
-      const due = typeof t.due === "string" && t.due ? escapeHtml(t.due) : "";
-      const ctx = typeof t.context === "string" && t.context ? escapeHtml(t.context) : "";
-      return `
-        <li>
-          <div class="title">${title}</div>
-          ${due ? `<div class="meta">Due: ${due}</div>` : ""}
-          ${ctx ? `<div class="ctx">${ctx}</div>` : ""}
-        </li>`;
-    })
-    .join("");
-
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Send to Reminders — Hive OS</title>
-<style>
-  :root { color-scheme: light dark; }
-  body { font: 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
-  h1 { font-size: 1.4rem; margin: 0 0 1rem; }
-  .btn { display: inline-block; background: #0a84ff; color: #fff; text-decoration: none; padding: .8rem 1.2rem; border-radius: .6rem; font-weight: 600; }
-  .btn:active { opacity: .85; }
-  .note { font-size: .9rem; opacity: .7; margin-top: 1rem; }
-  ul { list-style: none; padding: 0; margin: 1.5rem 0; }
-  li { padding: .8rem 0; border-bottom: 1px solid rgba(127,127,127,.25); }
-  .title { font-weight: 600; }
-  .meta { font-size: .85rem; opacity: .7; margin-top: .15rem; }
-  .ctx { font-size: .9rem; opacity: .85; margin-top: .25rem; }
-</style>
-</head>
-<body>
-  <h1>Send to Apple Reminders</h1>
-  <p>${tasks.length} task${tasks.length === 1 ? "" : "s"} ready to import.</p>
-  <p><a class="btn" href="${escapeHtml(downloadHref)}" download="tasks.ics">Download tasks.ics</a></p>
-  <p class="note">
-    <strong>Mac:</strong> open the downloaded file — Reminders will import the VTODOs automatically.<br/>
-    <strong>iPhone:</strong> Safari can't hand .ics files off to Reminders directly. Email <code>tasks.ics</code> to yourself; tapping the attachment in Mail will open the Reminders import sheet.
-  </p>
-  <ul>${items}</ul>
-</body>
-</html>`;
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 /* ----------------------------- iCal builders ----------------------------- */
