@@ -55,16 +55,23 @@ export async function getProjectsByCreativeReviewHubFolderId(): Promise<
   const map = new Map<string, ProjectFolderMapping>();
   let skipped = 0;
 
-  // Use the exact Airtable field name only — aliasing here causes
-  // INVALID_FILTER_BY_FORMULA against fields that don't exist on the table.
-  const filterFormula = `{Creative Review Hub Folder ID} != ""`;
+  // Use NOT(... = BLANK()) instead of != "" so the filter works regardless of
+  // whether Creative Review Hub Folder ID is a plain text field, a formula
+  // field, a lookup, or any other Airtable field type. != "" only works
+  // reliably for text fields.
+  const filterFormula = `NOT({Creative Review Hub Folder ID} = BLANK())`;
 
   try {
+    console.log(
+      `[projectFolderMap] querying table=${PROJECTS_TABLE} formula=${filterFormula}`
+    );
     const records = await base(PROJECTS_TABLE)
       .select({ filterByFormula: filterFormula })
       .all();
 
-    console.log('[projectFolderMap] loaded projects:', records.length);
+    console.log(
+      `[projectFolderMap] query returned ${records.length} record(s) from table=${PROJECTS_TABLE}`
+    );
 
     for (const record of records) {
       const fields = record.fields as Record<string, unknown>;
