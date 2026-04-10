@@ -295,7 +295,7 @@ export async function GET(
     }
 
     // Buffer the full body so we can set Content-Length accurately.
-    const body = Buffer.from(upstream.data as ArrayBuffer);
+    const body = Buffer.from(upstream.data as unknown as ArrayBuffer);
 
     const headers: Record<string, string> = {
       'Content-Type': finalMimeType,
