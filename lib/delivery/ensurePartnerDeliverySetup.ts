@@ -15,10 +15,17 @@
 
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
+import {
+  getDriveClientWithServiceAccount,
+  ensureChildFolderWithDrive,
+} from '@/lib/google/driveClient';
 
 const TABLE = AIRTABLE_TABLES.PARTNER_DELIVERY_BATCHES;
 
 const PARTNER_NAME = 'Brkthru';
+
+/** Parent folder in Drive: Operations/Partners/Brkthru */
+const BRKTHRU_PARENT_FOLDER_ID = '1jlxinp9VsGNMajmC-o8YLhzDVIOch7Md';
 
 /** Per-process lock so concurrent ingestions don't race. */
 const inflight = new Map<string, Promise<EnsureDeliverySetupResult>>();
@@ -228,6 +235,32 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
       msg
     );
     // Don't throw — the row exists, you can flip the checkbox manually.
+  }
+
+  // Provision the Drive destination folder under Brkthru parent and write
+  // the folder ID back to the batch row so delivery knows where to copy.
+  try {
+    const drive = getDriveClientWithServiceAccount();
+    const folder = await ensureChildFolderWithDrive(
+      drive,
+      BRKTHRU_PARENT_FOLDER_ID,
+      args.projectName
+    );
+    await base(TABLE).update(recordId, {
+      'Destination Folder ID': folder.id,
+    } as any);
+    console.log('[delivery-init] provisioned destination folder', {
+      recordId,
+      folderId: folder.id,
+      folderName: args.projectName,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(
+      '[delivery-init] failed to provision destination folder (set Destination Folder ID manually):',
+      msg
+    );
+    // Don't throw — batch row exists, folder can be created manually.
   }
 
   return recordId;
