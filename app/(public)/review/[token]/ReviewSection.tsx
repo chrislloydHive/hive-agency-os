@@ -294,7 +294,10 @@ export function VideoWithThumbnail({
   }, [hasThumbnail, thumbnailError]);
 
   // Try without crossOrigin if CORS fails - some proxies don't need it
-  const [useCrossOrigin, setUseCrossOrigin] = useState(true);
+  // Same-origin proxy doesn't need crossOrigin; setting it forces CORS
+  // checks that fail on error responses (404/403 without CORS headers),
+  // which causes the video element to show a network error instead of loading.
+  const [useCrossOrigin, setUseCrossOrigin] = useState(false);
 
   return (
     <>
