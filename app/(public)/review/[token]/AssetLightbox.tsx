@@ -472,11 +472,12 @@ export default function AssetLightbox({
             />
           )}
           {isVideo && (
-            <VideoWithThumbnail
+            <video
               src={src}
               className="max-h-[75vh] max-w-full"
               controls
               autoPlay
+              playsInline
             />
           )}
           {isAudio && (
