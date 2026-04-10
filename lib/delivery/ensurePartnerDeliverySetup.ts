@@ -16,7 +16,7 @@
 import { getBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import {
-  getDriveClientWithServiceAccount,
+  getDriveClient,
   ensureChildFolderWithDrive,
 } from '@/lib/google/driveClient';
 
@@ -144,7 +144,7 @@ async function getBrkthruCompanyId(): Promise<string | null> {
     const base = getBase();
     const records = await base('Companies')
       .select({
-        filterByFormula: `LOWER({Name}) = "${PARTNER_NAME.toLowerCase()}"`,
+        filterByFormula: `LOWER({Company Name}) = "${PARTNER_NAME.toLowerCase()}"`,
         maxRecords: 1,
       })
       .firstPage();
@@ -240,7 +240,8 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
   // Provision the Drive destination folder under Brkthru parent and write
   // the folder ID back to the batch row so delivery knows where to copy.
   try {
-    const drive = getDriveClientWithServiceAccount();
+    const oidcToken = process.env.VERCEL_OIDC_TOKEN || undefined;
+    const drive = await getDriveClient({ vercelOidcToken: oidcToken });
     const folder = await ensureChildFolderWithDrive(
       drive,
       BRKTHRU_PARENT_FOLDER_ID,
