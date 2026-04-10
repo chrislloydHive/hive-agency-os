@@ -25,6 +25,12 @@ import type { Readable } from 'stream';
 
 export const dynamic = 'force-dynamic';
 
+const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
+
+function jsonError(status: number, error: string): NextResponse {
+  return NextResponse.json({ error }, { status, headers: NO_STORE });
+}
+
 // Basic rate limiting: track requests per IP per minute
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
@@ -87,18 +93,18 @@ export async function GET(
   const token = req.nextUrl.searchParams.get('token');
 
   if (!token) {
-    return NextResponse.json({ error: 'Missing token' }, { status: 401 });
+    return jsonError(401, 'Missing token');
   }
 
   // Basic rate limiting by IP
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || req.headers.get('x-real-ip') || 'unknown';
   if (!checkRateLimit(ip)) {
-    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
+    return jsonError(429, 'Rate limit exceeded');
   }
 
   const resolved = await resolveReviewProject(token);
   if (!resolved) {
-    return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    return jsonError(401, 'Invalid token');
   }
 
   const { auth } = resolved;
@@ -110,7 +116,7 @@ export async function GET(
   // Authorize via CRAS record. Cached briefly to absorb thumbnail bursts.
   const authorized = await isFileAuthorized(token, fileId);
   if (!authorized) {
-    return NextResponse.json({ error: 'File not found for this review' }, { status: 403 });
+    return jsonError(403, 'File not found for this review');
   }
 
   // Fetch Drive metadata. The portal proxy uses per-company OAuth, but the
@@ -125,13 +131,13 @@ export async function GET(
   try {
     const fileMeta = await fetchMetaWithFallback();
     if (fileMeta.data.trashed) {
-      return NextResponse.json({ error: 'File not available' }, { status: 404 });
+      return jsonError(404, 'File not available');
     }
     mimeType = fileMeta.data.mimeType || 'application/octet-stream';
     fileName = fileMeta.data.name || fileId;
   } catch (err: any) {
     console.error('[review/files] Drive metadata error:', err?.message ?? err);
-    return NextResponse.json({ error: 'File not found or access denied' }, { status: 504 });
+    return jsonError(504, 'File not found or access denied');
   }
 
   async function fetchMetaWithFallback() {
@@ -203,10 +209,7 @@ export async function GET(
       finalFileName = getExportFileExtension(exportMimeType, fileName);
       console.log(`[review/files] Exporting Google Workspace file: ${mimeType} -> ${exportMimeType}, filename: ${fileName} -> ${finalFileName}`);
     } else {
-      return NextResponse.json(
-        { error: `Unsupported Google Workspace file type: ${mimeType}. Use ?format=pdf or ?format=docx` },
-        { status: 400 }
-      );
+      return jsonError(400, `Unsupported Google Workspace file type: ${mimeType}. Use ?format=pdf or ?format=docx`);
     }
   }
 
@@ -279,10 +282,7 @@ export async function GET(
       console.error(
         `[review/files] giving up; final upstream status ${upstreamStatus} for ${fileId}`
       );
-      return NextResponse.json(
-        { error: 'File not accessible' },
-        { status: upstreamStatus === 404 ? 404 : 502 }
-      );
+      return jsonError(upstreamStatus === 404 ? 404 : 502, 'File not accessible');
     }
 
     const body = new Uint8Array(upstream.data as unknown as ArrayBuffer);
@@ -308,7 +308,7 @@ export async function GET(
     const errorMsg = isGoogleDoc
       ? 'Failed to export Google Workspace file. Ensure the file is accessible and try a different format.'
       : 'Failed to fetch file';
-    return NextResponse.json({ error: errorMsg }, { status: 500 });
+    return jsonError(500, errorMsg);
   }
 }
 
