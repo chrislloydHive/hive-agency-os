@@ -296,10 +296,14 @@ export async function GET(
 
     // Buffer the full body so we can set Content-Length accurately.
     const body = Buffer.from(upstream.data as unknown as ArrayBuffer);
+    const total = body.length;
 
+    // Handle Range requests properly. Browsers send Range for audio/video.
+    const rangeHeader = req.headers.get('range');
+    let responseStatus = 200;
+    let responseBody: Buffer = body;
     const headers: Record<string, string> = {
       'Content-Type': finalMimeType,
-      'Content-Length': String(body.length),
       'Cache-Control': 'public, max-age=300',
       'Accept-Ranges': 'bytes',
       'Access-Control-Allow-Origin': '*',
@@ -307,13 +311,30 @@ export async function GET(
       'Access-Control-Allow-Headers': 'Range',
     };
 
+    if (rangeHeader) {
+      const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+      if (match) {
+        const start = parseInt(match[1], 10);
+        const end = match[2] ? parseInt(match[2], 10) : total - 1;
+        const clampedEnd = Math.min(end, total - 1);
+        responseBody = body.subarray(start, clampedEnd + 1);
+        responseStatus = 206;
+        headers['Content-Range'] = `bytes ${start}-${clampedEnd}/${total}`;
+        headers['Content-Length'] = String(responseBody.length);
+      } else {
+        headers['Content-Length'] = String(total);
+      }
+    } else {
+      headers['Content-Length'] = String(total);
+    }
+
     if (download) {
       const ascii = finalFileName.replace(/[^\x20-\x7E]/g, '_');
       headers['Content-Disposition'] =
         `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(finalFileName)}`;
     }
 
-    return new NextResponse(body, { status: 200, headers });
+    return new NextResponse(responseBody, { status: responseStatus, headers });
   } catch (err: any) {
     console.error('[review/files] Drive stream/export error:', err?.message ?? err);
     const errorMsg = isGoogleDoc
