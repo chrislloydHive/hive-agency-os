@@ -24,8 +24,6 @@ import {
 import type { Readable } from 'stream';
 
 export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
-export const maxDuration = 60;
 
 // Basic rate limiting: track requests per IP per minute
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -124,7 +122,6 @@ export async function GET(
   // authorization gate, so swapping the Drive identity doesn't relax security.
   let mimeType: string;
   let fileName: string;
-  let fileSize: number | null = null;
   try {
     const fileMeta = await fetchMetaWithFallback();
     if (fileMeta.data.trashed) {
@@ -132,7 +129,6 @@ export async function GET(
     }
     mimeType = fileMeta.data.mimeType || 'application/octet-stream';
     fileName = fileMeta.data.name || fileId;
-    fileSize = fileMeta.data.size ? parseInt(fileMeta.data.size, 10) : null;
   } catch (err: any) {
     console.error('[review/files] Drive metadata error:', err?.message ?? err);
     return NextResponse.json({ error: 'File not found or access denied' }, { status: 504 });
@@ -143,7 +139,7 @@ export async function GET(
       return await withTimeout(
         drive.files.get({
           fileId,
-          fields: 'mimeType, name, trashed, size',
+          fields: 'mimeType, name, trashed',
           supportsAllDrives: true,
         }),
         15_000,
@@ -159,7 +155,7 @@ export async function GET(
         const meta = await withTimeout(
           saDrive.files.get({
             fileId,
-            fields: 'mimeType, name, trashed, size',
+            fields: 'mimeType, name, trashed',
             supportsAllDrives: true,
           }),
           15_000,
@@ -237,12 +233,7 @@ export async function GET(
       return new NextResponse(body, { status: 200, headers });
     }
 
-    // Regular Drive file: stream from Drive, forwarding Range if present.
-    // We know the total file size from metadata, so we can set Content-Range
-    // and Content-Length on the streaming response manually — this avoids
-    // buffering the entire file in memory while still giving browsers the
-    // headers they need for audio/video playback.
-    //
+    // Regular Drive file: pass Range through and stream the response body.
     // Drive sometimes allows metadata access via OAuth but denies content
     // download (returns 404/403 on the body fetch). When that happens, fall
     // back to the service account / WIF identity that the cron uses.
@@ -298,9 +289,8 @@ export async function GET(
       );
     }
 
-    // Build response headers. We know the total size from metadata, so we
-    // can construct Content-Range ourselves even if Drive's streaming
-    // response doesn't include it.
+    const upstreamHeaders = upstream.headers as Record<string, string | undefined>;
+
     const headers: Record<string, string> = {
       'Content-Type': finalMimeType,
       'Cache-Control': 'public, max-age=300',
@@ -310,31 +300,12 @@ export async function GET(
       'Access-Control-Allow-Headers': 'Range',
     };
 
-    let responseStatus = 200;
-    if (rangeHeader && fileSize) {
-      const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-      if (match) {
-        const start = parseInt(match[1], 10);
-        const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
-        const clampedEnd = Math.min(end, fileSize - 1);
-        responseStatus = 206;
-        headers['Content-Range'] = `bytes ${start}-${clampedEnd}/${fileSize}`;
-        headers['Content-Length'] = String(clampedEnd - start + 1);
-      } else {
-        headers['Content-Length'] = String(fileSize);
-      }
-    } else if (fileSize) {
-      headers['Content-Length'] = String(fileSize);
-    }
-
-    // Forward upstream content-length/content-range if present (overrides ours)
-    const upstreamHeaders = upstream.headers as Record<string, string | undefined>;
+    // Forward content length / range from upstream when present.
     if (upstreamHeaders['content-length']) {
       headers['Content-Length'] = upstreamHeaders['content-length'] as string;
     }
     if (upstreamHeaders['content-range']) {
       headers['Content-Range'] = upstreamHeaders['content-range'] as string;
-      responseStatus = 206;
     }
 
     if (download) {
@@ -343,11 +314,12 @@ export async function GET(
         `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(finalFileName)}`;
     }
 
-    // Stream the response body to avoid buffering large files.
+    // Convert the Node Readable stream to a Web ReadableStream so we can hand
+    // it directly to NextResponse without buffering.
     const nodeStream = upstream.data as unknown as Readable;
     const webStream = nodeReadableToWebStream(nodeStream);
 
-    return new Response(webStream, { status: responseStatus, headers });
+    return new Response(webStream, { status: upstreamStatus, headers });
   } catch (err: any) {
     console.error('[review/files] Drive stream/export error:', err?.message ?? err);
     const errorMsg = isGoogleDoc
