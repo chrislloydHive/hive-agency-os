@@ -334,7 +334,7 @@ export async function GET(
         `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(finalFileName)}`;
     }
 
-    return new NextResponse(responseBody, { status: responseStatus, headers });
+    return new NextResponse(new Uint8Array(responseBody), { status: responseStatus, headers });
   } catch (err: any) {
     console.error('[review/files] Drive stream/export error:', err?.message ?? err);
     const errorMsg = isGoogleDoc
