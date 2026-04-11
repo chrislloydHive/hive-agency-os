@@ -19,6 +19,7 @@ export type CompanyTabId =
   | 'decide'      // Phase 2: Context + Strategy
   | 'deliver'     // Phase 3: Deliverables
   | 'work'        // Execution handoff
+  | 'tasks'       // Hive Task Tracker
   | 'artifacts'   // Output ledger (renamed from documents)
   | 'documents'   // Legacy alias for artifacts
   | 'week-view'   // Weekly dashboard
@@ -83,6 +84,13 @@ export const COMPANY_TABS: CompanyTab[] = [
     name: 'Work',
     href: (companyId) => `/c/${companyId}/work`,
     description: 'Approved programs and initiatives in execution',
+    primary: true,
+  },
+  {
+    id: 'tasks',
+    name: 'Tasks',
+    href: (companyId) => `/c/${companyId}/tasks`,
+    description: 'Hive Task Tracker — inbox triage, brain dump, projects, and archive',
     primary: true,
   },
   {
@@ -204,6 +212,7 @@ export function getCompanyTabFromPath(pathname: string, companyId: string): Comp
 
   // Other primary routes
   if (pathname.startsWith(`/c/${companyId}/work`)) return 'work';
+  if (pathname.startsWith(`/c/${companyId}/tasks`)) return 'tasks';
   if (pathname.startsWith(`/c/${companyId}/artifacts`)) return 'artifacts';
   if (pathname.startsWith(`/c/${companyId}/documents`)) return 'artifacts'; // Legacy redirect
   if (pathname.startsWith(`/c/${companyId}/week-view`)) return 'week-view';
