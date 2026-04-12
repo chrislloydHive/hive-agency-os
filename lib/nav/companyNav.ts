@@ -88,9 +88,9 @@ export const COMPANY_TABS: CompanyTab[] = [
   },
   {
     id: 'tasks',
-    name: 'Tasks',
+    name: 'My Day',
     href: (companyId) => `/c/${companyId}/tasks`,
-    description: 'Hive Task Tracker — inbox triage, brain dump, projects, and archive',
+    description: 'My Day — tasks, brain dump, projects, and archive',
     primary: true,
   },
   {

@@ -4,7 +4,7 @@
 // Daily Summary — Calendar · Email Pulse · Overdue · Hot · Due Today
 // Source of truth: Airtable Tasks table + Google Calendar + Gmail
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
@@ -23,6 +23,11 @@ import {
   Users,
   MapPin,
   Inbox,
+  Brain,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  FileIcon,
 } from 'lucide-react';
 
 // ============================================================================
@@ -90,6 +95,30 @@ interface SummaryData {
     needsReply: EmailDigest[];
     unreadCount: number;
   };
+  googleConnected: boolean;
+  generatedAt: string;
+}
+
+interface AIContextData {
+  briefing: string;
+  recentDocs: {
+    id: string;
+    name: string;
+    mimeType: string;
+    modifiedTime: string;
+    webViewLink?: string;
+  }[];
+  pastMeetings: {
+    id: string;
+    summary: string;
+    start: string;
+    attendeeCount: number;
+  }[];
+  recentEmails: {
+    subject: string;
+    from: string;
+    date: string;
+  }[];
   googleConnected: boolean;
   generatedAt: string;
 }
@@ -448,6 +477,187 @@ function EmailPulseSection({ starred, needsReply, unreadCount }: {
 }
 
 // ============================================================================
+// AI Focus & Context Section
+// ============================================================================
+
+function AIContextSection({ companyId }: { companyId: string }) {
+  const [aiData, setAiData] = useState<AIContextData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+
+  const fetchAIContext = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/os/tasks/ai-context?companyId=${encodeURIComponent(companyId)}`);
+      if (!res.ok) throw new Error(`API returned ${res.status}`);
+      const json = await res.json();
+      setAiData(json);
+      setHasLoaded(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate AI context');
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId]);
+
+  // Auto-load on first render
+  useEffect(() => {
+    fetchAIContext();
+  }, [fetchAIContext]);
+
+  const briefingLines = aiData?.briefing?.split('\n').filter(Boolean) || [];
+
+  return (
+    <section className="relative">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Sparkles size={18} className="text-indigo-400" />
+          <h3 className="text-sm font-bold uppercase tracking-wide text-indigo-400">
+            Focus & Context
+          </h3>
+          {aiData && (
+            <span className="text-xs text-gray-500">
+              AI-generated
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {hasLoaded && (
+            <button
+              onClick={fetchAIContext}
+              disabled={loading}
+              className="text-xs text-gray-500 hover:text-gray-300 transition-colors inline-flex items-center gap-1"
+            >
+              <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Loading state */}
+      {loading && !aiData && (
+        <div className="border border-indigo-900/50 bg-indigo-950/20 rounded-lg p-6">
+          <div className="flex items-center gap-3 text-indigo-300 text-sm">
+            <Brain size={18} className="animate-pulse" />
+            <span>Analyzing your recent activity and generating focus briefing...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Error state */}
+      {error && !aiData && (
+        <div className="border border-red-800 bg-red-950/30 rounded-lg p-4 text-sm text-red-400">
+          {error}
+          <button onClick={fetchAIContext} className="ml-3 underline hover:no-underline">
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* AI Briefing */}
+      {aiData && (
+        <div className="space-y-3">
+          {/* Main briefing card */}
+          <div className="border border-indigo-900/50 bg-indigo-950/20 rounded-lg p-5">
+            <div className="prose prose-sm prose-invert max-w-none">
+              {briefingLines.map((line, i) => {
+                // Handle markdown-style bold
+                const formatted = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                return (
+                  <p
+                    key={i}
+                    className="text-sm text-gray-300 leading-relaxed mb-2 last:mb-0"
+                    dangerouslySetInnerHTML={{ __html: formatted }}
+                  />
+                );
+              })}
+            </div>
+            {loading && (
+              <div className="mt-3 flex items-center gap-2 text-xs text-indigo-400">
+                <RefreshCw size={11} className="animate-spin" />
+                Refreshing...
+              </div>
+            )}
+          </div>
+
+          {/* Recent Activity — collapsible */}
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 transition-colors w-full"
+          >
+            {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            <span>Recent activity ({(aiData.recentDocs?.length || 0) + (aiData.pastMeetings?.length || 0)} items)</span>
+          </button>
+
+          {expanded && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Recent Docs */}
+              {aiData.recentDocs && aiData.recentDocs.length > 0 && (
+                <div>
+                  <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1 flex items-center gap-1">
+                    <FileIcon size={11} />
+                    Recent Documents
+                  </div>
+                  <div className="space-y-1">
+                    {aiData.recentDocs.slice(0, 8).map((doc) => (
+                      <a
+                        key={doc.id}
+                        href={doc.webViewLink || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group flex items-center gap-2 px-3 py-2 rounded-md border border-gray-800 hover:border-gray-600 hover:bg-gray-800/30 transition-all"
+                      >
+                        <FileText size={12} className="text-gray-500 flex-shrink-0" />
+                        <span className="text-xs text-gray-300 group-hover:text-white truncate flex-1">
+                          {doc.name}
+                        </span>
+                        <span className="text-xs text-gray-600 flex-shrink-0">
+                          {new Date(doc.modifiedTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Past Meetings */}
+              {aiData.pastMeetings && aiData.pastMeetings.length > 0 && (
+                <div>
+                  <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 px-1 flex items-center gap-1">
+                    <Video size={11} />
+                    Recent Meetings
+                  </div>
+                  <div className="space-y-1">
+                    {aiData.pastMeetings.slice(0, 8).map((m) => (
+                      <div
+                        key={m.id}
+                        className="flex items-center gap-2 px-3 py-2 rounded-md border border-gray-800"
+                      >
+                        <Calendar size={12} className="text-gray-500 flex-shrink-0" />
+                        <span className="text-xs text-gray-300 truncate flex-1">
+                          {m.summary}
+                        </span>
+                        <span className="text-xs text-gray-600 flex-shrink-0">
+                          {new Date(m.start).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -537,6 +747,9 @@ export function SummaryClient({ companyId, companyName }: SummaryClientProps) {
           {error}
         </div>
       )}
+
+      {/* AI Focus & Context — loads independently */}
+      <AIContextSection companyId={companyId} />
 
       {/* Content sections */}
       {data && (

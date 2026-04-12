@@ -106,7 +106,8 @@ async function fetchEmailPulse(accessToken: string): Promise<{
 
   // Total unread count
   const profile = await gmail.users.getProfile({ auth, userId: 'me' });
-  const unreadCount = profile.data.threadsUnread || 0;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const unreadCount: number = (profile.data as any).threadsUnread || 0;
 
   // Fetch message details in parallel
   async function getDigest(msgId: string): Promise<EmailDigest | null> {

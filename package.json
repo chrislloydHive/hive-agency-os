@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:inngest": "npx inngest-cli@latest dev",
-    "build": "next build",
+    "build": "NODE_OPTIONS='--max-old-space-size=8192' next build",
     "start": "next start",
     "lint": "eslint \"app/**/*.{ts,tsx}\" \"components/**/*.{ts,tsx}\" \"lib/**/*.{ts,tsx}\" \"hooks/**/*.{ts,tsx}\" \"types/**/*.{ts,tsx}\" --cache",
     "lint:budget": "node scripts/check-eslint-warnings.js",

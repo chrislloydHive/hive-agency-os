@@ -1,8 +1,8 @@
 // app/c/[companyId]/tasks/page.tsx
-// Hive Task Tracker - Inbox triage, Brain Dump, Projects, and Archive
+// My Day — Tasks, Brain Dump, Projects, and Archive
 //
 // Views:
-// - Inbox: Gmail-sourced tasks for triage
+// - Tasks: Gmail-sourced tasks for triage
 // - Brain Dump: Quick-capture ideas and todos
 // - Projects: Grouped by project/client
 // - Archive: Completed/dismissed items
@@ -26,8 +26,8 @@ export async function generateMetadata({ params }: PageProps) {
   }
 
   return {
-    title: `Tasks | ${company.name} | Hive OS`,
-    description: `Hive Task Tracker for ${company.name} — inbox triage, brain dump, projects, and archive`,
+    title: `My Day | ${company.name} | Hive OS`,
+    description: `My Day for ${company.name} — tasks, brain dump, projects, and archive`,
   };
 }
 

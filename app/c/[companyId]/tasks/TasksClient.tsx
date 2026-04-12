@@ -1,9 +1,9 @@
 'use client';
 
 // app/c/[companyId]/tasks/TasksClient.tsx
-// Hive Task Tracker — Full client component
+// My Day — Full client component
 //
-// Views: Inbox | Brain Dump | Projects | Archive
+// Views: Tasks | Brain Dump | Projects | Archive
 // Features: search, status/priority filters, sort, checkboxes, mobile-responsive
 
 import { useState, useMemo, useCallback, useEffect } from 'react';
@@ -84,7 +84,7 @@ const STATUS_CONFIG: Record<TaskStatus, { bg: string; text: string; border: stri
 };
 
 const VIEW_TABS: { id: ViewType; label: string; icon: typeof Mail }[] = [
-  { id: 'inbox', label: 'Inbox', icon: Inbox },
+  { id: 'inbox', label: 'Tasks', icon: Inbox },
   { id: 'braindump', label: 'Brain Dump', icon: Brain },
   { id: 'projects', label: 'Projects', icon: FolderKanban },
   { id: 'archive', label: 'Archive', icon: Archive },
@@ -222,18 +222,18 @@ function EmptyViewState({ view }: { view: ViewType }) {
     projects: {
       icon: FolderKanban,
       title: 'Projects',
-      description: 'Tasks grouped by project and client. Drag items here from Inbox once triaged.',
+      description: 'Tasks grouped by project and client. Drag items here from Tasks once triaged.',
       cta: 'Create a project',
     },
     archive: {
       icon: Archive,
       title: 'Archive',
-      description: 'Completed and dismissed tasks. Check off items in Inbox to move them here.',
+      description: 'Completed and dismissed tasks. Check off items in Tasks to move them here.',
       cta: null,
     },
     inbox: {
       icon: Inbox,
-      title: 'Inbox Zero',
+      title: 'All Clear',
       description: 'All caught up. New tasks will appear here as emails arrive.',
       cta: null,
     },
@@ -463,7 +463,7 @@ export function TasksClient({ company }: TasksClientProps) {
                 <Mail size={16} className="text-gray-900" />
               </div>
               <div>
-                <h1 className="text-base sm:text-lg font-bold tracking-tight text-white">HIVE TASK TRACKER</h1>
+                <h1 className="text-base sm:text-lg font-bold tracking-tight text-white">MY DAY</h1>
                 {company?.name && <p className="text-xs text-gray-500 hidden sm:block">{company.name}</p>}
               </div>
             </div>
@@ -517,7 +517,7 @@ export function TasksClient({ company }: TasksClientProps) {
         </div>
       </div>
 
-      {/* Stats Bar — only shown for inbox */}
+      {/* Stats Bar — only shown for tasks view */}
       {activeView === 'inbox' && (
         <div className="bg-gray-900/50 border-b border-gray-800">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
@@ -525,7 +525,7 @@ export function TasksClient({ company }: TasksClientProps) {
             <div className="hidden sm:flex items-center gap-3">
               <StatCard label="Tasks" value={stats.total} color="bg-gray-800/60 text-gray-300" borderColor="border-gray-700" />
               <StatCard label="Urgent" value={stats.urgent} color="bg-red-950/40 text-red-400" borderColor="border-red-900/50" />
-              <StatCard label="Inbox" value={stats.inbox} color="bg-blue-950/40 text-blue-400" borderColor="border-blue-900/50" />
+              <StatCard label="New" value={stats.inbox} color="bg-blue-950/40 text-blue-400" borderColor="border-blue-900/50" />
               <StatCard label="Next" value={stats.next} color="bg-teal-950/40 text-teal-400" borderColor="border-teal-900/50" />
               <StatCard label="Waiting" value={stats.waiting} color="bg-amber-950/40 text-amber-400" borderColor="border-amber-900/50" />
             </div>
@@ -541,7 +541,7 @@ export function TasksClient({ company }: TasksClientProps) {
               </div>
               <div className="flex-shrink-0 text-center px-3 py-1.5 rounded-lg bg-blue-950/40 border border-blue-900/50">
                 <div className="text-lg font-bold text-blue-400">{stats.inbox}</div>
-                <div className="text-xs text-blue-500/60">Inbox</div>
+                <div className="text-xs text-blue-500/60">New</div>
               </div>
               <div className="flex-shrink-0 text-center px-3 py-1.5 rounded-lg bg-teal-950/40 border border-teal-900/50">
                 <div className="text-lg font-bold text-teal-400">{stats.next}</div>
@@ -669,7 +669,7 @@ export function TasksClient({ company }: TasksClientProps) {
         )}
       </div>
 
-      {/* Quick Add — Inbox & Brain Dump */}
+      {/* Quick Add — Tasks & Brain Dump */}
       {(activeView === 'inbox' || activeView === 'braindump') && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-3">
           <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 focus-within:ring-2 focus-within:ring-amber-500/50 focus-within:border-amber-500/50">
