@@ -1,0 +1,283 @@
+/**
+ * Tasks - Airtable helper
+ *
+ * Manages the Tasks table for Hive team task tracking.
+ * Supports inbox triage, brain dump, projects, and archive views.
+ */
+
+import { getAirtableConfig, fetchWithRetry } from './client';
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const TABLE_NAME = 'Tasks';
+
+/**
+ * Tasks table field names (matching Airtable schema exactly)
+ */
+const TASK_FIELDS = {
+  TASK: 'Task',
+  PRIORITY: 'Priority',
+  DUE: 'Due',
+  FROM: 'From',
+  PROJECT: 'Project',
+  NEXT_ACTION: 'Next Action',
+  STATUS: 'Status',
+  VIEW: 'View',
+  THREAD_URL: 'Thread URL',
+  DRAFT_URL: 'Draft URL',
+  ATTACHMENT_URL: 'Attachment URL',
+  DONE: 'Done',
+  NOTES: 'Notes',
+  CREATED_AT: 'Created At',
+  LAST_MODIFIED: 'Last Modified',
+} as const;
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export type TaskPriority = 'P0' | 'P1' | 'P2' | 'P3';
+export type TaskStatus = 'Inbox' | 'Next' | 'Waiting' | 'Done' | 'Archive';
+export type TaskView = 'inbox' | 'braindump' | 'projects' | 'archive';
+
+export interface TaskRecord {
+  id: string;
+  task: string;
+  priority: TaskPriority | null;
+  due: string | null;
+  from: string;
+  project: string;
+  nextAction: string;
+  status: TaskStatus;
+  view: TaskView;
+  threadUrl: string | null;
+  draftUrl: string | null;
+  attachUrl: string | null;
+  done: boolean;
+  notes: string;
+  createdAt: string | null;
+  lastModified: string | null;
+}
+
+export interface CreateTaskInput {
+  task: string;
+  priority?: TaskPriority;
+  due?: string;
+  from?: string;
+  project?: string;
+  nextAction?: string;
+  status?: TaskStatus;
+  view?: TaskView;
+  threadUrl?: string;
+  draftUrl?: string;
+  attachUrl?: string;
+  done?: boolean;
+  notes?: string;
+}
+
+export interface UpdateTaskInput {
+  task?: string;
+  priority?: TaskPriority;
+  due?: string | null;
+  from?: string;
+  project?: string;
+  nextAction?: string;
+  status?: TaskStatus;
+  view?: TaskView;
+  threadUrl?: string | null;
+  draftUrl?: string | null;
+  attachUrl?: string | null;
+  done?: boolean;
+  notes?: string;
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function mapRecordToTask(record: any): TaskRecord {
+  const f = record.fields || {};
+  return {
+    id: record.id,
+    task: f[TASK_FIELDS.TASK] || '',
+    priority: f[TASK_FIELDS.PRIORITY] || null,
+    due: f[TASK_FIELDS.DUE] || null,
+    from: f[TASK_FIELDS.FROM] || '',
+    project: f[TASK_FIELDS.PROJECT] || '',
+    nextAction: f[TASK_FIELDS.NEXT_ACTION] || '',
+    status: f[TASK_FIELDS.STATUS] || 'Inbox',
+    view: f[TASK_FIELDS.VIEW] || 'inbox',
+    threadUrl: f[TASK_FIELDS.THREAD_URL] || null,
+    draftUrl: f[TASK_FIELDS.DRAFT_URL] || null,
+    attachUrl: f[TASK_FIELDS.ATTACHMENT_URL] || null,
+    done: f[TASK_FIELDS.DONE] || false,
+    notes: f[TASK_FIELDS.NOTES] || '',
+    createdAt: f[TASK_FIELDS.CREATED_AT] || null,
+    lastModified: f[TASK_FIELDS.LAST_MODIFIED] || null,
+  };
+}
+
+function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+
+  if ('task' in input && input.task !== undefined) fields[TASK_FIELDS.TASK] = input.task;
+  if ('priority' in input && input.priority !== undefined) fields[TASK_FIELDS.PRIORITY] = input.priority;
+  if ('due' in input) fields[TASK_FIELDS.DUE] = input.due || null;
+  if ('from' in input && input.from !== undefined) fields[TASK_FIELDS.FROM] = input.from;
+  if ('project' in input && input.project !== undefined) fields[TASK_FIELDS.PROJECT] = input.project;
+  if ('nextAction' in input && input.nextAction !== undefined) fields[TASK_FIELDS.NEXT_ACTION] = input.nextAction;
+  if ('status' in input && input.status !== undefined) fields[TASK_FIELDS.STATUS] = input.status;
+  if ('view' in input && input.view !== undefined) fields[TASK_FIELDS.VIEW] = input.view;
+  if ('threadUrl' in input) fields[TASK_FIELDS.THREAD_URL] = input.threadUrl || null;
+  if ('draftUrl' in input) fields[TASK_FIELDS.DRAFT_URL] = input.draftUrl || null;
+  if ('attachUrl' in input) fields[TASK_FIELDS.ATTACHMENT_URL] = input.attachUrl || null;
+  if ('done' in input && input.done !== undefined) fields[TASK_FIELDS.DONE] = input.done;
+  if ('notes' in input && input.notes !== undefined) fields[TASK_FIELDS.NOTES] = input.notes;
+
+  return fields;
+}
+
+// ============================================================================
+// CRUD Operations
+// ============================================================================
+
+/**
+ * Fetch all tasks, optionally filtered by view or status.
+ * Returns tasks sorted by priority (P0 first) then due date.
+ */
+export async function getTasks(options?: {
+  view?: TaskView;
+  status?: TaskStatus;
+  excludeDone?: boolean;
+}): Promise<TaskRecord[]> {
+  const config = getAirtableConfig();
+
+  // Build filter formula
+  const conditions: string[] = [];
+  if (options?.view) {
+    conditions.push(`{${TASK_FIELDS.VIEW}} = '${options.view}'`);
+  }
+  if (options?.status) {
+    conditions.push(`{${TASK_FIELDS.STATUS}} = '${options.status}'`);
+  }
+  if (options?.excludeDone) {
+    conditions.push(`{${TASK_FIELDS.DONE}} = FALSE()`);
+  }
+
+  let filterFormula = '';
+  if (conditions.length === 1) {
+    filterFormula = conditions[0];
+  } else if (conditions.length > 1) {
+    filterFormula = `AND(${conditions.join(', ')})`;
+  }
+
+  // Build URL with pagination support
+  const allRecords: any[] = [];
+  let offset: string | undefined;
+
+  do {
+    const params = new URLSearchParams();
+    if (filterFormula) params.set('filterByFormula', filterFormula);
+    params.set('sort[0][field]', TASK_FIELDS.PRIORITY);
+    params.set('sort[0][direction]', 'asc');
+    params.set('sort[1][field]', TASK_FIELDS.DUE);
+    params.set('sort[1][direction]', 'asc');
+    if (offset) params.set('offset', offset);
+
+    const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?${params.toString()}`;
+
+    const response = await fetchWithRetry(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Airtable API error fetching tasks (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json();
+    allRecords.push(...(data.records || []));
+    offset = data.offset;
+  } while (offset);
+
+  return allRecords.map(mapRecordToTask);
+}
+
+/**
+ * Create a new task.
+ */
+export async function createTask(input: CreateTaskInput): Promise<TaskRecord> {
+  const config = getAirtableConfig();
+  const fields = mapInputToFields(input);
+
+  const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}`;
+
+  const response = await fetchWithRetry(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ fields }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Airtable API error creating task (${response.status}): ${errorText}`);
+  }
+
+  const record = await response.json();
+  return mapRecordToTask(record);
+}
+
+/**
+ * Update an existing task by record ID.
+ */
+export async function updateTask(recordId: string, input: UpdateTaskInput): Promise<TaskRecord> {
+  const config = getAirtableConfig();
+  const fields = mapInputToFields(input);
+
+  const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}/${recordId}`;
+
+  const response = await fetchWithRetry(url, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ fields }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Airtable API error updating task (${response.status}): ${errorText}`);
+  }
+
+  const record = await response.json();
+  return mapRecordToTask(record);
+}
+
+/**
+ * Delete a task by record ID.
+ */
+export async function deleteTask(recordId: string): Promise<void> {
+  const config = getAirtableConfig();
+  const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}/${recordId}`;
+
+  const response = await fetchWithRetry(url, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Airtable API error deleting task (${response.status}): ${errorText}`);
+  }
+}

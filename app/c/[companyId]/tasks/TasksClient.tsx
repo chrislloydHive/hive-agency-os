@@ -6,7 +6,7 @@
 // Views: Inbox | Brain Dump | Projects | Archive
 // Features: search, status/priority filters, sort, checkboxes, mobile-responsive
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Search,
   Mail,
@@ -42,6 +42,7 @@ export interface TasksClientProps {
 
 interface TaskItem {
   id: number;
+  airtableId?: string;
   task: string;
   pri: Priority;
   due: string;
@@ -261,7 +262,8 @@ function EmptyViewState({ view }: { view: ViewType }) {
 // ============================================================================
 
 export function TasksClient({ company }: TasksClientProps) {
-  const [tasks, setTasks] = useState<TaskItem[]>(SEED_TASKS);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeView, setActiveView] = useState<ViewType>('inbox');
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
@@ -271,6 +273,40 @@ export function TasksClient({ company }: TasksClientProps) {
   const [showPriDropdown, setShowPriDropdown] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+
+  // Fetch tasks from Airtable on mount
+  useEffect(() => {
+    async function fetchTasks() {
+      try {
+        const res = await fetch('/api/os/tasks');
+        if (!res.ok) throw new Error('Failed to fetch tasks');
+        const data = await res.json();
+        const mapped: TaskItem[] = (data.tasks || []).map((t: any, i: number) => ({
+          id: i + 1,
+          airtableId: t.id,
+          task: t.task || '',
+          pri: t.priority || 'P2',
+          due: t.due || '',
+          from: t.from || '',
+          project: t.project || '',
+          nextAction: t.nextAction || '',
+          status: t.status || 'Inbox',
+          threadUrl: t.threadUrl || null,
+          draftUrl: t.draftUrl || null,
+          attachUrl: t.attachUrl || null,
+          checked: t.done || false,
+          view: t.view || 'inbox',
+        }));
+        setTasks(mapped.length > 0 ? mapped : SEED_TASKS);
+      } catch (err) {
+        console.error('Failed to fetch tasks, using seed data:', err);
+        setTasks(SEED_TASKS);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchTasks();
+  }, []);
 
   const toggleCheck = useCallback((id: number) => {
     setTasks(prev => prev.map(t => t.id === id ? { ...t, checked: !t.checked } : t));
@@ -320,6 +356,17 @@ export function TasksClient({ company }: TasksClientProps) {
   }, [viewTasks]);
 
   const activeFilters = (filterStatus !== 'All' ? 1 : 0) + (filterPri !== 'All' ? 1 : 0);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-gray-100 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-gray-500">Loading tasks...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
