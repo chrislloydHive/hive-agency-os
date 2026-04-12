@@ -273,6 +273,55 @@ export function TasksClient({ company }: TasksClientProps) {
   const [showPriDropdown, setShowPriDropdown] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+  const [newTaskText, setNewTaskText] = useState('');
+  const [addingTask, setAddingTask] = useState(false);
+
+  const addTask = useCallback(async (text: string, view: ViewType) => {
+    if (!text.trim() || addingTask) return;
+    setAddingTask(true);
+    try {
+      const res = await fetch('/api/os/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task: text.trim(),
+          priority: 'P2',
+          status: 'Inbox',
+          view,
+          from: 'Chris Lloyd',
+          project: '',
+          nextAction: '',
+          due: '',
+          done: false,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to create task');
+      const data = await res.json();
+      const t = data.task;
+      const newItem: TaskItem = {
+        id: tasks.length + 1,
+        airtableId: t.id,
+        task: t.task || text.trim(),
+        pri: (t.priority || 'P2') as Priority,
+        due: t.due || '',
+        from: t.from || 'Chris Lloyd',
+        project: t.project || '',
+        nextAction: t.nextAction || '',
+        status: (t.status || 'Inbox') as TaskStatus,
+        threadUrl: t.threadUrl || null,
+        draftUrl: t.draftUrl || null,
+        attachUrl: t.attachUrl || null,
+        checked: false,
+        view: (t.view || view) as ViewType,
+      };
+      setTasks(prev => [newItem, ...prev]);
+      setNewTaskText('');
+    } catch (err) {
+      console.error('Failed to add task:', err);
+    } finally {
+      setAddingTask(false);
+    }
+  }, [addingTask, tasks.length]);
 
   // Fetch tasks from Airtable on mount
   useEffect(() => {
@@ -309,7 +358,19 @@ export function TasksClient({ company }: TasksClientProps) {
   }, []);
 
   const toggleCheck = useCallback((id: number) => {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, checked: !t.checked } : t));
+    setTasks(prev => {
+      const updated = prev.map(t => t.id === id ? { ...t, checked: !t.checked } : t);
+      // Persist to Airtable
+      const task = updated.find(t => t.id === id);
+      if (task?.airtableId) {
+        fetch('/api/os/tasks', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: task.airtableId, done: task.checked }),
+        }).catch(err => console.error('Failed to update task:', err));
+      }
+      return updated;
+    });
   }, []);
 
   const toggleExpand = useCallback((id: number) => {
@@ -576,6 +637,33 @@ export function TasksClient({ company }: TasksClientProps) {
           </div>
         )}
       </div>
+
+      {/* Quick Add — Inbox & Brain Dump */}
+      {(activeView === 'inbox' || activeView === 'braindump') && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-3">
+          <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 focus-within:ring-2 focus-within:ring-amber-500/50 focus-within:border-amber-500/50">
+            <Plus size={16} className="text-gray-500 flex-shrink-0" />
+            <input
+              type="text"
+              placeholder={activeView === 'braindump' ? 'Dump a thought, idea, or random todo...' : 'Quick-add a task...'}
+              value={newTaskText}
+              onChange={e => setNewTaskText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addTask(newTaskText, activeView); }}
+              className="flex-1 bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none"
+              disabled={addingTask}
+            />
+            {newTaskText.trim() && (
+              <button
+                onClick={() => addTask(newTaskText, activeView)}
+                disabled={addingTask}
+                className="px-3 py-1 text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-md transition-colors disabled:opacity-50"
+              >
+                {addingTask ? 'Adding...' : 'Add'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Task List */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-8">
