@@ -726,7 +726,7 @@ export function TasksClient({ company }: TasksClientProps) {
                   onClick={() => { setShowStatusDropdown(false); setShowPriDropdown(false); }}
                 >
                   <div className="col-span-1 flex items-center justify-center pt-0.5">
-                    <button onClick={() => toggleCheck(t.id)} className="text-gray-600 hover:text-amber-400 transition-colors">
+                    <button onClick={(e) => { e.stopPropagation(); toggleCheck(t.id); }} className="text-gray-600 hover:text-amber-400 transition-colors">
                       {t.checked ? <CheckSquare size={18} className="text-green-500" /> : <Square size={18} />}
                     </button>
                   </div>
