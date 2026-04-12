@@ -37,7 +37,7 @@ interface CompanyData {
 }
 
 export interface TasksClientProps {
-  company: CompanyData;
+  company?: CompanyData;
 }
 
 interface TaskItem {
@@ -334,7 +334,7 @@ export function TasksClient({ company }: TasksClientProps) {
               </div>
               <div>
                 <h1 className="text-base sm:text-lg font-bold tracking-tight text-white">HIVE TASK TRACKER</h1>
-                <p className="text-xs text-gray-500 hidden sm:block">{company.name}</p>
+                {company?.name && <p className="text-xs text-gray-500 hidden sm:block">{company.name}</p>}
               </div>
             </div>
             <div className="hidden sm:block text-sm text-gray-500">
