@@ -248,7 +248,13 @@ function EmptyViewState({ view }: { view: ViewType }) {
       <h3 className="text-lg font-semibold text-gray-300 mb-2">{c.title}</h3>
       <p className="text-sm text-gray-500 max-w-sm mb-4">{c.description}</p>
       {c.cta && (
-        <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-amber-400 bg-amber-950/40 border border-amber-800/50 rounded-lg hover:bg-amber-950/60 transition-colors">
+        <button
+          onClick={() => {
+            const input = document.querySelector<HTMLInputElement>('input[placeholder*="Dump"], input[placeholder*="Quick-add"]');
+            if (input) { input.focus(); input.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-amber-400 bg-amber-950/40 border border-amber-800/50 rounded-lg hover:bg-amber-950/60 transition-colors"
+        >
           <Plus size={16} />
           {c.cta}
         </button>
