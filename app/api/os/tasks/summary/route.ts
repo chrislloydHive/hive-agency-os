@@ -1,0 +1,76 @@
+// app/api/os/tasks/summary/route.ts
+// Daily Summary API — returns tasks bucketed into Overdue, Hot (P0), and Due Today
+// Source of truth: Airtable Tasks table
+
+import { NextRequest, NextResponse } from 'next/server';
+import { getTasks } from '@/lib/airtable/tasks';
+
+export const dynamic = 'force-dynamic';
+
+/**
+ * GET /api/os/tasks/summary
+ * Returns { overdue, hot, dueToday, counts }
+ * All data comes from the Tasks table — no separate storage.
+ */
+export async function GET(request: NextRequest) {
+  try {
+    // Fetch all non-done tasks from Airtable
+    const tasks = await getTasks({ excludeDone: true });
+
+    // Today's date boundaries (midnight to midnight)
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
+
+    // Categorize
+    const overdue: typeof tasks = [];
+    const hot: typeof tasks = [];
+    const dueToday: typeof tasks = [];
+
+    for (const t of tasks) {
+      const isP0 = t.priority === 'P0';
+
+      // Parse due date — handle "Apr 10", "2025-04-10", "Apr 10, 2025", etc.
+      let dueDate: Date | null = null;
+      if (t.due) {
+        const parsed = new Date(t.due);
+        if (!isNaN(parsed.getTime())) {
+          dueDate = parsed;
+        } else {
+          // Try adding current year for short formats like "Apr 10"
+          const withYear = new Date(`${t.due}, ${now.getFullYear()}`);
+          if (!isNaN(withYear.getTime())) {
+            dueDate = withYear;
+          }
+        }
+      }
+
+      const dueDateStr = dueDate ? dueDate.toISOString().slice(0, 10) : null;
+      const isPastDue = dueDate && dueDateStr && dueDateStr < todayStr;
+      const isDueToday = dueDateStr === todayStr;
+
+      // A task can appear in multiple buckets
+      if (isPastDue) overdue.push(t);
+      if (isP0) hot.push(t);
+      if (isDueToday) dueToday.push(t);
+    }
+
+    return NextResponse.json({
+      overdue,
+      hot,
+      dueToday,
+      counts: {
+        overdue: overdue.length,
+        hot: hot.length,
+        dueToday: dueToday.length,
+        totalOpen: tasks.length,
+      },
+      generatedAt: now.toISOString(),
+    });
+  } catch (error) {
+    console.error('[Tasks Summary API] GET error:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to generate summary' },
+      { status: 500 }
+    );
+  }
+}

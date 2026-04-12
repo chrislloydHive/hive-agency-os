@@ -7,6 +7,7 @@
 // Features: search, status/priority filters, sort, checkboxes, mobile-responsive
 
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import Link from 'next/link';
 import {
   Search,
   Mail,
@@ -25,6 +26,7 @@ import {
   X,
   Plus,
   Inbox,
+  BarChart3,
 } from 'lucide-react';
 
 // ============================================================================
@@ -465,8 +467,17 @@ export function TasksClient({ company }: TasksClientProps) {
                 {company?.name && <p className="text-xs text-gray-500 hidden sm:block">{company.name}</p>}
               </div>
             </div>
-            <div className="hidden sm:block text-sm text-gray-500">
-              {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+            <div className="hidden sm:flex items-center gap-4">
+              <Link
+                href={`/c/${company?.id || ''}/tasks/summary`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-400 bg-amber-950/40 border border-amber-800/50 rounded-lg hover:bg-amber-950/60 transition-colors"
+              >
+                <BarChart3 size={13} />
+                Daily Summary
+              </Link>
+              <span className="text-sm text-gray-500">
+                {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+              </span>
             </div>
           </div>
         </div>
