@@ -11,7 +11,8 @@ import { getAirtableConfig, fetchWithRetry } from './client';
 // Constants
 // ============================================================================
 
-const TABLE_NAME = 'Tasks';
+// Use table ID to avoid ambiguity when multiple "Tasks" tables exist
+const TABLE_NAME = 'tblf7wEI0KBwysrQz';
 
 /**
  * Tasks table field names (matching Airtable schema exactly)
