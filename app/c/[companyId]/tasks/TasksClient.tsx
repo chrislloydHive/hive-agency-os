@@ -365,14 +365,28 @@ export function TasksClient({ company }: TasksClientProps) {
 
   const toggleCheck = useCallback((id: number) => {
     setTasks(prev => {
-      const updated = prev.map(t => t.id === id ? { ...t, checked: !t.checked } : t);
+      const updated = prev.map(t => {
+        if (t.id !== id) return t;
+        const nowChecked = !t.checked;
+        // If checking done → move to archive view immediately
+        if (nowChecked) {
+          return { ...t, checked: true, status: 'Done' as TaskStatus, view: 'archive' as ViewType };
+        }
+        // If unchecking → restore to inbox view
+        return { ...t, checked: false, status: 'Inbox' as TaskStatus, view: 'inbox' as ViewType };
+      });
       // Persist to Airtable
       const task = updated.find(t => t.id === id);
       if (task?.airtableId) {
         fetch('/api/os/tasks', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: task.airtableId, done: task.checked }),
+          body: JSON.stringify({
+            id: task.airtableId,
+            done: task.checked,
+            status: task.checked ? 'Done' : 'Inbox',
+            view: task.checked ? 'archive' : 'inbox',
+          }),
         }).catch(err => console.error('Failed to update task:', err));
       }
       return updated;
