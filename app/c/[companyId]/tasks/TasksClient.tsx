@@ -469,7 +469,7 @@ export function TasksClient({ company }: TasksClientProps) {
             </div>
             <div className="hidden sm:flex items-center gap-4">
               <Link
-                href={`/c/${company?.id || ''}/tasks/summary`}
+                href={company?.id ? `/c/${company.id}/tasks/summary` : '/tasks/summary'}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-400 bg-amber-950/40 border border-amber-800/50 rounded-lg hover:bg-amber-950/60 transition-colors"
               >
                 <BarChart3 size={13} />
