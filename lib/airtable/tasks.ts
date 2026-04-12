@@ -183,8 +183,6 @@ export async function getTasks(options?: {
     if (filterFormula) params.set('filterByFormula', filterFormula);
     params.set('sort[0][field]', TASK_FIELDS.PRIORITY);
     params.set('sort[0][direction]', 'asc');
-    params.set('sort[1][field]', TASK_FIELDS.DUE);
-    params.set('sort[1][direction]', 'asc');
     if (offset) params.set('offset', offset);
 
     const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?${params.toString()}`;
@@ -206,7 +204,19 @@ export async function getTasks(options?: {
     offset = data.offset;
   } while (offset);
 
-  return allRecords.map(mapRecordToTask);
+  // Airtable sorts by priority server-side; apply stable secondary sort by due date
+  const priorityOrder = ['P0', 'P1', 'P2', 'P3'];
+  const tasks = allRecords.map(mapRecordToTask);
+  tasks.sort((a, b) => {
+    const pa = priorityOrder.indexOf(a.priority || 'P3');
+    const pb = priorityOrder.indexOf(b.priority || 'P3');
+    if (pa !== pb) return pa - pb;
+    if (a.due && b.due) return a.due.localeCompare(b.due);
+    if (a.due) return -1;
+    if (b.due) return 1;
+    return 0;
+  });
+  return tasks;
 }
 
 /**
