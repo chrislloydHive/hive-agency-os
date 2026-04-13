@@ -197,6 +197,9 @@ export async function GET(request: NextRequest) {
       if (isDueToday) dueToday.push(t);
     }
 
+    // ── Web Leads (Website Submissions project) ──────────────────────────
+    const webLeads = tasks.filter(t => t.project === 'Website Submissions');
+
     // ── Google Calendar + Gmail ──────────────────────────────────────────
     let calendar: { today: CalendarEvent[]; week: CalendarEvent[] } = { today: [], week: [] };
     let emailPulse: { starred: EmailDigest[]; needsReply: EmailDigest[]; unreadCount: number } = {
@@ -252,11 +255,13 @@ export async function GET(request: NextRequest) {
       overdue,
       hot,
       dueToday,
+      webLeads,
       counts: {
         overdue: overdue.length,
         hot: hot.length,
         dueToday: dueToday.length,
         totalOpen: tasks.length,
+        webLeads: webLeads.length,
       },
       calendar,
       emailPulse,

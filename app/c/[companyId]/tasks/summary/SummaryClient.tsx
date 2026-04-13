@@ -28,6 +28,7 @@ import {
   ChevronDown,
   ChevronUp,
   FileIcon,
+  Globe,
 } from 'lucide-react';
 
 // ============================================================================
@@ -80,11 +81,13 @@ interface SummaryData {
   overdue: TaskRecord[];
   hot: TaskRecord[];
   dueToday: TaskRecord[];
+  webLeads: TaskRecord[];
   counts: {
     overdue: number;
     hot: number;
     dueToday: number;
     totalOpen: number;
+    webLeads: number;
   };
   calendar: {
     today: CalendarEvent[];
@@ -841,6 +844,16 @@ export function SummaryClient({ companyId, companyName, backUrl }: SummaryClient
               </div>
               <div className="px-4 py-6 text-center text-gray-600 text-sm border border-dashed border-gray-800 rounded-lg">
                 Connect Google in Settings to see your email pulse here
+              </div>
+            </section>
+          )}
+
+          {/* ── Web Leads ────────────────────────────────────────────── */}
+          {data.webLeads && data.webLeads.length > 0 && (
+            <section>
+              <SectionHeader icon={Globe} label="Web Leads" count={data.counts.webLeads} color="text-emerald-400" />
+              <div className="space-y-2">
+                {data.webLeads.map(t => <TaskRow key={t.id} task={t} companyId={companyId} />)}
               </div>
             </section>
           )}
