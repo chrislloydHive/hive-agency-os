@@ -3,10 +3,10 @@
 // Used by both the public review page and the Drive file proxy API.
 
 import { google } from 'googleapis';
-import { getBase, getProjectsBase } from '@/lib/airtable';
-import { resolveProjectsBaseId } from '@/lib/airtable/bases';
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
+import { resolveOsBaseId, resolveProjectsBaseId } from '@/lib/airtable/bases';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
-import { getCompanyGoogleOAuthFromDBBase, findCompanyIntegration } from '@/lib/airtable/companyIntegrations';
+import { getCompanyGoogleOAuthFromDBBase } from '@/lib/airtable/companyIntegrations';
 import { getCompanyOAuthClient } from '@/lib/integrations/googleDrive';
 import type { OAuth2Client } from 'google-auth-library';
 
@@ -54,6 +54,50 @@ function getLinkedRecordId(value: unknown): string | null {
   return null;
 }
 
+/** Projects row by review portal token — REST only (same auth as airtableFetch). */
+async function fetchProjectByReviewToken(
+  token: string
+): Promise<{ id: string; fields: Record<string, unknown> } | null> {
+  const baseId = resolveProjectsBaseId();
+  const table = AIRTABLE_TABLES.PROJECTS;
+  const escaped = token.replace(/"/g, '\\"');
+  const formula = `{${REVIEW_PORTAL_TOKEN_FIELD}} = "${escaped}"`;
+  const url =
+    `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}` +
+    `?filterByFormula=${encodeURIComponent(formula)}&maxRecords=1`;
+
+  const res = await airtableFetch(url, { method: 'GET' });
+  const json = (await res.json()) as {
+    records?: Array<{ id: string; fields: Record<string, unknown> }>;
+    error?: { message?: string };
+  };
+
+  if (!res.ok) {
+    const msg =
+      json?.error?.message ||
+      (typeof json === 'object' && json !== null ? JSON.stringify(json).slice(0, 500) : 'unknown');
+    throw new Error(`Airtable API error (${res.status}): ${msg}`);
+  }
+
+  const row = json.records?.[0];
+  return row ? { id: row.id, fields: row.fields } : null;
+}
+
+/** OS Companies row — best-effort; REST only. */
+async function fetchCompanyFieldsBestEffort(companyId: string): Promise<Record<string, unknown> | null> {
+  const osBaseId = resolveOsBaseId();
+  if (!osBaseId) return null;
+  const url = `https://api.airtable.com/v0/${osBaseId}/${encodeURIComponent('Companies')}/${encodeURIComponent(companyId)}`;
+  try {
+    const res = await airtableFetch(url, { method: 'GET' });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { fields?: Record<string, unknown> };
+    return json.fields ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Get company id (and optional client code) from a review portal token.
  * Use for reconnect flows when you don't need the full OAuth client.
@@ -63,16 +107,9 @@ export async function getReviewCompanyFromToken(token: string): Promise<{ compan
   const baseId = resolveProjectsBaseId();
   console.log('BASE ID:', baseId);
   console.log('HAS API KEY:', !!process.env.AIRTABLE_API_KEY);
-  const projectsBase = getProjectsBase();
-  const escaped = token.replace(/"/g, '\\"');
-  let records;
+  let row: { id: string; fields: Record<string, unknown> } | null;
   try {
-    records = await projectsBase(AIRTABLE_TABLES.PROJECTS)
-      .select({
-        filterByFormula: `{${REVIEW_PORTAL_TOKEN_FIELD}} = "${escaped}"`,
-        maxRecords: 1,
-      })
-      .firstPage();
+    row = await fetchProjectByReviewToken(token);
   } catch (err) {
     console.error('[review/resolveProject] Airtable query failed:', err);
     const errStr = err instanceof Error ? err.message : String(err);
@@ -85,8 +122,8 @@ export async function getReviewCompanyFromToken(token: string): Promise<{ compan
     }
     return null;
   }
-  if (!records || records.length === 0) return null;
-  const fields = records[0].fields as Record<string, unknown>;
+  if (!row) return null;
+  const fields = row.fields;
   const companyId = getLinkedRecordId(fields['Client'] ?? fields['Company']);
   if (!companyId) return null;
   const projectClientCode = fields['Client Code'] ?? fields['ClientCode'];
@@ -99,20 +136,13 @@ export async function getReviewCompanyFromToken(token: string): Promise<{ compan
  * Returns null if the token is invalid, the project is not found, or OAuth is unavailable.
  */
 export async function resolveReviewProject(token: string): Promise<ResolvedReviewProject | null> {
-  // 1. Query Airtable Projects by token (use getProjectsBase() so Projects can live in a different base)
+  // 1. Query Airtable Projects by token (Projects base from resolveProjectsBaseId)
   const baseId = resolveProjectsBaseId();
   console.log('BASE ID:', baseId);
   console.log('HAS API KEY:', !!process.env.AIRTABLE_API_KEY);
-  const projectsBase = getProjectsBase();
-  const escaped = token.replace(/"/g, '\\"');
-  let records;
+  let row: { id: string; fields: Record<string, unknown> } | null;
   try {
-    records = await projectsBase(AIRTABLE_TABLES.PROJECTS)
-      .select({
-        filterByFormula: `{${REVIEW_PORTAL_TOKEN_FIELD}} = "${escaped}"`,
-        maxRecords: 1,
-      })
-      .firstPage();
+    row = await fetchProjectByReviewToken(token);
   } catch (err) {
     console.error('[review/resolveProject] Airtable query failed:', err);
     const errStr = err instanceof Error ? err.message : String(err);
@@ -126,13 +156,13 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
     return null;
   }
 
-  if (!records || records.length === 0) {
+  if (!row) {
     console.warn(`[review/resolveProject] No project found for token: ${token.slice(0, 20)}...`);
     return null;
   }
 
-  const record = records[0];
-  const fields = record.fields as Record<string, unknown>;
+  const record = row;
+  const fields = record.fields;
 
   // 2. Extract project name — canonical field only (no fallbacks)
   const CANONICAL_PROJECT_NAME_FIELD = 'Project Name (Job #)';
@@ -169,17 +199,13 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
     clientCode = projectClientCode;
   }
 
-  try {
-    const osBase = getBase();
-    const companyRecord = await osBase('Companies').find(companyId);
-    const cf = companyRecord.fields as Record<string, unknown>;
+  const cf = await fetchCompanyFieldsBestEffort(companyId);
+  if (cf) {
     if (!clientCode) {
       const code = cf['Client Code'] ?? cf['ClientCode'];
       if (typeof code === 'string' && code.length > 0) clientCode = code;
     }
     companyName = (cf['Company Name'] as string) || (cf['Name'] as string) || undefined;
-  } catch {
-    // Company lookup is best-effort
   }
 
   // 5. Resolve OAuth — same cascade as scaffold
