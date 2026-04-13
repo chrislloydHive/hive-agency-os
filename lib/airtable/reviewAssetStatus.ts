@@ -9,6 +9,8 @@
 //   Delivery Batch ID: existing link/reference to batch/group
 
 import { getBase } from '@/lib/airtable';
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
+import { resolveOsBaseId } from '@/lib/airtable/bases';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import {
   getTableSchema,
@@ -286,15 +288,30 @@ export async function getCrasRecordIdByTokenAndFileId(
     return cached.recordId;
   }
 
-  const base = getBase();
+  const baseId = resolveOsBaseId();
+  if (!baseId) {
+    console.warn('[review/CRAS] getCrasRecordIdByTokenAndFileId: no OS base id');
+    return null;
+  }
+
   const tokenEsc = tokenTrim.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const fileEsc = fileIdTrim.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const formula = `AND({Review Token} = "${tokenEsc}", {${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}")`;
-  const records = await base(TABLE)
-    .select({ filterByFormula: formula, maxRecords: 1 })
-    .firstPage();
-
-  const recordId = records.length > 0 ? records[0].id : null;
+  const params = new URLSearchParams({
+    filterByFormula: formula,
+    maxRecords: '1',
+  });
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}?${params.toString()}`;
+  const res = await airtableFetch(url, { method: 'GET' });
+  if (!res.ok) {
+    const text = await res.text();
+    console.warn(
+      `[review/CRAS] getCrasRecordIdByTokenAndFileId Airtable ${res.status}: ${text.slice(0, 200)}`
+    );
+    return null;
+  }
+  const json = (await res.json()) as { records?: Array<{ id: string }> };
+  const recordId = json.records?.[0]?.id ?? null;
   if (recordId) {
     recordIdByTokenFileIdCache.set(cacheKey, {
       recordId,
