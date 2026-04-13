@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { resolveOsBaseId } from "@/lib/airtable/bases";
+import { airtableFetch as airtableHttp } from "@/lib/airtable/airtableFetch";
 
 /**
  * Gmail Inbound Endpoint
@@ -22,19 +24,20 @@ import { NextResponse } from "next/server";
 // Environment Validation
 // ============================================================================
 
-const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY || "";
-const AIRTABLE_OS_BASE_ID = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || "";
 const HIVE_INBOUND_SECRET = process.env.HIVE_INBOUND_SECRET || "";
 
 const COMPANIES_TABLE = "Companies";
 const OPPORTUNITIES_TABLE = "Opportunities";
-const AIRTABLE_BASE_URL = `https://api.airtable.com/v0/${AIRTABLE_OS_BASE_ID}`;
+
+function getAirtableBaseUrl(): string {
+  return `https://api.airtable.com/v0/${resolveOsBaseId()}`;
+}
 
 function validateEnvVars() {
-  if (!AIRTABLE_API_KEY) {
+  if (!process.env.AIRTABLE_API_KEY) {
     throw new Error("Missing AIRTABLE_API_KEY environment variable.");
   }
-  if (!AIRTABLE_OS_BASE_ID) {
+  if (!resolveOsBaseId()) {
     throw new Error("Missing AIRTABLE_OS_BASE_ID or AIRTABLE_BASE_ID environment variable.");
   }
   if (!HIVE_INBOUND_SECRET) {
@@ -107,18 +110,13 @@ function formatInboundNote(params: {
 // Airtable API
 // ============================================================================
 
-async function airtableFetch(
+async function airtableRequest(
   url: string,
   init?: RequestInit,
   debugId?: string
 ): Promise<any> {
-  const res = await fetch(url, {
+  const res = await airtableHttp(url, {
     ...init,
-    headers: {
-      Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
     cache: "no-store",
   });
 
@@ -150,8 +148,8 @@ async function findFirst(
   debugId?: string
 ): Promise<any> {
   const qs = new URLSearchParams({ maxRecords: "1", filterByFormula: formula });
-  const url = `${AIRTABLE_BASE_URL}/${encodeURIComponent(table)}?${qs}`;
-  const data = await airtableFetch(url, { method: "GET" }, debugId);
+  const url = `${getAirtableBaseUrl()}/${encodeURIComponent(table)}?${qs}`;
+  const data = await airtableRequest(url, { method: "GET" }, debugId);
   return data?.records?.[0] || null;
 }
 
@@ -160,8 +158,8 @@ async function getRecord(
   recordId: string,
   debugId?: string
 ): Promise<any> {
-  const url = `${AIRTABLE_BASE_URL}/${encodeURIComponent(table)}/${encodeURIComponent(recordId)}`;
-  return airtableFetch(url, { method: "GET" }, debugId);
+  const url = `${getAirtableBaseUrl()}/${encodeURIComponent(table)}/${encodeURIComponent(recordId)}`;
+  return airtableRequest(url, { method: "GET" }, debugId);
 }
 
 async function createRecord(
@@ -169,8 +167,8 @@ async function createRecord(
   fields: Record<string, unknown>,
   debugId?: string
 ): Promise<any> {
-  const url = `${AIRTABLE_BASE_URL}/${encodeURIComponent(table)}`;
-  const data = await airtableFetch(url, {
+  const url = `${getAirtableBaseUrl()}/${encodeURIComponent(table)}`;
+  const data = await airtableRequest(url, {
     method: "POST",
     body: JSON.stringify({ records: [{ fields }] }),
   }, debugId);
@@ -183,8 +181,8 @@ async function updateRecord(
   fields: Record<string, unknown>,
   debugId?: string
 ): Promise<any> {
-  const url = `${AIRTABLE_BASE_URL}/${encodeURIComponent(table)}/${encodeURIComponent(recordId)}`;
-  return airtableFetch(url, {
+  const url = `${getAirtableBaseUrl()}/${encodeURIComponent(table)}/${encodeURIComponent(recordId)}`;
+  return airtableRequest(url, {
     method: "PATCH",
     body: JSON.stringify({ fields }),
   }, debugId);

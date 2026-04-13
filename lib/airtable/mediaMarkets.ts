@@ -4,6 +4,7 @@
 // MediaMarkets represent geographic territories (e.g., Seattle, Denver)
 
 import { getAirtableConfig } from './client';
+import { airtableFetch } from './airtableFetch';
 import { AIRTABLE_TABLES } from './tables';
 import type { MediaMarket, MediaCategory } from '@/lib/types/media';
 
@@ -65,12 +66,8 @@ export async function getMediaMarketsByCompany(companyId: string): Promise<Media
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?filterByFormula=${encodeURIComponent(filterFormula)}&sort%5B0%5D%5Bfield%5D=Name&sort%5B0%5D%5Bdirection%5D=asc`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -94,12 +91,8 @@ export async function getAllMediaMarkets(): Promise<MediaMarket[]> {
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?sort%5B0%5D%5Bfield%5D=Name&sort%5B0%5D%5Bdirection%5D=asc`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -123,12 +116,8 @@ export async function getMediaMarketById(marketId: string): Promise<MediaMarket 
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}/${marketId}`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -168,12 +157,8 @@ export async function createMediaMarket(
   };
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({ fields }),
     });
 
@@ -213,12 +198,8 @@ export async function updateMediaMarket(
   if (updates.notes !== undefined) fields.Notes = updates.notes;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({ fields }),
     });
 

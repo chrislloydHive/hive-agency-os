@@ -2,6 +2,7 @@
 // Lookup destination folder by Batch ID for partner delivery webhook.
 
 import { getBase } from '@/lib/airtable';
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import {
   writeDeliveryToRecord,
@@ -131,13 +132,12 @@ export async function getBatchDetailsInBase(
   const id = String(batchId).trim();
   if (!id || !baseId) return null;
 
-  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
-  if (!apiKey) return null;
+  if (!process.env.AIRTABLE_API_KEY) return null;
 
   const escaped = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const formula = encodeURIComponent(`{${BATCH_ID_FIELD}} = "${escaped}"`);
   const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}?maxRecords=1&filterByFormula=${formula}`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+  const res = await airtableFetch(url, { method: 'GET' });
   if (!res.ok) return null;
 
   const json = (await res.json()) as { records?: Array<{ id: string; fields: Record<string, unknown> }> };
@@ -324,12 +324,11 @@ export async function listBatchesByProjectIdInBase(
   const id = String(projectId).trim();
   if (!id || !baseId) return [];
 
-  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
-  if (!apiKey) return [];
+  if (!process.env.AIRTABLE_API_KEY) return [];
 
   const formula = encodeURIComponent(`FIND("${escapeFormula(id)}", ARRAYJOIN({${BATCH_PROJECT_LINK_FIELD}})) > 0`);
   const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}?filterByFormula=${formula}&pageSize=100`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+  const res = await airtableFetch(url, { method: 'GET' });
   if (!res.ok) return [];
 
   const json = (await res.json()) as { records?: Array<{ id: string; fields: Record<string, unknown>; createdTime?: string }> };

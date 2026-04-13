@@ -3,12 +3,14 @@
 
 import Airtable from 'airtable';
 
+import { resolveOsBaseId } from '@/lib/airtable/bases';
+
 // Lazy initialization to avoid build-time errors
 let _base: Airtable.Base | null = null;
 function getBase(): Airtable.Base {
   if (!_base) {
-    const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN;
-    const baseId = process.env.AIRTABLE_BASE_ID;
+    const apiKey = process.env.AIRTABLE_API_KEY ?? '';
+    const baseId = resolveOsBaseId();
     if (!apiKey || !baseId) {
       throw new Error('Airtable credentials not configured');
     }

@@ -4,6 +4,8 @@
 // Logs which fields were found and written.
 
 import { getBase } from '@/lib/airtable';
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
+import { resolveOsBaseId } from '@/lib/airtable/bases';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 
 const READ_ONLY_FIELD_TYPES = new Set([
@@ -76,7 +78,7 @@ const schemaCache = new Map<
 const SCHEMA_CACHE_TTL_MS = 10 * 60 * 1000;
 
 function getBaseId(): string {
-  const id = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
+  const id = resolveOsBaseId();
   if (!id) throw new Error('AIRTABLE_OS_BASE_ID or AIRTABLE_BASE_ID required for delivery write-back');
   return id;
 }
@@ -97,13 +99,10 @@ export async function getTableSchema(
     return { fields: cached.fields, writableNames: cached.writableNames };
   }
 
-  const token = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN;
-  if (!token) throw new Error('AIRTABLE_API_KEY / AIRTABLE_ACCESS_TOKEN required for schema fetch');
+  if (!process.env.AIRTABLE_API_KEY) throw new Error('AIRTABLE_API_KEY required for schema fetch');
 
   const url = `https://api.airtable.com/v0/meta/bases/${baseId}/tables`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await airtableFetch(url, { method: 'GET' });
 
   if (!res.ok) {
     const text = await res.text();

@@ -10,6 +10,7 @@ import {
   getRecord,
   getAirtableConfig,
 } from '@/lib/airtable/client';
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import type {
   CompetitionRunV3,
@@ -186,11 +187,8 @@ export async function getLatestCompetitionRunV3(
 
     console.log('[competition-v3/store] Fetching latest run:', { companyId, table: TABLE });
 
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
       // Disable caching to ensure fresh results
       cache: 'no-store',
     });
@@ -257,11 +255,8 @@ export async function listCompetitionRunsV3(
     const filterFormula = `{Company ID} = '${companyId.replace(/'/g, "\\'")}'`;
     const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE)}?filterByFormula=${encodeURIComponent(filterFormula)}&maxRecords=${limit}&sort%5B0%5D%5Bfield%5D=Created%20At&sort%5B0%5D%5Bdirection%5D=desc`;
 
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {

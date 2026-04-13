@@ -4,6 +4,7 @@
 // MediaStores represent physical store locations (critical for Car Toys)
 
 import { getAirtableConfig } from './client';
+import { airtableFetch } from './airtableFetch';
 import { AIRTABLE_TABLES } from './tables';
 import type {
   MediaStore,
@@ -86,12 +87,8 @@ export async function getMediaStoresByCompany(companyId: string): Promise<MediaS
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?filterByFormula=${encodeURIComponent(filterFormula)}&sort%5B0%5D%5Bfield%5D=Name&sort%5B0%5D%5Bdirection%5D=asc`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -116,12 +113,8 @@ export async function getMediaStoresByMarket(marketId: string): Promise<MediaSto
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?filterByFormula=${encodeURIComponent(filterFormula)}&sort%5B0%5D%5Bfield%5D=Name&sort%5B0%5D%5Bdirection%5D=asc`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -145,12 +138,8 @@ export async function getAllMediaStores(): Promise<MediaStore[]> {
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?sort%5B0%5D%5Bfield%5D=Name&sort%5B0%5D%5Bdirection%5D=asc`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -174,12 +163,8 @@ export async function getMediaStoreById(storeId: string): Promise<MediaStore | n
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}/${storeId}`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -247,12 +232,8 @@ export async function createMediaStore(
   };
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({ fields }),
     });
 
@@ -300,12 +281,8 @@ export async function updateMediaStore(
   if (updates.notes !== undefined) fields.Notes = updates.notes;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({ fields }),
     });
 

@@ -11,6 +11,7 @@ import {
   findRecordByField,
   getAirtableConfig,
 } from '@/lib/airtable/client';
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import type {
   QbrStory,
@@ -126,11 +127,8 @@ export async function loadQbrStory(
       TABLE_NAME
     )}?filterByFormula=${encodeURIComponent(filterFormula)}&maxRecords=1`;
 
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {
@@ -195,11 +193,8 @@ export async function saveQbrStory(args: SaveStoryArgs): Promise<QbrStory> {
       TABLE_NAME
     )}?filterByFormula=${encodeURIComponent(filterFormula)}&maxRecords=1`;
 
-    const checkResponse = await fetch(url, {
+    const checkResponse = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!checkResponse.ok) {
@@ -295,11 +290,8 @@ export async function listQbrStories(companyId: string): Promise<StoryListItem[]
       TABLE_NAME
     )}?filterByFormula=${encodeURIComponent(filterFormula)}&sort[0][field]=Quarter&sort[0][direction]=desc`;
 
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {

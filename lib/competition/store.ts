@@ -11,6 +11,7 @@ import {
   getRecord,
   getAirtableConfig,
 } from '@/lib/airtable/client';
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import type {
   CompetitionRun,
@@ -196,11 +197,8 @@ export async function getLatestCompetitionRun(companyId: string): Promise<Compet
     const filterFormula = `{Company ID} = '${companyId.replace(/'/g, "\\'")}'`;
     const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE)}?filterByFormula=${encodeURIComponent(filterFormula)}&maxRecords=1&sort%5B0%5D%5Bfield%5D=Created%20At&sort%5B0%5D%5Bdirection%5D=desc`;
 
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {
@@ -235,11 +233,8 @@ export async function listCompetitionRuns(
     const filterFormula = `{Company ID} = '${companyId.replace(/'/g, "\\'")}'`;
     const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE)}?filterByFormula=${encodeURIComponent(filterFormula)}&maxRecords=${limit}&sort%5B0%5D%5Bfield%5D=Created%20At&sort%5B0%5D%5Bdirection%5D=desc`;
 
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {

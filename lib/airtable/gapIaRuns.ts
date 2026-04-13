@@ -416,9 +416,6 @@ export async function getGapIaRunById(
 
     const response = await fetchWithRetry(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {
@@ -521,9 +518,6 @@ export async function listRecentGapIaRuns(limit: number = 20): Promise<GapIaRun[
 
     const response = await fetchWithRetry(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {
@@ -573,9 +567,6 @@ export async function getGapIaRunByUrl(
 
     const response = await fetchWithRetry(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {
@@ -638,9 +629,6 @@ export async function getGapIaRunsForCompany(
 
     const response = await fetchWithRetry(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {
@@ -688,9 +676,6 @@ export async function getGapIaRunsForCompanyOrDomain(
 
     const response = await fetchWithRetry(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {

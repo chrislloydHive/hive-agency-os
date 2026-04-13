@@ -7,6 +7,8 @@ import {
   updateRecord,
   findRecordByField,
 } from '@/lib/airtable/client';
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
+import { resolveOsBaseId } from '@/lib/airtable/bases';
 import { saveDiagnosticDetail } from '@/lib/airtable/diagnosticDetails';
 
 // ============================================================================
@@ -24,7 +26,7 @@ async function fetchWithRateLimitRetry(
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const response = await fetch(url, options);
+    const response = await airtableFetch(url, options);
 
     if (response.status === 429) {
       // Rate limited - wait and retry
@@ -513,20 +515,14 @@ export async function getHeavyGapRunById(
 
     // Use findRecordByField with a formula that matches the record ID
     // Since Airtable record IDs are unique, we can query by RECORD_ID()
-    const config = {
-      apiKey: process.env.AIRTABLE_API_KEY!,
-      baseId: process.env.AIRTABLE_BASE_ID!,
-    };
+    const baseId = resolveOsBaseId();
 
-    const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(
+    const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(
       HEAVY_TABLE
     )}/${id}`;
 
     const response = await fetchWithRateLimitRetry(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {
@@ -606,22 +602,16 @@ export async function getHeavyGapRunByGapPlanRunId(
   try {
     console.log('[gapHeavyRuns] Finding Heavy GAP Run by GAP Plan Run ID:', gapPlanRunId);
 
-    const config = {
-      apiKey: process.env.AIRTABLE_API_KEY!,
-      baseId: process.env.AIRTABLE_BASE_ID!,
-    };
+    const baseId = resolveOsBaseId();
 
     // Use filterByFormula to find record with matching GAP Plan Run link
     const filterFormula = `FIND('${gapPlanRunId}', ARRAYJOIN({GAP Plan Run})) > 0`;
-    const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(
+    const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(
       HEAVY_TABLE
     )}?filterByFormula=${encodeURIComponent(filterFormula)}&maxRecords=1`;
 
     const response = await fetchWithRateLimitRetry(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {
@@ -665,20 +655,14 @@ export async function listRecentGapHeavyRuns(limit: number = 20): Promise<HeavyG
   try {
     console.log('[gapHeavyRuns] Listing recent Heavy GAP Runs, limit:', limit);
 
-    const config = {
-      apiKey: process.env.AIRTABLE_API_KEY!,
-      baseId: process.env.AIRTABLE_BASE_ID!,
-    };
+    const baseId = resolveOsBaseId();
 
-    const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(
+    const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(
       HEAVY_TABLE
     )}?maxRecords=${limit}&sort[0][field]=Created%20At&sort[0][direction]=desc&filterByFormula=${encodeURIComponent('NOT({Archived})')}`;
 
     const response = await fetchWithRateLimitRetry(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {
@@ -722,14 +706,11 @@ export async function getHeavyGapRunsByCompanyId(
   try {
     console.log('[gapHeavyRuns] Finding Heavy GAP Runs by Company ID:', companyId);
 
-    const config = {
-      apiKey: process.env.AIRTABLE_API_KEY!,
-      baseId: process.env.AIRTABLE_BASE_ID!,
-    };
+    const baseId = resolveOsBaseId();
 
     // Airtable formulas can't easily query linked record IDs (only display values)
     // So we fetch recent records and filter in JavaScript instead
-    const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(
+    const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(
       HEAVY_TABLE
     )}?maxRecords=100&sort[0][field]=Created%20At&sort[0][direction]=desc`;
 
@@ -737,9 +718,6 @@ export async function getHeavyGapRunsByCompanyId(
 
     const response = await fetchWithRateLimitRetry(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {

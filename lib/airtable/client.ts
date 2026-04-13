@@ -2,6 +2,8 @@
 // Airtable client with edge-compatible fetch-based helpers
 
 import { getBase } from '@/lib/airtable';
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
+import { resolveOsBaseId } from '@/lib/airtable/bases';
 
 // ============================================================================
 // Custom Error Classes
@@ -49,7 +51,7 @@ export async function fetchWithRetry(
   options: RequestInit,
   retries = MAX_RETRIES
 ): Promise<Response> {
-  const response = await fetch(url, options);
+  const response = await airtableFetch(url, options);
 
   if (response.status === 429 && retries > 0) {
     const delay = BASE_DELAY_MS * Math.pow(2, MAX_RETRIES - retries);
@@ -98,16 +100,15 @@ export interface AirtableConfig {
 /**
  * Get Airtable configuration from environment variables
  * Throws if credentials are missing
- * Uses same base resolution logic as getBase(): checks AIRTABLE_OS_BASE_ID first, then AIRTABLE_BASE_ID
+ * Uses resolveOsBaseId() — AIRTABLE_OS_BASE_ID or legacy AIRTABLE_BASE_ID for OS.
  */
 export function getAirtableConfig(): AirtableConfig {
-  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN;
-  // Check AIRTABLE_OS_BASE_ID first (for Hive OS routes), then fall back to AIRTABLE_BASE_ID
-  const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID;
+  const apiKey = process.env.AIRTABLE_API_KEY ?? '';
+  const baseId = resolveOsBaseId();
 
   if (!apiKey || !baseId) {
     throw new Error(
-      'Airtable credentials not configured. Set AIRTABLE_API_KEY (or AIRTABLE_ACCESS_TOKEN) and AIRTABLE_BASE_ID (or AIRTABLE_OS_BASE_ID).'
+      'Airtable credentials not configured. Set AIRTABLE_API_KEY and AIRTABLE_OS_BASE_ID (or AIRTABLE_BASE_ID for legacy OS base).'
     );
   }
 
@@ -157,10 +158,6 @@ export async function createRecord(
 
   const response = await fetchWithRetry(url, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({ fields }),
   });
 
@@ -241,10 +238,6 @@ export async function getRecord(
 
   const response = await fetchWithRetry(url, {
     method: 'GET',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-    },
   });
 
   if (!response.ok) {
@@ -299,10 +292,6 @@ export async function updateRecord(
 
   const response = await fetchWithRetry(url, {
     method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({ fields }),
   });
 
@@ -362,9 +351,6 @@ export async function findRecordByField(
 
   const response = await fetchWithRetry(url, {
     method: 'GET',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-    },
   });
 
   if (!response.ok) {
@@ -452,9 +438,6 @@ export async function deleteRecord(
 
   const response = await fetchWithRetry(url, {
     method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-    },
   });
 
   if (!response.ok) {

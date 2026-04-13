@@ -10,6 +10,7 @@ import {
   updateRecord,
   getAirtableConfig,
 } from './client';
+import { airtableFetch } from './airtableFetch';
 import { AIRTABLE_TABLES } from './tables';
 
 // ============================================================================
@@ -254,12 +255,8 @@ export async function getCompanyStrategySnapshot(
   url.searchParams.set('maxRecords', '1');
 
   try {
-    const response = await fetch(url.toString(), {
+    const response = await airtableFetch(url.toString(), {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -349,11 +346,8 @@ export async function deleteCompanyStrategySnapshot(
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE)}/${existing.id}`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'DELETE',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {

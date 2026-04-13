@@ -2,6 +2,8 @@
 // Per-company integrations storage for OAuth tokens and integration metadata
 
 import { getAirtableConfig, findRecordByField, updateRecord, createRecord } from '@/lib/airtable/client';
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
+import { resolveOsBaseId } from '@/lib/airtable/bases';
 
 const TABLE_NAME = 'CompanyIntegrations';
 
@@ -252,9 +254,8 @@ export async function getAnyGoogleRefreshToken(): Promise<string | null> {
 
     const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?${params.toString()}`;
 
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: { Authorization: `Bearer ${config.apiKey}` },
     });
 
     if (!response.ok) return null;
@@ -512,13 +513,10 @@ async function getTableFieldNames(baseId: string, tableName: string): Promise<Se
     return cached.fields;
   }
 
-  const token = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN;
-  if (!token) throw new Error('Missing AIRTABLE_API_KEY / AIRTABLE_ACCESS_TOKEN');
+  if (!process.env.AIRTABLE_API_KEY) throw new Error('Missing AIRTABLE_API_KEY');
 
   const url = `https://api.airtable.com/v0/meta/bases/${baseId}/tables`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await airtableFetch(url, { method: 'GET' });
 
   if (!res.ok) {
     console.warn(`[CompanyIntegrations] Schema fetch failed (${res.status}) – skipping field filter`);
@@ -573,11 +571,8 @@ async function filterToKnownFields(
 
 async function airtableGet(
   url: string,
-  apiKey: string,
 ): Promise<{ ok: boolean; status: number; json: Record<string, any>; text: string }> {
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
+  const res = await airtableFetch(url, { method: 'GET' });
   const text = await res.text();
   let json: Record<string, any> = {};
   try {
@@ -611,19 +606,18 @@ export async function findCompanyIntegration({
   clientCode,
   baseIdOverride,
 }: FindCompanyIntegrationArgs): Promise<FindCompanyIntegrationResult> {
-  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
-  if (!apiKey) {
+  if (!process.env.AIRTABLE_API_KEY) {
     return {
       record: null,
       matchedBy: null,
-      debug: { attempts: [{ base: '-', baseId: '-', tableName: '-', formula: '-', status: 0, ok: false, recordCount: null, error: 'Missing env var: AIRTABLE_API_KEY / AIRTABLE_ACCESS_TOKEN' }] },
+      debug: { attempts: [{ base: '-', baseId: '-', tableName: '-', formula: '-', status: 0, ok: false, recordCount: null, error: 'Missing env var: AIRTABLE_API_KEY' }] },
     };
   }
 
   // CompanyIntegrations is in appVLDjqK2q4IJhGz
   // Check DB base first, then OS base, then fallback to AIRTABLE_BASE_ID
   const dbBaseId = process.env.AIRTABLE_DB_BASE_ID || '';
-  const osBaseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
+  const osBaseId = resolveOsBaseId();
   
   // CompanyIntegrations is known to be in appVLDjqK2q4IJhGz
   const knownCompanyIntegrationsBase = 'appVLDjqK2q4IJhGz';
@@ -690,7 +684,7 @@ export async function findCompanyIntegration({
         airtableListUrl(base.baseId, tableName) +
         `?maxRecords=1&filterByFormula=${encodeURIComponent(step.formula)}`;
 
-      const r = await airtableGet(url, apiKey);
+      const r = await airtableGet(url);
 
       const attempt: LookupAttempt = {
         base: base.label,
@@ -802,8 +796,7 @@ export async function updateGoogleTokensForCompany(args: {
   expiresAt?: string | null;
   connectedEmail?: string | null;
 }): Promise<{ ok: true; updatedRecordId: string }> {
-  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
-  if (!apiKey) throw new Error('Missing AIRTABLE_API_KEY / AIRTABLE_ACCESS_TOKEN');
+  if (!process.env.AIRTABLE_API_KEY) throw new Error('Missing AIRTABLE_API_KEY');
 
   // 1. Locate record
   const result = await findCompanyIntegration({ companyId: args.companyId });
@@ -825,8 +818,7 @@ export async function updateGoogleTokensForCompany(args: {
   );
   const baseId = matchedAttempt?.baseId
     || process.env.AIRTABLE_DB_BASE_ID
-    || process.env.AIRTABLE_OS_BASE_ID
-    || process.env.AIRTABLE_BASE_ID
+    || resolveOsBaseId()
     || '';
 
   if (!baseId) throw new Error('Cannot determine Airtable baseId for PATCH');
@@ -858,12 +850,8 @@ export async function updateGoogleTokensForCompany(args: {
   // 3. PATCH (filter to known fields to avoid 422 on schema mismatches)
   const safeFields = await filterToKnownFields(baseId, 'CompanyIntegrations', fields);
   const patchUrl = `${airtableListUrl(baseId, 'CompanyIntegrations')}/${recordId}`;
-  const patchRes = await fetch(patchUrl, {
+  const patchRes = await airtableFetch(patchUrl, {
     method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({ fields: safeFields }),
   });
 
@@ -899,18 +887,10 @@ type GoogleTokenPayload = {
 
 const COMPANY_INTEGRATIONS_TABLE = 'CompanyIntegrations';
 
-function airtableAuthHeaders() {
-  const token = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN;
-  if (!token) throw new Error('Missing AIRTABLE_API_KEY (or AIRTABLE_ACCESS_TOKEN)');
-  return {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  };
-}
-
 async function airtableGetDirect(baseId: string, path: string) {
   const url = `https://api.airtable.com/v0/${baseId}/${path}`;
-  const res = await fetch(url, { headers: airtableAuthHeaders() });
+  if (!process.env.AIRTABLE_API_KEY) throw new Error('Missing AIRTABLE_API_KEY');
+  const res = await airtableFetch(url, { method: 'GET' });
   const text = await res.text();
   let json: any = null;
   try { json = text ? JSON.parse(text) : null; } catch { /* empty */ }
@@ -924,9 +904,9 @@ async function airtableGetDirect(baseId: string, path: string) {
 async function airtablePatch(baseId: string, table: string, recordId: string, fields: Record<string, unknown>) {
   const safeFields = await filterToKnownFields(baseId, table, fields);
   const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}/${recordId}`;
-  const res = await fetch(url, {
+  if (!process.env.AIRTABLE_API_KEY) throw new Error('Missing AIRTABLE_API_KEY');
+  const res = await airtableFetch(url, {
     method: 'PATCH',
-    headers: airtableAuthHeaders(),
     body: JSON.stringify({ fields: safeFields }),
   });
   const text = await res.text();
@@ -942,9 +922,9 @@ async function airtablePatch(baseId: string, table: string, recordId: string, fi
 async function airtablePostDirect(baseId: string, table: string, fields: Record<string, unknown>) {
   const safeFields = await filterToKnownFields(baseId, table, fields);
   const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}`;
-  const res = await fetch(url, {
+  if (!process.env.AIRTABLE_API_KEY) throw new Error('Missing AIRTABLE_API_KEY');
+  const res = await airtableFetch(url, {
     method: 'POST',
-    headers: airtableAuthHeaders(),
     body: JSON.stringify({ records: [{ fields: safeFields }] }),
   });
   const text = await res.text();
@@ -1025,16 +1005,11 @@ export async function createCompanyIntegrationPlaceholder({
   const baseId = process.env.AIRTABLE_DB_BASE_ID;
   if (!baseId) throw new Error('Missing AIRTABLE_DB_BASE_ID');
 
-  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
-  if (!apiKey) throw new Error('Missing AIRTABLE_API_KEY');
+  if (!process.env.AIRTABLE_API_KEY) throw new Error('Missing AIRTABLE_API_KEY');
 
   const url = airtableListUrl(baseId, 'CompanyIntegrations');
-  const res = await fetch(url, {
+  const res = await airtableFetch(url, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({
       records: [
         {

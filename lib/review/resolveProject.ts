@@ -4,6 +4,7 @@
 
 import { google } from 'googleapis';
 import { getBase, getProjectsBase } from '@/lib/airtable';
+import { resolveProjectsBaseId } from '@/lib/airtable/bases';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { getCompanyGoogleOAuthFromDBBase, findCompanyIntegration } from '@/lib/airtable/companyIntegrations';
 import { getCompanyOAuthClient } from '@/lib/integrations/googleDrive';
@@ -59,6 +60,9 @@ function getLinkedRecordId(value: unknown): string | null {
  * Does not require the company to exist in the OS Companies table.
  */
 export async function getReviewCompanyFromToken(token: string): Promise<{ companyId: string; clientCode?: string } | null> {
+  const baseId = resolveProjectsBaseId();
+  console.log('BASE ID:', baseId);
+  console.log('HAS API KEY:', !!process.env.AIRTABLE_API_KEY);
   const projectsBase = getProjectsBase();
   const escaped = token.replace(/"/g, '\\"');
   let records;
@@ -72,7 +76,6 @@ export async function getReviewCompanyFromToken(token: string): Promise<{ compan
   } catch (err) {
     console.error('[review/resolveProject] Airtable query failed:', err);
     const errStr = err instanceof Error ? err.message : String(err);
-    const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
     if (baseId && errStr.includes('Unknown field')) {
       const projectsBaseId = process.env.AIRTABLE_PROJECTS_BASE_ID || process.env.REVIEW_PROJECTS_BASE_ID || '(using default base)';
       console.error(
@@ -97,6 +100,9 @@ export async function getReviewCompanyFromToken(token: string): Promise<{ compan
  */
 export async function resolveReviewProject(token: string): Promise<ResolvedReviewProject | null> {
   // 1. Query Airtable Projects by token (use getProjectsBase() so Projects can live in a different base)
+  const baseId = resolveProjectsBaseId();
+  console.log('BASE ID:', baseId);
+  console.log('HAS API KEY:', !!process.env.AIRTABLE_API_KEY);
   const projectsBase = getProjectsBase();
   const escaped = token.replace(/"/g, '\\"');
   let records;
@@ -110,7 +116,6 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
   } catch (err) {
     console.error('[review/resolveProject] Airtable query failed:', err);
     const errStr = err instanceof Error ? err.message : String(err);
-    const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
     if (baseId && errStr.includes('Unknown field')) {
       const projectsBaseId = process.env.AIRTABLE_PROJECTS_BASE_ID || process.env.REVIEW_PROJECTS_BASE_ID || '(using default base)';
       console.error(

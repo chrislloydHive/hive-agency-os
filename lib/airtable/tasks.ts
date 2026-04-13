@@ -189,9 +189,6 @@ export async function getTasks(options?: {
 
     const response = await fetchWithRetry(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {
@@ -230,10 +227,6 @@ export async function createTask(input: CreateTaskInput): Promise<TaskRecord> {
 
   const response = await fetchWithRetry(url, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({ fields }),
   });
 
@@ -257,10 +250,6 @@ export async function updateTask(recordId: string, input: UpdateTaskInput): Prom
 
   const response = await fetchWithRetry(url, {
     method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({ fields }),
   });
 
@@ -282,9 +271,6 @@ export async function deleteTask(recordId: string): Promise<void> {
 
   const response = await fetchWithRetry(url, {
     method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-    },
   });
 
   if (!response.ok) {

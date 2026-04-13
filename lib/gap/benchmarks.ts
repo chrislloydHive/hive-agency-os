@@ -3,6 +3,7 @@
 // Computes category-based benchmarks (median, top quartile, percentiles) across all GAP runs
 
 import { getAirtableConfig } from '@/lib/airtable/client';
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 
 /**
@@ -148,11 +149,8 @@ async function fetchGapRunsForBenchmarking(
     tableName
   )}?filterByFormula=${encodeURIComponent(filterFormula)}&fields[]=Company ID&fields[]=Overall Score&fields[]=Website Score&fields[]=Brand Score&fields[]=Content Score&fields[]=SEO Score&fields[]=Authority Score&fields[]=Benchmark Cohort&fields[]=Company Type&fields[]=Tier`;
 
-  const response = await fetch(url, {
+  const response = await airtableFetch(url, {
     method: 'GET',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-    },
   });
 
   if (!response.ok) {
@@ -200,11 +198,8 @@ export async function getGapBenchmarksForRun(gapRunId: string): Promise<GapBench
 
     console.log('[getGapBenchmarksForRun] Fetching from:', currentRunUrl);
 
-    const currentRunResponse = await fetch(currentRunUrl, {
+    const currentRunResponse = await airtableFetch(currentRunUrl, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!currentRunResponse.ok) {

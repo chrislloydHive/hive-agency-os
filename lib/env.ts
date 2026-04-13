@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 const envSchema = z.object({
-  // Airtable Configuration (supports both AIRTABLE_API_KEY and AIRTABLE_ACCESS_TOKEN)
   AIRTABLE_API_KEY: z.string().optional(),
   AIRTABLE_ACCESS_TOKEN: z.string().optional(),
   AIRTABLE_BASE_ID: z.string().min(1, 'AIRTABLE_BASE_ID is required'),
@@ -33,8 +32,8 @@ const envSchema = z.object({
   // Node environment
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 }).refine(
-  (data) => data.AIRTABLE_API_KEY || data.AIRTABLE_ACCESS_TOKEN,
-  { message: 'Either AIRTABLE_API_KEY or AIRTABLE_ACCESS_TOKEN is required', path: ['AIRTABLE_API_KEY'] }
+  (data) => !!data.AIRTABLE_API_KEY,
+  { message: 'AIRTABLE_API_KEY is required', path: ['AIRTABLE_API_KEY'] }
 );
 
 /**
@@ -66,7 +65,7 @@ let _env: z.infer<typeof envSchema> | null = null;
 // Check if we're in a build context (Next.js build process)
 const isBuildTime = process.env.NEXT_PHASE === 'phase-production-build' ||
                     process.env.NEXT_PHASE === 'phase-development-build' ||
-                    (typeof process.env.NODE_ENV !== 'undefined' && !process.env.AIRTABLE_API_KEY && !process.env.AIRTABLE_ACCESS_TOKEN);
+                    (typeof process.env.NODE_ENV !== 'undefined' && !process.env.AIRTABLE_API_KEY);
 
 export const env = new Proxy({} as z.infer<typeof envSchema>, {
   get(target, prop: string) {

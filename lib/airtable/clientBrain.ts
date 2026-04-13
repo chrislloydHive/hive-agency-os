@@ -7,6 +7,7 @@ import {
   deleteRecord,
   getAirtableConfig,
 } from './client';
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
 import { AIRTABLE_TABLES } from './tables';
 import type {
   ClientInsight,
@@ -130,12 +131,8 @@ export async function getCompanyInsights(
     url.searchParams.set('maxRecords', String(options.limit));
   }
 
-  const response = await fetch(url.toString(), {
+  const response = await airtableFetch(url.toString(), {
     method: 'GET',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-    },
   });
 
   if (!response.ok) {
@@ -162,12 +159,8 @@ export async function getInsightById(
   )}/${insightId}`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -267,12 +260,8 @@ export async function createInsightsBatch(
       AIRTABLE_TABLES.CLIENT_INSIGHTS
     )}`;
 
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({ records }),
     });
 
@@ -351,12 +340,8 @@ export async function getCompanyDocuments(
     url.searchParams.set('maxRecords', String(options.limit));
   }
 
-  const response = await fetch(url.toString(), {
+  const response = await airtableFetch(url.toString(), {
     method: 'GET',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-    },
   });
 
   if (!response.ok) {
@@ -383,12 +368,8 @@ export async function getDocumentById(
   )}/${documentId}`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
+import { resolveInboundBaseId } from "@/lib/airtable/bases";
+import { airtableFetch } from "@/lib/airtable/airtableFetch";
 
-const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY || "";
-const AIRTABLE_OS_BASE_ID = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || "";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 
 // Make model configurable so you never get blocked by "model not found"
@@ -32,15 +32,16 @@ function safeJson(obj: any) {
 }
 
 async function airtableGetInboxCandidates(debugId: string) {
+  const baseId = resolveInboundBaseId();
   const filterByFormula = encodeURIComponent(`{Disposition}="New"`);
   const url =
-    `https://api.airtable.com/v0/${AIRTABLE_OS_BASE_ID}/${encodeURIComponent(INBOX_TABLE)}` +
+    `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(INBOX_TABLE)}` +
     `?pageSize=${Math.min(MAX_RECORDS, 25)}` +
     `&maxRecords=${Math.min(MAX_RECORDS, 25)}` +
     `&filterByFormula=${filterByFormula}`;
 
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` },
+  const res = await airtableFetch(url, {
+    method: "GET",
     cache: "no-store",
   });
 
@@ -59,14 +60,11 @@ async function airtableGetInboxCandidates(debugId: string) {
 }
 
 async function airtableUpdateInboxRecord(recordId: string, fields: Record<string, any>, debugId: string) {
-  const url = `https://api.airtable.com/v0/${AIRTABLE_OS_BASE_ID}/${encodeURIComponent(INBOX_TABLE)}`;
+  const baseId = resolveInboundBaseId();
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(INBOX_TABLE)}`;
 
-  const res = await fetch(url, {
+  const res = await airtableFetch(url, {
     method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-      "Content-Type": "application/json",
-    },
     body: JSON.stringify({ records: [{ id: recordId, fields }] }),
     cache: "no-store",
   });
@@ -168,8 +166,8 @@ export async function POST() {
   const debugId = `inboxsum_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
   try {
-    if (!AIRTABLE_API_KEY) throw new Error("Missing AIRTABLE_API_KEY");
-    if (!AIRTABLE_OS_BASE_ID) throw new Error("Missing AIRTABLE_OS_BASE_ID");
+    if (!process.env.AIRTABLE_API_KEY) throw new Error("Missing AIRTABLE_API_KEY");
+    if (!resolveInboundBaseId()) throw new Error("Missing Airtable inbound/OS base");
     if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
 
     const records = await airtableGetInboxCandidates(debugId);

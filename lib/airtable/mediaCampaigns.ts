@@ -4,6 +4,7 @@
 // MediaCampaigns represent individual channel executions inside a program
 
 import { getAirtableConfig } from './client';
+import { airtableFetch } from './airtableFetch';
 import { AIRTABLE_TABLES } from './tables';
 import type {
   MediaCampaign,
@@ -83,12 +84,8 @@ export async function getMediaCampaignsByCompany(companyId: string): Promise<Med
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?filterByFormula=${encodeURIComponent(filterFormula)}&sort%5B0%5D%5Bfield%5D=Name&sort%5B0%5D%5Bdirection%5D=asc`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -113,12 +110,8 @@ export async function getMediaCampaignsByProgram(programId: string): Promise<Med
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?filterByFormula=${encodeURIComponent(filterFormula)}&sort%5B0%5D%5Bfield%5D=Name&sort%5B0%5D%5Bdirection%5D=asc`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -142,12 +135,8 @@ export async function getAllMediaCampaigns(): Promise<MediaCampaign[]> {
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?sort%5B0%5D%5Bfield%5D=Name&sort%5B0%5D%5Bdirection%5D=asc`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -189,12 +178,8 @@ export async function getMediaCampaignById(campaignId: string): Promise<MediaCam
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}/${campaignId}`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -238,12 +223,8 @@ export async function createMediaCampaign(
   };
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({ fields }),
     });
 

@@ -70,7 +70,7 @@ async function findOrCreateCreativeReviewSet(
   )`;
   
   const osBaseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
-  const token = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+  const token = process.env.AIRTABLE_API_KEY ?? '';
   const tokenPrefix = token ? token.substring(0, 10) + '...' : 'missing';
   
   try {
@@ -182,7 +182,7 @@ export async function GET(req: NextRequest) {
     const crasIdEsc = String(resolvedCrasId).replace(/"/g, '\\"');
     const formula = `{Target CRAS} = "${crasIdEsc}"`;
     
-    const token = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+    const token = process.env.AIRTABLE_API_KEY ?? '';
     const tokenPrefix = token ? token.substring(0, 10) + '...' : 'missing';
     
     console.log('[comments/asset] BEFORE airtable.select operation:', {
@@ -245,7 +245,7 @@ export async function GET(req: NextRequest) {
     const is403 = message.includes('403') || 
                  message.includes('NOT_AUTHORIZED') ||
                  (err as any)?.statusCode === 403;
-    const token = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+    const token = process.env.AIRTABLE_API_KEY ?? '';
     const tokenPrefix = token ? token.substring(0, 10) + '...' : 'missing';
     
     if (is403) {
@@ -380,7 +380,7 @@ export async function POST(req: NextRequest) {
   const createdAt = new Date().toISOString();
   
   const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
-  const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+  const apiKey = process.env.AIRTABLE_API_KEY ?? '';
   const apiKeyPrefix = apiKey ? apiKey.substring(0, 10) + '...' : 'missing';
   
   // Health check: Verify Comments base access before proceeding
@@ -462,7 +462,7 @@ export async function POST(req: NextRequest) {
       fieldKeys: Object.keys(recordFields),
     });
     
-    const token = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+    const token = process.env.AIRTABLE_API_KEY ?? '';
     const tokenPrefix = token ? token.substring(0, 10) + '...' : 'missing';
     const url = `https://api.airtable.com/v0/${commentsBaseId}/${encodeURIComponent(AIRTABLE_TABLES.COMMENTS)}`;
     
@@ -577,7 +577,7 @@ export async function POST(req: NextRequest) {
                  (err as any)?.error === 'NOT_AUTHORIZED';
     
     const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
-    const apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+    const apiKey = process.env.AIRTABLE_API_KEY ?? '';
     const tokenPrefix = apiKey ? (apiKey.startsWith('pat') ? apiKey.substring(0, 10) + '...' : apiKey.substring(0, 10) + '...') : 'missing';
     
     console.error('[comments/asset] POST error:', {

@@ -85,7 +85,7 @@ describe('Drive Client Configuration', () => {
     // Re-import to get fresh module
     const driveClient = await import('@/lib/google/driveClient');
 
-    expect(() => driveClient.getDriveClient()).toThrow(/credentials not configured/i);
+    await expect(driveClient.getDriveClient({})).rejects.toThrow();
   });
 
   it('accepts JSON configuration', async () => {

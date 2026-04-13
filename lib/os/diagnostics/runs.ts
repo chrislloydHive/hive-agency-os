@@ -10,6 +10,7 @@ import {
   updateRecord,
   getAirtableConfig,
 } from '@/lib/airtable/client';
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 
 // ============================================================================
@@ -311,12 +312,8 @@ function airtableRecordToDiagnosticRun(record: {
   // Fire-and-forget update to Airtable for stale runs
   if (needsStaleUpdate) {
     const config = getAirtableConfig();
-    fetch(`https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(DIAGNOSTIC_RUNS_TABLE)}/${record.id}`, {
+    airtableFetch(`https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(DIAGNOSTIC_RUNS_TABLE)}/${record.id}`, {
       method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({
         fields: {
           Status: 'failed',
@@ -668,12 +665,8 @@ export async function listDiagnosticRunsForCompany(
   console.log('[DiagnosticRuns] Full URL:', url.toString().replace(config.apiKey || '', '[REDACTED]'));
 
   try {
-    const response = await fetch(url.toString(), {
+    const response = await airtableFetch(url.toString(), {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -748,12 +741,8 @@ export async function getDiagnosticRun(id: string): Promise<DiagnosticRun | null
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(DIAGNOSTIC_RUNS_TABLE)}/${id}`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -1320,12 +1309,8 @@ export async function getRunsByTool(
   url.searchParams.set('sort[0][direction]', 'desc');
 
   try {
-    const response = await fetch(url.toString(), {
+    const response = await airtableFetch(url.toString(), {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {

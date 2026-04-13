@@ -4,6 +4,7 @@
 // MediaPrograms represent strategic media initiatives (e.g., "Always-On Install Demand – WA/CO")
 
 import { getAirtableConfig } from './client';
+import { airtableFetch } from './airtableFetch';
 import { AIRTABLE_TABLES } from './tables';
 import type {
   MediaProgram,
@@ -80,12 +81,8 @@ export async function getMediaProgramsByCompany(companyId: string): Promise<Medi
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?filterByFormula=${encodeURIComponent(filterFormula)}&sort%5B0%5D%5Bfield%5D=Name&sort%5B0%5D%5Bdirection%5D=asc`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -109,12 +106,8 @@ export async function getAllMediaPrograms(): Promise<MediaProgram[]> {
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?sort%5B0%5D%5Bfield%5D=Name&sort%5B0%5D%5Bdirection%5D=asc`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -138,12 +131,8 @@ export async function getMediaProgramById(programId: string): Promise<MediaProgr
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}/${programId}`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -186,12 +175,8 @@ export async function createMediaProgram(
   };
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({ fields }),
     });
 
@@ -234,12 +219,8 @@ export async function updateMediaProgram(
   if (updates.notes !== undefined) fields.Notes = updates.notes;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({ fields }),
     });
 

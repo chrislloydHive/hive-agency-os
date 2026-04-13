@@ -1,5 +1,6 @@
 import Airtable from 'airtable';
 import { env } from './env';
+import { resolveOsBaseId, resolveProjectsBaseId } from '@/lib/airtable/bases';
 
 // Lazy initialization to avoid build-time errors
 let _base: Airtable.Base | null = null;
@@ -20,11 +21,10 @@ let _baseHealthStatus: BaseHealthStatus | null = null;
 
 export function getBase(): Airtable.Base {
   if (!_base) {
-    const apiKey = env.AIRTABLE_API_KEY || process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
-    // Check AIRTABLE_OS_BASE_ID first (for Hive OS routes), then fall back to AIRTABLE_BASE_ID
-    const baseId = process.env.AIRTABLE_OS_BASE_ID || env.AIRTABLE_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
+    const apiKey = process.env.AIRTABLE_API_KEY ?? '';
+    const baseId = resolveOsBaseId();
     if (!apiKey || !baseId) {
-      throw new Error('Airtable credentials not configured. Please set AIRTABLE_API_KEY (or AIRTABLE_ACCESS_TOKEN) and AIRTABLE_BASE_ID (or AIRTABLE_OS_BASE_ID) environment variables.');
+      throw new Error('Airtable credentials not configured. Please set AIRTABLE_API_KEY and AIRTABLE_OS_BASE_ID (or AIRTABLE_BASE_ID for legacy OS base).');
     }
     
     // Startup logging (once per process)
@@ -126,10 +126,10 @@ export async function checkAirtableBaseHealth(): Promise<BaseHealthStatus> {
     return _baseHealthStatus;
   }
 
-  const apiKey = env.AIRTABLE_API_KEY || process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+  const apiKey = process.env.AIRTABLE_API_KEY ?? '';
   const apiKeyPrefix = apiKey ? apiKey.substring(0, 10) + '...' : 'missing';
   
-  const osBaseId = getBaseId() || process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || 'unknown';
+  const osBaseId = getBaseId() || resolveOsBaseId() || 'unknown';
   const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
   
   const healthStatus: BaseHealthStatus = {
@@ -258,12 +258,8 @@ let _projectsBase: Airtable.Base | null = null;
  */
 export function getProjectsBase(): Airtable.Base {
   if (!_projectsBase) {
-    const apiKey = env.AIRTABLE_API_KEY || process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
-    const projectsBaseId =
-      process.env.AIRTABLE_PROJECTS_BASE_ID || process.env.REVIEW_PROJECTS_BASE_ID || '';
-    const baseId = projectsBaseId.trim()
-      ? projectsBaseId
-      : process.env.AIRTABLE_OS_BASE_ID || env.AIRTABLE_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
+    const apiKey = process.env.AIRTABLE_API_KEY ?? '';
+    const baseId = resolveProjectsBaseId();
     if (!apiKey || !baseId) {
       throw new Error('Airtable credentials not configured.');
     }
@@ -280,7 +276,7 @@ let _commentsBase: Airtable.Base | null = null;
  */
 export function getCommentsBase(): Airtable.Base {
   if (!_commentsBase) {
-    const apiKey = env.AIRTABLE_API_KEY || process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_ACCESS_TOKEN || '';
+    const apiKey = process.env.AIRTABLE_API_KEY ?? '';
     const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
     if (!apiKey || !commentsBaseId) {
       throw new Error('Airtable credentials not configured.');

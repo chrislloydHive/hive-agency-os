@@ -8,10 +8,8 @@
 // It will return 403 Forbidden in production.
 
 import { NextRequest, NextResponse } from 'next/server';
-
-// Airtable configuration
-const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY;
-const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
+import { resolveOsBaseId } from '@/lib/airtable/bases';
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
 
 // Table names (in deletion order - children first, then parents)
 const RELATED_TABLES = [
@@ -72,12 +70,11 @@ async function fetchRecords(
       params.append('offset', offset);
     }
 
-    const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(tableName)}?${params}`;
+    const baseId = resolveOsBaseId();
+    const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}?${params}`;
 
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-      },
+    const response = await airtableFetch(url, {
+      method: 'GET',
     });
 
     if (!response.ok) {
@@ -104,14 +101,12 @@ async function deleteRecordsBatch(
   for (let i = 0; i < recordIds.length; i += batchSize) {
     const batch = recordIds.slice(i, i + batchSize);
     const params = batch.map(id => `records[]=${id}`).join('&');
-    const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(tableName)}?${params}`;
+    const baseId = resolveOsBaseId();
+    const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}?${params}`;
 
     try {
-      const response = await fetch(url, {
+      const response = await airtableFetch(url, {
         method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-        },
       });
 
       if (!response.ok) {
@@ -134,13 +129,11 @@ async function deleteRecordsBatch(
 }
 
 async function deleteRecord(tableName: string, recordId: string): Promise<void> {
-  const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(tableName)}/${recordId}`;
+  const baseId = resolveOsBaseId();
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}/${recordId}`;
 
-  const response = await fetch(url, {
+  const response = await airtableFetch(url, {
     method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-    },
   });
 
   if (!response.ok) {
@@ -182,7 +175,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   // Check Airtable config
-  if (!AIRTABLE_API_KEY || !AIRTABLE_BASE_ID) {
+  if (!process.env.AIRTABLE_API_KEY || !resolveOsBaseId()) {
     return NextResponse.json(
       { error: 'Airtable configuration missing' },
       { status: 500 }
@@ -294,7 +287,7 @@ export async function GET(_request: NextRequest) {
     );
   }
 
-  if (!AIRTABLE_API_KEY || !AIRTABLE_BASE_ID) {
+  if (!process.env.AIRTABLE_API_KEY || !resolveOsBaseId()) {
     return NextResponse.json(
       { error: 'Airtable configuration missing' },
       { status: 500 }

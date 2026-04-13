@@ -4,6 +4,7 @@
 // MediaPerformance stores rolled-up metrics (daily/weekly rows)
 
 import { getAirtableConfig } from './client';
+import { airtableFetch } from './airtableFetch';
 import { AIRTABLE_TABLES } from './tables';
 import type {
   MediaPerformancePoint,
@@ -125,12 +126,8 @@ export async function getMediaPerformanceByCompany(
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?filterByFormula=${encodeURIComponent(filterFormula)}&sort%5B0%5D%5Bfield%5D=Date&sort%5B0%5D%5Bdirection%5D=desc`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -263,12 +260,8 @@ export async function createMediaPerformancePoint(
   };
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({ fields }),
     });
 
@@ -322,12 +315,8 @@ export async function bulkCreateMediaPerformance(
     }));
 
     try {
-      const response = await fetch(url, {
+      const response = await airtableFetch(url, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${config.apiKey}`,
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({ records }),
       });
 
@@ -387,12 +376,8 @@ async function findExistingByCompositeKey(
   const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?filterByFormula=${encodeURIComponent(filterFormula)}&maxRecords=1`;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {
@@ -427,12 +412,8 @@ async function updateMediaPerformancePoint(
   if (updates.sourceSystem !== undefined) fields['Source System'] = updates.sourceSystem;
 
   try {
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({ fields }),
     });
 

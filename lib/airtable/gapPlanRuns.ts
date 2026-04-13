@@ -2,6 +2,7 @@
 // GAP-Plan Run logging to Airtable
 
 import { createRecord, getAirtableConfig } from './client';
+import { airtableFetch } from './airtableFetch';
 import { AIRTABLE_TABLES, getTableName } from './tables';
 import type { GapPlanRun } from '@/lib/gap/types';
 
@@ -438,11 +439,8 @@ export async function listRecentGapPlanRuns(limit: number = 20): Promise<GapPlan
       tableName
     )}?maxRecords=${limit}&sort[0][field]=Created%20At&sort[0][direction]=desc&filterByFormula=${encodeURIComponent('NOT({Archived})')}`;
 
-    const response = await fetch(url, {
+    const response = await airtableFetch(url, {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
     });
 
     if (!response.ok) {

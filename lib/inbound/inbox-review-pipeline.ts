@@ -1,3 +1,6 @@
+import { resolveInboundBaseId } from '@/lib/airtable/bases';
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
+
 // lib/inbound/inbox-review-pipeline.ts
 // Shared pipeline for Gmail inbox review + summarization (SIMPLIFIED)
 //
@@ -51,8 +54,6 @@ interface InboxExtractionResponse {
 // Environment
 // ============================================================================
 
-const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY || "";
-const AIRTABLE_OS_BASE_ID = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || "";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
@@ -381,14 +382,11 @@ function sanitizeInboxFields(fields: Record<string, any>): Record<string, any> {
 // ============================================================================
 
 async function airtableCreateRecord(fields: Record<string, any>, debugId: string) {
-  const url = `https://api.airtable.com/v0/${AIRTABLE_OS_BASE_ID}/${encodeURIComponent(INBOX_TABLE_NAME)}`;
+  const baseId = resolveInboundBaseId();
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(INBOX_TABLE_NAME)}`;
 
-  const res = await fetch(url, {
+  const res = await airtableFetch(url, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-      "Content-Type": "application/json",
-    },
     body: JSON.stringify({ records: [{ fields }] }),
     cache: "no-store",
   });
@@ -419,7 +417,8 @@ async function airtableCreateRecordsBatch(
   recordsFields: Record<string, any>[],
   debugId: string
 ): Promise<string[]> {
-  const url = `https://api.airtable.com/v0/${AIRTABLE_OS_BASE_ID}/${encodeURIComponent(INBOX_TABLE_NAME)}`;
+  const baseId = resolveInboundBaseId();
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(INBOX_TABLE_NAME)}`;
   const createdIds: string[] = [];
 
   // Process in batches of AIRTABLE_BATCH_SIZE
@@ -427,12 +426,8 @@ async function airtableCreateRecordsBatch(
     const batch = recordsFields.slice(i, i + AIRTABLE_BATCH_SIZE);
     const records = batch.map((fields) => ({ fields }));
 
-    const res = await fetch(url, {
+    const res = await airtableFetch(url, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify({ records }),
       cache: "no-store",
     });
@@ -479,14 +474,11 @@ async function airtableCreateRecordsBatch(
 }
 
 async function airtableUpdateRecord(recordId: string, fields: Record<string, any>, debugId: string) {
-  const url = `https://api.airtable.com/v0/${AIRTABLE_OS_BASE_ID}/${encodeURIComponent(INBOX_TABLE_NAME)}`;
+  const baseId = resolveInboundBaseId();
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(INBOX_TABLE_NAME)}`;
 
-  const res = await fetch(url, {
+  const res = await airtableFetch(url, {
     method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-      "Content-Type": "application/json",
-    },
     body: JSON.stringify({ records: [{ id: recordId, fields }] }),
     cache: "no-store",
   });
@@ -1012,8 +1004,8 @@ export async function runInboxReviewPipeline(input: InboxReviewInput): Promise<I
   } = input;
 
   // Validate env
-  if (!AIRTABLE_API_KEY) throw new Error("Missing AIRTABLE_API_KEY");
-  if (!AIRTABLE_OS_BASE_ID) throw new Error("Missing AIRTABLE_OS_BASE_ID");
+  if (!process.env.AIRTABLE_API_KEY) throw new Error("Missing AIRTABLE_API_KEY");
+  if (!resolveInboundBaseId()) throw new Error("Missing Airtable inbound/OS base (AIRTABLE_INBOUND_BASE_ID or AIRTABLE_OS_BASE_ID / AIRTABLE_BASE_ID)");
   if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
 
   // -------------------------------------------------------------------------
