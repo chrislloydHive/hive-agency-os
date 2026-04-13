@@ -204,13 +204,14 @@ function StatCard({ label, value, color, borderColor, bgColor }: { label: string
 // Task Row
 // ============================================================================
 
-function TaskRow({ task, companyId }: { task: TaskRecord; companyId: string }) {
+function TaskRow({ task, companyId, backUrl }: { task: TaskRecord; companyId: string; backUrl?: string }) {
+  const baseUrl = backUrl || `/c/${companyId}/tasks`;
   return (
     <div className="group flex items-start gap-3 px-4 py-3 rounded-lg border border-gray-800 hover:border-gray-600 hover:bg-gray-800/40 transition-all">
       <div className="flex-shrink-0 pt-0.5">
         <PriorityDot pri={task.priority} />
       </div>
-      <Link href={`/c/${companyId}/tasks`} className="flex-1 min-w-0 cursor-pointer">
+      <Link href={`${baseUrl}?task=${task.id}`} className="flex-1 min-w-0 cursor-pointer">
         <p className="text-sm font-medium text-gray-100 group-hover:text-white transition-colors truncate">
           {task.task}
         </p>
@@ -856,7 +857,7 @@ export function SummaryClient({ companyId, companyName, backUrl }: SummaryClient
             <section>
               <SectionHeader icon={Globe} label="Web Leads" count={data.counts.webLeads} color="text-emerald-400" />
               <div className="space-y-2">
-                {data.webLeads.map(t => <TaskRow key={t.id} task={t} companyId={companyId} />)}
+                {data.webLeads.map(t => <TaskRow key={t.id} task={t} companyId={companyId} backUrl={backUrl} />)}
               </div>
             </section>
           )}
@@ -866,7 +867,7 @@ export function SummaryClient({ companyId, companyName, backUrl }: SummaryClient
             <section>
               <SectionHeader icon={DollarSign} label="A/R Aging" count={data.counts.arAging} color="text-green-400" />
               <div className="space-y-2">
-                {data.arAging.map(t => <TaskRow key={t.id} task={t} companyId={companyId} />)}
+                {data.arAging.map(t => <TaskRow key={t.id} task={t} companyId={companyId} backUrl={backUrl} />)}
               </div>
             </section>
           )}
@@ -876,7 +877,7 @@ export function SummaryClient({ companyId, companyName, backUrl }: SummaryClient
             <SectionHeader icon={AlertTriangle} label="Overdue" count={data.counts.overdue} color="text-red-400" />
             {data.overdue.length > 0 ? (
               <div className="space-y-2">
-                {data.overdue.map(t => <TaskRow key={t.id} task={t} companyId={companyId} />)}
+                {data.overdue.map(t => <TaskRow key={t.id} task={t} companyId={companyId} backUrl={backUrl} />)}
               </div>
             ) : (
               <EmptyBucket label="overdue tasks" />
@@ -888,7 +889,7 @@ export function SummaryClient({ companyId, companyName, backUrl }: SummaryClient
             <SectionHeader icon={Flame} label="Hot (P0)" count={data.counts.hot} color="text-orange-400" />
             {data.hot.length > 0 ? (
               <div className="space-y-2">
-                {data.hot.map(t => <TaskRow key={t.id} task={t} companyId={companyId} />)}
+                {data.hot.map(t => <TaskRow key={t.id} task={t} companyId={companyId} backUrl={backUrl} />)}
               </div>
             ) : (
               <EmptyBucket label="hot tasks" />
@@ -900,7 +901,7 @@ export function SummaryClient({ companyId, companyName, backUrl }: SummaryClient
             <SectionHeader icon={CalendarClock} label="Due Today" count={data.counts.dueToday} color="text-amber-400" />
             {data.dueToday.length > 0 ? (
               <div className="space-y-2">
-                {data.dueToday.map(t => <TaskRow key={t.id} task={t} companyId={companyId} />)}
+                {data.dueToday.map(t => <TaskRow key={t.id} task={t} companyId={companyId} backUrl={backUrl} />)}
               </div>
             ) : (
               <EmptyBucket label="tasks due today" />

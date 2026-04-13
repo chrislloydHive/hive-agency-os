@@ -6,8 +6,9 @@
 // Views: Tasks | Brain Dump | Projects | Archive
 // Features: search, status/priority filters, sort, checkboxes, mobile-responsive
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   Search,
   Mail,
@@ -190,7 +191,7 @@ function MobileTaskCard({ t, onToggle, onExpand, expanded, onMove }: { t: TaskIt
   const isOverdue = new Date(t.due + ' 2025') < new Date();
   const hasLinks = t.threadUrl || t.draftUrl || t.attachUrl;
   return (
-    <div className={`border-b border-gray-800 ${t.checked ? 'opacity-50' : ''}`}>
+    <div id={`task-${t.airtableId}`} className={`border-b border-gray-800 ${t.checked ? 'opacity-50' : ''}`}>
       <div className="flex items-start gap-3 px-4 py-3 cursor-pointer" onClick={() => onExpand(t.id)}>
         <button onClick={e => { e.stopPropagation(); onToggle(t.id); }} className="mt-0.5 flex-shrink-0">
           {t.checked
@@ -314,6 +315,9 @@ function EmptyViewState({ view }: { view: ViewType }) {
 // ============================================================================
 
 export function TasksClient({ company }: TasksClientProps) {
+  const searchParams = useSearchParams();
+  const deepLinkTaskId = searchParams.get('task');
+  const deepLinkHandled = useRef(false);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeView, setActiveView] = useState<ViewType>('inbox');
@@ -450,6 +454,25 @@ export function TasksClient({ company }: TasksClientProps) {
     }
     fetchTasks();
   }, []);
+
+  // Deep-link: auto-expand a task when ?task=recXXX is in the URL
+  useEffect(() => {
+    if (!deepLinkTaskId || deepLinkHandled.current || loading || tasks.length === 0) return;
+    deepLinkHandled.current = true;
+    const match = tasks.find(t => t.airtableId === deepLinkTaskId);
+    if (match) {
+      // Switch to the correct view if needed
+      if (match.view && match.view !== activeView) {
+        setActiveView(match.view as ViewType);
+      }
+      setExpandedId(match.id);
+      // Scroll to the task after a short delay for render
+      setTimeout(() => {
+        const el = document.getElementById(`task-${match.airtableId}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 200);
+    }
+  }, [deepLinkTaskId, loading, tasks, activeView]);
 
   const toggleCheck = useCallback((id: number) => {
     setTasks(prev => {
@@ -862,7 +885,7 @@ export function TasksClient({ company }: TasksClientProps) {
                 const linkCount = [t.threadUrl, t.draftUrl, t.attachUrl].filter(Boolean).length;
 
                 return (
-                  <div key={t.id} className={`border-b border-gray-800/60 ${t.checked ? 'opacity-50' : ''}`}>
+                  <div key={t.id} id={`task-${t.airtableId}`} className={`border-b border-gray-800/60 ${t.checked ? 'opacity-50' : ''}`}>
                     {/* Main row */}
                     <div
                       className={`grid grid-cols-12 gap-2 px-4 py-3 items-start transition-colors cursor-pointer
