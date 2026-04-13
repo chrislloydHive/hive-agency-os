@@ -123,189 +123,73 @@ function groupAssetsForRendering(assets: ReviewAsset[]): RenderableItem[] {
 }
 
 /**
- * Video component that extracts and displays a thumbnail frame via canvas poster.
- * Seeks to an early timestamp (works better for .mov, short spots, and Chrome codecs).
+ * Grid / card video thumbnail: show the decoded frame on a real {@link HTMLVideoElement}.
+ * Canvas capture often fails for .mov / QuickTime while the video surface still paints a frame.
  */
-export function VideoWithThumbnail({ 
-  src, 
+export function VideoWithThumbnail({
+  src,
   className,
   controls = false,
   autoPlay = false,
-}: { 
-  src: string; 
+}: {
+  src: string;
   className?: string;
   controls?: boolean;
   autoPlay?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [posterUrl, setPosterUrl] = useState<string | null>(null);
-  const [hasThumbnail, setHasThumbnail] = useState(false);
-  const [thumbnailError, setThumbnailError] = useState(false);
-  const [useCrossOrigin, setUseCrossOrigin] = useState(false);
-  const [videoLoadError, setVideoLoadError] = useState(false);
-  const attemptRef = useRef(0);
-  const maxAttempts = 5;
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const soughtRef = useRef(false);
+
+  /** Media fragment hints some browsers to decode an early frame (safe with our query-string URLs). */
+  const srcWithFragment = src.includes('#') ? src : `${src}#t=0.08`;
 
   useEffect(() => {
-    setPosterUrl(null);
-    setHasThumbnail(false);
-    setThumbnailError(false);
-    setVideoLoadError(false);
-    setUseCrossOrigin(false);
-    attemptRef.current = 0;
+    setLoadError(false);
+    soughtRef.current = false;
   }, [src]);
 
   useEffect(() => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas || hasThumbnail || thumbnailError) return;
+    const v = videoRef.current;
+    if (!v || loadError) return;
 
-    const captureFrame = () => {
+    const seekThumb = () => {
+      if (soughtRef.current) return;
       try {
-        // Check if video has valid dimensions
-        if (video.videoWidth === 0 || video.videoHeight === 0) {
-          if (attemptRef.current < maxAttempts) {
-            attemptRef.current += 1;
-            // Retry after a short delay
-            timeoutRef.current = setTimeout(() => {
-              if (video.readyState >= 2 && video.videoWidth > 0) {
-                captureFrame();
-              }
-            }, 300);
-          } else {
-            setThumbnailError(true);
-          }
-          return;
-        }
-        
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          if (attemptRef.current < maxAttempts) {
-            attemptRef.current += 1;
-            timeoutRef.current = setTimeout(captureFrame, 300);
-          } else {
-            setThumbnailError(true);
-          }
-          return;
-        }
-
-        // Draw the current video frame to canvas
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        // Convert to data URL for use as poster
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        setPosterUrl(dataUrl);
-        setHasThumbnail(true);
-      } catch (e) {
-        // CORS or other errors - try without crossOrigin or use fallback
-        console.warn('[VideoWithThumbnail] Failed to capture frame:', e);
-        if (attemptRef.current < maxAttempts) {
-          attemptRef.current += 1;
-          // Try capturing at current time instead of seeking
-          timeoutRef.current = setTimeout(() => {
-            if (video.readyState >= 2 && video.videoWidth > 0) {
-              try {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-                  setPosterUrl(dataUrl);
-                  setHasThumbnail(true);
-                }
-              } catch (err) {
-                setThumbnailError(true);
-              }
-            }
-          }, 500);
+        if (v.duration > 0 && !Number.isNaN(v.duration)) {
+          const t = Math.min(1.25, Math.max(0.05, v.duration * 0.08));
+          v.currentTime = t;
         } else {
-          setThumbnailError(true);
+          v.currentTime = 0.08;
         }
-      }
-    };
-
-    /** Early frame works for short ads, .mov, and avoids blank frames at 95% / 4min seeks. */
-    const seekToThumbnailFrame = () => {
-      try {
-        if (video.duration && video.duration > 0 && !isNaN(video.duration)) {
-          const targetTime = Math.min(0.75, Math.max(0.04, video.duration * 0.06));
-          video.currentTime = targetTime;
-        } else {
-          video.currentTime = 0.1;
-        }
+        soughtRef.current = true;
       } catch {
-        if (video.readyState >= 2 && video.videoWidth > 0) {
-          captureFrame();
-        }
+        /* ignore */
       }
     };
 
-    const handleLoadedMetadata = () => {
-      timeoutRef.current = setTimeout(() => {
-        seekToThumbnailFrame();
-      }, 100);
+    const onLoadedMeta = () => {
+      seekThumb();
     };
 
-    const handleSeeked = () => {
-      // Frame should be ready after seeking - wait a bit for render
-      timeoutRef.current = setTimeout(captureFrame, 200);
+    const onCanPlay = () => {
+      if (!soughtRef.current) seekThumb();
     };
 
-    const handleLoadedData = () => {
-      // If metadata wasn't loaded but we have data, try capturing current frame
-      if (!hasThumbnail && video.readyState >= 2 && video.videoWidth > 0) {
-        timeoutRef.current = setTimeout(captureFrame, 200);
-      }
-    };
+    v.addEventListener('loadedmetadata', onLoadedMeta);
+    v.addEventListener('canplay', onCanPlay);
 
-    const handleCanPlay = () => {
-      if (!hasThumbnail && video.videoWidth > 0) {
-        seekToThumbnailFrame();
-      }
-    };
-
-    const handleTimeUpdate = () => {
-      if (!hasThumbnail && video.duration > 0 && video.currentTime >= 0.02) {
-        captureFrame();
-      }
-    };
-
-    // Add event listeners
-    video.addEventListener('loadedmetadata', handleLoadedMetadata);
-    video.addEventListener('seeked', handleSeeked);
-    video.addEventListener('loadeddata', handleLoadedData);
-    video.addEventListener('canplay', handleCanPlay);
-    video.addEventListener('timeupdate', handleTimeUpdate);
-
-    // If video is already loaded, try immediately
-    if (video.readyState >= 1) {
-      handleLoadedMetadata();
+    if (v.readyState >= 1) {
+      seekThumb();
     }
 
     return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      video.removeEventListener('seeked', handleSeeked);
-      video.removeEventListener('loadeddata', handleLoadedData);
-      video.removeEventListener('canplay', handleCanPlay);
-      video.removeEventListener('timeupdate', handleTimeUpdate);
+      v.removeEventListener('loadedmetadata', onLoadedMeta);
+      v.removeEventListener('canplay', onCanPlay);
     };
-  }, [hasThumbnail, thumbnailError, src]);
+  }, [src, loadError]);
 
-  // Try without crossOrigin if CORS fails - some proxies don't need it
-  // Same-origin proxy doesn't need crossOrigin; setting it forces CORS
-  // checks that fail on error responses (404/403 without CORS headers),
-  // which causes the video element to show a network error instead of loading.
-  const showVideoFallback = videoLoadError || (thumbnailError && !posterUrl);
-
-  if (showVideoFallback) {
+  if (loadError) {
     return (
       <div
         className={`flex items-center justify-center bg-gray-900 ${className ?? ''}`}
@@ -319,29 +203,17 @@ export function VideoWithThumbnail({
   }
 
   return (
-    <>
-      <canvas ref={canvasRef} className="hidden" />
-      <video
-        ref={videoRef}
-        src={src}
-        className={className}
-        muted={!autoPlay}
-        playsInline
-        preload="metadata"
-        crossOrigin={useCrossOrigin ? "anonymous" : undefined}
-        poster={posterUrl || undefined}
-        controls={controls}
-        autoPlay={autoPlay}
-        onError={() => {
-          if (useCrossOrigin) {
-            console.warn('[VideoWithThumbnail] Video error with crossOrigin, retrying without');
-            setUseCrossOrigin(false);
-          } else {
-            setVideoLoadError(true);
-          }
-        }}
-      />
-    </>
+    <video
+      ref={videoRef}
+      src={srcWithFragment}
+      className={`${className ?? ''} ${!controls ? 'pointer-events-none' : ''}`}
+      muted={!autoPlay}
+      playsInline
+      preload="auto"
+      controls={controls}
+      autoPlay={autoPlay}
+      onError={() => setLoadError(true)}
+    />
   );
 }
 
