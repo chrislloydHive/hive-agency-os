@@ -42,6 +42,10 @@ export interface ResolvedReviewProjectWithoutAuth {
   oauthError: string;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function getLinkedRecordId(value: unknown): string | null {
   if (Array.isArray(value) && value.length > 0) {
     const first = value[0];
@@ -66,21 +70,39 @@ async function fetchProjectByReviewToken(
     `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}` +
     `?filterByFormula=${encodeURIComponent(formula)}&maxRecords=1`;
 
-  const res = await airtableFetch(url, { method: 'GET' });
-  const json = (await res.json()) as {
-    records?: Array<{ id: string; fields: Record<string, unknown> }>;
-    error?: { message?: string };
-  };
+  const maxAttempts = 5;
 
-  if (!res.ok) {
-    const msg =
-      json?.error?.message ||
-      (typeof json === 'object' && json !== null ? JSON.stringify(json).slice(0, 500) : 'unknown');
-    throw new Error(`Airtable API error (${res.status}): ${msg}`);
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const res = await airtableFetch(url, { method: 'GET' });
+    const json = (await res.json()) as {
+      records?: Array<{ id: string; fields: Record<string, unknown> }>;
+      error?: { message?: string };
+    };
+
+    if (res.status === 429 && attempt < maxAttempts - 1) {
+      const ra = res.headers.get('retry-after');
+      const retrySec = ra ? parseInt(ra, 10) : NaN;
+      const delayMs = Number.isFinite(retrySec) && retrySec > 0
+        ? Math.min(retrySec * 1000, 30_000)
+        : Math.min(400 * 2 ** attempt + Math.floor(Math.random() * 150), 10_000);
+      console.warn(
+        `[review/resolveProject] Airtable 429 on Projects lookup; retry ${attempt + 1}/${maxAttempts} in ${delayMs}ms`,
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    if (!res.ok) {
+      const msg =
+        json?.error?.message ||
+        (typeof json === 'object' && json !== null ? JSON.stringify(json).slice(0, 500) : 'unknown');
+      throw new Error(`Airtable API error (${res.status}): ${msg}`);
+    }
+
+    const row = json.records?.[0];
+    return row ? { id: row.id, fields: row.fields } : null;
   }
-
-  const row = json.records?.[0];
-  return row ? { id: row.id, fields: row.fields } : null;
+  throw new Error('fetchProjectByReviewToken: exhausted attempts without result');
 }
 
 /** OS Companies row — best-effort; REST only. */
