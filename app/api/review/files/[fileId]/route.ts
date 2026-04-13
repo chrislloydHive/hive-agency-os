@@ -24,6 +24,8 @@ import {
 } from '@/lib/google/driveClient';
 
 export const dynamic = 'force-dynamic';
+/** Node required: googleapis streams, Readable.toWeb, Drive proxy. */
+export const runtime = 'nodejs';
 
 const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 

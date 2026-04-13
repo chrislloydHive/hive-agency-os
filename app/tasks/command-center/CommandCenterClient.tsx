@@ -7,6 +7,7 @@ import Link from 'next/link';
 import {
   ArrowLeft, Flame, Target, Calendar, Clock, FileText,
   ChevronRight, Zap, Link2, RefreshCw, Archive, ChevronDown,
+  Inbox, Eye, FolderKanban, MessageSquare, Users,
 } from 'lucide-react';
 
 // ============================================================================
@@ -33,6 +34,45 @@ interface WorkItem {
   suggestedAction?: { label: string; effort: 'quick' | 'short' | 'deep'; when: 'now' | 'today' | 'thisWeek' };
 }
 
+interface FollowUpItem {
+  id: string;
+  title: string;
+  when: string;
+  attendees: string[];
+  externalCount: number;
+  daysSince: number;
+  link?: string;
+  score: number;
+}
+interface ReviewQueueItem {
+  id: string;
+  title: string;
+  lastModified: string;
+  modifiedBy: string;
+  link?: string;
+  daysSinceViewed: number | null;
+  daysSinceModified: number;
+  score: number;
+}
+interface InProgressCluster {
+  id: string;
+  label: string;
+  docCount: number;
+  lastModified: string;
+  docs: { id: string; title: string; link?: string; modifiedTime: string }[];
+  score: number;
+}
+interface CommitmentItem {
+  id: string;
+  phrase: string;
+  to: string;
+  subject: string;
+  sentAt: string;
+  link: string;
+  deadline: string | null;
+  score: number;
+}
+
 interface CommandCenterData {
   topPriorities: WorkItem[];
   fires: WorkItem[];
@@ -41,10 +81,15 @@ interface CommandCenterData {
   upcomingMeetings: WorkItem[];
   recentActivity: WorkItem[];
   stale: WorkItem[];
+  followUps?: FollowUpItem[];
+  reviewQueue?: ReviewQueueItem[];
+  inProgress?: InProgressCluster[];
+  commitments?: CommitmentItem[];
   counts: Record<string, number>;
   googleConnected: boolean;
   googleError?: string | null;
-  sources: { tasks: number; events: number; docs: number };
+  myEmail?: string | null;
+  sources: { tasks: number; events: number; pastEvents?: number; docs: number; sent?: number };
   generatedAt: string;
 }
 
@@ -67,6 +112,18 @@ function formatDue(d?: string | null): string | null {
   if (diffDays === 0) return 'today';
   if (diffDays === 1) return 'tomorrow';
   if (diffDays <= 7) return date.toLocaleDateString('en-US', { weekday: 'short' });
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function formatAgo(d?: string | null): string | null {
+  if (!d) return null;
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return d;
+  const now = new Date();
+  const diffDays = Math.round((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays <= 0) return 'today';
+  if (diffDays === 1) return 'yesterday';
+  if (diffDays <= 7) return `${diffDays}d ago`;
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
@@ -202,7 +259,7 @@ function MeetingRow({ item, backUrl }: { item: WorkItem; backUrl: string }) {
 }
 
 function DocRow({ item }: { item: WorkItem }) {
-  const ago = item.lastActivity ? formatDue(item.lastActivity) : '';
+  const ago = item.lastActivity ? formatAgo(item.lastActivity) : '';
   return (
     <a href={item.links[0]?.url || '#'} target="_blank" rel="noreferrer" className="block">
       <div className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-white/5 transition-colors">
@@ -216,6 +273,139 @@ function DocRow({ item }: { item: WorkItem }) {
   );
 }
 
+function FollowUpRow({ item }: { item: FollowUpItem }) {
+  const when = item.daysSince === 0 ? 'today' : item.daysSince === 1 ? 'yesterday' : `${item.daysSince}d ago`;
+  const shortAttendees = item.attendees.slice(0, 2).map(a => a.split('@')[0]).join(', ');
+  const more = item.attendees.length > 2 ? ` +${item.attendees.length - 2}` : '';
+  return (
+    <a href={item.link || '#'} target="_blank" rel="noreferrer" className="block">
+      <div className="flex items-start gap-3 py-2 px-3 rounded-lg hover:bg-white/5 transition-colors border-l-2 border-orange-500/30">
+        <Users className="w-4 h-4 text-orange-400 flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm text-gray-200 truncate">{item.title}</div>
+          <div className="text-xs text-gray-500">
+            {when} · with {shortAttendees}{more}
+          </div>
+          <div className="text-xs text-orange-300/80 mt-1">→ Follow up — no task logged yet</div>
+        </div>
+      </div>
+    </a>
+  );
+}
+
+function ReviewRow({ item }: { item: ReviewQueueItem }) {
+  const modAgo = item.daysSinceModified === 0 ? 'today' : item.daysSinceModified === 1 ? 'yesterday' : `${item.daysSinceModified}d ago`;
+  const viewedLabel = item.daysSinceViewed === null ? 'never opened' : `you viewed ${item.daysSinceViewed}d ago`;
+  return (
+    <a href={item.link || '#'} target="_blank" rel="noreferrer" className="block">
+      <div className="flex items-start gap-3 py-2 px-3 rounded-lg hover:bg-white/5 transition-colors">
+        <Eye className="w-4 h-4 text-purple-400 flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm text-gray-200 truncate">{item.title}</div>
+          <div className="text-xs text-gray-500">
+            {item.modifiedBy} edited {modAgo} · {viewedLabel}
+          </div>
+        </div>
+      </div>
+    </a>
+  );
+}
+
+function ProjectRow({ item }: { item: InProgressCluster }) {
+  const lastAgo = formatAgo(item.lastModified);
+  return (
+    <div className="py-2 px-3 rounded-lg hover:bg-white/5 transition-colors">
+      <div className="flex items-center gap-3">
+        <FolderKanban className="w-4 h-4 text-teal-400 flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm text-gray-200 truncate">{item.label}</div>
+          <div className="text-xs text-gray-500">{item.docCount} doc{item.docCount === 1 ? '' : 's'} · last edit {lastAgo}</div>
+        </div>
+      </div>
+      <div className="mt-1 ml-7 space-y-0.5">
+        {item.docs.slice(0, 3).map(d => (
+          <a key={d.id} href={d.link || '#'} target="_blank" rel="noreferrer" className="block text-xs text-gray-400 hover:text-gray-200 truncate">
+            · {d.title}
+          </a>
+        ))}
+        {item.docs.length < item.docCount && (
+          <div className="text-xs text-gray-600">· +{item.docCount - item.docs.length} more</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CommitmentRow({ item }: { item: CommitmentItem }) {
+  const sent = new Date(item.sentAt);
+  const daysSince = Math.round((Date.now() - sent.getTime()) / (1000 * 60 * 60 * 24));
+  const sentLabel = daysSince === 0 ? 'today' : daysSince === 1 ? 'yesterday' : `${daysSince}d ago`;
+  const toShort = item.to.split(',')[0].replace(/<.*$/, '').trim().split('@')[0].slice(0, 40);
+  return (
+    <a href={item.link || '#'} target="_blank" rel="noreferrer" className="block">
+      <div className="flex items-start gap-3 py-2 px-3 rounded-lg hover:bg-white/5 transition-colors border-l-2 border-amber-500/30">
+        <MessageSquare className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm text-gray-200 italic">&ldquo;{item.phrase}&rdquo;</div>
+          <div className="text-xs text-gray-500 mt-0.5">
+            to {toShort} · {sentLabel}
+            {item.deadline && <span className="text-amber-300/80"> · promised {item.deadline}</span>}
+          </div>
+        </div>
+      </div>
+    </a>
+  );
+}
+
+// Tile wrapper — gives each section a card look in the dashboard grid
+function Tile({
+  icon: Icon, label, count, color, accent, children, fullWidth = false, subtitle,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  count: number;
+  color: string;
+  accent?: string;    // left border tailwind class, e.g. 'border-l-red-500/50'
+  children: React.ReactNode;
+  fullWidth?: boolean;
+  subtitle?: string;
+}) {
+  return (
+    <div
+      className={`rounded-xl bg-white/[0.02] border border-white/5 ${accent ? `border-l-4 ${accent}` : ''} p-4 ${fullWidth ? 'lg:col-span-2' : ''}`}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <Icon className={`w-4 h-4 ${color}`} />
+        <h2 className="text-xs font-semibold text-gray-200 uppercase tracking-wide">{label}</h2>
+        <span className="text-xs text-gray-500">({count})</span>
+      </div>
+      {subtitle && <p className="text-xs text-gray-500 mb-2">{subtitle}</p>}
+      {children}
+    </div>
+  );
+}
+
+function ShowMore({ total, shown, onClick }: { total: number; shown: number; onClick: () => void }) {
+  if (total <= shown) return null;
+  const remaining = total - shown;
+  return (
+    <button
+      onClick={onClick}
+      className="mt-2 text-xs text-gray-500 hover:text-gray-300 transition-colors ml-3"
+    >
+      + {remaining} more
+    </button>
+  );
+}
+
+function ShowLess({ onClick }: { onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="mt-2 text-xs text-gray-500 hover:text-gray-300 transition-colors ml-3">
+      show less
+    </button>
+  );
+}
+
 // ============================================================================
 // Main component
 // ============================================================================
@@ -226,6 +416,9 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [staleOpen, setStaleOpen] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const toggle = (k: string) => setExpanded(e => ({ ...e, [k]: !e[k] }));
+  const TOP_N = 3;
 
   async function load(refresh = false) {
     if (refresh) setRefreshing(true);
@@ -267,7 +460,7 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-gray-100">
-      <div className="max-w-4xl mx-auto px-4 py-6">
+      <div className="max-w-6xl mx-auto px-4 py-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
@@ -304,6 +497,16 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
           <span className={`px-2 py-0.5 rounded border ${data.sources.docs > 0 ? 'border-sky-500/30 text-sky-300 bg-sky-500/5' : data.googleConnected ? 'border-white/10 text-gray-500' : 'border-amber-500/30 text-amber-300 bg-amber-500/5'}`}>
             Drive · {data.sources.docs} docs
           </span>
+          {typeof data.sources.sent === 'number' && (
+            <span className={`px-2 py-0.5 rounded border ${data.sources.sent > 0 ? 'border-amber-500/30 text-amber-300 bg-amber-500/5' : 'border-white/10 text-gray-500'}`}>
+              Sent mail · {data.sources.sent}
+            </span>
+          )}
+          {typeof data.sources.pastEvents === 'number' && (
+            <span className={`px-2 py-0.5 rounded border ${data.sources.pastEvents > 0 ? 'border-orange-500/30 text-orange-300 bg-orange-500/5' : 'border-white/10 text-gray-500'}`}>
+              Past meetings · {data.sources.pastEvents}
+            </span>
+          )}
           {!data.googleConnected && (
             <span className="text-amber-400 ml-2">
               Google not connected{data.googleError ? ` — ${data.googleError}` : ''}
@@ -322,98 +525,191 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
           </div>
         )}
 
-        {/* Fires */}
-        {data.fires.length > 0 && (
-          <section className="mb-8">
-            <SectionHeader icon={Flame} label="Fires" count={data.fires.length} color="text-red-400" />
-            <div className="space-y-1 border-l-2 border-red-500/40 pl-2">
-              {data.fires.map(item => <WorkItemRow key={item.id} item={item} backUrl={backUrl} showAction />)}
-            </div>
-          </section>
-        )}
+        {/* Dashboard grid — tiles, each capped to top 3 with expand */}
+        <div className="grid gap-4 lg:grid-cols-2">
 
-        {/* Top Priorities */}
-        {data.topPriorities.length > 0 && (
-          <section className="mb-8">
-            <SectionHeader icon={Target} label="Top 3 Today" count={data.topPriorities.length} color="text-emerald-400" />
-            <div className="space-y-1">
-              {data.topPriorities.map(item => <WorkItemRow key={item.id} item={item} backUrl={backUrl} showAction />)}
-            </div>
-          </section>
-        )}
-
-        {/* Upcoming Meetings — always show section if Google is connected */}
-        {data.googleConnected && (
-          <section className="mb-8">
-            <SectionHeader icon={Calendar} label="Meetings This Week" count={data.upcomingMeetings.length} color="text-blue-400" />
-            {data.upcomingMeetings.length > 0 ? (
+          {/* FIRES — hero, full width */}
+          {data.fires.length > 0 && (
+            <Tile icon={Flame} label="Fires" count={data.fires.length} color="text-red-400" accent="border-l-red-500/60" fullWidth>
               <div className="space-y-1">
-                {data.upcomingMeetings.map(item => <MeetingRow key={item.id} item={item} backUrl={backUrl} />)}
+                {(expanded.fires ? data.fires : data.fires.slice(0, TOP_N)).map(item => (
+                  <WorkItemRow key={item.id} item={item} backUrl={backUrl} showAction />
+                ))}
               </div>
-            ) : (
-              <p className="text-xs text-gray-500 ml-6">No events in the next 7 days.</p>
-            )}
-          </section>
-        )}
+              {expanded.fires
+                ? <ShowLess onClick={() => toggle('fires')} />
+                : <ShowMore total={data.fires.length} shown={TOP_N} onClick={() => toggle('fires')} />}
+            </Tile>
+          )}
 
-        {/* Waiting On */}
-        {data.waitingOn.length > 0 && (
-          <section className="mb-8">
-            <SectionHeader icon={Clock} label="Waiting On" count={data.waitingOn.length} color="text-yellow-400" />
-            <div className="space-y-1">
-              {data.waitingOn.map(item => <WorkItemRow key={item.id} item={item} backUrl={backUrl} showAction />)}
-            </div>
-          </section>
-        )}
+          {/* TOP 3 TODAY — hero, full width */}
+          {data.topPriorities.length > 0 && (
+            <Tile icon={Target} label="Top 3 Today" count={data.topPriorities.length} color="text-emerald-400" accent="border-l-emerald-500/60" fullWidth>
+              <div className="space-y-1">
+                {data.topPriorities.map(item => (
+                  <WorkItemRow key={item.id} item={item} backUrl={backUrl} showAction />
+                ))}
+              </div>
+            </Tile>
+          )}
 
-        {/* This Week */}
-        {data.thisWeek.length > 0 && (
-          <section className="mb-8">
-            <SectionHeader icon={Zap} label="This Week" count={data.thisWeek.length} color="text-sky-400" />
-            <div className="space-y-1">
-              {data.thisWeek.map(item => <WorkItemRow key={item.id} item={item} backUrl={backUrl} />)}
-            </div>
-          </section>
-        )}
-
-        {/* Stale (>90d overdue) — collapsed by default */}
-        {data.stale && data.stale.length > 0 && (
-          <section className="mb-8">
-            <button
-              onClick={() => setStaleOpen(o => !o)}
-              className="flex items-center gap-2 mb-3 text-gray-500 hover:text-gray-300 w-full"
+          {/* FOLLOW-UPS */}
+          {data.followUps && data.followUps.length > 0 && (
+            <Tile
+              icon={Inbox} label="Meeting Follow-Ups" count={data.followUps.length} color="text-orange-400"
+              accent="border-l-orange-500/50"
+              subtitle="Recent meetings with no task logged afterward."
             >
-              <Archive className="w-4 h-4" />
-              <h2 className="text-sm font-semibold uppercase tracking-wide">Stale Backlog</h2>
-              <span className="text-xs">({data.stale.length})</span>
-              <ChevronDown className={`w-4 h-4 ml-auto transition-transform ${staleOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {!staleOpen && (
-              <p className="text-xs text-gray-600 ml-6">
-                {data.stale.length} tasks overdue 90+ days. Likely abandoned — expand to review, close out, or reschedule.
-              </p>
-            )}
-            {staleOpen && (
-              <div className="space-y-1 opacity-60">
-                {data.stale.map(item => <WorkItemRow key={item.id} item={item} backUrl={backUrl} />)}
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* Recent Activity — always show if Google connected */}
-        {data.googleConnected && (
-          <section className="mb-8">
-            <SectionHeader icon={FileText} label="Recently Active" count={data.recentActivity.length} color="text-gray-400" />
-            {data.recentActivity.length > 0 ? (
               <div className="space-y-1">
-                {data.recentActivity.slice(0, 8).map(item => <DocRow key={item.id} item={item} />)}
+                {(expanded.followUps ? data.followUps : data.followUps.slice(0, TOP_N)).map(item => (
+                  <FollowUpRow key={item.id} item={item} />
+                ))}
               </div>
-            ) : (
-              <p className="text-xs text-gray-500 ml-6">No Drive activity in the last 7 days.</p>
-            )}
-          </section>
-        )}
+              {expanded.followUps
+                ? <ShowLess onClick={() => toggle('followUps')} />
+                : <ShowMore total={data.followUps.length} shown={TOP_N} onClick={() => toggle('followUps')} />}
+            </Tile>
+          )}
+
+          {/* COMMITMENTS */}
+          {data.commitments && data.commitments.length > 0 && (
+            <Tile
+              icon={MessageSquare} label="Commitments You Made" count={data.commitments.length} color="text-amber-400"
+              accent="border-l-amber-500/50"
+              subtitle="Promises pulled from your sent mail."
+            >
+              <div className="space-y-1">
+                {(expanded.commitments ? data.commitments : data.commitments.slice(0, TOP_N)).map(item => (
+                  <CommitmentRow key={item.id} item={item} />
+                ))}
+              </div>
+              {expanded.commitments
+                ? <ShowLess onClick={() => toggle('commitments')} />
+                : <ShowMore total={data.commitments.length} shown={TOP_N} onClick={() => toggle('commitments')} />}
+            </Tile>
+          )}
+
+          {/* WAITING ON */}
+          {data.waitingOn.length > 0 && (
+            <Tile icon={Clock} label="Waiting On" count={data.waitingOn.length} color="text-yellow-400" accent="border-l-yellow-500/50">
+              <div className="space-y-1">
+                {(expanded.waitingOn ? data.waitingOn : data.waitingOn.slice(0, TOP_N)).map(item => (
+                  <WorkItemRow key={item.id} item={item} backUrl={backUrl} showAction />
+                ))}
+              </div>
+              {expanded.waitingOn
+                ? <ShowLess onClick={() => toggle('waitingOn')} />
+                : <ShowMore total={data.waitingOn.length} shown={TOP_N} onClick={() => toggle('waitingOn')} />}
+            </Tile>
+          )}
+
+          {/* MEETINGS THIS WEEK */}
+          {data.googleConnected && (
+            <Tile icon={Calendar} label="Meetings This Week" count={data.upcomingMeetings.length} color="text-blue-400">
+              {data.upcomingMeetings.length > 0 ? (
+                <>
+                  <div className="space-y-1">
+                    {(expanded.meetings ? data.upcomingMeetings : data.upcomingMeetings.slice(0, TOP_N)).map(item => (
+                      <MeetingRow key={item.id} item={item} backUrl={backUrl} />
+                    ))}
+                  </div>
+                  {expanded.meetings
+                    ? <ShowLess onClick={() => toggle('meetings')} />
+                    : <ShowMore total={data.upcomingMeetings.length} shown={TOP_N} onClick={() => toggle('meetings')} />}
+                </>
+              ) : (
+                <p className="text-xs text-gray-500">No events in the next 7 days.</p>
+              )}
+            </Tile>
+          )}
+
+          {/* THIS WEEK */}
+          {data.thisWeek.length > 0 && (
+            <Tile icon={Zap} label="This Week" count={data.thisWeek.length} color="text-sky-400">
+              <div className="space-y-1">
+                {(expanded.thisWeek ? data.thisWeek : data.thisWeek.slice(0, TOP_N)).map(item => (
+                  <WorkItemRow key={item.id} item={item} backUrl={backUrl} />
+                ))}
+              </div>
+              {expanded.thisWeek
+                ? <ShowLess onClick={() => toggle('thisWeek')} />
+                : <ShowMore total={data.thisWeek.length} shown={TOP_N} onClick={() => toggle('thisWeek')} />}
+            </Tile>
+          )}
+
+          {/* REVIEW QUEUE */}
+          {data.reviewQueue && data.reviewQueue.length > 0 && (
+            <Tile
+              icon={Eye} label="Review Queue" count={data.reviewQueue.length} color="text-purple-400"
+              subtitle="Docs others changed that you haven't reviewed."
+            >
+              <div className="space-y-1">
+                {(expanded.reviewQueue ? data.reviewQueue : data.reviewQueue.slice(0, TOP_N)).map(item => (
+                  <ReviewRow key={item.id} item={item} />
+                ))}
+              </div>
+              {expanded.reviewQueue
+                ? <ShowLess onClick={() => toggle('reviewQueue')} />
+                : <ShowMore total={data.reviewQueue.length} shown={TOP_N} onClick={() => toggle('reviewQueue')} />}
+            </Tile>
+          )}
+
+          {/* WHAT YOU'RE BUILDING */}
+          {data.inProgress && data.inProgress.length > 0 && (
+            <Tile
+              icon={FolderKanban} label="What You're Building" count={data.inProgress.length} color="text-teal-400"
+              subtitle="Clusters of docs you've been editing."
+            >
+              <div className="space-y-2">
+                {(expanded.inProgress ? data.inProgress : data.inProgress.slice(0, TOP_N)).map(item => (
+                  <ProjectRow key={item.id} item={item} />
+                ))}
+              </div>
+              {expanded.inProgress
+                ? <ShowLess onClick={() => toggle('inProgress')} />
+                : <ShowMore total={data.inProgress.length} shown={TOP_N} onClick={() => toggle('inProgress')} />}
+            </Tile>
+          )}
+
+          {/* RECENTLY ACTIVE — reference, opaque-ish */}
+          {data.googleConnected && data.recentActivity.length > 0 && (
+            <Tile icon={FileText} label="Recently Active" count={data.recentActivity.length} color="text-gray-400">
+              <div className="space-y-1">
+                {(expanded.recent ? data.recentActivity : data.recentActivity.slice(0, TOP_N)).map(item => (
+                  <DocRow key={item.id} item={item} />
+                ))}
+              </div>
+              {expanded.recent
+                ? <ShowLess onClick={() => toggle('recent')} />
+                : <ShowMore total={data.recentActivity.length} shown={TOP_N} onClick={() => toggle('recent')} />}
+            </Tile>
+          )}
+
+          {/* STALE — full width, collapsible */}
+          {data.stale && data.stale.length > 0 && (
+            <div className="rounded-xl bg-white/[0.02] border border-white/5 p-4 lg:col-span-2">
+              <button
+                onClick={() => setStaleOpen(o => !o)}
+                className="flex items-center gap-2 text-gray-500 hover:text-gray-300 w-full"
+              >
+                <Archive className="w-4 h-4" />
+                <h2 className="text-xs font-semibold uppercase tracking-wide">Stale Backlog</h2>
+                <span className="text-xs">({data.stale.length})</span>
+                <ChevronDown className={`w-4 h-4 ml-auto transition-transform ${staleOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {!staleOpen && (
+                <p className="text-xs text-gray-600 mt-2">
+                  {data.stale.length} tasks overdue 90+ days. Likely abandoned — expand to review.
+                </p>
+              )}
+              {staleOpen && (
+                <div className="space-y-1 opacity-60 mt-2">
+                  {data.stale.map(item => <WorkItemRow key={item.id} item={item} backUrl={backUrl} />)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

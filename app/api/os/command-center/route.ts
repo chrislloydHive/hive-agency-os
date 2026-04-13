@@ -103,23 +103,28 @@ interface DriveDoc {
   modifiedTime: string;
   webViewLink?: string;
   owners: string[];
+  lastModifyingEmail?: string;
+  lastModifyingName?: string;
+  modifiedByMe?: boolean;
+  viewedByMeTime?: string;
+  sharedWithMeTime?: string;
 }
 
-async function fetchDriveRecent(accessToken: string): Promise<DriveDoc[]> {
+async function fetchDriveRecent(accessToken: string, sinceDays = 14): Promise<DriveDoc[]> {
   const drive = google.drive({ version: 'v3' });
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: accessToken });
 
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const since = new Date();
+  since.setDate(since.getDate() - sinceDays);
 
   try {
     const res = await drive.files.list({
       auth,
-      q: `modifiedTime > '${sevenDaysAgo.toISOString()}' and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
-      fields: 'files(id,name,modifiedTime,webViewLink,owners)',
+      q: `modifiedTime > '${since.toISOString()}' and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
+      fields: 'files(id,name,modifiedTime,webViewLink,owners,lastModifyingUser,modifiedByMe,viewedByMeTime,sharedWithMeTime)',
       orderBy: 'modifiedTime desc',
-      pageSize: 20,
+      pageSize: 50,
     });
     return (res.data.files || []).map(f => ({
       id: f.id || '',
@@ -127,9 +132,87 @@ async function fetchDriveRecent(accessToken: string): Promise<DriveDoc[]> {
       modifiedTime: f.modifiedTime || '',
       webViewLink: f.webViewLink || undefined,
       owners: (f.owners || []).map(o => o.displayName || o.emailAddress || '').filter(Boolean),
+      lastModifyingEmail: f.lastModifyingUser?.emailAddress || undefined,
+      lastModifyingName: f.lastModifyingUser?.displayName || undefined,
+      modifiedByMe: f.modifiedByMe ?? undefined,
+      viewedByMeTime: f.viewedByMeTime || undefined,
+      sharedWithMeTime: f.sharedWithMeTime || undefined,
     }));
   } catch (err) {
     console.error('[Command Center] Drive error:', err);
+    return [];
+  }
+}
+
+async function fetchMyEmail(accessToken: string): Promise<string | null> {
+  try {
+    const auth = new google.auth.OAuth2();
+    auth.setCredentials({ access_token: accessToken });
+    const oauth2 = google.oauth2({ version: 'v2', auth });
+    const res = await oauth2.userinfo.get();
+    return res.data.email || null;
+  } catch (err) {
+    console.error('[Command Center] userinfo error:', err);
+    return null;
+  }
+}
+
+interface SentMessage {
+  id: string;
+  threadId: string;
+  subject: string;
+  snippet: string;
+  body: string;
+  to: string;
+  date: string;
+  link: string;
+}
+
+async function fetchSentMessages(accessToken: string, days = 14): Promise<SentMessage[]> {
+  try {
+    const auth = new google.auth.OAuth2();
+    auth.setCredentials({ access_token: accessToken });
+    const gmail = google.gmail({ version: 'v1', auth });
+    const list = await gmail.users.messages.list({
+      userId: 'me',
+      q: `in:sent newer_than:${days}d`,
+      maxResults: 40,
+    });
+    const ids = (list.data.messages || []).map(m => m.id).filter(Boolean) as string[];
+    const messages = await Promise.all(ids.map(async id => {
+      try {
+        const m = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
+        const headers = m.data.payload?.headers || [];
+        const get = (n: string) => headers.find(h => h.name?.toLowerCase() === n.toLowerCase())?.value || '';
+        // Extract text from payload
+        let body = '';
+        type MsgPart = { mimeType?: string | null; body?: { data?: string | null } | null; parts?: MsgPart[] | null };
+        const walk = (part: MsgPart | undefined | null) => {
+          if (!part) return;
+          if (part.mimeType === 'text/plain' && part.body?.data) {
+            body += Buffer.from(part.body.data, 'base64').toString('utf-8') + '\n';
+          }
+          (part.parts || []).forEach(walk);
+        };
+        walk(m.data.payload as MsgPart | undefined);
+        if (!body && m.data.snippet) body = m.data.snippet;
+        return {
+          id: m.data.id || id,
+          threadId: m.data.threadId || '',
+          subject: get('Subject'),
+          snippet: m.data.snippet || '',
+          body: body.slice(0, 4000),
+          to: get('To'),
+          date: get('Date'),
+          link: `https://mail.google.com/mail/u/0/#sent/${m.data.threadId || id}`,
+        } as SentMessage;
+      } catch {
+        return null;
+      }
+    }));
+    return messages.filter((m): m is SentMessage => !!m);
+  } catch (err) {
+    console.error('[Command Center] Gmail sent error:', err);
     return [];
   }
 }
@@ -378,11 +461,16 @@ function categorize(items: WorkItem[], now: Date) {
     .filter(t => t.flags?.includes('stale'))
     .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
 
-  // Upcoming Meetings: events in next 7 days
+  // Upcoming Meetings: events in next 7 days, excluding personal holds/focus/OOO blocks
+  const BLOCK_TITLE_RE = /^(hold|focus|ooo|out of office|lunch|break|busy|block|dnd|do not disturb|wfh|commute|travel)\b/i;
   const upcomingMeetings = events
     .filter(e => {
       const dte = daysUntil(e.dueDate, now);
-      return dte !== null && dte >= 0 && dte <= 7;
+      if (dte === null || dte < 0 || dte > 7) return false;
+      const title = (e.title || '').trim();
+      if (!title) return false;
+      if (BLOCK_TITLE_RE.test(title)) return false;
+      return true;
     })
     .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
 
@@ -411,12 +499,265 @@ function flagNoPrepMeetings(items: WorkItem[]): WorkItem[] {
 }
 
 // ============================================================================
-// Simple in-memory cache (per server instance, 60s TTL)
+// Smart signals — derived from raw Google data (non-inbox critical work)
+// ============================================================================
+
+function emailDomain(email: string | undefined | null): string {
+  if (!email) return '';
+  const at = email.indexOf('@');
+  return at >= 0 ? email.slice(at + 1).toLowerCase() : '';
+}
+
+function titleWordKey(s: string): string {
+  // Normalized key for clustering by title prefix (e.g. "Q2 Pitch Deck - v3" → "q2-pitch-deck")
+  const tokens = tokenize(s).slice(0, 3);
+  return tokens.join('-');
+}
+
+const BLOCK_TITLE_RE_GLOBAL = /^(hold|focus|ooo|out of office|lunch|break|busy|block|dnd|do not disturb|wfh|commute|travel|standup|stand-up|daily|weekly|sync|1:1|1-on-1|1on1)\b/i;
+
+interface FollowUpItem {
+  id: string;
+  title: string;
+  when: string;              // ISO
+  attendees: string[];
+  externalCount: number;
+  daysSince: number;
+  link?: string;
+  score: number;
+}
+
+function findFollowUps(
+  pastEvents: CalEvent[],
+  items: WorkItem[],
+  myEmail: string | null,
+  now: Date,
+): FollowUpItem[] {
+  const myDomain = emailDomain(myEmail);
+  const meetingTokensByEvent = new Map<string, Set<string>>();
+  // Build a set of tokens seen in tasks that are ACTIVE/recent (created/modified after meeting)
+  const taskTokensWithRecentActivity: Array<{ tokens: Set<string>; since: Date }> = items
+    .filter(i => i.type === 'task')
+    .map(i => ({
+      tokens: new Set([...tokenize(i.title), ...tokenize(i.project), ...tokenize(i.owner)]),
+      since: i.lastActivity ? new Date(i.lastActivity) : new Date(0),
+    }));
+
+  const candidates: FollowUpItem[] = [];
+  for (const ev of pastEvents) {
+    const start = new Date(ev.start);
+    if (isNaN(start.getTime())) continue;
+    const daysSince = Math.round((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysSince < 0 || daysSince > 7) continue;   // past week only
+    const title = (ev.summary || '').trim();
+    if (!title || BLOCK_TITLE_RE_GLOBAL.test(title)) continue;
+
+    const external = ev.attendees.filter(a => {
+      const d = emailDomain(a);
+      return d && d !== myDomain && a.toLowerCase() !== (myEmail || '').toLowerCase();
+    });
+    if (external.length === 0) continue;   // internal-only or solo — skip
+
+    const evTokens = new Set(tokenize(title));
+    meetingTokensByEvent.set(ev.id, evTokens);
+
+    // Does any task have 2+ shared tokens AND was touched AFTER the meeting?
+    const hasFollowupTask = taskTokensWithRecentActivity.some(({ tokens, since }) => {
+      if (since < start) return false;
+      let shared = 0;
+      for (const t of evTokens) if (tokens.has(t)) shared++;
+      return shared >= 2;
+    });
+    if (hasFollowupTask) continue;
+
+    // Score: external attendee count × recency weight (more recent → higher)
+    const recencyWeight = Math.max(0.3, 1 - daysSince / 7);
+    const score = Math.round((external.length * 10 + recencyWeight * 20) * 10) / 10;
+    candidates.push({
+      id: `followup:${ev.id}`,
+      title,
+      when: ev.start,
+      attendees: external.slice(0, 6),
+      externalCount: external.length,
+      daysSince,
+      link: ev.htmlLink,
+      score,
+    });
+  }
+  return candidates.sort((a, b) => b.score - a.score).slice(0, 5);
+}
+
+interface ReviewQueueItem {
+  id: string;
+  title: string;
+  lastModified: string;
+  modifiedBy: string;
+  link?: string;
+  daysSinceViewed: number | null;
+  daysSinceModified: number;
+  score: number;
+}
+
+function findReviewQueue(docs: DriveDoc[], myEmail: string | null, now: Date): ReviewQueueItem[] {
+  const myDomain = emailDomain(myEmail);
+  const candidates: ReviewQueueItem[] = [];
+  for (const d of docs) {
+    if (d.modifiedByMe) continue;
+    const modifierEmail = (d.lastModifyingEmail || '').toLowerCase();
+    if (!modifierEmail || modifierEmail === (myEmail || '').toLowerCase()) continue;
+    const mod = new Date(d.modifiedTime);
+    if (isNaN(mod.getTime())) continue;
+    const daysSinceModified = Math.round((now.getTime() - mod.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysSinceModified < 0 || daysSinceModified > 14) continue;
+
+    const viewedAt = d.viewedByMeTime ? new Date(d.viewedByMeTime) : null;
+    const viewedAfterModify = viewedAt && !isNaN(viewedAt.getTime()) && viewedAt >= mod;
+    if (viewedAfterModify) continue; // already reviewed
+
+    const daysSinceViewed = viewedAt && !isNaN(viewedAt.getTime())
+      ? Math.round((now.getTime() - viewedAt.getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+
+    // Higher score = more critical. External domain modifier > internal. Never-viewed > stale-viewed.
+    const modifierDomain = emailDomain(modifierEmail);
+    const externalBonus = modifierDomain && modifierDomain !== myDomain ? 30 : 0;
+    const neverViewedBonus = daysSinceViewed === null ? 25 : 0;
+    const recencyBonus = Math.max(0, 20 - daysSinceModified * 1.4);
+    const score = Math.round((externalBonus + neverViewedBonus + recencyBonus) * 10) / 10;
+
+    candidates.push({
+      id: `review:${d.id}`,
+      title: d.name,
+      lastModified: d.modifiedTime,
+      modifiedBy: d.lastModifyingName || d.lastModifyingEmail || 'Someone',
+      link: d.webViewLink,
+      daysSinceViewed,
+      daysSinceModified,
+      score,
+    });
+  }
+  return candidates.sort((a, b) => b.score - a.score).slice(0, 6);
+}
+
+interface InProgressCluster {
+  id: string;
+  label: string;
+  docCount: number;
+  lastModified: string;
+  docs: { id: string; title: string; link?: string; modifiedTime: string }[];
+  score: number;
+}
+
+function findInProgress(docs: DriveDoc[], myEmail: string | null, now: Date): InProgressCluster[] {
+  const myLower = (myEmail || '').toLowerCase();
+  const mine = docs.filter(d => {
+    if (d.modifiedByMe) return true;
+    return (d.lastModifyingEmail || '').toLowerCase() === myLower;
+  });
+  const fourteen = new Date(now); fourteen.setDate(fourteen.getDate() - 14);
+  const recent = mine.filter(d => new Date(d.modifiedTime) >= fourteen);
+
+  // Cluster by first 2 meaningful tokens in doc title
+  const clusters = new Map<string, DriveDoc[]>();
+  for (const d of recent) {
+    const tokens = tokenize(d.name).slice(0, 2);
+    const key = tokens.length ? tokens.join('-') : d.name.toLowerCase().slice(0, 20);
+    if (!clusters.has(key)) clusters.set(key, []);
+    clusters.get(key)!.push(d);
+  }
+
+  const out: InProgressCluster[] = [];
+  for (const [key, docList] of clusters) {
+    if (docList.length === 0) continue;
+    docList.sort((a, b) => b.modifiedTime.localeCompare(a.modifiedTime));
+    const lastMod = docList[0].modifiedTime;
+    const daysSince = Math.round((now.getTime() - new Date(lastMod).getTime()) / (1000 * 60 * 60 * 24));
+    // Score: doc count × recency weight
+    const recencyWeight = Math.max(0.2, 1 - daysSince / 14);
+    const score = Math.round(docList.length * 10 * recencyWeight * 10) / 10;
+    out.push({
+      id: `project:${key}`,
+      label: docList[0].name.split(/[-_—:]/)[0].trim() || key,
+      docCount: docList.length,
+      lastModified: lastMod,
+      docs: docList.slice(0, 5).map(d => ({
+        id: d.id,
+        title: d.name,
+        link: d.webViewLink,
+        modifiedTime: d.modifiedTime,
+      })),
+      score,
+    });
+  }
+  // Only show clusters with 2+ docs (single-doc "projects" aren't projects)
+  return out.filter(c => c.docCount >= 2).sort((a, b) => b.score - a.score).slice(0, 4);
+}
+
+interface CommitmentItem {
+  id: string;
+  phrase: string;        // extracted commitment sentence
+  to: string;
+  subject: string;
+  sentAt: string;
+  link: string;
+  deadline: string | null;  // parsed day name if present
+  score: number;
+}
+
+const COMMITMENT_RE = /(?:\b(?:I['']?ll|I will|I'?m going to|I['']?m gonna|let me|I can|I shall)\b[^.?!\n]{5,140}[.?!\n])|(?:\b(?:will (?:send|share|ship|get|pull|prep|draft|put together|send over|loop in|follow up|circle back))\b[^.?!\n]{0,140}[.?!\n])|(?:\bby (?:tomorrow|tonight|today|this (?:afternoon|evening|week)|end of (?:day|week)|EOD|EOW|monday|tuesday|wednesday|thursday|friday|next week)\b[^.?!\n]{0,140}[.?!\n])/gi;
+const DEADLINE_RE = /\b(?:tomorrow|tonight|today|this (?:afternoon|evening|week)|end of (?:day|week)|EOD|EOW|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next week)\b/i;
+
+function findCommitments(sent: SentMessage[], now: Date): CommitmentItem[] {
+  const out: CommitmentItem[] = [];
+  for (const msg of sent) {
+    if (!msg.body) continue;
+    // Strip quoted reply blocks (lines starting with > or "On [date], X wrote:" and after)
+    const trimmed = msg.body
+      .split(/\n\s*On .{5,120} wrote:\s*\n/i)[0]
+      .split('\n')
+      .filter(l => !l.startsWith('>'))
+      .join('\n');
+    const matches = trimmed.match(COMMITMENT_RE);
+    if (!matches) continue;
+    // De-dupe identical phrases in the same message
+    const seen = new Set<string>();
+    const phrases = matches
+      .map(m => m.trim().replace(/\s+/g, ' '))
+      .filter(m => m.length > 12 && m.length < 200)
+      .filter(m => { const k = m.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
+      .slice(0, 2);
+
+    for (const phrase of phrases) {
+      const deadlineMatch = phrase.match(DEADLINE_RE);
+      const deadline = deadlineMatch ? deadlineMatch[0] : null;
+      const sentDate = msg.date ? new Date(msg.date) : now;
+      const daysSinceSent = Math.round((now.getTime() - sentDate.getTime()) / (1000 * 60 * 60 * 24));
+      // Score: deadlines > general "I'll" statements; recent > old
+      const deadlineBonus = deadline ? 30 : 0;
+      const recencyBonus = Math.max(0, 20 - daysSinceSent * 1.4);
+      const score = Math.round((deadlineBonus + recencyBonus + 10) * 10) / 10;
+      out.push({
+        id: `commit:${msg.id}:${phrase.slice(0, 20)}`,
+        phrase,
+        to: msg.to,
+        subject: msg.subject,
+        sentAt: sentDate.toISOString(),
+        link: msg.link,
+        deadline,
+        score,
+      });
+    }
+  }
+  return out.sort((a, b) => b.score - a.score).slice(0, 6);
+}
+
+// ============================================================================
+// Simple in-memory cache (per server instance)
 // ============================================================================
 
 type CachePayload = { ts: number; data: unknown };
 const CACHE = new Map<string, CachePayload>();
-const CACHE_TTL_MS = 60_000;
+const CACHE_TTL_MS = 5_000;
 
 function cacheGet(key: string): unknown | null {
   const v = CACHE.get(key);
@@ -451,7 +792,10 @@ export async function GET(request: NextRequest) {
 
     // ── Fetch Google data ───────────────────────────────────────────────
     let events: CalEvent[] = [];
+    let pastEvents: CalEvent[] = [];
     let docs: DriveDoc[] = [];
+    let sentMessages: SentMessage[] = [];
+    let myEmail: string | null = null;
     let googleConnected = false;
     let googleError: string | null = null;
 
@@ -474,13 +818,20 @@ export async function GET(request: NextRequest) {
 
         const weekStart = new Date(now); weekStart.setHours(0, 0, 0, 0);
         const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 7);
+        const pastStart = new Date(now); pastStart.setDate(pastStart.getDate() - 7); pastStart.setHours(0, 0, 0, 0);
 
-        const [calResult, driveResult] = await Promise.all([
+        const [calResult, pastCalResult, driveResult, sentResult, emailResult] = await Promise.all([
           fetchCalendarRange(accessToken, weekStart.toISOString(), weekEnd.toISOString()),
-          fetchDriveRecent(accessToken),
+          fetchCalendarRange(accessToken, pastStart.toISOString(), weekStart.toISOString()),
+          fetchDriveRecent(accessToken, 14),
+          fetchSentMessages(accessToken, 14),
+          fetchMyEmail(accessToken),
         ]);
         events = calResult.events;
+        pastEvents = pastCalResult.events;
         docs = driveResult;
+        sentMessages = sentResult;
+        myEmail = emailResult;
         if (calResult.error) googleError = `Calendar: ${calResult.error}`;
       }
     } catch (err) {
@@ -510,8 +861,18 @@ export async function GET(request: NextRequest) {
     // ── Categorize ──────────────────────────────────────────────────────
     const categories = categorize(items, now);
 
+    // ── Smart signals ───────────────────────────────────────────────────
+    const followUps = findFollowUps(pastEvents, items, myEmail, now);
+    const reviewQueue = findReviewQueue(docs, myEmail, now);
+    const inProgress = findInProgress(docs, myEmail, now);
+    const commitments = findCommitments(sentMessages, now);
+
     const response = {
       ...categories,
+      followUps,
+      reviewQueue,
+      inProgress,
+      commitments,
       counts: {
         topPriorities: categories.topPriorities.length,
         fires: categories.fires.length,
@@ -520,13 +881,20 @@ export async function GET(request: NextRequest) {
         upcomingMeetings: categories.upcomingMeetings.length,
         recentActivity: categories.recentActivity.length,
         stale: categories.stale.length,
+        followUps: followUps.length,
+        reviewQueue: reviewQueue.length,
+        inProgress: inProgress.length,
+        commitments: commitments.length,
       },
       googleConnected,
       googleError,
+      myEmail,
       sources: {
         tasks: tasks.length,
         events: events.length,
+        pastEvents: pastEvents.length,
         docs: docs.length,
+        sent: sentMessages.length,
       },
       generatedAt: now.toISOString(),
     };

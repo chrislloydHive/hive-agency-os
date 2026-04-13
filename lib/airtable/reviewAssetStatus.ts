@@ -10,6 +10,7 @@
 
 import { getBase } from '@/lib/airtable';
 import { airtableFetch } from '@/lib/airtable/airtableFetch';
+import { fetchWithRetry } from '@/lib/airtable/client';
 import { resolveOsBaseId } from '@/lib/airtable/bases';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import {
@@ -721,6 +722,58 @@ export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<bool
   return true;
 }
 
+/** List CRAS rows for this token + file-id batch via REST (same auth as airtableFetch). */
+async function listExistingCrasFileIdsRest(
+  baseId: string,
+  tokenEsc: string,
+  fileIdsBatch: string[],
+): Promise<Set<string>> {
+  const fileIdConditions = fileIdsBatch.map((fid) => {
+    const fileEsc = String(fid).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
+    return `{${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}"`;
+  });
+  const formula = `AND({Review Token} = "${tokenEsc}", OR(${fileIdConditions.join(',')}))`;
+  const found = new Set<string>();
+  let offset: string | undefined;
+  do {
+    const params = new URLSearchParams();
+    params.set('filterByFormula', formula);
+    params.set('pageSize', '100');
+    if (offset) params.set('offset', offset);
+    const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}?${params.toString()}`;
+    const res = await fetchWithRetry(url, { method: 'GET' });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Airtable list CRAS (${res.status}): ${text.slice(0, 400)}`);
+    }
+    const json = (await res.json()) as {
+      records?: Array<{ fields?: Record<string, unknown> }>;
+      offset?: string;
+    };
+    for (const r of json.records ?? []) {
+      const fid = r.fields?.[SOURCE_FOLDER_ID_FIELD];
+      if (typeof fid === 'string' && fid) found.add(fid);
+    }
+    offset = json.offset;
+  } while (offset);
+  return found;
+}
+
+async function batchCreateCrasRest(
+  baseId: string,
+  recordsPayload: Array<{ fields: Record<string, unknown> }>,
+): Promise<void> {
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}`;
+  const res = await fetchWithRetry(url, {
+    method: 'POST',
+    body: JSON.stringify({ records: recordsPayload }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Airtable batch create CRAS (${res.status}): ${text.slice(0, 500)}`);
+  }
+}
+
 /**
  * Batch ensure CRAS records exist for multiple assets.
  * Creates records with Status=New for any assets that don't have CRAS records yet.
@@ -737,57 +790,44 @@ export async function batchEnsureCrasRecords(
     console.log('[batchEnsureCrasRecords] No assets provided, skipping');
     return { created: 0, errors: 0, skipped: 0 };
   }
-  
-  const osBase = getBase();
+
+  const baseId = resolveOsBaseId();
+  if (!baseId) {
+    console.error('[batchEnsureCrasRecords] Missing OS base id (AIRTABLE_OS_BASE_ID / AIRTABLE_BASE_ID)');
+    return { created: 0, errors: assets.length, skipped: 0 };
+  }
+
   const now = new Date().toISOString();
   let created = 0;
   let errors = 0;
   let skipped = 0;
-  
-  // Log start of sync process
-  console.log('[batchEnsureCrasRecords] Starting CRAS sync', {
+
+  console.log('[batchEnsureCrasRecords] Starting CRAS sync (REST)', {
     projectId,
     folderIds: options?.folderIds || [],
     filesScanned: assets.length,
     token: token.slice(0, 8) + '...',
   });
-  
-  // Check which assets already have CRAS records (using Drive File ID as dedupe key)
-  const fileIds = assets.map(a => a.fileId);
+
+  const fileIds = assets.map((a) => a.fileId);
   const existingMap = new Map<string, boolean>();
-  
-  // Query existing records in batches (Airtable formula limit - use smaller batches for OR())
-  const QUERY_BATCH_SIZE = 20; // Smaller batches to avoid formula size limits
+
+  const QUERY_BATCH_SIZE = 20;
   const tokenEsc = String(token).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
-  
+
   for (let i = 0; i < fileIds.length; i += QUERY_BATCH_SIZE) {
     const batch = fileIds.slice(i, i + QUERY_BATCH_SIZE);
-    const fileIdConditions = batch.map(fid => {
-      const fileEsc = String(fid).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
-      return `{${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}"`;
-    });
-    const formula = `AND({Review Token} = "${tokenEsc}", OR(${fileIdConditions.join(',')}))`;
-    
     try {
-      const existing = await osBase(TABLE)
-        .select({ filterByFormula: formula })
-        .all();
-      
-      for (const record of existing) {
-        const fields = record.fields as Record<string, unknown>;
-        const fileId = fields[SOURCE_FOLDER_ID_FIELD] as string;
-        if (fileId) {
-          existingMap.set(fileId, true);
-        }
+      const found = await listExistingCrasFileIdsRest(baseId, tokenEsc, batch);
+      for (const fid of found) {
+        existingMap.set(fid, true);
       }
     } catch (err) {
       console.error('[batchEnsureCrasRecords] Failed to check existing CRAS records:', err);
-      // Don't count as errors - we'll try to create anyway (idempotent)
       continue;
     }
   }
-  
-  // Create records for assets that don't exist
+
   const toCreate: Array<{ fileId: string; filename?: string; tactic: string; variant: string }> = [];
   for (const asset of assets) {
     if (!existingMap.has(asset.fileId)) {
@@ -796,7 +836,7 @@ export async function batchEnsureCrasRecords(
       skipped++;
     }
   }
-  
+
   if (toCreate.length === 0) {
     console.log('[batchEnsureCrasRecords] Sync complete - all records already exist', {
       projectId,
@@ -807,14 +847,13 @@ export async function batchEnsureCrasRecords(
     });
     return { created: 0, errors, skipped };
   }
-  
-  // Create records in batches (Airtable allows up to 10 records per batch create)
+
   const CREATE_BATCH_SIZE = 10;
   for (let i = 0; i < toCreate.length; i += CREATE_BATCH_SIZE) {
     const batch = toCreate.slice(i, i + CREATE_BATCH_SIZE);
 
     const buildRecords = (includeOptional: boolean) =>
-      batch.map(asset => ({
+      batch.map((asset) => ({
         fields: {
           'Review Token': token,
           Project: [projectId],
@@ -825,11 +864,11 @@ export async function batchEnsureCrasRecords(
           Status: 'New',
           'Show in Client Portal': true,
           ...(includeOptional ? { 'Last Activity At': now } : {}),
-        } as any,
+        } as Record<string, unknown>,
       }));
 
     try {
-      await osBase(TABLE).create(buildRecords(true));
+      await batchCreateCrasRest(baseId, buildRecords(true));
       created += batch.length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -837,7 +876,7 @@ export async function batchEnsureCrasRecords(
       if (isFieldError) {
         console.warn('[batchEnsureCrasRecords] Retrying batch without optional fields:', msg);
         try {
-          await osBase(TABLE).create(buildRecords(false));
+          await batchCreateCrasRest(baseId, buildRecords(false));
           created += batch.length;
         } catch (retryErr) {
           console.error('[batchEnsureCrasRecords] Core-only retry also failed:', retryErr);
@@ -849,8 +888,7 @@ export async function batchEnsureCrasRecords(
       }
     }
   }
-  
-  // Log completion
+
   console.log('[batchEnsureCrasRecords] Sync complete', {
     projectId,
     folderIds: options?.folderIds || [],
@@ -859,7 +897,7 @@ export async function batchEnsureCrasRecords(
     recordsSkipped: skipped,
     recordsErrors: errors,
   });
-  
+
   return { created, errors, skipped };
 }
 
