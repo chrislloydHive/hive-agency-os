@@ -5,9 +5,10 @@
 // Same token -> project resolution as /api/review/assets.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getBase } from '@/lib/airtable';
+import { resolveOsBaseId } from '@/lib/airtable/bases';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
+import { restListTableRecords } from '@/lib/review/airtableReviewRest';
 import { createComment, createCreativeReviewComment } from '@/lib/airtable/comments';
 
 export const dynamic = 'force-dynamic';
@@ -75,7 +76,7 @@ export async function GET(req: NextRequest) {
   }
 
   const projectId = resolved.project.recordId;
-  const osBase = getBase();
+  const osBaseId = resolveOsBaseId();
 
   try {
     const formula = `AND(
@@ -85,15 +86,15 @@ export async function GET(req: NextRequest) {
       {Drive File ID} = "${String(fileId).replace(/"/g, '\\"')}"
     )`;
 
-    const records = await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_COMMENTS)
-      .select({
-        filterByFormula: formula,
-        sort: [{ field: 'Created At', direction: 'asc' }],
-      })
-      .all();
+    const records = await restListTableRecords({
+      baseId: osBaseId,
+      tableName: AIRTABLE_TABLES.CREATIVE_REVIEW_COMMENTS,
+      filterByFormula: formula,
+      sort: [{ field: 'Created At', direction: 'asc' }],
+    });
 
     const comments: AssetComment[] = records.map((r) => {
-      const fields = r.fields as Record<string, unknown>;
+      const fields = r.fields;
       return {
         id: r.id,
         comment: (fields['Comment'] as string) || '',
@@ -112,7 +113,9 @@ export async function GET(req: NextRequest) {
     const isAuthError = errorObj !== null &&
       ((errorObj.statusCode === 403) ||
       (errorObj.error === 'NOT_AUTHORIZED') ||
-      message.includes('NOT_AUTHORIZED') || 
+      message.includes('NOT_AUTHORIZED') ||
+      message.includes('(401)') ||
+      message.includes('(403)') ||
       message.includes('not authorized') ||
       message.includes('You are not authorized'));
     

@@ -7,7 +7,8 @@
 import { notFound } from 'next/navigation';
 import { google, drive_v3 } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
-import { getBase } from '@/lib/airtable';
+import { resolveOsBaseId } from '@/lib/airtable/bases';
+import { restGetProjectRecordFields, restListTableRecords } from '@/lib/review/airtableReviewRest';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { batchEnsureCrasRecords } from '@/lib/airtable/reviewAssetStatus';
 import {
@@ -143,31 +144,31 @@ export default async function ReviewPage({
   const { project, auth } = resolved;
   const drive = google.drive({ version: 'v3', auth });
 
-  // Load existing feedback from the Project record
+  // Load existing feedback from the Project record (Projects base)
   let reviewData: ReviewData = {};
   try {
-    const osBase = getBase();
-    const record = await osBase(AIRTABLE_TABLES.PROJECTS).find(project.recordId);
-    const fields = record.fields as Record<string, unknown>;
-    reviewData = parseReviewData(fields['Client Review Data']);
+    const fields = await restGetProjectRecordFields(project.recordId);
+    if (fields) {
+      reviewData = parseReviewData(fields['Client Review Data']);
+    }
   } catch {
     // If read fails, start with empty feedback
   }
 
   // ── Build folder map: CRS first, then fall back to job folder structure ──
-  const osBase = getBase();
+  const osBaseId = resolveOsBaseId();
   const folderMap = new Map<string, { folderId: string; groupId?: string }>();
 
   // Try Creative Review Sets first
   try {
-    const reviewSets = await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_SETS)
-      .select({
-        filterByFormula: `FIND("${project.recordId}", ARRAYJOIN({Project})) > 0`,
-      })
-      .all();
+    const reviewSets = await restListTableRecords({
+      baseId: osBaseId,
+      tableName: AIRTABLE_TABLES.CREATIVE_REVIEW_SETS,
+      filterByFormula: `FIND("${project.recordId}", ARRAYJOIN({Project})) > 0`,
+    });
 
     for (const set of reviewSets) {
-      const fields = set.fields as Record<string, unknown>;
+      const fields = set.fields;
       const variant = fields['Variant'] as string;
       const tactic = fields['Tactic'] as string;
       const folderId = fields['Folder ID'] as string;

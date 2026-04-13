@@ -3,9 +3,14 @@
 // Token-only auth. Writes to the Project record's "Client Review Data" field (JSON blob).
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getBase, getCommentsBase } from '@/lib/airtable';
+import { resolveOsBaseId } from '@/lib/airtable/bases';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
+import {
+  restGetProjectRecordFields,
+  restListFirstMatching,
+  restPatchRecord,
+} from '@/lib/review/airtableReviewRest';
 import { resolveApprovedAt } from '@/lib/review/approvedAt';
 import { createRecord } from '@/lib/airtable/client';
 
@@ -73,12 +78,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
   }
 
-  // Read current Client Review Data from the Project record
-  const osBase = getBase();
+  // Read current Client Review Data from the Project record (Projects base)
   try {
-    const record = await osBase(AIRTABLE_TABLES.PROJECTS).find(resolved.project.recordId);
-    const fields = record.fields as Record<string, unknown>;
-    const data = parseReviewData(fields['Client Review Data']);
+    const fields = await restGetProjectRecordFields(resolved.project.recordId);
+    const data = parseReviewData(fields?.['Client Review Data']);
     return NextResponse.json({ ok: true, data });
   } catch (err: any) {
     console.error('[review/feedback] GET error:', err?.message ?? err);
@@ -148,7 +151,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Comments are required to create a comment record' }, { status: 400 });
   }
 
-  const osBase = getBase();
+  const osBaseId = resolveOsBaseId();
   const recordId = resolved.project.recordId;
   const commentsBaseId = process.env.AIRTABLE_COMMENTS_BASE_ID || 'appQLwoVH8JyGSTIo';
 
@@ -173,12 +176,14 @@ export async function POST(req: NextRequest) {
         {Tactic} = "${tactic}"
       )`;
 
-      const setRecords = await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_SETS)
-        .select({ filterByFormula: setFormula, maxRecords: 1 })
-        .firstPage();
+      const crsRow = await restListFirstMatching({
+        baseId: osBaseId,
+        tableName: AIRTABLE_TABLES.CREATIVE_REVIEW_SETS,
+        filterByFormula: setFormula,
+      });
 
-      if (setRecords.length > 0) {
-        groupRecordId = setRecords[0].id;
+      if (crsRow) {
+        groupRecordId = crsRow.id;
       }
     } catch (setErr: any) {
       console.warn('[review/feedback] Failed to find Creative Review Sets record:', setErr?.message ?? setErr);
@@ -242,10 +247,7 @@ export async function POST(req: NextRequest) {
           'Approved By Email': authorEmail.trim(),
         };
 
-        await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_SETS).update(
-          groupRecordId,
-          updateFields as any,
-        );
+        await restPatchRecord(osBaseId, AIRTABLE_TABLES.CREATIVE_REVIEW_SETS, groupRecordId, updateFields);
       } catch (setErr: any) {
         // Log but don't fail the main operation
         console.warn('[review/feedback] Creative Review Sets update failed:', setErr?.message ?? setErr);

@@ -3,9 +3,10 @@
 // Same token -> project resolution as /api/review/assets.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getBase } from '@/lib/airtable';
+import { resolveOsBaseId } from '@/lib/airtable/bases';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
+import { restListTableRecords } from '@/lib/review/airtableReviewRest';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
   }
 
   const projectId = resolved.project.recordId;
-  const osBase = getBase();
+  const osBaseId = resolveOsBaseId();
 
   try {
     const baseFormula = `FIND("${projectId}", ARRAYJOIN({Project})) > 0`;
@@ -45,15 +46,15 @@ export async function GET(req: NextRequest) {
         ? `AND(${baseFormula}, {Drive File ID} = "${String(driveFileId).replace(/"/g, '\\"')}")`
         : baseFormula;
 
-    const records = await osBase(AIRTABLE_TABLES.CREATIVE_REVIEW_COMMENTS)
-      .select({
-        filterByFormula: formula,
-        sort: [{ field: 'Created At', direction: 'desc' }],
-      })
-      .all();
+    const records = await restListTableRecords({
+      baseId: osBaseId,
+      tableName: AIRTABLE_TABLES.CREATIVE_REVIEW_COMMENTS,
+      filterByFormula: formula,
+      sort: [{ field: 'Created At', direction: 'desc' }],
+    });
 
     const comments: ListCommentItem[] = records.map((r) => {
-      const fields = r.fields as Record<string, unknown>;
+      const fields = r.fields;
       return {
         id: r.id,
         comment: (fields['Comment'] as string) || '',
