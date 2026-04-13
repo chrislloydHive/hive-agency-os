@@ -86,12 +86,33 @@ interface CommandCenterData {
   reviewQueue?: ReviewQueueItem[];
   inProgress?: InProgressCluster[];
   commitments?: CommitmentItem[];
+  triage?: TriageItem[];
   counts: Record<string, number>;
   googleConnected: boolean;
   googleError?: string | null;
   myEmail?: string | null;
-  sources: { tasks: number; events: number; pastEvents?: number; docs: number; sent?: number };
+  sources: { tasks: number; events: number; pastEvents?: number; docs: number; sent?: number; triage?: number };
   generatedAt: string;
+}
+
+export interface TriageItem {
+  id: string;
+  threadId: string;
+  subject: string;
+  snippet: string;
+  from: string;
+  fromName: string;
+  fromEmail: string;
+  fromDomain: string;
+  date: string;
+  unread: boolean;
+  starred: boolean;
+  important: boolean;
+  matchedReason: string;
+  link: string;
+  hasExistingTask: boolean;
+  score?: number;
+  scoreReasons?: string[];
 }
 
 // ============================================================================
@@ -370,6 +391,68 @@ function CommitmentRow({ item }: { item: CommitmentItem }) {
   );
 }
 
+// Triage row — email needing attention with inline Create Task / Draft Reply
+function TriageRow({ item, onTask, onDraft, busyAction }: {
+  item: TriageItem;
+  onTask: (item: TriageItem) => void;
+  onDraft: (item: TriageItem) => void;
+  busyAction: { id: string; action: 'task' | 'draft' } | null;
+}) {
+  const dateLabel = formatAgo(item.date) || '';
+  const taskBusy = busyAction?.id === item.id && busyAction?.action === 'task';
+  const draftBusy = busyAction?.id === item.id && busyAction?.action === 'draft';
+  const reasonColor =
+    item.matchedReason === 'Key sender' ? 'text-purple-300 bg-purple-500/10' :
+    item.matchedReason === 'Finance keyword' ? 'text-amber-300 bg-amber-500/10' :
+    item.matchedReason === 'Starred/Important' ? 'text-yellow-300 bg-yellow-500/10' :
+    'text-sky-300 bg-sky-500/10';
+  return (
+    <div className="py-2 border-b border-white/5 last:border-0">
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${reasonColor}`}>{item.matchedReason}</span>
+            {item.hasExistingTask && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded text-gray-400 bg-gray-500/10">Task exists</span>
+            )}
+            <span className="text-xs text-gray-500">{item.fromName || item.fromEmail}</span>
+            <span className="text-xs text-gray-600">· {dateLabel}</span>
+          </div>
+          <div className="text-sm text-gray-200 mt-0.5 truncate">{item.subject}</div>
+          {item.snippet && (
+            <div className="text-xs text-gray-500 mt-0.5 line-clamp-2">{item.snippet}</div>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <a
+            href={item.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1 rounded border border-white/5 hover:border-white/20"
+            title="Open in Gmail"
+          >
+            <Link2 className="w-3 h-3" />
+          </a>
+          <button
+            onClick={() => onTask(item)}
+            disabled={taskBusy}
+            className="text-xs text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-1 rounded disabled:opacity-50 whitespace-nowrap"
+          >
+            {taskBusy ? '…' : '+ Task'}
+          </button>
+          <button
+            onClick={() => onDraft(item)}
+            disabled={draftBusy}
+            className="text-xs text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 px-2 py-1 rounded disabled:opacity-50 whitespace-nowrap"
+          >
+            {draftBusy ? '…' : 'Draft reply'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Tile wrapper — gives each section a card look in the dashboard grid
 function Tile({
   icon: Icon, label, count, color, accent, children, fullWidth = false, subtitle,
@@ -432,8 +515,54 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setExpanded(e => ({ ...e, [k]: !e[k] }));
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [createFromEmail, setCreateFromEmail] = useState<{ prefill: Record<string, unknown>; emailMeta: { threadId: string; messageId: string; link: string } } | null>(null);
+  const [triageBusy, setTriageBusy] = useState<{ id: string; action: 'task' | 'draft' } | null>(null);
+  const [triageError, setTriageError] = useState<string | null>(null);
   const handleEdit = (airtableId: string) => setEditingTaskId(airtableId);
   const TOP_N = 3;
+
+  async function handleCreateFromEmail(item: TriageItem) {
+    setTriageBusy({ id: item.id, action: 'task' });
+    setTriageError(null);
+    try {
+      const res = await fetch('/api/os/tasks/from-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId: item.id, threadId: item.threadId }),
+      });
+      if (!res.ok) throw new Error(`Parse failed: ${res.status}`);
+      const json = await res.json();
+      setCreateFromEmail({
+        prefill: json.prefill || {},
+        emailMeta: { threadId: item.threadId, messageId: item.id, link: item.link },
+      });
+    } catch (err) {
+      setTriageError(err instanceof Error ? err.message : 'Failed to parse email');
+    } finally {
+      setTriageBusy(null);
+    }
+  }
+
+  async function handleDraftReply(item: TriageItem) {
+    setTriageBusy({ id: item.id, action: 'draft' });
+    setTriageError(null);
+    try {
+      const res = await fetch('/api/os/gmail/draft-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId: item.id, threadId: item.threadId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json?.error || `Draft failed: ${res.status}`);
+      }
+      if (json.draftUrl) window.open(json.draftUrl, '_blank');
+    } catch (err) {
+      setTriageError(err instanceof Error ? err.message : 'Failed to create draft');
+    } finally {
+      setTriageBusy(null);
+    }
+  }
 
   async function load(refresh = false) {
     if (refresh) setRefreshing(true);
@@ -565,6 +694,26 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
               {expanded.fires
                 ? <ShowLess onClick={() => toggle('fires')} />
                 : <ShowMore total={data.fires.length} shown={TOP_N} onClick={() => toggle('fires')} />}
+            </Tile>
+          )}
+
+          {/* NEEDS TRIAGE — hero, full width */}
+          {data.triage && data.triage.length > 0 && (
+            <Tile icon={Inbox} label="Needs Triage" count={data.triage.length} color="text-amber-300" accent="border-l-amber-500/60" fullWidth subtitle="Unread, starred, or from key senders — click + Task to capture, Draft reply to respond">
+              {triageError && (
+                <div className="text-xs text-red-400 mb-2 flex items-start gap-2">
+                  <span className="flex-1">{triageError}</span>
+                  <button onClick={() => setTriageError(null)} className="text-zinc-500 hover:text-zinc-300 underline underline-offset-2">dismiss</button>
+                </div>
+              )}
+              <div>
+                {(expanded.triage ? data.triage : data.triage.slice(0, 5)).map(item => (
+                  <TriageRow key={item.id} item={item} onTask={handleCreateFromEmail} onDraft={handleDraftReply} busyAction={triageBusy} />
+                ))}
+              </div>
+              {expanded.triage
+                ? <ShowLess onClick={() => toggle('triage')} />
+                : <ShowMore total={data.triage.length} shown={5} onClick={() => toggle('triage')} />}
             </Tile>
           )}
 
@@ -741,6 +890,13 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
         taskId={editingTaskId}
         onClose={() => setEditingTaskId(null)}
         onSaved={() => load(true)}
+      />
+      <TaskEditPanel
+        mode="create"
+        prefill={createFromEmail?.prefill}
+        emailMeta={createFromEmail?.emailMeta}
+        onClose={() => setCreateFromEmail(null)}
+        onSaved={() => { setCreateFromEmail(null); load(true); }}
       />
     </div>
   );

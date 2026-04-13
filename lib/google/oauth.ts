@@ -12,10 +12,11 @@ const SCOPES = [
   'https://www.googleapis.com/auth/presentations',
   'https://www.googleapis.com/auth/calendar.readonly',
   'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.compose',  // needed for drafts.create
 ];
 
 // Bump version whenever SCOPES changes — forces re-consent.
-export const GOOGLE_OAUTH_SCOPE_VERSION = 'v3-cal-gmail';
+export const GOOGLE_OAUTH_SCOPE_VERSION = 'v4-cal-gmail-compose';
 
 const CALLBACK_PATH = '/api/oauth/google/callback';
 

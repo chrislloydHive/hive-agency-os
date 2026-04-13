@@ -27,6 +27,7 @@ const SCOPES = [
   // Command Center / Chief of Staff AI
   'https://www.googleapis.com/auth/calendar.readonly', // Read calendar events
   'https://www.googleapis.com/auth/gmail.readonly', // Read Gmail messages
+  'https://www.googleapis.com/auth/gmail.compose', // Create Gmail drafts (for Draft reply)
 ];
 
 /**

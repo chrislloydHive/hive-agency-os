@@ -60,6 +60,23 @@ export function inferMimeTypeFromFilename(filename: string): string | null {
   if (lower.endsWith('.webm')) return 'video/webm';
   if (lower.endsWith('.mp3')) return 'audio/mpeg';
   if (lower.endsWith('.wav')) return 'audio/wav';
+  if (lower.endsWith('.m4a')) return 'audio/mp4';
+  if (lower.endsWith('.aac')) return 'audio/aac';
+  if (lower.endsWith('.m4v')) return 'video/x-m4v';
   return null;
+}
+
+/**
+ * HTTP Content-Type for the review file proxy. Drive often returns `application/octet-stream`;
+ * with `X-Content-Type-Options: nosniff`, browsers refuse to render `<img>` / `<video>` / `<audio>`
+ * inline and may only offer download.
+ */
+export function resolveInlineContentType(driveMime: string, filename: string): string {
+  const m = driveMime.trim().toLowerCase();
+  if (m && m !== 'application/octet-stream' && m !== 'binary/octet-stream') {
+    return driveMime;
+  }
+  const inferred = inferMimeTypeFromFilename(filename);
+  return inferred ?? driveMime;
 }
 

@@ -26,6 +26,7 @@ import {
   getExportFileExtension,
   exportGoogleWorkspaceFile,
 } from '@/lib/google/driveClient';
+import { resolveInlineContentType } from '@/lib/review/reviewMediaDisplay';
 
 export const dynamic = 'force-dynamic';
 /** Node required: googleapis streams, Readable.toWeb, Drive proxy. */
@@ -189,7 +190,14 @@ export async function GET(
     return jsonError(429, 'Rate limit exceeded');
   }
 
-  const resolved = await resolveReviewProject(token);
+  let resolved: Awaited<ReturnType<typeof resolveReviewProject>>;
+  try {
+    resolved = await resolveReviewProject(token);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[review/files] resolveReviewProject failed:', msg);
+    return jsonError(503, 'Review session unavailable. Reconnect Google for this company if previews stay broken.');
+  }
   if (!resolved) {
     console.warn('[review/files] token ok: false', { fileId: fileId.slice(0, 12) });
     return jsonError(401, 'Invalid token');
@@ -341,6 +349,10 @@ export async function GET(
     }
   }
 
+  const contentTypeForResponse = isGoogleDoc
+    ? finalMimeType
+    : resolveInlineContentType(finalMimeType, finalFileName);
+
   const asciiName = finalFileName.replace(/[^\x20-\x7E]/g, '_');
 
   try {
@@ -349,7 +361,7 @@ export async function GET(
       const stream = await exportGoogleWorkspaceFile(drive, fileId, exportMimeType);
       const webStream = Readable.toWeb(stream) as ReadableStream<Uint8Array>;
       const headers: Record<string, string> = {
-        'Content-Type': finalMimeType,
+        'Content-Type': contentTypeForResponse,
         'Cache-Control': 'no-store',
         'X-Content-Type-Options': 'nosniff',
         'Access-Control-Allow-Origin': '*',
@@ -460,7 +472,7 @@ export async function GET(
     const webStream = Readable.toWeb(stream) as ReadableStream<Uint8Array>;
 
     const headers: Record<string, string> = {
-      'Content-Type': finalMimeType,
+      'Content-Type': contentTypeForResponse,
       'Cache-Control': 'public, max-age=300',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
@@ -489,7 +501,7 @@ export async function GET(
       '[review/files] final status',
       finalStatus,
       'mimeType',
-      finalMimeType,
+      contentTypeForResponse,
       '[review/files] usingFallback',
       usingFallback,
       'contentLength',
