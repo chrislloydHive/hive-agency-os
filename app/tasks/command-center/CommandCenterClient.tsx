@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { TaskEditPanel } from './TaskEditPanel';
 import {
   ArrowLeft, Flame, Target, Calendar, Clock, FileText,
   ChevronRight, Zap, Link2, RefreshCw, Archive, ChevronDown,
@@ -176,13 +177,14 @@ function FlagBadge({ flag }: { flag: string }) {
 }
 
 function WorkItemRow({
-  item, backUrl, showAction = false, showDue = true,
-}: { item: WorkItem; backUrl: string; showAction?: boolean; showDue?: boolean }) {
+  item, backUrl, showAction = false, showDue = true, onEdit,
+}: { item: WorkItem; backUrl: string; showAction?: boolean; showDue?: boolean; onEdit?: (airtableId: string) => void }) {
   const aId = airtableIdOf(item.id);
   const due = formatDue(item.dueDate);
   const isOverdue = item.flags?.includes('overdue');
   const href = aId ? `${backUrl}?task=${aId}` : (item.links[0]?.url || '#');
   const external = !aId && item.links[0]?.url;
+  const canEdit = !!aId && !!onEdit;
 
   const content = (
     <div className="flex items-start gap-3 py-2.5 px-3 rounded-lg hover:bg-white/5 transition-colors border border-transparent hover:border-white/10 group">
@@ -220,6 +222,17 @@ function WorkItemRow({
     </div>
   );
 
+  if (canEdit && aId) {
+    return (
+      <button
+        type="button"
+        onClick={() => onEdit!(aId)}
+        className="w-full text-left"
+      >
+        {content}
+      </button>
+    );
+  }
   if (external) {
     return <a href={href} target="_blank" rel="noreferrer">{content}</a>;
   }
@@ -418,6 +431,8 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
   const [staleOpen, setStaleOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setExpanded(e => ({ ...e, [k]: !e[k] }));
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const handleEdit = (airtableId: string) => setEditingTaskId(airtableId);
   const TOP_N = 3;
 
   async function load(refresh = false) {
@@ -533,7 +548,7 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
             <Tile icon={Flame} label="Fires" count={data.fires.length} color="text-red-400" accent="border-l-red-500/60" fullWidth>
               <div className="space-y-1">
                 {(expanded.fires ? data.fires : data.fires.slice(0, TOP_N)).map(item => (
-                  <WorkItemRow key={item.id} item={item} backUrl={backUrl} showAction />
+                  <WorkItemRow key={item.id} item={item} backUrl={backUrl} showAction onEdit={handleEdit} />
                 ))}
               </div>
               {expanded.fires
@@ -547,7 +562,7 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
             <Tile icon={Target} label="Top 3 Today" count={data.topPriorities.length} color="text-emerald-400" accent="border-l-emerald-500/60" fullWidth>
               <div className="space-y-1">
                 {data.topPriorities.map(item => (
-                  <WorkItemRow key={item.id} item={item} backUrl={backUrl} showAction />
+                  <WorkItemRow key={item.id} item={item} backUrl={backUrl} showAction onEdit={handleEdit} />
                 ))}
               </div>
             </Tile>
@@ -594,7 +609,7 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
             <Tile icon={Clock} label="Waiting On" count={data.waitingOn.length} color="text-yellow-400" accent="border-l-yellow-500/50">
               <div className="space-y-1">
                 {(expanded.waitingOn ? data.waitingOn : data.waitingOn.slice(0, TOP_N)).map(item => (
-                  <WorkItemRow key={item.id} item={item} backUrl={backUrl} showAction />
+                  <WorkItemRow key={item.id} item={item} backUrl={backUrl} showAction onEdit={handleEdit} />
                 ))}
               </div>
               {expanded.waitingOn
@@ -628,7 +643,7 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
             <Tile icon={Zap} label="This Week" count={data.thisWeek.length} color="text-sky-400">
               <div className="space-y-1">
                 {(expanded.thisWeek ? data.thisWeek : data.thisWeek.slice(0, TOP_N)).map(item => (
-                  <WorkItemRow key={item.id} item={item} backUrl={backUrl} />
+                  <WorkItemRow key={item.id} item={item} backUrl={backUrl} onEdit={handleEdit} />
                 ))}
               </div>
               {expanded.thisWeek
@@ -704,13 +719,18 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
               )}
               {staleOpen && (
                 <div className="space-y-1 opacity-60 mt-2">
-                  {data.stale.map(item => <WorkItemRow key={item.id} item={item} backUrl={backUrl} />)}
+                  {data.stale.map(item => <WorkItemRow key={item.id} item={item} backUrl={backUrl} onEdit={handleEdit} />)}
                 </div>
               )}
             </div>
           )}
         </div>
       </div>
+      <TaskEditPanel
+        taskId={editingTaskId}
+        onClose={() => setEditingTaskId(null)}
+        onSaved={() => load(true)}
+      />
     </div>
   );
 }

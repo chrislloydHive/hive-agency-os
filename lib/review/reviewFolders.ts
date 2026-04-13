@@ -269,3 +269,59 @@ export async function getAllowedReviewFolderIdsFromClientProjectsFolder(
   const result = await getReviewFolderMapFromClientProjectsFolder(drive, projectName, clientProjectsFolderId);
   return result ? [...result.map.values()] : null;
 }
+
+export interface ReviewProjectFolderScope {
+  jobFolderId?: string;
+  name: string;
+  hubName: string;
+}
+
+/**
+ * Same folder cascade as `app/api/review/assets/download`: job folder → client Projects → production root.
+ * Used by the review file proxy when CRAS rows are missing but Drive layout matches.
+ */
+export async function resolveAllowedReviewFolderIdsForProject(
+  drive: drive_v3.Drive,
+  project: ReviewProjectFolderScope,
+): Promise<string[] | null> {
+  if (project.jobFolderId) {
+    const ids = await getAllowedReviewFolderIdsFromJobFolder(drive, project.jobFolderId);
+    if (ids && ids.length > 0) return ids;
+  }
+  const clientProjectsFolderId = process.env.CAR_TOYS_PROJECTS_FOLDER_ID ?? '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_';
+  if (clientProjectsFolderId) {
+    const fromClient = await getAllowedReviewFolderIdsFromClientProjectsFolder(
+      drive,
+      project.name,
+      clientProjectsFolderId,
+    );
+    if (fromClient?.length) return fromClient;
+  }
+  const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID;
+  if (!rootFolderId) return null;
+  return getAllowedReviewFolderIds(drive, project.hubName, rootFolderId);
+}
+
+/**
+ * True if the file’s direct parent is one of the allowed variant folders for this project.
+ * Matches how the portal lists assets (direct children of variant folders).
+ */
+export async function isDriveFileDirectChildOfAllowedReviewFolders(
+  drive: drive_v3.Drive,
+  project: ReviewProjectFolderScope,
+  fileId: string,
+): Promise<boolean> {
+  const allowedFolderIds = await resolveAllowedReviewFolderIdsForProject(drive, project);
+  if (!allowedFolderIds || allowedFolderIds.length === 0) return false;
+  try {
+    const meta = await drive.files.get({
+      fileId,
+      fields: 'parents',
+      supportsAllDrives: true,
+    });
+    const parents = meta.data.parents ?? [];
+    return parents.some((pid) => allowedFolderIds.includes(pid));
+  } catch {
+    return false;
+  }
+}

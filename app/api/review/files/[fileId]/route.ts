@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { Readable } from 'stream';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
+import { isDriveFileDirectChildOfAllowedReviewFolders } from '@/lib/review/reviewFolders';
 import { getCrasRecordIdByTokenAndFileId } from '@/lib/airtable/reviewAssetStatus';
 import { getDriveClientWithServiceAccount } from '@/lib/google/driveClient';
 import {
@@ -130,13 +131,36 @@ export async function GET(
   }
   console.log('[review/files] token ok: true', { fileId: fileId.slice(0, 12) });
 
-  const { auth } = resolved;
+  const { project, auth } = resolved;
   let drive = google.drive({ version: 'v3', auth });
   let usingFallback = false;
 
-  // Authorize via CRAS record. Cached briefly to absorb thumbnail bursts.
-  const authorized = await isFileAuthorized(token, fileId);
-  console.log('[review/files] authorized', authorized, { fileId: fileId.slice(0, 12) });
+  // Authorize via CRAS record (preferred). Cached briefly to absorb thumbnail bursts.
+  // Fallback: same Drive folder allowlist as review/assets/download when CRAS row is
+  // missing (e.g. cross-base Project link prevented CRAS create) — still requires valid token.
+  let authorized = await isFileAuthorized(token, fileId);
+  let authorizedViaDriveAllowlist = false;
+  if (!authorized) {
+    try {
+      authorizedViaDriveAllowlist = await isDriveFileDirectChildOfAllowedReviewFolders(
+        drive,
+        project,
+        fileId,
+      );
+      if (authorizedViaDriveAllowlist) {
+        authorized = true;
+        console.log('[review/files] authorized via Drive allowlist (CRAS miss)', {
+          fileId: fileId.slice(0, 12),
+        });
+      }
+    } catch (allowErr: unknown) {
+      const m = allowErr instanceof Error ? allowErr.message : String(allowErr);
+      console.warn('[review/files] Drive allowlist check failed:', m);
+    }
+  }
+  console.log('[review/files] authorized', authorized, 'viaDriveAllowlist', authorizedViaDriveAllowlist, {
+    fileId: fileId.slice(0, 12),
+  });
   if (!authorized) {
     return jsonError(403, 'File not found for this review');
   }

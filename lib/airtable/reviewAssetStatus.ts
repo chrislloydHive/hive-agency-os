@@ -11,7 +11,7 @@
 import { getBase } from '@/lib/airtable';
 import { airtableFetch } from '@/lib/airtable/airtableFetch';
 import { fetchWithRetry } from '@/lib/airtable/client';
-import { resolveOsBaseId } from '@/lib/airtable/bases';
+import { resolveOsBaseId, resolveProjectsBaseId } from '@/lib/airtable/bases';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import {
   getTableSchema,
@@ -23,6 +23,30 @@ const TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 
 /** Airtable field: Google Drive folder ID (source folder or file ID for delivery). */
 const SOURCE_FOLDER_ID_FIELD = 'Source Folder ID';
+
+/**
+ * CRAS field used in filter formulas to match the portal token.
+ * Often a **lookup** from Project → `Client Review Portal Token`, e.g.
+ * `Review Portal Token (lookup)` — that field is read-only; do not write it on create.
+ * Legacy bases with a plain text token column: set `REVIEW_CRAS_TOKEN_FIELD=Review Token`
+ * and optionally `REVIEW_CRAS_WRITE_TOKEN_TO_RECORD=true` if the API should set it on create.
+ */
+const REVIEW_CRAS_TOKEN_FIELD =
+  (typeof process !== 'undefined' && process.env.REVIEW_CRAS_TOKEN_FIELD?.trim()) ||
+  'Review Portal Token (lookup)';
+
+/** Lookup/formula token fields cannot be written; token is filled via linked Project. */
+function omitCrasTokenOnWrite(): boolean {
+  if (process.env.REVIEW_CRAS_WRITE_TOKEN_TO_RECORD === 'true') return false;
+  if (process.env.REVIEW_CRAS_WRITE_TOKEN_TO_RECORD === 'false') return true;
+  return REVIEW_CRAS_TOKEN_FIELD.toLowerCase().includes('lookup');
+}
+
+/** Linked Project field only works when Projects rows live in the same base as CRAS. */
+function shouldLinkProjectFieldOnCras(): boolean {
+  return resolveProjectsBaseId() === resolveOsBaseId();
+}
+
 
 /** Airtable field: Delivery Batch ID – links asset to a partner delivery batch. */
 export const DELIVERY_BATCH_ID_FIELD = 'Delivery Batch ID';
@@ -297,7 +321,7 @@ export async function getCrasRecordIdByTokenAndFileId(
 
   const tokenEsc = tokenTrim.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const fileEsc = fileIdTrim.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  const formula = `AND({Review Token} = "${tokenEsc}", {${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}")`;
+  const formula = `AND({${REVIEW_CRAS_TOKEN_FIELD}} = "${tokenEsc}", {${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}")`;
   const params = new URLSearchParams({
     filterByFormula: formula,
     maxRecords: '1',
@@ -330,7 +354,7 @@ export async function listAssetStatuses(token: string): Promise<Map<string, Stat
   const escaped = String(token).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
   if (!escaped) return new Map();
 
-  const formula = `{Review Token} = "${escaped}"`;
+  const formula = `{${REVIEW_CRAS_TOKEN_FIELD}} = "${escaped}"`;
   const records = await osBase(TABLE)
     .select({ filterByFormula: formula })
     .all();
@@ -514,9 +538,9 @@ export async function getDriveFileIdsForBatch(
   let formula: string;
   if (batchRecordId && String(batchRecordId).trim()) {
     const recEsc = String(batchRecordId).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
-    formula = `AND({Review Token} = "${tokenEsc}", OR({${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}", FIND("${recEsc}", ARRAYJOIN({${DELIVERY_BATCH_ID_FIELD}})) > 0))`;
+    formula = `AND({${REVIEW_CRAS_TOKEN_FIELD}} = "${tokenEsc}", OR({${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}", FIND("${recEsc}", ARRAYJOIN({${DELIVERY_BATCH_ID_FIELD}})) > 0))`;
   } else {
-    formula = `AND({Review Token} = "${tokenEsc}", {${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}")`;
+    formula = `AND({${REVIEW_CRAS_TOKEN_FIELD}} = "${tokenEsc}", {${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}")`;
   }
 
   const records = await base(TABLE)
@@ -652,7 +676,7 @@ async function findExisting(token: string, driveFileId: string): Promise<{ id: s
   const osBase = getBase();
   const tokenEsc = String(token).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
   const fileEsc = String(driveFileId).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
-  const formula = `AND({Review Token} = "${tokenEsc}", {${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}")`;
+  const formula = `AND({${REVIEW_CRAS_TOKEN_FIELD}} = "${tokenEsc}", {${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}")`;
   const records = await osBase(TABLE)
     .select({ filterByFormula: formula, maxRecords: 1 })
     .firstPage();
@@ -687,12 +711,18 @@ export interface EnsureCrasRecordArgs {
 export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<boolean> {
   const existing = await findExisting(args.token, args.driveFileId);
   if (existing) return false;
+  if (omitCrasTokenOnWrite() && !shouldLinkProjectFieldOnCras()) {
+    console.error(
+      '[ensureCrasRecord] Token is lookup-only; need Project link but Projects base ≠ OS base. Cannot create CRAS.',
+    );
+    throw new Error('CRAS create requires Project link when the token field is a lookup');
+  }
   const osBase = getBase();
   const now = new Date().toISOString();
 
   const coreFields: Record<string, unknown> = {
-    'Review Token': args.token,
-    Project: [args.projectId],
+    ...(!omitCrasTokenOnWrite() ? { [REVIEW_CRAS_TOKEN_FIELD]: args.token } : {}),
+    ...(shouldLinkProjectFieldOnCras() ? { Project: [args.projectId] } : {}),
     [SOURCE_FOLDER_ID_FIELD]: args.driveFileId,
     Filename: (args.filename ?? '').slice(0, 500),
     Status: 'New',
@@ -732,7 +762,7 @@ async function listExistingCrasFileIdsRest(
     const fileEsc = String(fid).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
     return `{${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}"`;
   });
-  const formula = `AND({Review Token} = "${tokenEsc}", OR(${fileIdConditions.join(',')}))`;
+  const formula = `AND({${REVIEW_CRAS_TOKEN_FIELD}} = "${tokenEsc}", OR(${fileIdConditions.join(',')}))`;
   const found = new Set<string>();
   let offset: string | undefined;
   do {
@@ -802,11 +832,16 @@ export async function batchEnsureCrasRecords(
   let errors = 0;
   let skipped = 0;
 
+  const linkProject = shouldLinkProjectFieldOnCras();
+  const skipWrites = omitCrasTokenOnWrite();
   console.log('[batchEnsureCrasRecords] Starting CRAS sync (REST)', {
     projectId,
     folderIds: options?.folderIds || [],
     filesScanned: assets.length,
     token: token.slice(0, 8) + '...',
+    crasTokenField: REVIEW_CRAS_TOKEN_FIELD,
+    linkProjectField: linkProject,
+    omitCrasTokenOnWrite: skipWrites,
   });
 
   const fileIds = assets.map((a) => a.fileId);
@@ -848,15 +883,40 @@ export async function batchEnsureCrasRecords(
     return { created: 0, errors, skipped };
   }
 
+  if (skipWrites && !linkProject) {
+    console.error(
+      '[batchEnsureCrasRecords] Token is lookup-only (link Project to fill it) but Projects base ≠ OS base — cannot create CRAS rows.',
+    );
+    return { created: 0, errors: errors + toCreate.length, skipped };
+  }
+
   const CREATE_BATCH_SIZE = 10;
+  const createAttempts: Array<{ includeOptional: boolean; includeProject: boolean }> =
+    skipWrites && linkProject
+      ? [
+          { includeOptional: true, includeProject: true },
+          { includeOptional: false, includeProject: true },
+        ]
+      : linkProject
+        ? [
+            { includeOptional: true, includeProject: true },
+            { includeOptional: true, includeProject: false },
+            { includeOptional: false, includeProject: true },
+            { includeOptional: false, includeProject: false },
+          ]
+        : [
+            { includeOptional: true, includeProject: false },
+            { includeOptional: false, includeProject: false },
+          ];
+
   for (let i = 0; i < toCreate.length; i += CREATE_BATCH_SIZE) {
     const batch = toCreate.slice(i, i + CREATE_BATCH_SIZE);
 
-    const buildRecords = (includeOptional: boolean) =>
+    const buildRecords = (includeOptional: boolean, includeProject: boolean) =>
       batch.map((asset) => ({
         fields: {
-          'Review Token': token,
-          Project: [projectId],
+          ...(!skipWrites ? { [REVIEW_CRAS_TOKEN_FIELD]: token } : {}),
+          ...(includeProject ? { Project: [projectId] } : {}),
           [SOURCE_FOLDER_ID_FIELD]: asset.fileId,
           Filename: (asset.filename ?? '').slice(0, 500),
           Tactic: asset.tactic,
@@ -867,25 +927,21 @@ export async function batchEnsureCrasRecords(
         } as Record<string, unknown>,
       }));
 
-    try {
-      await batchCreateCrasRest(baseId, buildRecords(true));
-      created += batch.length;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const isFieldError = isAirtableFieldError(err);
-      if (isFieldError) {
-        console.warn('[batchEnsureCrasRecords] Retrying batch without optional fields:', msg);
-        try {
-          await batchCreateCrasRest(baseId, buildRecords(false));
-          created += batch.length;
-        } catch (retryErr) {
-          console.error('[batchEnsureCrasRecords] Core-only retry also failed:', retryErr);
-          errors += batch.length;
-        }
-      } else {
-        console.error('[batchEnsureCrasRecords] Failed to batch create CRAS records:', err);
-        errors += batch.length;
+    let batchDone = false;
+    let lastErr: unknown;
+    for (const { includeOptional, includeProject } of createAttempts) {
+      try {
+        await batchCreateCrasRest(baseId, buildRecords(includeOptional, includeProject));
+        created += batch.length;
+        batchDone = true;
+        break;
+      } catch (e) {
+        lastErr = e;
       }
+    }
+    if (!batchDone) {
+      console.error('[batchEnsureCrasRecords] batch create failed after all variants:', lastErr);
+      errors += batch.length;
     }
   }
 
@@ -910,9 +966,13 @@ export async function upsertSeen(args: UpsertSeenArgs): Promise<void> {
   const existing = await findExisting(args.token, args.driveFileId);
 
   if (!existing) {
+    if (omitCrasTokenOnWrite() && !shouldLinkProjectFieldOnCras()) {
+      console.error('[upsertSeen] Lookup token requires Project link; cross-base Projects — cannot create CRAS.');
+      throw new Error('Cannot create CRAS without Project link when token is lookup-only');
+    }
     const createFields: Record<string, unknown> = {
-      'Review Token': args.token,
-      Project: [args.projectId],
+      ...(!omitCrasTokenOnWrite() ? { [REVIEW_CRAS_TOKEN_FIELD]: args.token } : {}),
+      ...(shouldLinkProjectFieldOnCras() ? { Project: [args.projectId] } : {}),
       [SOURCE_FOLDER_ID_FIELD]: args.driveFileId,
       Filename: (args.filename ?? '').slice(0, 500),
       Tactic: args.tactic,
@@ -1016,9 +1076,12 @@ export async function upsertStatus(args: UpsertStatusArgs): Promise<void> {
   }
 
   if (!existing) {
+    if (omitCrasTokenOnWrite() && !shouldLinkProjectFieldOnCras()) {
+      throw new Error('Cannot create CRAS without Project link when token is lookup-only');
+    }
     await osBase(TABLE).create({
-      'Review Token': args.token,
-      Project: [args.projectId],
+      ...(!omitCrasTokenOnWrite() ? { [REVIEW_CRAS_TOKEN_FIELD]: args.token } : {}),
+      ...(shouldLinkProjectFieldOnCras() ? { Project: [args.projectId] } : {}),
       [SOURCE_FOLDER_ID_FIELD]: args.driveFileId,
       Filename: '',
       Tactic: '',
@@ -1214,9 +1277,12 @@ export async function setSingleAssetApprovedClient(
     const osBase = getBase();
     const now = new Date().toISOString();
     
+    if (omitCrasTokenOnWrite() && !shouldLinkProjectFieldOnCras()) {
+      return { error: 'Cannot create CRAS without Project link when token is lookup-only' };
+    }
     const coreCreateFields: Record<string, unknown> = {
-      'Review Token': token,
-      Project: [projectId],
+      ...(!omitCrasTokenOnWrite() ? { [REVIEW_CRAS_TOKEN_FIELD]: token } : {}),
+      ...(shouldLinkProjectFieldOnCras() ? { Project: [projectId] } : {}),
       [SOURCE_FOLDER_ID_FIELD]: driveFileId,
       Filename: (filename ?? '').slice(0, 500),
       Tactic: tactic || '',
@@ -1391,7 +1457,7 @@ export async function propagateGroupApprovalToAssets(
   
   // Find all CRAS records matching this group
   const formula = `AND(
-    {Review Token} = "${tokenEsc}",
+    {${REVIEW_CRAS_TOKEN_FIELD}} = "${tokenEsc}",
     {Tactic} = "${tacticEsc}",
     {Variant} = "${variantEsc}"
   )`;
