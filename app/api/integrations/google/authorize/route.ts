@@ -19,9 +19,13 @@ const SCOPES = [
   'https://www.googleapis.com/auth/webmasters.readonly',
   // Google Drive + Docs/Sheets/Slides (for Workspace Artifacts)
   'https://www.googleapis.com/auth/drive.file', // Create/manage files created by this app
+  'https://www.googleapis.com/auth/drive.readonly', // Read all Drive files (for Command Center recent activity)
   'https://www.googleapis.com/auth/documents', // Create/edit Google Docs
   'https://www.googleapis.com/auth/spreadsheets', // Create/edit Google Sheets
   'https://www.googleapis.com/auth/presentations', // Create/edit Google Slides
+  // Command Center / Chief of Staff AI
+  'https://www.googleapis.com/auth/calendar.readonly', // Read calendar events
+  'https://www.googleapis.com/auth/gmail.readonly', // Read Gmail messages
 ];
 
 /**
