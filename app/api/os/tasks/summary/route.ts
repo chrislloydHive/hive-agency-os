@@ -200,6 +200,9 @@ export async function GET(request: NextRequest) {
     // ── Web Leads (Website Submissions project) ──────────────────────────
     const webLeads = tasks.filter(t => t.project === 'Website Submissions');
 
+    // ── A/R Aging (only tasks created by the QuickBooks aging report) ───
+    const arAging = tasks.filter(t => t.from === 'QuickBooks Aging Report');
+
     // ── Google Calendar + Gmail ──────────────────────────────────────────
     let calendar: { today: CalendarEvent[]; week: CalendarEvent[] } = { today: [], week: [] };
     let emailPulse: { starred: EmailDigest[]; needsReply: EmailDigest[]; unreadCount: number } = {
@@ -251,17 +254,28 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Deduplicate: remove Web Leads and A/R items from Overdue/Hot/Due Today
+    const specialIds = new Set([
+      ...webLeads.map(t => t.id),
+      ...arAging.map(t => t.id),
+    ]);
+    const filteredOverdue = overdue.filter(t => !specialIds.has(t.id));
+    const filteredHot = hot.filter(t => !specialIds.has(t.id));
+    const filteredDueToday = dueToday.filter(t => !specialIds.has(t.id));
+
     return NextResponse.json({
-      overdue,
-      hot,
-      dueToday,
+      overdue: filteredOverdue,
+      hot: filteredHot,
+      dueToday: filteredDueToday,
       webLeads,
+      arAging,
       counts: {
-        overdue: overdue.length,
-        hot: hot.length,
-        dueToday: dueToday.length,
+        overdue: filteredOverdue.length,
+        hot: filteredHot.length,
+        dueToday: filteredDueToday.length,
         totalOpen: tasks.length,
         webLeads: webLeads.length,
+        arAging: arAging.length,
       },
       calendar,
       emailPulse,

@@ -29,6 +29,7 @@ import {
   ChevronUp,
   FileIcon,
   Globe,
+  DollarSign,
 } from 'lucide-react';
 
 // ============================================================================
@@ -82,12 +83,14 @@ interface SummaryData {
   hot: TaskRecord[];
   dueToday: TaskRecord[];
   webLeads: TaskRecord[];
+  arAging: TaskRecord[];
   counts: {
     overdue: number;
     hot: number;
     dueToday: number;
     totalOpen: number;
     webLeads: number;
+    arAging: number;
   };
   calendar: {
     today: CalendarEvent[];
@@ -854,6 +857,16 @@ export function SummaryClient({ companyId, companyName, backUrl }: SummaryClient
               <SectionHeader icon={Globe} label="Web Leads" count={data.counts.webLeads} color="text-emerald-400" />
               <div className="space-y-2">
                 {data.webLeads.map(t => <TaskRow key={t.id} task={t} companyId={companyId} />)}
+              </div>
+            </section>
+          )}
+
+          {/* ── A/R Aging ────────────────────────────────────────────── */}
+          {data.arAging && data.arAging.length > 0 && (
+            <section>
+              <SectionHeader icon={DollarSign} label="A/R Aging" count={data.counts.arAging} color="text-green-400" />
+              <div className="space-y-2">
+                {data.arAging.map(t => <TaskRow key={t.id} task={t} companyId={companyId} />)}
               </div>
             </section>
           )}
