@@ -27,6 +27,10 @@ import {
   Plus,
   Inbox,
   BarChart3,
+  Table2,
+  StickyNote,
+  ChevronUp,
+  ArrowRightCircle,
 } from 'lucide-react';
 
 // ============================================================================
@@ -55,6 +59,7 @@ interface TaskItem {
   threadUrl: string | null;
   draftUrl: string | null;
   attachUrl: string | null;
+  notes: string;
   checked: boolean;
   view: ViewType;
 }
@@ -95,27 +100,27 @@ const VIEW_TABS: { id: ViewType; label: string; icon: typeof Mail }[] = [
 // ============================================================================
 
 const SEED_TASKS: TaskItem[] = [
-  { id: 1, task: 'Kiana - invoice status', pri: 'P0', due: 'Apr 10', from: 'Kiana Sua', project: 'Car Toys / Billing', nextAction: 'Confirm with Kim: (1) did first weekly invoice go out? (2) is $60,800.50 Invoice 1085 separate or rolled in? (3) did remaining Q1 $68,147.', status: 'Next', threadUrl: 'https://mail.google.com/mail/u/0/#inbox/19d354da7d1795e1', draftUrl: 'https://mail.google.com/mail/u/0/#drafts/19d78aea52dbfd97', attachUrl: null, checked: false, view: 'inbox' },
-  { id: 2, task: 'Eric financials package', pri: 'P0', due: 'Apr 14', from: 'Robert Baur', project: 'HEY / Eric Request', nextAction: 'Eric wants accounting done ~May 17 (2 wks earlier). Confirm revised timeline with Robert Baur and reply to Eric.', status: 'Next', threadUrl: 'https://mail.google.com/mail/u/0/#inbox/19d21cb6ea54d541', draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 3, task: 'Spokane geofence rerun', pri: 'P1', due: 'Apr 9', from: 'Jim Warren', project: 'Car Toys 2026 Media', nextAction: 'Pull geofence cost/reach data for Spokane at 10mi and 20mi and send revised estimates to Jim.', status: 'Inbox', threadUrl: 'https://mail.google.com/mail/u/0/#inbox/19d6a58c78785bd5', draftUrl: 'https://mail.google.com/mail/u/0/#drafts/19d78aede3a47a6e', attachUrl: null, checked: false, view: 'inbox' },
-  { id: 4, task: 'GDrive folder for BT assets', pri: 'P1', due: 'Apr 11', from: 'Internal', project: 'Car Toys 2026 Media', nextAction: 'Generate Google Drive folder with approved assets as soon as approvals come in. Brkthru waiting.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 5, task: 'Dolby Atmos theater pricing', pri: 'P1', due: 'Apr 11', from: 'Nolan Gauvreau', project: 'Car Toys / Dolby Atmos', nextAction: 'Pick pricing: $20 net Seattle, $30 net Denver, or $25 CPM blended. Reply to Nolan.', status: 'Next', threadUrl: 'https://mail.google.com/mail/u/0/#all/19d6d6db90ac54c1', draftUrl: 'https://mail.google.com/mail/u/0/#drafts?compose=19d78aed5463f1b0', attachUrl: 'https://docs.google.com/document/d/1H8Pjxij-yx3kFiH8KpH_ASfj3on0nVyJZyKfAdvYCYA/edit', checked: false, view: 'inbox' },
-  { id: 6, task: 'Adam J. GeoFence sign-off', pri: 'P1', due: 'Apr 11', from: 'Adam Jovanovich', project: 'Car Toys Tint', nextAction: 'Jim approved competitor conquesting test. Adam needs to sign off to unblock launch.', status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 7, task: 'Creative Rotation re-review', pri: 'P1', due: 'Apr 11', from: 'Jim Warren', project: 'Car Toys 2026 Media', nextAction: 'Jim made additional changes to the Creative Rotation spreadsheet — review latest edits, update rotation plan.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 8, task: "Reply D'Nisha Missing Assets", pri: 'P1', due: 'Apr 13', from: "D'Nisha Hand", project: 'Car Toys Tint', nextAction: "TWO DRAFTS: (1) Internal to Andy+Louie — asset status — in Docs link. (2) Reply to D'Nisha — in Draft link. Send internal first.", status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 9, task: 'Review BT Geofence Recs', pri: 'P1', due: 'Apr 13', from: 'Nolan Gauvreau', project: 'Car Toys 2026 Media', nextAction: '60-70% budget to top-converting fences, 30-40% to awareness. Send top 7 new Denver geofences.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 10, task: 'Eric financials — reply to Eric', pri: 'P1', due: 'Apr 13', from: 'Eric Gutierrez', project: 'HEY / Eric Request', nextAction: 'Eric replied 4/10: wants accounting sooner. Confirm revised timeline with Robert, reply to Eric.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 11, task: 'KC001630 RFP Response', pri: 'P1', due: 'Apr 27', from: 'Stephanie Wong (King Co.)', project: 'Hive New Biz', nextAction: 'King County Federal Gov Relations Consultant RFP. Closes 4/27. Review PDF, decide whether to bid under HEY LLC.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 12, task: 'Budget sync with Nolan', pri: 'P2', due: 'Apr 11', from: 'Nolan Gauvreau', project: 'Car Toys / Billing', nextAction: 'Schedule 30-min working session to walk through master budget sheet and tracker alignment.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 13, task: 'Reconnect BofA Intuit Access', pri: 'P2', due: 'Apr 13', from: 'Bank of America', project: 'Hive Billing', nextAction: 'BofA stopped sharing data with Intuit on 4/10. Log in and reconnect integration.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 14, task: 'Miller Nash legal check-in', pri: 'P2', due: 'Apr 13', from: 'Andrew Liese', project: 'Legal', nextAction: 'Confirm meeting occurred; capture any follow-ups.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 15, task: 'Fix Vercel Deployment', pri: 'P2', due: 'Apr 14', from: 'Vercel', project: 'Hive Admin', nextAction: 'hive-agency-os production deployment failed twice on 4/10. Check dashboard, fix build, redeploy.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 16, task: 'Fix Production Checklist Script', pri: 'P2', due: 'Apr 14', from: 'Google Apps Script', project: 'Hive Admin', nextAction: "Apps Script 'Production Checklist Generator' failing. Review error log, fix or disable trigger.", status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 17, task: 'Brkthru media items', pri: 'P2', due: 'Apr 14', from: 'Nolan Gauvreau', project: 'Car Toys 2026 Media', nextAction: 'Nolan acknowledged 4-item email. Follow up if no response by EOD Monday.', status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 18, task: 'Adam Weil accessibility follow-up', pri: 'P2', due: 'Apr 14', from: 'Adam Weil', project: 'Portage Bank', nextAction: 'Clarify expectations for Portage Bank remediation scope with White Rabbit.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 19, task: 'Adam — IG Stories approval', pri: 'P2', due: 'Apr 15', from: 'Adam Jovanovich', project: 'Car Toys Tint', nextAction: "Chris sent two new IG Stories assets to Adam's portal. Follow up if no response by Tuesday.", status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 20, task: 'Tint Fences Friday agenda', pri: 'P2', due: 'Apr 17', from: 'Nolan Gauvreau', project: 'Car Toys Tint', nextAction: 'Nolan adding \'Tint Fences\' to Friday agenda — prep thoughts on prospect vs. competitor fence mix.', status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
-  { id: 21, task: 'WSDOT Comms Consultant Bid', pri: 'P3', due: 'May 26', from: 'WEBS (WA DES)', project: 'Hive New Biz', nextAction: 'WSDOT Comms Consultant RFQ. ~$135K. Closes May 26. Review solicitation and decide whether to bid.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, checked: false, view: 'inbox' },
+  { id: 1, task: 'Kiana - invoice status', pri: 'P0', due: 'Apr 10', from: 'Kiana Sua', project: 'Car Toys / Billing', nextAction: 'Confirm with Kim: (1) did first weekly invoice go out? (2) is $60,800.50 Invoice 1085 separate or rolled in? (3) did remaining Q1 $68,147.', status: 'Next', threadUrl: 'https://mail.google.com/mail/u/0/#inbox/19d354da7d1795e1', draftUrl: 'https://mail.google.com/mail/u/0/#drafts/19d78aea52dbfd97', attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 2, task: 'Eric financials package', pri: 'P0', due: 'Apr 14', from: 'Robert Baur', project: 'HEY / Eric Request', nextAction: 'Eric wants accounting done ~May 17 (2 wks earlier). Confirm revised timeline with Robert Baur and reply to Eric.', status: 'Next', threadUrl: 'https://mail.google.com/mail/u/0/#inbox/19d21cb6ea54d541', draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 3, task: 'Spokane geofence rerun', pri: 'P1', due: 'Apr 9', from: 'Jim Warren', project: 'Car Toys 2026 Media', nextAction: 'Pull geofence cost/reach data for Spokane at 10mi and 20mi and send revised estimates to Jim.', status: 'Inbox', threadUrl: 'https://mail.google.com/mail/u/0/#inbox/19d6a58c78785bd5', draftUrl: 'https://mail.google.com/mail/u/0/#drafts/19d78aede3a47a6e', attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 4, task: 'GDrive folder for BT assets', pri: 'P1', due: 'Apr 11', from: 'Internal', project: 'Car Toys 2026 Media', nextAction: 'Generate Google Drive folder with approved assets as soon as approvals come in. Brkthru waiting.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 5, task: 'Dolby Atmos theater pricing', pri: 'P1', due: 'Apr 11', from: 'Nolan Gauvreau', project: 'Car Toys / Dolby Atmos', nextAction: 'Pick pricing: $20 net Seattle, $30 net Denver, or $25 CPM blended. Reply to Nolan.', status: 'Next', threadUrl: 'https://mail.google.com/mail/u/0/#all/19d6d6db90ac54c1', draftUrl: 'https://mail.google.com/mail/u/0/#drafts?compose=19d78aed5463f1b0', attachUrl: 'https://docs.google.com/document/d/1H8Pjxij-yx3kFiH8KpH_ASfj3on0nVyJZyKfAdvYCYA/edit', notes: '', checked: false, view: 'inbox' },
+  { id: 6, task: 'Adam J. GeoFence sign-off', pri: 'P1', due: 'Apr 11', from: 'Adam Jovanovich', project: 'Car Toys Tint', nextAction: 'Jim approved competitor conquesting test. Adam needs to sign off to unblock launch.', status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 7, task: 'Creative Rotation re-review', pri: 'P1', due: 'Apr 11', from: 'Jim Warren', project: 'Car Toys 2026 Media', nextAction: 'Jim made additional changes to the Creative Rotation spreadsheet — review latest edits, update rotation plan.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 8, task: "Reply D'Nisha Missing Assets", pri: 'P1', due: 'Apr 13', from: "D'Nisha Hand", project: 'Car Toys Tint', nextAction: "TWO DRAFTS: (1) Internal to Andy+Louie — asset status — in Docs link. (2) Reply to D'Nisha — in Draft link. Send internal first.", status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 9, task: 'Review BT Geofence Recs', pri: 'P1', due: 'Apr 13', from: 'Nolan Gauvreau', project: 'Car Toys 2026 Media', nextAction: '60-70% budget to top-converting fences, 30-40% to awareness. Send top 7 new Denver geofences.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 10, task: 'Eric financials — reply to Eric', pri: 'P1', due: 'Apr 13', from: 'Eric Gutierrez', project: 'HEY / Eric Request', nextAction: 'Eric replied 4/10: wants accounting sooner. Confirm revised timeline with Robert, reply to Eric.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 11, task: 'KC001630 RFP Response', pri: 'P1', due: 'Apr 27', from: 'Stephanie Wong (King Co.)', project: 'Hive New Biz', nextAction: 'King County Federal Gov Relations Consultant RFP. Closes 4/27. Review PDF, decide whether to bid under HEY LLC.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 12, task: 'Budget sync with Nolan', pri: 'P2', due: 'Apr 11', from: 'Nolan Gauvreau', project: 'Car Toys / Billing', nextAction: 'Schedule 30-min working session to walk through master budget sheet and tracker alignment.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 13, task: 'Reconnect BofA Intuit Access', pri: 'P2', due: 'Apr 13', from: 'Bank of America', project: 'Hive Billing', nextAction: 'BofA stopped sharing data with Intuit on 4/10. Log in and reconnect integration.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 14, task: 'Miller Nash legal check-in', pri: 'P2', due: 'Apr 13', from: 'Andrew Liese', project: 'Legal', nextAction: 'Confirm meeting occurred; capture any follow-ups.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 15, task: 'Fix Vercel Deployment', pri: 'P2', due: 'Apr 14', from: 'Vercel', project: 'Hive Admin', nextAction: 'hive-agency-os production deployment failed twice on 4/10. Check dashboard, fix build, redeploy.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 16, task: 'Fix Production Checklist Script', pri: 'P2', due: 'Apr 14', from: 'Google Apps Script', project: 'Hive Admin', nextAction: "Apps Script 'Production Checklist Generator' failing. Review error log, fix or disable trigger.", status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 17, task: 'Brkthru media items', pri: 'P2', due: 'Apr 14', from: 'Nolan Gauvreau', project: 'Car Toys 2026 Media', nextAction: 'Nolan acknowledged 4-item email. Follow up if no response by EOD Monday.', status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 18, task: 'Adam Weil accessibility follow-up', pri: 'P2', due: 'Apr 14', from: 'Adam Weil', project: 'Portage Bank', nextAction: 'Clarify expectations for Portage Bank remediation scope with White Rabbit.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 19, task: 'Adam — IG Stories approval', pri: 'P2', due: 'Apr 15', from: 'Adam Jovanovich', project: 'Car Toys Tint', nextAction: "Chris sent two new IG Stories assets to Adam's portal. Follow up if no response by Tuesday.", status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 20, task: 'Tint Fences Friday agenda', pri: 'P2', due: 'Apr 17', from: 'Nolan Gauvreau', project: 'Car Toys Tint', nextAction: 'Nolan adding \'Tint Fences\' to Friday agenda — prep thoughts on prospect vs. competitor fence mix.', status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 21, task: 'WSDOT Comms Consultant Bid', pri: 'P3', due: 'May 26', from: 'WEBS (WA DES)', project: 'Hive New Biz', nextAction: 'WSDOT Comms Consultant RFQ. ~$135K. Closes May 26. Review solicitation and decide whether to bid.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
 ];
 
 // ============================================================================
@@ -151,6 +156,27 @@ function LinkIcon({ url, icon: Icon, color, title }: { url: string | null; icon:
   );
 }
 
+/** Pill-style link button for expanded task detail */
+function LinkPill({ url, icon: Icon, label, color, bgColor }: { url: string | null; icon: typeof ExternalLink; label: string; color: string; bgColor: string }) {
+  if (!url) return null;
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer"
+       className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium ${color} ${bgColor} rounded-md hover:opacity-80 transition-opacity`}
+       onClick={(e) => e.stopPropagation()}>
+      <Icon size={12} />
+      {label}
+    </a>
+  );
+}
+
+const AIRTABLE_TABLE_ID = 'tblf7wEI0KBwysrQz';
+const AIRTABLE_BASE_ID_LINK = 'appVLDjqK2q4IJhGz';
+
+function getAirtableUrl(recordId?: string) {
+  if (!recordId) return null;
+  return `https://airtable.com/${AIRTABLE_BASE_ID_LINK}/${AIRTABLE_TABLE_ID}/${recordId}`;
+}
+
 function StatCard({ label, value, color, borderColor }: { label: string; value: number; color: string; borderColor: string }) {
   return (
     <div className={`flex flex-col items-center px-4 py-2 rounded-lg border ${color} ${borderColor}`}>
@@ -160,7 +186,7 @@ function StatCard({ label, value, color, borderColor }: { label: string; value: 
   );
 }
 
-function MobileTaskCard({ t, onToggle, onExpand, expanded }: { t: TaskItem; onToggle: (id: number) => void; onExpand: (id: number) => void; expanded: boolean }) {
+function MobileTaskCard({ t, onToggle, onExpand, expanded, onMove }: { t: TaskItem; onToggle: (id: number) => void; onExpand: (id: number) => void; expanded: boolean; onMove?: (t: TaskItem) => void }) {
   const isOverdue = new Date(t.due + ' 2025') < new Date();
   const hasLinks = t.threadUrl || t.draftUrl || t.attachUrl;
   return (
@@ -189,18 +215,36 @@ function MobileTaskCard({ t, onToggle, onExpand, expanded }: { t: TaskItem; onTo
         <ChevronRight size={16} className={`text-gray-600 mt-2 flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
       </div>
       {expanded && (
-        <div className="px-4 pb-3 pl-12">
-          <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Project</div>
-          <div className="text-sm text-gray-300 mb-2">{t.project}</div>
-          <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Next Action</div>
-          <p className="text-sm text-gray-300 leading-relaxed mb-3">{t.nextAction}</p>
-          {hasLinks && (
-            <div className="flex items-center gap-3">
-              <LinkIcon url={t.threadUrl} icon={ExternalLink} color="text-blue-400" title="Thread" />
-              <LinkIcon url={t.draftUrl} icon={FileText} color="text-green-400" title="Draft" />
-              <LinkIcon url={t.attachUrl} icon={Paperclip} color="text-purple-400" title="Attachment" />
+        <div className="px-4 pb-3 pl-12 space-y-2">
+          <div>
+            <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Project</div>
+            <div className="text-sm text-gray-300">{t.project}</div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Next Action</div>
+            <p className="text-sm text-gray-300 leading-relaxed">{t.nextAction}</p>
+          </div>
+          {t.notes && (
+            <div>
+              <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Notes</div>
+              <p className="text-sm text-gray-400 leading-relaxed">{t.notes}</p>
             </div>
           )}
+          <div className="flex items-center gap-2 flex-wrap pt-1">
+            <LinkPill url={t.threadUrl} icon={Mail} label="Thread" color="text-blue-300" bgColor="bg-blue-950/60 border border-blue-800/40" />
+            <LinkPill url={t.draftUrl} icon={FileText} label="Draft" color="text-green-300" bgColor="bg-green-950/60 border border-green-800/40" />
+            <LinkPill url={t.attachUrl} icon={t.attachUrl?.includes('drafts') ? FileText : Paperclip} label={t.attachUrl?.includes('drafts') ? 'Internal Draft' : 'Attach'} color="text-purple-300" bgColor="bg-purple-950/60 border border-purple-800/40" />
+            <LinkPill url={getAirtableUrl(t.airtableId)} icon={Table2} label="Airtable" color="text-amber-300" bgColor="bg-amber-950/60 border border-amber-800/40" />
+            {onMove && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onMove(t); }}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-white bg-amber-600 hover:bg-amber-500 rounded-md transition-colors"
+              >
+                <ArrowRightCircle size={12} />
+                Move to Tasks
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -283,23 +327,61 @@ export function TasksClient({ company }: TasksClientProps) {
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [newTaskText, setNewTaskText] = useState('');
   const [addingTask, setAddingTask] = useState(false);
+  const [parseStatus, setParseStatus] = useState<string>('');
 
   const addTask = useCallback(async (text: string, view: ViewType) => {
     if (!text.trim() || addingTask) return;
     setAddingTask(true);
+    setParseStatus('');
+
     try {
+      let taskData: {
+        task: string; priority: string; status: string; from: string;
+        project: string; nextAction: string; due: string;
+      } = {
+        task: text.trim(),
+        priority: 'P2',
+        status: 'Inbox',
+        from: 'Chris Lloyd',
+        project: '',
+        nextAction: '',
+        due: '',
+      };
+
+      // For brain dump items, use AI to parse raw text into a structured task
+      if (view === 'braindump' && text.trim().length > 30) {
+        setParseStatus('Parsing with AI...');
+        try {
+          const parseRes = await fetch('/api/os/tasks/parse-dump', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: text.trim() }),
+          });
+          if (parseRes.ok) {
+            const { parsed } = await parseRes.json();
+            taskData = {
+              task: parsed.task || taskData.task,
+              priority: parsed.priority || 'P2',
+              status: parsed.status || 'Inbox',
+              from: parsed.from || 'Chris Lloyd',
+              project: parsed.project || '',
+              nextAction: parsed.nextAction || '',
+              due: parsed.due || '',
+            };
+            setParseStatus('Creating task...');
+          }
+        } catch (parseErr) {
+          console.error('AI parse failed, saving raw:', parseErr);
+          // Fall through — save as raw text if AI fails
+        }
+      }
+
       const res = await fetch('/api/os/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          task: text.trim(),
-          priority: 'P2',
-          status: 'Inbox',
+          ...taskData,
           view,
-          from: 'Chris Lloyd',
-          project: '',
-          nextAction: '',
-          due: '',
           done: false,
         }),
       });
@@ -309,7 +391,7 @@ export function TasksClient({ company }: TasksClientProps) {
       const newItem: TaskItem = {
         id: tasks.length + 1,
         airtableId: t.id,
-        task: t.task || text.trim(),
+        task: t.task || taskData.task,
         pri: (t.priority || 'P2') as Priority,
         due: t.due || '',
         from: t.from || 'Chris Lloyd',
@@ -319,13 +401,16 @@ export function TasksClient({ company }: TasksClientProps) {
         threadUrl: t.threadUrl || null,
         draftUrl: t.draftUrl || null,
         attachUrl: t.attachUrl || null,
+        notes: t.notes || '',
         checked: false,
         view: (t.view || view) as ViewType,
       };
       setTasks(prev => [newItem, ...prev]);
       setNewTaskText('');
+      setParseStatus('');
     } catch (err) {
       console.error('Failed to add task:', err);
+      setParseStatus('');
     } finally {
       setAddingTask(false);
     }
@@ -351,6 +436,7 @@ export function TasksClient({ company }: TasksClientProps) {
           threadUrl: t.threadUrl || null,
           draftUrl: t.draftUrl || null,
           attachUrl: t.attachUrl || null,
+          notes: t.notes || '',
           checked: t.done || false,
           view: t.view || 'inbox',
         }));
@@ -397,6 +483,22 @@ export function TasksClient({ company }: TasksClientProps) {
 
   const toggleExpand = useCallback((id: number) => {
     setExpandedId(prev => prev === id ? null : id);
+  }, []);
+
+  const moveToTasks = useCallback(async (taskItem: TaskItem) => {
+    try {
+      const res = await fetch('/api/os/tasks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: taskItem.airtableId, view: 'inbox' }),
+      });
+      if (!res.ok) throw new Error('Failed to move task');
+      setTasks(prev => prev.map(t =>
+        t.id === taskItem.id ? { ...t, view: 'inbox' as ViewType } : t
+      ));
+    } catch (err) {
+      console.error('Failed to move task:', err);
+    }
   }, []);
 
   // Filter tasks for the active view
@@ -672,27 +774,63 @@ export function TasksClient({ company }: TasksClientProps) {
       {/* Quick Add — Tasks & Brain Dump */}
       {(activeView === 'inbox' || activeView === 'braindump') && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-3">
-          <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 focus-within:ring-2 focus-within:ring-amber-500/50 focus-within:border-amber-500/50">
-            <Plus size={16} className="text-gray-500 flex-shrink-0" />
-            <input
-              type="text"
-              placeholder={activeView === 'braindump' ? 'Dump a thought, idea, or random todo...' : 'Quick-add a task...'}
-              value={newTaskText}
-              onChange={e => setNewTaskText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') addTask(newTaskText, activeView); }}
-              className="flex-1 bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none"
-              disabled={addingTask}
-            />
-            {newTaskText.trim() && (
-              <button
-                onClick={() => addTask(newTaskText, activeView)}
+          {activeView === 'braindump' ? (
+            /* Brain Dump — multi-line textarea for pasting emails, notes, etc. */
+            <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 focus-within:ring-2 focus-within:ring-amber-500/50 focus-within:border-amber-500/50">
+              <div className="flex items-start gap-2">
+                <Brain size={16} className="text-amber-500 flex-shrink-0 mt-1" />
+                <textarea
+                  placeholder="Paste an email, jot a thought, dump a voice note... AI will parse it into a task"
+                  value={newTaskText}
+                  onChange={e => setNewTaskText(e.target.value)}
+                  rows={3}
+                  className="flex-1 bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none resize-y min-h-[60px] max-h-[200px]"
+                  disabled={addingTask}
+                />
+              </div>
+              <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-800">
+                <span className="text-xs text-gray-500">
+                  {parseStatus || (newTaskText.trim().length > 30 ? 'AI will parse this into a structured task' : 'Short text will be added as-is')}
+                </span>
+                {newTaskText.trim() && (
+                  <button
+                    onClick={() => addTask(newTaskText, activeView)}
+                    disabled={addingTask}
+                    className="px-4 py-1.5 text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-md transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    {addingTask ? (
+                      <><span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> {parseStatus || 'Processing...'}</>
+                    ) : (
+                      <><Plus size={14} /> Add &amp; Parse</>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* Tasks — single line quick add */
+            <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 focus-within:ring-2 focus-within:ring-amber-500/50 focus-within:border-amber-500/50">
+              <Plus size={16} className="text-gray-500 flex-shrink-0" />
+              <input
+                type="text"
+                placeholder="Quick-add a task..."
+                value={newTaskText}
+                onChange={e => setNewTaskText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') addTask(newTaskText, activeView); }}
+                className="flex-1 bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none"
                 disabled={addingTask}
-                className="px-3 py-1 text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-md transition-colors disabled:opacity-50"
-              >
-                {addingTask ? 'Adding...' : 'Add'}
-              </button>
-            )}
-          </div>
+              />
+              {newTaskText.trim() && (
+                <button
+                  onClick={() => addTask(newTaskText, activeView)}
+                  disabled={addingTask}
+                  className="px-3 py-1 text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-md transition-colors disabled:opacity-50"
+                >
+                  {addingTask ? 'Adding...' : 'Add'}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -717,58 +855,143 @@ export function TasksClient({ company }: TasksClientProps) {
                 <div className="col-span-1 text-center">Status</div>
               </div>
 
-              {filtered.map((t, i) => (
-                <div key={t.id}
-                  className={`grid grid-cols-12 gap-2 px-4 py-3 items-start border-b border-gray-800/60 transition-colors
-                    ${t.checked ? 'opacity-50' : ''}
-                    ${i % 2 === 0 ? 'bg-gray-900' : 'bg-gray-900/60'}
-                    hover:bg-gray-800/50`}
-                  onClick={() => { setShowStatusDropdown(false); setShowPriDropdown(false); }}
-                >
-                  <div className="col-span-1 flex items-center justify-center pt-0.5">
-                    <button onClick={(e) => { e.stopPropagation(); toggleCheck(t.id); }} className="text-gray-600 hover:text-amber-400 transition-colors">
-                      {t.checked ? <CheckSquare size={18} className="text-green-500" /> : <Square size={18} />}
-                    </button>
-                  </div>
+              {filtered.map((t, i) => {
+                const isExpanded = expandedId === t.id;
+                const hasLinks = t.threadUrl || t.draftUrl || t.attachUrl;
+                const airtableUrl = getAirtableUrl(t.airtableId);
+                const linkCount = [t.threadUrl, t.draftUrl, t.attachUrl].filter(Boolean).length;
 
-                  <div className="col-span-3">
-                    <span className={`text-sm font-medium ${t.checked ? 'line-through text-gray-600' : 'text-gray-100'}`}>
-                      {t.threadUrl ? (
-                        <a href={t.threadUrl} target="_blank" rel="noopener noreferrer" className="hover:text-amber-400 hover:underline">{t.task}</a>
-                      ) : t.task}
-                    </span>
-                    <div className="text-xs text-gray-600 mt-0.5">{t.project}</div>
-                  </div>
+                return (
+                  <div key={t.id} className={`border-b border-gray-800/60 ${t.checked ? 'opacity-50' : ''}`}>
+                    {/* Main row */}
+                    <div
+                      className={`grid grid-cols-12 gap-2 px-4 py-3 items-start transition-colors cursor-pointer
+                        ${i % 2 === 0 ? 'bg-gray-900' : 'bg-gray-900/60'}
+                        ${isExpanded ? 'bg-gray-800/60' : 'hover:bg-gray-800/50'}`}
+                      onClick={() => { setShowStatusDropdown(false); setShowPriDropdown(false); toggleExpand(t.id); }}
+                    >
+                      <div className="col-span-1 flex items-center justify-center pt-0.5">
+                        <button onClick={(e) => { e.stopPropagation(); toggleCheck(t.id); }} className="text-gray-600 hover:text-amber-400 transition-colors">
+                          {t.checked ? <CheckSquare size={18} className="text-green-500" /> : <Square size={18} />}
+                        </button>
+                      </div>
 
-                  <div className="col-span-1 flex justify-center pt-0.5">
-                    <PriorityPill pri={t.pri} />
-                  </div>
+                      <div className="col-span-3">
+                        <span className={`text-sm font-medium ${t.checked ? 'line-through text-gray-600' : 'text-gray-100'}`}>
+                          {t.task}
+                        </span>
+                        <div className="text-xs text-gray-600 mt-0.5">{t.project}</div>
+                      </div>
 
-                  <div className="col-span-1">
-                    <span className={`text-sm ${new Date(t.due + ' 2026') < new Date() ? 'text-red-400 font-medium' : 'text-gray-400'}`}>
-                      {t.due}
-                    </span>
-                  </div>
+                      <div className="col-span-1 flex justify-center pt-0.5">
+                        <PriorityPill pri={t.pri} />
+                      </div>
 
-                  <div className="col-span-1">
-                    <span className="text-sm text-gray-400 truncate block">{t.from.split(' ')[0]}</span>
-                  </div>
+                      <div className="col-span-1">
+                        <span className={`text-sm ${t.due && new Date(t.due) < new Date() ? 'text-red-400 font-medium' : 'text-gray-400'}`}>
+                          {t.due}
+                        </span>
+                      </div>
 
-                  <div className="col-span-3">
-                    <p className="text-sm text-gray-400 leading-snug line-clamp-2">{t.nextAction}</p>
-                  </div>
+                      <div className="col-span-1">
+                        <span className="text-sm text-gray-400 truncate block">{t.from.split(' ')[0]}</span>
+                      </div>
 
-                  <div className="col-span-1 flex items-center justify-center gap-1.5 pt-0.5">
-                    <LinkIcon url={t.threadUrl} icon={ExternalLink} color="text-blue-400" title="Thread" />
-                    <LinkIcon url={t.draftUrl} icon={FileText} color="text-green-400" title="Draft" />
-                    <LinkIcon url={t.attachUrl} icon={Paperclip} color="text-purple-400" title="Attachment" />
-                  </div>
+                      <div className="col-span-3">
+                        <p className="text-sm text-gray-400 leading-snug line-clamp-2">{t.nextAction}</p>
+                      </div>
 
-                  <div className="col-span-1 flex justify-center pt-0.5">
-                    <StatusPill status={t.status} />
+                      <div className="col-span-1 flex items-center justify-center gap-1.5 pt-0.5">
+                        {linkCount > 0 && (
+                          <span className="text-xs text-gray-500">{linkCount}</span>
+                        )}
+                        <LinkIcon url={t.threadUrl} icon={ExternalLink} color="text-blue-400" title="Thread" />
+                        <LinkIcon url={t.draftUrl} icon={FileText} color="text-green-400" title="Draft" />
+                        <LinkIcon url={t.attachUrl} icon={Paperclip} color="text-purple-400" title="Attachment" />
+                      </div>
+
+                      <div className="col-span-1 flex items-center justify-center gap-1 pt-0.5">
+                        {activeView === 'braindump' ? (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); moveToTasks(t); }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-white bg-amber-600 hover:bg-amber-500 rounded-md transition-colors"
+                            title="Move to Tasks"
+                          >
+                            <ArrowRightCircle size={12} />
+                            Tasks
+                          </button>
+                        ) : (
+                          <StatusPill status={t.status} />
+                        )}
+                        {isExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-600" />}
+                      </div>
+                    </div>
+
+                    {/* Expanded detail panel */}
+                    {isExpanded && (
+                      <div className="bg-gray-800/40 border-t border-gray-700/50 px-4 py-4">
+                        <div className="ml-12 space-y-3">
+                          {/* Next Action — full text */}
+                          {t.nextAction && (
+                            <div>
+                              <div className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-1">Next Action</div>
+                              <p className="text-sm text-gray-300 leading-relaxed">{t.nextAction}</p>
+                            </div>
+                          )}
+
+                          {/* Notes */}
+                          {t.notes && (
+                            <div>
+                              <div className="text-xs text-gray-500 uppercase tracking-wide font-semibold mb-1 flex items-center gap-1">
+                                <StickyNote size={11} />
+                                Notes
+                              </div>
+                              <p className="text-sm text-gray-400 leading-relaxed whitespace-pre-line"
+                                dangerouslySetInnerHTML={{
+                                  __html: t.notes.replace(
+                                    /(https?:\/\/[^\s]+)/g,
+                                    '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 underline underline-offset-2">$1</a>'
+                                  )
+                                }}
+                              />
+                            </div>
+                          )}
+
+                          {/* Link pills + Move to Tasks */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <LinkPill url={t.threadUrl} icon={Mail} label="Email Thread" color="text-blue-300" bgColor="bg-blue-950/60 border border-blue-800/40" />
+                            <LinkPill url={t.draftUrl} icon={FileText} label="Draft" color="text-green-300" bgColor="bg-green-950/60 border border-green-800/40" />
+                            <LinkPill
+                              url={t.attachUrl}
+                              icon={t.attachUrl?.includes('drafts') ? FileText : Paperclip}
+                              label={t.attachUrl?.includes('drafts') ? 'Internal Draft' : t.attachUrl?.includes('docs.google.com') ? 'Google Doc' : 'Attachment'}
+                              color="text-purple-300"
+                              bgColor="bg-purple-950/60 border border-purple-800/40"
+                            />
+                            <LinkPill url={airtableUrl} icon={Table2} label="Open in Airtable" color="text-amber-300" bgColor="bg-amber-950/60 border border-amber-800/40" />
+                            {activeView === 'braindump' && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); moveToTasks(t); }}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-white bg-amber-600 hover:bg-amber-500 rounded-md transition-colors"
+                              >
+                                <ArrowRightCircle size={12} />
+                                Move to Tasks
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Meta info */}
+                          <div className="flex items-center gap-4 text-xs text-gray-600">
+                            <span>From: {t.from}</span>
+                            <span>Project: {t.project}</span>
+                            {t.due && <span>Due: {t.due}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               {filtered.length === 0 && (
                 <div className="px-4 py-12 text-center text-gray-600 text-sm">No tasks match your filters</div>
@@ -778,7 +1001,7 @@ export function TasksClient({ company }: TasksClientProps) {
             {/* Mobile card list */}
             <div className="sm:hidden bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
               {filtered.map(t => (
-                <MobileTaskCard key={t.id} t={t} onToggle={toggleCheck} onExpand={toggleExpand} expanded={expandedId === t.id} />
+                <MobileTaskCard key={t.id} t={t} onToggle={toggleCheck} onExpand={toggleExpand} expanded={expandedId === t.id} onMove={activeView === 'braindump' ? moveToTasks : undefined} />
               ))}
               {filtered.length === 0 && (
                 <div className="px-4 py-12 text-center text-gray-600 text-sm">No tasks match your filters</div>

@@ -55,7 +55,7 @@ export function OSLayout({ children }: { children: React.ReactNode }) {
   // Navigation items
   const navigation = [
     {
-      name: 'My Tasks',
+      name: 'My Day',
       href: '/tasks',
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

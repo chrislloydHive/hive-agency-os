@@ -126,6 +126,7 @@ interface AIContextData {
 interface SummaryClientProps {
   companyId: string;
   companyName: string;
+  backUrl?: string; // Override the "My Day" back link (defaults to /c/{companyId}/tasks)
 }
 
 // ============================================================================
@@ -186,9 +187,9 @@ function EmptyBucket({ label }: { label: string }) {
 
 function StatCard({ label, value, color, borderColor, bgColor }: { label: string; value: number; color: string; borderColor: string; bgColor: string }) {
   return (
-    <div className={`flex flex-col items-center px-4 py-3 rounded-lg border ${borderColor} ${bgColor}`}>
-      <span className={`text-2xl font-bold ${color}`}>{value}</span>
-      <span className="text-xs font-medium text-gray-500 uppercase tracking-wide mt-0.5">{label}</span>
+    <div className={`flex flex-col items-center px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg border ${borderColor} ${bgColor}`}>
+      <span className={`text-lg sm:text-xl font-bold ${color}`}>{value}</span>
+      <span className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</span>
     </div>
   );
 }
@@ -199,14 +200,11 @@ function StatCard({ label, value, color, borderColor, bgColor }: { label: string
 
 function TaskRow({ task, companyId }: { task: TaskRecord; companyId: string }) {
   return (
-    <Link
-      href={`/c/${companyId}/tasks`}
-      className="group flex items-start gap-3 px-4 py-3 rounded-lg border border-gray-800 hover:border-gray-600 hover:bg-gray-800/40 transition-all cursor-pointer"
-    >
+    <div className="group flex items-start gap-3 px-4 py-3 rounded-lg border border-gray-800 hover:border-gray-600 hover:bg-gray-800/40 transition-all">
       <div className="flex-shrink-0 pt-0.5">
         <PriorityDot pri={task.priority} />
       </div>
-      <div className="flex-1 min-w-0">
+      <Link href={`/c/${companyId}/tasks`} className="flex-1 min-w-0 cursor-pointer">
         <p className="text-sm font-medium text-gray-100 group-hover:text-white transition-colors truncate">
           {task.task}
         </p>
@@ -231,13 +229,13 @@ function TaskRow({ task, companyId }: { task: TaskRecord; companyId: string }) {
             </>
           )}
         </div>
-      </div>
+      </Link>
       <div className="flex items-center gap-1.5 flex-shrink-0 pt-0.5">
         <LinkIcon url={task.threadUrl} icon={ExternalLink} color="text-blue-400" title="Email thread" />
         <LinkIcon url={task.draftUrl} icon={FileText} color="text-green-400" title="Draft" />
         <LinkIcon url={task.attachUrl} icon={Paperclip} color="text-purple-400" title="Attachment" />
       </div>
-    </Link>
+    </div>
   );
 }
 
@@ -563,14 +561,45 @@ function AIContextSection({ companyId }: { companyId: string }) {
         <div className="space-y-3">
           {/* Main briefing card */}
           <div className="border border-indigo-900/50 bg-indigo-950/20 rounded-lg p-5">
-            <div className="prose prose-sm prose-invert max-w-none">
+            <div className="max-w-none space-y-1">
               {briefingLines.map((line, i) => {
-                // Handle markdown-style bold
-                const formatted = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                // Strip leading # for title lines
+                if (line.startsWith('# ') && !line.startsWith('## ')) {
+                  return null; // Skip the top-level title — redundant with section header
+                }
+                // ## Headers → styled section dividers
+                if (line.startsWith('## ')) {
+                  const text = line.replace(/^##\s+/, '').replace(/\*\*(.*?)\*\*/g, '$1');
+                  return (
+                    <h4 key={i} className="text-[11px] font-bold uppercase tracking-widest text-indigo-400/70 mt-4 first:mt-0 pt-3 first:pt-0 border-t border-indigo-900/30 first:border-0">
+                      {text}
+                    </h4>
+                  );
+                }
+                // >>> Large headline — top priority per section
+                if (line.startsWith('>>> ')) {
+                  const text = line.slice(4).replace(/\*\*(.*?)\*\*/g, '$1');
+                  return (
+                    <p key={i} className="text-lg font-semibold text-gray-100 leading-snug tracking-tight">
+                      {text}
+                    </p>
+                  );
+                }
+                // >> Medium action item
+                if (line.startsWith('>> ')) {
+                  const text = line.slice(3).replace(/\*\*(.*?)\*\*/g, '$1');
+                  return (
+                    <p key={i} className="text-sm font-medium text-gray-300 leading-snug pl-1">
+                      {text}
+                    </p>
+                  );
+                }
+                // Regular lines — small context
+                const formatted = line.replace(/\*\*(.*?)\*\*/g, '<strong class="text-gray-300 font-medium">$1</strong>');
                 return (
                   <p
                     key={i}
-                    className="text-sm text-gray-300 leading-relaxed mb-2 last:mb-0"
+                    className="text-xs text-gray-500 leading-relaxed pl-1"
                     dangerouslySetInnerHTML={{ __html: formatted }}
                   />
                 );
@@ -661,7 +690,7 @@ function AIContextSection({ companyId }: { companyId: string }) {
 // Main Component
 // ============================================================================
 
-export function SummaryClient({ companyId, companyName }: SummaryClientProps) {
+export function SummaryClient({ companyId, companyName, backUrl }: SummaryClientProps) {
   const [data, setData] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -697,41 +726,69 @@ export function SummaryClient({ companyId, companyName }: SummaryClientProps) {
     : '';
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <Link
-            href={`/c/${companyId}/tasks`}
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors inline-flex items-center gap-1 mb-1"
-          >
-            <ArrowLeft size={12} />
-            Back to Tasks
-          </Link>
-          <h2 className="text-xl font-bold text-gray-100">Daily Summary</h2>
-          {generatedLabel && (
-            <p className="text-xs text-gray-500 mt-0.5">{generatedLabel}</p>
-          )}
+    <div className="min-h-screen">
+      {/* Header bar — matches My Day top bar */}
+      <div className="sticky top-0 z-20 bg-gray-950/95 backdrop-blur-sm border-b border-gray-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div>
+              <h1 className="text-base sm:text-lg font-bold tracking-tight text-white">DAILY SUMMARY</h1>
+              {generatedLabel && (
+                <p className="text-xs text-gray-500 mt-0.5">{generatedLabel}</p>
+              )}
+            </div>
+          </div>
+          <div className="hidden sm:flex items-center gap-4">
+            <Link
+              href={backUrl || `/c/${companyId}/tasks`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-400 bg-amber-950/40 border border-amber-800/50 rounded-lg hover:bg-amber-950/60 transition-colors"
+            >
+              <ArrowLeft size={13} />
+              My Day
+            </Link>
+            <button
+              onClick={fetchSummary}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-300 bg-gray-800 border border-gray-700 rounded-lg hover:bg-gray-700 hover:text-white transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          </div>
+          {/* Mobile */}
+          <div className="flex sm:hidden items-center gap-2">
+            <Link
+              href={backUrl || `/c/${companyId}/tasks`}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-amber-400 bg-amber-950/40 border border-amber-800/50 rounded-lg"
+            >
+              <ArrowLeft size={12} />
+              My Day
+            </Link>
+            <button
+              onClick={fetchSummary}
+              disabled={loading}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-300 bg-gray-800 border border-gray-700 rounded-lg disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
         </div>
-        <button
-          onClick={fetchSummary}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-300 bg-gray-800 border border-gray-700 rounded-lg hover:bg-gray-700 hover:text-white transition-colors disabled:opacity-50"
-        >
-          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          Refresh
-        </button>
       </div>
 
-      {/* Stat cards */}
+      {/* Stat cards — compact row */}
       {data && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard label="Overdue" value={data.counts.overdue} color="text-red-400" borderColor="border-red-900" bgColor="bg-red-950/40" />
-          <StatCard label="Hot (P0)" value={data.counts.hot} color="text-orange-400" borderColor="border-orange-900" bgColor="bg-orange-950/40" />
-          <StatCard label="Due Today" value={data.counts.dueToday} color="text-amber-400" borderColor="border-amber-900" bgColor="bg-amber-950/40" />
-          <StatCard label="Total Open" value={data.counts.totalOpen} color="text-gray-300" borderColor="border-gray-700" bgColor="bg-gray-800/40" />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-5 pb-2">
+          <div className="grid grid-cols-4 gap-2 sm:gap-3">
+            <StatCard label="Overdue" value={data.counts.overdue} color="text-red-400" borderColor="border-red-900" bgColor="bg-red-950/40" />
+            <StatCard label="Hot (P0)" value={data.counts.hot} color="text-orange-400" borderColor="border-orange-900" bgColor="bg-orange-950/40" />
+            <StatCard label="Due Today" value={data.counts.dueToday} color="text-amber-400" borderColor="border-amber-900" bgColor="bg-amber-950/40" />
+            <StatCard label="Total Open" value={data.counts.totalOpen} color="text-gray-300" borderColor="border-gray-700" bgColor="bg-gray-800/40" />
+          </div>
         </div>
       )}
+
+      {/* Main content area */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-6">
 
       {/* Loading state */}
       {loading && !data && (
@@ -825,6 +882,8 @@ export function SummaryClient({ companyId, companyName }: SummaryClientProps) {
           </section>
         </div>
       )}
+
+      </div>{/* end max-w-7xl content wrapper */}
     </div>
   );
 }

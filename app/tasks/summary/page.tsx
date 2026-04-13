@@ -17,6 +17,7 @@ export default function GlobalSummaryPage() {
     <SummaryClient
       companyId={DEFAULT_COMPANY_ID}
       companyName="Hive Agency"
+      backUrl="/tasks"
     />
   );
 }

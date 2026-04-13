@@ -238,6 +238,44 @@ export async function getCompanyIntegrations(
 }
 
 /**
+ * Find any company that has a Google refresh token.
+ * Useful as a fallback when the current company has no Google integration
+ * but the user's Google account is connected through another company.
+ */
+export async function getAnyGoogleRefreshToken(): Promise<string | null> {
+  try {
+    const config = getAirtableConfig();
+    const params = new URLSearchParams();
+    params.set('filterByFormula', `AND({GoogleRefreshToken} != '', {GoogleRefreshToken} != BLANK())`);
+    params.set('fields[]', 'GoogleRefreshToken');
+    params.set('maxRecords', '1');
+
+    const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?${params.toString()}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${config.apiKey}` },
+    });
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const records = data.records || [];
+    if (records.length > 0) {
+      const token = records[0].fields?.GoogleRefreshToken;
+      if (token) {
+        console.log('[CompanyIntegrations] Found fallback Google token from record:', records[0].id);
+        return token;
+      }
+    }
+    return null;
+  } catch (err) {
+    console.warn('[CompanyIntegrations] Error fetching fallback Google token:', err);
+    return null;
+  }
+}
+
+/**
  * Create or update company integrations
  */
 export async function upsertCompanyIntegrations(

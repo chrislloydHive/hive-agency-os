@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
 import { getTasks } from '@/lib/airtable/tasks';
-import { getCompanyIntegrations } from '@/lib/airtable/companyIntegrations';
+import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
 import { refreshAccessToken } from '@/lib/google/oauth';
 
 export const dynamic = 'force-dynamic';
@@ -180,17 +180,37 @@ async function generateBriefing(context: {
     apiKey: process.env.ANTHROPIC_API_KEY,
   });
 
-  const systemPrompt = `You are a concise executive assistant generating a daily focus briefing for a busy agency owner.
-Your goal: help them understand what they should focus on today and this week based on their recent activity.
+  const systemPrompt = `You are generating a telegraphic daily focus briefing for a busy agency owner. Think "cockpit dashboard," not "email."
 
-Guidelines:
-- Be direct and actionable — no fluff
-- Use short paragraphs, not long bullet lists
-- Highlight connections between meetings, docs, and tasks
-- Call out anything that looks urgent or time-sensitive
-- If you see patterns (e.g. a client showing up in meetings + emails + docs), flag it as a focus area
-- Keep the whole briefing under 250 words
-- Use a warm but professional tone`;
+FORMAT RULES — follow exactly:
+- Use ## for section headers (e.g. ## 🔥 Today's Fires, ## 📋 This Week, ## 👁️ On Your Radar)
+- Use ">>> " prefix for the single most important line in each section — this will render large
+- Use ">> " prefix for key action items — these render medium
+- Regular lines (no prefix) render small as supporting context
+- Write in FRAGMENTS, not sentences. Drop articles, pronouns, filler words.
+- Max 3-4 lines per section. Max 3 sections.
+- Total output under 120 words.
+
+EXAMPLE OUTPUT:
+## 🔥 Today's Fires
+>>> Car Toys creative rotation — needs sign-off
+>> Send updated geofence recs to Jim by EOD
+Brkthru waiting on media plan approval
+
+## 📋 This Week
+>>> Eric financials deck — review before Thursday
+>> D'Nisha missing assets — chase down or escalate
+Portage Bank contract renewal due Friday
+
+## 👁️ On Your Radar
+>> Adam Weil follow-up sitting in drafts
+Car Toys keeps surfacing across meetings + email — may need a dedicated sync
+
+CONTENT RULES:
+- Surface urgent/blocking items first
+- Flag patterns (same client in meetings + email + tasks = focus area)
+- Connect dots between calendar, email, and tasks
+- Skip anything that's already Done`;
 
   const tasksSummary = context.tasks.slice(0, 15).map((t) =>
     `- [${t.priority || 'P2'}] ${t.task}${t.due ? ` (due: ${t.due})` : ''}${t.project ? ` — ${t.project}` : ''}`
@@ -272,10 +292,18 @@ export async function GET(request: NextRequest) {
     let recentEmails: RecentEmail[] = [];
     let googleConnected = false;
 
-    if (companyId) {
+    {
       try {
-        const integrations = await getCompanyIntegrations(companyId);
-        const refreshToken = integrations?.google?.refreshToken;
+        // Try company-specific Google integration first, then fall back to any available token
+        let refreshToken: string | undefined;
+        if (companyId) {
+          const integrations = await getCompanyIntegrations(companyId);
+          refreshToken = integrations?.google?.refreshToken;
+        }
+        if (!refreshToken) {
+          const fallbackToken = await getAnyGoogleRefreshToken();
+          if (fallbackToken) refreshToken = fallbackToken;
+        }
 
         if (refreshToken) {
           googleConnected = true;

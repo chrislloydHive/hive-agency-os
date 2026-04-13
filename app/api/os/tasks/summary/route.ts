@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { getTasks } from '@/lib/airtable/tasks';
-import { getCompanyIntegrations } from '@/lib/airtable/companyIntegrations';
+import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
 import { refreshAccessToken } from '@/lib/google/oauth';
 
 export const dynamic = 'force-dynamic';
@@ -206,10 +206,18 @@ export async function GET(request: NextRequest) {
     };
     let googleConnected = false;
 
-    if (companyId) {
+    {
       try {
-        const integrations = await getCompanyIntegrations(companyId);
-        const refreshToken = integrations?.google?.refreshToken;
+        // Try company-specific Google integration first, then fall back to any available token
+        let refreshToken: string | undefined;
+        if (companyId) {
+          const integrations = await getCompanyIntegrations(companyId);
+          refreshToken = integrations?.google?.refreshToken;
+        }
+        if (!refreshToken) {
+          const fallbackToken = await getAnyGoogleRefreshToken();
+          if (fallbackToken) refreshToken = fallbackToken;
+        }
 
         if (refreshToken) {
           googleConnected = true;
