@@ -8,8 +8,38 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuthorIdentity, type AuthorIdentity } from './AuthorIdentityContext';
 import { reviewAssetIsAudio, reviewAssetIsImage, reviewAssetIsVideo } from '@/lib/review/reviewMediaDisplay';
-import { VideoWithThumbnail } from './ReviewSection';
+import { reviewFileDownloadHref } from './ReviewSection';
 import type { ReviewState } from './ReviewPortalClient';
+
+function LightboxVideoPreview({ src, fileName }: { src: string; fileName: string }) {
+  const [failed, setFailed] = useState(false);
+  const dl = reviewFileDownloadHref(src);
+  if (failed) {
+    return (
+      <div className="flex max-w-md flex-col items-center gap-4 rounded-lg bg-gray-800/90 p-6 text-center">
+        <p className="text-sm text-gray-300">
+          This browser cannot decode this clip in the portal (common for some .mov codecs such as ProRes or HEVC). Download and open in QuickTime, VLC, or another desktop player.
+        </p>
+        <a
+          href={dl}
+          className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-amber-400"
+        >
+          Download {fileName}
+        </a>
+      </div>
+    );
+  }
+  return (
+    <video
+      src={src}
+      className="max-h-[75vh] max-w-full"
+      controls
+      playsInline
+      preload="metadata"
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 interface ReviewAsset {
   fileId: string;
@@ -470,15 +500,7 @@ export default function AssetLightbox({
               className="max-h-[75vh] max-w-full object-contain"
             />
           )}
-          {isVideo && (
-            <video
-              src={src}
-              className="max-h-[75vh] max-w-full"
-              controls
-              autoPlay
-              playsInline
-            />
-          )}
+          {isVideo && <LightboxVideoPreview src={src} fileName={asset.name} />}
           {isAudio && (
             <div className="flex flex-col items-center gap-6 rounded-lg bg-gray-800 p-8">
               <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gray-700">

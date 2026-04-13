@@ -27,6 +27,7 @@ import {
   exportGoogleWorkspaceFile,
 } from '@/lib/google/driveClient';
 import { resolveInlineContentType } from '@/lib/review/reviewMediaDisplay';
+import { driveErrorsSuggestServiceAccountFallback, flattenGoogleDriveError } from '@/lib/review/googleDriveErrors';
 
 export const dynamic = 'force-dynamic';
 /** Node required: googleapis streams, Readable.toWeb, Drive proxy. */
@@ -41,7 +42,8 @@ function jsonError(status: number, error: string): NextResponse {
 // Basic rate limiting: track requests per IP per minute
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
-const RATE_LIMIT_MAX_REQUESTS = 100; // 100 requests per minute per IP
+/** Gallery pages issue many parallel /files requests (thumbnails + lightbox); keep high to avoid 429 JSON breaking <img>/<video>. */
+const RATE_LIMIT_MAX_REQUESTS = 800;
 
 // Short-TTL cache for CRAS authorization lookups.
 // Bursts of thumbnail requests (same token, many fileIds) and repeated requests
@@ -113,61 +115,6 @@ function getRespHeader(
     return String(v);
   }
   return undefined;
-}
-
-/** Collect message + nested gaxios/Google OAuth fields (invalid_grant is often in response.data). */
-function flattenGoogleDriveError(err: unknown): string {
-  const chunks: string[] = [];
-  const walk = (x: unknown, depth: number): void => {
-    if (depth > 5 || x == null) return;
-    if (typeof x === 'string') {
-      chunks.push(x);
-      return;
-    }
-    if (x instanceof Error) {
-      chunks.push(x.message);
-      if ('cause' in x && (x as { cause?: unknown }).cause != null) {
-        walk((x as { cause?: unknown }).cause, depth + 1);
-      }
-      return;
-    }
-    if (typeof x === 'object') {
-      const o = x as {
-        message?: unknown;
-        code?: unknown;
-        response?: { status?: number; data?: unknown };
-      };
-      if (o.message != null) chunks.push(String(o.message));
-      if (o.code != null) chunks.push(String(o.code));
-      if (o.response?.data != null) {
-        const d = o.response.data;
-        chunks.push(typeof d === 'string' ? d : JSON.stringify(d));
-      }
-    } else {
-      chunks.push(String(x));
-    }
-  };
-  walk(err, 0);
-  return chunks.join(' ');
-}
-
-/** Try Drive with the service account when OAuth returns 403/404 or refresh/token errors. */
-function driveErrorsSuggestServiceAccountFallback(err: unknown): boolean {
-  const code =
-    err && typeof err === 'object' && 'code' in err
-      ? (err as { code?: number }).code
-      : (err as { response?: { status?: number } })?.response?.status;
-  if (code === 404 || code === 403) return true;
-  const blob = flattenGoogleDriveError(err);
-  if (
-    /invalid_grant|invalid_client|unauthorized_client|Token has been expired or revoked|invalid_rapt/i.test(
-      blob,
-    )
-  ) {
-    return true;
-  }
-  if (code === 400 && /oauth|token|refresh|grant|credential|invalid/i.test(blob)) return true;
-  return false;
 }
 
 export async function GET(

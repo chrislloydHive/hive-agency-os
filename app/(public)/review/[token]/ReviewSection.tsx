@@ -126,16 +126,25 @@ function groupAssetsForRendering(assets: ReviewAsset[]): RenderableItem[] {
  * Grid / card video thumbnail: show the decoded frame on a real {@link HTMLVideoElement}.
  * Canvas capture often fails for .mov / QuickTime while the video surface still paints a frame.
  */
+/** Append `dl=1` to the review file proxy URL (strip `#…` first). */
+export function reviewFileDownloadHref(proxySrc: string): string {
+  const base = proxySrc.split('#')[0];
+  return base.includes('dl=1') ? base : `${base}${base.includes('?') ? '&' : '?'}dl=1`;
+}
+
 export function VideoWithThumbnail({
   src,
   className,
   controls = false,
   autoPlay = false,
+  downloadHref,
 }: {
   src: string;
   className?: string;
   controls?: boolean;
   autoPlay?: boolean;
+  /** Shown if decode/playback fails (e.g. ProRes/HEVC .mov in Chrome). */
+  downloadHref?: string;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [loadError, setLoadError] = useState(false);
@@ -192,12 +201,21 @@ export function VideoWithThumbnail({
   if (loadError) {
     return (
       <div
-        className={`flex items-center justify-center bg-gray-900 ${className ?? ''}`}
+        className={`flex flex-col items-center justify-center gap-2 bg-gray-900 px-2 text-center ${className ?? ''}`}
         aria-hidden
       >
-        <svg className="h-10 w-10 text-gray-500" fill="currentColor" viewBox="0 0 24 24">
+        <svg className="h-10 w-10 shrink-0 text-gray-500" fill="currentColor" viewBox="0 0 24 24">
           <path d="M8 5v14l11-7z" />
         </svg>
+        {downloadHref ? (
+          <a
+            href={downloadHref}
+            className="pointer-events-auto max-w-full truncate text-xs font-medium text-amber-400 underline hover:text-amber-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Download to view
+          </a>
+        ) : null}
       </div>
     );
   }
@@ -1180,6 +1198,7 @@ function PlacementGroupCard({
                         <VideoWithThumbnail
                           key={asset.fileId}
                           src={src}
+                          downloadHref={reviewFileDownloadHref(src)}
                           className="h-full w-full object-cover"
                         />
                         {/* Video play icon overlay */}
@@ -1460,6 +1479,7 @@ function AssetCard({
             <VideoWithThumbnail
               key={asset.fileId}
               src={src}
+              downloadHref={reviewFileDownloadHref(src)}
               className="h-full w-full object-contain"
             />
             {/* Play icon overlay */}

@@ -19,7 +19,11 @@ function basename(filename: string): string {
 export type ReviewAssetDisplayKind = 'image' | 'video' | 'audio' | 'file';
 
 export function reviewAssetDisplayKind(mimeType: string, filename: string): ReviewAssetDisplayKind {
-  const m = mimeType.trim().toLowerCase();
+  const normalized = resolveInlineContentType(
+    mimeType.trim() || 'application/octet-stream',
+    filename,
+  );
+  const m = normalized.trim().toLowerCase();
   const base = basename(filename);
 
   if (m.startsWith('image/')) return 'image';

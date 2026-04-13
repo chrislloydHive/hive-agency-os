@@ -19,7 +19,9 @@ import {
 } from '@/lib/airtable/partnerDeliveryBatches';
 // Folder map imports removed — portal visibility now controlled by "Show in Client Portal" CRAS field
 import type { drive_v3 } from 'googleapis';
-import { inferMimeTypeFromFilename } from '@/lib/review/reviewMediaDisplay';
+import { resolveInlineContentType } from '@/lib/review/reviewMediaDisplay';
+import { driveErrorsSuggestServiceAccountFallback, flattenGoogleDriveError } from '@/lib/review/googleDriveErrors';
+import { getDriveClientWithServiceAccount } from '@/lib/google/driveClient';
 
 export const dynamic = 'force-dynamic';
 
@@ -110,6 +112,46 @@ interface DriveFileMeta {
  * Fetch Drive file metadata for a batch of file IDs.
  * Includes parents so the caller can verify files are direct children of variant folders.
  */
+function driveFileMetaFromGet(res: { data: drive_v3.Schema$File }): DriveFileMeta {
+  return {
+    mimeType: res.data.mimeType ?? 'application/octet-stream',
+    modifiedTime: res.data.modifiedTime ?? '',
+    parents: res.data.parents ?? [],
+    trashed: res.data.trashed ?? false,
+  };
+}
+
+/**
+ * Same OAuth → service-account fallback as `/api/review/files` so metadata (mime) succeeds
+ * when the company OAuth cannot see a file but the SA can — avoids `file`-only UI + broken previews.
+ */
+async function getDriveFileMetaWithOAuthOrSa(
+  oauthDrive: drive_v3.Drive,
+  fileId: string,
+): Promise<DriveFileMeta> {
+  try {
+    const res = await oauthDrive.files.get({
+      fileId,
+      fields: 'mimeType, modifiedTime, parents, trashed',
+      supportsAllDrives: true,
+    });
+    return driveFileMetaFromGet(res);
+  } catch (err: unknown) {
+    if (!driveErrorsSuggestServiceAccountFallback(err)) throw err;
+    console.warn(
+      `[review/assets] Drive metadata OAuth failed for ${fileId.slice(0, 12)}…; retrying with service account`,
+      flattenGoogleDriveError(err).slice(0, 200),
+    );
+    const saDrive = getDriveClientWithServiceAccount();
+    const res = await saDrive.files.get({
+      fileId,
+      fields: 'mimeType, modifiedTime, parents, trashed',
+      supportsAllDrives: true,
+    });
+    return driveFileMetaFromGet(res);
+  }
+}
+
 async function batchGetDriveFileMeta(
   drive: drive_v3.Drive,
   fileIds: string[],
@@ -121,29 +163,20 @@ async function batchGetDriveFileMeta(
     const batch = fileIds.slice(i, i + BATCH_SIZE);
     const results = await Promise.allSettled(
       batch.map(async (fileId) => {
-        const res = await drive.files.get({
-          fileId,
-          fields: 'mimeType, modifiedTime, parents, trashed',
-          supportsAllDrives: true,
-        });
-        return {
-          fileId,
-          mimeType: res.data.mimeType ?? 'application/octet-stream',
-          modifiedTime: res.data.modifiedTime ?? '',
-          parents: res.data.parents ?? [],
-          trashed: res.data.trashed ?? false,
-        };
-      })
+        const meta = await getDriveFileMetaWithOAuthOrSa(drive, fileId);
+        return { fileId, ...meta };
+      }),
     );
 
     for (let j = 0; j < results.length; j++) {
       const result = results[j];
       if (result.status === 'fulfilled') {
-        metaMap.set(result.value.fileId, {
-          mimeType: result.value.mimeType,
-          modifiedTime: result.value.modifiedTime,
-          parents: result.value.parents,
-          trashed: result.value.trashed,
+        const v = result.value;
+        metaMap.set(v.fileId, {
+          mimeType: v.mimeType,
+          modifiedTime: v.modifiedTime,
+          parents: v.parents,
+          trashed: v.trashed,
         });
       } else {
         const failedFileId = batch[j];
@@ -176,11 +209,10 @@ function statusRecordToReviewAsset(
   const clickThroughUrl = rec.landingPageOverrideUrl ?? rec.effectiveLandingPageUrl ?? primaryLandingPageUrl ?? null;
 
   const rawMime = driveMeta?.mimeType?.trim() ?? '';
-  const inferred =
-    !rawMime || rawMime === 'application/octet-stream'
-      ? inferMimeTypeFromFilename(rec.filename ?? '')
-      : null;
-  const mimeType = inferred ?? (rawMime || 'application/octet-stream');
+  const mimeType = resolveInlineContentType(
+    rawMime || 'application/octet-stream',
+    rec.filename ?? '',
+  );
 
   return {
     fileId: rec.driveFileId,
