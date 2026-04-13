@@ -6,22 +6,44 @@ const IMAGE_EXT = /\.(jpe?g|png|gif|webp|bmp|svg|avif|heic|heif)$/i;
 const VIDEO_EXT = /\.(mp4|mov|webm|m4v|avi|mkv|mpeg|mpg)$/i;
 const AUDIO_EXT = /\.(mp3|wav|aac|ogg|m4a|flac)$/i;
 
-export function reviewAssetIsImage(mimeType: string, filename: string): boolean {
+function basename(filename: string): string {
+  const t = filename.trim();
+  const i = Math.max(t.lastIndexOf('/'), t.lastIndexOf('\\'));
+  return i >= 0 ? t.slice(i + 1) : t;
+}
+
+/**
+ * Single classification for grid/lightbox so we never render both <img> and <video> for one asset.
+ * Image extensions win over wrong video/* from Drive (animated GIF/WebP mislabeled as video).
+ */
+export type ReviewAssetDisplayKind = 'image' | 'video' | 'audio' | 'file';
+
+export function reviewAssetDisplayKind(mimeType: string, filename: string): ReviewAssetDisplayKind {
   const m = mimeType.trim().toLowerCase();
-  if (m.startsWith('image/')) return true;
-  return IMAGE_EXT.test(filename);
+  const base = basename(filename);
+
+  if (m.startsWith('image/')) return 'image';
+  if (IMAGE_EXT.test(base)) return 'image';
+
+  if (m.startsWith('audio/')) return 'audio';
+  if (AUDIO_EXT.test(base)) return 'audio';
+
+  if (m.startsWith('video/')) return 'video';
+  if (VIDEO_EXT.test(base)) return 'video';
+
+  return 'file';
+}
+
+export function reviewAssetIsImage(mimeType: string, filename: string): boolean {
+  return reviewAssetDisplayKind(mimeType, filename) === 'image';
 }
 
 export function reviewAssetIsVideo(mimeType: string, filename: string): boolean {
-  const m = mimeType.trim().toLowerCase();
-  if (m.startsWith('video/')) return true;
-  return VIDEO_EXT.test(filename);
+  return reviewAssetDisplayKind(mimeType, filename) === 'video';
 }
 
 export function reviewAssetIsAudio(mimeType: string, filename: string): boolean {
-  const m = mimeType.trim().toLowerCase();
-  if (m.startsWith('audio/')) return true;
-  return AUDIO_EXT.test(filename);
+  return reviewAssetDisplayKind(mimeType, filename) === 'audio';
 }
 
 /** When Drive returns empty or octet-stream, set a concrete mime for clients (optional UX). */
@@ -40,3 +62,4 @@ export function inferMimeTypeFromFilename(filename: string): string | null {
   if (lower.endsWith('.wav')) return 'audio/wav';
   return null;
 }
+

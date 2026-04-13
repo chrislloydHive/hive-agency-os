@@ -123,8 +123,8 @@ function groupAssetsForRendering(assets: ReviewAsset[]): RenderableItem[] {
 }
 
 /**
- * Video component that extracts and displays the final frame as a thumbnail.
- * Seeks to near the end of the video (95%) and captures that frame to use as poster.
+ * Video component that extracts and displays a thumbnail frame via canvas poster.
+ * Seeks to an early timestamp (works better for .mov, short spots, and Chrome codecs).
  */
 export function VideoWithThumbnail({ 
   src, 
@@ -142,9 +142,20 @@ export function VideoWithThumbnail({
   const [posterUrl, setPosterUrl] = useState<string | null>(null);
   const [hasThumbnail, setHasThumbnail] = useState(false);
   const [thumbnailError, setThumbnailError] = useState(false);
+  const [useCrossOrigin, setUseCrossOrigin] = useState(false);
+  const [videoLoadError, setVideoLoadError] = useState(false);
   const attemptRef = useRef(0);
   const maxAttempts = 5;
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    setPosterUrl(null);
+    setHasThumbnail(false);
+    setThumbnailError(false);
+    setVideoLoadError(false);
+    setUseCrossOrigin(false);
+    attemptRef.current = 0;
+  }, [src]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -218,19 +229,16 @@ export function VideoWithThumbnail({
       }
     };
 
-    const seekToFinalFrame = () => {
+    /** Early frame works for short ads, .mov, and avoids blank frames at 95% / 4min seeks. */
+    const seekToThumbnailFrame = () => {
       try {
         if (video.duration && video.duration > 0 && !isNaN(video.duration)) {
-          // Seek to 95% of video duration to get near-final frame
-          const targetTime = Math.max(0, video.duration * 0.95);
+          const targetTime = Math.min(0.75, Math.max(0.04, video.duration * 0.06));
           video.currentTime = targetTime;
         } else {
-          // If duration not available yet, try seeking to a reasonable time
-          // Most videos are under 5 minutes, so try 4 minutes
-          video.currentTime = 240;
+          video.currentTime = 0.1;
         }
-      } catch (e) {
-        // Seeking failed - try to capture current frame anyway
+      } catch {
         if (video.readyState >= 2 && video.videoWidth > 0) {
           captureFrame();
         }
@@ -238,9 +246,8 @@ export function VideoWithThumbnail({
     };
 
     const handleLoadedMetadata = () => {
-      // Wait a bit for video to be ready
       timeoutRef.current = setTimeout(() => {
-        seekToFinalFrame();
+        seekToThumbnailFrame();
       }, 100);
     };
 
@@ -257,15 +264,13 @@ export function VideoWithThumbnail({
     };
 
     const handleCanPlay = () => {
-      // If we still don't have a thumbnail and video can play, try one more time
       if (!hasThumbnail && video.videoWidth > 0) {
-        seekToFinalFrame();
+        seekToThumbnailFrame();
       }
     };
 
     const handleTimeUpdate = () => {
-      // If we're near the end and haven't captured yet, try now
-      if (!hasThumbnail && video.duration > 0 && video.currentTime >= video.duration * 0.9) {
+      if (!hasThumbnail && video.duration > 0 && video.currentTime >= 0.02) {
         captureFrame();
       }
     };
@@ -292,13 +297,26 @@ export function VideoWithThumbnail({
       video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('timeupdate', handleTimeUpdate);
     };
-  }, [hasThumbnail, thumbnailError]);
+  }, [hasThumbnail, thumbnailError, src]);
 
   // Try without crossOrigin if CORS fails - some proxies don't need it
   // Same-origin proxy doesn't need crossOrigin; setting it forces CORS
   // checks that fail on error responses (404/403 without CORS headers),
   // which causes the video element to show a network error instead of loading.
-  const [useCrossOrigin, setUseCrossOrigin] = useState(false);
+  const showVideoFallback = videoLoadError || (thumbnailError && !posterUrl);
+
+  if (showVideoFallback) {
+    return (
+      <div
+        className={`flex items-center justify-center bg-gray-900 ${className ?? ''}`}
+        aria-hidden
+      >
+        <svg className="h-10 w-10 text-gray-500" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -308,16 +326,18 @@ export function VideoWithThumbnail({
         src={src}
         className={className}
         muted={!autoPlay}
+        playsInline
         preload="metadata"
         crossOrigin={useCrossOrigin ? "anonymous" : undefined}
         poster={posterUrl || undefined}
         controls={controls}
         autoPlay={autoPlay}
-        onError={(e) => {
-          // If error with crossOrigin, try without it
+        onError={() => {
           if (useCrossOrigin) {
             console.warn('[VideoWithThumbnail] Video error with crossOrigin, retrying without');
             setUseCrossOrigin(false);
+          } else {
+            setVideoLoadError(true);
           }
         }}
       />
@@ -1286,6 +1306,7 @@ function PlacementGroupCard({
                     {isVideo && (
                       <div className="relative h-full w-full">
                         <VideoWithThumbnail
+                          key={asset.fileId}
                           src={src}
                           className="h-full w-full object-cover"
                         />
@@ -1564,7 +1585,11 @@ function AssetCard({
         )}
         {isVideo && (
           <div className="relative h-full w-full">
-            <VideoWithThumbnail src={src} className="h-full w-full object-contain" />
+            <VideoWithThumbnail
+              key={asset.fileId}
+              src={src}
+              className="h-full w-full object-contain"
+            />
             {/* Play icon overlay */}
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="rounded-full bg-black/60 p-3 transition-transform group-hover:scale-110">
