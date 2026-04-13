@@ -134,8 +134,9 @@ export async function getReviewCompanyFromToken(token: string): Promise<{ compan
 /**
  * Resolve a Client Review Portal token to a project record and OAuth client.
  * Returns null if the token is invalid, the project is not found, or OAuth is unavailable.
+ * May throw if the project exists but OAuth cannot be resolved (same as legacy behavior).
  */
-export async function resolveReviewProject(token: string): Promise<ResolvedReviewProject | null> {
+async function resolveReviewProjectUncached(token: string): Promise<ResolvedReviewProject | null> {
   // 1. Query Airtable Projects by token (Projects base from resolveProjectsBaseId)
   const baseId = resolveProjectsBaseId();
   console.log('BASE ID:', baseId);
@@ -314,4 +315,45 @@ export async function resolveReviewProject(token: string): Promise<ResolvedRevie
     },
     auth,
   };
+}
+
+/** Thumbnail bursts hit this once per token instead of once per file (Airtable 429). */
+const RESOLVE_PROJECT_CACHE_TTL_MS = 90_000;
+const RESOLVE_PROJECT_CACHE_MAX = 400;
+const resolveProjectCache = new Map<string, { expires: number; value: ResolvedReviewProject }>();
+const resolveProjectInflight = new Map<string, Promise<ResolvedReviewProject | null>>();
+
+export async function resolveReviewProject(token: string): Promise<ResolvedReviewProject | null> {
+  const key = token.trim();
+  if (!key) return null;
+  const now = Date.now();
+  const hit = resolveProjectCache.get(key);
+  if (hit && hit.expires > now) {
+    return hit.value;
+  }
+  const existing = resolveProjectInflight.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const promise = (async (): Promise<ResolvedReviewProject | null> => {
+    try {
+      const result = await resolveReviewProjectUncached(key);
+      if (result) {
+        const t = Date.now();
+        resolveProjectCache.set(key, { value: result, expires: t + RESOLVE_PROJECT_CACHE_TTL_MS });
+        if (resolveProjectCache.size > RESOLVE_PROJECT_CACHE_MAX) {
+          for (const [k, e] of resolveProjectCache.entries()) {
+            if (e.expires <= t) resolveProjectCache.delete(k);
+          }
+        }
+      }
+      return result;
+    } finally {
+      resolveProjectInflight.delete(key);
+    }
+  })();
+
+  resolveProjectInflight.set(key, promise);
+  return promise;
 }

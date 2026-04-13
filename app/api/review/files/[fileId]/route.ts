@@ -114,6 +114,17 @@ function getRespHeader(
   return undefined;
 }
 
+/** Try Drive with the service account when OAuth returns 403/404 or refresh fails (invalid_grant). */
+function driveErrorsSuggestServiceAccountFallback(err: unknown): boolean {
+  const code =
+    err && typeof err === 'object' && 'code' in err
+      ? (err as { code?: number }).code
+      : (err as { response?: { status?: number } })?.response?.status;
+  if (code === 404 || code === 403) return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /invalid_grant/i.test(msg);
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ fileId: string }> },
@@ -180,8 +191,7 @@ export async function GET(
   // those uploaded directly to a shared drive by a partner) are visible to the
   // service account but NOT the per-company OAuth — Drive returns 404 for them.
   // To fix that without breaking files OAuth can see, fall back to the service
-  // account when OAuth gets 404. The CRAS auth check above is the real
-  // authorization gate, so swapping the Drive identity doesn't relax security.
+  // account when OAuth gets 403/404 or invalid_grant. CRAS auth above is the gate.
   let mimeType: string;
   let fileName: string;
   try {
@@ -213,9 +223,9 @@ export async function GET(
         err && typeof err === 'object' && 'code' in err
           ? (err as { code?: number }).code
           : (err as { response?: { status?: number } })?.response?.status;
-      if (code === 404 || code === 403) {
+      if (driveErrorsSuggestServiceAccountFallback(err)) {
         console.warn(
-          `[review/files] OAuth got ${code} for ${fileId}; retrying metadata with service account`,
+          `[review/files] OAuth Drive metadata failed (${String(code ?? 'n/a')}) for ${fileId}; retrying with service account`,
         );
         const saDrive = getDriveClientWithServiceAccount();
         const meta = await withTimeout(
@@ -311,13 +321,34 @@ export async function GET(
       ...(rangeHeader ? { headers: { Range: rangeHeader } } : {}),
     };
 
-    let mediaRes = await withTimeout(
-      drive.files.get({ fileId, alt: 'media', supportsAllDrives: true }, streamOpts),
-      120_000,
-      `drive.files.get media fileId=${fileId}`,
-    );
+    let mediaRes;
+    let upstreamStatus: number;
+    try {
+      mediaRes = await withTimeout(
+        drive.files.get({ fileId, alt: 'media', supportsAllDrives: true }, streamOpts),
+        120_000,
+        `drive.files.get media fileId=${fileId}`,
+      );
+      upstreamStatus = mediaRes.status;
+    } catch (err: unknown) {
+      if (!usingFallback && driveErrorsSuggestServiceAccountFallback(err)) {
+        console.warn(
+          `[review/files] OAuth media GET threw for ${fileId}; retrying with service account`,
+        );
+        const saDrive = getDriveClientWithServiceAccount();
+        drive = saDrive;
+        usingFallback = true;
+        mediaRes = await withTimeout(
+          saDrive.files.get({ fileId, alt: 'media', supportsAllDrives: true }, streamOpts),
+          120_000,
+          `drive.files.get media(SA) fileId=${fileId}`,
+        );
+        upstreamStatus = mediaRes.status;
+      } else {
+        throw err;
+      }
+    }
 
-    let upstreamStatus = mediaRes.status;
     console.log('[review/files] upstream status (first)', upstreamStatus, '[review/files] range header', rangeHeader ?? '(none)');
 
     if (
@@ -326,10 +357,11 @@ export async function GET(
     ) {
       destroyIfStream(mediaRes.data);
       console.warn(
-        `[review/files] body fetch returned ${upstreamStatus} for ${fileId}; retrying body with service account`,
+        `[review/files] body fetch returned HTTP ${upstreamStatus} for ${fileId}; retrying body with service account`,
       );
       try {
         const saDrive = getDriveClientWithServiceAccount();
+        drive = saDrive;
         mediaRes = await withTimeout(
           saDrive.files.get({ fileId, alt: 'media', supportsAllDrives: true }, streamOpts),
           120_000,
