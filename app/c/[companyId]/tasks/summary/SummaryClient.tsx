@@ -30,6 +30,7 @@ import {
   FileIcon,
   Globe,
   DollarSign,
+  Target,
 } from 'lucide-react';
 
 // ============================================================================
@@ -753,6 +754,13 @@ export function SummaryClient({ companyId, companyName, backUrl }: SummaryClient
               <ArrowLeft size={13} />
               My Day
             </Link>
+            <Link
+              href="/tasks/command-center"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-300 bg-emerald-950/40 border border-emerald-800/50 rounded-lg hover:bg-emerald-950/60 transition-colors"
+            >
+              <Target size={13} />
+              Command Center
+            </Link>
             <button
               onClick={fetchSummary}
               disabled={loading}
@@ -770,6 +778,13 @@ export function SummaryClient({ companyId, companyName, backUrl }: SummaryClient
             >
               <ArrowLeft size={12} />
               My Day
+            </Link>
+            <Link
+              href="/tasks/command-center"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-emerald-300 bg-emerald-950/40 border border-emerald-800/50 rounded-lg"
+            >
+              <Target size={12} />
+              CC
             </Link>
             <button
               onClick={fetchSummary}

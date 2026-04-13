@@ -9,11 +9,12 @@ import { PassThrough } from 'stream';
 import { google } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import {
+  getCrasRecordIdByProjectAndFileId,
   getCrasRecordIdByTokenAndFileId,
   setPartnerDownloadedAt,
   setPartnerDownloadStartedAt,
 } from '@/lib/airtable/reviewAssetStatus';
-import { getAllowedReviewFolderIds, getAllowedReviewFolderIdsFromJobFolder, getAllowedReviewFolderIdsFromClientProjectsFolder } from '@/lib/review/reviewFolders';
+import { isDriveFileDirectChildOfAllowedReviewFolders } from '@/lib/review/reviewFolders';
 import { verifyDownloadSignature } from '@/lib/review/downloadSignature';
 import { getAndDeleteDownloadSession } from '@/lib/review/downloadSessionStore';
 import {
@@ -21,9 +22,12 @@ import {
   getDefaultExportFormat,
   getExportFileExtension,
   exportGoogleWorkspaceFile,
+  getDriveClientWithServiceAccount,
 } from '@/lib/google/driveClient';
 
 export const dynamic = 'force-dynamic';
+/** Node: Drive streams, PassThrough. */
+export const runtime = 'nodejs';
 
 const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 const EXTRA_HEADERS = { 'Referrer-Policy': 'no-referrer' as const };
@@ -32,6 +36,16 @@ const MAX_INLINE_SIZE_BYTES = 500 * 1024 * 1024; // 500 MB
 function safeFilename(name: string): string {
   const ascii = name.replace(/[^\x20-\x7E]/g, '_');
   return ascii || 'download';
+}
+
+function destroyIfStream(data: unknown): void {
+  if (data && typeof data === 'object' && 'destroy' in data && typeof (data as { destroy: () => void }).destroy === 'function') {
+    try {
+      (data as { destroy: () => void }).destroy();
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 interface DownloadLogContext {
@@ -99,25 +113,26 @@ export async function GET(req: NextRequest) {
   }
 
   const { project, auth } = resolved;
-  const drive = google.drive({ version: 'v3', auth });
+  let drive = google.drive({ version: 'v3', auth });
 
-  // Resolve variant folder IDs for validation (folder-based, not CRAS-based, to avoid Airtable rate limits)
-  const allowedFolderIds = project.jobFolderId
-    ? await getAllowedReviewFolderIdsFromJobFolder(drive, project.jobFolderId)
-    : await (async () => {
-        const clientProjectsFolderId = process.env.CAR_TOYS_PROJECTS_FOLDER_ID ?? '1NLCt-piSxfAFeeINuFyzb3Pxp-kKXTw_';
-        if (clientProjectsFolderId) {
-          const fromClient = await getAllowedReviewFolderIdsFromClientProjectsFolder(drive, project.name, clientProjectsFolderId);
-          if (fromClient?.length) return fromClient;
-        }
-        const rootFolderId = process.env.CAR_TOYS_PRODUCTION_ASSETS_FOLDER_ID;
-        if (!rootFolderId) return null;
-        return getAllowedReviewFolderIds(drive, project.hubName, rootFolderId);
-      })();
+  const projectScope = {
+    jobFolderId: project.jobFolderId,
+    name: project.name,
+    hubName: project.hubName,
+  };
 
-  if (!allowedFolderIds || allowedFolderIds.length === 0) {
+  let recordId = await getCrasRecordIdByTokenAndFileId(token, assetId);
+  if (!recordId) {
+    recordId = await getCrasRecordIdByProjectAndFileId(project.recordId, assetId);
+  }
+
+  let locationAuthorized = !!recordId;
+  if (!locationAuthorized) {
+    locationAuthorized = await isDriveFileDirectChildOfAllowedReviewFolders(drive, projectScope, assetId);
+  }
+  if (!locationAuthorized) {
     return NextResponse.json(
-      { error: 'No review folders configured' },
+      { error: 'File not authorized for this review' },
       { status: 403, headers: { ...NO_STORE, ...EXTRA_HEADERS } }
     );
   }
@@ -125,34 +140,40 @@ export async function GET(req: NextRequest) {
   let mimeType: string;
   let fileName: string;
   let size: number | undefined;
-  let parents: string[];
 
   try {
-    const meta = await drive.files.get({
-      fileId: assetId,
-      fields: 'id,name,mimeType,size,parents',
-      supportsAllDrives: true,
-    });
+    const fetchMeta = () =>
+      drive.files.get({
+        fileId: assetId,
+        fields: 'id,name,mimeType,size',
+        supportsAllDrives: true,
+      });
+
+    let meta;
+    try {
+      meta = await fetchMeta();
+    } catch (err: unknown) {
+      const code =
+        err && typeof err === 'object' && 'code' in err
+          ? (err as { code?: number }).code
+          : (err as { response?: { status?: number } })?.response?.status;
+      if (code === 404 || code === 403) {
+        drive = getDriveClientWithServiceAccount();
+        meta = await fetchMeta();
+      } else {
+        throw err;
+      }
+    }
 
     mimeType = (meta.data.mimeType as string) || 'application/octet-stream';
     fileName = (meta.data.name as string) || assetId;
     size = meta.data.size != null ? Number(meta.data.size) : undefined;
-    parents = meta.data.parents ?? [];
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[review/assets/download] Drive metadata error:', msg);
     return NextResponse.json(
       { error: 'File not found or access denied' },
       { status: 404, headers: { ...NO_STORE, ...EXTRA_HEADERS } }
-    );
-  }
-
-  // Validate that the file's direct parent is a variant folder
-  const isAllowed = parents.some((parentId) => allowedFolderIds.includes(parentId));
-  if (!isAllowed) {
-    return NextResponse.json(
-      { error: 'File not in allowed folders' },
-      { status: 403, headers: { ...NO_STORE, ...EXTRA_HEADERS } }
     );
   }
 
@@ -167,8 +188,6 @@ export async function GET(req: NextRequest) {
       { status: 413, headers: { ...NO_STORE, ...EXTRA_HEADERS } }
     );
   }
-
-  const recordId = await getCrasRecordIdByTokenAndFileId(token, assetId);
 
   const logContext: DownloadLogContext = {
     assetId,
@@ -233,12 +252,32 @@ export async function GET(req: NextRequest) {
       // Export Google Workspace file
       driveStream = await exportGoogleWorkspaceFile(drive, assetId, exportMimeType);
     } else {
-      // Regular file download
-      const res = await drive.files.get(
+      const streamOpts = { responseType: 'stream' as const, validateStatus: (): boolean => true };
+      let mediaRes = await drive.files.get(
         { fileId: assetId, alt: 'media', supportsAllDrives: true },
-        { responseType: 'stream' }
+        streamOpts,
       );
-      driveStream = res.data as unknown as Readable;
+      let upstreamStatus = mediaRes.status ?? 0;
+      if (upstreamStatus === 404 || upstreamStatus === 403) {
+        destroyIfStream(mediaRes.data);
+        drive = getDriveClientWithServiceAccount();
+        mediaRes = await drive.files.get(
+          { fileId: assetId, alt: 'media', supportsAllDrives: true },
+          streamOpts,
+        );
+        upstreamStatus = mediaRes.status ?? 0;
+      }
+      if (upstreamStatus !== 200) {
+        destroyIfStream(mediaRes.data);
+        return NextResponse.json(
+          { error: 'Failed to fetch file from Drive' },
+          {
+            status: upstreamStatus === 404 ? 404 : 502,
+            headers: { ...NO_STORE, ...EXTRA_HEADERS },
+          },
+        );
+      }
+      driveStream = mediaRes.data as unknown as Readable;
     }
 
     const passThrough = new PassThrough();

@@ -8,7 +8,7 @@ import { TaskEditPanel } from './TaskEditPanel';
 import {
   ArrowLeft, Flame, Target, Calendar, Clock, FileText,
   ChevronRight, Zap, Link2, RefreshCw, Archive, ChevronDown,
-  Inbox, Eye, FolderKanban, MessageSquare, Users,
+  Inbox, Eye, FolderKanban, MessageSquare, Users, BarChart3,
 } from 'lucide-react';
 
 // ============================================================================
@@ -478,26 +478,37 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
       <div className="max-w-6xl mx-auto px-4 py-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <Link href={backUrl} className="text-gray-500 hover:text-gray-300">
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
-            <div>
-              <h1 className="text-xl font-semibold">Command Center</h1>
-              <p className="text-xs text-gray-500">
-                {new Date(data.generatedAt).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                {!data.googleConnected && <span className="text-amber-400"> · Google not connected</span>}
-              </p>
-            </div>
+          <div>
+            <h1 className="text-xl font-semibold">Command Center</h1>
+            <p className="text-xs text-gray-500">
+              {new Date(data.generatedAt).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+              {!data.googleConnected && <span className="text-amber-400"> · Google not connected</span>}
+            </p>
           </div>
-          <button
-            onClick={() => load(true)}
-            disabled={refreshing}
-            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded border border-white/10 hover:border-white/20"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-            {refreshing ? 'Refreshing' : 'Refresh'}
-          </button>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/tasks"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-400 bg-amber-950/40 border border-amber-800/50 rounded-lg hover:bg-amber-950/60 transition-colors"
+            >
+              <Inbox className="w-3.5 h-3.5" />
+              My Day
+            </Link>
+            <Link
+              href="/tasks/summary"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-sky-300 bg-sky-950/40 border border-sky-800/50 rounded-lg hover:bg-sky-950/60 transition-colors"
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              Daily Summary
+            </Link>
+            <button
+              onClick={() => load(true)}
+              disabled={refreshing}
+              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded border border-white/10 hover:border-white/20"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              {refreshing ? 'Refreshing' : 'Refresh'}
+            </button>
+          </div>
         </div>
 
         {/* Data sources strip — always visible so you can see what's feeding this */}

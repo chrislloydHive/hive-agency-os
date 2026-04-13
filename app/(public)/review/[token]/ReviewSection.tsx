@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AssetLightbox from './AssetLightbox';
 import { useAuthorIdentity } from './AuthorIdentityContext';
+import { reviewAssetIsAudio, reviewAssetIsImage, reviewAssetIsVideo } from '@/lib/review/reviewMediaDisplay';
 import { getSectionCounts, isAssetNew } from './reviewAssetUtils';
 import type { ReviewState } from './ReviewPortalClient';
 
@@ -1249,8 +1250,8 @@ function PlacementGroupCard({
               const isApproved = asset.assetApprovedClient || false;
               const assetIndex = allAssets.findIndex((a) => a.fileId === asset.fileId);
               const cardNumber = asset.placementCardOrder ?? index + 1;
-              const isImage = asset.mimeType.startsWith('image/');
-              const isVideo = asset.mimeType.startsWith('video/') || asset.name.toLowerCase().endsWith('.mp4') || asset.name.toLowerCase().endsWith('.mov');
+              const isImage = reviewAssetIsImage(asset.mimeType, asset.name);
+              const isVideo = reviewAssetIsVideo(asset.mimeType, asset.name);
 
               // All assets (including animated GIFs) go through the file proxy.
               const src = `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
@@ -1506,12 +1507,10 @@ function AssetCard({
   // and browsers animate GIFs natively from <img src=…>. The previous code
   // pointed at https://drive.google.com/uc?export=view which requires the
   // file to be publicly shared and is otherwise rate-limited / deprecated.
-  const lowerName = asset.name.toLowerCase();
   const src = `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
-  const isImage = asset.mimeType.startsWith('image/');
-  // Detect video by mimeType or file extension (MP4 files might have incorrect mimeType from Drive)
-  const isVideo = asset.mimeType.startsWith('video/') || lowerName.endsWith('.mp4') || lowerName.endsWith('.mov') || lowerName.endsWith('.webm') || lowerName.endsWith('.avi');
-  const isAudio = asset.mimeType.startsWith('audio/');
+  const isImage = reviewAssetIsImage(asset.mimeType, asset.name);
+  const isVideo = reviewAssetIsVideo(asset.mimeType, asset.name);
+  const isAudio = reviewAssetIsAudio(asset.mimeType, asset.name);
   const isNew = isAssetNew(asset);
   const effectiveState: ReviewState | undefined = asset.assetApprovedClient ? 'approved' : asset.reviewState;
   const badgeLabel = isNew ? 'New' : statusBadgeLabel(effectiveState);

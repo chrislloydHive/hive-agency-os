@@ -9,6 +9,7 @@ import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { listAssetStatuses } from '@/lib/airtable/reviewAssetStatus';
 import { signDownloadPayload, isDownloadSigningConfigured } from '@/lib/review/downloadSignature';
 import { setDownloadSession } from '@/lib/review/downloadSessionStore';
+import { getPublicOriginFromRequest } from '@/lib/review/publicOrigin';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const origin = req.nextUrl.origin;
+  const origin = getPublicOriginFromRequest(req);
   const params = new URLSearchParams({
     dlId,
     exp: String(exp),

@@ -19,6 +19,7 @@ import {
 } from '@/lib/airtable/partnerDeliveryBatches';
 // Folder map imports removed — portal visibility now controlled by "Show in Client Portal" CRAS field
 import type { drive_v3 } from 'googleapis';
+import { inferMimeTypeFromFilename } from '@/lib/review/reviewMediaDisplay';
 
 export const dynamic = 'force-dynamic';
 
@@ -174,10 +175,17 @@ function statusRecordToReviewAsset(
 
   const clickThroughUrl = rec.landingPageOverrideUrl ?? rec.effectiveLandingPageUrl ?? primaryLandingPageUrl ?? null;
 
+  const rawMime = driveMeta?.mimeType?.trim() ?? '';
+  const inferred =
+    !rawMime || rawMime === 'application/octet-stream'
+      ? inferMimeTypeFromFilename(rec.filename ?? '')
+      : null;
+  const mimeType = inferred ?? (rawMime || 'application/octet-stream');
+
   return {
     fileId: rec.driveFileId,
     name: rec.filename ?? rec.driveFileId, // Fallback to fileId if no filename
-    mimeType: driveMeta?.mimeType ?? 'application/octet-stream',
+    mimeType,
     modifiedTime: driveMeta?.modifiedTime ?? '',
     reviewState: toReviewState(),
     clickThroughUrl,

@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuthorIdentity, type AuthorIdentity } from './AuthorIdentityContext';
+import { reviewAssetIsAudio, reviewAssetIsImage, reviewAssetIsVideo } from '@/lib/review/reviewMediaDisplay';
 import { VideoWithThumbnail } from './ReviewSection';
 import type { ReviewState } from './ReviewPortalClient';
 
@@ -340,11 +341,9 @@ export default function AssetLightbox({
   // animate GIFs natively. drive.google.com/uc?export=view (the previous
   // approach) requires public sharing and is rate-limited / deprecated.
   const src = `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
-  const lowerName = asset.name.toLowerCase();
-  const isImage = asset.mimeType.startsWith('image/');
-  // Detect video by mimeType or file extension (MP4 files might have incorrect mimeType from Drive)
-  const isVideo = asset.mimeType.startsWith('video/') || lowerName.endsWith('.mp4') || lowerName.endsWith('.mov') || lowerName.endsWith('.webm') || lowerName.endsWith('.avi');
-  const isAudio = asset.mimeType.startsWith('audio/');
+  const isImage = reviewAssetIsImage(asset.mimeType, asset.name);
+  const isVideo = reviewAssetIsVideo(asset.mimeType, asset.name);
+  const isAudio = reviewAssetIsAudio(asset.mimeType, asset.name);
 
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex < assets.length - 1;

@@ -33,6 +33,7 @@ import {
   StickyNote,
   ChevronUp,
   ArrowRightCircle,
+  Target,
 } from 'lucide-react';
 
 // ============================================================================
@@ -600,6 +601,13 @@ export function TasksClient({ company }: TasksClientProps) {
               >
                 <BarChart3 size={13} />
                 Daily Summary
+              </Link>
+              <Link
+                href="/tasks/command-center"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-300 bg-emerald-950/40 border border-emerald-800/50 rounded-lg hover:bg-emerald-950/60 transition-colors"
+              >
+                <Target size={13} />
+                Command Center
               </Link>
               <span className="text-sm text-gray-500">
                 {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
