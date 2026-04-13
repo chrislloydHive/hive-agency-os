@@ -346,6 +346,65 @@ export async function getCrasRecordIdByTokenAndFileId(
   return recordId;
 }
 
+/** Cache for getCrasRecordIdByProjectAndFileId */
+const recordIdByProjectFileIdCache = new Map<
+  string,
+  { recordId: string; expiresAt: number }
+>();
+
+/**
+ * Find CRAS by linked Project record id + Drive file id (Source Folder ID).
+ * Use when token-based lookup on a formula/lookup field does not match in API filters
+ * but the row exists (same security: valid review token already resolved to this project).
+ * Expects single-cardinality `{Project}`; multi-link bases need a different formula.
+ */
+export async function getCrasRecordIdByProjectAndFileId(
+  projectRecordId: string,
+  fileId: string,
+): Promise<string | null> {
+  const projTrim = String(projectRecordId).trim();
+  const fileIdTrim = String(fileId).trim();
+  if (!projTrim || !fileIdTrim) return null;
+
+  const cacheKey = `${projTrim}::${fileIdTrim}`;
+  const cached = recordIdByProjectFileIdCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.recordId;
+  }
+
+  const baseId = resolveOsBaseId();
+  if (!baseId) {
+    console.warn('[review/CRAS] getCrasRecordIdByProjectAndFileId: no OS base id');
+    return null;
+  }
+
+  const projEsc = projTrim.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const fileEsc = fileIdTrim.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const formula = `AND({Project} = "${projEsc}", {${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}")`;
+  const params = new URLSearchParams({
+    filterByFormula: formula,
+    maxRecords: '1',
+  });
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}?${params.toString()}`;
+  const res = await airtableFetch(url, { method: 'GET' });
+  if (!res.ok) {
+    const text = await res.text();
+    console.warn(
+      `[review/CRAS] getCrasRecordIdByProjectAndFileId Airtable ${res.status}: ${text.slice(0, 200)}`,
+    );
+    return null;
+  }
+  const json = (await res.json()) as { records?: Array<{ id: string }> };
+  const recordId = json.records?.[0]?.id ?? null;
+  if (recordId) {
+    recordIdByProjectFileIdCache.set(cacheKey, {
+      recordId,
+      expiresAt: Date.now() + RECORD_ID_CACHE_TTL_MS,
+    });
+  }
+  return recordId;
+}
+
 /**
  * List all asset statuses for a review token. Returns Map keyed by token::driveFileId.
  */

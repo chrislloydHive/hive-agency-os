@@ -4,6 +4,7 @@
 // Variant folder names are resolved via detectVariantFromPath (Remarketing, RTG → Retargeting).
 
 import type { drive_v3 } from 'googleapis';
+import { getDriveClientWithServiceAccount } from '@/lib/google/driveClient';
 import { detectVariantFromPath } from '@/lib/review/reviewVariantDetection';
 
 const VARIANTS = ['Prospecting', 'Retargeting'] as const;
@@ -302,9 +303,12 @@ export async function resolveAllowedReviewFolderIdsForProject(
   return getAllowedReviewFolderIds(drive, project.hubName, rootFolderId);
 }
 
+const DRIVE_ANCESTOR_WALK_MAX_DEPTH = 50;
+
 /**
- * True if the file’s direct parent is one of the allowed variant folders for this project.
- * Matches how the portal lists assets (direct children of variant folders).
+ * True if the file is under one of the allowed Creative Review Hub variant folders
+ * (walks parent chain so nested subfolders still match). Tries OAuth Drive first, then
+ * service-account metadata when OAuth cannot see parents (same allowlist semantics).
  */
 export async function isDriveFileDirectChildOfAllowedReviewFolders(
   drive: drive_v3.Drive,
@@ -313,14 +317,38 @@ export async function isDriveFileDirectChildOfAllowedReviewFolders(
 ): Promise<boolean> {
   const allowedFolderIds = await resolveAllowedReviewFolderIdsForProject(drive, project);
   if (!allowedFolderIds || allowedFolderIds.length === 0) return false;
+  const allowed = new Set(allowedFolderIds);
+
+  const walkFrom = async (d: drive_v3.Drive, startId: string): Promise<boolean> => {
+    const visit = async (fid: string, depth: number): Promise<boolean> => {
+      if (depth > DRIVE_ANCESTOR_WALK_MAX_DEPTH) return false;
+      let meta: { data: { parents?: string[] | null } };
+      try {
+        meta = await d.files.get({
+          fileId: fid,
+          fields: 'parents',
+          supportsAllDrives: true,
+        });
+      } catch {
+        return false;
+      }
+      const parents = meta.data.parents ?? [];
+      for (const pid of parents) {
+        if (allowed.has(pid)) return true;
+      }
+      for (const pid of parents) {
+        if (await visit(pid, depth + 1)) return true;
+      }
+      return false;
+    };
+    return visit(startId, 0);
+  };
+
+  if (await walkFrom(drive, fileId)) return true;
+
   try {
-    const meta = await drive.files.get({
-      fileId,
-      fields: 'parents',
-      supportsAllDrives: true,
-    });
-    const parents = meta.data.parents ?? [];
-    return parents.some((pid) => allowedFolderIds.includes(pid));
+    const saDrive = getDriveClientWithServiceAccount();
+    return await walkFrom(saDrive, fileId);
   } catch {
     return false;
   }

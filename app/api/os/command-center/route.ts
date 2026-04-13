@@ -787,8 +787,15 @@ export async function GET(request: NextRequest) {
 
     const now = new Date();
 
-    // ── Fetch tasks (always available) ──────────────────────────────────
-    const tasks = await getTasks({ excludeDone: true });
+    // ── Fetch tasks (Airtable: base/table via AIRTABLE_TASKS_* — see lib/airtable/tasks) ──
+    let tasks: TaskRecord[] = [];
+    let airtableTasksError: string | null = null;
+    try {
+      tasks = await getTasks({ excludeDone: true });
+    } catch (err) {
+      airtableTasksError = err instanceof Error ? err.message : String(err);
+      console.error('[Command Center] Airtable tasks failed (continuing without tasks):', airtableTasksError);
+    }
 
     // ── Fetch Google data ───────────────────────────────────────────────
     let events: CalEvent[] = [];
@@ -888,6 +895,7 @@ export async function GET(request: NextRequest) {
       },
       googleConnected,
       googleError,
+      airtableTasksError,
       myEmail,
       sources: {
         tasks: tasks.length,

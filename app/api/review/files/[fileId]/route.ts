@@ -15,7 +15,10 @@ import { google } from 'googleapis';
 import { Readable } from 'stream';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { isDriveFileDirectChildOfAllowedReviewFolders } from '@/lib/review/reviewFolders';
-import { getCrasRecordIdByTokenAndFileId } from '@/lib/airtable/reviewAssetStatus';
+import {
+  getCrasRecordIdByProjectAndFileId,
+  getCrasRecordIdByTokenAndFileId,
+} from '@/lib/airtable/reviewAssetStatus';
 import { getDriveClientWithServiceAccount } from '@/lib/google/driveClient';
 import {
   isGoogleWorkspaceFile,
@@ -46,13 +49,20 @@ const RATE_LIMIT_MAX_REQUESTS = 100; // 100 requests per minute per IP
 const AUTH_CACHE_TTL_MS = 5 * 60_000;
 const authCache = new Map<string, number>(); // key = `${token}::${fileId}` → expiresAt
 
-async function isFileAuthorized(token: string, fileId: string): Promise<boolean> {
+async function isFileAuthorized(
+  token: string,
+  fileId: string,
+  projectRecordId: string,
+): Promise<boolean> {
   const key = `${token}::${fileId}`;
   const now = Date.now();
   const cached = authCache.get(key);
   if (cached && cached > now) return true;
 
-  const recordId = await getCrasRecordIdByTokenAndFileId(token, fileId);
+  let recordId = await getCrasRecordIdByTokenAndFileId(token, fileId);
+  if (!recordId) {
+    recordId = await getCrasRecordIdByProjectAndFileId(projectRecordId, fileId);
+  }
   if (!recordId) return false;
 
   authCache.set(key, now + AUTH_CACHE_TTL_MS);
@@ -138,7 +148,7 @@ export async function GET(
   // Authorize via CRAS record (preferred). Cached briefly to absorb thumbnail bursts.
   // Fallback: same Drive folder allowlist as review/assets/download when CRAS row is
   // missing (e.g. cross-base Project link prevented CRAS create) — still requires valid token.
-  let authorized = await isFileAuthorized(token, fileId);
+  let authorized = await isFileAuthorized(token, fileId, project.recordId);
   let authorizedViaDriveAllowlist = false;
   if (!authorized) {
     try {

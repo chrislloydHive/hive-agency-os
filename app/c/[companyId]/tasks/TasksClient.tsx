@@ -9,6 +9,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { TaskEditPanel } from '@/app/tasks/command-center/TaskEditPanel';
 import {
   Search,
   Mail,
@@ -328,6 +329,7 @@ export function TasksClient({ company }: TasksClientProps) {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [showPriDropdown, setShowPriDropdown] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [editingAirtableId, setEditingAirtableId] = useState<string | null>(null);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [newTaskText, setNewTaskText] = useState('');
   const [addingTask, setAddingTask] = useState(false);
@@ -420,40 +422,39 @@ export function TasksClient({ company }: TasksClientProps) {
     }
   }, [addingTask, tasks.length]);
 
-  // Fetch tasks from Airtable on mount
-  useEffect(() => {
-    async function fetchTasks() {
-      try {
-        const res = await fetch('/api/os/tasks');
-        if (!res.ok) throw new Error('Failed to fetch tasks');
-        const data = await res.json();
-        const mapped: TaskItem[] = (data.tasks || []).map((t: any, i: number) => ({
-          id: i + 1,
-          airtableId: t.id,
-          task: t.task || '',
-          pri: t.priority || 'P2',
-          due: t.due || '',
-          from: t.from || '',
-          project: t.project || '',
-          nextAction: t.nextAction || '',
-          status: t.status || 'Inbox',
-          threadUrl: t.threadUrl || null,
-          draftUrl: t.draftUrl || null,
-          attachUrl: t.attachUrl || null,
-          notes: t.notes || '',
-          checked: t.done || false,
-          view: t.view || 'inbox',
-        }));
-        setTasks(mapped.length > 0 ? mapped : SEED_TASKS);
-      } catch (err) {
-        console.error('Failed to fetch tasks, using seed data:', err);
-        setTasks(SEED_TASKS);
-      } finally {
-        setLoading(false);
-      }
+  // Fetch tasks from Airtable
+  const fetchTasks = useCallback(async () => {
+    try {
+      const res = await fetch('/api/os/tasks', { cache: 'no-store' });
+      if (!res.ok) throw new Error('Failed to fetch tasks');
+      const data = await res.json();
+      const mapped: TaskItem[] = (data.tasks || []).map((t: any, i: number) => ({
+        id: i + 1,
+        airtableId: t.id,
+        task: t.task || '',
+        pri: t.priority || 'P2',
+        due: t.due || '',
+        from: t.from || '',
+        project: t.project || '',
+        nextAction: t.nextAction || '',
+        status: t.status || 'Inbox',
+        threadUrl: t.threadUrl || null,
+        draftUrl: t.draftUrl || null,
+        attachUrl: t.attachUrl || null,
+        notes: t.notes || '',
+        checked: t.done || false,
+        view: t.view || 'inbox',
+      }));
+      setTasks(mapped.length > 0 ? mapped : SEED_TASKS);
+    } catch (err) {
+      console.error('Failed to fetch tasks, using seed data:', err);
+      setTasks(SEED_TASKS);
+    } finally {
+      setLoading(false);
     }
-    fetchTasks();
   }, []);
+
+  useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
   // Deep-link: auto-expand a task when ?task=recXXX is in the URL
   useEffect(() => {
@@ -946,7 +947,13 @@ export function TasksClient({ company }: TasksClientProps) {
                         ) : (
                           <StatusPill status={t.status} />
                         )}
-                        {isExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-600" />}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleExpand(t.id); }}
+                          className="p-0.5 rounded hover:bg-gray-700/50 transition-colors"
+                          title={isExpanded ? 'Collapse' : 'Expand'}
+                        >
+                          {isExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-600" />}
+                        </button>
                       </div>
                     </div>
 
@@ -954,6 +961,22 @@ export function TasksClient({ company }: TasksClientProps) {
                     {isExpanded && (
                       <div className="bg-gray-800/40 border-t border-gray-700/50 px-4 py-4">
                         <div className="ml-12 space-y-3">
+                          <div className="flex items-center justify-end gap-3">
+                            {t.airtableId && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setEditingAirtableId(t.airtableId!); }}
+                                className="text-xs text-emerald-400 hover:text-emerald-300 font-medium"
+                              >
+                                Edit task →
+                              </button>
+                            )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleExpand(t.id); }}
+                              className="text-xs text-gray-500 hover:text-gray-300 font-medium"
+                            >
+                              Close
+                            </button>
+                          </div>
                           {/* Next Action — full text */}
                           {t.nextAction && (
                             <div>
@@ -1037,6 +1060,11 @@ export function TasksClient({ company }: TasksClientProps) {
           </>
         )}
       </div>
+      <TaskEditPanel
+        taskId={editingAirtableId}
+        onClose={() => setEditingAirtableId(null)}
+        onSaved={() => { fetchTasks(); }}
+      />
     </div>
   );
 }

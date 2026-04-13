@@ -5,14 +5,36 @@
  * Supports inbox triage, brain dump, projects, and archive views.
  */
 
-import { getAirtableConfig, fetchWithRetry } from './client';
+import { fetchWithRetry } from './client';
+import { resolveTasksBaseId } from './bases';
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-// Use table ID to avoid ambiguity when multiple "Tasks" tables exist
-const TABLE_NAME = 'tblf7wEI0KBwysrQz';
+/**
+ * Table name or table ID (tbl...) for the Tasks table.
+ * Table IDs are base-specific — a hardcoded tbl from another base causes 403.
+ * Set AIRTABLE_TASKS_TABLE_ID to your table id, or AIRTABLE_TASKS_TABLE to an exact name.
+ * Default: "Tasks"
+ */
+function getTasksTableIdentifier(): string {
+  return (
+    process.env.AIRTABLE_TASKS_TABLE_ID?.trim() ||
+    process.env.AIRTABLE_TASKS_TABLE?.trim() ||
+    'Tasks'
+  );
+}
+
+function tasksBaseIdOrThrow(): string {
+  const id = resolveTasksBaseId();
+  if (!id) {
+    throw new Error(
+      'Airtable base not configured for Tasks. Set AIRTABLE_OS_BASE_ID or AIRTABLE_BASE_ID, or AIRTABLE_TASKS_BASE_ID if Tasks live in another base.',
+    );
+  }
+  return id;
+}
 
 /**
  * Tasks table field names (matching Airtable schema exactly)
@@ -153,7 +175,8 @@ export async function getTasks(options?: {
   status?: TaskStatus;
   excludeDone?: boolean;
 }): Promise<TaskRecord[]> {
-  const config = getAirtableConfig();
+  const baseId = tasksBaseIdOrThrow();
+  const tableId = getTasksTableIdentifier();
 
   // Build filter formula
   const conditions: string[] = [];
@@ -185,7 +208,7 @@ export async function getTasks(options?: {
     params.set('sort[0][direction]', 'asc');
     if (offset) params.set('offset', offset);
 
-    const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}?${params.toString()}`;
+    const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}?${params.toString()}`;
 
     const response = await fetchWithRetry(url, {
       method: 'GET',
@@ -220,10 +243,11 @@ export async function getTasks(options?: {
  * Create a new task.
  */
 export async function createTask(input: CreateTaskInput): Promise<TaskRecord> {
-  const config = getAirtableConfig();
+  const baseId = tasksBaseIdOrThrow();
+  const tableId = getTasksTableIdentifier();
   const fields = mapInputToFields(input);
 
-  const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}`;
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}`;
 
   const response = await fetchWithRetry(url, {
     method: 'POST',
@@ -243,10 +267,11 @@ export async function createTask(input: CreateTaskInput): Promise<TaskRecord> {
  * Update an existing task by record ID.
  */
 export async function updateTask(recordId: string, input: UpdateTaskInput): Promise<TaskRecord> {
-  const config = getAirtableConfig();
+  const baseId = tasksBaseIdOrThrow();
+  const tableId = getTasksTableIdentifier();
   const fields = mapInputToFields(input);
 
-  const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}/${recordId}`;
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}/${recordId}`;
 
   const response = await fetchWithRetry(url, {
     method: 'PATCH',
@@ -266,8 +291,9 @@ export async function updateTask(recordId: string, input: UpdateTaskInput): Prom
  * Delete a task by record ID.
  */
 export async function deleteTask(recordId: string): Promise<void> {
-  const config = getAirtableConfig();
-  const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(TABLE_NAME)}/${recordId}`;
+  const baseId = tasksBaseIdOrThrow();
+  const tableId = getTasksTableIdentifier();
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}/${recordId}`;
 
   const response = await fetchWithRetry(url, {
     method: 'DELETE',

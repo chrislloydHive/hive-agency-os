@@ -7,6 +7,8 @@ export const BASES = {
   OS: process.env.AIRTABLE_OS_BASE_ID ?? '',
   PROJECTS: process.env.AIRTABLE_PROJECTS_BASE_ID ?? '',
   INBOUND: process.env.AIRTABLE_INBOUND_BASE_ID ?? '',
+  /** Optional: Command Center / lib/airtable/tasks when Tasks live outside OS base */
+  TASKS: process.env.AIRTABLE_TASKS_BASE_ID ?? '',
 } as const;
 
 /** OS / primary Hive base */
@@ -28,5 +30,12 @@ export function resolveProjectsBaseId(): string {
 export function resolveInboundBaseId(): string {
   const i = BASES.INBOUND.trim();
   if (i) return i;
+  return resolveOsBaseId();
+}
+
+/** Team Tasks table (Command Center): dedicated base, else same as OS */
+export function resolveTasksBaseId(): string {
+  const t = BASES.TASKS.trim();
+  if (t) return t;
   return resolveOsBaseId();
 }
