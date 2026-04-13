@@ -56,7 +56,9 @@ export function getAppBaseUrl(): string {
   if (!url) {
     throw new Error('APP_URL env var is required for OAuth');
   }
-  if (!url.startsWith('https://')) {
+  // Allow http only for localhost dev; otherwise require https.
+  const isLocal = url.startsWith('http://localhost') || url.startsWith('http://127.0.0.1');
+  if (!url.startsWith('https://') && !isLocal) {
     throw new Error(`APP_URL must be https, got: ${url}`);
   }
   const base = url.replace(/\/+$/, '');

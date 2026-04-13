@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { getCompanyById } from '@/lib/airtable/companies';
+import { getCompanyIntegrations } from '@/lib/airtable/companyIntegrations';
 import { getAppBaseUrl } from '@/lib/google/oauth';
 
 const SCOPES = [
@@ -53,13 +54,19 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Verify company exists
+    // Verify company exists — OR, if an integration record already exists
+    // for this companyId, allow the flow to proceed (re-auth of orphaned
+    // integration where the Companies row was deleted or lives in another base).
     const company = await getCompanyById(companyId);
     if (!company) {
-      return NextResponse.json(
-        { error: 'Company not found' },
-        { status: 404 }
-      );
+      const existingIntegration = await getCompanyIntegrations(companyId);
+      if (!existingIntegration) {
+        return NextResponse.json(
+          { error: 'Company not found and no existing integration record' },
+          { status: 404 }
+        );
+      }
+      console.log(`[google-oauth] Proceeding with re-auth for orphaned integration ${companyId}`);
     }
 
     // Check for required env vars
@@ -105,9 +112,13 @@ export async function GET(request: NextRequest) {
     // Redirect to Google
     return NextResponse.redirect(authUrl);
   } catch (error) {
-    console.error('[Google OAuth] Error generating auth URL:', error);
+    const details = error instanceof Error ? `${error.message}\n${error.stack}` : String(error);
+    console.error('[Google OAuth] Error generating auth URL:', details);
     return NextResponse.json(
-      { error: 'Failed to initiate Google OAuth' },
+      {
+        error: 'Failed to initiate Google OAuth',
+        details: error instanceof Error ? error.message : String(error),
+      },
       { status: 500 }
     );
   }
