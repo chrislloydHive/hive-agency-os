@@ -166,19 +166,10 @@ function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<stri
 // CRUD Operations
 // ============================================================================
 
-/**
- * Fetch all tasks, optionally filtered by view or status.
- * Returns tasks sorted by priority (P0 first) then due date.
- */
-export async function getTasks(options?: {
-  view?: TaskView;
-  status?: TaskStatus;
-  excludeDone?: boolean;
-}): Promise<TaskRecord[]> {
-  const baseId = tasksBaseIdOrThrow();
-  const tableId = getTasksTableIdentifier();
-
-  // Build filter formula
+function buildTaskFilterConditions(
+  options: { view?: TaskView; status?: TaskStatus; excludeDone?: boolean } | undefined,
+  includeExcludeDoneInFormula: boolean,
+): string[] {
   const conditions: string[] = [];
   if (options?.view) {
     conditions.push(`{${TASK_FIELDS.VIEW}} = '${options.view}'`);
@@ -186,21 +177,24 @@ export async function getTasks(options?: {
   if (options?.status) {
     conditions.push(`{${TASK_FIELDS.STATUS}} = '${options.status}'`);
   }
-  // Exclude completed work via Status (single source of truth in the product UI).
-  // Do not use a {Done} checkbox here — many bases only have Status, which caused 422
-  // INVALID_FILTER_BY_FORMULA "Unknown field names: done".
-  if (options?.excludeDone) {
+  // Exclude completed work via Status (not a {Done} checkbox — that caused 422 when missing).
+  if (includeExcludeDoneInFormula && options?.excludeDone) {
     conditions.push(`NOT({${TASK_FIELDS.STATUS}} = 'Done')`);
   }
+  return conditions;
+}
 
-  let filterFormula = '';
-  if (conditions.length === 1) {
-    filterFormula = conditions[0];
-  } else if (conditions.length > 1) {
-    filterFormula = `AND(${conditions.join(', ')})`;
-  }
+function conditionsToFormula(conditions: string[]): string {
+  if (conditions.length === 0) return '';
+  if (conditions.length === 1) return conditions[0];
+  return `AND(${conditions.join(', ')})`;
+}
 
-  // Build URL with pagination support
+async function fetchTaskRecordPages(
+  baseId: string,
+  tableId: string,
+  filterFormula: string | undefined,
+): Promise<any[]> {
   const allRecords: any[] = [];
   let offset: string | undefined;
 
@@ -227,9 +221,57 @@ export async function getTasks(options?: {
     offset = data.offset;
   } while (offset);
 
+  return allRecords;
+}
+
+function isAirtableFormulaError(message: string): boolean {
+  return (
+    message.includes('422') ||
+    message.includes('INVALID_FILTER_BY_FORMULA') ||
+    message.includes('Unknown field names')
+  );
+}
+
+/**
+ * Fetch all tasks, optionally filtered by view or status.
+ * Returns tasks sorted by priority (P0 first) then due date.
+ */
+export async function getTasks(options?: {
+  view?: TaskView;
+  status?: TaskStatus;
+  excludeDone?: boolean;
+}): Promise<TaskRecord[]> {
+  const baseId = tasksBaseIdOrThrow();
+  const tableId = getTasksTableIdentifier();
+
+  const primaryFormula = conditionsToFormula(buildTaskFilterConditions(options, true));
+
+  let allRecords: any[];
+  let excludeDoneClientSide = false;
+
+  try {
+    allRecords = await fetchTaskRecordPages(baseId, tableId, primaryFormula || undefined);
+  } catch (firstErr) {
+    const msg = firstErr instanceof Error ? firstErr.message : String(firstErr);
+    if (options?.excludeDone && isAirtableFormulaError(msg)) {
+      console.warn(
+        '[getTasks] filterByFormula failed; retrying without server-side excludeDone, filtering in memory.',
+        msg.slice(0, 280),
+      );
+      const fallbackFormula = conditionsToFormula(buildTaskFilterConditions(options, false));
+      allRecords = await fetchTaskRecordPages(baseId, tableId, fallbackFormula || undefined);
+      excludeDoneClientSide = true;
+    } else {
+      throw firstErr;
+    }
+  }
+
   // Airtable sorts by priority server-side; apply stable secondary sort by due date
   const priorityOrder = ['P0', 'P1', 'P2', 'P3'];
-  const tasks = allRecords.map(mapRecordToTask);
+  let tasks = allRecords.map(mapRecordToTask);
+  if (excludeDoneClientSide && options?.excludeDone) {
+    tasks = tasks.filter((t) => t.status !== 'Done');
+  }
   tasks.sort((a, b) => {
     const pa = priorityOrder.indexOf(a.priority || 'P3');
     const pb = priorityOrder.indexOf(b.priority || 'P3');
