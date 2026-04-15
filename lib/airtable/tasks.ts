@@ -186,8 +186,11 @@ export async function getTasks(options?: {
   if (options?.status) {
     conditions.push(`{${TASK_FIELDS.STATUS}} = '${options.status}'`);
   }
+  // Exclude completed work via Status (single source of truth in the product UI).
+  // Do not use a {Done} checkbox here — many bases only have Status, which caused 422
+  // INVALID_FILTER_BY_FORMULA "Unknown field names: done".
   if (options?.excludeDone) {
-    conditions.push(`{${TASK_FIELDS.DONE}} = FALSE()`);
+    conditions.push(`NOT({${TASK_FIELDS.STATUS}} = 'Done')`);
   }
 
   let filterFormula = '';

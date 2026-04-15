@@ -1,9 +1,9 @@
 'use client';
 // Slide-in panel for editing or creating a task.
-// - Edit mode: pass `taskId`. Fetches from /api/os/tasks/:id, PATCHes on save.
-// - Create mode: pass `mode="create"` + `prefill`. POSTs to /api/os/tasks on save.
+// - Edit mode: pass `taskId`. Fetches from /api/os/tasks/:id, auto-saves on change (debounced).
+// - Create mode: pass `mode="create"` + `prefill`. POSTs to /api/os/tasks via Create.
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { X, Save, ExternalLink, Loader2 } from 'lucide-react';
 
 type TaskPriority = 'P0' | 'P1' | 'P2' | 'P3';
@@ -44,12 +44,18 @@ interface Props {
   onSaved?: () => void;
 }
 
+const AUTOSAVE_DEBOUNCE_MS = 600;
+
 export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClose, onSaved }: Props) {
   const [task, setTask] = useState<TaskRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  /** Browser `setTimeout` id (avoids Node `Timeout` vs DOM `number` mismatch in tsc). */
+  const debounceTimerRef = useRef<number | null>(null);
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
 
   // Form fields
   const [taskTitle, setTaskTitle] = useState('');
@@ -107,15 +113,62 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
     setError(null);
   }, [isCreate, prefill]);
 
-  // Close on Escape
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  const buildEditBody = useCallback((): Record<string, unknown> => {
+    const body: Record<string, unknown> = {
+      task: taskTitle,
+      status,
+      nextAction,
+      notes,
+      due: due || null,
+      project: project || undefined,
+    };
+    if (priority) body.priority = priority;
+    return body;
+  }, [taskTitle, status, nextAction, notes, due, project, priority]);
 
-  async function handleSave() {
+  const persistEdit = useCallback(async () => {
+    if (!task || isCreate) return;
+    const sent = buildEditBody();
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/os/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sent),
+      });
+      if (!res.ok) {
+        const { error: msg } = await res.json().catch(() => ({ error: 'Save failed' }));
+        throw new Error(msg || `Save failed: ${res.status}`);
+      }
+      const current = buildEditBody();
+      if (JSON.stringify(sent) === JSON.stringify(current)) {
+        setDirty(false);
+      }
+      onSavedRef.current?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  }, [task, isCreate, buildEditBody]);
+
+  // Edit mode: debounced auto-save when the form is dirty
+  useEffect(() => {
+    if (isCreate || !task || loading || !dirty) return;
+    debounceTimerRef.current = window.setTimeout(() => {
+      debounceTimerRef.current = null;
+      void persistEdit();
+    }, AUTOSAVE_DEBOUNCE_MS);
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+    };
+  }, [isCreate, task?.id, loading, dirty, persistEdit]);
+
+  async function handleCreate() {
     setSaving(true);
     setError(null);
     try {
@@ -128,32 +181,18 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
         project: project || undefined,
       };
       if (priority) body.priority = priority;
-
-      if (isCreate) {
-        if (emailMeta?.link) body.threadUrl = emailMeta.link;
-        const res = await fetch(`/api/os/tasks`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-          const { error: msg } = await res.json().catch(() => ({ error: 'Save failed' }));
-          throw new Error(msg || `Save failed: ${res.status}`);
-        }
-      } else {
-        if (!task) return;
-        const res = await fetch(`/api/os/tasks/${task.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-          const { error: msg } = await res.json().catch(() => ({ error: 'Save failed' }));
-          throw new Error(msg || `Save failed: ${res.status}`);
-        }
+      if (emailMeta?.link) body.threadUrl = emailMeta.link;
+      const res = await fetch(`/api/os/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const { error: msg } = await res.json().catch(() => ({ error: 'Save failed' }));
+        throw new Error(msg || `Save failed: ${res.status}`);
       }
       setDirty(false);
-      onSaved?.();
+      onSavedRef.current?.();
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save');
@@ -161,6 +200,27 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
       setSaving(false);
     }
   }
+
+  const handleClose = useCallback(async () => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    if (!isCreate && task && dirty) {
+      await persistEdit();
+    }
+    onClose();
+  }, [isCreate, task, dirty, persistEdit, onClose]);
+
+  // Close on Escape (flush pending edit save first)
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') void handleClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, handleClose]);
 
   function mark<T>(setter: (v: T) => void) {
     return (v: T) => { setter(v); setDirty(true); };
@@ -172,7 +232,7 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/40 z-40 transition-opacity" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/40 z-40 transition-opacity" onClick={() => void handleClose()} />
       <aside
         className="fixed top-0 right-0 h-full w-full max-w-md bg-[#0f0f0f] border-l border-white/10 z-50 shadow-2xl flex flex-col"
         onClick={e => e.stopPropagation()}
@@ -180,7 +240,7 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
         <header className="flex items-center justify-between px-5 py-4 border-b border-white/10">
           <h3 className="text-sm font-semibold text-gray-100">{headerLabel}</h3>
           <button
-            onClick={onClose}
+            onClick={() => void handleClose()}
             className="p-1 rounded hover:bg-white/5 text-gray-400 hover:text-gray-100"
             aria-label="Close"
           >
@@ -297,23 +357,35 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
 
         <footer className="px-5 py-3 border-t border-white/10 flex items-center justify-between gap-3">
           <div className="text-xs text-gray-500">
-            {dirty ? 'Unsaved changes' : task ? 'Up to date' : ''}
+            {isCreate
+              ? (dirty ? 'Review fields, then create' : '')
+              : saving
+                ? 'Saving…'
+                : dirty
+                  ? 'Unsaved changes — saving soon'
+                  : task
+                    ? 'Saved'
+                    : ''}
           </div>
           <div className="flex gap-2">
             <button
-              onClick={onClose}
+              type="button"
+              onClick={() => void handleClose()}
               className="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200 rounded border border-white/10 hover:border-white/20"
             >
-              Cancel
+              {isCreate ? 'Cancel' : 'Close'}
             </button>
-            <button
-              onClick={handleSave}
-              disabled={saving || !dirty || (!isCreate && !task)}
-              className="px-3 py-1.5 text-xs text-white rounded bg-emerald-600 hover:bg-emerald-500 disabled:bg-white/5 disabled:text-gray-500 flex items-center gap-1.5"
-            >
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-              {saving ? 'Saving' : isCreate ? 'Create' : 'Save'}
-            </button>
+            {isCreate && (
+              <button
+                type="button"
+                onClick={() => void handleCreate()}
+                disabled={saving || !dirty}
+                className="px-3 py-1.5 text-xs text-white rounded bg-emerald-600 hover:bg-emerald-500 disabled:bg-white/5 disabled:text-gray-500 flex items-center gap-1.5"
+              >
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                {saving ? 'Creating' : 'Create'}
+              </button>
+            )}
           </div>
         </footer>
       </aside>
