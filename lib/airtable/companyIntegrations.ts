@@ -1,7 +1,7 @@
 // lib/airtable/companyIntegrations.ts
 // Per-company integrations storage for OAuth tokens and integration metadata
 
-import { getAirtableConfig, findRecordByField, updateRecord, createRecord } from '@/lib/airtable/client';
+import { getAirtableConfig, updateRecord, createRecord } from '@/lib/airtable/client';
 import { airtableFetch } from '@/lib/airtable/airtableFetch';
 import { resolveOsBaseId } from '@/lib/airtable/bases';
 
@@ -182,58 +182,30 @@ function mapCompanyIntegrationsToAirtable(
 // ============================================================================
 
 /**
- * Get company integrations by company ID
- * 
- * IMPORTANT: This function preserves the original behavior of checking AIRTABLE_BASE_ID first.
- * For multi-base lookup with DB/OS fallback, use findCompanyIntegration() directly.
+ * Get company integrations by company ID.
+ *
+ * Uses {@link findCompanyIntegration} first (DB base → OS base → known Hive DB base).
+ * We no longer call `findRecordByField` against the OS base first: CompanyIntegrations
+ * lives in Hive DB (`appVLDjqK2q4IJhGz` / `AIRTABLE_DB_BASE_ID`), and the OS base often
+ * has no table or no token access — that caused noisy 403s before the DB lookup ran.
  */
 export async function getCompanyIntegrations(
   companyId: string
 ): Promise<CompanyIntegrations | null> {
   try {
     console.log('[CompanyIntegrations] Looking for company:', companyId);
-    
-    // Preserve original behavior: use findRecordByField which checks AIRTABLE_BASE_ID
-    // This ensures backward compatibility - if CompanyIntegrations is in AIRTABLE_BASE_ID,
-    // it will be found there first, matching the old behavior
-    const record = await findRecordByField(TABLE_NAME, 'CompanyId', companyId);
 
-    if (record) {
-      console.log('[CompanyIntegrations] Found existing record:', record.id);
-      return mapAirtableToCompanyIntegrations(record);
+    const result = await findCompanyIntegration({ companyId });
+    if (result.record) {
+      console.log(
+        `[CompanyIntegrations] Found record: ${result.record.id} (matched by: ${result.matchedBy})`,
+      );
+      return mapAirtableToCompanyIntegrations(result.record as any);
     }
 
     console.log('[CompanyIntegrations] No record found for company:', companyId);
     return null;
   } catch (error) {
-    // If we get a permission error, try multi-base lookup as fallback
-    const errStr = error instanceof Error ? error.message : String(error);
-    const statusCode = (error as any)?.statusCode || (error as any)?.status;
-    
-    // Check for permission errors: status code 403/401 or error message contains permission-related keywords
-    const isPermissionError = 
-      statusCode === 403 || 
-      statusCode === 401 ||
-      errStr.includes('403') || 
-      errStr.includes('401') || 
-      errStr.includes('permission') ||
-      errStr.includes('INVALID_PERMISSIONS') ||
-      errStr.includes('Forbidden');
-    
-    if (isPermissionError) {
-      console.warn('[CompanyIntegrations] Permission error with AIRTABLE_BASE_ID, trying multi-base lookup:', errStr);
-      try {
-        const result = await findCompanyIntegration({ companyId });
-        if (result.record) {
-          console.log(`[CompanyIntegrations] Found via multi-base lookup: ${result.record.id} (matched by: ${result.matchedBy})`);
-          return mapAirtableToCompanyIntegrations(result.record as any);
-        } else {
-          console.warn('[CompanyIntegrations] Multi-base lookup found no record. Debug attempts:', result.debug.attempts.length);
-        }
-      } catch (fallbackError) {
-        console.warn('[CompanyIntegrations] Multi-base lookup also failed:', fallbackError);
-      }
-    }
     console.warn('[CompanyIntegrations] Error fetching integrations:', error);
     return null;
   }
