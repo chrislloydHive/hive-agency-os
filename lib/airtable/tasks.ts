@@ -166,9 +166,14 @@ function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<stri
 // CRUD Operations
 // ============================================================================
 
+/**
+ * Server-side filters only. Never put `excludeDone` in Airtable formulas: bases differ
+ * (no {Done} checkbox, Status name/value mismatches), which produced recurring 422
+ * INVALID_FILTER_BY_FORMULA "Unknown field names: done". Completed rows are dropped
+ * in memory after mapRecordToTask instead.
+ */
 function buildTaskFilterConditions(
   options: { view?: TaskView; status?: TaskStatus; excludeDone?: boolean } | undefined,
-  includeExcludeDoneInFormula: boolean,
 ): string[] {
   const conditions: string[] = [];
   if (options?.view) {
@@ -176,10 +181,6 @@ function buildTaskFilterConditions(
   }
   if (options?.status) {
     conditions.push(`{${TASK_FIELDS.STATUS}} = '${options.status}'`);
-  }
-  // Exclude completed work via Status (not a {Done} checkbox — that caused 422 when missing).
-  if (includeExcludeDoneInFormula && options?.excludeDone) {
-    conditions.push(`NOT({${TASK_FIELDS.STATUS}} = 'Done')`);
   }
   return conditions;
 }
@@ -224,17 +225,12 @@ async function fetchTaskRecordPages(
   return allRecords;
 }
 
-function isAirtableFormulaError(message: string): boolean {
-  return (
-    message.includes('422') ||
-    message.includes('INVALID_FILTER_BY_FORMULA') ||
-    message.includes('Unknown field names')
-  );
-}
-
 /**
  * Fetch all tasks, optionally filtered by view or status.
  * Returns tasks sorted by priority (P0 first) then due date.
+ *
+ * `excludeDone` is applied in memory only (never via filterByFormula), so Airtable
+ * schema differences cannot break the request.
  */
 export async function getTasks(options?: {
   view?: TaskView;
@@ -244,32 +240,14 @@ export async function getTasks(options?: {
   const baseId = tasksBaseIdOrThrow();
   const tableId = getTasksTableIdentifier();
 
-  const primaryFormula = conditionsToFormula(buildTaskFilterConditions(options, true));
+  const filterFormula = conditionsToFormula(buildTaskFilterConditions(options));
 
-  let allRecords: any[];
-  let excludeDoneClientSide = false;
-
-  try {
-    allRecords = await fetchTaskRecordPages(baseId, tableId, primaryFormula || undefined);
-  } catch (firstErr) {
-    const msg = firstErr instanceof Error ? firstErr.message : String(firstErr);
-    if (options?.excludeDone && isAirtableFormulaError(msg)) {
-      console.warn(
-        '[getTasks] filterByFormula failed; retrying without server-side excludeDone, filtering in memory.',
-        msg.slice(0, 280),
-      );
-      const fallbackFormula = conditionsToFormula(buildTaskFilterConditions(options, false));
-      allRecords = await fetchTaskRecordPages(baseId, tableId, fallbackFormula || undefined);
-      excludeDoneClientSide = true;
-    } else {
-      throw firstErr;
-    }
-  }
+  const allRecords = await fetchTaskRecordPages(baseId, tableId, filterFormula || undefined);
 
   // Airtable sorts by priority server-side; apply stable secondary sort by due date
   const priorityOrder = ['P0', 'P1', 'P2', 'P3'];
   let tasks = allRecords.map(mapRecordToTask);
-  if (excludeDoneClientSide && options?.excludeDone) {
+  if (options?.excludeDone) {
     tasks = tasks.filter((t) => t.status !== 'Done');
   }
   tasks.sort((a, b) => {
