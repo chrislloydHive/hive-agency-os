@@ -191,6 +191,9 @@ function conditionsToFormula(conditions: string[]): string {
   return `AND(${conditions.join(', ')})`;
 }
 
+/** Bump when list-fetch behavior changes (helps confirm deploy vs stale logs). */
+export const TASKS_LIST_FETCH_REVISION = '2026-04-15v4-no-airtable-sort';
+
 async function fetchTaskRecordPages(
   baseId: string,
   tableId: string,
@@ -202,8 +205,8 @@ async function fetchTaskRecordPages(
   do {
     const params = new URLSearchParams();
     if (filterFormula) params.set('filterByFormula', filterFormula);
-    params.set('sort[0][field]', TASK_FIELDS.PRIORITY);
-    params.set('sort[0][direction]', 'asc');
+    // Intentionally no server-side sort: avoids dependency on a "Priority" column and
+    // keeps the request minimal (filter is the only formula). Sort runs in getTasks().
     if (offset) params.set('offset', offset);
 
     const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}?${params.toString()}`;
@@ -214,6 +217,15 @@ async function fetchTaskRecordPages(
 
     if (!response.ok) {
       const errorText = await response.text();
+      if (response.status === 422) {
+        console.error('[getTasks] Airtable 422 — list fetch context', {
+          revision: TASKS_LIST_FETCH_REVISION,
+          hadFilterByFormula: Boolean(filterFormula),
+          filterFormulaPreview: filterFormula ? filterFormula.slice(0, 200) : null,
+          tableId,
+          baseIdPrefix: `${baseId.slice(0, 12)}…`,
+        });
+      }
       throw new Error(`Airtable API error fetching tasks (${response.status}): ${errorText}`);
     }
 
@@ -244,7 +256,7 @@ export async function getTasks(options?: {
 
   const allRecords = await fetchTaskRecordPages(baseId, tableId, filterFormula || undefined);
 
-  // Airtable sorts by priority server-side; apply stable secondary sort by due date
+  // Priority + due date (all client-side; Airtable list request does not use sort[] params)
   const priorityOrder = ['P0', 'P1', 'P2', 'P3'];
   let tasks = allRecords.map(mapRecordToTask);
   if (options?.excludeDone) {

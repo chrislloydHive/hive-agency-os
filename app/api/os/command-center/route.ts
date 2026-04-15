@@ -14,7 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { getTasks, type TaskRecord } from '@/lib/airtable/tasks';
+import { getTasks, TASKS_LIST_FETCH_REVISION, type TaskRecord } from '@/lib/airtable/tasks';
 import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
 import { refreshAccessToken } from '@/lib/google/oauth';
 
@@ -329,11 +329,16 @@ export async function fetchTriageInbox(
     auth.setCredentials({ access_token: accessToken });
     const gmail = google.gmail({ version: 'v1', auth });
 
-    // Three overlapping queries (dedupe by threadId after)
+    // Overlapping queries (dedupe by threadId after).
+    // Starred gets its own query with NO time limit — starring is an explicit
+    // "I care about this" signal from Chris, so age of the underlying email
+    // shouldn't exclude it (Gmail's newer_than filters by received date, not
+    // by when the star was applied).
     const domainClause = importantDomains.map(d => `from:${d}`).join(' OR ');
     const queries: Array<{ q: string; reason: string }> = [
       { q: `in:inbox category:primary is:unread newer_than:${days}d`, reason: 'Unread primary' },
-      { q: `in:inbox (is:starred OR is:important) newer_than:${days}d`, reason: 'Starred/Important' },
+      { q: `in:inbox is:starred`, reason: 'Starred' },
+      { q: `in:inbox is:important newer_than:${days}d`, reason: 'Important' },
       ...(importantDomains.length
         ? [{ q: `in:inbox (${domainClause}) newer_than:${days}d`, reason: 'Key sender' }]
         : []),
@@ -421,7 +426,14 @@ export async function fetchTriageInbox(
     // Sort by score desc, tiebreak by recency desc
     filtered.sort((a, b) => (b.score - a.score) || (b.date || '').localeCompare(a.date || ''));
 
-    return filtered.slice(0, 20);
+    // Slot budget: 20 items total. Starred items are an explicit "I care" signal
+    // from Chris and must NEVER get crowded out by higher-scoring noise. Reserve
+    // the top of the list for all starred items, then fill the remaining slots
+    // with the highest-scoring non-starred items.
+    const starredItems = filtered.filter(m => m.starred);
+    const nonStarredItems = filtered.filter(m => !m.starred);
+    const remainingSlots = Math.max(0, 20 - starredItems.length);
+    return [...starredItems, ...nonStarredItems.slice(0, remainingSlots)];
   } catch (err) {
     console.error('[Command Center] Gmail triage error:', err);
     return [];
@@ -1005,7 +1017,13 @@ export async function GET(request: NextRequest) {
       tasks = await getTasks({ excludeDone: true });
     } catch (err) {
       airtableTasksError = err instanceof Error ? err.message : String(err);
-      console.error('[Command Center] Airtable tasks failed (continuing without tasks):', airtableTasksError);
+      console.error(
+        '[Command Center] Airtable tasks failed (continuing without tasks):',
+        airtableTasksError,
+        '| tasksFetchRevision=',
+        TASKS_LIST_FETCH_REVISION,
+        '(if revision is missing, deploy/restart so lib/airtable/tasks.ts is current)',
+      );
     }
 
     // ── Fetch Google data ───────────────────────────────────────────────
