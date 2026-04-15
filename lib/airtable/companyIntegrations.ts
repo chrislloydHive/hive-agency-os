@@ -184,10 +184,9 @@ function mapCompanyIntegrationsToAirtable(
 /**
  * Get company integrations by company ID.
  *
- * Uses {@link findCompanyIntegration} first (DB base → OS base → known Hive DB base).
- * We no longer call `findRecordByField` against the OS base first: CompanyIntegrations
- * lives in Hive DB (`appVLDjqK2q4IJhGz` / `AIRTABLE_DB_BASE_ID`), and the OS base often
- * has no table or no token access — that caused noisy 403s before the DB lookup ran.
+ * Uses {@link findCompanyIntegration} (DB base → known Hive DB id → OS base only if
+ * `AIRTABLE_COMPANY_INTEGRATIONS_INCLUDE_OS_BASE=1`). The OS PM base often has no
+ * CompanyIntegrations table or token access, so it is not queried by default.
  */
 export async function getCompanyIntegrations(
   companyId: string
@@ -567,7 +566,7 @@ async function airtableGet(
  *
  * Bases tried in order:
  *   - AIRTABLE_DB_BASE_ID  (if set)
- *   - OS base (only if AIRTABLE_DB_BASE_ID is unset, or AIRTABLE_COMPANY_INTEGRATIONS_INCLUDE_OS_BASE=1)
+ *   - OS base only if AIRTABLE_COMPANY_INTEGRATIONS_INCLUDE_OS_BASE=1
  *   - Known Hive DB id if not already listed
  *
  * Every Airtable request is logged with base, table, formula, status, and
@@ -588,10 +587,10 @@ export async function findCompanyIntegration({
   }
 
   // CompanyIntegrations is in appVLDjqK2q4IJhGz
-  // Check DB base first, then OS base, then fallback to AIRTABLE_BASE_ID
-  const dbBaseId = process.env.AIRTABLE_DB_BASE_ID || '';
+  // Check DB base first, optional OS base (opt-in only), then known Hive DB id.
+  const dbBaseId = (process.env.AIRTABLE_DB_BASE_ID || '').trim();
   const osBaseId = resolveOsBaseId();
-  
+
   // CompanyIntegrations is known to be in appVLDjqK2q4IJhGz
   const knownCompanyIntegrationsBase = 'appVLDjqK2q4IJhGz';
 
@@ -600,10 +599,9 @@ export async function findCompanyIntegration({
     basesToTry.push({ label: 'Override', baseId: baseIdOverride.trim() });
   } else {
     if (dbBaseId) basesToTry.push({ label: 'DB', baseId: dbBaseId });
-    // CompanyIntegrations lives in Hive DB only for most deployments; PM OS has no table → 403 spam.
-    const includeOs =
-      process.env.AIRTABLE_COMPANY_INTEGRATIONS_INCLUDE_OS_BASE === '1' ||
-      !dbBaseId;
+    // OS base often has no CompanyIntegrations table or token access → noisy 403s.
+    // Only query OS when explicitly enabled (legacy deployments that store CI only there).
+    const includeOs = process.env.AIRTABLE_COMPANY_INTEGRATIONS_INCLUDE_OS_BASE === '1';
     if (includeOs && osBaseId && osBaseId !== dbBaseId) {
       basesToTry.push({ label: 'OS', baseId: osBaseId });
     }
@@ -685,14 +683,10 @@ export async function findCompanyIntegration({
 
       if (!r.ok) {
         if (r.status === 401 || r.status === 403) {
-          // Log permission error but continue trying other bases/formulas
-          // Don't throw - allow fallback to other bases or return null gracefully
+          // Continue to next step/base — avoid dumping full Airtable error bodies on every formula.
           console.warn(
-            `[CompanyIntegrations] Permission denied (${r.status}) for ${base.label} base (baseId=${base.baseId.slice(0, 20)}...). ` +
-            `Token may lack access to CompanyIntegrations table in this base. ` +
-            `Error: ${r.text.slice(0, 200)}`,
+            `[CompanyIntegrations] ${r.status} on ${base.label} base ${base.baseId.slice(0, 12)}… — skip (check token scope / table name).`,
           );
-          // Continue to next step/base rather than aborting
           continue;
         }
         // Non-auth error on this formula — skip to next step rather than aborting,

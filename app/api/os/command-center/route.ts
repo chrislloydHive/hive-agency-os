@@ -317,9 +317,10 @@ function scoreTriageItem(
 }
 
 function parseFromHeader(from: string): { name: string; email: string; domain: string } {
-  const m = from.match(/^\s*"?([^"<]*)"?\s*<?([^>]+)>?\s*$/);
+  const raw = typeof from === 'string' ? from : String(from ?? '');
+  const m = raw.match(/^\s*"?([^"<]*)"?\s*<?([^>]+)>?\s*$/);
   const name = (m?.[1] || '').trim();
-  const email = (m?.[2] || from).trim().toLowerCase();
+  const email = String(m?.[2] ?? raw).trim().toLowerCase();
   const domain = email.split('@')[1] || '';
   return { name, email, domain };
 }
@@ -570,9 +571,19 @@ function scoreItem(item: WorkItem, now: Date): WorkItem {
 // Cross-system linking — match on project / client name tokens
 // ============================================================================
 
-function tokenize(s: string | undefined | null): string[] {
-  if (!s) return [];
-  return s.toLowerCase()
+/** Tokenize for cross-linking. Airtable fields are not always strings at runtime. */
+function tokenize(s: unknown): string[] {
+  const raw =
+    typeof s === 'string'
+      ? s
+      : s === null || s === undefined
+        ? ''
+        : typeof s === 'number' || typeof s === 'boolean'
+          ? String(s)
+          : '';
+  if (!raw.trim()) return [];
+  return raw
+    .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter(t => t.length >= 3 && !STOPWORDS.has(t));
@@ -733,8 +744,8 @@ function flagNoPrepMeetings(items: WorkItem[]): WorkItem[] {
 // Smart signals — derived from raw Google data (non-inbox critical work)
 // ============================================================================
 
-function emailDomain(email: string | undefined | null): string {
-  if (!email) return '';
+function emailDomain(email: unknown): string {
+  if (typeof email !== 'string' || !email) return '';
   const at = email.indexOf('@');
   return at >= 0 ? email.slice(at + 1).toLowerCase() : '';
 }
@@ -893,7 +904,13 @@ function findInProgress(docs: DriveDoc[], myEmail: string | null, now: Date): In
   const clusters = new Map<string, DriveDoc[]>();
   for (const d of recent) {
     const tokens = tokenize(d.name).slice(0, 2);
-    const key = tokens.length ? tokens.join('-') : d.name.toLowerCase().slice(0, 20);
+    const nameFallback =
+      typeof d.name === 'string'
+        ? d.name
+        : typeof d.name === 'number' || typeof d.name === 'boolean'
+          ? String(d.name)
+          : '';
+    const key = tokens.length ? tokens.join('-') : nameFallback.toLowerCase().slice(0, 20);
     if (!clusters.has(key)) clusters.set(key, []);
     clusters.get(key)!.push(d);
   }
