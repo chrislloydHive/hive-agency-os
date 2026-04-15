@@ -248,7 +248,9 @@ const SUBJECT_KEYWORD_RE = /\b(a\/r\s*aging|past\s*due|overdue|collections?|char
 // Informational financial FYIs — automated bank/payroll/QB notifications. Chris does NOT need to act.
 // e.g. "Processing payment to X", "Payment scheduled", "Payment on the way", "Your receipt is attached",
 // "will be withdrawn from your account", "payment was sent", "direct deposit", "statement available".
-const FINANCIAL_FYI_RE = /\b(processing\s+payment|payment\s+(scheduled|on\s+the\s+way|sent|received|complete|successful|processed|confirmation)|payment\s+to\s+\w|your\s+receipt|receipt\s+is\s+attached|will\s+be\s+withdrawn|has\s+been\s+deposited|direct\s+deposit|deposit\s+confirmation|auto-?pay|autopay|statement\s+(available|ready|is\s+ready)|monthly\s+statement|account\s+summary|transaction\s+alert|deposit\s+notification|funds\s+(available|transferred)|transfer\s+(complete|successful)|scheduled\s+transfer|ach\s+(credit|debit|notification)|paystub|pay\s*stub|payroll\s+(processed|complete))\b/i;
+const FINANCIAL_FYI_RE = /\b(processing\s+payment|payment\s+(scheduled|on\s+the\s+way|sent|received|complete|successful|processed|confirmation)|payment\s+to\s+\w|your\s+receipt|receipt\s+is\s+attached|will\s+be\s+withdrawn|has\s+been\s+deposited|direct\s+deposit|deposit\s+confirmation|auto-?pay|autopay|statement\s+(available|ready|is\s+ready)|monthly\s+statement|account\s+summary|transaction\s+alert|deposit\s+notification|funds\s+(available|transferred)|transfer\s+(complete|successful)|scheduled\s+transfer|ach\s+(credit|debit|notification)|paystub|pay\s*stub|payroll\s+(processed|complete)|limit\s+(has\s+)?increased|credit\s+limit|processing\s+limit|your\s+(intuit|quickbooks|bank|chase|amex|paypal|venmo)\s+account|account\s+(activity|alert|security|update|notice|notification)|password\s+(was\s+)?(updated|changed|reset)|security\s+alert|sign[- ]?in\s+from|new\s+sign[- ]?in|two[- ]?factor|verification\s+code|confirm\s+your\s+(email|account|identity)|you.ve\s+scheduled|scheduled\s+\d*\s*bill\s+payment|bill\s+payments?\s+(scheduled|processed|sent)|here.s\s+your\s+report|payment\s+(information|method)\s+(has\s+been\s+|was\s+)?updated|your\s+account\s+has\s+been\s+updated|your\s+order|order\s+confirmation|weekly\s+.+\s+report|your\s+(weekly|monthly|daily)\s+\w+)\b/i;
+// Auto-reply / out-of-office subject patterns. These should always be dropped regardless of finance keywords.
+const AUTO_REPLY_RE = /^(\s*(automatic\s+reply|auto[- ]?reply|out\s+of\s+(office|the\s+office|the\s+country)|ooo|away\s+from\s+(the\s+office|my\s+desk)|vacation\s+(reply|response)|auto\s+response)\s*[:\-]|\s*\[?auto\s*(reply|response)\]?)/i;
 
 // Noise signals — senders, local parts, and subjects that should be heavily down-ranked.
 // These are broad filters; a starred/important flag or finance keyword can still override.
@@ -314,7 +316,9 @@ function parseFromHeader(from: string): { name: string; email: string; domain: s
   return { name, email, domain };
 }
 
-async function fetchTriageInbox(
+export const TRIAGE_IMPORTANT_SENDER_DOMAINS = DEFAULT_IMPORTANT_SENDER_DOMAINS;
+
+export async function fetchTriageInbox(
   accessToken: string,
   existingThreadUrls: Set<string>,
   days = 14,
@@ -400,6 +404,11 @@ async function fetchTriageInbox(
     const filtered = msgs
       .filter((m): m is TriageItem => !!m)
       .filter(m => {
+        // Capture-only: once a Task exists for this thread, it's "tracked work" and
+        // lives in the Tasks table — drop from Needs Triage so nothing lives here.
+        if (m.hasExistingTask) return false;
+        // Auto-replies / out-of-office are always dropped, even if starred (they're noise).
+        if (AUTO_REPLY_RE.test(m.subject)) return false;
         if (m.starred) return true; // user explicitly starred → always keep
         // Hard drop if financial FYI detected, regardless of sender.
         if (FINANCIAL_FYI_RE.test(m.subject)) return false;

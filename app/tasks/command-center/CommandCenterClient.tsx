@@ -503,6 +503,23 @@ function ShowLess({ onClick }: { onClick: () => void }) {
 }
 
 // ============================================================================
+// Relative time display — self-updating "5s ago" / "2m ago" etc.
+// ============================================================================
+function RelativeTime({ date }: { date: Date }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const secs = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+  if (secs < 60) return <>{secs}s ago</>;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return <>{mins}m ago</>;
+  const hrs = Math.floor(mins / 60);
+  return <>{hrs}h ago</>;
+}
+
+// ============================================================================
 // Main component
 // ============================================================================
 
@@ -511,6 +528,9 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [scanDurationMs, setScanDurationMs] = useState<number | null>(null);
+  const [scanCompletedAt, setScanCompletedAt] = useState<Date | null>(null);
+  const [scanStep, setScanStep] = useState<number>(0); // 0=idle, 1..5 = animating through sources
   const [staleOpen, setStaleOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setExpanded(e => ({ ...e, [k]: !e[k] }));
@@ -518,6 +538,10 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
   const [createFromEmail, setCreateFromEmail] = useState<{ prefill: Record<string, unknown>; emailMeta: { threadId: string; messageId: string; link: string } } | null>(null);
   const [triageBusy, setTriageBusy] = useState<{ id: string; action: 'task' | 'draft' } | null>(null);
   const [triageError, setTriageError] = useState<string | null>(null);
+  // Optimistic capture: items the user has already "Task'd" in this session.
+  // Tracked by messageId so the row disappears from Needs Triage immediately,
+  // before the next Airtable refresh propagates `hasExistingTask`.
+  const [hiddenTriageIds, setHiddenTriageIds] = useState<Set<string>>(new Set());
   const handleEdit = (airtableId: string) => setEditingTaskId(airtableId);
   const TOP_N = 3;
 
@@ -568,14 +592,24 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
     if (refresh) setRefreshing(true);
     else setLoading(true);
     setError(null);
+    const t0 = performance.now();
+    // Animate through the scan steps so the UI feels responsive.
+    setScanStep(1);
+    const stepInterval = setInterval(() => {
+      setScanStep(s => (s >= 5 ? 5 : s + 1));
+    }, 400);
     try {
       const res = await fetch(`/api/os/command-center?companyId=${companyId}${refresh ? '&refresh=1' : ''}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`Request failed: ${res.status}`);
       const json = await res.json();
       setData(json);
+      setScanDurationMs(Math.round(performance.now() - t0));
+      setScanCompletedAt(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');
     } finally {
+      clearInterval(stepInterval);
+      setScanStep(0);
       setLoading(false);
       setRefreshing(false);
     }
@@ -640,32 +674,81 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
           </div>
         </div>
 
-        {/* Data sources strip — always visible so you can see what's feeding this */}
-        <div className="mb-6 flex items-center gap-2 flex-wrap text-xs">
-          <span className="text-gray-500">Pulling from:</span>
-          <span className={`px-2 py-0.5 rounded border ${data.sources.tasks > 0 ? 'border-emerald-500/30 text-emerald-300 bg-emerald-500/5' : 'border-white/10 text-gray-500'}`}>
-            Airtable · {data.sources.tasks} tasks
-          </span>
-          <span className={`px-2 py-0.5 rounded border ${data.sources.events > 0 ? 'border-blue-500/30 text-blue-300 bg-blue-500/5' : data.googleConnected ? 'border-white/10 text-gray-500' : 'border-amber-500/30 text-amber-300 bg-amber-500/5'}`}>
-            Calendar · {data.sources.events} events
-          </span>
-          <span className={`px-2 py-0.5 rounded border ${data.sources.docs > 0 ? 'border-sky-500/30 text-sky-300 bg-sky-500/5' : data.googleConnected ? 'border-white/10 text-gray-500' : 'border-amber-500/30 text-amber-300 bg-amber-500/5'}`}>
-            Drive · {data.sources.docs} docs
-          </span>
-          {typeof data.sources.sent === 'number' && (
-            <span className={`px-2 py-0.5 rounded border ${data.sources.sent > 0 ? 'border-amber-500/30 text-amber-300 bg-amber-500/5' : 'border-white/10 text-gray-500'}`}>
-              Sent mail · {data.sources.sent}
-            </span>
-          )}
-          {typeof data.sources.pastEvents === 'number' && (
-            <span className={`px-2 py-0.5 rounded border ${data.sources.pastEvents > 0 ? 'border-orange-500/30 text-orange-300 bg-orange-500/5' : 'border-white/10 text-gray-500'}`}>
-              Past meetings · {data.sources.pastEvents}
-            </span>
-          )}
-          {!data.googleConnected && (
-            <span className="text-amber-400 ml-2">
-              Google not connected{data.googleError ? ` — ${data.googleError}` : ''}
-            </span>
+        {/* Data sources strip — shows exactly what was scanned, with progress during refresh */}
+        <div className="mb-6">
+          {refreshing ? (
+            // Active-scan progress line
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <span className="text-gray-500">Scanning:</span>
+              {[
+                { step: 1, label: 'Airtable tasks', activeClass: 'border-emerald-500/30 text-emerald-300 bg-emerald-500/5' },
+                { step: 2, label: 'Google Calendar', activeClass: 'border-blue-500/30 text-blue-300 bg-blue-500/5' },
+                { step: 3, label: 'Google Drive', activeClass: 'border-sky-500/30 text-sky-300 bg-sky-500/5' },
+                { step: 4, label: 'Gmail inbox (triage)', activeClass: 'border-amber-500/30 text-amber-300 bg-amber-500/5' },
+                { step: 5, label: 'Gmail sent mail', activeClass: 'border-orange-500/30 text-orange-300 bg-orange-500/5' },
+              ].map(({ step, label, activeClass }) => {
+                const active = scanStep >= step;
+                const done = scanStep > step;
+                return (
+                  <span
+                    key={step}
+                    className={`px-2 py-0.5 rounded border inline-flex items-center gap-1 transition-opacity ${
+                      active ? activeClass : 'border-white/10 text-gray-600 opacity-60'
+                    }`}
+                  >
+                    {done ? (
+                      <span className="text-emerald-400">✓</span>
+                    ) : active ? (
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <span className="w-3 h-3 inline-block" />
+                    )}
+                    {label}
+                  </span>
+                );
+              })}
+            </div>
+          ) : (
+            // Completed-scan summary with counts + timing
+            <div className="flex items-center gap-2 flex-wrap text-xs">
+              <span className="text-gray-500">Scanned:</span>
+              <span className={`px-2 py-0.5 rounded border ${data.sources.tasks > 0 ? 'border-emerald-500/30 text-emerald-300 bg-emerald-500/5' : 'border-white/10 text-gray-500'}`}>
+                Airtable · {data.sources.tasks} tasks
+              </span>
+              <span className={`px-2 py-0.5 rounded border ${data.sources.events > 0 ? 'border-blue-500/30 text-blue-300 bg-blue-500/5' : data.googleConnected ? 'border-white/10 text-gray-500' : 'border-amber-500/30 text-amber-300 bg-amber-500/5'}`}>
+                Calendar · {data.sources.events} events
+              </span>
+              <span className={`px-2 py-0.5 rounded border ${data.sources.docs > 0 ? 'border-sky-500/30 text-sky-300 bg-sky-500/5' : data.googleConnected ? 'border-white/10 text-gray-500' : 'border-amber-500/30 text-amber-300 bg-amber-500/5'}`}>
+                Drive · {data.sources.docs} docs
+              </span>
+              {typeof data.sources.triage === 'number' && (
+                <span className={`px-2 py-0.5 rounded border ${data.sources.triage > 0 ? 'border-amber-500/30 text-amber-300 bg-amber-500/5' : 'border-white/10 text-gray-500'}`}>
+                  Gmail inbox · {data.sources.triage} to triage
+                </span>
+              )}
+              {typeof data.sources.sent === 'number' && (
+                <span className={`px-2 py-0.5 rounded border ${data.sources.sent > 0 ? 'border-orange-500/30 text-orange-300 bg-orange-500/5' : 'border-white/10 text-gray-500'}`}>
+                  Sent mail · {data.sources.sent}
+                </span>
+              )}
+              {typeof data.sources.pastEvents === 'number' && (
+                <span className={`px-2 py-0.5 rounded border ${data.sources.pastEvents > 0 ? 'border-purple-500/30 text-purple-300 bg-purple-500/5' : 'border-white/10 text-gray-500'}`}>
+                  Past meetings · {data.sources.pastEvents}
+                </span>
+              )}
+              {scanDurationMs !== null && scanCompletedAt && (
+                <span className="text-gray-500 ml-1">
+                  · {scanDurationMs < 1000 ? `${scanDurationMs}ms` : `${(scanDurationMs / 1000).toFixed(1)}s`}
+                  {' · '}
+                  <RelativeTime date={scanCompletedAt} />
+                </span>
+              )}
+              {!data.googleConnected && (
+                <span className="text-amber-400 ml-2">
+                  Google not connected{data.googleError ? ` — ${data.googleError}` : ''}
+                </span>
+              )}
+            </div>
           )}
         </div>
 
@@ -697,25 +780,33 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
             </Tile>
           )}
 
-          {/* NEEDS TRIAGE — hero, full width */}
-          {data.triage && data.triage.length > 0 && (
-            <Tile icon={Inbox} label="Needs Triage" count={data.triage.length} color="text-amber-300" accent="border-l-amber-500/60" fullWidth subtitle="Unread, starred, or from key senders — click + Task to capture, Draft reply to respond">
-              {triageError && (
-                <div className="text-xs text-red-400 mb-2 flex items-start gap-2">
-                  <span className="flex-1">{triageError}</span>
-                  <button onClick={() => setTriageError(null)} className="text-zinc-500 hover:text-zinc-300 underline underline-offset-2">dismiss</button>
+          {/* NEEDS TRIAGE — hero, full width. Capture-only surface: rows here
+              are not yet Tasks. Clicking "+ Task" moves the item into the Tasks
+              table (the source of truth) and it disappears from this list. */}
+          {(() => {
+            const visibleTriage = (data.triage || []).filter(
+              t => !hiddenTriageIds.has(t.id) && !hiddenTriageIds.has(t.threadId),
+            );
+            if (visibleTriage.length === 0) return null;
+            return (
+              <Tile icon={Inbox} label="Needs Triage" count={visibleTriage.length} color="text-amber-300" accent="border-l-amber-500/60" fullWidth subtitle="Capture surface — click + Task to move into Tasks (source of truth). Draft reply to respond.">
+                {triageError && (
+                  <div className="text-xs text-red-400 mb-2 flex items-start gap-2">
+                    <span className="flex-1">{triageError}</span>
+                    <button onClick={() => setTriageError(null)} className="text-zinc-500 hover:text-zinc-300 underline underline-offset-2">dismiss</button>
+                  </div>
+                )}
+                <div>
+                  {(expanded.triage ? visibleTriage : visibleTriage.slice(0, 5)).map(item => (
+                    <TriageRow key={item.id} item={item} onTask={handleCreateFromEmail} onDraft={handleDraftReply} busyAction={triageBusy} />
+                  ))}
                 </div>
-              )}
-              <div>
-                {(expanded.triage ? data.triage : data.triage.slice(0, 5)).map(item => (
-                  <TriageRow key={item.id} item={item} onTask={handleCreateFromEmail} onDraft={handleDraftReply} busyAction={triageBusy} />
-                ))}
-              </div>
-              {expanded.triage
-                ? <ShowLess onClick={() => toggle('triage')} />
-                : <ShowMore total={data.triage.length} shown={5} onClick={() => toggle('triage')} />}
-            </Tile>
-          )}
+                {expanded.triage
+                  ? <ShowLess onClick={() => toggle('triage')} />
+                  : <ShowMore total={visibleTriage.length} shown={5} onClick={() => toggle('triage')} />}
+              </Tile>
+            );
+          })()}
 
           {/* TOP 3 TODAY — hero, full width */}
           {data.topPriorities.length > 0 && (
@@ -896,7 +987,22 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
         prefill={createFromEmail?.prefill}
         emailMeta={createFromEmail?.emailMeta}
         onClose={() => setCreateFromEmail(null)}
-        onSaved={() => { setCreateFromEmail(null); load(true); }}
+        onSaved={() => {
+          // Optimistically hide the email from Needs Triage the instant a Task
+          // is created for it — Tasks is the source of truth, and the row
+          // should stop appearing as "unhandled" the moment it's captured.
+          const captured = createFromEmail?.emailMeta;
+          if (captured) {
+            setHiddenTriageIds(prev => {
+              const next = new Set(prev);
+              next.add(captured.messageId);
+              next.add(captured.threadId);
+              return next;
+            });
+          }
+          setCreateFromEmail(null);
+          load(true);
+        }}
       />
     </div>
   );
