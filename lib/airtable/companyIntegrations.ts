@@ -567,7 +567,8 @@ async function airtableGet(
  *
  * Bases tried in order:
  *   - AIRTABLE_DB_BASE_ID  (if set)
- *   - AIRTABLE_OS_BASE_ID / AIRTABLE_BASE_ID  (fallback)
+ *   - OS base (only if AIRTABLE_DB_BASE_ID is unset, or AIRTABLE_COMPANY_INTEGRATIONS_INCLUDE_OS_BASE=1)
+ *   - Known Hive DB id if not already listed
  *
  * Every Airtable request is logged with base, table, formula, status, and
  * response body on failure. This makes "query failed" errors actionable.
@@ -599,11 +600,17 @@ export async function findCompanyIntegration({
     basesToTry.push({ label: 'Override', baseId: baseIdOverride.trim() });
   } else {
     if (dbBaseId) basesToTry.push({ label: 'DB', baseId: dbBaseId });
-    if (osBaseId && osBaseId !== dbBaseId) basesToTry.push({ label: 'OS', baseId: osBaseId });
-    
+    // CompanyIntegrations lives in Hive DB only for most deployments; PM OS has no table → 403 spam.
+    const includeOs =
+      process.env.AIRTABLE_COMPANY_INTEGRATIONS_INCLUDE_OS_BASE === '1' ||
+      !dbBaseId;
+    if (includeOs && osBaseId && osBaseId !== dbBaseId) {
+      basesToTry.push({ label: 'OS', baseId: osBaseId });
+    }
+
     // If known CompanyIntegrations base isn't already in the list, add it as fallback
-    if (knownCompanyIntegrationsBase !== dbBaseId && 
-        knownCompanyIntegrationsBase !== osBaseId && 
+    if (knownCompanyIntegrationsBase !== dbBaseId &&
+        knownCompanyIntegrationsBase !== osBaseId &&
         !basesToTry.some(b => b.baseId === knownCompanyIntegrationsBase)) {
       basesToTry.push({ label: 'Known CI Base', baseId: knownCompanyIntegrationsBase });
     }

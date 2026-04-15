@@ -85,7 +85,15 @@ async function fetchCalendarRange(accessToken: string, timeMin: string, timeMax:
       start: e.start?.dateTime || e.start?.date || '',
       end: e.end?.dateTime || e.end?.date || '',
       allDay: !!e.start?.date,
-      attendees: (e.attendees || []).map(a => a.email || '').filter(Boolean),
+      // Google may return attendee objects, strings, or odd shapes — always coerce to email strings
+      attendees: (e.attendees || [])
+        .map((a) => {
+          if (!a) return '';
+          if (typeof a === 'string') return a.trim();
+          const raw = (a as { email?: unknown }).email;
+          return typeof raw === 'string' ? raw.trim() : '';
+        })
+        .filter(Boolean),
       description: e.description || undefined,
       htmlLink: e.htmlLink || undefined,
     }));
@@ -775,9 +783,10 @@ function findFollowUps(
     const title = (ev.summary || '').trim();
     if (!title || BLOCK_TITLE_RE_GLOBAL.test(title)) continue;
 
-    const external = ev.attendees.filter(a => {
-      const d = emailDomain(a);
-      return d && d !== myDomain && a.toLowerCase() !== (myEmail || '').toLowerCase();
+    const external = ev.attendees.filter((a) => {
+      const addr = typeof a === 'string' ? a : '';
+      const d = emailDomain(addr);
+      return d && d !== myDomain && addr.toLowerCase() !== (myEmail || '').toLowerCase();
     });
     if (external.length === 0) continue;   // internal-only or solo — skip
 
@@ -945,7 +954,7 @@ function findCommitments(sent: SentMessage[], now: Date): CommitmentItem[] {
     // De-dupe identical phrases in the same message
     const seen = new Set<string>();
     const phrases = matches
-      .map(m => m.trim().replace(/\s+/g, ' '))
+      .map(m => String(m).trim().replace(/\s+/g, ' '))
       .filter(m => m.length > 12 && m.length < 200)
       .filter(m => { const k = m.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
       .slice(0, 2);
