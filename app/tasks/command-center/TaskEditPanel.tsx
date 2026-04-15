@@ -4,7 +4,7 @@
 // - Create mode: pass `mode="create"` + `prefill`. POSTs to /api/os/tasks via Create.
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { X, Save, ExternalLink, Loader2 } from 'lucide-react';
+import { X, Save, ExternalLink, Loader2, CheckSquare, Square } from 'lucide-react';
 
 type TaskPriority = 'P0' | 'P1' | 'P2' | 'P3';
 type TaskStatus = 'Inbox' | 'Next' | 'Waiting' | 'Done' | 'Archive';
@@ -121,6 +121,10 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
       notes,
       due: due || null,
       project: project || undefined,
+      // Keep Airtable's Done checkbox in sync with Status. Status remains the
+      // source of truth (see excludeDone filter), but some views still read
+      // the Done field — mirror it here so the two never disagree.
+      done: status === 'Done',
     };
     if (priority) body.priority = priority;
     return body;
@@ -179,6 +183,7 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
         notes,
         due: due || null,
         project: project || undefined,
+        done: status === 'Done',
       };
       if (priority) body.priority = priority;
       if (emailMeta?.link) body.threadUrl = emailMeta.link;
@@ -261,6 +266,28 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
           )}
           {(isCreate || (task && !loading)) && (
             <>
+              {/* Mark-as-complete toggle. Mirrors the row checkbox in the task list:
+                  checking it sets Status=Done (and Done=true); unchecking reverts
+                  to Next (the normal "ready to do" state). The Status dropdown
+                  below stays authoritative, so users can still pick Waiting/Archive. */}
+              <button
+                type="button"
+                onClick={() => mark(setStatus)(status === 'Done' ? 'Next' : 'Done')}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded border text-sm transition-colors ${
+                  status === 'Done'
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/15'
+                    : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'
+                }`}
+                aria-pressed={status === 'Done'}
+              >
+                {status === 'Done' ? (
+                  <CheckSquare className="w-4 h-4 text-emerald-400" />
+                ) : (
+                  <Square className="w-4 h-4 text-gray-500" />
+                )}
+                <span>{status === 'Done' ? 'Completed' : 'Mark as complete'}</span>
+              </button>
+
               <div>
                 <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Task</label>
                 <input

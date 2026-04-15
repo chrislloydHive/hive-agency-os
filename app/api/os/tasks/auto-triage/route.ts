@@ -45,6 +45,17 @@ function extractPlainText(payload: MsgPart | undefined | null): string {
   return body;
 }
 
+/**
+ * Priority → due date fallback. Used when the AI doesn't supply a valid YYYY-MM-DD.
+ * Chris's rule: every task should land with a date; he'd rather adjust than have it blank.
+ */
+function defaultDueForPriority(priority: TaskPriority): string {
+  const offsetDays = priority === 'P0' ? 0 : priority === 'P1' ? 3 : priority === 'P2' ? 7 : 14;
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
+
 interface Prefill {
   task: string;
   from: string;
@@ -79,6 +90,7 @@ async function parseEmailToTask(params: {
     const body = extractPlainText(msg.data.payload as MsgPart) || msg.data.snippet || '';
     const trimmed = body.slice(0, 6000);
     const gmailLink = `https://mail.google.com/mail/u/0/#inbox/${threadId}`;
+    const today = new Date().toISOString().slice(0, 10);
 
     const ai = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -87,6 +99,8 @@ async function parseEmailToTask(params: {
         {
           role: 'user',
           content: `You are a task parser for Chris Lloyd, owner of Hive Ad Agency. An email arrived that Chris needs to act on. Parse it into a structured task.
+
+Today's date: ${today}
 
 Email:
 From: ${from}
@@ -103,7 +117,10 @@ Return ONLY a JSON object (no markdown fences) with these fields:
 - "project": best-guess project category. Common: "Car Toys 2026 Media", "Car Toys Tint", "Car Toys / Billing", "HEY / Eric Request", "Hive Admin", "Hive Billing", "Legal", "Portage Bank". Empty string if unsure.
 - "nextAction": 1-2 sentences describing the specific next step.
 - "priority": "P0" (blocking today) / "P1" (this week, important) / "P2" (normal) / "P3" (backlog).
-- "due": suggested due date YYYY-MM-DD based on any mentioned deadline, or "".
+- "due": ALWAYS write a due date in YYYY-MM-DD format. Never leave blank. Rules in order:
+  1. If the email mentions an explicit deadline (a date, "by Friday", "EOD", "next week", etc.), use it — resolve relative phrases against today's date above.
+  2. Otherwise fall back to a priority-based default: P0 → today (${today}), P1 → +3 days from today, P2 → +7 days from today, P3 → +14 days from today.
+  3. If the email signals urgency (client awaiting reply, approval/answer needed, invoice past due, time-sensitive contract) but gives no explicit date, pick the tighter of rule 2 or +2 days from today.
 - "status": "Inbox" for new triage items, "Next" if ready to do.
 - "notes": key facts worth preserving (numbers, names, amounts). Under 300 chars. "" if nothing.`,
         },
@@ -118,13 +135,19 @@ Return ONLY a JSON object (no markdown fences) with these fields:
     }
     const parsed = JSON.parse(jsonText);
 
+    const priority = (parsed.priority as TaskPriority) || 'P2';
+    // Safety net: if AI returns empty/invalid due, fall back to a priority-based default
+    // so every task lands in Tasks with a date (Chris's workflow: always have a due date).
+    const isValidDate = typeof parsed.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.due);
+    const due = isValidDate ? parsed.due : defaultDueForPriority(priority);
+
     return {
       task: parsed.task || subject || '(untitled)',
       from: parsed.from || from,
       project: parsed.project || '',
       nextAction: parsed.nextAction || '',
-      priority: (parsed.priority as TaskPriority) || 'P2',
-      due: parsed.due || '',
+      priority,
+      due,
       status: (parsed.status as TaskStatus) || 'Inbox',
       notes: parsed.notes || '',
       threadUrl: gmailLink,
@@ -177,11 +200,20 @@ export async function POST(req: NextRequest) {
     // ── Scan Gmail (14-day window, shares the Command Center scoring) ───
     const triage: TriageItem[] = await fetchTriageInbox(accessToken, existingThreadUrls, 14, importantDomains);
 
-    // Candidates: at-or-above threshold, no existing task. Sorted by score desc already.
-    const candidates = triage
-      .filter(t => !t.hasExistingTask)
-      .filter(t => t.score >= threshold)
-      .slice(0, max);
+    // Candidates: no existing task, AND either (a) explicitly starred by Chris, or
+    // (b) scored at-or-above threshold. Stars are a hard "I care about this" signal
+    // and should always become a Task regardless of score.
+    //
+    // Slot allocation: within `max`, starred items are packed first (all of them,
+    // up to the cap). Remaining slots go to top-scoring non-starred items. This
+    // guarantees a stray starred email never gets crowded out by a flood of
+    // QuickBooks/replies that happen to score higher.
+    const eligible = triage.filter(t => !t.hasExistingTask);
+    const starredEligible = eligible.filter(t => t.starred);
+    const scoredEligible = eligible.filter(t => !t.starred && t.score >= threshold);
+    const starredSlice = starredEligible.slice(0, max);
+    const remaining = Math.max(0, max - starredSlice.length);
+    const candidates = [...starredSlice, ...scoredEligible.slice(0, remaining)];
 
     const created: Array<{ taskId: string; subject: string; from: string; score: number; link: string; priority: string }> = [];
     const skipped: Array<{ subject: string; from: string; score: number; reason: string; link: string }> = [];

@@ -87,8 +87,8 @@ async function fetchCalendarRange(accessToken: string, timeMin: string, timeMax:
       allDay: !!e.start?.date,
       // Google may return attendee objects, strings, or odd shapes — always coerce to email strings
       attendees: (e.attendees || [])
-        .map((a) => {
-          if (!a) return '';
+        .map((a: unknown) => {
+          if (a == null || a === '') return '';
           if (typeof a === 'string') return a.trim();
           const raw = (a as { email?: unknown }).email;
           return typeof raw === 'string' ? raw.trim() : '';
