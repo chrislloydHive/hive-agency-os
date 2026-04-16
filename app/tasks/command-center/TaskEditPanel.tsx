@@ -4,8 +4,14 @@
 // - Create mode: pass `mode="create"` + `prefill`. POSTs to /api/os/tasks via Create.
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { X, Save, ExternalLink, Loader2, CheckSquare, Square } from 'lucide-react';
+import { X, Save, ExternalLink, Loader2, CheckSquare, Square, FolderPlus, Layout, ChevronDown, Users, Calendar, AlertCircle, Check } from 'lucide-react';
 import { TaskDecider } from './TaskDecider';
+
+// ── PM OS deep links ─────────────────────────────────────────────────────────
+// These point into the Airtable interface Chris uses for project management.
+// The Inbox form creates a new project (with automations that generate the
+// project number and Drive folders). The interface URL is the main working view.
+const PMOS_PROJECTS_URL = 'https://airtable.com/appQLwoVH8JyGSTIo/pagD8gby09ctslXG2';
 
 type TaskPriority = 'P0' | 'P1' | 'P2' | 'P3';
 type TaskStatus = 'Inbox' | 'Next' | 'Waiting' | 'Done' | 'Archive';
@@ -380,6 +386,11 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
                 )}
               </div>
 
+              {/* ── PM OS actions ── */}
+              {!isCreate && (
+                <PmOsActions taskTitle={taskTitle} project={task?.project || project} />
+              )}
+
               {/* Decision engine: "what should I do about this task, right now?" — edit mode only */}
               {!isCreate && task?.id && (
                 <TaskDecider
@@ -431,5 +442,430 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
         </footer>
       </aside>
     </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PmOsActions
+// Contextual links into the Client PM OS Airtable interface. Surfaces:
+//   - "Create in PM OS" when the task looks like a project-creation action
+//   - "Open PM OS" always, as a quick-access link to the interface
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Keywords in a task title that suggest it's a "create project" action. */
+const CREATE_PROJECT_KEYWORDS = [
+  'add project', 'create project', 'new project', 'set up project',
+  'setup project', 'start project', 'launch project', 'build project',
+  'add marine', 'add cartoys', 'add car toys',
+];
+
+function looksLikeProjectCreation(title: string): boolean {
+  const lower = title.toLowerCase();
+  return CREATE_PROJECT_KEYWORDS.some(kw => lower.includes(kw));
+}
+
+// ── PM OS context types (mirrors /api/os/pmos/context response) ─────────────
+
+interface PmOsProject {
+  id: string;
+  name: string;
+  status: string | null;
+  priority: string | null;
+  client: string | null;
+  startDate: string | null;
+  dueDate: string | null;
+  description: string | null;
+  taskCount: number;
+}
+
+interface PmOsTask {
+  id: string;
+  name: string;
+  status: string | null;
+  priority: string | null;
+  dueDate: string | null;
+  owner: string | null;
+}
+
+interface PmOsContextData {
+  project: PmOsProject | null;
+  tasks: PmOsTask[];
+  interfaceUrl: string;
+}
+
+// ── Status / priority pill colors ───────────────────────────────────────────
+
+function statusColor(s: string | null): string {
+  if (!s) return 'bg-white/5 text-gray-400';
+  const l = s.toLowerCase();
+  if (l.includes('done') || l.includes('complete')) return 'bg-emerald-500/15 text-emerald-300';
+  if (l.includes('progress') || l.includes('active')) return 'bg-sky-500/15 text-sky-300';
+  if (l.includes('blocked') || l.includes('stuck')) return 'bg-red-500/15 text-red-300';
+  if (l.includes('review')) return 'bg-amber-500/15 text-amber-300';
+  return 'bg-white/5 text-gray-400';
+}
+
+function priorityColor(p: string | null): string {
+  if (!p) return '';
+  const l = p.toLowerCase();
+  if (l === 'high' || l === 'urgent' || l === 'p0') return 'text-red-400';
+  if (l === 'medium' || l === 'p1') return 'text-amber-400';
+  return 'text-gray-500';
+}
+
+// ── PM OS select options (from Airtable schema) ────────────────────────────
+
+const PMOS_STATUSES = [
+  'New', 'Not Started', 'In Progress', 'Blocked', 'Done', 'Reviewed', 'Promoted', 'Archived',
+] as const;
+
+const PMOS_PRIORITIES = ['High', 'Medium', 'Low'] as const;
+
+const PMOS_OWNERS = [
+  'Adam', 'Chris', 'Grace', 'Shannon', 'Andy', 'Louie', 'Jim', 'Production Partner',
+] as const;
+
+// ── Inline task row with quick-edit ─────────────────────────────────────────
+
+function PmOsTaskRow({
+  task,
+  onUpdated,
+}: {
+  task: PmOsTask;
+  onUpdated: (id: string, patch: Partial<PmOsTask>) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [localStatus, setLocalStatus] = useState(task.status || '');
+  const [localPriority, setLocalPriority] = useState(task.priority || '');
+  const [localDue, setLocalDue] = useState(task.dueDate || '');
+  const [localOwner, setLocalOwner] = useState(task.owner || '');
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+
+  // Reset local state when task changes externally
+  useEffect(() => {
+    setLocalStatus(task.status || '');
+    setLocalPriority(task.priority || '');
+    setLocalDue(task.dueDate || '');
+    setLocalOwner(task.owner || '');
+  }, [task.status, task.priority, task.dueDate, task.owner]);
+
+  async function handleSave() {
+    setSaving(true);
+    setSaveErr(null);
+
+    const patch: Record<string, unknown> = {};
+    if (localStatus !== (task.status || '')) patch.status = localStatus || null;
+    if (localPriority !== (task.priority || '')) patch.priority = localPriority || null;
+    if (localDue !== (task.dueDate || '')) patch.dueDate = localDue || null;
+    if (localOwner !== (task.owner || '')) patch.owner = localOwner || null;
+
+    if (Object.keys(patch).length === 0) {
+      setEditing(false);
+      setSaving(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/os/pmos/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) {
+        const { error: msg } = await res.json().catch(() => ({ error: 'Save failed' }));
+        throw new Error(msg || `Save failed: ${res.status}`);
+      }
+      // Update parent state optimistically
+      onUpdated(task.id, {
+        status: localStatus || null,
+        priority: localPriority || null,
+        dueDate: localDue || null,
+        owner: localOwner || null,
+      });
+      setEditing(false);
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const statusDot = (() => {
+    const s = (editing ? localStatus : task.status)?.toLowerCase() || '';
+    if (s.includes('done') || s.includes('reviewed') || s.includes('promoted')) return 'bg-emerald-400';
+    if (s.includes('progress')) return 'bg-sky-400';
+    if (s.includes('blocked')) return 'bg-red-400';
+    return 'bg-gray-600';
+  })();
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="w-full flex items-center gap-2 py-1.5 px-2 rounded bg-white/[0.02] hover:bg-white/[0.05] transition-colors text-left group"
+      >
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot}`} />
+        <span className="text-[11px] text-gray-300 truncate flex-1">{task.name}</span>
+        {task.status && (
+          <span className={`text-[10px] px-1 py-0.5 rounded ${statusColor(task.status)} opacity-60 group-hover:opacity-100`}>
+            {task.status}
+          </span>
+        )}
+        {task.owner && (
+          <span className="text-[10px] text-gray-600 shrink-0 truncate max-w-[60px]">{task.owner}</span>
+        )}
+      </button>
+    );
+  }
+
+  // Edit mode — inline dropdowns
+  return (
+    <div className="rounded border border-purple-500/30 bg-purple-500/[0.03] p-2 space-y-2">
+      <div className="text-[11px] text-gray-300 font-medium truncate">{task.name}</div>
+
+      <div className="grid grid-cols-2 gap-1.5">
+        <select
+          value={localStatus}
+          onChange={e => setLocalStatus(e.target.value)}
+          className="px-1.5 py-1 rounded bg-white/5 border border-white/10 text-[10px] text-gray-200 focus:outline-none focus:border-purple-500/40"
+        >
+          <option value="">Status…</option>
+          {PMOS_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+
+        <select
+          value={localPriority}
+          onChange={e => setLocalPriority(e.target.value)}
+          className="px-1.5 py-1 rounded bg-white/5 border border-white/10 text-[10px] text-gray-200 focus:outline-none focus:border-purple-500/40"
+        >
+          <option value="">Priority…</option>
+          {PMOS_PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+
+        <select
+          value={localOwner}
+          onChange={e => setLocalOwner(e.target.value)}
+          className="px-1.5 py-1 rounded bg-white/5 border border-white/10 text-[10px] text-gray-200 focus:outline-none focus:border-purple-500/40"
+        >
+          <option value="">Owner…</option>
+          {PMOS_OWNERS.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+
+        <input
+          type="date"
+          value={localDue ? localDue.slice(0, 10) : ''}
+          onChange={e => setLocalDue(e.target.value)}
+          className="px-1.5 py-1 rounded bg-white/5 border border-white/10 text-[10px] text-gray-200 focus:outline-none focus:border-purple-500/40"
+        />
+      </div>
+
+      {saveErr && (
+        <div className="text-[10px] text-red-400">{saveErr}</div>
+      )}
+
+      <div className="flex gap-1.5 justify-end">
+        <button
+          type="button"
+          onClick={() => { setEditing(false); setSaveErr(null); }}
+          className="px-2 py-0.5 text-[10px] text-gray-500 hover:text-gray-300 rounded border border-white/10 hover:border-white/20"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleSave()}
+          disabled={saving}
+          className="px-2 py-0.5 text-[10px] text-purple-200 rounded border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 disabled:opacity-50 flex items-center gap-1"
+        >
+          {saving ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Check className="w-2.5 h-2.5" />}
+          {saving ? 'Saving' : 'Save'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── PmOsProjectContext — fetches and renders PM OS context inline ────────────
+
+function PmOsProjectContext({ projectName }: { projectName: string }) {
+  const [ctx, setCtx] = useState<PmOsContextData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(true);
+  const fetchedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!projectName || projectName === fetchedRef.current) return;
+    fetchedRef.current = projectName;
+    setLoading(true);
+    setErr(null);
+    fetch(`/api/os/pmos/context?project=${encodeURIComponent(projectName)}`, { cache: 'no-store' })
+      .then(res => {
+        if (!res.ok) throw new Error(`PM OS lookup failed: ${res.status}`);
+        return res.json() as Promise<PmOsContextData>;
+      })
+      .then(data => setCtx(data))
+      .catch(e => setErr(e instanceof Error ? e.message : 'Failed'))
+      .finally(() => setLoading(false));
+  }, [projectName]);
+
+  // Optimistic update handler — patches a task in local state after save
+  const handleTaskUpdated = useCallback((taskId: string, patch: Partial<PmOsTask>) => {
+    setCtx(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        tasks: prev.tasks.map(t => t.id === taskId ? { ...t, ...patch } : t),
+      };
+    });
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-gray-500">
+        <Loader2 className="w-3 h-3 animate-spin" /> Loading PM OS context…
+      </div>
+    );
+  }
+
+  if (err) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-red-400/70">
+        <AlertCircle className="w-3 h-3" /> {err}
+      </div>
+    );
+  }
+
+  if (!ctx?.project) return null;
+
+  const p = ctx.project;
+  const tasks = ctx.tasks;
+
+  return (
+    <div className="space-y-2">
+      {/* Project header */}
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        className="w-full flex items-center gap-2 text-left group"
+      >
+        <ChevronDown className={`w-3 h-3 text-gray-500 transition-transform ${expanded ? '' : '-rotate-90'}`} />
+        <span className="text-xs text-gray-300 font-medium truncate flex-1">{p.name}</span>
+        {p.status && (
+          <span className={`text-[10px] px-1.5 py-0.5 rounded ${statusColor(p.status)}`}>
+            {p.status}
+          </span>
+        )}
+      </button>
+
+      {expanded && (
+        <div className="ml-5 space-y-2">
+          {/* Project metadata chips */}
+          <div className="flex flex-wrap gap-1.5">
+            {p.client && (
+              <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300">
+                <Users className="w-2.5 h-2.5" /> {p.client}
+              </span>
+            )}
+            {p.priority && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded bg-white/5 ${priorityColor(p.priority)}`}>
+                {p.priority}
+              </span>
+            )}
+            {p.dueDate && (
+              <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-gray-400">
+                <Calendar className="w-2.5 h-2.5" /> {p.dueDate}
+              </span>
+            )}
+            {p.taskCount > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-gray-500">
+                {p.taskCount} task{p.taskCount !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+
+          {/* Description snippet */}
+          {p.description && (
+            <p className="text-[11px] text-gray-500 leading-relaxed line-clamp-2">
+              {p.description}
+            </p>
+          )}
+
+          {/* Task list — click any row to quick-edit */}
+          {tasks.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-[10px] uppercase tracking-wide text-gray-600 font-medium">
+                Tasks <span className="text-gray-700 normal-case font-normal">· click to edit</span>
+              </div>
+              <div className="space-y-0.5 max-h-56 overflow-y-auto pr-1">
+                {tasks.map(t => (
+                  <PmOsTaskRow key={t.id} task={t} onUpdated={handleTaskUpdated} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── PmOsActions ─────────────────────────────────────────────────────────────
+
+function PmOsActions({
+  taskTitle,
+  project,
+}: {
+  taskTitle: string;
+  project: string;
+}) {
+  const showCreate = looksLikeProjectCreation(taskTitle);
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Layout className="w-3.5 h-3.5 text-purple-300" />
+        <h4 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">PM OS</h4>
+      </div>
+
+      {showCreate && (
+        <a
+          href={PMOS_PROJECTS_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-2 px-3 py-2 rounded border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 hover:border-purple-500/50 transition-colors"
+        >
+          <FolderPlus className="w-4 h-4 text-purple-300" />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm text-purple-200 font-medium">Create project in PM OS</div>
+            <div className="text-[10px] text-purple-300/60 mt-0.5">Opens Projects — click Create → Project to start the form</div>
+          </div>
+          <ExternalLink className="w-3 h-3 text-purple-300/60 shrink-0" />
+        </a>
+      )}
+
+      {/* Inline PM OS project context — shows linked tasks, status, client */}
+      {project && <PmOsProjectContext projectName={project} />}
+
+      <a
+        href={PMOS_PROJECTS_URL}
+        target="_blank"
+        rel="noreferrer"
+        className="flex items-center gap-2 px-3 py-2 rounded border border-white/10 bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/20 transition-colors"
+      >
+        <Layout className="w-3.5 h-3.5 text-gray-400" />
+        <div className="flex-1 min-w-0">
+          <div className="text-xs text-gray-300">Open PM OS interface</div>
+          {project && (
+            <div className="text-[10px] text-gray-500 mt-0.5 truncate">
+              Project: {project}
+            </div>
+          )}
+        </div>
+        <ExternalLink className="w-3 h-3 text-gray-500 shrink-0" />
+      </a>
+    </div>
   );
 }

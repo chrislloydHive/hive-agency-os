@@ -17,6 +17,10 @@ const rootFiles = [
   'app/tasks/command-center/TaskDecider.tsx',
   'app/tasks/command-center/TaskEditPanel.tsx',
   'app/tasks/command-center/CommandCenterClient.tsx',
+  'app/api/os/pmos/context/route.ts',
+  'app/api/os/pmos/tasks/[id]/route.ts',
+  'app/api/os/search/route.ts',
+  'app/tasks/command-center/CommandBar.tsx',
   'scripts/evalDecisionEngine.ts',
 ];
 

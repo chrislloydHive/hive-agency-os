@@ -5,11 +5,12 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { TaskEditPanel } from './TaskEditPanel';
-import { FocusStrip } from './FocusStrip';
-import { RiskStrip } from './RiskStrip';
+// FocusStrip and RiskStrip removed — Morning Brief covers focus + risks inline.
+// Components still exist if we ever want to re-enable them.
 import { MorningBrief } from './MorningBrief';
+import { CommandBar } from './CommandBar';
 import {
-  ArrowLeft, Flame, Target, Calendar, Clock, FileText,
+  ArrowLeft, Flame, Calendar, Clock, FileText,
   ChevronRight, Zap, Link2, RefreshCw, Archive, ChevronDown,
   Inbox, Eye, FolderKanban, MessageSquare, Users, BarChart3,
 } from 'lucide-react';
@@ -652,6 +653,15 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <CommandBar
+              onSelectTask={id => setEditingTaskId(id)}
+              onSelectProject={name => {
+                // Open the PM OS interface filtered to the selected project.
+                // This navigates externally — the inline context shows when a
+                // task with that project name is opened in the edit panel.
+                window.open(`https://airtable.com/appQLwoVH8JyGSTIo/pagD8gby09ctslXG2`, '_blank');
+              }}
+            />
             <Link
               href="/tasks"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-400 bg-amber-950/40 border border-amber-800/50 rounded-lg hover:bg-amber-950/60 transition-colors"
@@ -758,11 +768,10 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
         {/* Morning brief: one-shot summary across focus, overdue, risks, inbox, calendar. */}
         <MorningBrief onEdit={handleEdit} />
 
-        {/* Prioritization brain: top-ranked live tasks with score + reasons. */}
-        <FocusStrip onEdit={handleEdit} />
-
-        {/* Risk / stall detection: waiting-too-long, orphaned drafts, thrashing status. */}
-        <RiskStrip onEdit={handleEdit} />
+        {/* FocusStrip + RiskStrip removed: the Morning Brief surfaces the same
+            focus ranking + overdue/risk data in a single card. Keeping these
+            as standalone imports for now in case we ever want a "drill-down"
+            mode, but they no longer render on the main scroll. */}
 
         {empty && !onlyStale && (
           <div className="text-center py-12 text-gray-500 text-sm">
@@ -820,16 +829,9 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
             );
           })()}
 
-          {/* TOP 3 TODAY — hero, full width */}
-          {data.topPriorities.length > 0 && (
-            <Tile icon={Target} label="Top 3 Today" count={data.topPriorities.length} color="text-emerald-400" accent="border-l-emerald-500/60" fullWidth>
-              <div className="space-y-1">
-                {data.topPriorities.map(item => (
-                  <WorkItemRow key={item.id} item={item} backUrl={backUrl} showAction onEdit={handleEdit} />
-                ))}
-              </div>
-            </Tile>
-          )}
+          {/* Top 3 Today removed — Morning Brief Focus section covers the same
+              ranked tasks with Decide buttons. The topPriorities data is still
+              fetched (other consumers may use it) but no longer rendered here. */}
 
           {/* FOLLOW-UPS */}
           {data.followUps && data.followUps.length > 0 && (
