@@ -619,7 +619,9 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
     }
   }
 
-  useEffect(() => { load(); }, [companyId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Always bust the server-side cache on initial page load so completed tasks
+  // (marked done in My Day or another tab) don't linger as stale fires.
+  useEffect(() => { load(true); }, [companyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return (
