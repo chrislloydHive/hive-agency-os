@@ -117,6 +117,7 @@ interface DriveDoc {
   modifiedByMe?: boolean;
   viewedByMeTime?: string;
   sharedWithMeTime?: string;
+  parentFolderId?: string;
 }
 
 async function fetchDriveRecent(accessToken: string, sinceDays = 14): Promise<DriveDoc[]> {
@@ -131,7 +132,7 @@ async function fetchDriveRecent(accessToken: string, sinceDays = 14): Promise<Dr
     const res = await drive.files.list({
       auth,
       q: `modifiedTime > '${since.toISOString()}' and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
-      fields: 'files(id,name,modifiedTime,webViewLink,owners,lastModifyingUser,modifiedByMe,viewedByMeTime,sharedWithMeTime)',
+      fields: 'files(id,name,modifiedTime,webViewLink,owners,lastModifyingUser,modifiedByMe,viewedByMeTime,sharedWithMeTime,parents)',
       orderBy: 'modifiedTime desc',
       pageSize: 50,
     });
@@ -146,6 +147,7 @@ async function fetchDriveRecent(accessToken: string, sinceDays = 14): Promise<Dr
       modifiedByMe: f.modifiedByMe ?? undefined,
       viewedByMeTime: f.viewedByMeTime || undefined,
       sharedWithMeTime: f.sharedWithMeTime || undefined,
+      parentFolderId: (f.parents && f.parents[0]) || undefined,
     }));
   } catch (err) {
     console.error('[Command Center] Drive error:', err);
@@ -890,28 +892,113 @@ interface InProgressCluster {
   lastModified: string;
   docs: { id: string; title: string; link?: string; modifiedTime: string }[];
   score: number;
+  /** Drive folder link — opens the project folder directly */
+  folderLink?: string;
+  folderName?: string;
 }
 
-function findInProgress(docs: DriveDoc[], myEmail: string | null, now: Date): InProgressCluster[] {
+/** Batch-resolve Drive folder IDs → { name, webViewLink } */
+async function resolveFolderNames(
+  folderIds: string[],
+  accessToken: string,
+): Promise<Map<string, { name: string; link: string }>> {
+  const result = new Map<string, { name: string; link: string }>();
+  if (folderIds.length === 0) return result;
+
+  try {
+    const drive = google.drive({ version: 'v3' });
+    const auth = new google.auth.OAuth2();
+    auth.setCredentials({ access_token: accessToken });
+
+    // Fetch folder metadata in parallel (cap at 15 to avoid rate limits)
+    const unique = [...new Set(folderIds)].slice(0, 15);
+    const results = await Promise.allSettled(
+      unique.map(id =>
+        drive.files.get({ auth, fileId: id, fields: 'id,name,webViewLink' }),
+      ),
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value.data.id) {
+        const d = r.value.data;
+        result.set(d.id!, {
+          name: d.name || '(Folder)',
+          link: d.webViewLink || `https://drive.google.com/drive/folders/${d.id}`,
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[Command Center] folder name resolve error:', err);
+  }
+  return result;
+}
+
+// ── Folder / doc noise filters ──────────────────────────────────────────────
+// Generic top-level folders that aren't meaningful project locations.
+const FOLDER_BLOCKLIST_EXACT = new Set([
+  'my drive', 'shared with me', 'starred', 'trash', 'recent',
+  'meet recordings', 'google meet recordings',
+  'templates', 'archive', 'archives', 'downloads', 'misc',
+]);
+/** Year-only folders ("2024", "2025", "2026") and short generic names. */
+function isGenericFolderName(name: string): boolean {
+  const lower = name.toLowerCase().trim();
+  if (FOLDER_BLOCKLIST_EXACT.has(lower)) return true;
+  if (/^\d{4}$/.test(lower)) return true;  // year folders
+  if (/^\d{4}[-/]\d{2}$/.test(lower)) return true;  // year-month folders
+  if (lower.length <= 2) return true;  // single-char or empty
+  return false;
+}
+
+/** Doc name patterns that indicate auto-generated / low-signal content. */
+const DOC_NOISE_PATTERNS = [
+  /^meeting notes?/i,
+  /^meet recording/i,
+  /^recording[-_ ]/i,
+  /^untitled/i,
+  /^copy of /i,
+];
+function isNoiseDoc(name: string): boolean {
+  return DOC_NOISE_PATTERNS.some(re => re.test(name));
+}
+
+function findInProgress(
+  docs: DriveDoc[],
+  myEmail: string | null,
+  now: Date,
+  folderMap: Map<string, { name: string; link: string }>,
+): InProgressCluster[] {
   const myLower = (myEmail || '').toLowerCase();
   const mine = docs.filter(d => {
     if (d.modifiedByMe) return true;
     return (d.lastModifyingEmail || '').toLowerCase() === myLower;
   });
   const fourteen = new Date(now); fourteen.setDate(fourteen.getDate() - 14);
-  const recent = mine.filter(d => new Date(d.modifiedTime) >= fourteen);
+  const recent = mine
+    .filter(d => new Date(d.modifiedTime) >= fourteen)
+    .filter(d => !isNoiseDoc(d.name));  // drop auto-generated noise
 
-  // Cluster by first 2 meaningful tokens in doc title
+  // Cluster docs: use parent folder when it's a meaningful project folder,
+  // otherwise fall back to name-token clustering so docs in generic locations
+  // (My Drive, year folders) still group by content similarity.
   const clusters = new Map<string, DriveDoc[]>();
   for (const d of recent) {
-    const tokens = tokenize(d.name).slice(0, 2);
-    const nameFallback =
-      typeof d.name === 'string'
-        ? d.name
-        : typeof d.name === 'number' || typeof d.name === 'boolean'
-          ? String(d.name)
-          : '';
-    const key = tokens.length ? tokens.join('-') : nameFallback.toLowerCase().slice(0, 20);
+    const folder = d.parentFolderId ? folderMap.get(d.parentFolderId) : undefined;
+    const folderIsGeneric = !folder || isGenericFolderName(folder.name);
+
+    const key = (!folderIsGeneric && d.parentFolderId)
+      ? d.parentFolderId  // real project folder — cluster by folder
+      : (() => {
+          // Generic or unknown folder — cluster by doc name tokens
+          const tokens = tokenize(d.name).slice(0, 2);
+          const nameFallback =
+            typeof d.name === 'string'
+              ? d.name
+              : typeof d.name === 'number' || typeof d.name === 'boolean'
+                ? String(d.name)
+                : '';
+          return tokens.length ? `name:${tokens.join('-')}` : `name:${nameFallback.toLowerCase().slice(0, 20)}`;
+        })();
+
     if (!clusters.has(key)) clusters.set(key, []);
     clusters.get(key)!.push(d);
   }
@@ -919,15 +1006,24 @@ function findInProgress(docs: DriveDoc[], myEmail: string | null, now: Date): In
   const out: InProgressCluster[] = [];
   for (const [key, docList] of clusters) {
     if (docList.length === 0) continue;
+
     docList.sort((a, b) => b.modifiedTime.localeCompare(a.modifiedTime));
     const lastMod = docList[0].modifiedTime;
     const daysSince = Math.round((now.getTime() - new Date(lastMod).getTime()) / (1000 * 60 * 60 * 24));
-    // Score: doc count × recency weight
     const recencyWeight = Math.max(0.2, 1 - daysSince / 14);
     const score = Math.round(docList.length * 10 * recencyWeight * 10) / 10;
+
+    // Use folder name + link only for real project folders (not name-based clusters)
+    const isNameCluster = key.startsWith('name:');
+    const folder = !isNameCluster ? folderMap.get(key) : undefined;
+
+    const label = folder?.name
+      || docList[0].name.split(/[-_—:]/)[0].trim()
+      || key;
+
     out.push({
       id: `project:${key}`,
-      label: docList[0].name.split(/[-_—:]/)[0].trim() || key,
+      label,
       docCount: docList.length,
       lastModified: lastMod,
       docs: docList.slice(0, 5).map(d => ({
@@ -937,10 +1033,12 @@ function findInProgress(docs: DriveDoc[], myEmail: string | null, now: Date): In
         modifiedTime: d.modifiedTime,
       })),
       score,
+      folderLink: folder?.link || undefined,
+      folderName: folder?.name || undefined,
     });
   }
   // Only show clusters with 2+ docs (single-doc "projects" aren't projects)
-  return out.filter(c => c.docCount >= 2).sort((a, b) => b.score - a.score).slice(0, 4);
+  return out.filter(c => c.docCount >= 2).sort((a, b) => b.score - a.score).slice(0, 6);
 }
 
 interface CommitmentItem {
@@ -1062,6 +1160,7 @@ export async function GET(request: NextRequest) {
     let myEmail: string | null = null;
     let googleConnected = false;
     let googleError: string | null = null;
+    let resolvedAccessToken: string | null = null;
 
     // Build set of thread URLs already linked to tasks so we can mark dupes
     const existingThreadUrls = new Set<string>();
@@ -1086,6 +1185,7 @@ export async function GET(request: NextRequest) {
       } else {
         googleConnected = true;
         const accessToken = await refreshAccessToken(refreshToken);
+        resolvedAccessToken = accessToken;
 
         const weekStart = new Date(now); weekStart.setHours(0, 0, 0, 0);
         const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 7);
@@ -1137,7 +1237,17 @@ export async function GET(request: NextRequest) {
     // ── Smart signals ───────────────────────────────────────────────────
     const followUps = findFollowUps(pastEvents, items, myEmail, now);
     const reviewQueue = findReviewQueue(docs, myEmail, now);
-    const inProgress = findInProgress(docs, myEmail, now);
+
+    // Resolve Drive parent folder names so "What You're Building" can link
+    // directly to project folders instead of just individual docs.
+    const folderIds = docs
+      .filter(d => d.parentFolderId)
+      .map(d => d.parentFolderId!);
+    const folderMap = resolvedAccessToken
+      ? await resolveFolderNames(folderIds, resolvedAccessToken)
+      : new Map<string, { name: string; link: string }>();
+
+    const inProgress = findInProgress(docs, myEmail, now, folderMap);
     const commitments = findCommitments(sentMessages, now);
 
     const response = {

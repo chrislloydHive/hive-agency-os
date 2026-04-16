@@ -12,7 +12,7 @@ import { CommandBar } from './CommandBar';
 import {
   ArrowLeft, Flame, Calendar, Clock, FileText,
   ChevronRight, Zap, Link2, RefreshCw, Archive, ChevronDown,
-  Inbox, Eye, FolderKanban, MessageSquare, Users, BarChart3,
+  Inbox, Eye, FolderKanban, MessageSquare, Users, BarChart3, ExternalLink,
 } from 'lucide-react';
 
 // ============================================================================
@@ -66,6 +66,8 @@ interface InProgressCluster {
   lastModified: string;
   docs: { id: string; title: string; link?: string; modifiedTime: string }[];
   score: number;
+  folderLink?: string;
+  folderName?: string;
 }
 interface CommitmentItem {
   id: string;
@@ -356,7 +358,23 @@ function ProjectRow({ item }: { item: InProgressCluster }) {
       <div className="flex items-center gap-3">
         <FolderKanban className="w-4 h-4 text-teal-400 flex-shrink-0" />
         <div className="flex-1 min-w-0">
-          <div className="text-sm text-gray-200 truncate">{item.label}</div>
+          <div className="flex items-center gap-2">
+            {item.folderLink ? (
+              <a href={item.folderLink} target="_blank" rel="noreferrer" className="text-sm text-gray-200 hover:text-teal-300 truncate transition-colors">
+                {item.label}
+              </a>
+            ) : (
+              <div className="text-sm text-gray-200 truncate">{item.label}</div>
+            )}
+            {item.folderLink && (
+              <a href={item.folderLink} target="_blank" rel="noreferrer"
+                className="shrink-0 p-0.5 rounded hover:bg-white/10 text-gray-600 hover:text-teal-300 transition-colors"
+                title="Open project folder in Drive"
+              >
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
           <div className="text-xs text-gray-500">{item.docCount} doc{item.docCount === 1 ? '' : 's'} · last edit {lastAgo}</div>
         </div>
       </div>
