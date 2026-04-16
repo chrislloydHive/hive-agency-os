@@ -192,7 +192,7 @@ async function fetchSentMessages(accessToken: string, days = 14): Promise<SentMe
       try {
         const m = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
         const headers = m.data.payload?.headers || [];
-        const get = (n: string) => headers.find(h => h.name?.toLowerCase() === n.toLowerCase())?.value || '';
+        const get = (n: string) => headers.find(h => typeof h.name === 'string' && h.name.toLowerCase() === n.toLowerCase())?.value || '';
         // Extract text from payload
         let body = '';
         type MsgPart = { mimeType?: string | null; body?: { data?: string | null } | null; parts?: MsgPart[] | null };
@@ -369,7 +369,7 @@ export async function fetchTriageInbox(
       try {
         const m = await gmail.users.messages.get({ userId: 'me', id, format: 'metadata', metadataHeaders: ['From', 'Subject', 'Date'] });
         const headers = m.data.payload?.headers || [];
-        const get = (n: string) => headers.find(h => h.name?.toLowerCase() === n.toLowerCase())?.value || '';
+        const get = (n: string) => headers.find(h => typeof h.name === 'string' && h.name.toLowerCase() === n.toLowerCase())?.value || '';
         const from = get('From');
         const subject = get('Subject');
         const dateStr = get('Date');
