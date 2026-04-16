@@ -109,6 +109,7 @@ export async function fetchCalendarRange(accessToken: string, timeMin: string, t
 interface DriveDoc {
   id: string;
   name: string;
+  mimeType: string;
   modifiedTime: string;
   webViewLink?: string;
   owners: string[];
@@ -132,13 +133,14 @@ async function fetchDriveRecent(accessToken: string, sinceDays = 14): Promise<Dr
     const res = await drive.files.list({
       auth,
       q: `modifiedTime > '${since.toISOString()}' and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
-      fields: 'files(id,name,modifiedTime,webViewLink,owners,lastModifyingUser,modifiedByMe,viewedByMeTime,sharedWithMeTime,parents)',
+      fields: 'files(id,name,mimeType,modifiedTime,webViewLink,owners,lastModifyingUser,modifiedByMe,viewedByMeTime,sharedWithMeTime,parents)',
       orderBy: 'modifiedTime desc',
       pageSize: 50,
     });
     return (res.data.files || []).map(f => ({
       id: f.id || '',
       name: f.name || '(Untitled)',
+      mimeType: f.mimeType || '',
       modifiedTime: f.modifiedTime || '',
       webViewLink: f.webViewLink || undefined,
       owners: (f.owners || []).map(o => o.displayName || o.emailAddress || '').filter(Boolean),
@@ -895,6 +897,8 @@ interface InProgressCluster {
   /** Drive folder link — opens the project folder directly */
   folderLink?: string;
   folderName?: string;
+  /** 'folder' = real project folder cluster; 'name' = name-token fallback */
+  quality?: 'folder' | 'name';
 }
 
 /** Batch-resolve Drive folder IDs → { name, webViewLink } */
@@ -932,33 +936,99 @@ async function resolveFolderNames(
   return result;
 }
 
-// ── Folder / doc noise filters ──────────────────────────────────────────────
+// ── Folder / doc intelligence filters ───────────────────────────────────────
+
 // Generic top-level folders that aren't meaningful project locations.
 const FOLDER_BLOCKLIST_EXACT = new Set([
   'my drive', 'shared with me', 'starred', 'trash', 'recent',
   'meet recordings', 'google meet recordings',
   'templates', 'archive', 'archives', 'downloads', 'misc',
 ]);
-/** Year-only folders ("2024", "2025", "2026") and short generic names. */
 function isGenericFolderName(name: string): boolean {
   const lower = name.toLowerCase().trim();
   if (FOLDER_BLOCKLIST_EXACT.has(lower)) return true;
   if (/^\d{4}$/.test(lower)) return true;  // year folders
   if (/^\d{4}[-/]\d{2}$/.test(lower)) return true;  // year-month folders
-  if (lower.length <= 2) return true;  // single-char or empty
+  if (lower.length <= 2) return true;
   return false;
 }
 
-/** Doc name patterns that indicate auto-generated / low-signal content. */
+/** Doc name patterns that indicate auto-generated or administrative noise. */
 const DOC_NOISE_PATTERNS = [
   /^meeting notes?/i,
   /^meet recording/i,
   /^recording[-_ ]/i,
   /^untitled/i,
   /^copy of /i,
+  /invoice/i,
+  /receipt/i,
+  /^template/i,
+  /\btemplate\b.*\btemplate\b/i,  // double-template in name
 ];
 function isNoiseDoc(name: string): boolean {
   return DOC_NOISE_PATTERNS.some(re => re.test(name));
+}
+
+/** MIME types that represent active creative/strategic work (not just exports). */
+const CREATIVE_MIME_TYPES = new Set([
+  'application/vnd.google-apps.presentation',                     // Google Slides
+  'application/vnd.google-apps.document',                         // Google Docs
+  'application/vnd.google-apps.spreadsheet',                      // Google Sheets
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',  // .pptx
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',    // .docx
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',          // .xlsx
+]);
+
+/**
+ * Score an individual doc for "project work" relevance.
+ * Higher = more likely to be real work worth surfacing.
+ * Returns 0 for docs that should be excluded entirely.
+ */
+function scoreDocRelevance(d: DriveDoc, myEmail: string | null, now: Date): number {
+  const name = d.name.toLowerCase();
+  let score = 0;
+
+  // ── Exclude outright ──────────────────────────────────────────
+  if (isNoiseDoc(d.name)) return 0;
+
+  // ── Content type signal ───────────────────────────────────────
+  // Presentations and docs = creative deliverables (high signal)
+  if (d.mimeType.includes('presentation') || d.mimeType.includes('slides')) score += 30;
+  else if (d.mimeType.includes('document') || d.mimeType.includes('wordprocessing')) score += 25;
+  else if (d.mimeType.includes('spreadsheet') || d.mimeType.includes('sheet')) score += 20;
+  else if (d.mimeType === 'application/pdf') score += 5;  // PDFs are usually exports, low signal
+  else score += 10;  // other types get baseline
+
+  // ── Name signals ──────────────────────────────────────────────
+  // Project-work keywords in the filename
+  if (/\b(brief|creative|campaign|strategy|proposal|recommendation|report|plan|media|production|review)\b/i.test(d.name)) score += 20;
+  // Client project number pattern (e.g., "260CAR", "275CAR")
+  if (/\d{3}[A-Z]{2,}/i.test(d.name)) score += 15;
+
+  // ── Collaboration signal ──────────────────────────────────────
+  // Someone else edited it = active project, not just personal file
+  const lastEditor = (d.lastModifyingEmail || '').toLowerCase();
+  const me = (myEmail || '').toLowerCase();
+  if (lastEditor && lastEditor !== me) score += 15;
+
+  // ── Shared signal ─────────────────────────────────────────────
+  // Shared files are more likely to be project work
+  if (d.sharedWithMeTime) score += 10;
+
+  // ── Recency signal ────────────────────────────────────────────
+  const daysSince = Math.round((now.getTime() - new Date(d.modifiedTime).getTime()) / (1000 * 60 * 60 * 24));
+  if (daysSince <= 1) score += 15;
+  else if (daysSince <= 3) score += 10;
+  else if (daysSince <= 7) score += 5;
+
+  // ── Actively edited (not just viewed) ─────────────────────────
+  if (d.modifiedByMe) score += 10;
+
+  // ── Penalty for personal/admin patterns ───────────────────────
+  if (/\b(invoice|receipt|expense|payroll|tax|w-?9)\b/i.test(name)) score -= 40;
+  if (/\b(tracker|tracking|log|inbox)\b/i.test(name) && !lastEditor) score -= 15;
+
+  return Math.max(0, score);
 }
 
 function findInProgress(
@@ -973,15 +1043,19 @@ function findInProgress(
     return (d.lastModifyingEmail || '').toLowerCase() === myLower;
   });
   const fourteen = new Date(now); fourteen.setDate(fourteen.getDate() - 14);
-  const recent = mine
+
+  // Score each doc for relevance — drop anything that scores 0
+  const scored = mine
     .filter(d => new Date(d.modifiedTime) >= fourteen)
-    .filter(d => !isNoiseDoc(d.name));  // drop auto-generated noise
+    .map(d => ({ doc: d, relevance: scoreDocRelevance(d, myEmail, now) }))
+    .filter(({ relevance }) => relevance > 0);
 
   // Cluster docs: use parent folder when it's a meaningful project folder,
   // otherwise fall back to name-token clustering so docs in generic locations
   // (My Drive, year folders) still group by content similarity.
-  const clusters = new Map<string, DriveDoc[]>();
-  for (const d of recent) {
+  const clusters = new Map<string, { doc: DriveDoc; relevance: number }[]>();
+  for (const entry of scored) {
+    const d = entry.doc;
     const folder = d.parentFolderId ? folderMap.get(d.parentFolderId) : undefined;
     const folderIsGeneric = !folder || isGenericFolderName(folder.name);
 
@@ -1000,45 +1074,66 @@ function findInProgress(
         })();
 
     if (!clusters.has(key)) clusters.set(key, []);
-    clusters.get(key)!.push(d);
+    clusters.get(key)!.push(entry);
   }
 
   const out: InProgressCluster[] = [];
-  for (const [key, docList] of clusters) {
-    if (docList.length === 0) continue;
+  for (const [key, entries] of clusters) {
+    if (entries.length === 0) continue;
 
-    docList.sort((a, b) => b.modifiedTime.localeCompare(a.modifiedTime));
-    const lastMod = docList[0].modifiedTime;
+    entries.sort((a, b) => b.doc.modifiedTime.localeCompare(a.doc.modifiedTime));
+    const lastMod = entries[0].doc.modifiedTime;
     const daysSince = Math.round((now.getTime() - new Date(lastMod).getTime()) / (1000 * 60 * 60 * 24));
     const recencyWeight = Math.max(0.2, 1 - daysSince / 14);
-    const score = Math.round(docList.length * 10 * recencyWeight * 10) / 10;
+
+    // Aggregate relevance score: use mean doc relevance × doc count × recency
+    const avgRelevance = entries.reduce((sum, e) => sum + e.relevance, 0) / entries.length;
+    const score = Math.round(avgRelevance * entries.length * recencyWeight) / 10;
 
     // Use folder name + link only for real project folders (not name-based clusters)
     const isNameCluster = key.startsWith('name:');
     const folder = !isNameCluster ? folderMap.get(key) : undefined;
+    const quality: 'folder' | 'name' = isNameCluster ? 'name' : 'folder';
 
     const label = folder?.name
-      || docList[0].name.split(/[-_—:]/)[0].trim()
+      || entries[0].doc.name.split(/[-_—:]/)[0].trim()
       || key;
 
     out.push({
       id: `project:${key}`,
       label,
-      docCount: docList.length,
+      docCount: entries.length,
       lastModified: lastMod,
-      docs: docList.slice(0, 5).map(d => ({
-        id: d.id,
-        title: d.name,
-        link: d.webViewLink,
-        modifiedTime: d.modifiedTime,
+      docs: entries.slice(0, 5).map(e => ({
+        id: e.doc.id,
+        title: e.doc.name,
+        link: e.doc.webViewLink,
+        modifiedTime: e.doc.modifiedTime,
       })),
       score,
       folderLink: folder?.link || undefined,
       folderName: folder?.name || undefined,
+      quality,
     });
   }
-  // Only show clusters with 2+ docs (single-doc "projects" aren't projects)
-  return out.filter(c => c.docCount >= 2).sort((a, b) => b.score - a.score).slice(0, 6);
+
+  // Filter: require 2+ docs, and for name-token clusters require higher avg relevance
+  const MIN_NAME_CLUSTER_RELEVANCE = 30;
+  return out
+    .filter(c => {
+      if (c.docCount < 2) return false;
+      // Name-token clusters must have docs with real project-work signals
+      if (c.quality === 'name') {
+        const clusterEntries = clusters.get(c.id.replace('project:', ''));
+        if (clusterEntries) {
+          const avg = clusterEntries.reduce((s, e) => s + e.relevance, 0) / clusterEntries.length;
+          if (avg < MIN_NAME_CLUSTER_RELEVANCE) return false;
+        }
+      }
+      return true;
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6);
 }
 
 interface CommitmentItem {

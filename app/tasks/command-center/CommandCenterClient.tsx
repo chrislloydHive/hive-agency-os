@@ -68,6 +68,7 @@ interface InProgressCluster {
   score: number;
   folderLink?: string;
   folderName?: string;
+  quality?: 'folder' | 'name';
 }
 interface CommitmentItem {
   id: string;
@@ -954,11 +955,11 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
             </Tile>
           )}
 
-          {/* WHAT YOU'RE BUILDING */}
-          {data.inProgress && data.inProgress.length > 0 && (
+          {/* RECENT PROJECT FOLDERS */}
+          {data.inProgress && data.inProgress.length > 0 && data.inProgress.some(c => c.quality === 'folder' || c.score >= 5) && (
             <Tile
-              icon={FolderKanban} label="What You're Building" count={data.inProgress.length} color="text-teal-400"
-              subtitle="Clusters of docs you've been editing."
+              icon={FolderKanban} label="Recent Project Folders" count={data.inProgress.length} color="text-teal-400"
+              subtitle="Drive folders you've been actively working in."
             >
               <div className="space-y-2">
                 {(expanded.inProgress ? data.inProgress : data.inProgress.slice(0, TOP_N)).map(item => (
