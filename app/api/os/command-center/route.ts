@@ -938,18 +938,17 @@ async function resolveFolderNames(
 
 // ── Folder / doc intelligence filters ───────────────────────────────────────
 
-// Generic top-level folders that aren't meaningful project locations.
+// System-level folders where clustering everything together is meaningless.
+// Only block true root/system folders — real project folders (even short or
+// year-named ones like "2026 Tint") should cluster by folder.
 const FOLDER_BLOCKLIST_EXACT = new Set([
   'my drive', 'shared with me', 'starred', 'trash', 'recent',
   'meet recordings', 'google meet recordings',
-  'templates', 'archive', 'archives', 'downloads', 'misc',
 ]);
 function isGenericFolderName(name: string): boolean {
   const lower = name.toLowerCase().trim();
   if (FOLDER_BLOCKLIST_EXACT.has(lower)) return true;
-  if (/^\d{4}$/.test(lower)) return true;  // year folders
-  if (/^\d{4}[-/]\d{2}$/.test(lower)) return true;  // year-month folders
-  if (lower.length <= 2) return true;
+  if (lower.length <= 1) return true;  // single-char folders only
   return false;
 }
 
@@ -964,6 +963,8 @@ const DOC_NOISE_PATTERNS = [
   /receipt/i,
   /^template/i,
   /\btemplate\b.*\btemplate\b/i,  // double-template in name
+  /notes by gemini/i,             // auto-generated meeting notes
+  /weekly status.*notes/i,        // auto-generated status notes
 ];
 function isNoiseDoc(name: string): boolean {
   return DOC_NOISE_PATTERNS.some(re => re.test(name));
@@ -990,6 +991,10 @@ function scoreDocRelevance(d: DriveDoc, myEmail: string | null, now: Date): numb
 
   // ── Exclude outright ──────────────────────────────────────────
   if (isNoiseDoc(d.name)) return 0;
+  // Personal admin / ops files — never surface as "project work"
+  // Use [_\b] boundaries because filenames use underscores as separators
+  if (/(?:^|[\s_\-.])(invoice|receipt|expense|payroll|tax|w-?9|biweekly)(?:$|[\s_\-.])/i.test(name)) return 0;
+  if (/(?:^|[\s_\-.])(tracker|tracking|log|inbox|automations?)(?:$|[\s_\-.])/i.test(name)) return 0;
 
   // ── Content type signal ───────────────────────────────────────
   // Presentations and docs = creative deliverables (high signal)
@@ -1024,10 +1029,6 @@ function scoreDocRelevance(d: DriveDoc, myEmail: string | null, now: Date): numb
   // ── Actively edited (not just viewed) ─────────────────────────
   if (d.modifiedByMe) score += 10;
 
-  // ── Penalty for personal/admin patterns ───────────────────────
-  if (/\b(invoice|receipt|expense|payroll|tax|w-?9)\b/i.test(name)) score -= 40;
-  if (/\b(tracker|tracking|log|inbox)\b/i.test(name) && !lastEditor) score -= 15;
-
   return Math.max(0, score);
 }
 
@@ -1050,9 +1051,8 @@ function findInProgress(
     .map(d => ({ doc: d, relevance: scoreDocRelevance(d, myEmail, now) }))
     .filter(({ relevance }) => relevance > 0);
 
-  // Cluster docs: use parent folder when it's a meaningful project folder,
-  // otherwise fall back to name-token clustering so docs in generic locations
-  // (My Drive, year folders) still group by content similarity.
+  // Cluster by parent folder whenever we have one resolved.
+  // Only fall back to name-token when there's no parent folder at all.
   const clusters = new Map<string, { doc: DriveDoc; relevance: number }[]>();
   for (const entry of scored) {
     const d = entry.doc;
@@ -1060,17 +1060,11 @@ function findInProgress(
     const folderIsGeneric = !folder || isGenericFolderName(folder.name);
 
     const key = (!folderIsGeneric && d.parentFolderId)
-      ? d.parentFolderId  // real project folder — cluster by folder
+      ? d.parentFolderId
       : (() => {
-          // Generic or unknown folder — cluster by doc name tokens
-          const tokens = tokenize(d.name).slice(0, 2);
-          const nameFallback =
-            typeof d.name === 'string'
-              ? d.name
-              : typeof d.name === 'number' || typeof d.name === 'boolean'
-                ? String(d.name)
-                : '';
-          return tokens.length ? `name:${tokens.join('-')}` : `name:${nameFallback.toLowerCase().slice(0, 20)}`;
+          const tokens = tokenize(d.name);
+          const firstToken = tokens[0] || '';
+          return firstToken ? `name:${firstToken}` : `name:${d.name.toLowerCase().slice(0, 20)}`;
         })();
 
     if (!clusters.has(key)) clusters.set(key, []);
@@ -1086,17 +1080,17 @@ function findInProgress(
     const daysSince = Math.round((now.getTime() - new Date(lastMod).getTime()) / (1000 * 60 * 60 * 24));
     const recencyWeight = Math.max(0.2, 1 - daysSince / 14);
 
-    // Aggregate relevance score: use mean doc relevance × doc count × recency
     const avgRelevance = entries.reduce((sum, e) => sum + e.relevance, 0) / entries.length;
     const score = Math.round(avgRelevance * entries.length * recencyWeight) / 10;
 
-    // Use folder name + link only for real project folders (not name-based clusters)
     const isNameCluster = key.startsWith('name:');
     const folder = !isNameCluster ? folderMap.get(key) : undefined;
     const quality: 'folder' | 'name' = isNameCluster ? 'name' : 'folder';
 
     const label = folder?.name
-      || entries[0].doc.name.split(/[-_—:]/)[0].trim()
+      || (isNameCluster
+        ? key.replace('name:', '').replace(/^\w/, c => c.toUpperCase())
+        : entries[0].doc.name.split(/[-_—:]/)[0].trim())
       || key;
 
     out.push({
@@ -1122,7 +1116,6 @@ function findInProgress(
   return out
     .filter(c => {
       if (c.docCount < 2) return false;
-      // Name-token clusters must have docs with real project-work signals
       if (c.quality === 'name') {
         const clusterEntries = clusters.get(c.id.replace('project:', ''));
         if (clusterEntries) {
