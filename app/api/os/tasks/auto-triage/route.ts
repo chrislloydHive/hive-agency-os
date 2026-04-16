@@ -20,11 +20,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { google } from 'googleapis';
-import { fetchTriageInbox, TRIAGE_IMPORTANT_SENDER_DOMAINS, type TriageItem } from '@/app/api/os/command-center/route';
+import { fetchTriageInbox, type TriageItem } from '@/app/api/os/command-center/route';
 import { getTasks, createTask } from '@/lib/airtable/tasks';
 import type { TaskPriority, TaskStatus, TaskRecord } from '@/lib/airtable/tasks';
 import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
 import { refreshAccessToken } from '@/lib/google/oauth';
+import { getIdentityPreamble, getProjectCategoriesList, getEffectiveImportantDomains } from '@/lib/personalContext';
+import { logEventAsync } from '@/lib/airtable/activityLog';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -91,6 +93,10 @@ async function parseEmailToTask(params: {
     const trimmed = body.slice(0, 6000);
     const gmailLink = `https://mail.google.com/mail/u/0/#inbox/${threadId}`;
     const today = new Date().toISOString().slice(0, 10);
+    const [identityPreamble, projectCategories] = await Promise.all([
+      getIdentityPreamble(),
+      getProjectCategoriesList(),
+    ]);
 
     const ai = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -98,7 +104,9 @@ async function parseEmailToTask(params: {
       messages: [
         {
           role: 'user',
-          content: `You are a task parser for Chris Lloyd, owner of Hive Ad Agency. An email arrived that Chris needs to act on. Parse it into a structured task.
+          content: `${identityPreamble}
+
+You are a task parser. An email arrived that the user needs to act on. Parse it into a structured task.
 
 Today's date: ${today}
 
@@ -112,9 +120,9 @@ ${trimmed}
 """
 
 Return ONLY a JSON object (no markdown fences) with these fields:
-- "task": concise task title (max 60 chars) describing what Chris needs to DO (not the subject line). Ex: "Reply to Jim re: geofence data", "Upload tax docs to TaxCaddy".
+- "task": concise task title (max 60 chars) describing what needs to be DONE (not the subject line). Ex: "Reply to Jim re: geofence data", "Upload tax docs to TaxCaddy".
 - "from": sender's name (or first name if easy).
-- "project": best-guess project category. Common: "Car Toys 2026 Media", "Car Toys Tint", "Car Toys / Billing", "HEY / Eric Request", "Hive Admin", "Hive Billing", "Legal", "Portage Bank". Empty string if unsure.
+- "project": best-guess project category. Choose the closest match from: ${projectCategories}. Empty string if unsure.
 - "nextAction": 1-2 sentences describing the specific next step.
 - "priority": "P0" (blocking today) / "P1" (this week, important) / "P2" (normal) / "P3" (backlog).
 - "due": ALWAYS write a due date in YYYY-MM-DD format. Never leave blank. Rules in order:
@@ -193,9 +201,8 @@ export async function POST(req: NextRequest) {
     const existingThreadUrls = new Set<string>();
     for (const t of tasks) if (t.threadUrl) existingThreadUrls.add(t.threadUrl);
 
-    const envImportantSenders = (process.env.CC_IMPORTANT_SENDERS || '')
-      .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-    const importantDomains = Array.from(new Set([...TRIAGE_IMPORTANT_SENDER_DOMAINS, ...envImportantSenders]));
+    // Pulled from context/personal/senders.md + CC_IMPORTANT_SENDERS env override.
+    const importantDomains = await getEffectiveImportantDomains();
 
     // ── Scan Gmail (14-day window, shares the Command Center scoring) ───
     const triage: TriageItem[] = await fetchTriageInbox(accessToken, existingThreadUrls, 14, importantDomains);
@@ -219,6 +226,22 @@ export async function POST(req: NextRequest) {
     const skipped: Array<{ subject: string; from: string; score: number; reason: string; link: string }> = [];
 
     if (dryRun) {
+      logEventAsync({
+        actorType: 'ai',
+        actor: 'auto-triage',
+        action: 'triage.scan-run',
+        entityType: 'triage-run',
+        summary: `Triage dry run: scanned ${triage.length}, would create ${candidates.length} (threshold ${threshold})`,
+        metadata: {
+          dryRun: true,
+          threshold,
+          max,
+          triageScanned: triage.length,
+          candidates: candidates.length,
+          starredCandidates: starredSlice.length,
+        },
+        source: 'app/api/os/tasks/auto-triage',
+      });
       return NextResponse.json({
         dryRun: true,
         threshold,
@@ -266,17 +289,78 @@ export async function POST(req: NextRequest) {
           link: item.link,
           priority: prefill.priority,
         });
+
+        // Richer "surfaced by triage" event — sits alongside the generic
+        // task.created that createTask already emits.
+        logEventAsync({
+          actorType: 'ai',
+          actor: 'auto-triage',
+          action: 'task.from-email',
+          entityType: 'task',
+          entityId: rec.id,
+          entityTitle: prefill.task,
+          summary: `Task surfaced from email: "${prefill.task}" (score ${item.score}, ${prefill.priority}, due ${prefill.due})`,
+          metadata: {
+            score: item.score,
+            scoreReasons: item.scoreReasons,
+            starred: item.starred,
+            emailSubject: item.subject,
+            emailFrom: item.from,
+            threadUrl: prefill.threadUrl,
+            priority: prefill.priority,
+            due: prefill.due,
+          },
+          source: 'app/api/os/tasks/auto-triage',
+        });
       } catch (err) {
         console.error('[auto-triage] create failed for', item.subject, err);
+        const reason = err instanceof Error ? err.message : 'unknown error';
         skipped.push({
           subject: item.subject,
           from: item.from,
           score: item.score,
-          reason: err instanceof Error ? err.message : 'unknown error',
+          reason,
           link: item.link,
+        });
+        logEventAsync({
+          actorType: 'ai',
+          actor: 'auto-triage',
+          action: 'triage.item-skipped',
+          entityType: 'email',
+          entityId: item.threadId,
+          entityTitle: item.subject,
+          summary: `Triage skipped "${item.subject}" — ${reason}`,
+          metadata: {
+            reason,
+            score: item.score,
+            from: item.from,
+            link: item.link,
+          },
+          source: 'app/api/os/tasks/auto-triage',
         });
       }
     }
+
+    // Scan-run summary event — one row per triage pass, so we can measure
+    // how often auto-triage runs, what it finds, and what it creates.
+    logEventAsync({
+      actorType: 'ai',
+      actor: 'auto-triage',
+      action: 'triage.scan-run',
+      entityType: 'triage-run',
+      summary: `Triage run: scanned ${triage.length}, created ${created.length}, skipped ${skipped.length} (threshold ${threshold})`,
+      metadata: {
+        threshold,
+        max,
+        triageScanned: triage.length,
+        candidates: candidates.length,
+        starredCandidates: starredSlice.length,
+        createdCount: created.length,
+        skippedCount: skipped.length,
+        createdTaskIds: created.map(c => c.taskId),
+      },
+      source: 'app/api/os/tasks/auto-triage',
+    });
 
     return NextResponse.json({
       threshold,

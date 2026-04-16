@@ -8,6 +8,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
 import { refreshAccessToken } from '@/lib/google/oauth';
 import type { TaskPriority } from '@/lib/airtable/tasks';
+import { getIdentityPreamble, getProjectCategoriesList } from '@/lib/personalContext';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -68,6 +69,10 @@ export async function POST(req: NextRequest) {
     const trimmed = body.slice(0, 6000);
     const gmailLink = `https://mail.google.com/mail/u/0/#inbox/${threadId || msg.data.threadId || messageId}`;
     const today = new Date().toISOString().slice(0, 10);
+    const [identityPreamble, projectCategories] = await Promise.all([
+      getIdentityPreamble(),
+      getProjectCategoriesList(),
+    ]);
 
     // AI parse
     const ai = await anthropic.messages.create({
@@ -76,8 +81,9 @@ export async function POST(req: NextRequest) {
       messages: [
         {
           role: 'user',
-          content: `You are a task parser for a digital agency owner named Chris Lloyd who runs Hive Ad Agency.
-An email has arrived that Chris needs to act on. Parse it into a structured task.
+          content: `${identityPreamble}
+
+You are a task parser. An email has arrived that the user needs to act on. Parse it into a structured task.
 
 Today's date: ${today}
 
@@ -91,9 +97,9 @@ ${trimmed}
 """
 
 Return a JSON object with these fields (ONLY JSON, no markdown):
-- "task": concise task title (max 60 chars) describing what Chris needs to DO (not the email subject). Examples: "Review A/R Aging, follow up on Acme past due", "Upload tax docs to TaxCaddy", "Reply to Jim re: geofence data".
+- "task": concise task title (max 60 chars) describing what needs to be DONE (not the email subject). Examples: "Review A/R Aging, follow up on Acme past due", "Upload tax docs to TaxCaddy", "Reply to Jim re: geofence data".
 - "from": the sender's name (or first name if available).
-- "project": best-guess project category. Common ones: "Car Toys 2026 Media", "Car Toys Tint", "Car Toys / Billing", "HEY / Eric Request", "Hive Admin", "Hive Billing", "Legal", "Portage Bank". Empty string if unsure.
+- "project": best-guess project category. Choose the closest match from: ${projectCategories}. Empty string if unsure.
 - "nextAction": 1-2 sentences describing the specific next step.
 - "priority": "P0" (blocking today), "P1" (this week, important), "P2" (normal), "P3" (backlog).
 - "due": ALWAYS write a due date in YYYY-MM-DD format. Never leave blank. Rules in order:

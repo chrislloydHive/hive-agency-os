@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { getIdentity, getIdentityPreamble, getProjectCategoriesList } from '@/lib/personalContext';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -21,13 +22,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const [identityPreamble, identity, projectCategories] = await Promise.all([
+      getIdentityPreamble(),
+      getIdentity(),
+      getProjectCategoriesList(),
+    ]);
+
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1024,
       messages: [
         {
           role: 'user',
-          content: `You are a task parser for a digital agency owner named Chris Lloyd who runs Hive Ad Agency.
+          content: `${identityPreamble}
 
 Parse the following brain dump text into a structured task. The text could be a pasted email, a quick thought, a voice note transcription, or anything else.
 
@@ -37,10 +44,10 @@ ${text}
 """
 
 Return a JSON object with these fields:
-- "task": A concise task title (max 60 chars). If it's an email, summarize what Chris needs to do (e.g., "Upload tax docs to TaxCaddy", "Reply to Jim re: geofence data")
-- "from": The person this task relates to (their name). If from an email, use the sender's name. If unclear, use "Chris Lloyd"
-- "project": Best guess at project category. Common ones: "Car Toys 2026 Media", "Car Toys Tint", "Car Toys / Billing", "HEY / Eric Request", "Hive Admin", "Hive Billing", "Legal", "Portage Bank". If unsure, leave empty string.
-- "nextAction": 1-2 sentence description of the specific next step Chris should take
+- "task": A concise task title (max 60 chars). If it's an email, summarize what the user needs to do (e.g., "Upload tax docs to TaxCaddy", "Reply to Jim re: geofence data")
+- "from": The person this task relates to (their name). If from an email, use the sender's name. If unclear, use "${identity.name}"
+- "project": Best guess at project category. Choose the closest match from: ${projectCategories}. If unsure, leave empty string.
+- "nextAction": 1-2 sentence description of the specific next step the user should take
 - "priority": P0 (due today/blocking), P1 (due this week/important), P2 (next week/normal), P3 (backlog/low)
 - "due": Suggested due date in YYYY-MM-DD format based on any deadlines mentioned, or empty string if none
 - "status": "Inbox" for new items that need triage, "Next" if the action is clear and ready to do

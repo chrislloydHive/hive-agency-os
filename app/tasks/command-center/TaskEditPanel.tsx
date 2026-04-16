@@ -5,6 +5,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { X, Save, ExternalLink, Loader2, CheckSquare, Square } from 'lucide-react';
+import { TaskDecider } from './TaskDecider';
 
 type TaskPriority = 'P0' | 'P1' | 'P2' | 'P3';
 type TaskStatus = 'Inbox' | 'Next' | 'Waiting' | 'Done' | 'Archive';
@@ -378,6 +379,19 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
                   </a>
                 )}
               </div>
+
+              {/* Decision engine: "what should I do about this task, right now?" — edit mode only */}
+              {!isCreate && task?.id && (
+                <TaskDecider
+                  taskId={task.id}
+                  onApplied={() => {
+                    // Apply mutates the task server-side (or creates a Gmail draft and
+                    // stores draftUrl on it). Reuse the existing save hook so parent
+                    // re-fetches — no new plumbing needed.
+                    onSavedRef.current?.();
+                  }}
+                />
+              )}
             </>
           )}
         </div>

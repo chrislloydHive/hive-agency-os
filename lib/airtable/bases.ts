@@ -9,6 +9,8 @@ export const BASES = {
   INBOUND: process.env.AIRTABLE_INBOUND_BASE_ID ?? '',
   /** Optional: Command Center / lib/airtable/tasks when Tasks live outside OS base */
   TASKS: process.env.AIRTABLE_TASKS_BASE_ID ?? '',
+  /** Optional: Activity Log — event stream for the personal OS. Falls back to OS base. */
+  ACTIVITY_LOG: process.env.AIRTABLE_ACTIVITY_LOG_BASE_ID ?? '',
 } as const;
 
 /** OS / primary Hive base */
@@ -37,5 +39,12 @@ export function resolveInboundBaseId(): string {
 export function resolveTasksBaseId(): string {
   const t = BASES.TASKS.trim();
   if (t) return t;
+  return resolveOsBaseId();
+}
+
+/** Activity Log table (event stream): dedicated base, else same as OS */
+export function resolveActivityLogBaseId(): string {
+  const a = BASES.ACTIVITY_LOG.trim();
+  if (a) return a;
   return resolveOsBaseId();
 }

@@ -5,6 +5,9 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { TaskEditPanel } from './TaskEditPanel';
+import { FocusStrip } from './FocusStrip';
+import { RiskStrip } from './RiskStrip';
+import { MorningBrief } from './MorningBrief';
 import {
   ArrowLeft, Flame, Target, Calendar, Clock, FileText,
   ChevronRight, Zap, Link2, RefreshCw, Archive, ChevronDown,
@@ -751,6 +754,15 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
             </div>
           )}
         </div>
+
+        {/* Morning brief: one-shot summary across focus, overdue, risks, inbox, calendar. */}
+        <MorningBrief onEdit={handleEdit} />
+
+        {/* Prioritization brain: top-ranked live tasks with score + reasons. */}
+        <FocusStrip onEdit={handleEdit} />
+
+        {/* Risk / stall detection: waiting-too-long, orphaned drafts, thrashing status. */}
+        <RiskStrip onEdit={handleEdit} />
 
         {empty && !onlyStale && (
           <div className="text-center py-12 text-gray-500 text-sm">

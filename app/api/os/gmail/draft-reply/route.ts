@@ -7,6 +7,8 @@ import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
 import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
 import { refreshAccessToken } from '@/lib/google/oauth';
+import { getIdentity, getVoice, getVoiceRulesBlock } from '@/lib/personalContext';
+import { logEventAsync } from '@/lib/airtable/activityLog';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -104,15 +106,20 @@ export async function POST(req: NextRequest) {
 
     const { name: fromName, email: fromEmail } = parseEmailHeader(fromHeader);
 
-    // Fetch my email address for From header
+    // Fetch my email address for From header + identity + voice from context/personal
     const oauth2 = google.oauth2({ version: 'v2', auth });
-    const me = await oauth2.userinfo.get();
-    const myEmail = me.data.email || '';
-    const myName = me.data.name || 'Chris Lloyd';
+    const [me, identity, voice, voiceRules] = await Promise.all([
+      oauth2.userinfo.get(),
+      getIdentity(),
+      getVoice(),
+      getVoiceRulesBlock(),
+    ]);
+    const myEmail = me.data.email || identity.email;
+    const myName = me.data.name || identity.name;
 
     // AI-generate reply body
     const instructionsBlock = customInstructions
-      ? `Additional instructions from Chris: ${customInstructions}\n\n`
+      ? `Additional instructions from ${identity.name}: ${customInstructions}\n\n`
       : '';
     const ai = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -120,7 +127,9 @@ export async function POST(req: NextRequest) {
       messages: [
         {
           role: 'user',
-          content: `You are drafting a reply on behalf of Chris Lloyd, owner of Hive Ad Agency. Write in his voice: direct, warm, concise, professional but human. No corporate fluff.
+          content: `You are drafting a reply on behalf of ${identity.name}, ${identity.role} of ${identity.company}. Write in their voice: ${voice.tone}. No corporate fluff.
+
+${voiceRules}
 
 ${instructionsBlock}Original email:
 From: ${fromHeader}
@@ -130,15 +139,7 @@ Subject: ${subject}
 ${trimmed}
 """
 
-Draft a reply that Chris can quickly review and send. Rules:
-- Plain text only. No HTML, no markdown formatting, no bullet characters.
-- Open with the sender's first name if easy to infer; otherwise "Hi,".
-- 2-5 short paragraphs, typically under 150 words.
-- If the email asks questions, answer them concretely or explicitly note what Chris needs to check first.
-- If a commitment is made (send X by Y), phrase it clearly so Chris sees the promise.
-- Sign off "\u2014 Chris" on its own line. Do NOT invent a signature block beyond that.
-- If you truly cannot draft responsibly without more info from Chris, write a brief holding reply ("Got this \u2014 need to check on X, will come back to you by [day]") instead of guessing details.
-- Return ONLY the body text, no JSON, no quote block, no markdown fences.`,
+Draft a reply that ${identity.name} can quickly review and send. Return ONLY the body text, no JSON, no quote block, no markdown fences.`,
         },
       ],
     });
@@ -171,6 +172,26 @@ Draft a reply that Chris can quickly review and send. Rules:
     });
 
     const draftId = draft.data.id;
+
+    logEventAsync({
+      actorType: 'ai',
+      actor: 'ai-drafter',
+      action: 'email.draft-created',
+      entityType: 'email',
+      entityId: threadId || messageId,
+      entityTitle: subject,
+      summary: `Draft reply created for "${subject}" → ${fromEmail}`,
+      metadata: {
+        draftId,
+        threadId,
+        messageId,
+        to: fromEmail,
+        subject,
+        hasCustomInstructions: Boolean(customInstructions),
+        bodyChars: replyBody.length,
+      },
+      source: 'app/api/os/gmail/draft-reply',
+    });
     // Gmail's web app doesn't expose a stable deep-link to a specific draft by draftId,
     // but the draft is visible in the original thread view. That's the best landing spot.
     const threadUrl = threadId ? `https://mail.google.com/mail/u/0/#inbox/${threadId}` : 'https://mail.google.com/mail/u/0/#drafts';

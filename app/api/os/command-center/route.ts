@@ -17,6 +17,7 @@ import { google } from 'googleapis';
 import { getTasks, TASKS_LIST_FETCH_REVISION, type TaskRecord } from '@/lib/airtable/tasks';
 import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
 import { refreshAccessToken } from '@/lib/google/oauth';
+import { getEffectiveImportantDomains } from '@/lib/personalContext';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,7 +53,7 @@ export interface WorkItem {
 // Helpers — Google fetch
 // ============================================================================
 
-interface CalEvent {
+export interface CalEvent {
   id: string;
   summary: string;
   start: string;
@@ -63,7 +64,7 @@ interface CalEvent {
   htmlLink?: string;
 }
 
-async function fetchCalendarRange(accessToken: string, timeMin: string, timeMax: string): Promise<{ events: CalEvent[]; error?: string }> {
+export async function fetchCalendarRange(accessToken: string, timeMin: string, timeMax: string): Promise<{ events: CalEvent[]; error?: string }> {
   const calendar = google.calendar({ version: 'v3' });
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: accessToken });
@@ -1066,9 +1067,8 @@ export async function GET(request: NextRequest) {
     const existingThreadUrls = new Set<string>();
     for (const t of tasks) if (t.threadUrl) existingThreadUrls.add(t.threadUrl);
 
-    const envImportantSenders = (process.env.CC_IMPORTANT_SENDERS || '')
-      .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-    const importantDomains = Array.from(new Set([...DEFAULT_IMPORTANT_SENDER_DOMAINS, ...envImportantSenders]));
+    // Pulled from context/personal/senders.md + CC_IMPORTANT_SENDERS env override.
+    const importantDomains = await getEffectiveImportantDomains();
 
     try {
       let refreshToken: string | undefined;

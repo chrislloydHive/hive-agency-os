@@ -7,6 +7,7 @@
 
 import { fetchWithRetry } from './client';
 import { resolveTasksBaseId } from './bases';
+import { logEventAsync, summarizeTaskUpdate, type ActivityAction } from './activityLog';
 
 // ============================================================================
 // Constants
@@ -295,7 +296,34 @@ export async function createTask(input: CreateTaskInput): Promise<TaskRecord> {
   }
 
   const record = await response.json();
-  return mapRecordToTask(record);
+  const task = mapRecordToTask(record);
+
+  // Fire-and-forget: never blocks the mutation return.
+  const summaryParts: string[] = [];
+  if (task.priority) summaryParts.push(task.priority);
+  if (task.due) summaryParts.push(`due ${task.due}`);
+  if (task.project) summaryParts.push(task.project);
+  const summaryTail = summaryParts.length ? ` (${summaryParts.join(', ')})` : '';
+  logEventAsync({
+    actorType: 'system',
+    actor: 'api',
+    action: 'task.created',
+    entityType: 'task',
+    entityId: task.id,
+    entityTitle: task.task,
+    summary: `Task created: ${task.task}${summaryTail}`,
+    metadata: {
+      priority: task.priority,
+      due: task.due,
+      status: task.status,
+      view: task.view,
+      project: task.project,
+      from: task.from,
+    },
+    source: 'lib/airtable/tasks#createTask',
+  });
+
+  return task;
 }
 
 /**
@@ -319,16 +347,66 @@ export async function updateTask(recordId: string, input: UpdateTaskInput): Prom
   }
 
   const record = await response.json();
-  return mapRecordToTask(record);
+  const task = mapRecordToTask(record);
+
+  // Pick the most descriptive action for the event stream:
+  //   status → Done  ⇒ task.completed
+  //   status changed ⇒ task.status-changed
+  //   otherwise      ⇒ task.updated
+  let action: ActivityAction = 'task.updated';
+  if (typeof input.status === 'string') {
+    action = input.status === 'Done' ? 'task.completed' : 'task.status-changed';
+  }
+
+  const { summary, changedFields } = summarizeTaskUpdate(task.task, input as Record<string, unknown>);
+
+  logEventAsync({
+    actorType: 'system',
+    actor: 'api',
+    action,
+    entityType: 'task',
+    entityId: task.id,
+    entityTitle: task.task,
+    summary,
+    metadata: {
+      changedFields,
+      input,
+      after: {
+        priority: task.priority,
+        due: task.due,
+        status: task.status,
+        project: task.project,
+      },
+    },
+    source: 'lib/airtable/tasks#updateTask',
+  });
+
+  return task;
 }
 
 /**
  * Delete a task by record ID.
+ *
+ * Best-effort fetch first so the event-log row includes the task title.
+ * If the GET fails (race, permission glitch), we still proceed with the
+ * delete and log without a title — the deletion itself is what matters.
  */
 export async function deleteTask(recordId: string): Promise<void> {
   const baseId = tasksBaseIdOrThrow();
   const tableId = getTasksTableIdentifier();
   const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}/${recordId}`;
+
+  // Pre-fetch title for the audit log. Never fail the delete over a read error.
+  let priorTitle: string | undefined;
+  try {
+    const pre = await fetchWithRetry(url, { method: 'GET' });
+    if (pre.ok) {
+      const rec = await pre.json();
+      priorTitle = rec?.fields?.[TASK_FIELDS.TASK] || undefined;
+    }
+  } catch {
+    // swallow — title is a nice-to-have
+  }
 
   const response = await fetchWithRetry(url, {
     method: 'DELETE',
@@ -338,4 +416,17 @@ export async function deleteTask(recordId: string): Promise<void> {
     const errorText = await response.text();
     throw new Error(`Airtable API error deleting task (${response.status}): ${errorText}`);
   }
+
+  logEventAsync({
+    actorType: 'system',
+    actor: 'api',
+    action: 'task.deleted',
+    entityType: 'task',
+    entityId: recordId,
+    entityTitle: priorTitle,
+    summary: priorTitle
+      ? `Task deleted: "${priorTitle}"`
+      : `Task deleted: ${recordId}`,
+    source: 'lib/airtable/tasks#deleteTask',
+  });
 }
