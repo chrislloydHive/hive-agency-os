@@ -9,7 +9,7 @@ export const BASES = {
   INBOUND: process.env.AIRTABLE_INBOUND_BASE_ID ?? '',
   /** Optional: Command Center / lib/airtable/tasks when Tasks live outside OS base */
   TASKS: process.env.AIRTABLE_TASKS_BASE_ID ?? '',
-  /** Optional: Activity Log — event stream for the personal OS. Falls back to OS base. */
+  /** Optional: Activity Log base — see {@link resolveActivityLogBaseId}. */
   ACTIVITY_LOG: process.env.AIRTABLE_ACTIVITY_LOG_BASE_ID ?? '',
   /**
    * Optional: GAP-IA Run / GAP-Plan Run tables.
@@ -47,10 +47,20 @@ export function resolveTasksBaseId(): string {
   return resolveOsBaseId();
 }
 
-/** Activity Log table (event stream): dedicated base, else same as OS */
+/**
+ * Base containing the Activity Log table.
+ *
+ * Order: `AIRTABLE_ACTIVITY_LOG_BASE_ID` → `AIRTABLE_DB_BASE_ID` → OS base.
+ * Hive setups usually put Activity Log in the DB base with Tasks; the PM OS base
+ * often has no table or no token access → 403 if we only used OS.
+ * If your log lives only in OS but `AIRTABLE_DB_BASE_ID` is set for other data,
+ * set `AIRTABLE_ACTIVITY_LOG_BASE_ID` to the OS base id explicitly.
+ */
 export function resolveActivityLogBaseId(): string {
-  const a = BASES.ACTIVITY_LOG.trim();
-  if (a) return a;
+  const explicit = BASES.ACTIVITY_LOG.trim();
+  if (explicit) return explicit;
+  const db = process.env.AIRTABLE_DB_BASE_ID?.trim();
+  if (db) return db;
   return resolveOsBaseId();
 }
 
