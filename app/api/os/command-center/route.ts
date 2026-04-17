@@ -161,7 +161,7 @@ async function fetchMyEmail(accessToken: string): Promise<string | null> {
   try {
     return await getGoogleAccountEmail(accessToken);
   } catch (err) {
-    console.error('[Command Center] Gmail profile error:', err);
+    console.error('[Command Center] Gmail account email error:', err);
     return null;
   }
 }

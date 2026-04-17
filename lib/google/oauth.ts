@@ -184,14 +184,28 @@ export async function refreshAccessToken(
 
 /**
  * Email address for the Google account behind this access token.
- * Uses Gmail `users.getProfile` so it works with our OAuth scopes (gmail.*, drive, calendar).
- * The OAuth2 userinfo endpoint requires `openid` / `userinfo.*` scopes, which we do not request.
+ * Calls Gmail `users.getProfile` (not OAuth2 userinfo — we don't request openid/userinfo scopes).
+ *
+ * Uses `fetch` + `Authorization: Bearer` so credentials always attach. A bare
+ * `new google.auth.OAuth2()` without client id/secret can omit the header and yield 401.
  */
 export async function getGoogleAccountEmail(accessToken: string): Promise<string | null> {
-  if (!accessToken?.trim()) return null;
-  const auth = new google.auth.OAuth2();
-  auth.setCredentials({ access_token: accessToken });
-  const gmail = google.gmail({ version: 'v1', auth });
-  const res = await gmail.users.getProfile({ userId: 'me' });
-  return res.data.emailAddress ?? null;
+  const t = typeof accessToken === 'string' ? accessToken.trim() : '';
+  if (!t) return null;
+
+  const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+    headers: {
+      Authorization: `Bearer ${t}`,
+      Accept: 'application/json',
+    },
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Gmail getProfile HTTP ${res.status}: ${body.slice(0, 400)}`);
+  }
+
+  const data = (await res.json()) as { emailAddress?: string };
+  return data.emailAddress ?? null;
 }
