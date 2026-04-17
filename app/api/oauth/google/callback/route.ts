@@ -2,8 +2,7 @@
 // Google OAuth callback — exchanges code, stores tokens in Airtable, redirects.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { google } from 'googleapis';
-import { exchangeCodeForTokens, getAppBaseUrl } from '@/lib/google/oauth';
+import { exchangeCodeForTokens, getAppBaseUrl, getGoogleAccountEmail } from '@/lib/google/oauth';
 import { verifyState } from '@/lib/oauth/state';
 import { upsertCompanyGoogleTokens } from '@/lib/airtable/companyIntegrations';
 
@@ -76,17 +75,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Fetch connected email via userinfo
+    // Gmail profile email (OAuth2 userinfo needs openid/userinfo scopes we do not request)
     let connectedEmail: string | undefined;
     try {
-      const clientId = process.env.GOOGLE_CLIENT_ID!;
-      const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
-      const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-      oauth2Client.setCredentials({ access_token: tokens.accessToken });
-
-      const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
-      const userInfo = await oauth2.userinfo.get();
-      connectedEmail = userInfo.data.email || undefined;
+      connectedEmail = (await getGoogleAccountEmail(tokens.accessToken)) ?? undefined;
     } catch {
       console.warn('[OAuth Google Callback] Could not fetch user email');
     }

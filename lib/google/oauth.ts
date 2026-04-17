@@ -181,3 +181,17 @@ export async function refreshAccessToken(
 
   return token;
 }
+
+/**
+ * Email address for the Google account behind this access token.
+ * Uses Gmail `users.getProfile` so it works with our OAuth scopes (gmail.*, drive, calendar).
+ * The OAuth2 userinfo endpoint requires `openid` / `userinfo.*` scopes, which we do not request.
+ */
+export async function getGoogleAccountEmail(accessToken: string): Promise<string | null> {
+  if (!accessToken?.trim()) return null;
+  const auth = new google.auth.OAuth2();
+  auth.setCredentials({ access_token: accessToken });
+  const gmail = google.gmail({ version: 'v1', auth });
+  const res = await gmail.users.getProfile({ userId: 'me' });
+  return res.data.emailAddress ?? null;
+}

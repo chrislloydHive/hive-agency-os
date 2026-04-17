@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
 import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
-import { refreshAccessToken } from '@/lib/google/oauth';
+import { refreshAccessToken, getGoogleAccountEmail } from '@/lib/google/oauth';
 import { getIdentity, getVoice, getVoiceRulesBlock } from '@/lib/personalContext';
 import { logEventAsync } from '@/lib/airtable/activityLog';
 
@@ -106,16 +106,15 @@ export async function POST(req: NextRequest) {
 
     const { name: fromName, email: fromEmail } = parseEmailHeader(fromHeader);
 
-    // Fetch my email address for From header + identity + voice from context/personal
-    const oauth2 = google.oauth2({ version: 'v2', auth });
-    const [me, identity, voice, voiceRules] = await Promise.all([
-      oauth2.userinfo.get(),
+    // Gmail profile (not OAuth2 userinfo — our scopes include gmail.* only)
+    const [profileEmail, identity, voice, voiceRules] = await Promise.all([
+      getGoogleAccountEmail(accessToken),
       getIdentity(),
       getVoice(),
       getVoiceRulesBlock(),
     ]);
-    const myEmail = me.data.email || identity.email;
-    const myName = me.data.name || identity.name;
+    const myEmail = profileEmail || identity.email;
+    const myName = identity.name;
 
     // AI-generate reply body
     const instructionsBlock = customInstructions

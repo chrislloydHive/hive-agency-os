@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { updateGoogleTokensForCompany } from '@/lib/airtable/companyIntegrations';
-import { getAppBaseUrl } from '@/lib/google/oauth';
+import { getAppBaseUrl, getGoogleAccountEmail } from '@/lib/google/oauth';
 
 /**
  * GET /api/integrations/google/callback
@@ -99,14 +99,10 @@ export async function GET(request: NextRequest) {
       // Still proceed - we may have an access token we can use short-term
     }
 
-    // Get user email from token info
     let connectedEmail: string | undefined;
     if (tokens.access_token) {
       try {
-        oauth2Client.setCredentials(tokens);
-        const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
-        const userInfo = await oauth2.userinfo.get();
-        connectedEmail = userInfo.data.email || undefined;
+        connectedEmail = (await getGoogleAccountEmail(tokens.access_token)) ?? undefined;
         console.log(`[Google OAuth Callback] Connected as ${connectedEmail}`);
       } catch (e) {
         console.warn('[Google OAuth Callback] Could not fetch user email:', e);

@@ -16,7 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { getTasks, TASKS_LIST_FETCH_REVISION, type TaskRecord } from '@/lib/airtable/tasks';
 import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
-import { refreshAccessToken } from '@/lib/google/oauth';
+import { refreshAccessToken, getGoogleAccountEmail } from '@/lib/google/oauth';
 import { getEffectiveImportantDomains } from '@/lib/personalContext';
 
 export const dynamic = 'force-dynamic';
@@ -159,13 +159,9 @@ async function fetchDriveRecent(accessToken: string, sinceDays = 14): Promise<Dr
 
 async function fetchMyEmail(accessToken: string): Promise<string | null> {
   try {
-    const auth = new google.auth.OAuth2();
-    auth.setCredentials({ access_token: accessToken });
-    const oauth2 = google.oauth2({ version: 'v2', auth });
-    const res = await oauth2.userinfo.get();
-    return res.data.email || null;
+    return await getGoogleAccountEmail(accessToken);
   } catch (err) {
-    console.error('[Command Center] userinfo error:', err);
+    console.error('[Command Center] Gmail profile error:', err);
     return null;
   }
 }

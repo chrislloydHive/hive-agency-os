@@ -29,7 +29,7 @@ import { google } from 'googleapis';
 import { updateTask, getTasks, type TaskRecord, type UpdateTaskInput } from '@/lib/airtable/tasks';
 import { logEventAsync } from '@/lib/airtable/activityLog';
 import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
-import { refreshAccessToken } from '@/lib/google/oauth';
+import { refreshAccessToken, getGoogleAccountEmail } from '@/lib/google/oauth';
 import { getIdentity } from '@/lib/personalContext';
 import { createDraftReply } from '@/lib/gmail/createDraftReply';
 
@@ -196,15 +196,13 @@ async function resolveGoogleAccessToken(companyId?: string): Promise<string> {
 async function resolveSenderIdentity(
   accessToken: string,
 ): Promise<{ myEmail: string; myName?: string }> {
-  const auth = new google.auth.OAuth2();
-  auth.setCredentials({ access_token: accessToken });
-  const [meResp, identity] = await Promise.all([
-    google.oauth2({ version: 'v2', auth }).userinfo.get(),
+  const [profileEmail, identity] = await Promise.all([
+    getGoogleAccountEmail(accessToken),
     getIdentity(),
   ]);
-  const myEmail = meResp.data.email || identity.email;
-  const myName = meResp.data.name || identity.name;
-  return { myEmail, myName: myName || undefined };
+  const myEmail = profileEmail || identity.email;
+  const myName = identity.name || undefined;
+  return { myEmail, myName };
 }
 
 async function createGmailDraftFor({
