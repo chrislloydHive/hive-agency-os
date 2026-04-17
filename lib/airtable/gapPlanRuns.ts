@@ -1,7 +1,7 @@
 // lib/airtable/gapPlanRuns.ts
 // GAP-Plan Run logging to Airtable
 
-import { createRecord, getAirtableConfig } from './client';
+import { createRecord, getGapRunsAirtableConfig, getGapRunsLazyBase } from './client';
 import { airtableFetch } from './airtableFetch';
 import { AIRTABLE_TABLES, getTableName } from './tables';
 import type { GapPlanRun } from '@/lib/gap/types';
@@ -60,6 +60,7 @@ export async function logGapPlanRunToAirtable(
       'GAP_PLAN_RUN',
       'AIRTABLE_GAP_PLAN_RUN_TABLE'
     );
+    const gapBaseId = getGapRunsAirtableConfig().baseId;
 
     console.log('[GAP-Plan Run] Logging to Airtable:', {
       tableName,
@@ -78,8 +79,8 @@ export async function logGapPlanRunToAirtable(
     // First, check what fields exist in the table by fetching a sample record
     let availableFields: Set<string> = new Set();
     try {
-      const { base } = await import('./client');
-      const sampleRecords = await base(tableName).select({ maxRecords: 1 }).firstPage();
+      const { getGapRunsLazyBase: gapBase } = await import('./client');
+      const sampleRecords = await gapBase()(tableName).select({ maxRecords: 1 }).firstPage();
       if (sampleRecords.length > 0) {
         availableFields = new Set(Object.keys(sampleRecords[0].fields));
         console.log('[GAP-Plan Run] Available fields:', Array.from(availableFields));
@@ -334,7 +335,7 @@ export async function logGapPlanRunToAirtable(
     });
     
     try {
-      const result = await createRecord(tableName, fields);
+      const result = await createRecord(tableName, fields, gapBaseId);
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
 
       const recordId = result?.id || result?.records?.[0]?.id;
@@ -380,7 +381,7 @@ export async function logGapPlanRunToAirtable(
 
         console.log('[GAP-Plan Run] 🔄 Attempting fallback save with fields:', Object.keys(minimalFields));
         try {
-          const fallbackResult = await createRecord(tableName, minimalFields);
+          const fallbackResult = await createRecord(tableName, minimalFields, gapBaseId);
           const fallbackRecordId = fallbackResult?.id || fallbackResult?.records?.[0]?.id;
           console.log('[GAP-Plan Run] ✅ Fallback save succeeded:', fallbackRecordId);
           return fallbackRecordId || null;
@@ -394,7 +395,7 @@ export async function logGapPlanRunToAirtable(
             const lastResortResult = await createRecord(tableName, {
               'URL': payload.url,
               'Status': 'completed',
-            });
+            }, gapBaseId);
             const lastResortId = lastResortResult?.id || lastResortResult?.records?.[0]?.id;
             console.log('[GAP-Plan Run] ✅ Last-resort save succeeded:', lastResortId);
             console.warn('[GAP-Plan Run] ⚠️ Record saved but missing Company ID - will not appear in OS Reports');
@@ -434,7 +435,7 @@ export async function listRecentGapPlanRuns(limit: number = 20): Promise<GapPlan
     const tableName = getTableName('GAP_PLAN_RUN', 'AIRTABLE_GAP_PLAN_RUN_TABLE');
     console.log('[GAP-Plan Run] Listing recent runs, limit:', limit, 'table:', tableName);
 
-    const config = getAirtableConfig();
+    const config = getGapRunsAirtableConfig();
     const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(
       tableName
     )}?maxRecords=${limit}&sort[0][field]=Created%20At&sort[0][direction]=desc&filterByFormula=${encodeURIComponent('NOT({Archived})')}`;
@@ -511,12 +512,11 @@ export async function getGapPlanRunsForCompany(
     const tableName = getTableName('GAP_PLAN_RUN', 'AIRTABLE_GAP_PLAN_RUN_TABLE');
     console.log('[GAP-Plan Run] Fetching runs for company:', companyId, 'table:', tableName);
 
-    // Use Airtable SDK for better linked record support
-    const { base } = await import('./client');
+    const { getGapRunsLazyBase } = await import('./client');
 
     // Fetch more records than needed and filter client-side
     // since Airtable's ARRAYJOIN doesn't work reliably with linked records
-    const allRecords = await base(tableName)
+    const allRecords = await getGapRunsLazyBase()(tableName)
       .select({
         maxRecords: 100,
         sort: [{ field: 'Created At', direction: 'desc' }],
@@ -592,11 +592,10 @@ export async function getGapPlanRunsForCompanyOrDomain(
     const tableName = getTableName('GAP_PLAN_RUN', 'AIRTABLE_GAP_PLAN_RUN_TABLE');
     console.log('[GAP-Plan Run] Fetching runs for company/domain:', { companyId, domain, table: tableName });
 
-    // Use Airtable SDK for better linked record support
-    const { base } = await import('./client');
+    const { getGapRunsLazyBase } = await import('./client');
 
     // Fetch recent records
-    const allRecords = await base(tableName)
+    const allRecords = await getGapRunsLazyBase()(tableName)
       .select({
         maxRecords: 100,
         sort: [{ field: 'Created At', direction: 'desc' }],
@@ -694,9 +693,9 @@ export async function getGapPlanRunById(runId: string): Promise<GapPlanRun | nul
     const tableName = getTableName('GAP_PLAN_RUN', 'AIRTABLE_GAP_PLAN_RUN_TABLE');
     console.log('[GAP-Plan Run] Fetching run by ID:', runId, 'table:', tableName);
 
-    const { base } = await import('./client');
+    const { getGapRunsLazyBase } = await import('./client');
 
-    const record = await base(tableName).find(runId);
+    const record = await getGapRunsLazyBase()(tableName).find(runId);
 
     if (!record) {
       console.log('[GAP-Plan Run] No record found for ID:', runId);

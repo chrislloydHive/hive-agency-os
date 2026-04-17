@@ -3,7 +3,7 @@
 
 import { inngest } from '../client';
 import { getGapIaRunById, updateGapIaRun } from '@/lib/airtable/gapIaRuns';
-import { createRecord, updateRecord } from '@/lib/airtable/client';
+import { createRecord, updateRecord, getGapRunsAirtableConfig } from '@/lib/airtable/client';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { generateLightFullGapFromIa } from '@/lib/growth-plan/generateLightFullGapFromIa';
 import { reviewFullGap } from '@/lib/growth-plan/reviewFullGap';
@@ -33,7 +33,11 @@ async function createGapPlanRun(params: {
     Status: 'processing',
   };
 
-  const result = await createRecord(AIRTABLE_TABLES.GAP_PLAN_RUN, fields);
+  const result = await createRecord(
+    AIRTABLE_TABLES.GAP_PLAN_RUN,
+    fields,
+    getGapRunsAirtableConfig().baseId,
+  );
 
   if (!result?.id) {
     throw new Error('Failed to create GAP-Plan Run record');
@@ -112,7 +116,13 @@ async function updateGapPlanRunComplete(
   if (params.authorityScore !== undefined) fields['Authority Score'] = params.authorityScore;
   if (params.maturityStage) fields['Maturity Stage'] = params.maturityStage;
 
-  await updateRecord(AIRTABLE_TABLES.GAP_PLAN_RUN, gapPlanRunId, fields);
+  await updateRecord(
+    AIRTABLE_TABLES.GAP_PLAN_RUN,
+    gapPlanRunId,
+    fields,
+    undefined,
+    getGapRunsAirtableConfig().baseId,
+  );
 }
 
 /**
@@ -131,7 +141,13 @@ async function updateGapPlanRunError(
   const dataJson = { error: errorMessage };
   fields['Data JSON'] = JSON.stringify(dataJson);
 
-  await updateRecord(AIRTABLE_TABLES.GAP_PLAN_RUN, gapPlanRunId, fields);
+  await updateRecord(
+    AIRTABLE_TABLES.GAP_PLAN_RUN,
+    gapPlanRunId,
+    fields,
+    undefined,
+    getGapRunsAirtableConfig().baseId,
+  );
 }
 
 // ============================================================================
@@ -530,9 +546,15 @@ export const generateFullGap = inngest.createFunction(
     await step.run('save-refined-markdown', async () => {
       console.log('[inngest:generate-full-gap] Saving refined markdown to database...');
 
-      await updateRecord(AIRTABLE_TABLES.GAP_PLAN_RUN, gapPlanRunId, {
-        'Full GAP Markdown': refinedMarkdown,
-      });
+      await updateRecord(
+        AIRTABLE_TABLES.GAP_PLAN_RUN,
+        gapPlanRunId,
+        {
+          'Full GAP Markdown': refinedMarkdown,
+        },
+        undefined,
+        getGapRunsAirtableConfig().baseId,
+      );
 
       console.log('[inngest:generate-full-gap] Markdown saved');
     });

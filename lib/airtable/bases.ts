@@ -11,6 +11,11 @@ export const BASES = {
   TASKS: process.env.AIRTABLE_TASKS_BASE_ID ?? '',
   /** Optional: Activity Log — event stream for the personal OS. Falls back to OS base. */
   ACTIVITY_LOG: process.env.AIRTABLE_ACTIVITY_LOG_BASE_ID ?? '',
+  /**
+   * Optional: GAP-IA Run / GAP-Plan Run tables.
+   * When unset, {@link resolveGapRunsBaseId} uses Hive DB then OS (see that function).
+   */
+  GAP_RUNS: process.env.AIRTABLE_GAP_RUNS_BASE_ID ?? '',
 } as const;
 
 /** OS / primary Hive base */
@@ -46,5 +51,20 @@ export function resolveTasksBaseId(): string {
 export function resolveActivityLogBaseId(): string {
   const a = BASES.ACTIVITY_LOG.trim();
   if (a) return a;
+  return resolveOsBaseId();
+}
+
+/**
+ * Base that contains `GAP-IA Run` and `GAP-Plan Run`.
+ *
+ * Order: `AIRTABLE_GAP_RUNS_BASE_ID` → `AIRTABLE_DB_BASE_ID` → OS base.
+ * Hive deployments often store GAP runs in the DB base while PM/OS uses a different base;
+ * listing against OS only yields 403 if those tables are not in the OS base.
+ */
+export function resolveGapRunsBaseId(): string {
+  const explicit = BASES.GAP_RUNS.trim();
+  if (explicit) return explicit;
+  const db = process.env.AIRTABLE_DB_BASE_ID?.trim();
+  if (db) return db;
   return resolveOsBaseId();
 }

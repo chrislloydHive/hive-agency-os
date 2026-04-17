@@ -1,9 +1,10 @@
 // lib/airtable/client.ts
 // Airtable client with edge-compatible fetch-based helpers
 
+import Airtable from 'airtable';
 import { getBase } from '@/lib/airtable';
 import { airtableFetch } from '@/lib/airtable/airtableFetch';
-import { resolveOsBaseId } from '@/lib/airtable/bases';
+import { resolveGapRunsBaseId, resolveOsBaseId } from '@/lib/airtable/bases';
 
 // ============================================================================
 // Custom Error Classes
@@ -113,6 +114,31 @@ export function getAirtableConfig(): AirtableConfig {
   }
 
   return { apiKey, baseId };
+}
+
+/**
+ * API key + base id for `GAP-IA Run` / `GAP-Plan Run` (see resolveGapRunsBaseId).
+ */
+export function getGapRunsAirtableConfig(): AirtableConfig {
+  const apiKey = process.env.AIRTABLE_API_KEY ?? '';
+  const baseId = resolveGapRunsBaseId();
+  if (!apiKey || !baseId) {
+    throw new Error(
+      'Airtable not configured for GAP runs. Set AIRTABLE_API_KEY and AIRTABLE_GAP_RUNS_BASE_ID, AIRTABLE_DB_BASE_ID, or AIRTABLE_OS_BASE_ID / AIRTABLE_BASE_ID.',
+    );
+  }
+  return { apiKey, baseId };
+}
+
+let _gapRunsBase: Airtable.Base | null = null;
+
+/** Airtable.js base handle for GAP run tables (same base as getGapRunsAirtableConfig). */
+export function getGapRunsLazyBase(): Airtable.Base {
+  if (!_gapRunsBase) {
+    const cfg = getGapRunsAirtableConfig();
+    _gapRunsBase = new Airtable({ apiKey: cfg.apiKey }).base(cfg.baseId);
+  }
+  return _gapRunsBase;
 }
 
 /**
@@ -263,11 +289,13 @@ export async function updateRecord(
   tableName: string,
   recordId: string,
   fields: Record<string, unknown>,
-  requestId?: string | null
+  requestId?: string | null,
+  baseIdOverride?: string
 ): Promise<any> {
   const config = getAirtableConfig();
+  const baseId = baseIdOverride ?? config.baseId;
 
-  const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(
     tableName
   )}/${recordId}`;
 

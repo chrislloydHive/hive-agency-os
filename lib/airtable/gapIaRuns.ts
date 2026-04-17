@@ -4,7 +4,7 @@
 import {
   createRecord,
   updateRecord,
-  getAirtableConfig,
+  getGapRunsAirtableConfig,
   fetchWithRetry,
 } from '@/lib/airtable/client';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
@@ -364,7 +364,8 @@ export async function createGapIaRun(params: {
     });
 
     // Create record
-    const result = await createRecord(GAP_IA_RUN_TABLE, fields);
+    const gapBaseId = getGapRunsAirtableConfig().baseId;
+    const result = await createRecord(GAP_IA_RUN_TABLE, fields, gapBaseId);
 
     console.log('[gapIaRuns] createRecord response:', {
       result,
@@ -408,7 +409,7 @@ export async function getGapIaRunById(
   try {
     console.log('[gapIaRuns] Fetching GAP-IA Run:', id);
 
-    const config = getAirtableConfig();
+    const config = getGapRunsAirtableConfig();
 
     const url = `https://api.airtable.com/v0/${
       config.baseId
@@ -484,8 +485,8 @@ export async function updateGapIaRun(
       dataJsonLength: fields['Data JSON'] ? (fields['Data JSON'] as string).length : 0,
     });
 
-    // Update record
-    await updateRecord(GAP_IA_RUN_TABLE, id, fields);
+    const gapBaseId = getGapRunsAirtableConfig().baseId;
+    await updateRecord(GAP_IA_RUN_TABLE, id, fields, undefined, gapBaseId);
 
     console.log('[gapIaRuns] Updated GAP-IA Run:', id);
 
@@ -511,7 +512,7 @@ export async function listRecentGapIaRuns(limit: number = 20): Promise<GapIaRun[
   try {
     console.log('[gapIaRuns] Listing recent GAP-IA Runs, limit:', limit);
 
-    const config = getAirtableConfig();
+    const config = getGapRunsAirtableConfig();
     const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(
       GAP_IA_RUN_TABLE
     )}?maxRecords=${limit}&sort[0][field]=Created%20At&sort[0][direction]=desc&filterByFormula=${encodeURIComponent('NOT({Archived})')}`;
@@ -555,7 +556,7 @@ export async function getGapIaRunByUrl(
       promptVersion,
     });
 
-    const config = getAirtableConfig();
+    const config = getGapRunsAirtableConfig();
 
     // Query for runs matching normalizedUrl in Data JSON
     // We'll filter client-side since Airtable formula string matching is complex
@@ -620,7 +621,7 @@ export async function getGapIaRunsForCompany(
   try {
     console.log('[gapIaRuns] Fetching runs for company:', companyId);
 
-    const config = getAirtableConfig();
+    const config = getGapRunsAirtableConfig();
 
     // Fetch recent runs and filter client-side
     const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(
@@ -667,7 +668,7 @@ export async function getGapIaRunsForCompanyOrDomain(
   try {
     console.log('[gapIaRuns] Fetching runs for company/domain:', { companyId, domain });
 
-    const config = getAirtableConfig();
+    const config = getGapRunsAirtableConfig();
 
     // Fetch recent runs
     const url = `https://api.airtable.com/v0/${config.baseId}/${encodeURIComponent(
