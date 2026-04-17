@@ -20,7 +20,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { google } from 'googleapis';
-import { fetchTriageInbox, type TriageItem } from '@/app/api/os/command-center/route';
+import { fetchTriageInbox, type TriageItem } from '@/lib/os/commandCenterGoogle';
 import { getTasks, createTask } from '@/lib/airtable/tasks';
 import type { TaskPriority, TaskStatus, TaskRecord } from '@/lib/airtable/tasks';
 import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';

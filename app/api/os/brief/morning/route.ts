@@ -43,7 +43,7 @@ import {
   fetchCalendarRange,
   type TriageItem,
   type CalEvent,
-} from '@/app/api/os/command-center/route';
+} from '@/lib/os/commandCenterGoogle';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -421,7 +421,7 @@ export async function GET(req: NextRequest) {
 
     // Single-line log so Vercel "Search logs" finds it (avoid quoted multi-arg / console.info quirks).
     console.log(
-      `[brief/morning] build=2026-04-17c company=${companyId ? companyId.slice(0, 10) : 'none'} googleToken=${accessToken ? 'yes' : 'no'}`,
+      `[brief/morning] build=2026-04-17d company=${companyId ? companyId.slice(0, 10) : 'none'} googleToken=${accessToken ? 'yes' : 'no'}`,
     );
 
     logEventAsync({
@@ -447,7 +447,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(brief, {
       headers: {
         'Cache-Control': 'private, no-store, max-age=0, must-revalidate',
-        'X-Hive-Morning-Brief': '2026-04-17c',
+        'X-Hive-Morning-Brief': '2026-04-17d',
       },
     });
   } catch (err) {
