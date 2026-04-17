@@ -98,7 +98,14 @@ function formatTime(iso: string): string {
   }
 }
 
-export function MorningBrief({ onEdit }: { onEdit: (taskId: string) => void }) {
+export function MorningBrief({
+  onEdit,
+  companyId,
+}: {
+  onEdit: (taskId: string) => void;
+  /** Same id as Command Center (`/api/os/command-center?companyId=`) so Google token resolution matches. */
+  companyId: string;
+}) {
   const [data, setData] = useState<MorningBriefData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +117,9 @@ export function MorningBrief({ onEdit }: { onEdit: (taskId: string) => void }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/os/brief/morning', { cache: 'no-store' });
+      const qs = new URLSearchParams();
+      if (companyId) qs.set('companyId', companyId);
+      const res = await fetch(`/api/os/brief/morning?${qs.toString()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`Brief request failed: ${res.status}`);
       const json: MorningBriefData = await res.json();
       setData(json);
@@ -123,7 +132,7 @@ export function MorningBrief({ onEdit }: { onEdit: (taskId: string) => void }) {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [companyId]);
 
   /**
    * Called by a focus row after Apply succeeds. We deliberately DON'T reload

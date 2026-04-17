@@ -265,7 +265,11 @@ async function getGoogleAccessToken(companyId: string | null): Promise<string | 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const companyId = searchParams.get('companyId');
+    const param = searchParams.get('companyId');
+    const companyId =
+      param && param !== 'default'
+        ? param
+        : process.env.DMA_DEFAULT_COMPANY_ID?.trim() || null;
     const now = new Date();
 
     // ── Tasks + derived surfaces ──────────────────────────────────────────

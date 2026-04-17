@@ -787,7 +787,7 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
         </div>
 
         {/* Morning brief: one-shot summary across focus, overdue, risks, inbox, calendar. */}
-        <MorningBrief onEdit={handleEdit} />
+        <MorningBrief onEdit={handleEdit} companyId={companyId} />
 
         {/* FocusStrip + RiskStrip removed: the Morning Brief surfaces the same
             focus ranking + overdue/risk data in a single card. Keeping these
