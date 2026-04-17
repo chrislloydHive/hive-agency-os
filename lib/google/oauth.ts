@@ -175,11 +175,18 @@ export async function refreshAccessToken(
 
   const { token } = await client.getAccessToken();
 
-  if (!token) {
-    throw new Error('Failed to refresh access token.');
-  }
+  const fromGet = typeof token === 'string' ? token.trim() : '';
+  if (fromGet) return fromGet;
 
-  return token;
+  // After refresh, the client often has the string on `credentials` even when
+  // `token` from getAccessToken() is oddly shaped.
+  const fromCreds =
+    typeof client.credentials.access_token === 'string'
+      ? client.credentials.access_token.trim()
+      : '';
+  if (fromCreds) return fromCreds;
+
+  throw new Error('Failed to refresh access token.');
 }
 
 /**

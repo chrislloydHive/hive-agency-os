@@ -161,7 +161,8 @@ async function fetchMyEmail(accessToken: string): Promise<string | null> {
   try {
     return await getGoogleAccountEmail(accessToken);
   } catch (err) {
-    console.error('[Command Center] Gmail account email error:', err);
+    // If logs still say "userinfo", the running server is an old build — deploy current main.
+    console.error('[Command Center] my-email (Gmail GET /gmail/v1/users/me/profile):', err);
     return null;
   }
 }
