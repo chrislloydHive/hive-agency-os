@@ -258,7 +258,14 @@ export function MorningBrief({
             </span>
           </div>
           {!data.calendar.fetched ? (
-            <p className="text-xs text-gray-500">Connect Google to see your calendar.</p>
+            data.calendar.error ? (
+              <p className="text-xs text-amber-400/90 break-words" title={data.calendar.error}>
+                Couldn’t load calendar: {data.calendar.error.slice(0, 180)}
+                {data.calendar.error.length > 180 ? '…' : ''}
+              </p>
+            ) : (
+              <p className="text-xs text-gray-500">Connect Google to see your calendar.</p>
+            )
           ) : data.calendar.remaining.length === 0 ? (
             <p className="text-xs text-gray-500">No more meetings today.</p>
           ) : (
@@ -365,7 +372,14 @@ export function MorningBrief({
             </span>
           </div>
           {!data.inbox.fetched ? (
-            <p className="text-xs text-gray-500">Connect Gmail to see emails needing reply.</p>
+            data.inbox.error ? (
+              <p className="text-xs text-amber-400/90 break-words" title={data.inbox.error}>
+                Couldn’t load inbox: {data.inbox.error.slice(0, 180)}
+                {data.inbox.error.length > 180 ? '…' : ''}
+              </p>
+            ) : (
+              <p className="text-xs text-gray-500">Connect Gmail to see emails needing reply.</p>
+            )
           ) : data.inbox.needsReply.length === 0 ? (
             <p className="text-xs text-gray-500">No high-signal emails waiting on you.</p>
           ) : (

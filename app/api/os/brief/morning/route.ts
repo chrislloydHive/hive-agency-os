@@ -344,7 +344,8 @@ export async function GET(req: NextRequest) {
 
       const [triageResult, calResult] = await Promise.allSettled([
         fetchTriageInbox(accessToken, existingThreadUrls, 14, importantDomains),
-        fetchCalendarRange(accessToken, now.toISOString(), todayEnd.toISOString()),
+        // Full local calendar day — using `now` as timeMin hid meetings earlier today.
+        fetchCalendarRange(accessToken, todayStart.toISOString(), todayEnd.toISOString()),
       ]);
 
       if (triageResult.status === 'fulfilled') {
@@ -418,6 +419,14 @@ export async function GET(req: NextRequest) {
       },
     };
 
+    console.info(
+      '[api/os/brief/morning] ok',
+      'companyId=',
+      companyId ? `${companyId.slice(0, 8)}…` : '(none)',
+      'google=',
+      !!accessToken,
+    );
+
     logEventAsync({
       actorType: 'user',
       actor: 'Chris',
@@ -438,7 +447,12 @@ export async function GET(req: NextRequest) {
       source: 'app/api/os/brief/morning',
     });
 
-    return NextResponse.json(brief);
+    return NextResponse.json(brief, {
+      headers: {
+        'Cache-Control': 'private, no-store, max-age=0, must-revalidate',
+        'X-Hive-Morning-Brief': '2026-04-17b',
+      },
+    });
   } catch (err) {
     console.error('[api/os/brief/morning] error:', err);
     return NextResponse.json(
