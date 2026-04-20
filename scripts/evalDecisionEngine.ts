@@ -273,6 +273,7 @@ async function buildInputForTask(
     nextAction: task.nextAction || '',
     notes: task.notes || '',
     threadUrl: task.threadUrl,
+    assignedTo: task.assignedTo || '',
     daysSinceCreated: daysSinceIso(task.createdAt, now),
     daysSinceLastMotion: daysSinceIso(
       activity.lastActions.length
