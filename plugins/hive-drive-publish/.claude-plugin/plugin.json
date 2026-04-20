@@ -1,0 +1,9 @@
+{
+  "name": "hive-drive-publish",
+  "version": "0.1.0",
+  "description": "Push documents created by Claude to Google Drive using Hive Agency branded templates. Supports briefs, SOWs, reports, and strategy docs.",
+  "author": {
+    "name": "Hive Agency"
+  },
+  "keywords": ["google-drive", "documents", "templates", "publishing"]
+}

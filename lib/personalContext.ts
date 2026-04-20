@@ -246,6 +246,41 @@ export async function getVoiceRulesBlock(): Promise<string> {
 }
 
 // ============================================================================
+// Drive publishing config
+// ============================================================================
+
+export interface DrivePublishConfig {
+  appsScriptUrl: string;
+  defaultFolderId: string;
+  /** Map of doc type → Google template doc ID */
+  templates: Record<string, string>;
+  /** Valid doc types */
+  docTypes: string[];
+}
+
+export async function getDrivePublishConfig(): Promise<DrivePublishConfig> {
+  const f = await loadFile('drive.md');
+  const fm = f.frontmatter;
+
+  const appsScriptUrl = typeof fm.apps_script_url === 'string' ? fm.apps_script_url : '';
+  const defaultFolderId = typeof fm.default_folder_id === 'string' ? fm.default_folder_id : '';
+  const docTypes = Array.isArray(fm.doc_types)
+    ? (fm.doc_types as unknown[]).map(String)
+    : ['brief', 'sow', 'report', 'strategy'];
+
+  // Build templates map from flat template_<type> keys
+  const templates: Record<string, string> = {};
+  for (const t of docTypes) {
+    const key = `template_${t}`;
+    if (typeof fm[key] === 'string' && fm[key]) {
+      templates[t] = fm[key] as string;
+    }
+  }
+
+  return { appsScriptUrl, defaultFolderId, templates, docTypes };
+}
+
+// ============================================================================
 // Test / debug
 // ============================================================================
 
