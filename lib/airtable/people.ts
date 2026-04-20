@@ -8,9 +8,28 @@
 //
 // Used for resolving task owners to real People records.
 
-import { base } from './client';
+import Airtable from 'airtable';
 
 const PEOPLE_TABLE = process.env.AIRTABLE_PEOPLE_TABLE || 'People';
+
+/**
+ * The People table lives in the PM OS base, not the Hive DB base.
+ * We need a separate Airtable base connection for cross-base reads.
+ */
+function getPeopleBase(): Airtable.Base {
+  const apiKey = process.env.AIRTABLE_API_KEY ?? '';
+  const baseId = process.env.AIRTABLE_PM_OS_BASE_ID?.trim() || 'appQLwoVH8JyGSTIo';
+  if (!apiKey) {
+    throw new Error('AIRTABLE_API_KEY is required for People table access');
+  }
+  return new Airtable({ apiKey }).base(baseId);
+}
+
+let _peopleBase: Airtable.Base | null = null;
+function base(table: string) {
+  if (!_peopleBase) _peopleBase = getPeopleBase();
+  return _peopleBase(table);
+}
 
 // ============================================================================
 // Types
@@ -20,6 +39,7 @@ export interface PersonRecord {
   id: string;       // Airtable record ID
   name: string;     // Person (primary field)
   email?: string;   // Email field
+  role?: string;    // Role (Client, Media, Creative, Ops, etc.)
   isActive: boolean;
 }
 
@@ -38,6 +58,7 @@ function mapRecordToPerson(record: any): PersonRecord {
     id: record.id,
     name: fields['Person'] || fields['Name'] || '',
     email: fields['Email'] || undefined,
+    role: fields['Role'] || undefined,
     isActive: fields['Is Active'] === true,
   };
 }

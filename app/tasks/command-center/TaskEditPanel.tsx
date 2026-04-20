@@ -27,8 +27,16 @@ interface TaskRecord {
   status: TaskStatus;
   threadUrl: string | null;
   notes: string;
+  assignedTo: string;
   createdAt: string | null;
   lastModified: string | null;
+}
+
+interface PersonOption {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
 }
 
 const STATUS_OPTIONS: TaskStatus[] = ['Inbox', 'Next', 'Waiting', 'Done', 'Archive'];
@@ -72,6 +80,16 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
   const [nextAction, setNextAction] = useState('');
   const [notes, setNotes] = useState('');
   const [project, setProject] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
+
+  // People directory for the Assigned To dropdown
+  const [people, setPeople] = useState<PersonOption[]>([]);
+  useEffect(() => {
+    fetch('/api/os/people')
+      .then(r => r.ok ? r.json() : { people: [] })
+      .then(d => setPeople(d.people || []))
+      .catch(() => {});
+  }, []);
 
   const isCreate = mode === 'create';
   const open = isCreate ? !!prefill : !!taskId;
@@ -91,6 +109,7 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
       setNextAction(t.nextAction || '');
       setNotes(t.notes || '');
       setProject(t.project || '');
+      setAssignedTo(t.assignedTo || '');
       setDirty(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load task');
@@ -128,6 +147,7 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
       notes,
       due: due || null,
       project: project || undefined,
+      assignedTo: assignedTo || null,
       // Keep Airtable's Done checkbox in sync with Status. Status remains the
       // source of truth (see excludeDone filter), but some views still read
       // the Done field — mirror it here so the two never disagree.
@@ -135,7 +155,7 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
     };
     if (priority) body.priority = priority;
     return body;
-  }, [taskTitle, status, nextAction, notes, due, project, priority]);
+  }, [taskTitle, status, nextAction, notes, due, project, priority, assignedTo]);
 
   const persistEdit = useCallback(async () => {
     if (!task || isCreate) return;
@@ -337,6 +357,20 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
                   onChange={e => mark(setDue)(e.target.value)}
                   className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm text-gray-100 focus:outline-none focus:border-white/30"
                 />
+              </div>
+
+              <div>
+                <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Assigned To</label>
+                <select
+                  value={assignedTo}
+                  onChange={e => mark(setAssignedTo)(e.target.value)}
+                  className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm text-gray-100 focus:outline-none focus:border-white/30"
+                >
+                  <option value="">— unassigned —</option>
+                  {people.map(p => (
+                    <option key={p.id} value={p.name}>{p.name}{p.role ? ` (${p.role})` : ''}</option>
+                  ))}
+                </select>
               </div>
 
               <div>

@@ -80,6 +80,67 @@ function buildRawReply(params: {
     .replace(/=+$/, '');
 }
 
+/**
+ * Fetch the user's Gmail signature (HTML) from the SendAs settings for the
+ * given email address, then strip HTML tags to produce a plain-text version.
+ * Returns empty string if no signature is configured or the API call fails.
+ *
+ * Cached per-request in the `signatureCache` map so we don't hit the API
+ * multiple times if the same access token creates several drafts.
+ */
+const signatureCache = new Map<string, string>();
+
+async function getGmailSignaturePlainText(
+  accessToken: string,
+  senderEmail: string,
+): Promise<string> {
+  const cacheKey = `${accessToken.slice(-8)}:${senderEmail}`;
+  const cached = signatureCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  try {
+    const auth = new google.auth.OAuth2();
+    auth.setCredentials({ access_token: accessToken });
+    const gmail = google.gmail({ version: 'v1', auth });
+
+    const sendAs = await gmail.users.settings.sendAs.get({
+      userId: 'me',
+      sendAsEmail: senderEmail,
+    });
+
+    const sigHtml = sendAs.data.signature || '';
+    if (!sigHtml.trim()) {
+      signatureCache.set(cacheKey, '');
+      return '';
+    }
+
+    // Convert HTML signature to plain text:
+    // 1. Replace <br>, <br/>, </p>, </div> with newlines
+    // 2. Strip remaining tags
+    // 3. Decode common HTML entities
+    // 4. Collapse excessive whitespace
+    const plainText = sigHtml
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(?:p|div|tr)>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+    signatureCache.set(cacheKey, plainText);
+    return plainText;
+  } catch (err) {
+    console.warn('[createDraftReply] Failed to fetch Gmail signature:', err);
+    signatureCache.set(cacheKey, '');
+    return '';
+  }
+}
+
 export interface CreatedDraft {
   draftId: string;
   threadId: string;
@@ -129,6 +190,13 @@ export async function createDraftReply(params: {
 
   const { name: fromName, email: fromEmail } = parseEmailHeader(fromHeader);
 
+  // Fetch the user's Gmail signature and append it to the draft body so
+  // API-created drafts match what Gmail's web composer would produce.
+  const signature = await getGmailSignaturePlainText(accessToken, myEmail);
+  const fullBody = signature
+    ? `${body}\n\n${signature}`
+    : body;
+
   const raw = buildRawReply({
     fromEmail: myEmail,
     fromName: myName,
@@ -137,7 +205,7 @@ export async function createDraftReply(params: {
     subject,
     inReplyTo: messageIdHdr,
     references: referencesHdr ? `${referencesHdr} ${messageIdHdr}` : messageIdHdr,
-    body,
+    body: fullBody,
   });
 
   const draft = await gmail.users.drafts.create({

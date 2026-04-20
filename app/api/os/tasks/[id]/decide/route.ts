@@ -19,7 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
-import { getTasks } from '@/lib/airtable/tasks';
+import { getTasks, updateTask } from '@/lib/airtable/tasks';
 import type { TaskRecord } from '@/lib/airtable/tasks';
 import { getRecentTaskActivity, logEventAsync, type ActivityRow } from '@/lib/airtable/activityLog';
 import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
@@ -219,6 +219,133 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       }
     }
 
+    // ── Gmail auto-search fallback (no threadUrl on task) ─────────────────
+    // When the task has no linked email thread, try to find one by searching
+    // Gmail using the task's `from` field and/or title keywords. If we find
+    // a match, extract the thread data AND save the threadUrl back to
+    // Airtable so future calls skip the search.
+    if (!thread && !threadId) {
+      try {
+        // Build a Gmail search query from task context
+        const searchParts: string[] = [];
+
+        // Use the "from" field if it looks like a name or email
+        const taskFrom = (task.from || '').trim();
+        if (taskFrom && taskFrom.toLowerCase() !== 'me' && taskFrom.toLowerCase() !== 'chris') {
+          // If it contains @, use as-is; otherwise wrap in quotes for name search
+          if (taskFrom.includes('@')) {
+            searchParts.push(`from:${taskFrom}`);
+          } else {
+            searchParts.push(`from:${taskFrom}`);
+          }
+        }
+
+        // Extract meaningful keywords from task title (drop filler words)
+        const stopWords = new Set([
+          'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+          'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+          'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+          'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those',
+          'it', 'its', 'up', 'about', 'out', 're', 'follow', 'check', 'send',
+          'reply', 'need', 'get', 'set', 'new', 'update', 'review',
+        ]);
+        const titleWords = (task.task || '')
+          .replace(/[^a-zA-Z0-9\s]/g, ' ')
+          .split(/\s+/)
+          .filter(w => w.length > 2 && !stopWords.has(w.toLowerCase()));
+
+        // Use at most 4 keywords to keep the query focused
+        if (titleWords.length > 0) {
+          const keywords = titleWords.slice(0, 4).join(' ');
+          searchParts.push(`subject:(${keywords})`);
+        }
+
+        // Only search if we have something meaningful
+        if (searchParts.length > 0) {
+          // Limit to last 90 days to avoid ancient matches
+          searchParts.push('newer_than:90d');
+          const query = searchParts.join(' ');
+
+          // Get Gmail access token (same pattern as existing block)
+          let refreshToken: string | undefined;
+          if (companyId && companyId !== 'default') {
+            const integrations = await getCompanyIntegrations(companyId);
+            refreshToken = integrations?.google?.refreshToken;
+          }
+          if (!refreshToken) {
+            const fallback = await getAnyGoogleRefreshToken();
+            if (fallback) refreshToken = fallback;
+          }
+
+          if (refreshToken) {
+            const accessToken = await refreshAccessToken(refreshToken);
+            const auth = new google.auth.OAuth2();
+            auth.setCredentials({ access_token: accessToken });
+            const gmail = google.gmail({ version: 'v1', auth });
+
+            console.log(`[decide] Gmail auto-search for task "${task.task}": q=${query}`);
+            const searchResult = await gmail.users.threads.list({
+              userId: 'me',
+              q: query,
+              maxResults: 3,
+            });
+
+            const foundThreads = searchResult.data.threads || [];
+            if (foundThreads.length > 0) {
+              // Take the first (most relevant) result
+              const bestThreadId = foundThreads[0].id!;
+              const t = await gmail.users.threads.get({
+                userId: 'me',
+                id: bestThreadId,
+                format: 'full',
+              });
+
+              const messages = t.data.messages || [];
+              const last = messages[messages.length - 1];
+              latestMessageId = last?.id || null;
+              const headers = last?.payload?.headers || [];
+              const hget = (n: string) =>
+                headers.find(h => h.name?.toLowerCase() === n.toLowerCase())?.value || '';
+              const subject = hget('Subject') || '(no subject)';
+              const fromHeader = hget('From') || '—';
+              const dateStr = hget('Date');
+              let dateIso = '';
+              try {
+                if (dateStr) dateIso = new Date(dateStr).toISOString();
+              } catch {
+                /* noop */
+              }
+              const body =
+                extractPlainText(last?.payload as MsgPart) || last?.snippet || '';
+
+              thread = {
+                subject,
+                latestFrom: fromHeader,
+                latestDate: dateIso || (last?.internalDate ? new Date(Number(last.internalDate)).toISOString() : ''),
+                latestBody: body,
+                messageCount: messages.length,
+              };
+
+              // Save the threadUrl back to Airtable so we don't search again
+              const threadUrl = `https://mail.google.com/mail/u/0/#inbox/${bestThreadId}`;
+              try {
+                await updateTask(task.id, { threadUrl });
+                console.log(`[decide] Auto-linked thread ${bestThreadId} to task ${task.id}`);
+              } catch (saveErr) {
+                console.warn('[decide] Failed to save auto-linked threadUrl:', saveErr);
+                // Non-fatal — we still have the thread data for this request
+              }
+            } else {
+              console.log(`[decide] Gmail auto-search found no threads for: ${query}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[decide] Gmail auto-search failed (continuing without thread):', err);
+        // Non-fatal — we still produce a recommendation without the thread
+      }
+    }
+
     // ── Build the structured input ────────────────────────────────────────
     const taskInput: DecisionTaskInput = {
       id: task.id,
@@ -231,6 +358,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       nextAction: task.nextAction || '',
       notes: task.notes || '',
       threadUrl: task.threadUrl,
+      assignedTo: task.assignedTo || '',
       daysSinceCreated: daysSinceIso(task.createdAt, now),
       daysSinceLastMotion: daysSinceIso(
         activity.lastActions.length ? activity.lastActions[activity.lastActions.length - 1].timestamp : task.lastModified,

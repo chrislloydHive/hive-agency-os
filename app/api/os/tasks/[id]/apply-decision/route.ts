@@ -55,6 +55,8 @@ interface ApplyBody {
   latestMessageId?: string;
   companyId?: string;
   label?: string;
+  /** Who to delegate to (name). Used by the 'delegate' verb. */
+  delegateTo?: string;
 }
 
 /** Feedback-loop signal: did the human accept the AI draft verbatim, or edit it?
@@ -289,18 +291,27 @@ async function applySchedule(
   };
 }
 
-async function applyDelegate(task: TaskRecord): Promise<ApplyResult> {
-  const note = `[${new Date().toISOString().slice(0, 10)}] Marked for delegation via decision engine.`;
+async function applyDelegate(task: TaskRecord, delegateTo?: string): Promise<ApplyResult> {
+  const assignee = (delegateTo || '').trim();
+  const delegateLabel = assignee || 'someone';
+  const note = `[${new Date().toISOString().slice(0, 10)}] Delegated to ${delegateLabel} via decision engine.`;
   const notes = task.notes ? `${note}\n${task.notes}` : note;
-  const updated = await updateTask(task.id, { status: 'Waiting', notes });
+  const patch: import('@/lib/airtable/tasks').UpdateTaskInput = {
+    status: 'Waiting',
+    notes,
+    ...(assignee ? { assignedTo: assignee } : {}),
+  };
+  const updated = await updateTask(task.id, patch);
   return {
     ok: true,
     verb: 'delegate',
     action: 'task.delegated',
-    message: `Moved to Waiting — remember to forward.`,
+    message: assignee
+      ? `Delegated to ${assignee} — moved to Waiting.`
+      : `Moved to Waiting — remember to forward.`,
     taskId: task.id,
     updatedTask: updated,
-    metadata: { previousStatus: task.status },
+    metadata: { previousStatus: task.status, delegateTo: assignee || null },
   };
 }
 
@@ -413,7 +424,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         result = await applySchedule(task, body.proposedDate);
         break;
       case 'delegate':
-        result = await applyDelegate(task);
+        result = await applyDelegate(task, body.delegateTo);
         break;
       case 'split':
         result = await applySplit(task);
@@ -509,6 +520,19 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       status = 400;
     }
 
-    return NextResponse.json({ error: friendly, detail: msg }, { status });
+    // For scope / token errors, include a reconnect URL so the frontend can link
+    // directly to the OAuth flow instead of making the user hunt for it.
+    const needsReconnect = status === 401 || status === 403;
+    const reconnectCompanyId = body?.companyId || process.env.DMA_DEFAULT_COMPANY_ID || '';
+    return NextResponse.json(
+      {
+        error: friendly,
+        detail: msg,
+        ...(needsReconnect && reconnectCompanyId
+          ? { reconnectUrl: `/api/integrations/google/authorize?companyId=${reconnectCompanyId}&redirect=${encodeURIComponent('/tasks/command-center')}` }
+          : {}),
+      },
+      { status },
+    );
   }
 }

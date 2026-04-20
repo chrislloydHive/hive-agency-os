@@ -144,6 +144,7 @@ export function MorningBriefFocusRow({ focus, onEdit, decideNonce, onApplied }: 
 
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [applyReconnectUrl, setApplyReconnectUrl] = useState<string | null>(null);
   const [applySuccess, setApplySuccess] = useState<ApplyResult | null>(null);
 
   /** Thread-preview expansion state. Defaults to collapsed, but auto-opens when
@@ -224,11 +225,17 @@ export function MorningBriefFocusRow({ focus, onEdit, decideNonce, onApplied }: 
         }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || `Apply failed: ${res.status}`);
+      if (!res.ok) {
+        setApplyError(json.error || `Apply failed: ${res.status}`);
+        setApplyReconnectUrl(json.reconnectUrl || null);
+        return;
+      }
       setApplySuccess(json as ApplyResult);
+      setApplyReconnectUrl(null);
       onApplied?.(json as ApplyResult);
     } catch (err) {
       setApplyError(err instanceof Error ? err.message : 'Failed to apply decision');
+      setApplyReconnectUrl(null);
     } finally {
       setApplying(false);
     }
@@ -381,7 +388,17 @@ export function MorningBriefFocusRow({ focus, onEdit, decideNonce, onApplied }: 
           {applyError && (
             <div className="flex items-start gap-1.5 text-[10px] text-red-300 bg-red-500/10 border border-red-500/30 rounded px-2 py-1">
               <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
-              <span>{applyError}</span>
+              <span>
+                {applyError}
+                {applyReconnectUrl && (
+                  <>
+                    {' '}
+                    <a href={applyReconnectUrl} className="underline text-amber-300 hover:text-amber-200">
+                      Reconnect Google →
+                    </a>
+                  </>
+                )}
+              </span>
             </div>
           )}
         </div>

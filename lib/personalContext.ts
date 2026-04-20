@@ -182,7 +182,7 @@ export interface Senders {
   notes: string;
 }
 
-const DEFAULT_SENDER_DOMAINS = ['quickbooks.com', 'intuit.com'];
+const DEFAULT_SENDER_DOMAINS = ['quickbooks.com'];
 
 export async function getSenders(): Promise<Senders> {
   const f = await loadFile('senders.md');

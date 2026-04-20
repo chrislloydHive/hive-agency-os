@@ -24,7 +24,15 @@ import {
   Pencil,
   ChevronDown,
   Mail,
+  UserPlus,
 } from 'lucide-react';
+
+interface PersonOption {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
 
 type Verb = 'reply' | 'defer' | 'delegate' | 'ping' | 'close' | 'split' | 'schedule';
 
@@ -119,9 +127,24 @@ export function TaskDecider({
   const [data, setData] = useState<DecisionResponse | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // People directory — loaded once for the delegate picker.
+  const [people, setPeople] = useState<PersonOption[]>([]);
+  useEffect(() => {
+    fetch('/api/os/people')
+      .then(r => r.ok ? r.json() : { people: [] })
+      .then(d => setPeople(d.people || []))
+      .catch(() => {});
+  }, []);
+
+  // Delegate picker: shown when the user clicks Apply on a "delegate" verb.
+  // The user picks who to delegate to, then we send the apply request.
+  const [pendingDelegateVerb, setPendingDelegateVerb] = useState<{ verb: Verb; label: string } | null>(null);
+  const [delegateTo, setDelegateTo] = useState('');
+
   /** Which verb is currently being applied (disables buttons to prevent double-click). */
   const [applyingVerb, setApplyingVerb] = useState<Verb | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [applyReconnectUrl, setApplyReconnectUrl] = useState<string | null>(null);
   const [applySuccess, setApplySuccess] = useState<ApplyResult | null>(null);
 
   /** The editable draft body. Seeded from the AI's suggestedDraft; Chris can
@@ -185,6 +208,7 @@ export function TaskDecider({
     // badge next to a freshly regenerated recommendation.
     setApplySuccess(null);
     setApplyError(null);
+    setApplyReconnectUrl(null);
     try {
       const res = await fetch(`/api/os/tasks/${taskId}/decide`, { cache: 'no-store' });
       if (!res.ok) {
@@ -220,6 +244,12 @@ export function TaskDecider({
 
   async function applyVerb(verb: Verb, label: string) {
     if (!data) return;
+    // For delegate: show the people picker first before sending.
+    if (verb === 'delegate' && !pendingDelegateVerb) {
+      setPendingDelegateVerb({ verb, label });
+      setDelegateTo('');
+      return;
+    }
     setApplyingVerb(verb);
     setApplyError(null);
     setApplySuccess(null);
@@ -240,19 +270,32 @@ export function TaskDecider({
           originalDraft: data.decision.suggestedDraft,
           proposedDate: data.decision.proposedDate,
           latestMessageId: data.latestMessageId || undefined,
+          // Include delegateTo for delegate verb
+          ...(verb === 'delegate' && delegateTo ? { delegateTo } : {}),
         }),
       });
       const json = await res.json();
       if (!res.ok) {
-        throw new Error(json.error || `Apply failed: ${res.status}`);
+        setApplyError(json.error || `Apply failed: ${res.status}`);
+        setApplyReconnectUrl(json.reconnectUrl || null);
+        return;
       }
       setApplySuccess(json as ApplyResult);
+      setApplyReconnectUrl(null);
+      setPendingDelegateVerb(null);
       onApplied?.(json as ApplyResult);
     } catch (err) {
       setApplyError(err instanceof Error ? err.message : 'Failed to apply decision');
+      setApplyReconnectUrl(null);
     } finally {
       setApplyingVerb(null);
     }
+  }
+
+  /** Confirm the delegate after picking a person. */
+  function confirmDelegate() {
+    if (!pendingDelegateVerb) return;
+    applyVerb(pendingDelegateVerb.verb, pendingDelegateVerb.label);
   }
 
   if (!data && !loading && !error) {
@@ -414,7 +457,20 @@ export function TaskDecider({
       {applyError && (
         <div className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-200 flex items-start gap-2">
           <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-          <span>{applyError}</span>
+          <span>
+            {applyError}
+            {applyReconnectUrl && (
+              <>
+                {' '}
+                <a
+                  href={applyReconnectUrl}
+                  className="underline text-amber-300 hover:text-amber-200"
+                >
+                  Reconnect Google →
+                </a>
+              </>
+            )}
+          </span>
         </div>
       )}
 
@@ -467,8 +523,52 @@ export function TaskDecider({
             disabled={!!applySuccess && (applySuccess.verb === 'reply' || applySuccess.verb === 'ping')}
           />
           <p className="text-[10px] text-gray-600">
-            Your edits land in Gmail as the draft body. No sign-off is appended.
+            Your edits land in Gmail as the draft body. Your Gmail signature is appended automatically.
           </p>
+        </div>
+      )}
+
+      {/* Delegate picker — shown when the user clicks Apply on a delegate verb */}
+      {pendingDelegateVerb && (
+        <div className="rounded-lg border border-purple-500/30 bg-purple-500/[0.06] p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <UserPlus className="w-3.5 h-3.5 text-purple-300" />
+            <span className="text-xs font-medium text-gray-200">Who should this be delegated to?</span>
+          </div>
+          <select
+            value={delegateTo}
+            onChange={e => setDelegateTo(e.target.value)}
+            className="w-full px-3 py-2 rounded bg-black/20 border border-white/10 text-sm text-gray-100 focus:outline-none focus:border-purple-500/50"
+          >
+            <option value="">Select a person…</option>
+            {people.map(p => (
+              <option key={p.id} value={p.name}>
+                {p.name}{p.role ? ` (${p.role})` : ''}
+              </option>
+            ))}
+          </select>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={confirmDelegate}
+              disabled={!delegateTo || applyingVerb !== null}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-purple-500 hover:bg-purple-400 disabled:opacity-40 disabled:cursor-not-allowed text-[11px] text-white font-medium transition-colors"
+            >
+              {applyingVerb === 'delegate' ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Play className="w-3 h-3" />
+              )}
+              {applyingVerb === 'delegate' ? 'Delegating…' : `Delegate to ${delegateTo || '…'}`}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingDelegateVerb(null)}
+              className="text-[11px] text-gray-500 hover:text-gray-300"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 

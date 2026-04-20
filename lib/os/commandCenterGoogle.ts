@@ -92,7 +92,9 @@ export interface TriageItem {
 }
 
 // Extended with QB + finance subject keywords. CC_IMPORTANT_SENDERS env var appends domains.
-const DEFAULT_IMPORTANT_SENDER_DOMAINS = ['quickbooks.com', 'intuit.com'];
+// Only match actionable QuickBooks domains, NOT broad intuit.com (which includes
+// TurboTax marketing, Intuit developer newsletters, surveys, etc.).
+const DEFAULT_IMPORTANT_SENDER_DOMAINS = ['quickbooks.com'];
 // Actionable finance signals — Chris usually needs to DO something.
 const SUBJECT_KEYWORD_RE =
   /\b(a\/r\s*aging|past\s*due|overdue|collections?|chargeback|dispute|wire\s*transfer|ach\s*(return|reject|fail)|check\s*bounced|nsf|invoice\s*(due|unpaid|overdue)|unpaid\s*invoice|final\s*notice|demand\s*letter|1099|w-?9|w-?2|tax\s*(return|notice|audit))\b/i;
@@ -112,7 +114,10 @@ const BULK_DOMAIN_RE =
 const BULK_LOCAL_RE =
   /^(no-?reply|noreply|notifications?|automated|mailer|bounces|bulk|marketing|newsletter|info|hello|team|support|updates?|digest|alerts?|donotreply|do-?not-?reply|feedback|community|social|promo|deals|offers)@/i;
 const NOISE_SUBJECT_RE =
-  /\b(gave\s+you\s+kudos|new\s+submission|updates?\s+to\s+our\s+(terms|privacy|policy)|shipped[:\s]|your\s+.+\s+order|order\s+(confirm|ship)|receipt|welcome\s+to|verify\s+your|security\s+alert|booking\s+confirm|save\s+more|earn\s+more|you.re\s+invited|flash\s+sale|ends\s+tonight|new\s+follower|liked\s+your|started\s+following|reminder.+subscription|subscription\s+(renew|confirm)|free\s+trial|upgrade\s+now)\b/i;
+  /\b(gave\s+you\s+kudos|new\s+submission|updates?\s+to\s+our\s+(terms|privacy|policy)|shipped[:\s]|your\s+.+\s+order|order\s+(confirm|ship)|receipt|welcome\s+to|verify\s+your|security\s+alert|booking\s+confirm|save\s+more|earn\s+more|you.re\s+invited|flash\s+sale|ends\s+tonight|new\s+follower|liked\s+your|started\s+following|reminder.+subscription|subscription\s+(renew|confirm)|free\s+trial|upgrade\s+now|line\s+of\s+credit|credit\s+line|pre[- ]?approv|get\s+funded|funding\s+(option|opportunit)|business\s+loan|business\s+financing|capital\s+for\s+your|no\s+hard\s+credit\s+pull|flexible\s+financ|got\s+approved|you.ve\s+been\s+approved|approved\s+for|your\s+opinion|take\s+a\s+survey|take\s+our\s+survey|quick\s+survey|feedback\s+survey|2[- ]?minute\s+survey|how\s+was\s+your|rate\s+your\s+(experience|recent)|we.d\s+like\s+your|share\s+your\s+(opinion|feedback|thoughts)|unsubscribe|this\s+has\s+been\s+earth\s+approved|eco[- ]?friendly|gift\s+baskets?|size\s+passport|your\s+withholding|one\s+quick\s+fix|take\s+control)\b/i;
+// Cold outreach / sales spam — subject or snippet signals.
+const COLD_OUTREACH_RE =
+  /\b(cold\s+email|outbound\s+(system|leads?|campaign)|done[- ]for[- ]you\s+(outbound|lead|system)|qualified\s+leads|book\s+(a\s+)?call|get\s+booked|15[- ]?min(ute)?\s+(call|chat)|schedule\s+a\s+(demo|call|meeting)|quick\s+question|saw\s+your\s+(company|profile|website|linkedin)|reaching\s+out\s+because|thought\s+you.d\s+be\s+interested|would\s+love\s+to\s+connect|open\s+to\s+a\s+quick\s+chat|let.s\s+hop\s+on\s+a\s+call|we\s+help\s+(companies|businesses|agencies|founders))\b/i;
 // "Re: ..." pattern → likely a direct reply from a human, strong positive signal.
 const REPLY_SUBJECT_RE = /^\s*(re|fwd?):/i;
 
@@ -167,7 +172,7 @@ function scoreTriageItem(
     score -= 35;
     reasons.push('noreply/notif');
   }
-  if (NOISE_SUBJECT_RE.test(subject)) {
+  if (NOISE_SUBJECT_RE.test(subject) || NOISE_SUBJECT_RE.test(item.snippet || '')) {
     score -= 40;
     reasons.push('noise subject');
   }
@@ -176,6 +181,11 @@ function scoreTriageItem(
   if (FINANCIAL_FYI_RE.test(subject)) {
     score -= 110;
     reasons.push('financial FYI');
+  }
+  // Cold outreach / sales pitches — check both subject and snippet.
+  if (COLD_OUTREACH_RE.test(subject) || COLD_OUTREACH_RE.test(item.snippet || '')) {
+    score -= 80;
+    reasons.push('cold outreach');
   }
 
   // ── Recency boost ───────────────────────────────────────────
@@ -309,7 +319,20 @@ export async function fetchTriageInbox(
         if (m.hasExistingTask) return false;
         // Auto-replies / out-of-office are always dropped, even if starred (they're noise).
         if (AUTO_REPLY_RE.test(m.subject)) return false;
-        if (m.starred) return true; // user explicitly starred → always keep
+        // Cold outreach is always dropped — sales spam doesn't deserve attention.
+        if (COLD_OUTREACH_RE.test(m.subject) || COLD_OUTREACH_RE.test(m.snippet || '')) return false;
+        // Starred bypass: starred items surface with age limits.
+        // - Bulk sender starred items drop after 14 days (forgotten star on a notification).
+        // - All other starred items drop after 30 days (if you haven't acted in a month,
+        //   it's no longer active triage — archive the star or create a task).
+        if (m.starred) {
+          const ageMs = now.getTime() - new Date(m.date).getTime();
+          const ageDays = ageMs / (1000 * 60 * 60 * 24);
+          const isBulk = BULK_DOMAIN_RE.test(m.fromDomain) || NOISE_SUBJECT_RE.test(m.subject);
+          if (isBulk && ageDays > 14) return false;
+          if (ageDays > 30) return false;
+          return true;
+        }
         // Hard drop if financial FYI detected, regardless of sender.
         if (FINANCIAL_FYI_RE.test(m.subject)) return false;
         if (m.important) return m.score >= -20;

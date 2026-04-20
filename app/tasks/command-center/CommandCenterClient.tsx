@@ -2,7 +2,7 @@
 // app/tasks/command-center/CommandCenterClient.tsx
 // Chief of Staff AI — Daily Command Center UI
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { TaskEditPanel } from './TaskEditPanel';
 // FocusStrip and RiskStrip removed — Morning Brief covers focus + risks inline.
@@ -641,6 +641,22 @@ export function CommandCenterClient({ companyId, backUrl = '/tasks' }: { company
   // Always bust the server-side cache on initial page load so completed tasks
   // (marked done in My Day or another tab) don't linger as stale fires.
   useEffect(() => { load(true); }, [companyId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Background Gmail sync: fire once after initial data loads. The endpoint
+  // has its own mutex + 30-second cooldown so concurrent calls are safe no-ops.
+  const gmailSyncFired = useRef(false);
+  useEffect(() => {
+    if (loading || !data || gmailSyncFired.current) return;
+    gmailSyncFired.current = true;
+    let cancelled = false;
+    fetch('/api/os/tasks/sync-gmail', { method: 'POST' })
+      .then(r => r.json())
+      .then(res => {
+        if (!cancelled && res.synced > 0) load(true);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [loading, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return (

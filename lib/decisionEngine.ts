@@ -48,6 +48,7 @@ export interface DecisionTaskInput {
   nextAction: string;
   notes: string;
   threadUrl: string | null;
+  assignedTo: string;
   daysSinceCreated: number | null;
   daysSinceLastMotion: number | null;
   overdueByDays: number | null; // positive = overdue, null = no due date
@@ -155,6 +156,7 @@ Task snapshot:
   From          : ${fieldOrDash(task.from)}
   Project       : ${fieldOrDash(task.project)}
   Next action   : ${fieldOrDash(task.nextAction)}
+  Assigned to   : ${fieldOrDash(task.assignedTo)}
   Notes         : ${task.notes ? task.notes.slice(0, 800) : '—'}
   Days since created   : ${fieldOrDash(task.daysSinceCreated)}
   Days since last motion: ${fieldOrDash(task.daysSinceLastMotion)}
@@ -182,7 +184,7 @@ Return ONLY a JSON object (no markdown fences, no prose before or after) with th
   "alternatives": [
     { "verb": "...", "label": "...", "rationale": "one sentence" }
   ],
-  "suggestedDraft": "Only if verb is 'reply' — 2-5 sentence draft in ${identityName}'s voice, no fluff, no sign-off.",
+  "suggestedDraft": "Required if verb is 'reply' or 'ping' — 2-5 sentence draft in ${identityName}'s voice, no fluff, no signature block (signature is appended automatically). For 'ping', write a brief friendly follow-up nudge.",
   "proposedDate": "YYYY-MM-DD — only for defer/ping/schedule, otherwise omit"
 }
 
@@ -193,6 +195,7 @@ Rules:
 - If due is past and notes/thread show no new info, prefer "defer" with a specific reason.
 - If the task looks like a multi-week effort with vague notes, prefer "split".
 - If a draft has already been created and the thread hasn't moved, suggested next is usually to send that draft — still use verb "reply" and note this in rationale.
+- If "Assigned to" is set, this task was delegated to that person. ${identityName}'s next move is usually "ping" (follow up with the assignee) or "reply" (if there's a thread), NOT "schedule" or "defer". The assignee is doing the work — ${identityName} just needs to check on progress.
 - ${identityName} is CEO of Hive — pick verbs that match an executive's time allocation.`;
 }
 
@@ -298,7 +301,7 @@ export function parseDecisionResponse(raw: string, todayIso?: string): DecisionO
     .slice(0, 3);
 
   const suggestedDraft =
-    verb === 'reply' && typeof obj.suggestedDraft === 'string' && obj.suggestedDraft.trim()
+    (verb === 'reply' || verb === 'ping') && typeof obj.suggestedDraft === 'string' && obj.suggestedDraft.trim()
       ? obj.suggestedDraft.trim()
       : undefined;
 

@@ -34,6 +34,7 @@ import {
   ChevronUp,
   ArrowRightCircle,
   Target,
+  UserPlus,
 } from 'lucide-react';
 
 // ============================================================================
@@ -63,6 +64,7 @@ interface TaskItem {
   draftUrl: string | null;
   attachUrl: string | null;
   notes: string;
+  assignedTo: string;
   checked: boolean;
   view: ViewType;
 }
@@ -103,27 +105,27 @@ const VIEW_TABS: { id: ViewType; label: string; icon: typeof Mail }[] = [
 // ============================================================================
 
 const SEED_TASKS: TaskItem[] = [
-  { id: 1, task: 'Kiana - invoice status', pri: 'P0', due: 'Apr 10', from: 'Kiana Sua', project: 'Car Toys / Billing', nextAction: 'Confirm with Kim: (1) did first weekly invoice go out? (2) is $60,800.50 Invoice 1085 separate or rolled in? (3) did remaining Q1 $68,147.', status: 'Next', threadUrl: 'https://mail.google.com/mail/u/0/#inbox/19d354da7d1795e1', draftUrl: 'https://mail.google.com/mail/u/0/#drafts/19d78aea52dbfd97', attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 2, task: 'Eric financials package', pri: 'P0', due: 'Apr 14', from: 'Robert Baur', project: 'HEY / Eric Request', nextAction: 'Eric wants accounting done ~May 17 (2 wks earlier). Confirm revised timeline with Robert Baur and reply to Eric.', status: 'Next', threadUrl: 'https://mail.google.com/mail/u/0/#inbox/19d21cb6ea54d541', draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 3, task: 'Spokane geofence rerun', pri: 'P1', due: 'Apr 9', from: 'Jim Warren', project: 'Car Toys 2026 Media', nextAction: 'Pull geofence cost/reach data for Spokane at 10mi and 20mi and send revised estimates to Jim.', status: 'Inbox', threadUrl: 'https://mail.google.com/mail/u/0/#inbox/19d6a58c78785bd5', draftUrl: 'https://mail.google.com/mail/u/0/#drafts/19d78aede3a47a6e', attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 4, task: 'GDrive folder for BT assets', pri: 'P1', due: 'Apr 11', from: 'Internal', project: 'Car Toys 2026 Media', nextAction: 'Generate Google Drive folder with approved assets as soon as approvals come in. Brkthru waiting.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 5, task: 'Dolby Atmos theater pricing', pri: 'P1', due: 'Apr 11', from: 'Nolan Gauvreau', project: 'Car Toys / Dolby Atmos', nextAction: 'Pick pricing: $20 net Seattle, $30 net Denver, or $25 CPM blended. Reply to Nolan.', status: 'Next', threadUrl: 'https://mail.google.com/mail/u/0/#all/19d6d6db90ac54c1', draftUrl: 'https://mail.google.com/mail/u/0/#drafts?compose=19d78aed5463f1b0', attachUrl: 'https://docs.google.com/document/d/1H8Pjxij-yx3kFiH8KpH_ASfj3on0nVyJZyKfAdvYCYA/edit', notes: '', checked: false, view: 'inbox' },
-  { id: 6, task: 'Adam J. GeoFence sign-off', pri: 'P1', due: 'Apr 11', from: 'Adam Jovanovich', project: 'Car Toys Tint', nextAction: 'Jim approved competitor conquesting test. Adam needs to sign off to unblock launch.', status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 7, task: 'Creative Rotation re-review', pri: 'P1', due: 'Apr 11', from: 'Jim Warren', project: 'Car Toys 2026 Media', nextAction: 'Jim made additional changes to the Creative Rotation spreadsheet — review latest edits, update rotation plan.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 8, task: "Reply D'Nisha Missing Assets", pri: 'P1', due: 'Apr 13', from: "D'Nisha Hand", project: 'Car Toys Tint', nextAction: "TWO DRAFTS: (1) Internal to Andy+Louie — asset status — in Docs link. (2) Reply to D'Nisha — in Draft link. Send internal first.", status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 9, task: 'Review BT Geofence Recs', pri: 'P1', due: 'Apr 13', from: 'Nolan Gauvreau', project: 'Car Toys 2026 Media', nextAction: '60-70% budget to top-converting fences, 30-40% to awareness. Send top 7 new Denver geofences.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 10, task: 'Eric financials — reply to Eric', pri: 'P1', due: 'Apr 13', from: 'Eric Gutierrez', project: 'HEY / Eric Request', nextAction: 'Eric replied 4/10: wants accounting sooner. Confirm revised timeline with Robert, reply to Eric.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 11, task: 'KC001630 RFP Response', pri: 'P1', due: 'Apr 27', from: 'Stephanie Wong (King Co.)', project: 'Hive New Biz', nextAction: 'King County Federal Gov Relations Consultant RFP. Closes 4/27. Review PDF, decide whether to bid under HEY LLC.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 12, task: 'Budget sync with Nolan', pri: 'P2', due: 'Apr 11', from: 'Nolan Gauvreau', project: 'Car Toys / Billing', nextAction: 'Schedule 30-min working session to walk through master budget sheet and tracker alignment.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 13, task: 'Reconnect BofA Intuit Access', pri: 'P2', due: 'Apr 13', from: 'Bank of America', project: 'Hive Billing', nextAction: 'BofA stopped sharing data with Intuit on 4/10. Log in and reconnect integration.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 14, task: 'Miller Nash legal check-in', pri: 'P2', due: 'Apr 13', from: 'Andrew Liese', project: 'Legal', nextAction: 'Confirm meeting occurred; capture any follow-ups.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 15, task: 'Fix Vercel Deployment', pri: 'P2', due: 'Apr 14', from: 'Vercel', project: 'Hive Admin', nextAction: 'hive-agency-os production deployment failed twice on 4/10. Check dashboard, fix build, redeploy.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 16, task: 'Fix Production Checklist Script', pri: 'P2', due: 'Apr 14', from: 'Google Apps Script', project: 'Hive Admin', nextAction: "Apps Script 'Production Checklist Generator' failing. Review error log, fix or disable trigger.", status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 17, task: 'Brkthru media items', pri: 'P2', due: 'Apr 14', from: 'Nolan Gauvreau', project: 'Car Toys 2026 Media', nextAction: 'Nolan acknowledged 4-item email. Follow up if no response by EOD Monday.', status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 18, task: 'Adam Weil accessibility follow-up', pri: 'P2', due: 'Apr 14', from: 'Adam Weil', project: 'Portage Bank', nextAction: 'Clarify expectations for Portage Bank remediation scope with White Rabbit.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 19, task: 'Adam — IG Stories approval', pri: 'P2', due: 'Apr 15', from: 'Adam Jovanovich', project: 'Car Toys Tint', nextAction: "Chris sent two new IG Stories assets to Adam's portal. Follow up if no response by Tuesday.", status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 20, task: 'Tint Fences Friday agenda', pri: 'P2', due: 'Apr 17', from: 'Nolan Gauvreau', project: 'Car Toys Tint', nextAction: 'Nolan adding \'Tint Fences\' to Friday agenda — prep thoughts on prospect vs. competitor fence mix.', status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
-  { id: 21, task: 'WSDOT Comms Consultant Bid', pri: 'P3', due: 'May 26', from: 'WEBS (WA DES)', project: 'Hive New Biz', nextAction: 'WSDOT Comms Consultant RFQ. ~$135K. Closes May 26. Review solicitation and decide whether to bid.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', checked: false, view: 'inbox' },
+  { id: 1, task: 'Kiana - invoice status', pri: 'P0', due: 'Apr 10', from: 'Kiana Sua', project: 'Car Toys / Billing', nextAction: 'Confirm with Kim: (1) did first weekly invoice go out? (2) is $60,800.50 Invoice 1085 separate or rolled in? (3) did remaining Q1 $68,147.', status: 'Next', threadUrl: 'https://mail.google.com/mail/u/0/#inbox/19d354da7d1795e1', draftUrl: 'https://mail.google.com/mail/u/0/#drafts/19d78aea52dbfd97', attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 2, task: 'Eric financials package', pri: 'P0', due: 'Apr 14', from: 'Robert Baur', project: 'HEY / Eric Request', nextAction: 'Eric wants accounting done ~May 17 (2 wks earlier). Confirm revised timeline with Robert Baur and reply to Eric.', status: 'Next', threadUrl: 'https://mail.google.com/mail/u/0/#inbox/19d21cb6ea54d541', draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 3, task: 'Spokane geofence rerun', pri: 'P1', due: 'Apr 9', from: 'Jim Warren', project: 'Car Toys 2026 Media', nextAction: 'Pull geofence cost/reach data for Spokane at 10mi and 20mi and send revised estimates to Jim.', status: 'Inbox', threadUrl: 'https://mail.google.com/mail/u/0/#inbox/19d6a58c78785bd5', draftUrl: 'https://mail.google.com/mail/u/0/#drafts/19d78aede3a47a6e', attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 4, task: 'GDrive folder for BT assets', pri: 'P1', due: 'Apr 11', from: 'Internal', project: 'Car Toys 2026 Media', nextAction: 'Generate Google Drive folder with approved assets as soon as approvals come in. Brkthru waiting.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 5, task: 'Dolby Atmos theater pricing', pri: 'P1', due: 'Apr 11', from: 'Nolan Gauvreau', project: 'Car Toys / Dolby Atmos', nextAction: 'Pick pricing: $20 net Seattle, $30 net Denver, or $25 CPM blended. Reply to Nolan.', status: 'Next', threadUrl: 'https://mail.google.com/mail/u/0/#all/19d6d6db90ac54c1', draftUrl: 'https://mail.google.com/mail/u/0/#drafts?compose=19d78aed5463f1b0', attachUrl: 'https://docs.google.com/document/d/1H8Pjxij-yx3kFiH8KpH_ASfj3on0nVyJZyKfAdvYCYA/edit', notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 6, task: 'Adam J. GeoFence sign-off', pri: 'P1', due: 'Apr 11', from: 'Adam Jovanovich', project: 'Car Toys Tint', nextAction: 'Jim approved competitor conquesting test. Adam needs to sign off to unblock launch.', status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 7, task: 'Creative Rotation re-review', pri: 'P1', due: 'Apr 11', from: 'Jim Warren', project: 'Car Toys 2026 Media', nextAction: 'Jim made additional changes to the Creative Rotation spreadsheet — review latest edits, update rotation plan.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 8, task: "Reply D'Nisha Missing Assets", pri: 'P1', due: 'Apr 13', from: "D'Nisha Hand", project: 'Car Toys Tint', nextAction: "TWO DRAFTS: (1) Internal to Andy+Louie — asset status — in Docs link. (2) Reply to D'Nisha — in Draft link. Send internal first.", status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 9, task: 'Review BT Geofence Recs', pri: 'P1', due: 'Apr 13', from: 'Nolan Gauvreau', project: 'Car Toys 2026 Media', nextAction: '60-70% budget to top-converting fences, 30-40% to awareness. Send top 7 new Denver geofences.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 10, task: 'Eric financials — reply to Eric', pri: 'P1', due: 'Apr 13', from: 'Eric Gutierrez', project: 'HEY / Eric Request', nextAction: 'Eric replied 4/10: wants accounting sooner. Confirm revised timeline with Robert, reply to Eric.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 11, task: 'KC001630 RFP Response', pri: 'P1', due: 'Apr 27', from: 'Stephanie Wong (King Co.)', project: 'Hive New Biz', nextAction: 'King County Federal Gov Relations Consultant RFP. Closes 4/27. Review PDF, decide whether to bid under HEY LLC.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 12, task: 'Budget sync with Nolan', pri: 'P2', due: 'Apr 11', from: 'Nolan Gauvreau', project: 'Car Toys / Billing', nextAction: 'Schedule 30-min working session to walk through master budget sheet and tracker alignment.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 13, task: 'Reconnect BofA Intuit Access', pri: 'P2', due: 'Apr 13', from: 'Bank of America', project: 'Hive Billing', nextAction: 'BofA stopped sharing data with Intuit on 4/10. Log in and reconnect integration.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 14, task: 'Miller Nash legal check-in', pri: 'P2', due: 'Apr 13', from: 'Andrew Liese', project: 'Legal', nextAction: 'Confirm meeting occurred; capture any follow-ups.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 15, task: 'Fix Vercel Deployment', pri: 'P2', due: 'Apr 14', from: 'Vercel', project: 'Hive Admin', nextAction: 'hive-agency-os production deployment failed twice on 4/10. Check dashboard, fix build, redeploy.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 16, task: 'Fix Production Checklist Script', pri: 'P2', due: 'Apr 14', from: 'Google Apps Script', project: 'Hive Admin', nextAction: "Apps Script 'Production Checklist Generator' failing. Review error log, fix or disable trigger.", status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 17, task: 'Brkthru media items', pri: 'P2', due: 'Apr 14', from: 'Nolan Gauvreau', project: 'Car Toys 2026 Media', nextAction: 'Nolan acknowledged 4-item email. Follow up if no response by EOD Monday.', status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 18, task: 'Adam Weil accessibility follow-up', pri: 'P2', due: 'Apr 14', from: 'Adam Weil', project: 'Portage Bank', nextAction: 'Clarify expectations for Portage Bank remediation scope with White Rabbit.', status: 'Next', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 19, task: 'Adam — IG Stories approval', pri: 'P2', due: 'Apr 15', from: 'Adam Jovanovich', project: 'Car Toys Tint', nextAction: "Chris sent two new IG Stories assets to Adam's portal. Follow up if no response by Tuesday.", status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 20, task: 'Tint Fences Friday agenda', pri: 'P2', due: 'Apr 17', from: 'Nolan Gauvreau', project: 'Car Toys Tint', nextAction: 'Nolan adding \'Tint Fences\' to Friday agenda — prep thoughts on prospect vs. competitor fence mix.', status: 'Waiting', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
+  { id: 21, task: 'WSDOT Comms Consultant Bid', pri: 'P3', due: 'May 26', from: 'WEBS (WA DES)', project: 'Hive New Biz', nextAction: 'WSDOT Comms Consultant RFQ. ~$135K. Closes May 26. Review solicitation and decide whether to bid.', status: 'Inbox', threadUrl: null, draftUrl: null, attachUrl: null, notes: '', assignedTo: '', checked: false, view: 'inbox' },
 ];
 
 // ============================================================================
@@ -212,7 +214,18 @@ function MobileTaskCard({ t, onToggle, onExpand, expanded, onMove }: { t: TaskIt
           <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
             <span>{t.due}</span>
             <span className="text-gray-700">&middot;</span>
-            <span className="truncate">{t.from}</span>
+            {(() => {
+              const owner = t.assignedTo || 'Chris';
+              const isMe = owner.toLowerCase().startsWith('chris');
+              return isMe ? (
+                <span className="truncate">Chris</span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-purple-950/60 text-purple-300 border border-purple-800/40 truncate">
+                  <UserPlus size={10} className="shrink-0" />
+                  {owner.split(' ')[0]}
+                </span>
+              );
+            })()}
           </div>
         </div>
         <ChevronRight size={16} className={`text-gray-600 mt-2 flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
@@ -409,6 +422,7 @@ export function TasksClient({ company }: TasksClientProps) {
         draftUrl: t.draftUrl || null,
         attachUrl: t.attachUrl || null,
         notes: t.notes || '',
+        assignedTo: t.assignedTo || '',
         checked: false,
         view: (t.view || view) as ViewType,
       };
@@ -443,6 +457,7 @@ export function TasksClient({ company }: TasksClientProps) {
         draftUrl: t.draftUrl || null,
         attachUrl: t.attachUrl || null,
         notes: t.notes || '',
+        assignedTo: t.assignedTo || '',
         checked: t.done || false,
         view: t.view || 'inbox',
       }));
@@ -456,6 +471,22 @@ export function TasksClient({ company }: TasksClientProps) {
   }, []);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
+
+  // Gmail sync: fire-and-forget on mount. The endpoint has its own mutex +
+  // 30-second cooldown so concurrent/rapid calls are safely no-ops.
+  const gmailSyncFired = useRef(false);
+  useEffect(() => {
+    if (gmailSyncFired.current) return;
+    gmailSyncFired.current = true;
+    let cancelled = false;
+    fetch('/api/os/tasks/sync-gmail', { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        if (!cancelled && data.synced > 0) fetchTasks();
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [fetchTasks]);
 
   // Deep-link: auto-expand a task when ?task=recXXX is in the URL
   useEffect(() => {
@@ -881,7 +912,7 @@ export function TasksClient({ company }: TasksClientProps) {
                 <div className="col-span-3">Task</div>
                 <div className="col-span-1 text-center">Pri</div>
                 <div className="col-span-1">Due</div>
-                <div className="col-span-1">From</div>
+                <div className="col-span-1">Owner</div>
                 <div className="col-span-3">Next Action</div>
                 <div className="col-span-1 text-center">Links</div>
                 <div className="col-span-1 text-center">Status</div>
@@ -926,7 +957,18 @@ export function TasksClient({ company }: TasksClientProps) {
                       </div>
 
                       <div className="col-span-1">
-                        <span className="text-sm text-gray-400 truncate block">{t.from.split(' ')[0]}</span>
+                        {(() => {
+                          const owner = t.assignedTo || 'Chris';
+                          const isMe = owner.toLowerCase().startsWith('chris');
+                          return isMe ? (
+                            <span className="text-sm text-gray-500 truncate block">Chris</span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-purple-950/60 text-purple-300 border border-purple-800/40 truncate" title={owner}>
+                              <UserPlus size={10} className="shrink-0" />
+                              {owner.split(' ')[0]}
+                            </span>
+                          );
+                        })()}
                       </div>
 
                       <div className="col-span-3">
@@ -985,6 +1027,16 @@ export function TasksClient({ company }: TasksClientProps) {
                               Close
                             </button>
                           </div>
+                          {/* Owner */}
+                          {t.assignedTo && !t.assignedTo.toLowerCase().startsWith('chris') && (
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-sm font-medium bg-purple-950/60 text-purple-300 border border-purple-800/40">
+                                <UserPlus size={13} />
+                                Owner: {t.assignedTo}
+                              </span>
+                            </div>
+                          )}
+
                           {/* Next Action — full text */}
                           {t.nextAction && (
                             <div>

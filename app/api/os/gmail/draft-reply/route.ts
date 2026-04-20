@@ -216,6 +216,17 @@ Draft a reply that ${identity.name} can quickly review and send. Return ONLY the
       friendly = 'Google token expired. Reconnect Google integration.';
       status = 401;
     }
-    return NextResponse.json({ error: friendly, detail: msg }, { status });
+    const needsReconnect = status === 401 || status === 403;
+    const defaultCompany = process.env.DMA_DEFAULT_COMPANY_ID || '';
+    return NextResponse.json(
+      {
+        error: friendly,
+        detail: msg,
+        ...(needsReconnect && defaultCompany
+          ? { reconnectUrl: `/api/integrations/google/authorize?companyId=${defaultCompany}&redirect=${encodeURIComponent('/tasks/command-center')}` }
+          : {}),
+      },
+      { status },
+    );
   }
 }

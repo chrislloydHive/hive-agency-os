@@ -54,6 +54,7 @@ const TASK_FIELDS = {
   ATTACHMENT_URL: 'Attachment URL',
   DONE: 'Done',
   NOTES: 'Notes',
+  ASSIGNED_TO: 'Assigned To',
   CREATED_AT: 'Created At',
   LAST_MODIFIED: 'Last Modified',
 } as const;
@@ -81,6 +82,7 @@ export interface TaskRecord {
   attachUrl: string | null;
   done: boolean;
   notes: string;
+  assignedTo: string;
   createdAt: string | null;
   lastModified: string | null;
 }
@@ -99,6 +101,7 @@ export interface CreateTaskInput {
   attachUrl?: string;
   done?: boolean;
   notes?: string;
+  assignedTo?: string;
 }
 
 export interface UpdateTaskInput {
@@ -115,6 +118,7 @@ export interface UpdateTaskInput {
   attachUrl?: string | null;
   done?: boolean;
   notes?: string;
+  assignedTo?: string | null;
 }
 
 // ============================================================================
@@ -138,6 +142,7 @@ function mapRecordToTask(record: any): TaskRecord {
     attachUrl: f[TASK_FIELDS.ATTACHMENT_URL] || null,
     done: f[TASK_FIELDS.DONE] || false,
     notes: f[TASK_FIELDS.NOTES] || '',
+    assignedTo: f[TASK_FIELDS.ASSIGNED_TO] || '',
     createdAt: f[TASK_FIELDS.CREATED_AT] || null,
     lastModified: f[TASK_FIELDS.LAST_MODIFIED] || null,
   };
@@ -159,6 +164,7 @@ function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<stri
   if ('attachUrl' in input) fields[TASK_FIELDS.ATTACHMENT_URL] = input.attachUrl || null;
   if ('done' in input && input.done !== undefined) fields[TASK_FIELDS.DONE] = input.done;
   if ('notes' in input && input.notes !== undefined) fields[TASK_FIELDS.NOTES] = input.notes;
+  if ('assignedTo' in input) fields[TASK_FIELDS.ASSIGNED_TO] = input.assignedTo || null;
 
   return fields;
 }

@@ -24,6 +24,7 @@ import {
   type CalEvent,
   type TriageItem,
 } from '@/lib/os/commandCenterGoogle';
+// Auto-triage runs via /api/os/tasks/sync-gmail (called by clients in background)
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +44,7 @@ export interface WorkItem {
   dueDate?: string | null;
   lastActivity?: string | null;  // ISO
   owner?: string;
+  assignedTo?: string;
   status?: string;
   priority?: string | null;
   project?: string;
@@ -198,6 +200,7 @@ function taskToWorkItem(t: TaskRecord): WorkItem {
     priority: t.priority,
     project: t.project,
     owner: t.from || undefined,
+    assignedTo: t.assignedTo || undefined,
     links,
   };
 }

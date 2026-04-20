@@ -1,7 +1,6 @@
 ---
 domains:
   - quickbooks.com
-  - intuit.com
 ---
 
 Email domains whose messages should always elevate in the triage scoring pass.
