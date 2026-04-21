@@ -1,53 +1,50 @@
 ---
 # Google Drive Document Publishing Config
-# Used by /api/os/drive/publish and the drive-publish Cowork skill.
+# NOTE: The /api/os/drive/publish endpoint now uses Airtable templates
+# and the OS instantiateFromTemplate() pipeline instead of Apps Script.
+# This file is kept for reference only.
 
+# Legacy Apps Script URL (no longer used by the publish endpoint)
 apps_script_url: "https://script.google.com/macros/s/AKfycbxWCw3VzWARhNJINvL7D_7BnLfnkP1l0KLznyfh73RutkoUgCiCQUee7I8y-mYXu5Eh/exec"
+
+# Legacy default folder (folder routing now handled by instantiateFromTemplate)
 default_folder_id: "1vnPWSaKyPaYFVzCikf66igoxJEvGLc-E"
-
-# Template IDs — flat keys: template_<type>
-# All currently point to the same master template. Add new types as needed.
-template_brief: "1OHmvJcl5ZOAzxSx1O0tQBhUs_-GFg81uTfY7UPDjo9c"
-template_sow: "1OHmvJcl5ZOAzxSx1O0tQBhUs_-GFg81uTfY7UPDjo9c"
-template_report: "1OHmvJcl5ZOAzxSx1O0tQBhUs_-GFg81uTfY7UPDjo9c"
-template_strategy: "1OHmvJcl5ZOAzxSx1O0tQBhUs_-GFg81uTfY7UPDjo9c"
-
-# Valid document types (used for validation)
-doc_types:
-  - brief
-  - sow
-  - report
-  - strategy
 ---
 
 Configuration for publishing Claude-generated documents to Google Drive
 via the Hive branded template system.
 
-## How it works
+## Current Architecture (v2)
 
-1. Claude creates a document (report, brief, strategy, SOW) in a session.
+The drive-publish endpoint now uses the OS's built-in template instantiation pipeline:
+
+1. Claude creates a document (report, brief, strategy, SOW) in a Cowork session.
 2. The user says "push to Drive" or the skill auto-suggests after file creation.
-3. The Cowork skill reads the file, picks the template type, and calls
+3. The Cowork skill reads the file, picks the document type, and calls
    `/api/os/drive/publish` with the content and metadata.
-4. The API endpoint POSTs to the Apps Script web app, which clones the
-   branded template, injects the content, and saves to the target folder.
-5. The Google Drive URL is returned to the user.
+4. The endpoint looks up the branded template from **Airtable's Templates table**.
+5. `instantiateFromTemplate()` clones the template into the correct Drive folder
+   (with job subfolder routing if a jobId is provided).
+6. The Google Docs API injects content into template placeholders.
+7. An artifact record is created in Airtable.
+8. The Google Drive URL is returned to the user.
 
-## Template placeholders
+## Template Management
 
-The Apps Script replaces these tokens in the template:
+Templates are managed in Airtable's Templates table, not in this config file.
+
+Each template needs:
+- `driveTemplateFileId` — the Google Docs template ID
+- `documentType` — SOW, BRIEF, TIMELINE, or MSA
+- `allowAIDrafting` — set to true for AI-generated content
+- `destinationFolderKey` — determines where the doc is filed
+- `namingPattern` — pattern for the document name
+
+## Template Placeholders
+
+The Google Docs template supports these tokens (replaced by the Docs API):
 - `{{PROJECT}}` — project/client name
 - `{{CLIENT}}` — client name
-- `{{PROJECT_NUMBER}}` — project number
 - `{{GENERATED_AT}}` — timestamp
 - `{{DOC_NAME}}` — document title
 - `{{CONTENT}}` — main body content
-- `{{INLINE_TABLE}}` — optional table content
-
-## Adding new templates
-
-1. Create a new Google Doc template with Hive branding and placeholders.
-2. Copy the doc ID from the URL.
-3. Add `template_<type>: "<doc-id>"` to the frontmatter above.
-4. Add the type name to the `doc_types` list.
-5. The type becomes the `type` parameter in the API call.

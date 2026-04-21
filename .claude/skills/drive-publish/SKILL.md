@@ -11,9 +11,11 @@ This skill takes a document Claude has created and pushes it to Google Drive
 via the Hive branded template system. The flow:
 
 1. Read the file content from the workspace
-2. Determine the document type (brief, sow, report, strategy)
+2. Determine the document type (brief, sow, report, strategy, timeline, msa)
 3. POST to the Hive OS API at `/api/os/drive/publish`
-4. Return the Google Drive link to the user
+4. The API looks up the branded template from Airtable, clones it in Drive,
+   injects content via Google Docs API, and creates an Airtable artifact record
+5. Return the Google Drive link to the user
 
 ## API Endpoint
 
@@ -22,16 +24,19 @@ POST /api/os/drive/publish
 Content-Type: application/json
 
 {
-  "type": "brief" | "sow" | "report" | "strategy",
+  "type": "brief" | "sow" | "report" | "strategy" | "timeline" | "msa",
   "fileName": "Document Title",
   "content": "The full document content...",
   "project": "Client or project name",
   "client": "Client name (defaults to project)",
-  "docName": "Display title in the doc header",
-  "inlineTable": "Optional table content",
-  "destinationFolderId": "Optional Drive folder override"
+  "jobId": "Optional Airtable job record ID for subfolder routing",
+  "jobCode": "Optional job code for naming"
 }
 ```
+
+**Note:** `companyId` defaults to `DMA_DEFAULT_COMPANY_ID`. Pass explicitly only for a different company.
+
+You can also pass `templateId` (Airtable record ID) to use a specific template.
 
 **Response:**
 ```json
@@ -40,7 +45,9 @@ Content-Type: application/json
   "docId": "1abc...",
   "docUrl": "https://docs.google.com/document/d/1abc.../edit",
   "type": "report",
-  "fileName": "Document Title"
+  "fileName": "Document Title",
+  "artifactId": "recXYZ...",
+  "destinationFolder": { "id": "...", "name": "Client Brief/Comms" }
 }
 ```
 
@@ -58,13 +65,16 @@ When the user asks to push a document to Drive:
    - `sow` — scope of work, proposals, contracts
    - `report` — analytics reports, performance reports, campaign analyses
    - `strategy` — strategy documents, media plans, marketing strategies
+   - `timeline` — project timelines, schedules
+   - `msa` — master services agreements
 
 4. **Extract metadata.** From the file content or conversation context, identify:
    - `fileName` — the document title
    - `project` — the client/project name (e.g., "Car Toys", "Tint")
    - `client` — the client name if different from project
+   - `jobId` / `jobCode` — if a specific job is being discussed
 
-5. **Call the API.** Use `fetch` via Bash to POST to the endpoint:
+5. **Call the API.** Use `curl` via Bash to POST to the endpoint:
    ```bash
    curl -s -X POST http://localhost:3000/api/os/drive/publish \
      -H "Content-Type: application/json" \
@@ -73,28 +83,27 @@ When the user asks to push a document to Drive:
 
 6. **Return the link.** Share the Google Drive URL with the user.
 
-## Template placeholders
+## Folder routing
 
-The branded template supports these placeholders (auto-filled):
-- `{{PROJECT}}` — project/client name
-- `{{CLIENT}}` — client name
-- `{{GENERATED_AT}}` — auto-filled with current timestamp
-- `{{DOC_NAME}}` — document title
-- `{{CONTENT}}` — the main document body
-- `{{INLINE_TABLE}}` — optional structured table data
+When a `jobId` is provided, documents are routed to job subfolders:
+- SOW → Estimate/Financials
+- BRIEF → Client Brief/Comms
+- TIMELINE → Timeline/Schedule
+- MSA → MSA
 
-## Configuration
+Without a jobId, documents go to the company's artifacts folder.
 
-Config lives in `context/personal/drive.md` (frontmatter):
-- `apps_script_url` — the deployed Google Apps Script endpoint
-- `default_folder_id` — default Google Drive output folder
-- `template_<type>` — Google Docs template ID per document type
-- `doc_types` — list of valid document types
+## Template lookup
+
+The `type` maps to Airtable's `DocumentType` to find the right template:
+- `brief` → BRIEF, `sow` → SOW, `report` → BRIEF, `strategy` → SOW
+- Templates with `allowAIDrafting = true` are preferred
 
 ## Error handling
 
-- If the API returns an error about the Apps Script URL, the user needs to
-  update `context/personal/drive.md` with their deployed exec URL.
-- If the template is missing, suggest the user add a `template_<type>` entry.
-- If the folder is missing, ask the user for a Drive folder ID or have them
-  set `default_folder_id` in the config.
+- **DRIVE_NOT_AVAILABLE** — Drive integration not enabled. Check env vars.
+- **TEMPLATE_NOT_FOUND** — Bad templateId. Check Airtable.
+- **No template for type** — No template configured for that document type in Airtable.
+- **COMPANY_NOT_FOUND** — Bad companyId. Check DMA_DEFAULT_COMPANY_ID.
+- **JOB_NO_DRIVE_FOLDER** — Job needs Drive folders provisioned first.
+- **Content injection warning** — Doc cloned but placeholders not replaced. User can edit manually.

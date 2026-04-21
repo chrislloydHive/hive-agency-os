@@ -1,51 +1,61 @@
 // app/api/os/drive/publish/route.ts
-// Publishes content to Google Drive via the Hive branded template system.
+// Publishes Claude-created content to Google Drive via the Hive branded template system.
+//
+// Uses company OAuth (not ADC) so it works without gcloud CLI.
+// Flow:
+//   1. Look up template from Airtable by document type
+//   2. Copy the template via Google Drive API (company OAuth)
+//   3. Inject content into placeholders via Google Docs API (company OAuth)
+//   4. Return the Google Drive link
 //
 // POST /api/os/drive/publish
 //   body: {
-//     type: 'brief' | 'sow' | 'report' | 'strategy',
-//     fileName: string,
-//     content: string,                  // main body content (injected into {{CONTENT}})
-//     project?: string,                 // project/client name
-//     client?: string,                  // client name (defaults to project)
-//     projectNumber?: string,           // project number
-//     docName?: string,                 // document title (defaults to fileName)
-//     inlineTable?: string,             // optional table content
-//     destinationFolderId?: string,     // override default folder
-//     templateId?: string,              // override template doc ID
+//     companyId?: string,         // defaults to DMA_DEFAULT_COMPANY_ID
+//     type?: 'brief' | 'sow' | 'report' | 'strategy',
+//     templateId?: string,        // Airtable template record ID (overrides type lookup)
+//     fileName: string,           // document title
+//     content: string,            // main body (injected into "Content goes here…")
+//     project?: string,           // project/client name
+//     client?: string,            // client name (defaults to project)
 //   }
 //
 // Returns:
-//   { ok: true, docId: string, docUrl: string }
-//
-// The endpoint reads config from context/personal/drive.md and POSTs to
-// the deployed Apps Script web app which clones a branded Google Docs
-// template and injects the content.
+//   { ok: true, docId, docUrl, type, fileName }
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDrivePublishConfig } from '@/lib/personalContext';
+import { listTemplates, getTemplateById } from '@/lib/airtable/templates';
+import { createGoogleDriveClient } from '@/lib/integrations/googleDrive';
+import type { DocumentType } from '@/lib/types/template';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
+// ── Friendly type → Airtable DocumentType mapping ──────────────────────────
+const TYPE_MAP: Record<string, DocumentType> = {
+  brief: 'BRIEF',
+  sow: 'SOW',
+  report: 'BRIEF',    // reports use the Brief template (general purpose)
+  strategy: 'SOW',    // strategy docs use the SOW template (structured)
+  timeline: 'TIMELINE',
+  msa: 'MSA',
+};
+
+// ── Request body ────────────────────────────────────────────────────────────
 interface PublishBody {
-  type: string;
+  companyId?: string;
+  type?: string;
+  templateId?: string;
   fileName: string;
   content: string;
   project?: string;
   client?: string;
-  projectNumber?: string;
-  docName?: string;
-  inlineTable?: string;
-  destinationFolderId?: string;
-  templateId?: string;
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as PublishBody;
 
-    // Validate required fields
+    // ── Validate required fields ──────────────────────────────────────────
     if (!body.content?.trim()) {
       return NextResponse.json({ ok: false, error: 'content is required' }, { status: 400 });
     }
@@ -53,100 +63,159 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'fileName is required' }, { status: 400 });
     }
 
-    // Load config
-    const config = await getDrivePublishConfig();
-
-    if (!config.appsScriptUrl || config.appsScriptUrl.includes('PASTE_YOUR')) {
+    const companyId = body.companyId || process.env.DMA_DEFAULT_COMPANY_ID || '';
+    if (!companyId) {
       return NextResponse.json(
-        { ok: false, error: 'Apps Script URL not configured. Update context/personal/drive.md.' },
-        { status: 500 },
-      );
-    }
-
-    // Resolve template
-    const docType = (body.type || 'report').toLowerCase();
-    if (!config.docTypes.includes(docType)) {
-      return NextResponse.json(
-        { ok: false, error: `Invalid type "${docType}". Valid types: ${config.docTypes.join(', ')}` },
+        { ok: false, error: 'companyId is required (or set DMA_DEFAULT_COMPANY_ID env var)' },
         { status: 400 },
       );
     }
 
-    const templateId = body.templateId || config.templates[docType];
-    if (!templateId) {
+    // ── Resolve template ──────────────────────────────────────────────────
+    let templateFileId: string | undefined;
+    let resolvedType = body.type?.toLowerCase() || 'brief';
+
+    if (body.templateId) {
+      // Direct template ID lookup
+      const template = await getTemplateById(body.templateId);
+      if (!template) {
+        return NextResponse.json(
+          { ok: false, error: `Template ${body.templateId} not found in Airtable.` },
+          { status: 404 },
+        );
+      }
+      templateFileId = template.driveTemplateFileId;
+    } else {
+      // Look up by document type
+      const documentType = TYPE_MAP[resolvedType];
+      if (!documentType) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Invalid type "${resolvedType}". Valid types: ${Object.keys(TYPE_MAP).join(', ')}`,
+          },
+          { status: 400 },
+        );
+      }
+
+      const templates = await listTemplates({ documentType });
+      const aiTemplate = templates.find((t) => t.allowAIDrafting);
+      const template = aiTemplate || templates[0];
+
+      if (!template) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `No template found for document type "${documentType}".`,
+            availableTypes: Object.keys(TYPE_MAP),
+          },
+          { status: 404 },
+        );
+      }
+
+      templateFileId = template.driveTemplateFileId;
+      console.log(
+        `[drive/publish] Resolved type "${resolvedType}" → template "${template.name}" (fileId=${templateFileId})`,
+      );
+    }
+
+    if (!templateFileId) {
       return NextResponse.json(
-        { ok: false, error: `No template configured for type "${docType}"` },
+        { ok: false, error: 'Template has no Drive file ID configured.' },
         { status: 400 },
       );
     }
 
-    const folderId = body.destinationFolderId || config.defaultFolderId;
-    if (!folderId) {
+    // ── Get company OAuth Drive + Docs clients ────────────────────────────
+    const driveClient = createGoogleDriveClient(companyId);
+    const drive = await driveClient.getDrive();
+    const docs = await driveClient.getDocs();
+
+    // ── Copy the template ─────────────────────────────────────────────────
+    const fileName = body.fileName.trim();
+    let docId: string;
+    let docUrl: string;
+
+    try {
+      const copyResponse = await drive.files.copy({
+        fileId: templateFileId,
+        requestBody: {
+          name: fileName,
+        },
+        fields: 'id, name, webViewLink',
+        supportsAllDrives: true,
+      });
+
+      docId = copyResponse.data.id!;
+      docUrl = copyResponse.data.webViewLink || `https://docs.google.com/document/d/${docId}/edit`;
+
+      console.log(`[drive/publish] Cloned template → ${docId} ("${fileName}")`);
+    } catch (copyError: any) {
+      console.error('[drive/publish] Failed to copy template:', copyError?.message || copyError);
+      const status = copyError?.code || 500;
       return NextResponse.json(
-        { ok: false, error: 'No destination folder. Set default_folder_id in drive.md or pass destinationFolderId.' },
-        { status: 400 },
-      );
-    }
-
-    // Build payload for Apps Script
-    const payload = {
-      templateDocId: templateId,
-      destinationFolderId: folderId,
-      fileName: body.fileName.trim(),
-      content: body.content,
-      docName: body.docName || body.fileName.trim(),
-      project: body.project || '',
-      client: body.client || body.project || '',
-      projectNumber: body.projectNumber || '',
-      inlineTable: body.inlineTable || '',
-      placeholders: {
-        '{{PROJECT}}': body.project || '',
-        '{{CLIENT}}': body.client || body.project || '',
-        '{{PROJECT_NUMBER}}': body.projectNumber || '',
-        '{{DOC_NAME}}': body.docName || body.fileName.trim(),
-        '{{CONTENT}}': body.content,
-        '{{INLINE_TABLE}}': body.inlineTable || '',
-      },
-    };
-
-    // POST to Apps Script
-    const response = await fetch(config.appsScriptUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      // Apps Script redirects on POST — follow redirects
-      redirect: 'follow',
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      console.error('[drive/publish] Apps Script error:', response.status, text);
-      return NextResponse.json(
-        { ok: false, error: `Apps Script returned ${response.status}`, detail: text },
+        {
+          ok: false,
+          error: `Failed to copy template: ${copyError?.message || 'Unknown error'}`,
+          howToFix: status === 401 || status === 403
+            ? 'Reconnect Google OAuth with Drive scopes.'
+            : 'Check that the template file ID is correct and accessible.',
+        },
         { status: 502 },
       );
     }
 
-    const result = await response.json();
+    // ── Inject content into the cloned doc ────────────────────────────────
+    try {
+      // The Hive Doc Template placeholders:
+      //   {{Doc_Title}}, Project Name, Client, Date, Subject — filled by the Google Docs side panel
+      //   "Content goes here…" — body content placeholder (filled by this endpoint)
+      const placeholders: Record<string, string> = {
+        'Content goes here…': body.content,
+        'Content goes here\u2026': body.content, // handle both ellipsis forms
+      };
 
-    if (!result.ok) {
-      console.error('[drive/publish] Apps Script returned error:', result.error);
-      return NextResponse.json(
-        { ok: false, error: result.error || 'Apps Script returned an error' },
-        { status: 502 },
-      );
+      const requests = Object.entries(placeholders)
+        .map(([placeholder, value]) => ({
+          replaceAllText: {
+            containsText: {
+              text: placeholder,
+              matchCase: false,
+            },
+            replaceText: value,
+          },
+        }));
+
+      if (requests.length > 0) {
+        await docs.documents.batchUpdate({
+          documentId: docId,
+          requestBody: { requests },
+        });
+        console.log(`[drive/publish] Injected content into cloned doc`);
+      }
+    } catch (injectError: any) {
+      console.error('[drive/publish] Content injection failed:', injectError?.message || injectError);
+      // Doc was cloned but content injection failed — still return the link
+      return NextResponse.json({
+        ok: true,
+        docId,
+        docUrl,
+        type: resolvedType,
+        fileName,
+        warning: 'Document created but content injection failed — placeholders may still be present.',
+      });
     }
 
-    console.log(`[drive/publish] Created doc: ${result.docUrl} (type=${docType})`);
+    console.log(`[drive/publish] Published: ${docUrl} (type=${resolvedType})`);
 
     return NextResponse.json({
       ok: true,
-      docId: result.docId,
-      docUrl: result.docUrl,
-      type: docType,
-      fileName: body.fileName.trim(),
+      docId,
+      docUrl,
+      type: resolvedType,
+      fileName,
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error('[drive/publish] Error:', err);
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : 'Publish failed' },

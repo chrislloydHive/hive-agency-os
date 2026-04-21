@@ -42,17 +42,32 @@ const TEMPLATE_PACK_FIELDS = {
 // ============================================================================
 
 /**
+ * Extract a bare Google Drive file ID from a value that might be a full URL.
+ * Handles: "https://docs.google.com/document/d/<ID>/edit?..."  →  "<ID>"
+ *          "https://drive.google.com/file/d/<ID>/view"          →  "<ID>"
+ *          "<bare-ID>"                                          →  "<bare-ID>"
+ */
+function extractDriveFileId(value: string): string {
+  if (!value) return '';
+  // Match /d/<fileId>/ in Google Docs/Drive URLs
+  const match = value.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : value;
+}
+
+/**
  * Map Airtable record to TemplateRecord
  */
 function mapFieldsToTemplate(record: any): TemplateRecord {
   const fields = record.fields;
+
+  const rawFileId = (fields[TEMPLATE_FIELDS.DRIVE_TEMPLATE_FILE_ID] as string) || '';
 
   return {
     id: record.id,
     name: (fields[TEMPLATE_FIELDS.NAME] as string) || '',
     scope: (fields[TEMPLATE_FIELDS.SCOPE] as TemplateScope) || 'job',
     documentType: (fields[TEMPLATE_FIELDS.DOCUMENT_TYPE] as DocumentType) || 'SOW',
-    driveTemplateFileId: (fields[TEMPLATE_FIELDS.DRIVE_TEMPLATE_FILE_ID] as string) || '',
+    driveTemplateFileId: extractDriveFileId(rawFileId),
     destinationFolderKey: (fields[TEMPLATE_FIELDS.DESTINATION_FOLDER_KEY] as DestinationFolderKey) || 'estimate',
     namingPattern: (fields[TEMPLATE_FIELDS.NAMING_PATTERN] as string) || '',
     allowAIDrafting: (fields[TEMPLATE_FIELDS.ALLOW_AI_DRAFTING] as boolean) || false,
