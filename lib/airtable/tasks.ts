@@ -148,6 +148,87 @@ function mapRecordToTask(record: any): TaskRecord {
   };
 }
 
+/**
+ * Centralizes Done ↔ archive view so any PATCH path (checkbox, TaskEditPanel,
+ * apply-decision) keeps Status, Done checkbox, and View in sync.
+ *
+ * Rules:
+ * - Status `Done` → always `done: true`, `view: 'archive'`
+ * - Status `Archive` (dismissed / filed) → `view: 'archive'`
+ * - Leaving `Done` for another active status → `done: false`, restore `view`
+ *   from the patch or default `inbox`
+ * - Bare `done: true` without status → treat as complete → Done + archive
+ */
+export function mergeTaskUpdateWithArchiveRules(
+  current: TaskRecord,
+  input: UpdateTaskInput,
+): UpdateTaskInput {
+  const out: UpdateTaskInput = { ...input };
+  const curStatus = current.status;
+  const nextStatus: TaskStatus = input.status !== undefined ? input.status : current.status;
+
+  // Unchecking without a new status — must run before `nextStatus === 'Done'` (nextStatus would still be Done)
+  if (curStatus === 'Done' && input.done === false && input.status === undefined) {
+    out.done = false;
+    out.view = input.view !== undefined ? input.view : 'inbox';
+    out.status = 'Inbox';
+    return out;
+  }
+
+  if (nextStatus === 'Done') {
+    out.status = 'Done';
+    out.done = true;
+    out.view = 'archive';
+    return out;
+  }
+
+  if (nextStatus === 'Archive') {
+    out.status = 'Archive';
+    out.view = 'archive';
+    return out;
+  }
+
+  // Leaving Done for an active status (Next / Inbox / Waiting)
+  if (curStatus === 'Done') {
+    out.status = nextStatus;
+    out.done = false;
+    out.view = input.view !== undefined ? input.view : 'inbox';
+    return out;
+  }
+
+  // Leaving dismissed "Archive" status for an active workflow status
+  if (
+    curStatus === 'Archive' &&
+    (nextStatus === 'Inbox' || nextStatus === 'Next' || nextStatus === 'Waiting')
+  ) {
+    out.status = nextStatus;
+    out.view = input.view !== undefined ? input.view : 'inbox';
+    return out;
+  }
+
+  if (input.done === true && input.status === undefined) {
+    out.status = 'Done';
+    out.done = true;
+    out.view = 'archive';
+    return out;
+  }
+
+  return out;
+}
+
+async function fetchTaskByRecordId(recordId: string): Promise<TaskRecord> {
+  const baseId = tasksBaseIdOrThrow();
+  const tableId = getTasksTableIdentifier();
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}/${recordId}`;
+  const response = await fetchWithRetry(url, { method: 'GET' });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Airtable API error fetching task (${response.status}): ${errorText}`);
+  }
+  const record = await response.json();
+  return mapRecordToTask(record);
+}
+
 function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<string, unknown> {
   const fields: Record<string, unknown> = {};
 
@@ -338,7 +419,9 @@ export async function createTask(input: CreateTaskInput): Promise<TaskRecord> {
 export async function updateTask(recordId: string, input: UpdateTaskInput): Promise<TaskRecord> {
   const baseId = tasksBaseIdOrThrow();
   const tableId = getTasksTableIdentifier();
-  const fields = mapInputToFields(input);
+  const current = await fetchTaskByRecordId(recordId);
+  const mergedInput = mergeTaskUpdateWithArchiveRules(current, input);
+  const fields = mapInputToFields(mergedInput);
 
   const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}/${recordId}`;
 
@@ -360,11 +443,11 @@ export async function updateTask(recordId: string, input: UpdateTaskInput): Prom
   //   status changed ⇒ task.status-changed
   //   otherwise      ⇒ task.updated
   let action: ActivityAction = 'task.updated';
-  if (typeof input.status === 'string') {
-    action = input.status === 'Done' ? 'task.completed' : 'task.status-changed';
+  if (typeof mergedInput.status === 'string') {
+    action = mergedInput.status === 'Done' ? 'task.completed' : 'task.status-changed';
   }
 
-  const { summary, changedFields } = summarizeTaskUpdate(task.task, input as Record<string, unknown>);
+  const { summary, changedFields } = summarizeTaskUpdate(task.task, mergedInput as Record<string, unknown>);
 
   logEventAsync({
     actorType: 'system',
@@ -376,7 +459,7 @@ export async function updateTask(recordId: string, input: UpdateTaskInput): Prom
     summary,
     metadata: {
       changedFields,
-      input,
+      input: mergedInput,
       after: {
         priority: task.priority,
         due: task.due,

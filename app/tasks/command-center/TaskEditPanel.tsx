@@ -6,6 +6,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { X, Save, ExternalLink, Loader2, CheckSquare, Square, FolderPlus, Layout, ChevronDown, Users, Calendar, AlertCircle, Check } from 'lucide-react';
 import { TaskDecider } from './TaskDecider';
+import type { TaskView } from '@/lib/airtable/tasks';
 
 // ── PM OS deep links ─────────────────────────────────────────────────────────
 // These point into the Airtable interface Chris uses for project management.
@@ -25,6 +26,8 @@ interface TaskRecord {
   project: string;
   nextAction: string;
   status: TaskStatus;
+  /** Airtable "View" — inbox / braindump / projects / archive */
+  view?: TaskView;
   threadUrl: string | null;
   notes: string;
   assignedTo: string;
@@ -72,6 +75,9 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
   const onSavedRef = useRef(onSaved);
   onSavedRef.current = onSaved;
 
+  /** Last tab/view before a task was moved to Done, used to restore on un-complete */
+  const nonDoneViewRef = useRef<TaskView>('inbox');
+
   // Form fields
   const [taskTitle, setTaskTitle] = useState('');
   const [status, setStatus] = useState<TaskStatus>('Inbox');
@@ -110,6 +116,10 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
       setNotes(t.notes || '');
       setProject(t.project || '');
       setAssignedTo(t.assignedTo || '');
+      const tv = (t.view || 'inbox') as TaskView;
+      if (t.status !== 'Done' && t.status !== 'Archive') {
+        nonDoneViewRef.current = tv;
+      }
       setDirty(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load task');
@@ -140,6 +150,8 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
   }, [isCreate, prefill]);
 
   const buildEditBody = useCallback((): Record<string, unknown> => {
+    const resolvedView: TaskView =
+      status === 'Done' || status === 'Archive' ? 'archive' : nonDoneViewRef.current;
     const body: Record<string, unknown> = {
       task: taskTitle,
       status,
@@ -148,6 +160,7 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
       due: due || null,
       project: project || undefined,
       assignedTo: assignedTo || null,
+      view: resolvedView,
       // Keep Airtable's Done checkbox in sync with Status. Status remains the
       // source of truth (see excludeDone filter), but some views still read
       // the Done field — mirror it here so the two never disagree.
@@ -211,6 +224,7 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
         due: due || null,
         project: project || undefined,
         done: status === 'Done',
+        view: (status === 'Done' || status === 'Archive' ? 'archive' : 'inbox') as TaskView,
       };
       if (priority) body.priority = priority;
       if (emailMeta?.link) body.threadUrl = emailMeta.link;

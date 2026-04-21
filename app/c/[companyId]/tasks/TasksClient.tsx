@@ -67,6 +67,9 @@ interface TaskItem {
   assignedTo: string;
   checked: boolean;
   view: ViewType;
+  /** When completing via checkbox, store row state so undo restores the right tab + status */
+  priorStatusBeforeDone?: TaskStatus;
+  priorViewBeforeDone?: ViewType;
 }
 
 type Priority = 'P0' | 'P1' | 'P2' | 'P3';
@@ -512,25 +515,46 @@ export function TasksClient({ company }: TasksClientProps) {
       const updated = prev.map(t => {
         if (t.id !== id) return t;
         const nowChecked = !t.checked;
-        // If checking done → move to archive view immediately
+        // If checking done → archive immediately (UI + server merge use view=archive)
         if (nowChecked) {
-          return { ...t, checked: true, status: 'Done' as TaskStatus, view: 'archive' as ViewType };
+          return {
+            ...t,
+            checked: true,
+            status: 'Done' as TaskStatus,
+            view: 'archive' as ViewType,
+            priorStatusBeforeDone: t.status,
+            priorViewBeforeDone: t.view,
+          };
         }
-        // If unchecking → restore to inbox view
-        return { ...t, checked: false, status: 'Inbox' as TaskStatus, view: 'inbox' as ViewType };
+        const priorS = t.priorStatusBeforeDone ?? ('Inbox' as TaskStatus);
+        const priorV = t.priorViewBeforeDone ?? ('inbox' as ViewType);
+        return {
+          ...t,
+          checked: false,
+          status: priorS,
+          view: priorV,
+          priorStatusBeforeDone: undefined,
+          priorViewBeforeDone: undefined,
+        };
       });
-      // Persist to Airtable
+      // Persist to Airtable (updateTask merges Done → archive; uncheck restores prior status + view)
       const task = updated.find(t => t.id === id);
       if (task?.airtableId) {
+        const payload: Record<string, unknown> = {
+          id: task.airtableId,
+          done: task.checked,
+        };
+        if (task.checked) {
+          payload.status = 'Done';
+          payload.view = 'archive';
+        } else {
+          payload.status = task.status;
+          payload.view = task.view;
+        }
         fetch('/api/os/tasks', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: task.airtableId,
-            done: task.checked,
-            status: task.checked ? 'Done' : 'Inbox',
-            view: task.checked ? 'archive' : 'inbox',
-          }),
+          body: JSON.stringify(payload),
         }).catch(err => console.error('Failed to update task:', err));
       }
       return updated;
@@ -557,8 +581,12 @@ export function TasksClient({ company }: TasksClientProps) {
     }
   }, []);
 
-  // Filter tasks for the active view
+  // Filter tasks for the active tab (Tasks = inbox). Hide Done rows that are still
+  // mis-filed as inbox until backfill / server merge corrects them.
   const viewTasks = useMemo(() => {
+    if (activeView === 'inbox') {
+      return tasks.filter(t => t.view === 'inbox' && t.status !== 'Done');
+    }
     return tasks.filter(t => t.view === activeView);
   }, [tasks, activeView]);
 
