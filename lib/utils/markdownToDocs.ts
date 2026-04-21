@@ -81,6 +81,17 @@ function parseMarkdown(markdown: string): ContentBlock[] {
       continue;
     }
 
+    // Bold-only line → treat as heading (e.g., "**Audience.**" or "**Brand architecture.**")
+    // This catches section labels written as bold paragraphs instead of ## headings.
+    const boldLineMatch = line.trim().match(/^\*{2,3}(.+?)\*{2,3}$/);
+    if (boldLineMatch) {
+      const content = boldLineMatch[1].trim();
+      const segments = [{ text: content, bold: true }];
+      const rawText = content;
+      blocks.push({ type: 'heading', headingLevel: 2, segments, rawText });
+      continue;
+    }
+
     // Heading: # through ######
     const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {
