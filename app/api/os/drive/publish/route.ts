@@ -169,22 +169,18 @@ export async function POST(req: NextRequest) {
     try {
       // The Hive Doc Template placeholders:
       //   {{Doc_Title}}, Project Name, Client, Date, Subject — filled by the Google Docs side panel
-      //   "Content goes here…" — body content placeholder (filled by this endpoint)
-      const placeholders: Record<string, string> = {
-        'Content goes here…': body.content,
-        'Content goes here\u2026': body.content, // handle both ellipsis forms
-      };
+      //   "Content goes here…" / "Content goes here..." — body placeholder (filled by this endpoint)
+      const placeholderTexts = ['Content goes here…', 'Content goes here...'];
 
-      const requests = Object.entries(placeholders)
-        .map(([placeholder, value]) => ({
-          replaceAllText: {
-            containsText: {
-              text: placeholder,
-              matchCase: false,
-            },
-            replaceText: value,
+      const requests = placeholderTexts.map(placeholder => ({
+        replaceAllText: {
+          containsText: {
+            text: placeholder,
+            matchCase: false,
           },
-        }));
+          replaceText: body.content,
+        },
+      }));
 
       if (requests.length > 0) {
         await docs.documents.batchUpdate({
