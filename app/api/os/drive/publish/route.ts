@@ -25,6 +25,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listTemplates, getTemplateById } from '@/lib/airtable/templates';
 import { createGoogleDriveClient } from '@/lib/integrations/googleDrive';
+import { buildReplaceWithFormattedContent } from '@/lib/utils/markdownToDocs';
 import type { DocumentType } from '@/lib/types/template';
 
 export const dynamic = 'force-dynamic';
@@ -165,29 +166,43 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Inject content into the cloned doc ────────────────────────────────
+    // ── Inject formatted content into the cloned doc ─────────────────────
     try {
       // The Hive Doc Template placeholders:
       //   {{Doc_Title}}, Project Name, Client, Date, Subject — filled by the Google Docs side panel
       //   "Content goes here…" / "Content goes here..." — body placeholder (filled by this endpoint)
       const placeholderTexts = ['Content goes here…', 'Content goes here...'];
 
-      const requests = placeholderTexts.map(placeholder => ({
-        replaceAllText: {
-          containsText: {
-            text: placeholder,
-            matchCase: false,
-          },
-          replaceText: body.content,
-        },
-      }));
+      // Read the document to find the placeholder's exact position
+      const docData = await docs.documents.get({ documentId: docId });
 
-      if (requests.length > 0) {
+      // Build formatted requests (delete placeholder → insert styled content)
+      const formattedRequests = buildReplaceWithFormattedContent(
+        docData.data,
+        placeholderTexts,
+        body.content,
+      );
+
+      if (formattedRequests && formattedRequests.length > 0) {
         await docs.documents.batchUpdate({
           documentId: docId,
-          requestBody: { requests },
+          requestBody: { requests: formattedRequests },
         });
-        console.log(`[drive/publish] Injected content into cloned doc`);
+        console.log(`[drive/publish] Injected formatted content into cloned doc`);
+      } else {
+        // Fallback: placeholder not found, try plain replaceAllText
+        console.warn('[drive/publish] Placeholder not found in doc, falling back to replaceAllText');
+        const fallbackRequests = placeholderTexts.map(placeholder => ({
+          replaceAllText: {
+            containsText: { text: placeholder, matchCase: false },
+            replaceText: body.content,
+          },
+        }));
+        await docs.documents.batchUpdate({
+          documentId: docId,
+          requestBody: { requests: fallbackRequests },
+        });
+        console.log(`[drive/publish] Injected content (plain text fallback) into cloned doc`);
       }
     } catch (injectError: any) {
       console.error('[drive/publish] Content injection failed:', injectError?.message || injectError);
