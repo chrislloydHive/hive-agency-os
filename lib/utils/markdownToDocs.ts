@@ -139,6 +139,9 @@ function parseMarkdown(markdown: string): ContentBlock[] {
 
 // ── Google Docs Request Builder ────────────────────────────────────────────
 
+/** Hive brand gold — used for heading text color (#d4a017) */
+const HIVE_GOLD = { red: 212 / 255, green: 160 / 255, blue: 23 / 255 };
+
 /** Google Docs API heading name for a given markdown heading level */
 function headingStyle(level: number): string {
   if (level <= 0) return 'NORMAL_TEXT';
@@ -225,8 +228,8 @@ export function buildFormattedInsertRequests(
     },
   });
 
-  // 2b. Apply paragraph styles (headings)
-  for (const { block, startOffset, lineEndOffset } of blockRanges) {
+  // 2b. Apply paragraph styles (headings) and heading text color
+  for (const { block, startOffset, endOffset, lineEndOffset } of blockRanges) {
     if (block.type === 'heading' && block.headingLevel) {
       requests.push({
         updateParagraphStyle: {
@@ -238,6 +241,19 @@ export function buildFormattedInsertRequests(
             namedStyleType: headingStyle(block.headingLevel),
           },
           fields: 'namedStyleType',
+        },
+      });
+      // Override heading color with Hive brand gold
+      requests.push({
+        updateTextStyle: {
+          range: {
+            startIndex: insertIndex + startOffset,
+            endIndex: insertIndex + endOffset,
+          },
+          textStyle: {
+            foregroundColor: { color: { rgbColor: HIVE_GOLD } },
+          },
+          fields: 'foregroundColor',
         },
       });
     }
