@@ -29,6 +29,8 @@ Content-Type: application/json
   "content": "The full document content...",
   "project": "Client or project name",
   "client": "Client name (defaults to project)",
+  "subject": "Subject line (defaults to fileName)",
+  "date": "Date string (defaults to today's date)",
   "jobId": "Optional Airtable job record ID for subfolder routing",
   "jobCode": "Optional job code for naming"
 }

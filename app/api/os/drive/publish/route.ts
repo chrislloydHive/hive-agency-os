@@ -15,8 +15,10 @@
 //     templateId?: string,        // Airtable template record ID (overrides type lookup)
 //     fileName: string,           // document title
 //     content: string,            // main body (injected into "Content goes here…")
-//     project?: string,           // project/client name
+//     project?: string,           // project name (populates {{PROJECT}} and cover table)
 //     client?: string,            // client name (defaults to project)
+//     subject?: string,           // subject line (defaults to fileName)
+//     date?: string,              // date string (defaults to today)
 //   }
 //
 // Returns:
@@ -50,6 +52,8 @@ interface PublishBody {
   content: string;
   project?: string;
   client?: string;
+  subject?: string;
+  date?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -215,6 +219,64 @@ export async function POST(req: NextRequest) {
         fileName,
         warning: 'Document created but content injection failed — placeholders may still be present.',
       });
+    }
+
+    // ── Populate template header fields (Doc Title, Project, Client, Date, Subject) ──
+    try {
+      const today = body.date || new Date().toLocaleDateString('en-US', {
+        year: 'numeric', month: 'long', day: 'numeric',
+      });
+      const project = body.project || '';
+      const client = body.client || project;
+      const subject = body.subject || fileName;
+      const docTitle = fileName;
+
+      // Token replacements: {{TOKEN}} → value  (matches Apps Script buildTokens_ pattern)
+      const tokenReplacements: Record<string, string> = {
+        '{{DOC_TITLE}}': docTitle,
+        '{{Doc_Title}}': docTitle,
+        '{{doc_title}}': docTitle,
+        '{{PROJECT}}': project,
+        '{{CLIENT}}': client,
+        '{{SUBJECT}}': subject,
+        '{{DATE}}': today,
+        '{{DOC_TYPE}}': resolvedType,
+      };
+
+      // Table cell label replacements: "Label:\n" → "Label:\nValue"
+      // The Hive Doc Template has a cover table with cells like "Project Name:\n"
+      const labelReplacements: Record<string, string> = {
+        'Project Name:\n': `Project Name:\n${project}`,
+        'Client:\n': `Client:\n${client}`,
+        'Date:\n': `Date:\n${today}`,
+        'Subject:\n': `Subject:\n${subject}`,
+      };
+
+      const fieldRequests = [
+        ...Object.entries(tokenReplacements).map(([placeholder, value]) => ({
+          replaceAllText: {
+            containsText: { text: placeholder, matchCase: true },
+            replaceText: value,
+          },
+        })),
+        ...Object.entries(labelReplacements).map(([placeholder, value]) => ({
+          replaceAllText: {
+            containsText: { text: placeholder, matchCase: false },
+            replaceText: value,
+          },
+        })),
+      ];
+
+      if (fieldRequests.length > 0) {
+        await docs.documents.batchUpdate({
+          documentId: docId,
+          requestBody: { requests: fieldRequests },
+        });
+        console.log(`[drive/publish] Populated template fields (project=${project}, client=${client})`);
+      }
+    } catch (fieldError: any) {
+      console.warn('[drive/publish] Template field population failed:', fieldError?.message);
+      // Non-fatal — doc was still created with content
     }
 
     console.log(`[drive/publish] Published: ${docUrl} (type=${resolvedType})`);
