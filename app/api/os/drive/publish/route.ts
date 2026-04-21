@@ -6,19 +6,22 @@
 //   1. Look up template from Airtable by document type
 //   2. Copy the template via Google Drive API (company OAuth)
 //   3. Inject content into placeholders via Google Docs API (company OAuth)
-//   4. Return the Google Drive link
+//   4. (Optional) Populate header fields if populateFields=true
+//   5. Return the Google Drive link — user opens it and uses the sidebar
+//      to set Doc Title, Project, Subject, folder, then hits "Create"
 //
 // POST /api/os/drive/publish
 //   body: {
 //     companyId?: string,         // defaults to DMA_DEFAULT_COMPANY_ID
 //     type?: 'brief' | 'sow' | 'report' | 'strategy',
 //     templateId?: string,        // Airtable template record ID (overrides type lookup)
-//     fileName: string,           // document title
+//     fileName: string,           // document title (used for the cloned file name)
 //     content: string,            // main body (injected into "Content goes here…")
-//     project?: string,           // project name (populates {{PROJECT}} and cover table)
-//     client?: string,            // client name (defaults to project)
-//     subject?: string,           // subject line (defaults to fileName)
-//     date?: string,              // date string (defaults to today)
+//     project?: string,           // project name (only used when populateFields=true)
+//     client?: string,            // client name (only used when populateFields=true)
+//     subject?: string,           // subject line (only used when populateFields=true)
+//     date?: string,              // date string (only used when populateFields=true)
+//     populateFields?: boolean,   // default false — sidebar handles metadata
 //   }
 //
 // Returns:
@@ -54,6 +57,9 @@ interface PublishBody {
   client?: string;
   subject?: string;
   date?: string;
+  /** When true, replace {{TOKEN}} placeholders and cover-table labels.
+   *  Default false — the sidebar handles metadata in the normal workflow. */
+  populateFields?: boolean;
 }
 
 export async function POST(req: NextRequest) {
@@ -221,8 +227,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ── Populate template header fields (Doc Title, Project, Client, Date, Subject) ──
-    try {
+    // ── Populate template header fields (only when explicitly requested) ──
+    // By default the sidebar handles metadata (Doc Title, Project, Client, etc.).
+    // Pass populateFields: true to have the API fill them instead.
+    if (body.populateFields) try {
       const today = body.date || new Date().toLocaleDateString('en-US', {
         year: 'numeric', month: 'long', day: 'numeric',
       });
