@@ -56,7 +56,11 @@ interface TaskItem {
   /** Surfaced from /api/os/tasks to render the ⚡ auto pill on tasks that
    *  were upserted by /api/os/sync/auto-tasks. */
   autoCreated?: boolean;
-  source?: 'manual' | 'commitment' | 'meeting-follow-up' | 'email-triage' | null;
+  source?: 'manual' | 'commitment' | 'meeting-follow-up' | 'email-triage' | 'website-submission' | null;
+  /** External identifier tied to the source system. For website-submission
+   *  tasks this is the Gmail messageId — used so Draft reply targets the
+   *  specific submission instead of the latest message in the thread. */
+  sourceRef?: string | null;
 }
 
 type Priority = 'P0' | 'P1' | 'P2' | 'P3';
@@ -139,6 +143,72 @@ const MONTHS: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
   jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
 };
+
+/** Bot-submitted spam detector for Framer form tasks. Same heuristic as the
+ *  server-side filter in lib/os/commandCenterGoogle, applied to the Notes
+ *  field so legacy tasks from before the server filter existed also hide. */
+const SPAM_COMMON_WORDS_RE =
+  /\b(the|and|or|i|we|you|your|our|my|me|is|are|was|be|have|has|for|in|on|at|of|with|about|to|from|would|could|can|please|thanks|thank|hi|hello|help|need|want|like|interested|looking|business|company|service|product|marketing|website|email|contact|ask|question|quote)\b/i;
+
+function hasRandomCamelCase(s: string): boolean {
+  if (!/^[A-Za-z]+$/.test(s)) return false;
+  let transitions = 0;
+  for (let i = 1; i < s.length; i++) {
+    if (/[a-z]/.test(s[i - 1]) && /[A-Z]/.test(s[i])) transitions++;
+  }
+  return transitions >= 2;
+}
+
+function submissionNotesLookSpammy(notes: string): boolean {
+  if (!notes) return false;
+  const lines = notes.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const getValue = (line: string) => line.split(':').slice(1).join(':').trim();
+  const name = lines.find((l) => /^name\s*:/i.test(l)) ? getValue(lines.find((l) => /^name\s*:/i.test(l))!) : '';
+  const email = lines.find((l) => /^email\s*:/i.test(l)) ? getValue(lines.find((l) => /^email\s*:/i.test(l))!) : '';
+  const message = lines.find((l) => /^(message|notes?|details?|description|comments?)\s*:/i.test(l))
+    ? getValue(lines.find((l) => /^(message|notes?|details?|description|comments?)\s*:/i.test(l))!)
+    : '';
+
+  let signals = 0;
+  if (message) {
+    const words = message.split(/\s+/).filter((w) => w.length > 0);
+    if (words.length <= 1 && message.length >= 10) signals++;
+    if (!SPAM_COMMON_WORDS_RE.test(message) && message.length >= 15) signals++;
+    if (hasRandomCamelCase(message.replace(/\s+/g, ''))) signals++;
+  } else {
+    signals++;
+  }
+  if (name && hasRandomCamelCase(name)) signals++;
+  if (email) {
+    const local = email.split('@')[0] || '';
+    const dots = (local.match(/\./g) || []).length;
+    if (dots >= 3) signals++;
+  }
+  return signals >= 2;
+}
+
+/** Pull a compact Topic + Message preview out of the Notes field on a
+ *  website-submission task. Notes stores the full form body (Name, Email,
+ *  Phone, Topic, Message on separate lines); the row only needs the topic
+ *  value + message so Chris can scan and prioritize. */
+function submissionRowPreview(notes: string): string {
+  if (!notes) return '';
+  const lines = notes.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const getValue = (line: string) => line.split(':').slice(1).join(':').trim();
+  const topicLine = lines.find((l) => /^(select\s+a\s+)?topic\s*:/i.test(l));
+  const messageLine = lines.find((l) => /^(message|notes?|details?|description|comments?)\s*:/i.test(l));
+  const parts: string[] = [];
+  if (topicLine) {
+    const val = getValue(topicLine);
+    if (val) parts.push(val);
+  }
+  if (messageLine) {
+    const val = getValue(messageLine);
+    if (val) parts.push(`Message: ${val}`);
+  }
+  const preview = parts.join(' · ');
+  return preview.length > 220 ? preview.slice(0, 217) + '…' : preview;
+}
 
 /** Returns null if the date is more than 2 years from now in either direction —
  *  that almost always means a data entry error (e.g. year 2001 from a stale
@@ -593,11 +663,31 @@ function TaskRow({
           <DuePill due={t.due} onChange={onDueChange} />
           {t.status === 'Waiting' && <Tag variant="waiting"><Clock className="w-[10px] h-[10px]" /> waiting</Tag>}
         </div>
-        <div className="text-xs text-gray-500 truncate">
-          {t.project || t.from || ''}
-          {t.nextAction && t.project && <span className="text-gray-700"> · </span>}
-          {t.nextAction && <span>{t.nextAction}</span>}
-        </div>
+        {(() => {
+          // Compute the prefix shown before the preview text.
+          // Priority: explicit project → sender name (unless it's the useless
+          // "Hive website" Framer label) → empty. Submissions always drop it
+          // since the section header already says "Website submissions".
+          const isSubmission = t.source === 'website-submission' || t.from === 'Hive website';
+          const prefix = t.project
+            ? t.project
+            : isSubmission
+              ? ''
+              : (t.from || '');
+          // For submissions, nextAction is stored blank (data lives in notes).
+          // Derive a Topic + Message preview from notes at render time so the
+          // row stays scannable without duplicating the data across fields.
+          const preview = isSubmission
+            ? submissionRowPreview(t.notes || '')
+            : (t.nextAction || '');
+          return (
+            <div className="text-xs text-gray-500 truncate">
+              {prefix}
+              {preview && prefix && <span className="text-gray-700"> · </span>}
+              {preview && <span>{preview}</span>}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Primary action */}
@@ -679,6 +769,7 @@ export function TasksClient({ company }: TasksClientProps) {
   const [editingTitleId, setEditingTitleId] = useState<number | null>(null);
   const [focusId, setFocusId] = useState<number | null>(null);
   const [doneExpanded, setDoneExpanded] = useState(false);
+  const [submissionsExpanded, setSubmissionsExpanded] = useState(false);
   const [waitingExpanded, setWaitingExpanded] = useState(true);
   const [draftingId, setDraftingId] = useState<number | null>(null);
   const [draftError, setDraftError] = useState<{
@@ -789,6 +880,7 @@ export function TasksClient({ company }: TasksClientProps) {
         view: (t.view as ViewType) || 'inbox',
         autoCreated: (t.autoCreated as boolean) || false,
         source: (t.source as TaskItem['source']) || null,
+        sourceRef: (t.sourceRef as string) || null,
       }));
       setTasks(mapped);
     } catch (err) {
@@ -836,7 +928,7 @@ export function TasksClient({ company }: TasksClientProps) {
         if (s.unarchived) parts.push(`${s.unarchived} re-surfaced`);
         if (s.errors) parts.push(`${s.errors} errors`);
         setManualSyncSummary(parts.length ? `Synced · ${parts.join(', ')}` : 'Synced · no changes');
-        if (s.created > 0 || s.unarchived > 0) fetchTasks();
+        if (s.created > 0 || s.unarchived > 0 || s.updated > 0) fetchTasks();
       } else if (json.reason === 'cooldown') {
         const secs = Math.ceil((json.cooldownMsRemaining || 0) / 1000);
         setManualSyncSummary(`Synced recently — wait ${secs}s to re-run`);
@@ -863,7 +955,7 @@ export function TasksClient({ company }: TasksClientProps) {
       .then((data) => {
         if (cancelled) return;
         const stats = data?.stats;
-        if (stats && (stats.created > 0 || stats.unarchived > 0)) {
+        if (stats && (stats.created > 0 || stats.unarchived > 0 || stats.updated > 0)) {
           fetchTasks(); // refresh so new auto-tasks appear immediately
         }
       })
@@ -980,8 +1072,12 @@ export function TasksClient({ company }: TasksClientProps) {
   }, []);
 
   const draftReply = useCallback(async (taskItem: TaskItem) => {
-    // If we already have a draft URL, just open it — no point spending an LLM call.
-    if (taskItem.draftUrl) {
+    const isSubmission = taskItem.source === 'website-submission';
+    // If we already have a draft URL, just open it — no point spending an LLM
+    // call. EXCEPT for submissions: their earlier drafts may have been
+    // created with stale logic (wrong To, no signature), so always re-draft
+    // until the stored draft is known-good.
+    if (taskItem.draftUrl && !isSubmission) {
       window.open(taskItem.draftUrl, '_blank');
       return;
     }
@@ -990,13 +1086,22 @@ export function TasksClient({ company }: TasksClientProps) {
       setDraftError({ message: 'No Gmail thread URL on this task. Draft requires a linked email thread.' });
       return;
     }
+    // For submissions, prefer the specific messageId stored as sourceRef so
+    // the AI drafts against THIS submission, not whatever the latest message
+    // in the thread happens to be. Framer submissions with the same subject
+    // get grouped into one Gmail thread, so thread-based picking would reply
+    // to whichever submission is newest — usually the wrong one.
+    const messageId =
+      taskItem.source === 'website-submission' && taskItem.sourceRef
+        ? taskItem.sourceRef
+        : undefined;
     setDraftError(null);
     setDraftingId(taskItem.id);
     try {
       const res = await fetch('/api/os/gmail/draft-reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ threadId }),
+        body: JSON.stringify({ threadId, ...(messageId ? { messageId } : {}) }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -1062,9 +1167,24 @@ export function TasksClient({ company }: TasksClientProps) {
     );
   }, [viewTasks, search]);
 
-  // For the inbox view, split into today / waiting / done
-  const activeInbox = useMemo(() => filtered.filter((t) => t.status !== 'Waiting' && !t.checked), [filtered]);
-  const waitingInbox = useMemo(() => filtered.filter((t) => t.status === 'Waiting' && !t.checked), [filtered]);
+  // For the inbox view, split into today / waiting / website submissions / done.
+  // Website submissions live in their own quiet section — never clutter Today.
+  const isSubmission = (t: TaskItem) => t.source === 'website-submission';
+  const activeInbox = useMemo(
+    () => filtered.filter((t) => t.status !== 'Waiting' && !t.checked && !isSubmission(t)),
+    [filtered],
+  );
+  const waitingInbox = useMemo(
+    () => filtered.filter((t) => t.status === 'Waiting' && !t.checked && !isSubmission(t)),
+    [filtered],
+  );
+  const websiteSubmissions = useMemo(
+    () =>
+      filtered.filter(
+        (t) => isSubmission(t) && !t.checked && !submissionNotesLookSpammy(t.notes || ''),
+      ),
+    [filtered],
+  );
 
   // Sort active by priority then due
   const sortedActive = useMemo(() => {
@@ -1183,6 +1303,12 @@ export function TasksClient({ company }: TasksClientProps) {
           <span><span className="text-emerald-400 font-medium tabular-nums">{draftsReady}</span> drafts ready to review</span>
           <span className="text-gray-700">·</span>
           <span><span className="text-purple-400 font-medium tabular-nums">{waitingInbox.length}</span> waiting on others</span>
+          {websiteSubmissions.length > 0 && (
+            <>
+              <span className="text-gray-700">·</span>
+              <span><span className="text-teal-400 font-medium tabular-nums">{websiteSubmissions.length}</span> website submissions</span>
+            </>
+          )}
         </div>
 
         {/* Tabs */}
@@ -1190,7 +1316,11 @@ export function TasksClient({ company }: TasksClientProps) {
           {viewTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeView === tab.id;
-            const count = tasks.filter((t) => t.view === tab.id && !t.checked).length;
+            // Count excludes website submissions from the Tasks tab — they live
+            // in their own section and shouldn't inflate the "inbox" count.
+            const count = tasks.filter(
+              (t) => t.view === tab.id && !t.checked && t.source !== 'website-submission',
+            ).length;
             return (
               <button
                 key={tab.id}
@@ -1379,6 +1509,56 @@ export function TasksClient({ company }: TasksClientProps) {
                           setFocusId(t.id);
                           if (t.airtableId) setEditingAirtableId(t.airtableId);
                         }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {/* WEBSITE SUBMISSIONS — low-priority, collapsible, default collapsed.
+                Teal accent to visually separate from other task kinds. */}
+            {websiteSubmissions.length > 0 && (
+              <section className="mb-6">
+                <button
+                  type="button"
+                  onClick={() => setSubmissionsExpanded((x) => !x)}
+                  className="w-full flex items-center gap-2.5 mb-3 px-0.5 cursor-pointer hover:text-gray-300"
+                >
+                  <h2 className="text-[11px] font-semibold tracking-[0.1em] uppercase text-teal-400">
+                    Website submissions
+                  </h2>
+                  <span className="text-xs text-gray-500">{websiteSubmissions.length} items</span>
+                  <span className="text-[10px] text-gray-600 italic">low priority</span>
+                  <span className="flex-1" />
+                  <ChevronRight
+                    className={`w-3 h-3 text-gray-600 transition-transform ${submissionsExpanded ? 'rotate-90' : ''}`}
+                  />
+                </button>
+                {submissionsExpanded && (
+                  <div className="space-y-2.5">
+                    {websiteSubmissions.map((t) => (
+                      <TaskRow
+                        key={t.id}
+                        t={t}
+                        focused={false}
+                        editingTitle={editingTitleId === t.id}
+                        busyDraft={draftingId === t.id}
+                        onCheck={() => toggleCheck(t.id)}
+                        onPriChange={(p) => changePri(t.id, p)}
+                        onDueChange={(d) => changeDue(t.id, d)}
+                        onTitleEditStart={() => setEditingTitleId(t.id)}
+                        onTitleSave={(v) => { changeTitle(t.id, v); setEditingTitleId(null); }}
+                        onTitleCancel={() => setEditingTitleId(null)}
+                        onActionClick={() => {
+                          // Submissions are email-type (threadUrl set) — draft a reply.
+                          // Email-draft type already has href and goes through the link.
+                          const tt = inferType(t);
+                          if (tt === 'email') draftReply(t);
+                          else if (tt === 'email-draft') markThreadRead(t);
+                          else if (t.airtableId) setEditingAirtableId(t.airtableId);
+                        }}
+                        onOpenPanel={() => t.airtableId && setEditingAirtableId(t.airtableId)}
                       />
                     ))}
                   </div>

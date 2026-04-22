@@ -21,6 +21,7 @@ import { getEffectiveImportantDomains } from '@/lib/personalContext';
 import {
   fetchCalendarRange,
   fetchTriageInbox,
+  fetchWebsiteSubmissions,
   type CalEvent,
   type TriageItem,
 } from '@/lib/os/commandCenterGoogle';
@@ -970,6 +971,7 @@ export async function GET(request: NextRequest) {
     let docs: DriveDoc[] = [];
     let sentMessages: SentMessage[] = [];
     let triageInbox: TriageItem[] = [];
+    let websiteSubmissions: TriageItem[] = [];
     let myEmail: string | null = null;
     let googleConnected = false;
     let googleError: string | null = null;
@@ -1004,13 +1006,14 @@ export async function GET(request: NextRequest) {
         const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 7);
         const pastStart = new Date(now); pastStart.setDate(pastStart.getDate() - 7); pastStart.setHours(0, 0, 0, 0);
 
-        const [calResult, pastCalResult, driveResult, sentResult, emailResult, triageResult] = await Promise.all([
+        const [calResult, pastCalResult, driveResult, sentResult, emailResult, triageResult, subsResult] = await Promise.all([
           fetchCalendarRange(accessToken, weekStart.toISOString(), weekEnd.toISOString()),
           fetchCalendarRange(accessToken, pastStart.toISOString(), weekStart.toISOString()),
           fetchDriveRecent(accessToken, 14),
           fetchSentMessages(accessToken, 14),
           fetchMyEmail(accessToken),
           fetchTriageInbox(accessToken, existingThreadUrls, 14, importantDomains),
+          fetchWebsiteSubmissions(accessToken, existingThreadUrls, 30),
         ]);
         events = calResult.events;
         pastEvents = pastCalResult.events;
@@ -1018,6 +1021,7 @@ export async function GET(request: NextRequest) {
         sentMessages = sentResult;
         myEmail = emailResult;
         triageInbox = triageResult;
+        websiteSubmissions = subsResult;
         if (calResult.error) googleError = `Calendar: ${calResult.error}`;
       }
     } catch (err) {
@@ -1070,6 +1074,7 @@ export async function GET(request: NextRequest) {
       inProgress,
       commitments,
       triage: triageInbox,
+      websiteSubmissions,
       counts: {
         topPriorities: categories.topPriorities.length,
         fires: categories.fires.length,
@@ -1083,6 +1088,7 @@ export async function GET(request: NextRequest) {
         inProgress: inProgress.length,
         commitments: commitments.length,
         triage: triageInbox.length,
+        websiteSubmissions: websiteSubmissions.length,
       },
       googleConnected,
       googleError,

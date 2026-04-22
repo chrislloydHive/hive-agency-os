@@ -73,6 +73,7 @@ interface CommandCenterData {
   followUps?: FollowUpItem[];
   commitments?: CommitmentItem[];
   triage?: TriageItem[];
+  websiteSubmissions?: TriageItem[];
   counts: Record<string, number>;
   googleConnected: boolean;
   googleError?: string | null;
@@ -553,6 +554,50 @@ function FreshCard({ n, label, cta, href, external }: { n: number; label: string
   return <Link href={href}>{inner}</Link>;
 }
 
+// ============================================================================
+// Website submissions section (low priority — routine Framer form fills)
+// ============================================================================
+
+function WebsiteSubmissionsSection({ submissions }: { submissions: TriageItem[] }) {
+  if (submissions.length === 0) return null;
+  const visible = submissions.slice(0, 5);
+  const overflow = submissions.length - visible.length;
+  return (
+    <section className="mb-7">
+      <SectionHead
+        icon={Mail}
+        label="Website submissions"
+        count={submissions.length}
+        accent="text-teal-400"
+        meta="low priority — form fills from the Hive site"
+      />
+      <div className="bg-gray-900 border border-gray-800 border-l-2 border-l-teal-500/30 rounded-xl divide-y divide-gray-800/60">
+        {visible.map((s) => (
+          <div key={s.id} className="flex items-start gap-3 px-4 py-2.5 group">
+            <Mail className="w-3.5 h-3.5 text-teal-400/60 mt-1 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm text-gray-100 truncate">
+                <a href={s.link} target="_blank" rel="noreferrer" className="hover:text-teal-300">
+                  {s.subject}
+                </a>
+              </div>
+              <div className="text-xs text-gray-500 mt-0.5 truncate">
+                {s.fromName || s.fromEmail} <span className="text-gray-700">·</span> {new Date(s.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                {s.snippet && <> <span className="text-gray-700">·</span> {s.snippet.length > 120 ? s.snippet.slice(0, 117) + '…' : s.snippet}</>}
+              </div>
+            </div>
+          </div>
+        ))}
+        {overflow > 0 && (
+          <div className="px-4 py-2 text-xs text-gray-500 italic">
+            + {overflow} more in My Day
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function FreshSection({
   freshTriage, weekTasks, weekMeetings,
 }: {
@@ -713,7 +758,7 @@ export function CommandCenterClient({ companyId }: { companyId: string; backUrl?
         if (s.errors) parts.push(`${s.errors} errors`);
         setAutoSyncSummary(parts.length ? `Synced · ${parts.join(', ')}` : 'Synced · no changes');
         // If anything changed, reload Command Center data too (may affect counts).
-        if (s.created > 0 || s.unarchived > 0) load(true);
+        if (s.created > 0 || s.unarchived > 0 || s.updated > 0) load(true);
       } else if (json.reason === 'cooldown') {
         if (manual) {
           const secs = Math.ceil((json.cooldownMsRemaining || 0) / 1000);
@@ -978,6 +1023,8 @@ export function CommandCenterClient({ companyId }: { companyId: string; backUrl?
           weekTasks={weekTasks}
           weekMeetings={weekMeetings}
         />
+
+        <WebsiteSubmissionsSection submissions={data.websiteSubmissions || []} />
 
         {/* Empty-state hint when everything is quiet */}
         {focus.length === 0 && overdue.length === 0 && commitments.length === 0 && followUps.length === 0 && staleTriage.length === 0 && (

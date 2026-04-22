@@ -21,6 +21,7 @@ import {
   createTask,
   updateTask,
   findTaskBySourceRef,
+  findTaskByThreadUrl,
   type CreateTaskInput,
   type TaskPriority,
   type TaskSource,
@@ -116,12 +117,15 @@ interface TriageItem {
   date: string;
   link: string;
   hasExistingTask: boolean;
+  /** Only populated for website submissions — full form body for Notes. */
+  submissionBody?: string;
 }
 
 interface CommandCenterResponse {
   commitments?: CommitmentItem[];
   followUps?: FollowUpItem[];
   triage?: TriageItem[];
+  websiteSubmissions?: TriageItem[];
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -182,6 +186,31 @@ function triageToTaskInput(t: TriageItem, ageDays: number): CreateTaskInput {
   };
 }
 
+function websiteSubmissionToTaskInput(t: TriageItem): CreateTaskInput {
+  const subj = t.subject.length > 80 ? t.subject.slice(0, 77) + '…' : t.subject;
+  return {
+    task: subj, // "New Submission — General Contact" as-is, already scannable
+    priority: 'P3', // lowest — routine leads, review when time permits
+    // No due date — submissions aren't time-sensitive.
+    // from left empty: the row's section header already says "Website submissions".
+    from: '',
+    project: '',
+    // nextAction intentionally empty — the full form body is in notes and the
+    // row preview is derived from notes client-side. Avoids duplicating the
+    // same info in two fields on the edit panel.
+    nextAction: '',
+    // Full form body (Name, Email, Phone, Topic, Message). Row preview pulls
+    // the Topic + Message lines out of here for display.
+    notes: t.submissionBody || '',
+    status: 'Inbox',
+    view: 'inbox',
+    threadUrl: t.link,
+    source: 'website-submission',
+    sourceRef: t.id,
+    autoCreated: true,
+  };
+}
+
 function daysSince(iso: string): number {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return 0;
@@ -231,6 +260,19 @@ async function upsertAutoTask(
       }
     }
     return { action: 'skipped' }; // dismissed, no new activity
+  }
+
+  // Refresh the preview for website submissions on every sync. Earlier syncs
+  // stored the boilerplate snippet; re-running the extraction gives the real
+  // form content. Limited to this source — commitments / follow-ups have
+  // nextAction the user may have edited and shouldn't be clobbered.
+  if (
+    source === 'website-submission' &&
+    input.nextAction &&
+    input.nextAction !== existing.nextAction
+  ) {
+    await updateTask(existing.id, { nextAction: input.nextAction });
+    return { action: 'updated' };
   }
 
   // Otherwise no changes needed — the task exists, isn't dismissed, user has it.
@@ -331,6 +373,62 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Website submissions — low-priority form fills, all framer.com "New Submission".
+    // No freshness filter: we want ALL of them, regardless of age.
+    // No hasExistingTask skip either: older tasks pre-date Source/SourceRef
+    // and would otherwise be orphaned with stale previews. We adopt them via
+    // findTaskByThreadUrl as a fallback.
+    for (const t of cc.websiteSubmissions || []) {
+      try {
+        const input = websiteSubmissionToTaskInput(t);
+        // First try (source, sourceRef) — future runs, after backfill.
+        const bySourceRef = await findTaskBySourceRef('website-submission', t.id);
+        if (bySourceRef) {
+          if (bySourceRef.dismissedAt) { stats.skipped++; continue; }
+          const needsNotes = input.notes && input.notes !== bySourceRef.notes;
+          // Clear any legacy value in nextAction — submissions should have it
+          // blank so the edit panel doesn't show the same text twice (once in
+          // Next Action, once in Notes).
+          const needsClearNextAction = (bySourceRef.nextAction || '').length > 0;
+          // Clear the legacy "Hive website" from value that old sync-gmail set.
+          const needsClearFrom = bySourceRef.from === 'Hive website';
+          if (needsNotes || needsClearNextAction || needsClearFrom) {
+            await updateTask(bySourceRef.id, {
+              ...(needsNotes ? { notes: input.notes } : {}),
+              ...(needsClearNextAction ? { nextAction: '' } : {}),
+              ...(needsClearFrom ? { from: '' } : {}),
+            });
+            stats.updated++;
+          } else {
+            stats.skipped++;
+          }
+          continue;
+        }
+        // Fallback: legacy tasks keyed by thread URL only. Adopt + backfill
+        // notes, source, sourceRef. Clear legacy from + nextAction.
+        const byThread = t.link ? await findTaskByThreadUrl(t.link) : null;
+        if (byThread) {
+          if (byThread.dismissedAt) { stats.skipped++; continue; }
+          await updateTask(byThread.id, {
+            nextAction: '',
+            notes: input.notes,
+            from: '',
+            source: 'website-submission',
+            sourceRef: t.id,
+            autoCreated: true,
+          });
+          stats.updated++;
+          continue;
+        }
+        // Nothing exists — create fresh.
+        await createTask(input);
+        stats.created++;
+      } catch (err) {
+        stats.errors++;
+        errors.push(`submission ${t.id}: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
     lastRunFinishedAt = Date.now();
 
     return NextResponse.json({
@@ -345,6 +443,7 @@ export async function POST(req: NextRequest) {
         commitments: cc.commitments?.length ?? 0,
         followUps: cc.followUps?.length ?? 0,
         triage: cc.triage?.length ?? 0,
+        websiteSubmissions: cc.websiteSubmissions?.length ?? 0,
       },
     });
   } catch (err) {

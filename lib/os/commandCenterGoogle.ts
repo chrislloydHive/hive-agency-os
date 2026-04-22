@@ -89,6 +89,11 @@ export interface TriageItem {
   hasExistingTask: boolean;
   score: number; // higher = more likely needs Chris's attention
   scoreReasons: string[]; // short labels for why we scored it this way
+  /** Only populated for website-submission items — the fully formatted form
+   *  body (every field on its own line). Used as Notes on the created task
+   *  so the preview can show just Topic + Message while the full data is
+   *  still available in the edit panel. */
+  submissionBody?: string;
 }
 
 // Extended with QB + finance subject keywords. CC_IMPORTANT_SENDERS env var appends domains.
@@ -354,6 +359,308 @@ export async function fetchTriageInbox(
     return [...starredItems, ...nonStarredItems.slice(0, remainingSlots)];
   } catch (err) {
     console.error('[Command Center] Gmail triage error:', err);
+    return [];
+  }
+}
+
+/** Walker for Gmail message payload parts — concatenates every text/plain
+ *  section, then falls back to text/html (stripped to text) if the email has
+ *  no plain alternative. Framer's form notifications are HTML-only, so we
+ *  need the HTML fallback to get real preview content. */
+type MsgPart = { mimeType?: string | null; body?: { data?: string | null } | null; parts?: MsgPart[] | null };
+
+function decodePart(part: MsgPart): string {
+  if (!part.body?.data) return '';
+  return Buffer.from(part.body.data, 'base64').toString('utf-8');
+}
+
+/** Unicode chars commonly used as invisible preheader/tracking padding in
+ *  marketing emails (Framer especially). Stripping these is critical — the
+ *  marker-based preview split would otherwise return 200 chars of padding. */
+const INVISIBLE_PADDING_RE = /[\u00AD\u034F\u200B\u200C\u200D\u2060\uFEFF]/g;
+
+/** Strip HTML tags, decode common entities, normalize whitespace. Rough but
+ *  good enough for preview text — we don't need faithful rendering. */
+function htmlToText(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    // Insert a space before closing block tags so "<p>A</p><p>B</p>" → "A B"
+    .replace(/<\/(p|div|li|h[1-6]|tr|td|br)\s*>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, ' ')
+    // Strip remaining tags
+    .replace(/<[^>]+>/g, '')
+    // Common entities
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    // Drop invisible padding chars BEFORE whitespace collapse
+    .replace(INVISIBLE_PADDING_RE, '')
+    // Collapse runs of whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractPlainBody(payload: MsgPart | undefined | null): string {
+  if (!payload) return '';
+  let plain = '';
+  let html = '';
+  const walk = (part: MsgPart | undefined | null) => {
+    if (!part) return;
+    if (part.mimeType === 'text/plain' && part.body?.data) {
+      plain += decodePart(part) + '\n';
+    } else if (part.mimeType === 'text/html' && part.body?.data) {
+      html += decodePart(part) + '\n';
+    }
+    (part.parts || []).forEach(walk);
+  };
+  walk(payload);
+  if (plain.trim()) return plain;
+  if (html.trim()) return htmlToText(html);
+  return '';
+}
+
+/** Parse form-field lines (`Label: value`) out of a Framer submission body.
+ *  Returns both a compact preview (Topic + Message only) for the task row
+ *  and the full structured body (every field) for the Notes field.
+ *
+ *  Strategy: match lines against a Label:value pattern. Robust across Framer
+ *  template variations because it ignores all preheader/boilerplate — those
+ *  lines never match the pattern. If no fields detected, the caller falls
+ *  back to Gmail's snippet.
+ */
+const FORM_FIELD_RE = /^([A-Z][A-Za-z0-9\s]{0,40}):\s*(.+)$/;
+
+/** Labels to surface in the compact preview. Chris only wants to see Topic
+ *  + Message in the row; everything else (Name, Email, Phone) is identifying
+ *  noise that lives in the Notes field. */
+function isTopicLabel(label: string): boolean {
+  return /^(select\s+a\s+)?topic$/i.test(label.trim());
+}
+function isMessageLabel(label: string): boolean {
+  return /^(message|notes?|details?|description|comments?)$/i.test(label.trim());
+}
+
+interface ParsedSubmission {
+  preview: string;     // compact — Topic + Message only, truncated to ~220 chars
+  fullBody: string;    // every field on its own line — drops into Notes
+  hasFields: boolean;  // false if no form-field lines found (caller falls back)
+  isSpam: boolean;     // true if the message/name look like bot-generated gibberish
+}
+
+/** Cheap common-English-word test. Presence of any of these in the message
+ *  strongly suggests a real human wrote it. Spam submissions tend to be single
+ *  random strings with no structure. */
+const COMMON_WORDS_RE =
+  /\b(the|and|or|i|we|you|your|our|my|me|is|are|was|be|have|has|for|in|on|at|of|with|about|to|from|would|could|can|please|thanks|thank|hi|hello|help|need|want|like|interested|looking|business|company|service|product|marketing|website|email|contact|ask|question|quote)\b/i;
+
+/** Camel-case-in-the-middle pattern — e.g. "hPjiTnEbwfdjtCrsfj". Real words
+ *  have internal caps only at sentence boundaries or after punctuation. */
+function hasRandomCamelCase(s: string): boolean {
+  if (!/^[A-Za-z]+$/.test(s)) return false;
+  // Count transitions: lowercase → uppercase in the middle of a word.
+  let transitions = 0;
+  for (let i = 1; i < s.length; i++) {
+    if (/[a-z]/.test(s[i - 1]) && /[A-Z]/.test(s[i])) transitions++;
+  }
+  return transitions >= 2;
+}
+
+/** Heuristic spam detector for Framer form submissions. Two-signal threshold:
+ *  gibberish message + gibberish name/email = spam. Single signal isn't enough
+ *  because legit submissions occasionally have short messages. */
+function looksLikeSpamSubmission(fields: Array<{ label: string; value: string }>): boolean {
+  const get = (re: RegExp) =>
+    fields.find((f) => re.test(f.label.trim()))?.value.trim() || '';
+  const name = get(/^name$/i);
+  const email = get(/^email$/i);
+  const message = get(/^(message|notes?|details?|description|comments?)$/i);
+
+  let signals = 0;
+
+  // Message signals
+  if (message) {
+    const words = message.split(/\s+/).filter((w) => w.length > 0);
+    const singleBlob = words.length <= 1 && message.length >= 10;
+    const noCommonWords = !COMMON_WORDS_RE.test(message);
+    const randomCamelCase = hasRandomCamelCase(message.replace(/\s+/g, ''));
+    if (singleBlob) signals++;
+    if (noCommonWords && message.length >= 15) signals++;
+    if (randomCamelCase) signals++;
+  } else {
+    // No message at all → probably a bot
+    signals++;
+  }
+
+  // Name signals
+  if (name && hasRandomCamelCase(name)) signals++;
+
+  // Email signals — disposable gmail dotted variants are a tell
+  if (email) {
+    const local = email.split('@')[0] || '';
+    const dots = (local.match(/\./g) || []).length;
+    if (dots >= 3) signals++;
+  }
+
+  // Trigger on 2+ signals to keep false positives low.
+  return signals >= 2;
+}
+
+function parseSubmissionBody(body: string): ParsedSubmission {
+  if (!body) return { preview: '', fullBody: '', hasFields: false, isSpam: false };
+
+  const stripped = body.replace(INVISIBLE_PADDING_RE, '');
+  const lines = stripped
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  const fields: Array<{ label: string; value: string }> = [];
+  for (const line of lines) {
+    const m = line.match(FORM_FIELD_RE);
+    if (m) fields.push({ label: m[1].trim(), value: m[2].trim() });
+  }
+  if (fields.length === 0) {
+    return { preview: '', fullBody: '', hasFields: false, isSpam: false };
+  }
+
+  const isSpam = looksLikeSpamSubmission(fields);
+
+  // Preview: Topic value (no label, it's already obvious) + "Message: <text>"
+  // (label retained so the message reads as continuation, not mid-sentence).
+  // Drops everything else — Name/Email/Phone are noise in the row and live in
+  // Notes via the `fullBody` return below for the edit panel.
+  const topic = fields.find((f) => isTopicLabel(f.label));
+  const message = fields.find((f) => isMessageLabel(f.label));
+  const previewParts: string[] = [];
+  if (topic) previewParts.push(topic.value);
+  if (message) previewParts.push(`Message: ${message.value}`);
+  // If neither Topic nor Message found, fall back to all fields compactly.
+  const previewRaw = previewParts.length > 0 ? previewParts.join(' · ') : fields.map((f) => `${f.label}: ${f.value}`).join(' · ');
+  const preview = previewRaw.length > 220 ? previewRaw.slice(0, 217) + '…' : previewRaw;
+
+  // Full body: every field, one per line. Perfect for Notes.
+  const fullBody = fields.map((f) => `${f.label}: ${f.value}`).join('\n');
+
+  return { preview, fullBody, hasFields: true, isSpam };
+}
+
+/**
+ * Fetch website form submissions (Framer "New Submission" notifications).
+ *
+ * These are non-spam but low-priority — routine form fills from the Hive
+ * marketing site. Separate from triage so they don't crowd out real emails,
+ * and so the sync endpoint can create them as P3 tasks with a distinct source.
+ *
+ * We identify them by:
+ *   - from:*@framer.com
+ *   - subject matches /^\s*New Submission/i
+ *
+ * Fetches `format: 'full'` (heavier than metadata) so we can pull the real
+ * form body into the preview, since Gmail's auto-snippet just grabs Framer's
+ * boilerplate "You've just received a new submission" line.
+ *
+ * @returns TriageItem[] with matchedReason='Website submission'.
+ */
+export async function fetchWebsiteSubmissions(
+  accessToken: string,
+  existingThreadUrls: Set<string>,
+  days = 30,
+): Promise<TriageItem[]> {
+  try {
+    const auth = new google.auth.OAuth2();
+    auth.setCredentials({ access_token: accessToken });
+    const gmail = google.gmail({ version: 'v1', auth });
+
+    // Framer form notifications come from @framer.com; subject always leads with
+    // "New Submission" (Framer's default template). Broader net on the search
+    // (just the domain) + client-side subject filter to catch variants.
+    const q = `in:anywhere from:framer.com newer_than:${days}d`;
+    const list = await gmail.users.messages.list({ userId: 'me', q, maxResults: 50 });
+    const messageIds = (list.data.messages || [])
+      .filter((m): m is { id: string; threadId: string } => Boolean(m.id && m.threadId));
+
+    if (messageIds.length === 0) return [];
+
+    const msgs = await Promise.all(
+      messageIds.map(async ({ id, threadId }) => {
+        try {
+          // Full format so we get the body — metadata alone gives us Gmail's
+          // auto-snippet which is always the Framer boilerplate.
+          const m = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
+          const headers = m.data.payload?.headers || [];
+          const get = (n: string) =>
+            headers.find((h) => typeof h.name === 'string' && h.name.toLowerCase() === n.toLowerCase())?.value ||
+            '';
+          const from = get('From');
+          const subject = get('Subject');
+          const dateStr = get('Date');
+
+          // Subject must start with "New Submission" (case-insensitive, allow
+          // leading whitespace). Drops Framer marketing emails etc.
+          if (!/^\s*new submission/i.test(subject)) return null;
+
+          const { name, email, domain } = parseFromHeader(from);
+          const labels = m.data.labelIds || [];
+          const link = `https://mail.google.com/mail/u/0/#inbox/${threadId}`;
+
+          let dateIso = new Date().toISOString();
+          try {
+            if (dateStr) dateIso = new Date(dateStr).toISOString();
+          } catch {
+            /* noop */
+          }
+
+          const bodyText = extractPlainBody(m.data.payload as MsgPart);
+          const parsed = parseSubmissionBody(bodyText);
+          // Drop spam before it becomes a task — bot-submitted gibberish
+          // with no real name/message is noise Chris never wants to see.
+          if (parsed.isSpam) return null;
+          // Preview falls back to Gmail's snippet if no form fields parsed.
+          const preview = parsed.hasFields
+            ? parsed.preview
+            : (m.data.snippet || '').slice(0, 220);
+
+          const item: TriageItem = {
+            id,
+            threadId,
+            subject: subject || '(no subject)',
+            snippet: preview,
+            from,
+            fromName: name || email,
+            fromEmail: email,
+            fromDomain: domain,
+            date: dateIso,
+            unread: labels.includes('UNREAD'),
+            starred: labels.includes('STARRED'),
+            important: labels.includes('IMPORTANT'),
+            matchedReason: 'Website submission',
+            link,
+            hasExistingTask:
+              existingThreadUrls.has(link) ||
+              Array.from(existingThreadUrls).some((u) => u.includes(threadId)),
+            score: 0,
+            scoreReasons: ['website-submission'],
+            submissionBody: parsed.fullBody,
+          };
+          return item;
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    // Newest first, cap at 40 so the section doesn't explode if there's a backlog.
+    return msgs
+      .filter((m): m is TriageItem => !!m)
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+      .slice(0, 40);
+  } catch (err) {
+    console.error('[Command Center] Gmail website submissions error:', err);
     return [];
   }
 }

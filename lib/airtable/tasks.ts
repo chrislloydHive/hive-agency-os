@@ -67,7 +67,12 @@ const TASK_FIELDS = {
 } as const;
 
 /** Source of an auto-created task. `manual` = user-created (default). */
-export type TaskSource = 'manual' | 'commitment' | 'meeting-follow-up' | 'email-triage';
+export type TaskSource =
+  | 'manual'
+  | 'commitment'
+  | 'meeting-follow-up'
+  | 'email-triage'
+  | 'website-submission';
 
 // ============================================================================
 // Types
@@ -285,6 +290,33 @@ function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<stri
 // ============================================================================
 // Auto-task helpers: find / upsert by (Source, SourceRef)
 // ============================================================================
+
+/**
+ * Find an existing task by its Thread URL — used as a fallback when
+ * findTaskBySourceRef misses because older tasks pre-date the Source/SourceRef
+ * schema. Lets us adopt legacy tasks and refresh their preview instead of
+ * creating duplicates.
+ */
+export async function findTaskByThreadUrl(threadUrl: string): Promise<TaskRecord | null> {
+  if (!threadUrl) return null;
+  const baseId = tasksBaseIdOrThrow();
+  const tableId = getTasksTableIdentifier();
+  const safeUrl = threadUrl.replace(/'/g, "\\'");
+  const filter = `{${TASK_FIELDS.THREAD_URL}} = '${safeUrl}'`;
+  const params = new URLSearchParams();
+  params.set('filterByFormula', filter);
+  params.set('maxRecords', '1');
+
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}?${params.toString()}`;
+  const response = await fetchWithRetry(url, { method: 'GET' });
+  if (!response.ok) {
+    if (response.status === 422) return null;
+    throw new Error(`Airtable API error looking up task by thread URL (${response.status})`);
+  }
+  const data = await response.json();
+  const record = (data.records || [])[0];
+  return record ? mapRecordToTask(record) : null;
+}
 
 /**
  * Find an existing auto-created task keyed by (source, sourceRef).

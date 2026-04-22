@@ -37,6 +37,19 @@ function encodeRFC2047(str: string): string {
   return `=?UTF-8?B?${b64}?=`;
 }
 
+/** Convert plain-text reply body into simple HTML (preserves line breaks). */
+function bodyToHtml(body: string): string {
+  const escaped = body
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  // Paragraphs on blank lines; <br> on single newlines.
+  return escaped
+    .split(/\n\s*\n/)
+    .map((para) => `<p>${para.replace(/\n/g, '<br>')}</p>`)
+    .join('\n');
+}
+
 function buildRawReply(params: {
   fromEmail: string;
   fromName?: string;
@@ -46,27 +59,87 @@ function buildRawReply(params: {
   inReplyTo: string;
   references: string;
   body: string;
+  /** Optional HTML signature (from Gmail sendAs). When provided, the draft is
+   *  built as multipart/alternative — plain text for older clients, HTML for
+   *  modern ones. Signature goes at the end of both. */
+  htmlSignature?: string;
 }) {
-  const { fromEmail, fromName, toEmail, toName, subject, inReplyTo, references, body } = params;
+  const { fromEmail, fromName, toEmail, toName, subject, inReplyTo, references, body, htmlSignature } = params;
   const fromHdr = fromName ? `${encodeRFC2047(fromName)} <${fromEmail}>` : fromEmail;
   const toHdr = toName ? `${encodeRFC2047(toName)} <${toEmail}>` : toEmail;
   const subjectHdr = encodeRFC2047(subject.startsWith('Re:') ? subject : `Re: ${subject}`);
 
-  const lines = [
+  const commonHeaders = [
     `From: ${fromHdr}`,
     `To: ${toHdr}`,
     `Subject: ${subjectHdr}`,
     inReplyTo ? `In-Reply-To: ${inReplyTo}` : '',
     references ? `References: ${references}` : '',
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=UTF-8',
-    'Content-Transfer-Encoding: 7bit',
-    '',
-    body,
   ].filter(Boolean);
 
-  const raw = lines.join('\r\n');
+  let raw: string;
+
+  if (htmlSignature) {
+    // multipart/alternative: both a plain and HTML version of the body.
+    // HTML version includes the user's real Gmail signature (logo, styled).
+    const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const plainBody = body; // Plain body stands on its own; the signature is
+                            // rich HTML and doesn't degrade cleanly, so we skip
+                            // it from the plain part.
+    const htmlBody = `${bodyToHtml(body)}\n<br>\n${htmlSignature}`;
+
+    raw = [
+      ...commonHeaders,
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/plain; charset=UTF-8',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      plainBody,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/html; charset=UTF-8',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      htmlBody,
+      '',
+      `--${boundary}--`,
+    ].join('\r\n');
+  } else {
+    // Plain-only fallback (gmail.settings.basic scope not yet granted).
+    raw = [
+      ...commonHeaders,
+      'Content-Type: text/plain; charset=UTF-8',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      body,
+    ].join('\r\n');
+  }
+
   return Buffer.from(raw, 'utf-8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Fetch the user's HTML signature for the given send-as address (their main
+ *  account email by default). Returns empty string on permission issues so
+ *  the draft can still be built without a signature. */
+async function fetchSignature(
+  gmail: ReturnType<typeof google.gmail>,
+  sendAsEmail: string,
+): Promise<string> {
+  try {
+    const list = await gmail.users.settings.sendAs.list({ userId: 'me' });
+    const addresses = list.data.sendAs || [];
+    // Prefer the one matching our from address; fall back to isPrimary.
+    const match =
+      addresses.find((a) => a.sendAsEmail?.toLowerCase() === sendAsEmail.toLowerCase())
+      ?? addresses.find((a) => a.isPrimary);
+    return (match?.signature || '').trim();
+  } catch (err) {
+    console.warn('[draft-reply] fetchSignature failed (non-fatal):', err instanceof Error ? err.message : err);
+    return '';
+  }
 }
 
 function parseEmailHeader(h: string): { name: string; email: string } {
@@ -218,7 +291,23 @@ export async function POST(req: NextRequest) {
     const trimmed = body.slice(0, 6000);
     const threadId = msg.data.threadId || providedThreadId;
 
-    const { name: fromName, email: fromEmail } = parseEmailHeader(fromHeader);
+    let { name: fromName, email: fromEmail } = parseEmailHeader(fromHeader);
+
+    // Form-submission relay fix: when the email came from a no-reply address
+    // (Framer, Typeform, Webflow, etc.) but the body contains an explicit
+    // "Email:" field from the form, reply to the *submitter*, not the relay.
+    // Without this, AI drafts would politely go to noreply@framer.com.
+    const isSubmissionRelay =
+      /^\s*new\s+submission/i.test(subject) ||
+      /\bno[-]?reply@|\bnotifications?@|\bdonotreply@/i.test(fromEmail);
+    if (isSubmissionRelay) {
+      const bodyEmailMatch = trimmed.match(/^\s*email\s*:\s*([^\s<>]+@[^\s<>]+)/im);
+      if (bodyEmailMatch && looksLikeEmail(bodyEmailMatch[1].trim())) {
+        fromEmail = bodyEmailMatch[1].trim();
+        const bodyNameMatch = trimmed.match(/^\s*name\s*:\s*([^\r\n]+)/im);
+        fromName = bodyNameMatch ? bodyNameMatch[1].trim() : '';
+      }
+    }
 
     // Sanity check: did we end up with a real recipient? If not, bail loudly so
     // the UI can tell the user what's wrong instead of Gmail's generic
@@ -238,6 +327,18 @@ export async function POST(req: NextRequest) {
     const instructionsBlock = customInstructions
       ? `Additional instructions from ${identity.name}: ${customInstructions}\n\n`
       : '';
+    // When this is a form-submission relay, tell the AI explicitly who the
+    // reply is going to — the From header says "Framer <noreply@...>" but the
+    // actual recipient is the form submitter whose email we pulled from the body.
+    const recipientHint = isSubmissionRelay
+      ? `\n\nNote: this is a website form submission. The reply will go to the submitter at ${fromEmail}${fromName ? ` (${fromName})` : ''}, NOT to the form relay service. Address your reply to that person, not to "Framer".`
+      : '';
+
+    // Fetch the user's real Gmail signature (HTML with logo/formatting).
+    // Requires gmail.settings.basic scope — falls back to AI-written sign-off
+    // if missing, so the draft still has some attribution.
+    const htmlSignature = await fetchSignature(gmail, myEmail);
+
     const ai = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 800,
@@ -250,13 +351,17 @@ ${voiceRules}
 
 ${instructionsBlock}Original email:
 From: ${fromHeader}
-Subject: ${subject}
+Subject: ${subject}${recipientHint}
 
 """
 ${trimmed}
 """
 
-Draft a reply that ${identity.name} can quickly review and send. Return ONLY the body text, no JSON, no quote block, no markdown fences.`,
+Draft a reply that ${identity.name} can quickly review and send. Return ONLY the body text, no JSON, no quote block, no markdown fences.
+
+${htmlSignature
+  ? 'Do NOT include a signature — one will be appended automatically. End the body with a simple sign-off word like "Thanks," or "Best," on its own line.'
+  : `End the reply with this signature on its own lines, preceded by a blank line:\n\n${identity.name}${identity.role && identity.company ? `\n${identity.role}, ${identity.company}` : ''}`}`,
         },
       ],
     });
@@ -265,7 +370,7 @@ Draft a reply that ${identity.name} can quickly review and send. Return ONLY the
     if (content.type !== 'text') throw new Error('Unexpected AI response type');
     const replyBody = content.text.trim();
 
-    // Build raw RFC 2822 message
+    // Build raw RFC 2822 message (multipart with HTML signature when available)
     const raw = buildRawReply({
       fromEmail: myEmail,
       fromName: myName,
@@ -275,6 +380,7 @@ Draft a reply that ${identity.name} can quickly review and send. Return ONLY the
       inReplyTo: messageIdHdr,
       references: referencesHdr ? `${referencesHdr} ${messageIdHdr}` : messageIdHdr,
       body: replyBody,
+      htmlSignature: htmlSignature || undefined,
     });
 
     // Create draft in the original thread
