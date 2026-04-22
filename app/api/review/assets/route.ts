@@ -484,11 +484,20 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (batchFileIds !== null) {
+    // Scope to delivery batch only when we actually resolved file IDs for that batch.
+    // If CRAS rows exist for the portal token but none have Delivery Batch ID matching
+    // the selected batch, getDriveFileIdsForBatch returns an empty Set — filtering
+    // would hide every creative asset. Skip scoping in that case (creative review).
+    if (batchFileIds !== null && batchFileIds.size > 0) {
       for (const section of sections) {
         section.assets = section.assets.filter((a) => batchFileIds!.has(a.fileId));
         section.fileCount = section.assets.length;
       }
+    } else if (batchFileIds !== null && batchFileIds.size === 0 && selectedBatchId) {
+      console.warn(
+        '[review/assets] Selected batch has no linked CRAS file IDs for this token; skipping batch filter so portal-visible assets still render',
+        { selectedBatchId, visibleCrasCount: visibleCrasRecords.length },
+      );
     }
 
     // No longer filter by ALLOWED_PORTAL_VARIANTS - all sections with assets are shown
