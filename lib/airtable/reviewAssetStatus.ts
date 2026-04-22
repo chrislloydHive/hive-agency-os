@@ -356,7 +356,9 @@ const recordIdByProjectFileIdCache = new Map<
  * Find CRAS by linked Project record id + Drive file id (Source Folder ID).
  * Use when token-based lookup on a formula/lookup field does not match in API filters
  * but the row exists (same security: valid review token already resolved to this project).
- * Expects single-cardinality `{Project}`; multi-link bases need a different formula.
+ * `Project` is a linked-record field in typical bases — use FIND/ARRAYJOIN so
+ * REST filterByFormula matches the same rows as the UI (plain `{Project} = id`
+ * often returns zero records for links).
  */
 export async function getCrasRecordIdByProjectAndFileId(
   projectRecordId: string,
@@ -380,7 +382,7 @@ export async function getCrasRecordIdByProjectAndFileId(
 
   const projEsc = projTrim.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const fileEsc = fileIdTrim.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  const formula = `AND({Project} = "${projEsc}", {${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}")`;
+  const formula = `AND(FIND("${projEsc}", ARRAYJOIN({Project})) > 0, {${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}")`;
   const params = new URLSearchParams({
     filterByFormula: formula,
     maxRecords: '1',
