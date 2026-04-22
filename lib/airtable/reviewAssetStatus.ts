@@ -8,7 +8,7 @@
 //   deliveredFolderId: string nullable — "Delivered Folder ID" (optional, Drive folder of delivery run)
 //   Delivery Batch ID: existing link/reference to batch/group
 
-import { getBase } from '@/lib/airtable';
+import { getProjectsBase } from '@/lib/airtable';
 import { airtableFetch } from '@/lib/airtable/airtableFetch';
 import { fetchWithRetry } from '@/lib/airtable/client';
 import { resolveOsBaseId, resolveProjectsBaseId } from '@/lib/airtable/bases';
@@ -313,9 +313,9 @@ export async function getCrasRecordIdByTokenAndFileId(
     return cached.recordId;
   }
 
-  const baseId = resolveOsBaseId();
+  const baseId = resolveProjectsBaseId();
   if (!baseId) {
-    console.warn('[review/CRAS] getCrasRecordIdByTokenAndFileId: no OS base id');
+    console.warn('[review/CRAS] getCrasRecordIdByTokenAndFileId: no Projects base id');
     return null;
   }
 
@@ -372,9 +372,9 @@ export async function getCrasRecordIdByProjectAndFileId(
     return cached.recordId;
   }
 
-  const baseId = resolveOsBaseId();
+  const baseId = resolveProjectsBaseId();
   if (!baseId) {
-    console.warn('[review/CRAS] getCrasRecordIdByProjectAndFileId: no OS base id');
+    console.warn('[review/CRAS] getCrasRecordIdByProjectAndFileId: no Projects base id');
     return null;
   }
 
@@ -409,7 +409,7 @@ export async function getCrasRecordIdByProjectAndFileId(
  * List all asset statuses for a review token. Returns Map keyed by token::driveFileId.
  */
 export async function listAssetStatuses(token: string): Promise<Map<string, StatusRecord>> {
-  const osBase = getBase();
+  const osBase = getProjectsBase();
   const escaped = String(token).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
   if (!escaped) return new Map();
 
@@ -461,7 +461,7 @@ export async function getApprovedAssetDriveIdsByBatchId(
   const id = String(batchId).trim();
   if (!id) return [];
 
-  const base = getBase();
+  const base = getProjectsBase();
   const batchEsc = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const formula = `AND({${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}", {${ASSET_APPROVED_CLIENT_FIELD}} = TRUE())`;
   const records = await base(TABLE)
@@ -489,7 +489,7 @@ export async function getApprovedAndNotDeliveredByBatchId(
   const id = String(batchId).trim();
   if (!id) return [];
 
-  const base = getBase();
+  const base = getProjectsBase();
   const batchEsc = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const formula = `AND({${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}", {${ASSET_APPROVED_CLIENT_FIELD}} = TRUE(), ISBLANK({${DELIVERED_AT_FIELD}}))`;
   const records = await base(TABLE)
@@ -521,7 +521,7 @@ export interface PendingWebhookDeliveryRecord {
  * Idempotent: skip records that already have Delivered At set (formula) or Delivered = true.
  */
 export async function getPendingWebhookDeliveryRecords(): Promise<PendingWebhookDeliveryRecord[]> {
-  const base = getBase();
+  const base = getProjectsBase();
   // Use Ready to Deliver (Webhook) = TRUE and filter out delivered in code (ISBLANK may not be supported in all bases)
   const formula = `{${READY_TO_DELIVER_WEBHOOK_FIELD}} = TRUE()`;
   const records = await base(TABLE)
@@ -592,7 +592,7 @@ export async function getDriveFileIdsForBatch(
   const id = String(batchId).trim();
   if (!tokenEsc || !id) return new Set();
 
-  const base = getBase();
+  const base = getProjectsBase();
   const batchEsc = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   let formula: string;
   if (batchRecordId && String(batchRecordId).trim()) {
@@ -627,7 +627,7 @@ export async function getRecordIdsByBatchIdAndFileIds(
   const set = new Set(fileIds.map((f) => String(f).trim()).filter(Boolean));
   if (!id || set.size === 0) return [];
 
-  const base = getBase();
+  const base = getProjectsBase();
   const batchEsc = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const formula = `{${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}"`;
   const records = await base(TABLE)
@@ -651,9 +651,9 @@ export async function getRecordIdsByBatchIdAndFileIds(
  * Does not throw if the field is missing (log + skip). In dev, logs { recordId, wrotePartnerDownloadedAt: true }.
  */
 export async function setPartnerDownloadedAt(recordId: string): Promise<boolean> {
-  const base = getBase();
+  const base = getProjectsBase();
   const now = new Date().toISOString();
-  const baseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '';
+  const baseId = resolveProjectsBaseId();
 
   if (baseId) {
     try {
@@ -693,7 +693,7 @@ export async function setPartnerDownloadedAt(recordId: string): Promise<boolean>
  * Safe: catches Airtable errors (e.g. missing field) and logs without throwing.
  */
 export async function setPartnerDownloadStartedAt(recordId: string): Promise<boolean> {
-  const base = getBase();
+  const base = getProjectsBase();
   const now = new Date().toISOString();
   try {
     await base(TABLE).update(recordId, { [PARTNER_DOWNLOAD_STARTED_AT_FIELD]: now } as any);
@@ -711,7 +711,7 @@ export async function setPartnerDownloadStartedAt(recordId: string): Promise<boo
 export async function getDownloadedCountForBatch(batchId: string): Promise<number> {
   const id = String(batchId).trim();
   if (!id) return 0;
-  const base = getBase();
+  const base = getProjectsBase();
   const batchEsc = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   // Filter for downloaded records in code (ISBLANK may not be supported in all bases)
   const formula = `{${DELIVERY_BATCH_ID_FIELD}} = "${batchEsc}"`;
@@ -732,7 +732,7 @@ export async function getDownloadedCountForBatch(batchId: string): Promise<numbe
  * Find existing record by Review Token + Source Folder ID.
  */
 async function findExisting(token: string, driveFileId: string): Promise<{ id: string; fields: Record<string, unknown> } | null> {
-  const osBase = getBase();
+  const osBase = getProjectsBase();
   const tokenEsc = String(token).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
   const fileEsc = String(driveFileId).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
   const formula = `AND({${REVIEW_CRAS_TOKEN_FIELD}} = "${tokenEsc}", {${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}")`;
@@ -776,7 +776,7 @@ export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<bool
     );
     throw new Error('CRAS create requires Project link when the token field is a lookup');
   }
-  const osBase = getBase();
+  const osBase = getProjectsBase();
   const now = new Date().toISOString();
 
   const coreFields: Record<string, unknown> = {
@@ -880,9 +880,11 @@ export async function batchEnsureCrasRecords(
     return { created: 0, errors: 0, skipped: 0 };
   }
 
-  const baseId = resolveOsBaseId();
+  const baseId = resolveProjectsBaseId();
   if (!baseId) {
-    console.error('[batchEnsureCrasRecords] Missing OS base id (AIRTABLE_OS_BASE_ID / AIRTABLE_BASE_ID)');
+    console.error(
+      '[batchEnsureCrasRecords] Missing Projects base id (AIRTABLE_PROJECTS_BASE_ID or AIRTABLE_OS_BASE_ID / AIRTABLE_BASE_ID)',
+    );
     return { created: 0, errors: assets.length, skipped: 0 };
   }
 
@@ -1020,7 +1022,7 @@ export async function batchEnsureCrasRecords(
  * Mark asset as seen. Creates record with Status=Seen if new; otherwise updates Status (New→Seen) and timestamps.
  */
 export async function upsertSeen(args: UpsertSeenArgs): Promise<void> {
-  const osBase = getBase();
+  const osBase = getProjectsBase();
   const now = new Date().toISOString();
   const existing = await findExisting(args.token, args.driveFileId);
 
@@ -1116,7 +1118,7 @@ export interface UpsertStatusArgs {
  * Set asset status (Approved / Needs Changes). Creates record if missing; otherwise updates.
  */
 export async function upsertStatus(args: UpsertStatusArgs): Promise<void> {
-  const osBase = getBase();
+  const osBase = getProjectsBase();
   const now = new Date().toISOString();
   const approvedAt = args.status === 'Approved' && args.approvedAt ? args.approvedAt : now;
   const existing = await findExisting(args.token, args.driveFileId);
@@ -1220,7 +1222,7 @@ export async function batchSetAssetApprovedClient(
   recordIds: string[],
   options?: BatchSetAssetApprovedClientOptions
 ): Promise<BatchSetAssetApprovedClientResult> {
-  const osBase = getBase();
+  const osBase = getProjectsBase();
   const now = new Date().toISOString();
 
   // Build base fields (shared across all records)
@@ -1333,7 +1335,7 @@ export async function setSingleAssetApprovedClient(
     
     console.warn(`[setSingleAssetApprovedClient] WARNING: CRAS record not found for driveFileId=${driveFileId}. Creating record with Status="New" first, then updating to "Approved". This should not happen if sync process is working correctly.`);
     
-    const osBase = getBase();
+    const osBase = getProjectsBase();
     const now = new Date().toISOString();
     
     if (omitCrasTokenOnWrite() && !shouldLinkProjectFieldOnCras()) {
@@ -1376,7 +1378,7 @@ export async function setSingleAssetApprovedClient(
   if (parseAssetApprovedClient(existing.fields[ASSET_APPROVED_CLIENT_FIELD])) {
     return { alreadyApproved: true, recordId: existing.id };
   }
-  const osBase = getBase();
+  const osBase = getProjectsBase();
   const now = new Date().toISOString();
 
   // Set approval fields + delivery pipeline state machine fields
@@ -1466,7 +1468,7 @@ export async function getRecordIdsForFirstSeen(
 export async function batchSetFirstSeenByClientAt(
   recordIds: string[]
 ): Promise<{ updated: number; failedAt: number | null; error?: string }> {
-  const osBase = getBase();
+  const osBase = getProjectsBase();
   const now = new Date().toISOString();
   const fields = { [FIRST_SEEN_BY_CLIENT_AT_FIELD]: now } as Record<string, unknown>;
   let updated = 0;
@@ -1509,7 +1511,7 @@ export async function propagateGroupApprovalToAssets(
   approvedByName?: string,
   approvedByEmail?: string
 ): Promise<{ updated: number; error?: string }> {
-  const osBase = getBase();
+  const osBase = getProjectsBase();
   const tokenEsc = String(token).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
   const tacticEsc = String(tactic).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
   const variantEsc = String(variant).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
@@ -1596,7 +1598,7 @@ export interface EligibleDeliveryRecord {
  *   - Delivered = false (not yet delivered)
  */
 export async function getEligibleForDelivery(): Promise<EligibleDeliveryRecord[]> {
-  const base = getBase();
+  const base = getProjectsBase();
   const formula = `AND(
     {${IS_APPROVED_FIELD}} = TRUE(),
     {${NEEDS_DELIVERY_FIELD}} = TRUE(),
@@ -1634,7 +1636,7 @@ export async function linkRecordsToBatch(
 ): Promise<{ updated: number; error?: string }> {
   if (recordIds.length === 0) return { updated: 0 };
 
-  const base = getBase();
+  const base = getProjectsBase();
   const BATCH_SIZE = 10;
   let updated = 0;
 
@@ -1666,7 +1668,7 @@ export async function linkRecordsToBatch(
 export async function setDeliveryStatusDelivering(recordIds: string[]): Promise<{ updated: number; error?: string }> {
   if (recordIds.length === 0) return { updated: 0 };
 
-  const base = getBase();
+  const base = getProjectsBase();
   const BATCH_SIZE = 10;
   let updated = 0;
 
@@ -1700,7 +1702,7 @@ export async function markAssetDelivered(
   deliveredFolderId?: string,
   deliveredFileUrl?: string
 ): Promise<{ ok: true } | { error: string }> {
-  const base = getBase();
+  const base = getProjectsBase();
   const now = new Date().toISOString();
 
   const fields: Record<string, unknown> = {
@@ -1739,7 +1741,7 @@ export async function markAssetDeliveryFailed(
   recordId: string,
   errorMessage: string
 ): Promise<{ ok: true } | { error: string }> {
-  const base = getBase();
+  const base = getProjectsBase();
 
   const fields: Record<string, unknown> = {
     [DELIVERY_STATUS_FIELD]: 'Error',
@@ -1768,7 +1770,7 @@ export async function markAssetDeliveryFailed(
 export async function getBatchRecordsReadyForDelivery(
   batchRecordId: string
 ): Promise<EligibleDeliveryRecord[]> {
-  const base = getBase();
+  const base = getProjectsBase();
   const batchEsc = String(batchRecordId).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
 
   // Match by linked record ID (array contains)

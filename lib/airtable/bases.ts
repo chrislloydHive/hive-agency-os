@@ -25,7 +25,12 @@ export function resolveOsBaseId(): string {
   return process.env.AIRTABLE_BASE_ID?.trim() ?? '';
 }
 
-/** Projects table (e.g. review portal tokens): dedicated base, else same as OS */
+/**
+ * Projects table (e.g. review portal tokens): dedicated base, else same as OS.
+ * Creative Review tables (CRAS, CRS, Group Approvals, Partner Delivery Batches when
+ * linked to Project) must use {@link getProjectsBase} / this id — not {@link resolveOsBaseId}
+ * alone — or token resolution and CRAS queries hit different bases.
+ */
 export function resolveProjectsBaseId(): string {
   const alias = process.env.REVIEW_PROJECTS_BASE_ID?.trim() ?? '';
   const p = BASES.PROJECTS.trim() || alias;

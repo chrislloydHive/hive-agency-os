@@ -1,7 +1,7 @@
 // lib/airtable/partnerDeliveryBatches.ts
 // Lookup destination folder by Batch ID for partner delivery webhook.
 
-import { getBase } from '@/lib/airtable';
+import { getProjectsBase } from '@/lib/airtable';
 import { airtableFetch } from '@/lib/airtable/airtableFetch';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import {
@@ -147,7 +147,7 @@ export async function getBatchDetailsInBase(
 }
 
 /**
- * Get batch details by Batch ID. Uses default base (getBase()).
+ * Get batch details by Batch ID. Uses Projects base ({@link getProjectsBase}) — same base as Project links.
  * Returns null if not found or Destination Folder ID is empty.
  */
 export async function getBatchDetails(
@@ -156,7 +156,7 @@ export async function getBatchDetails(
   const id = String(batchId).trim();
   if (!id) return null;
 
-  const base = getBase();
+  const base = getProjectsBase();
   const escaped = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const formula = `{${BATCH_ID_FIELD}} = "${escaped}"`;
   const records = await base(TABLE)
@@ -177,7 +177,7 @@ export async function getBatchDetailsByRecordId(
   const id = String(batchRecordId).trim();
   if (!id) return null;
 
-  const base = getBase();
+  const base = getProjectsBase();
   try {
     const record = await base(TABLE).find(id);
     const f = record.fields as Record<string, unknown>;
@@ -283,7 +283,7 @@ export async function listBatchesByProjectId(
 
   let list: DeliveryBatchListItem[] = [];
 
-  const base = getBase();
+  const base = getProjectsBase();
   const formula = `FIND("${escapeFormula(id)}", ARRAYJOIN({${BATCH_PROJECT_LINK_FIELD}})) > 0`;
   try {
     const records = await base(TABLE)
@@ -346,7 +346,7 @@ export async function listBatchesByProjectIdInBase(
  * Reads Project's "Default Partner Batch" link and returns that batch's Batch ID.
  */
 export async function getProjectDefaultBatchId(projectId: string): Promise<string | null> {
-  const base = getBase();
+  const base = getProjectsBase();
   const projectsTable = AIRTABLE_TABLES.PROJECTS;
   try {
     const projectRecord = await base(projectsTable).find(projectId);
@@ -373,7 +373,7 @@ export async function getProjectDefaultBatchId(projectId: string): Promise<strin
 export async function getDeliveryContextByProjectId(
   projectId: string
 ): Promise<DeliveryBatchDetails | null> {
-  const base = getBase();
+  const base = getProjectsBase();
   const projectsTable = AIRTABLE_TABLES.PROJECTS;
 
   let batchId: string | null = null;
@@ -417,7 +417,7 @@ export async function getProjectNameByBatchRecordId(
   const id = String(batchRecordId).trim();
   if (!id) return null;
 
-  const base = getBase();
+  const base = getProjectsBase();
   try {
     const record = await base(TABLE).find(id);
     const f = record.fields as Record<string, unknown>;

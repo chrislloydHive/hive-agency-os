@@ -2,7 +2,7 @@
 // Creative Review Group Approvals: as-of group approval per tactic::variant.
 // Group Key = ${tactic}::${variant}. Unique by Review Token + Group Key.
 
-import { getBase } from '@/lib/airtable';
+import { getProjectsBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 
 const TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_GROUP_APPROVALS;
@@ -21,7 +21,7 @@ export interface GroupApprovalRecord {
  * Load all group approvals for a review token. Returns map keyed by Group Key (tactic::variant).
  */
 export async function getGroupApprovals(token: string): Promise<Record<string, GroupApprovalRecord>> {
-  const osBase = getBase();
+  const osBase = getProjectsBase();
   const escaped = String(token).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
   if (!escaped) return {};
 
@@ -59,7 +59,7 @@ export interface UpsertGroupApprovalArgs {
  * Upsert group approval. Unique by Review Token + Group Key. Updates Approved At each time.
  */
 export async function upsertGroupApproval(args: UpsertGroupApprovalArgs): Promise<void> {
-  const osBase = getBase();
+  const osBase = getProjectsBase();
   const key = groupKey(args.tactic, args.variant);
   const tokenEsc = String(args.token).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
   const keyEsc = String(key).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();

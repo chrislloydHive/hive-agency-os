@@ -6,7 +6,7 @@
 // Creative Review Hub folder can be matched back to the correct Project record
 // without relying on hardcoded folder IDs.
 
-import { getBase } from '../airtable';
+import { getProjectsBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from './tables';
 
 const PROJECTS_TABLE = AIRTABLE_TABLES.PROJECTS;
@@ -57,7 +57,7 @@ function readStringField(
 export async function getProjectsByCreativeReviewHubFolderId(): Promise<
   Map<string, ProjectFolderMapping>
 > {
-  const base = getBase();
+  const base = getProjectsBase();
   const map = new Map<string, ProjectFolderMapping>();
   let skipped = 0;
 

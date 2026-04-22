@@ -7,7 +7,7 @@
 import { notFound } from 'next/navigation';
 import { google, drive_v3 } from 'googleapis';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
-import { resolveOsBaseId } from '@/lib/airtable/bases';
+import { resolveProjectsBaseId } from '@/lib/airtable/bases';
 import { restGetProjectRecordFields, restListTableRecords } from '@/lib/review/airtableReviewRest';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { batchEnsureCrasRecords } from '@/lib/airtable/reviewAssetStatus';
@@ -156,13 +156,13 @@ export default async function ReviewPage({
   }
 
   // ── Build folder map: CRS first, then fall back to job folder structure ──
-  const osBaseId = resolveOsBaseId();
+  const reviewBaseId = resolveProjectsBaseId();
   const folderMap = new Map<string, { folderId: string; groupId?: string }>();
 
-  // Try Creative Review Sets first
+  // Try Creative Review Sets first (same base as Projects / CRAS — not necessarily OS base)
   try {
     const reviewSets = await restListTableRecords({
-      baseId: osBaseId,
+      baseId: reviewBaseId,
       tableName: AIRTABLE_TABLES.CREATIVE_REVIEW_SETS,
       filterByFormula: `FIND("${project.recordId}", ARRAYJOIN({Project})) > 0`,
     });
