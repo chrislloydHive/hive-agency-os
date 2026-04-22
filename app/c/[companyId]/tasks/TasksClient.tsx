@@ -838,6 +838,10 @@ export function TasksClient({ company }: TasksClientProps) {
   const [wsAddOpen, setWsAddOpen] = useState(false);
   const [wsDraggingId, setWsDraggingId] = useState<string | null>(null);
   const [wsDragOverId, setWsDragOverId] = useState<string | null>(null);
+  /** Transient message shown under the Workspace header — used when clicking
+   *  a file:// tile (browsers block hosted pages from navigating to local
+   *  files, so we copy the path to the clipboard and tell the user). */
+  const [wsToast, setWsToast] = useState<string | null>(null);
   /** When dragging onto a group header / empty group area, track which bucket
    *  is being hovered so we can highlight the drop target. Distinct from
    *  wsDragOverId (which tracks a specific tile target). */
@@ -999,7 +1003,26 @@ export function TasksClient({ company }: TasksClientProps) {
     const target = isRealUrl
       ? doc.url
       : `https://drive.google.com/drive/search?q=${encodeURIComponent(doc.url || doc.name)}`;
-    window.open(target, '_blank');
+
+    // file:// URLs are blocked by Chrome/Safari/Firefox when the caller is an
+    // http(s) origin (security policy). window.open fails silently. Clipboard
+    // + toast so the user can paste into a new tab's address bar.
+    const isFile = /^file:\/\//i.test(target);
+    if (isFile) {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(target).catch(() => {});
+      }
+      setWsToast(
+        'Local file URL copied — paste into a new browser tab (Chrome blocks hosted pages from opening local files directly).',
+      );
+      // Auto-dismiss the notice. A click on X in the toast also clears it.
+      window.setTimeout(() => setWsToast(null), 6000);
+      // Still attempt to open — harmless if blocked, helpful if the user
+      // ever runs the app from a file:// or localhost context.
+      window.open(target, '_blank');
+    } else {
+      window.open(target, '_blank');
+    }
     // Do NOT bump LastReviewed or re-sort on open — tiles stay where the user
     // placed them (manual SortOrder), like icons on a physical desktop.
   }, []);
@@ -1773,6 +1796,22 @@ export function TasksClient({ company }: TasksClientProps) {
                   </button>
                 )}
               </div>
+
+              {/* Transient notice — appears when clicking a file:// tile.
+                  Auto-dismisses after 6s; X clears immediately. */}
+              {workspaceExpanded && wsToast && (
+                <div className="mb-2.5 bg-cyan-500/10 border border-cyan-500/30 rounded-lg px-3 py-2 flex items-start gap-2 text-[12px] text-cyan-200">
+                  <span className="flex-1 leading-snug">{wsToast}</span>
+                  <button
+                    type="button"
+                    onClick={() => setWsToast(null)}
+                    className="w-5 h-5 rounded text-cyan-300/60 hover:text-cyan-200 hover:bg-cyan-500/20 flex items-center justify-center flex-shrink-0"
+                    aria-label="Dismiss"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
 
               {workspaceExpanded && wsAddOpen && (
                 <div className="mb-2.5 bg-gray-900 border border-cyan-500/20 rounded-xl px-3 py-2 flex flex-col gap-1.5">
