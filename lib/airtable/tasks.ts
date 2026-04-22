@@ -57,7 +57,17 @@ const TASK_FIELDS = {
   ASSIGNED_TO: 'Assigned To',
   CREATED_AT: 'Created At',
   LAST_MODIFIED: 'Last Modified',
+  // Auto-task provenance (populated by /api/os/sync/auto-tasks).
+  // Source + SourceRef uniquely identify an auto-created task so the sync can
+  // upsert instead of spamming duplicates. DismissedAt is soft-archive state.
+  SOURCE: 'Source',
+  SOURCE_REF: 'SourceRef',
+  AUTO_CREATED: 'AutoCreated',
+  DISMISSED_AT: 'DismissedAt',
 } as const;
+
+/** Source of an auto-created task. `manual` = user-created (default). */
+export type TaskSource = 'manual' | 'commitment' | 'meeting-follow-up' | 'email-triage';
 
 // ============================================================================
 // Types
@@ -85,6 +95,11 @@ export interface TaskRecord {
   assignedTo: string;
   createdAt: string | null;
   lastModified: string | null;
+  /** Provenance for auto-created tasks. null/undefined on manual tasks. */
+  source: TaskSource | null;
+  sourceRef: string | null;
+  autoCreated: boolean;
+  dismissedAt: string | null;
 }
 
 export interface CreateTaskInput {
@@ -102,6 +117,10 @@ export interface CreateTaskInput {
   done?: boolean;
   notes?: string;
   assignedTo?: string;
+  source?: TaskSource;
+  sourceRef?: string;
+  autoCreated?: boolean;
+  dismissedAt?: string | null;
 }
 
 export interface UpdateTaskInput {
@@ -119,6 +138,11 @@ export interface UpdateTaskInput {
   done?: boolean;
   notes?: string;
   assignedTo?: string | null;
+  source?: TaskSource | null;
+  sourceRef?: string | null;
+  autoCreated?: boolean;
+  /** ISO datetime; null clears the dismissal (re-surfaces in Command Center). */
+  dismissedAt?: string | null;
 }
 
 // ============================================================================
@@ -145,6 +169,10 @@ function mapRecordToTask(record: any): TaskRecord {
     assignedTo: f[TASK_FIELDS.ASSIGNED_TO] || '',
     createdAt: f[TASK_FIELDS.CREATED_AT] || null,
     lastModified: f[TASK_FIELDS.LAST_MODIFIED] || null,
+    source: (f[TASK_FIELDS.SOURCE] as TaskSource) || null,
+    sourceRef: f[TASK_FIELDS.SOURCE_REF] || null,
+    autoCreated: f[TASK_FIELDS.AUTO_CREATED] || false,
+    dismissedAt: f[TASK_FIELDS.DISMISSED_AT] || null,
   };
 }
 
@@ -246,8 +274,60 @@ function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<stri
   if ('done' in input && input.done !== undefined) fields[TASK_FIELDS.DONE] = input.done;
   if ('notes' in input && input.notes !== undefined) fields[TASK_FIELDS.NOTES] = input.notes;
   if ('assignedTo' in input) fields[TASK_FIELDS.ASSIGNED_TO] = input.assignedTo || null;
+  if ('source' in input) fields[TASK_FIELDS.SOURCE] = input.source || null;
+  if ('sourceRef' in input) fields[TASK_FIELDS.SOURCE_REF] = input.sourceRef || null;
+  if ('autoCreated' in input && input.autoCreated !== undefined) fields[TASK_FIELDS.AUTO_CREATED] = input.autoCreated;
+  if ('dismissedAt' in input) fields[TASK_FIELDS.DISMISSED_AT] = input.dismissedAt || null;
 
   return fields;
+}
+
+// ============================================================================
+// Auto-task helpers: find / upsert by (Source, SourceRef)
+// ============================================================================
+
+/**
+ * Find an existing auto-created task keyed by (source, sourceRef).
+ * Returns null if none found.
+ */
+export async function findTaskBySourceRef(
+  source: TaskSource,
+  sourceRef: string,
+): Promise<TaskRecord | null> {
+  if (!sourceRef) return null;
+  const baseId = tasksBaseIdOrThrow();
+  const tableId = getTasksTableIdentifier();
+
+  // Airtable formula: AND({Source} = 'email-triage', {SourceRef} = 'abc')
+  // Single-quote-escape `sourceRef` in case it contains quotes.
+  const safeRef = sourceRef.replace(/'/g, "\\'");
+  const filter = `AND({${TASK_FIELDS.SOURCE}} = '${source}', {${TASK_FIELDS.SOURCE_REF}} = '${safeRef}')`;
+  const params = new URLSearchParams();
+  params.set('filterByFormula', filter);
+  params.set('maxRecords', '1');
+
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}?${params.toString()}`;
+  const response = await fetchWithRetry(url, { method: 'GET' });
+
+  if (!response.ok) {
+    // If the Airtable schema doesn't yet have Source/SourceRef columns we'll
+    // get a 422 "Unknown field names" response. Swallow it — caller treats
+    // null as "no existing task" and will try to create one (which will also
+    // 422 until the columns exist). The log is enough breadcrumb to debug.
+    if (response.status === 422) {
+      console.warn(
+        '[findTaskBySourceRef] Airtable 422 — Source/SourceRef columns may not exist yet. ' +
+          'Add the schema fields per the docs; auto-tasks will start working after.',
+      );
+      return null;
+    }
+    const errorText = await response.text();
+    throw new Error(`Airtable API error looking up task by source ref (${response.status}): ${errorText}`);
+  }
+
+  const data = await response.json();
+  const record = (data.records || [])[0];
+  return record ? mapRecordToTask(record) : null;
 }
 
 // ============================================================================

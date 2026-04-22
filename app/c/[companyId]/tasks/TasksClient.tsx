@@ -18,7 +18,7 @@ import {
   Mail, FileText, BarChart3, Calendar, ClipboardList, Target,
   Brain, FolderKanban, Archive as ArchiveIcon, Inbox,
   CheckCircle2, ChevronRight, MoreHorizontal, Plus, Search,
-  Clock, ArrowRightCircle,
+  Clock, ArrowRightCircle, Zap,
 } from 'lucide-react';
 
 // ============================================================================
@@ -53,6 +53,10 @@ interface TaskItem {
   view: ViewType;
   priorStatusBeforeDone?: TaskStatus;
   priorViewBeforeDone?: ViewType;
+  /** Surfaced from /api/os/tasks to render the ⚡ auto pill on tasks that
+   *  were upserted by /api/os/sync/auto-tasks. */
+  autoCreated?: boolean;
+  source?: 'manual' | 'commitment' | 'meeting-follow-up' | 'email-triage' | null;
 }
 
 type Priority = 'P0' | 'P1' | 'P2' | 'P3';
@@ -568,6 +572,7 @@ function TaskRow({
             </span>
           )}
           {isDraftReady && <Tag variant="draftReady">● Draft ready</Tag>}
+          {t.autoCreated && <Tag variant="auto"><Zap className="w-[10px] h-[10px]" /> auto</Tag>}
           <DuePill due={t.due} onChange={onDueChange} />
           {t.status === 'Waiting' && <Tag variant="waiting"><Clock className="w-[10px] h-[10px]" /> waiting</Tag>}
         </div>
@@ -765,6 +770,8 @@ export function TasksClient({ company }: TasksClientProps) {
         assignedTo: (t.assignedTo as string) || '',
         checked: (t.done as boolean) || false,
         view: (t.view as ViewType) || 'inbox',
+        autoCreated: (t.autoCreated as boolean) || false,
+        source: (t.source as TaskItem['source']) || null,
       }));
       setTasks(mapped);
     } catch (err) {
@@ -785,6 +792,27 @@ export function TasksClient({ company }: TasksClientProps) {
     fetch('/api/os/tasks/sync-gmail', { method: 'POST' })
       .then((r) => r.json())
       .then((data) => { if (!cancelled && data.synced > 0) fetchTasks(); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [fetchTasks]);
+
+  // Auto-tasks sync: fire-and-forget on mount. Materializes Command Center
+  // items (commitments, meeting follow-ups, stale triage) into My Day tasks.
+  // The endpoint has its own 60-second cooldown so rapid reloads are safe.
+  const autoSyncFired = useRef(false);
+  useEffect(() => {
+    if (autoSyncFired.current) return;
+    autoSyncFired.current = true;
+    let cancelled = false;
+    fetch('/api/os/sync/auto-tasks', { method: 'POST' })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        const stats = data?.stats;
+        if (stats && (stats.created > 0 || stats.unarchived > 0)) {
+          fetchTasks(); // refresh so new auto-tasks appear immediately
+        }
+      })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [fetchTasks]);

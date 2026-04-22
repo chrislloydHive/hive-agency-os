@@ -13,7 +13,7 @@ import { CommandBar } from './CommandBar';
 import {
   Flame, Calendar, ChevronRight, RefreshCw,
   Inbox, MessageSquare, BarChart3, Mail, AlertTriangle,
-  ListTodo, ArrowRight, CheckCircle2,
+  ListTodo, ArrowRight, CheckCircle2, Zap,
 } from 'lucide-react';
 
 // ============================================================================
@@ -404,11 +404,12 @@ function FollowUpRow({ item }: { item: FollowUpItem }) {
 }
 
 function TriageRow({
-  item, onTask, onDraft, busyAction,
+  item, onTask, onDraft, onArchive, busyAction,
 }: {
   item: TriageItem;
   onTask: (item: TriageItem) => void;
   onDraft: (item: TriageItem) => void;
+  onArchive: (item: TriageItem) => void;
   busyAction: 'task' | 'draft' | null;
 }) {
   const age = daysSince(item.date);
@@ -440,6 +441,7 @@ function TriageRow({
         >
           {busyAction === 'draft' ? '…' : 'Draft reply'}
         </MiniAction>
+        <MiniAction onClick={() => onArchive(item)}>Archive</MiniAction>
       </div>
     </div>
   );
@@ -448,7 +450,7 @@ function TriageRow({
 function WhatsSlippingSection({
   overdue, commitments, followUps, staleTriage,
   onEditTask, onDismissCommitment, onAddFromCommitment,
-  onTaskFromTriage, onDraftReply, triageBusy,
+  onTaskFromTriage, onDraftReply, onArchiveTriage, triageBusy,
 }: {
   overdue: WorkItem[];
   commitments: CommitmentItem[];
@@ -458,6 +460,7 @@ function WhatsSlippingSection({
   onDismissCommitment: (id: string) => void;
   onAddFromCommitment: (c: CommitmentItem) => void;
   onTaskFromTriage: (item: TriageItem) => void;
+  onArchiveTriage: (item: TriageItem) => void;
   onDraftReply: (item: TriageItem) => void;
   triageBusy: { id: string; action: 'task' | 'draft' } | null;
 }) {
@@ -519,6 +522,7 @@ function WhatsSlippingSection({
                   item={t}
                   onTask={onTaskFromTriage}
                   onDraft={onDraftReply}
+                  onArchive={onArchiveTriage}
                   busyAction={triageBusy?.id === t.id ? triageBusy.action : null}
                 />
               ))}
@@ -685,6 +689,62 @@ export function CommandCenterClient({ companyId }: { companyId: string; backUrl?
     return () => { cancelled = true; };
   }, [loading, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-tasks sync: materialize commitments / follow-ups / stale triage into
+  // Airtable tasks so they also show up in My Day. Fire-and-forget on mount;
+  // endpoint has its own 60-second cooldown.
+  const autoSyncFired = useRef(false);
+  const [autoSyncing, setAutoSyncing] = useState(false);
+  const [autoSyncSummary, setAutoSyncSummary] = useState<string | null>(null);
+
+  async function runAutoSync(manual = false) {
+    setAutoSyncing(true);
+    try {
+      const res = await fetch('/api/os/sync/auto-tasks', { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.stats) {
+        const s = json.stats;
+        const parts: string[] = [];
+        if (s.created) parts.push(`${s.created} new`);
+        if (s.unarchived) parts.push(`${s.unarchived} re-surfaced`);
+        if (s.errors) parts.push(`${s.errors} errors`);
+        setAutoSyncSummary(parts.length ? `Synced · ${parts.join(', ')}` : 'Synced · no changes');
+        // If anything changed, reload Command Center data too (may affect counts).
+        if (s.created > 0 || s.unarchived > 0) load(true);
+      } else if (json.reason === 'cooldown') {
+        if (manual) {
+          const secs = Math.ceil((json.cooldownMsRemaining || 0) / 1000);
+          setAutoSyncSummary(`Synced recently — wait ${secs}s to re-run`);
+        }
+      } else if (!res.ok) {
+        setAutoSyncSummary(`Sync error: ${json.error || res.status}`);
+      }
+    } catch (err) {
+      setAutoSyncSummary(`Sync failed: ${err instanceof Error ? err.message : 'unknown'}`);
+    } finally {
+      setAutoSyncing(false);
+    }
+  }
+
+  useEffect(() => {
+    if (loading || !data || autoSyncFired.current) return;
+    autoSyncFired.current = true;
+    runAutoSync(false);
+  }, [loading, data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Dismiss commitment / triage / follow-up → PATCH the auto-task so it
+  // stays dismissed across reloads. Falls back to local hide if no task exists yet.
+  async function dismissAutoItem(source: 'commitment' | 'meeting-follow-up' | 'email-triage', sourceRef: string) {
+    try {
+      await fetch('/api/os/sync/auto-tasks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source, sourceRef }),
+      });
+    } catch {
+      /* swallow — local hide still applied below */
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] text-gray-100 flex items-center justify-center">
@@ -724,7 +784,10 @@ export function CommandCenterClient({ companyId }: { companyId: string; backUrl?
   const weekTasks = (data.counts.thisWeek ?? 0) + (data.counts.topPriorities ?? 0);
   const weekMeetings = data.counts.upcomingMeetings ?? 0;
 
-  const dismissCommitment = (id: string) => setDismissedCommitmentIds((s) => new Set([...s, id]));
+  const dismissCommitment = (id: string) => {
+    setDismissedCommitmentIds((s) => new Set([...s, id])); // optimistic hide
+    dismissAutoItem('commitment', id).catch(() => {});      // persist to task
+  };
   const addFromCommitment = (c: CommitmentItem) => {
     // Treat commitment like a triage email for prefill — the endpoint handles both shapes,
     // but falling back to an empty prefill lets the user fill it in if not.
@@ -778,6 +841,15 @@ export function CommandCenterClient({ companyId }: { companyId: string; backUrl?
               Daily Summary
             </Link>
             <button
+              onClick={() => runAutoSync(true)}
+              disabled={autoSyncing}
+              className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded-md border border-gray-700 hover:border-gray-600 disabled:opacity-50"
+              title="Sync commitments, meeting follow-ups, and stale triage emails into My Day"
+            >
+              <Zap className={`w-3.5 h-3.5 ${autoSyncing ? 'animate-pulse' : ''}`} />
+              {autoSyncing ? 'Syncing' : 'Sync now'}
+            </button>
+            <button
               onClick={() => load(true)}
               disabled={refreshing}
               className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded-md border border-gray-700 hover:border-gray-600 disabled:opacity-50"
@@ -788,6 +860,9 @@ export function CommandCenterClient({ companyId }: { companyId: string; backUrl?
             </button>
           </div>
         </div>
+        {autoSyncSummary && (
+          <div className="mb-2 text-xs text-gray-500">{autoSyncSummary}</div>
+        )}
 
         {/* Scan chip strip */}
         <div className="mb-6 flex flex-wrap items-center gap-1.5 text-[11px]">
@@ -894,6 +969,10 @@ export function CommandCenterClient({ companyId }: { companyId: string; backUrl?
           onAddFromCommitment={addFromCommitment}
           onTaskFromTriage={taskFromTriage}
           onDraftReply={handleDraftReply}
+          onArchiveTriage={(item) => {
+            setHiddenTriageIds((s) => new Set([...s, item.id]));
+            dismissAutoItem('email-triage', item.id).catch(() => {});
+          }}
           triageBusy={triageBusy}
         />
 
