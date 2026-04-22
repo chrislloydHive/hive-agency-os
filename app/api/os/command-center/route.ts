@@ -1075,6 +1075,17 @@ export async function GET(request: NextRequest) {
       commitments,
       triage: triageInbox,
       websiteSubmissions,
+      // Raw Drive docs — consumed by /api/os/sync/auto-tasks for Workspace
+      // auto-discovery. Only the fields we need to avoid bloating the payload.
+      driveDocs: docs.map((d) => ({
+        id: d.id,
+        name: d.name,
+        link: d.webViewLink || '',
+        mimeType: d.mimeType,
+        modifiedTime: d.modifiedTime,
+        modifiedByMe: d.modifiedByMe,
+        viewedByMeTime: d.viewedByMeTime,
+      })),
       counts: {
         topPriorities: categories.topPriorities.length,
         fires: categories.fires.length,

@@ -19,6 +19,7 @@ import {
   Brain, FolderKanban, Archive as ArchiveIcon, Inbox,
   CheckCircle2, ChevronRight, MoreHorizontal, Plus, Search,
   Clock, ArrowRightCircle, Zap,
+  Folder, Globe, Link2, Presentation, Table2, X,
 } from 'lucide-react';
 
 // ============================================================================
@@ -66,6 +67,52 @@ interface TaskItem {
 type Priority = 'P0' | 'P1' | 'P2' | 'P3';
 type TaskStatus = 'Next' | 'Inbox' | 'Waiting' | 'Done' | 'Archive';
 type ViewType = 'inbox' | 'braindump' | 'projects' | 'archive';
+
+// Workspace (pinned working documents). Mirrors lib/airtable/workspaceDocs shape.
+type WorkspaceCategory = 'Doc' | 'Sheet' | 'Slides' | 'Folder' | 'Web Page' | 'Other';
+interface WorkspaceDoc {
+  id: string;
+  name: string;
+  url: string;
+  description: string;
+  category: WorkspaceCategory | null;
+  frequency: string | null;
+  lastReviewed: string | null;
+  pinned: boolean;
+  archivedAt: string | null;
+  autoDiscovered: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+/** Best-guess category from URL when the record doesn't set one explicitly.
+ *  Used for icon selection; the saved `category` wins when present. */
+function inferWorkspaceCategory(url: string): WorkspaceCategory {
+  if (/docs\.google\.com\/document/.test(url)) return 'Doc';
+  if (/docs\.google\.com\/spreadsheets/.test(url)) return 'Sheet';
+  if (/docs\.google\.com\/presentation/.test(url)) return 'Slides';
+  if (/drive\.google\.com\/drive\/folders/.test(url)) return 'Folder';
+  if (/^https?:\/\//.test(url)) return 'Web Page';
+  return 'Other';
+}
+
+/** Relative time for the workspace row's activity hint. Short, no "about"s. */
+function shortRelativeTime(iso: string | null): string {
+  if (!iso) return '';
+  const ts = Date.parse(iso);
+  if (!ts) return '';
+  const diffMs = Date.now() - ts;
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 14) return `${diffDay}d ago`;
+  const diffWk = Math.floor(diffDay / 7);
+  if (diffWk < 6) return `${diffWk}w ago`;
+  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 // ============================================================================
 // Config
@@ -770,6 +817,14 @@ export function TasksClient({ company }: TasksClientProps) {
   const [focusId, setFocusId] = useState<number | null>(null);
   const [doneExpanded, setDoneExpanded] = useState(false);
   const [submissionsExpanded, setSubmissionsExpanded] = useState(false);
+
+  // Workspace (pinned working documents)
+  const [workspaceDocs, setWorkspaceDocs] = useState<WorkspaceDoc[]>([]);
+  const [workspaceExpanded, setWorkspaceExpanded] = useState(true);
+  const [wsNewName, setWsNewName] = useState('');
+  const [wsNewUrl, setWsNewUrl] = useState('');
+  const [wsAdding, setWsAdding] = useState(false);
+  const [wsAddOpen, setWsAddOpen] = useState(false);
   const [waitingExpanded, setWaitingExpanded] = useState(true);
   const [draftingId, setDraftingId] = useState<number | null>(null);
   const [draftError, setDraftError] = useState<{
@@ -892,6 +947,90 @@ export function TasksClient({ company }: TasksClientProps) {
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
+  // Workspace docs — fetch on mount, refresh when user adds/opens/archives.
+  const fetchWorkspaceDocs = useCallback(async () => {
+    try {
+      const res = await fetch('/api/os/workspace', { cache: 'no-store' });
+      console.log('[Workspace] GET /api/os/workspace status:', res.status);
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        console.warn('[Workspace] GET failed:', res.status, text.slice(0, 200));
+        return;
+      }
+      const json = await res.json();
+      console.log('[Workspace] GET returned', json.count, 'docs. First:', json.docs?.[0]);
+      setWorkspaceDocs(json.docs || []);
+    } catch (err) {
+      console.error('[Workspace] GET threw:', err);
+    }
+  }, []);
+  useEffect(() => { fetchWorkspaceDocs(); }, [fetchWorkspaceDocs]);
+
+  /** Open a workspace doc in a new tab and bump LastReviewed so it bubbles
+   *  to the top of the list on next render. Optimistic client update + async
+   *  server sync. */
+  const openWorkspaceDoc = useCallback((doc: WorkspaceDoc) => {
+    window.open(doc.url, '_blank');
+    const nowIso = new Date().toISOString();
+    // Optimistic: bump locally so the row re-sorts immediately.
+    setWorkspaceDocs((prev) => {
+      const updated = prev.map((d) => (d.id === doc.id ? { ...d, lastReviewed: nowIso } : d));
+      updated.sort((a, b) => {
+        const aTs = Date.parse(a.lastReviewed || a.createdAt || '') || 0;
+        const bTs = Date.parse(b.lastReviewed || b.createdAt || '') || 0;
+        return bTs - aTs;
+      });
+      return updated;
+    });
+    fetch('/api/os/workspace', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: doc.id, action: 'touch' }),
+    }).catch(() => {});
+  }, []);
+
+  const archiveWorkspaceDoc = useCallback(async (doc: WorkspaceDoc) => {
+    // Optimistic remove
+    setWorkspaceDocs((prev) => prev.filter((d) => d.id !== doc.id));
+    try {
+      await fetch('/api/os/workspace', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: doc.id, action: 'archive' }),
+      });
+    } catch {
+      // Rollback on failure
+      setWorkspaceDocs((prev) => [...prev, doc]);
+    }
+  }, []);
+
+  const submitNewWorkspaceDoc = useCallback(async () => {
+    const name = wsNewName.trim();
+    const url = wsNewUrl.trim();
+    if (!url || wsAdding) return;
+    setWsAdding(true);
+    try {
+      const res = await fetch('/api/os/workspace', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name || url.split('/').filter(Boolean).pop() || 'Untitled',
+          url,
+          category: inferWorkspaceCategory(url),
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && json.doc) {
+        setWorkspaceDocs((prev) => [json.doc, ...prev]);
+        setWsNewName('');
+        setWsNewUrl('');
+        setWsAddOpen(false);
+      }
+    } finally {
+      setWsAdding(false);
+    }
+  }, [wsNewName, wsNewUrl, wsAdding]);
+
   // Gmail sync: fire-and-forget on mount.
   const gmailSyncFired = useRef(false);
   useEffect(() => {
@@ -929,6 +1068,9 @@ export function TasksClient({ company }: TasksClientProps) {
         if (s.errors) parts.push(`${s.errors} errors`);
         setManualSyncSummary(parts.length ? `Synced · ${parts.join(', ')}` : 'Synced · no changes');
         if (s.created > 0 || s.unarchived > 0 || s.updated > 0) fetchTasks();
+        if ((s.workspaceCreated ?? 0) > 0 || (s.workspaceUnarchived ?? 0) > 0 || (s.workspaceArchivedStale ?? 0) > 0) {
+          fetchWorkspaceDocs();
+        }
       } else if (json.reason === 'cooldown') {
         const secs = Math.ceil((json.cooldownMsRemaining || 0) / 1000);
         setManualSyncSummary(`Synced recently — wait ${secs}s to re-run`);
@@ -1478,6 +1620,173 @@ export function TasksClient({ company }: TasksClientProps) {
                 </div>
               )
             )}
+
+            {/* WORKSPACE — pinned working docs, sorted by LastReviewed desc.
+                Click a row → opens in a new tab + bumps LastReviewed so the
+                list naturally reflects actual usage. */}
+            <section className="mb-6">
+              <div className="flex items-center gap-2.5 mb-3 px-0.5">
+                <button
+                  type="button"
+                  onClick={() => setWorkspaceExpanded((x) => !x)}
+                  className="flex items-center gap-2.5 cursor-pointer hover:text-gray-300"
+                >
+                  <h2 className="text-[11px] font-semibold tracking-[0.1em] uppercase text-cyan-400/80">
+                    Workspace
+                  </h2>
+                  <span className="text-xs text-gray-500">
+                    {workspaceDocs.length} {workspaceDocs.length === 1 ? 'item' : 'items'}
+                  </span>
+                  <ChevronRight
+                    className={`w-3 h-3 text-gray-600 transition-transform ${workspaceExpanded ? 'rotate-90' : ''}`}
+                  />
+                </button>
+                <span className="flex-1" />
+                {workspaceExpanded && !wsAddOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setWsAddOpen(true)}
+                    className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-800/60"
+                    title="Add a document"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Add
+                  </button>
+                )}
+              </div>
+
+              {workspaceExpanded && wsAddOpen && (
+                <div className="mb-2.5 bg-gray-900 border border-cyan-500/20 rounded-xl px-3 py-2 flex flex-col gap-1.5">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={wsNewName}
+                      onChange={(e) => setWsNewName(e.target.value)}
+                      placeholder="Name (optional — inferred from URL if blank)"
+                      className="flex-1 bg-transparent text-sm text-gray-100 placeholder-gray-600 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { setWsAddOpen(false); setWsNewName(''); setWsNewUrl(''); }}
+                      className="w-5 h-5 rounded text-gray-500 hover:text-gray-200 hover:bg-gray-700/60 flex items-center justify-center"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Link2 className="w-3.5 h-3.5 text-gray-500" />
+                    <input
+                      type="text"
+                      value={wsNewUrl}
+                      onChange={(e) => setWsNewUrl(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && wsNewUrl.trim()) submitNewWorkspaceDoc();
+                      }}
+                      placeholder="Paste URL — https://…"
+                      disabled={wsAdding}
+                      className="flex-1 bg-transparent text-sm text-gray-100 placeholder-gray-600 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={submitNewWorkspaceDoc}
+                      disabled={wsAdding || !wsNewUrl.trim()}
+                      className="px-2.5 py-1 text-xs font-medium rounded-md border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
+                    >
+                      {wsAdding ? 'Adding…' : 'Add'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {workspaceExpanded && workspaceDocs.length === 0 && !wsAddOpen && (
+                <div className="text-xs text-gray-600 italic px-0.5 py-2">
+                  No pinned docs yet. Click <strong>+ Add</strong> to pin one.
+                </div>
+              )}
+
+              {workspaceExpanded && workspaceDocs.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                  {workspaceDocs.map((doc) => {
+                    const cat = doc.category || inferWorkspaceCategory(doc.url);
+                    // Each category gets its own accent color so the grid reads
+                    // visually at a glance — blue Docs, green Sheets, etc.
+                    const accent =
+                      cat === 'Doc' ? { icon: 'text-blue-400', border: 'hover:border-blue-500/40', iconBg: 'bg-blue-500/10' } :
+                      cat === 'Sheet' ? { icon: 'text-emerald-400', border: 'hover:border-emerald-500/40', iconBg: 'bg-emerald-500/10' } :
+                      cat === 'Slides' ? { icon: 'text-amber-400', border: 'hover:border-amber-500/40', iconBg: 'bg-amber-500/10' } :
+                      cat === 'Folder' ? { icon: 'text-sky-400', border: 'hover:border-sky-500/40', iconBg: 'bg-sky-500/10' } :
+                      cat === 'Web Page' ? { icon: 'text-purple-400', border: 'hover:border-purple-500/40', iconBg: 'bg-purple-500/10' } :
+                      { icon: 'text-gray-400', border: 'hover:border-gray-600', iconBg: 'bg-gray-700/30' };
+                    const Icon =
+                      cat === 'Doc' ? FileText :
+                      cat === 'Sheet' ? Table2 :
+                      cat === 'Slides' ? Presentation :
+                      cat === 'Folder' ? Folder :
+                      cat === 'Web Page' ? Globe :
+                      Link2;
+                    const activity = shortRelativeTime(doc.lastReviewed);
+                    return (
+                      <div
+                        key={doc.id}
+                        onClick={() => openWorkspaceDoc(doc)}
+                        className={`group relative bg-gray-900 border border-gray-800 ${accent.border} rounded-xl p-3 cursor-pointer transition-all hover:bg-gray-900/80 hover:shadow-lg flex flex-col gap-2 min-h-[110px]`}
+                      >
+                        {/* Header: icon + badges */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className={`w-8 h-8 rounded-lg ${accent.iconBg} flex items-center justify-center flex-shrink-0`}>
+                            <Icon className={`w-4 h-4 ${accent.icon}`} />
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {doc.autoDiscovered && (
+                              <span
+                                className="inline-flex items-center gap-0.5 px-1.5 py-px rounded text-[9px] font-semibold border bg-cyan-500/10 text-cyan-400 border-cyan-500/30"
+                                title="Auto-discovered from Drive activity"
+                              >
+                                <Zap className="w-[9px] h-[9px]" /> auto
+                              </span>
+                            )}
+                            {doc.frequency && (
+                              <span className="text-[9px] uppercase tracking-wider text-gray-600 font-medium">
+                                {doc.frequency}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Title + description */}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-gray-100 line-clamp-2 leading-tight">
+                            {doc.name}
+                          </div>
+                          {doc.description && (
+                            <div className="text-[11px] text-gray-500 mt-1 line-clamp-1">
+                              {doc.description}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Footer: activity hint */}
+                        {activity && (
+                          <div className="text-[10px] text-gray-600 tabular-nums">
+                            {activity}
+                          </div>
+                        )}
+
+                        {/* Hover-only archive button, top-right corner */}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); archiveWorkspaceDoc(doc); }}
+                          className="absolute top-1.5 right-1.5 w-5 h-5 rounded text-gray-600 opacity-0 group-hover:opacity-100 hover:text-gray-300 hover:bg-gray-700/80 flex items-center justify-center transition-all"
+                          title="Archive from workspace"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
 
             {/* WAITING */}
             {waitingInbox.length > 0 && (

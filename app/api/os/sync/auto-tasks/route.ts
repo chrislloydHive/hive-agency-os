@@ -26,6 +26,13 @@ import {
   type TaskPriority,
   type TaskSource,
 } from '@/lib/airtable/tasks';
+import {
+  getWorkspaceDocs,
+  createWorkspaceDoc,
+  updateWorkspaceDoc,
+  findWorkspaceDocByUrl,
+  type WorkspaceCategory,
+} from '@/lib/airtable/workspaceDocs';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -121,11 +128,52 @@ interface TriageItem {
   submissionBody?: string;
 }
 
+interface DriveDocSummary {
+  id: string;
+  name: string;
+  link: string;
+  mimeType: string;
+  modifiedTime: string;
+  modifiedByMe?: boolean;
+  viewedByMeTime?: string;
+}
+
 interface CommandCenterResponse {
   commitments?: CommitmentItem[];
   followUps?: FollowUpItem[];
   triage?: TriageItem[];
   websiteSubmissions?: TriageItem[];
+  driveDocs?: DriveDocSummary[];
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Workspace discovery helpers
+// ────────────────────────────────────────────────────────────────────────────
+
+const WORKSPACE_DISCOVERY_WINDOW_DAYS = 7;   // add docs modified in this window
+const WORKSPACE_STALE_THRESHOLD_DAYS = 30;    // auto-hide auto-discovered older than this
+
+function mimeToCategory(mime: string): WorkspaceCategory {
+  if (!mime) return 'Other';
+  if (mime === 'application/vnd.google-apps.document') return 'Doc';
+  if (mime === 'application/vnd.google-apps.spreadsheet') return 'Sheet';
+  if (mime === 'application/vnd.google-apps.presentation') return 'Slides';
+  if (mime === 'application/vnd.google-apps.folder') return 'Folder';
+  return 'Other';
+}
+
+function isRecent(iso: string | undefined, windowDays: number): boolean {
+  if (!iso) return false;
+  const ts = Date.parse(iso);
+  if (!ts) return false;
+  return Date.now() - ts < windowDays * 24 * 60 * 60 * 1000;
+}
+
+function isStale(iso: string | null | undefined, thresholdDays: number): boolean {
+  if (!iso) return true; // never reviewed / never modified → treat as stale
+  const ts = Date.parse(iso);
+  if (!ts) return true;
+  return Date.now() - ts > thresholdDays * 24 * 60 * 60 * 1000;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -227,6 +275,9 @@ interface SyncStats {
   unarchived: number;
   skipped: number;
   errors: number;
+  workspaceCreated: number;
+  workspaceUnarchived: number;
+  workspaceArchivedStale: number;
 }
 
 async function upsertAutoTask(
@@ -298,7 +349,10 @@ export async function POST(req: NextRequest) {
   inFlight = true;
   lastRunStartedAt = Date.now();
 
-  const stats: SyncStats = { created: 0, updated: 0, unarchived: 0, skipped: 0, errors: 0 };
+  const stats: SyncStats = {
+    created: 0, updated: 0, unarchived: 0, skipped: 0, errors: 0,
+    workspaceCreated: 0, workspaceUnarchived: 0, workspaceArchivedStale: 0,
+  };
   const errors: string[] = [];
 
   try {
@@ -429,6 +483,71 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // Workspace discovery pass
+    //   • Find Drive files I edited in the last N days
+    //   • Create new auto-discovered WorkspaceDocs for unfamiliar ones
+    //   • Un-archive + refresh lastReviewed if the same URL was previously
+    //     auto-archived for staleness (they're back in active rotation)
+    //   • Archive any existing auto-discovered docs whose LastReviewed is
+    //     older than the stale threshold (they've fallen out of use)
+    // ────────────────────────────────────────────────────────────────────────
+    try {
+      const driveDocs = cc.driveDocs || [];
+      const recent = driveDocs.filter(
+        (d) => d.modifiedByMe === true && isRecent(d.modifiedTime, WORKSPACE_DISCOVERY_WINDOW_DAYS),
+      );
+
+      // Discovery: create / un-archive
+      for (const d of recent) {
+        if (!d.link) continue;
+        try {
+          const existing = await findWorkspaceDocByUrl(d.link, { includeArchived: true });
+          if (!existing) {
+            await createWorkspaceDoc({
+              name: d.name || 'Untitled',
+              url: d.link,
+              category: mimeToCategory(d.mimeType),
+              lastReviewed: d.modifiedTime,
+              pinned: true,
+              autoDiscovered: true,
+            });
+            stats.workspaceCreated++;
+          } else if (existing.archivedAt && existing.autoDiscovered) {
+            // Previously auto-archived but editing again → un-archive and bump.
+            await updateWorkspaceDoc(existing.id, {
+              archivedAt: null,
+              lastReviewed: d.modifiedTime,
+            });
+            stats.workspaceUnarchived++;
+          }
+          // Otherwise (exists, not archived) — leave alone. The user's LastReviewed
+          // updates happen on click via the client's touch endpoint.
+        } catch (err) {
+          stats.errors++;
+          errors.push(`workspace discover ${d.id}: ${err instanceof Error ? err.message : err}`);
+        }
+      }
+
+      // Archive stale auto-discovered docs.
+      const allActive = await getWorkspaceDocs();
+      for (const doc of allActive) {
+        if (!doc.autoDiscovered) continue; // never auto-hide manual pins
+        if (isStale(doc.lastReviewed, WORKSPACE_STALE_THRESHOLD_DAYS)) {
+          try {
+            await updateWorkspaceDoc(doc.id, { archivedAt: new Date().toISOString() });
+            stats.workspaceArchivedStale++;
+          } catch (err) {
+            stats.errors++;
+            errors.push(`workspace archive ${doc.id}: ${err instanceof Error ? err.message : err}`);
+          }
+        }
+      }
+    } catch (err) {
+      // Non-fatal — workspace pass failing shouldn't block the rest of the sync.
+      console.error('[sync/auto-tasks] workspace pass error:', err);
+    }
+
     lastRunFinishedAt = Date.now();
 
     return NextResponse.json({
@@ -444,6 +563,7 @@ export async function POST(req: NextRequest) {
         followUps: cc.followUps?.length ?? 0,
         triage: cc.triage?.length ?? 0,
         websiteSubmissions: cc.websiteSubmissions?.length ?? 0,
+        driveDocs: cc.driveDocs?.length ?? 0,
       },
     });
   } catch (err) {
