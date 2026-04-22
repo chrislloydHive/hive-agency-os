@@ -42,11 +42,13 @@ const WS_FIELDS = {
   URL: 'URL',
   DESCRIPTION: 'Description',
   CATEGORY: 'Category',
+  TYPE: 'Type',
   FREQUENCY: 'Frequency',
   LAST_REVIEWED: 'LastReviewed',
   PINNED: 'Pinned',
   ARCHIVED_AT: 'ArchivedAt',
   AUTO_DISCOVERED: 'AutoDiscovered',
+  SORT_ORDER: 'SortOrder',
   CREATED_AT: 'CreatedAt',
   UPDATED_AT: 'UpdatedAt',
 } as const;
@@ -57,6 +59,11 @@ const WS_FIELDS = {
 
 export type WorkspaceCategory = 'Doc' | 'Sheet' | 'Slides' | 'Folder' | 'Web Page' | 'Other';
 export type WorkspaceFrequency = 'Daily' | 'Weekly' | 'Monthly' | 'Occasional';
+/** Workspace grouping bucket. Tiles render grouped by this field so Chris
+ *  can scan Financial vs Project vs Operations vs Personal without scrolling
+ *  through a flat grid. `null` = uncategorized (auto-discovered docs land
+ *  here until the user drags or re-types them). */
+export type WorkspaceType = 'Financial' | 'Project' | 'Operations' | 'Personal';
 
 export interface WorkspaceDoc {
   id: string;
@@ -64,11 +71,15 @@ export interface WorkspaceDoc {
   url: string;
   description: string;
   category: WorkspaceCategory | null;
+  type: WorkspaceType | null;
   frequency: WorkspaceFrequency | null;
   lastReviewed: string | null;
   pinned: boolean;
   archivedAt: string | null;
   autoDiscovered: boolean;
+  /** Manual user-assigned ordering. Lower = earlier. Null = append to end
+   *  (falls back to LastReviewed desc for initial placement). */
+  sortOrder: number | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -78,10 +89,12 @@ export interface CreateWorkspaceDocInput {
   url: string;
   description?: string;
   category?: WorkspaceCategory;
+  type?: WorkspaceType;
   frequency?: WorkspaceFrequency;
   lastReviewed?: string;
   pinned?: boolean;
   autoDiscovered?: boolean;
+  sortOrder?: number;
 }
 
 export interface UpdateWorkspaceDocInput {
@@ -89,11 +102,13 @@ export interface UpdateWorkspaceDocInput {
   url?: string;
   description?: string;
   category?: WorkspaceCategory | null;
+  type?: WorkspaceType | null;
   frequency?: WorkspaceFrequency | null;
   lastReviewed?: string | null;
   pinned?: boolean;
   archivedAt?: string | null;
   autoDiscovered?: boolean;
+  sortOrder?: number | null;
 }
 
 // ============================================================================
@@ -108,11 +123,16 @@ function mapRecordToWorkspaceDoc(record: { id: string; fields?: Record<string, u
     url: (f[WS_FIELDS.URL] as string) || '',
     description: (f[WS_FIELDS.DESCRIPTION] as string) || '',
     category: (f[WS_FIELDS.CATEGORY] as WorkspaceCategory) || null,
+    type: (f[WS_FIELDS.TYPE] as WorkspaceType) || null,
     frequency: (f[WS_FIELDS.FREQUENCY] as WorkspaceFrequency) || null,
     lastReviewed: (f[WS_FIELDS.LAST_REVIEWED] as string) || null,
     pinned: Boolean(f[WS_FIELDS.PINNED]),
     archivedAt: (f[WS_FIELDS.ARCHIVED_AT] as string) || null,
     autoDiscovered: Boolean(f[WS_FIELDS.AUTO_DISCOVERED]),
+    sortOrder:
+      typeof f[WS_FIELDS.SORT_ORDER] === 'number'
+        ? (f[WS_FIELDS.SORT_ORDER] as number)
+        : null,
     createdAt: (f[WS_FIELDS.CREATED_AT] as string) || null,
     updatedAt: (f[WS_FIELDS.UPDATED_AT] as string) || null,
   };
@@ -126,11 +146,13 @@ function mapInputToFields(
   if ('url' in input && input.url !== undefined) fields[WS_FIELDS.URL] = input.url;
   if ('description' in input && input.description !== undefined) fields[WS_FIELDS.DESCRIPTION] = input.description;
   if ('category' in input) fields[WS_FIELDS.CATEGORY] = input.category || null;
+  if ('type' in input) fields[WS_FIELDS.TYPE] = input.type || null;
   if ('frequency' in input) fields[WS_FIELDS.FREQUENCY] = input.frequency || null;
   if ('lastReviewed' in input) fields[WS_FIELDS.LAST_REVIEWED] = input.lastReviewed || null;
   if ('pinned' in input && input.pinned !== undefined) fields[WS_FIELDS.PINNED] = input.pinned;
   if ('archivedAt' in input) fields[WS_FIELDS.ARCHIVED_AT] = input.archivedAt || null;
   if ('autoDiscovered' in input && input.autoDiscovered !== undefined) fields[WS_FIELDS.AUTO_DISCOVERED] = input.autoDiscovered;
+  if ('sortOrder' in input) fields[WS_FIELDS.SORT_ORDER] = input.sortOrder ?? null;
   return fields;
 }
 
@@ -191,8 +213,12 @@ export async function getWorkspaceDocs(options?: {
     docs = docs.filter((d) => d.pinned);
   }
 
-  // Sort by LastReviewed desc (newest first). Fall back to CreatedAt.
+  // Primary sort: manual SortOrder ascending (nulls last).
+  // Tiebreak / fallback: LastReviewed desc, then CreatedAt desc.
   docs.sort((a, b) => {
+    const aOrder = typeof a.sortOrder === 'number' ? a.sortOrder : Number.POSITIVE_INFINITY;
+    const bOrder = typeof b.sortOrder === 'number' ? b.sortOrder : Number.POSITIVE_INFINITY;
+    if (aOrder !== bOrder) return aOrder - bOrder;
     const aTs = Date.parse(a.lastReviewed || a.createdAt || '') || 0;
     const bTs = Date.parse(b.lastReviewed || b.createdAt || '') || 0;
     return bTs - aTs;

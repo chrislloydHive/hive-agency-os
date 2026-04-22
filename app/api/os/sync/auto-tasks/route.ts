@@ -278,6 +278,7 @@ interface SyncStats {
   workspaceCreated: number;
   workspaceUnarchived: number;
   workspaceArchivedStale: number;
+  workspaceUrlResolved: number;
 }
 
 async function upsertAutoTask(
@@ -352,6 +353,7 @@ export async function POST(req: NextRequest) {
   const stats: SyncStats = {
     created: 0, updated: 0, unarchived: 0, skipped: 0, errors: 0,
     workspaceCreated: 0, workspaceUnarchived: 0, workspaceArchivedStale: 0,
+    workspaceUrlResolved: 0,
   };
   const errors: string[] = [];
 
@@ -498,10 +500,55 @@ export async function POST(req: NextRequest) {
         (d) => d.modifiedByMe === true && isRecent(d.modifiedTime, WORKSPACE_DISCOVERY_WINDOW_DAYS),
       );
 
+      // Single read of all active workspace docs — used by both the URL-resolve
+      // and discovery passes. Hoisted here so the SortOrder seed for new items
+      // can see the current max without an extra round-trip.
+      const allActiveWorkspaceDocs = await getWorkspaceDocs();
+
+      // URL resolution: legacy workspace rows copy-pasted from a Drive-chip
+      // spreadsheet ended up with the file NAME in the URL field instead of a
+      // real http:// link. Match those to actual Drive files (by name) and
+      // rewrite the URL so clicks open the real document. Runs before the
+      // discovery pass so we don't create duplicates.
+      try {
+        for (const doc of allActiveWorkspaceDocs) {
+          if (/^https?:\/\//i.test(doc.url)) continue; // already a real URL
+          if (!doc.url) continue;
+          const wanted = doc.url.trim().toLowerCase();
+          // Try exact-match first, then fuzzy contains.
+          const match =
+            driveDocs.find((d) => (d.name || '').trim().toLowerCase() === wanted) ||
+            driveDocs.find((d) => (d.name || '').trim().toLowerCase().includes(wanted));
+          if (match?.link) {
+            await updateWorkspaceDoc(doc.id, { url: match.link });
+            stats.workspaceUrlResolved++;
+          }
+        }
+      } catch (err) {
+        console.warn('[sync/auto-tasks] URL resolve pass error:', err);
+      }
+
       // Discovery: create / un-archive
+      // Seed SortOrder for new auto-discovered items at the end of the list,
+      // so they stack up AFTER whatever the user has manually arranged.
+      let nextSortOrder = (() => {
+        const orders = allActiveWorkspaceDocs
+          .map((d) => (typeof d.sortOrder === 'number' ? d.sortOrder : null))
+          .filter((v): v is number => v !== null);
+        return orders.length > 0 ? Math.max(...orders) + 1 : 1;
+      })();
+
       for (const d of recent) {
         if (!d.link) continue;
         try {
+          // Check including archived rows so we DON'T re-create something the
+          // user previously dismissed. If a row exists (archived or not), leave
+          // it alone — auto-discovery only introduces *new* docs.
+          //
+          // Historical note: we used to un-archive auto-discovered docs when
+          // Drive saw activity on them again. That created a loop where the
+          // user's X-dismiss action got undone on the next sync. Now an archive
+          // is permanent; only manual un-archive in Airtable brings a doc back.
           const existing = await findWorkspaceDocByUrl(d.link, { includeArchived: true });
           if (!existing) {
             await createWorkspaceDoc({
@@ -511,18 +558,12 @@ export async function POST(req: NextRequest) {
               lastReviewed: d.modifiedTime,
               pinned: true,
               autoDiscovered: true,
+              sortOrder: nextSortOrder,
             });
+            nextSortOrder += 1;
             stats.workspaceCreated++;
-          } else if (existing.archivedAt && existing.autoDiscovered) {
-            // Previously auto-archived but editing again → un-archive and bump.
-            await updateWorkspaceDoc(existing.id, {
-              archivedAt: null,
-              lastReviewed: d.modifiedTime,
-            });
-            stats.workspaceUnarchived++;
           }
-          // Otherwise (exists, not archived) — leave alone. The user's LastReviewed
-          // updates happen on click via the client's touch endpoint.
+          // existing != null (archived or active) → leave alone.
         } catch (err) {
           stats.errors++;
           errors.push(`workspace discover ${d.id}: ${err instanceof Error ? err.message : err}`);

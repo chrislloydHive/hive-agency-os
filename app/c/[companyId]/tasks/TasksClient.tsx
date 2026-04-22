@@ -70,20 +70,30 @@ type ViewType = 'inbox' | 'braindump' | 'projects' | 'archive';
 
 // Workspace (pinned working documents). Mirrors lib/airtable/workspaceDocs shape.
 type WorkspaceCategory = 'Doc' | 'Sheet' | 'Slides' | 'Folder' | 'Web Page' | 'Other';
+type WorkspaceType = 'Financial' | 'Project' | 'Operations' | 'Personal';
 interface WorkspaceDoc {
   id: string;
   name: string;
   url: string;
   description: string;
   category: WorkspaceCategory | null;
+  /** Grouping bucket for the Workspace section. Null = Uncategorized. */
+  type: WorkspaceType | null;
   frequency: string | null;
   lastReviewed: string | null;
   pinned: boolean;
   archivedAt: string | null;
   autoDiscovered: boolean;
+  sortOrder: number | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
+
+/** The display order for Workspace groups. Null bucket (Uncategorized) is
+ *  appended separately and only rendered when there are docs without a type.
+ *  Order reflects daily attention: Operations first (what's running now),
+ *  Project (active builds), Financial (reference/periodic), Personal (last). */
+const WS_TYPE_ORDER: WorkspaceType[] = ['Operations', 'Project', 'Financial', 'Personal'];
 
 /** Best-guess category from URL when the record doesn't set one explicitly.
  *  Used for icon selection; the saved `category` wins when present. */
@@ -823,8 +833,15 @@ export function TasksClient({ company }: TasksClientProps) {
   const [workspaceExpanded, setWorkspaceExpanded] = useState(true);
   const [wsNewName, setWsNewName] = useState('');
   const [wsNewUrl, setWsNewUrl] = useState('');
+  const [wsNewType, setWsNewType] = useState<WorkspaceType | ''>('');
   const [wsAdding, setWsAdding] = useState(false);
   const [wsAddOpen, setWsAddOpen] = useState(false);
+  const [wsDraggingId, setWsDraggingId] = useState<string | null>(null);
+  const [wsDragOverId, setWsDragOverId] = useState<string | null>(null);
+  /** When dragging onto a group header / empty group area, track which bucket
+   *  is being hovered so we can highlight the drop target. Distinct from
+   *  wsDragOverId (which tracks a specific tile target). */
+  const [wsDragOverType, setWsDragOverType] = useState<WorkspaceType | 'UNCATEGORIZED' | null>(null);
   const [waitingExpanded, setWaitingExpanded] = useState(true);
   const [draftingId, setDraftingId] = useState<number | null>(null);
   const [draftError, setDraftError] = useState<{
@@ -968,25 +985,20 @@ export function TasksClient({ company }: TasksClientProps) {
 
   /** Open a workspace doc in a new tab and bump LastReviewed so it bubbles
    *  to the top of the list on next render. Optimistic client update + async
-   *  server sync. */
+   *  server sync.
+   *
+   *  If the URL field isn't an actual URL (legacy entries copy-pasted from a
+   *  Drive-chip spreadsheet came across as just the file name), fall back to
+   *  opening Google Drive search for that name so Chris still lands somewhere
+   *  useful with one click. */
   const openWorkspaceDoc = useCallback((doc: WorkspaceDoc) => {
-    window.open(doc.url, '_blank');
-    const nowIso = new Date().toISOString();
-    // Optimistic: bump locally so the row re-sorts immediately.
-    setWorkspaceDocs((prev) => {
-      const updated = prev.map((d) => (d.id === doc.id ? { ...d, lastReviewed: nowIso } : d));
-      updated.sort((a, b) => {
-        const aTs = Date.parse(a.lastReviewed || a.createdAt || '') || 0;
-        const bTs = Date.parse(b.lastReviewed || b.createdAt || '') || 0;
-        return bTs - aTs;
-      });
-      return updated;
-    });
-    fetch('/api/os/workspace', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: doc.id, action: 'touch' }),
-    }).catch(() => {});
+    const isRealUrl = /^https?:\/\//i.test(doc.url || '');
+    const target = isRealUrl
+      ? doc.url
+      : `https://drive.google.com/drive/search?q=${encodeURIComponent(doc.url || doc.name)}`;
+    window.open(target, '_blank');
+    // Do NOT bump LastReviewed or re-sort on open — tiles stay where the user
+    // placed them (manual SortOrder), like icons on a physical desktop.
   }, []);
 
   const archiveWorkspaceDoc = useCallback(async (doc: WorkspaceDoc) => {
@@ -1017,6 +1029,7 @@ export function TasksClient({ company }: TasksClientProps) {
           name: name || url.split('/').filter(Boolean).pop() || 'Untitled',
           url,
           category: inferWorkspaceCategory(url),
+          type: wsNewType || undefined,
         }),
       });
       const json = await res.json();
@@ -1024,12 +1037,115 @@ export function TasksClient({ company }: TasksClientProps) {
         setWorkspaceDocs((prev) => [json.doc, ...prev]);
         setWsNewName('');
         setWsNewUrl('');
+        setWsNewType('');
         setWsAddOpen(false);
       }
     } finally {
       setWsAdding(false);
     }
-  }, [wsNewName, wsNewUrl, wsAdding]);
+  }, [wsNewName, wsNewUrl, wsNewType, wsAdding]);
+
+  /** Move a workspace doc to a new position within a specific Type group.
+   *  Computes a fractional SortOrder so only the dragged tile is PATCHed.
+   *  Optimistic UI: state updates first, server call follows.
+   *
+   *  If the target group differs from the doc's current type, the type is
+   *  also updated — dragging across groups re-categorizes the tile.
+   *
+   *  @param movedId             The doc being dragged.
+   *  @param targetType          Which group to drop into. `null` = Uncategorized.
+   *  @param targetIndexInGroup  Position within that group's rendered list.
+   *                              Pass group.length to drop at the end of the group.
+   */
+  const reorderWorkspace = useCallback(
+    (movedId: string, targetType: WorkspaceType | null, targetIndexInGroup: number) => {
+      setWorkspaceDocs((prev) => {
+        const moved = prev.find((d) => d.id === movedId);
+        if (!moved) return prev;
+        const typeChanged = (moved.type ?? null) !== targetType;
+
+        // Build the target group's current ordered list, EXCLUDING the moved doc
+        // (so the targetIndexInGroup is interpreted relative to the post-removal
+        // group — index 0 = very start, group.length = very end).
+        const groupItems = prev
+          .filter((d) => (d.type ?? null) === targetType && d.id !== movedId);
+
+        // Clamp the target index so we don't ever splice past the end.
+        const clampedIdx = Math.max(0, Math.min(targetIndexInGroup, groupItems.length));
+
+        // No-op: dropping the same doc in the same slot of its current group.
+        if (!typeChanged) {
+          const currentIdxInGroup = prev
+            .filter((d) => (d.type ?? null) === targetType)
+            .findIndex((d) => d.id === movedId);
+          if (currentIdxInGroup === clampedIdx) return prev;
+          // When moving DOWN within the same group, removal of the moved item
+          // above the target shifts the index by one — we've already excluded
+          // moved from groupItems so no extra correction is needed.
+        }
+
+        // Neighbors within the target group at the drop position.
+        const prevDoc = clampedIdx > 0 ? groupItems[clampedIdx - 1] : null;
+        const nextDoc = clampedIdx < groupItems.length ? groupItems[clampedIdx] : null;
+
+        const prevOrder =
+          prevDoc && typeof prevDoc.sortOrder === 'number' ? prevDoc.sortOrder : null;
+        const nextOrder =
+          nextDoc && typeof nextDoc.sortOrder === 'number' ? nextDoc.sortOrder : null;
+
+        let newSortOrder: number;
+        if (prevOrder !== null && nextOrder !== null) {
+          newSortOrder = (prevOrder + nextOrder) / 2;
+        } else if (prevOrder !== null) {
+          newSortOrder = prevOrder + 1;
+        } else if (nextOrder !== null) {
+          newSortOrder = nextOrder - 1;
+        } else {
+          // Empty group — seed with a value derived from global max so it sorts
+          // after any nulls elsewhere but doesn't collide with other groups.
+          const globalMax = prev.reduce(
+            (acc, d) => (typeof d.sortOrder === 'number' && d.sortOrder > acc ? d.sortOrder : acc),
+            0,
+          );
+          newSortOrder = globalMax + 1;
+        }
+
+        // Persist optimistically. Include `type` only if it actually changed so
+        // unrelated drags don't write the field unnecessarily.
+        const patchBody: { id: string; sortOrder: number; type?: WorkspaceType | null } = {
+          id: movedId,
+          sortOrder: newSortOrder,
+        };
+        if (typeChanged) patchBody.type = targetType;
+
+        fetch('/api/os/workspace', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patchBody),
+        }).catch((err) => console.warn('[Workspace] reorder PATCH failed:', err));
+
+        // Build the new array: update moved doc's sortOrder (+ type if changed),
+        // then re-sort the whole list to match the server's canonical order:
+        // sortOrder asc (nulls last), tiebreak by lastReviewed desc. Without
+        // this resort the visual position wouldn't change until next fetch.
+        const updated = prev.map((d) =>
+          d.id === movedId
+            ? { ...d, sortOrder: newSortOrder, type: typeChanged ? targetType : d.type }
+            : d,
+        );
+        updated.sort((a, b) => {
+          const aOrder = typeof a.sortOrder === 'number' ? a.sortOrder : Number.POSITIVE_INFINITY;
+          const bOrder = typeof b.sortOrder === 'number' ? b.sortOrder : Number.POSITIVE_INFINITY;
+          if (aOrder !== bOrder) return aOrder - bOrder;
+          const aTs = Date.parse(a.lastReviewed || a.createdAt || '') || 0;
+          const bTs = Date.parse(b.lastReviewed || b.createdAt || '') || 0;
+          return bTs - aTs;
+        });
+        return updated;
+      });
+    },
+    [],
+  );
 
   // Gmail sync: fire-and-forget on mount.
   const gmailSyncFired = useRef(false);
@@ -1667,7 +1783,7 @@ export function TasksClient({ company }: TasksClientProps) {
                     />
                     <button
                       type="button"
-                      onClick={() => { setWsAddOpen(false); setWsNewName(''); setWsNewUrl(''); }}
+                      onClick={() => { setWsAddOpen(false); setWsNewName(''); setWsNewUrl(''); setWsNewType(''); }}
                       className="w-5 h-5 rounded text-gray-500 hover:text-gray-200 hover:bg-gray-700/60 flex items-center justify-center"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -1686,6 +1802,20 @@ export function TasksClient({ company }: TasksClientProps) {
                       disabled={wsAdding}
                       className="flex-1 bg-transparent text-sm text-gray-100 placeholder-gray-600 focus:outline-none"
                     />
+                    {/* Type selector — determines which group the new doc lands in.
+                        Blank = Uncategorized (shows at the bottom until re-typed). */}
+                    <select
+                      value={wsNewType}
+                      onChange={(e) => setWsNewType(e.target.value as WorkspaceType | '')}
+                      disabled={wsAdding}
+                      className="text-xs bg-gray-800 border border-gray-700 text-gray-200 rounded px-1.5 py-1 focus:outline-none focus:border-cyan-500/40"
+                      title="Group this doc into…"
+                    >
+                      <option value="">Uncategorized</option>
+                      {WS_TYPE_ORDER.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       onClick={submitNewWorkspaceDoc}
@@ -1704,10 +1834,17 @@ export function TasksClient({ company }: TasksClientProps) {
                 </div>
               )}
 
-              {workspaceExpanded && workspaceDocs.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-                  {workspaceDocs.map((doc) => {
-                    const cat = doc.category || inferWorkspaceCategory(doc.url);
+              {workspaceExpanded && workspaceDocs.length > 0 && (() => {
+                // Grouped by Type — Financial / Project / Operations / Personal /
+                // Uncategorized. Within each group, tiles are in user-assigned
+                // SortOrder (server-enforced). Drag a tile to reposition within
+                // a group, or drop it onto another group's tile to re-type it.
+                const renderTile = (
+                  doc: WorkspaceDoc,
+                  groupType: WorkspaceType | null,
+                  indexInGroup: number,
+                ) => {
+                  const cat = doc.category || inferWorkspaceCategory(doc.url);
                     // Each category gets its own accent color so the grid reads
                     // visually at a glance — blue Docs, green Sheets, etc.
                     const accent =
@@ -1724,68 +1861,194 @@ export function TasksClient({ company }: TasksClientProps) {
                       cat === 'Folder' ? Folder :
                       cat === 'Web Page' ? Globe :
                       Link2;
-                    const activity = shortRelativeTime(doc.lastReviewed);
-                    return (
-                      <div
-                        key={doc.id}
-                        onClick={() => openWorkspaceDoc(doc)}
-                        className={`group relative bg-gray-900 border border-gray-800 ${accent.border} rounded-xl p-3 cursor-pointer transition-all hover:bg-gray-900/80 hover:shadow-lg flex flex-col gap-2 min-h-[110px]`}
-                      >
-                        {/* Header: icon + badges */}
-                        <div className="flex items-center justify-between gap-2">
-                          <div className={`w-8 h-8 rounded-lg ${accent.iconBg} flex items-center justify-center flex-shrink-0`}>
-                            <Icon className={`w-4 h-4 ${accent.icon}`} />
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            {doc.autoDiscovered && (
-                              <span
-                                className="inline-flex items-center gap-0.5 px-1.5 py-px rounded text-[9px] font-semibold border bg-cyan-500/10 text-cyan-400 border-cyan-500/30"
-                                title="Auto-discovered from Drive activity"
-                              >
-                                <Zap className="w-[9px] h-[9px]" /> auto
-                              </span>
-                            )}
-                            {doc.frequency && (
-                              <span className="text-[9px] uppercase tracking-wider text-gray-600 font-medium">
-                                {doc.frequency}
-                              </span>
-                            )}
-                          </div>
+                  const activity = shortRelativeTime(doc.lastReviewed);
+                  const isDragging = wsDraggingId === doc.id;
+                  const isDragOver = wsDragOverId === doc.id && wsDraggingId !== doc.id;
+                  return (
+                    <div
+                      key={doc.id}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', doc.id);
+                        setWsDraggingId(doc.id);
+                      }}
+                      onDragEnd={() => { setWsDraggingId(null); setWsDragOverId(null); setWsDragOverType(null); }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        if (wsDraggingId && wsDraggingId !== doc.id) setWsDragOverId(doc.id);
+                      }}
+                      onDragLeave={() => { if (wsDragOverId === doc.id) setWsDragOverId(null); }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const moved = e.dataTransfer.getData('text/plain') || wsDraggingId;
+                        if (moved && moved !== doc.id) reorderWorkspace(moved, groupType, indexInGroup);
+                        setWsDraggingId(null);
+                        setWsDragOverId(null);
+                        setWsDragOverType(null);
+                      }}
+                      onClick={() => openWorkspaceDoc(doc)}
+                      className={`group relative bg-gray-900 border ${isDragOver ? 'border-cyan-400/60 ring-2 ring-cyan-400/20' : 'border-gray-800'} ${accent.border} rounded-xl p-3 cursor-pointer transition-all hover:bg-gray-900/80 hover:shadow-lg flex flex-col gap-2 min-h-[110px] ${isDragging ? 'opacity-30' : ''}`}
+                    >
+                      {/* Header: icon + badges */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className={`w-8 h-8 rounded-lg ${accent.iconBg} flex items-center justify-center flex-shrink-0`}>
+                          <Icon className={`w-4 h-4 ${accent.icon}`} />
                         </div>
+                        <div className="flex items-center gap-1.5">
+                          {doc.autoDiscovered && (
+                            <span
+                              className="inline-flex items-center gap-0.5 px-1.5 py-px rounded text-[9px] font-semibold border bg-cyan-500/10 text-cyan-400 border-cyan-500/30"
+                              title="Auto-discovered from Drive activity"
+                            >
+                              <Zap className="w-[9px] h-[9px]" /> auto
+                            </span>
+                          )}
+                          {doc.frequency && (
+                            <span className="text-[9px] uppercase tracking-wider text-gray-600 font-medium">
+                              {doc.frequency}
+                            </span>
+                          )}
+                        </div>
+                      </div>
 
-                        {/* Title + description */}
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-gray-100 line-clamp-2 leading-tight">
-                            {doc.name}
+                      {/* Title + description */}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-100 line-clamp-2 leading-tight">
+                          {doc.name}
+                        </div>
+                        {doc.description && (
+                          <div className="text-[11px] text-gray-500 mt-1 line-clamp-1">
+                            {doc.description}
                           </div>
-                          {doc.description && (
-                            <div className="text-[11px] text-gray-500 mt-1 line-clamp-1">
-                              {doc.description}
+                        )}
+                      </div>
+
+                      {/* Footer: activity hint */}
+                      {activity && (
+                        <div className="text-[10px] text-gray-600 tabular-nums">
+                          {activity}
+                        </div>
+                      )}
+
+                      {/* Hover-only archive button, top-right corner */}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); archiveWorkspaceDoc(doc); }}
+                        className="absolute top-1.5 right-1.5 w-5 h-5 rounded text-gray-600 opacity-0 group-hover:opacity-100 hover:text-gray-300 hover:bg-gray-700/80 flex items-center justify-center transition-all"
+                        title="Archive from workspace"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  );
+                };
+
+                // Partition into groups in the declared order. Empty groups are
+                // hidden unless something is being dragged — then we show empty
+                // drop zones for each Type so the user can drop into a new group.
+                const byType = new Map<WorkspaceType | 'UNCATEGORIZED', WorkspaceDoc[]>();
+                for (const t of WS_TYPE_ORDER) byType.set(t, []);
+                byType.set('UNCATEGORIZED', []);
+                for (const d of workspaceDocs) {
+                  const key: WorkspaceType | 'UNCATEGORIZED' = d.type ?? 'UNCATEGORIZED';
+                  byType.get(key)?.push(d);
+                }
+                const isDragging = !!wsDraggingId;
+                const groupKeys: Array<WorkspaceType | 'UNCATEGORIZED'> = [
+                  ...WS_TYPE_ORDER,
+                  'UNCATEGORIZED',
+                ];
+
+                return (
+                  <div className="space-y-4">
+                    {groupKeys.map((key) => {
+                      const items = byType.get(key) ?? [];
+                      const hasItems = items.length > 0;
+                      // Uncategorized only shows when it actually has items — no
+                      // use offering it as a drop target.
+                      if (key === 'UNCATEGORIZED' && !hasItems) return null;
+                      // Other groups: hide when empty unless drag is active.
+                      if (!hasItems && !isDragging) return null;
+
+                      const targetType: WorkspaceType | null =
+                        key === 'UNCATEGORIZED' ? null : key;
+                      const label = key === 'UNCATEGORIZED' ? 'Uncategorized' : key;
+                      const isDropHover = wsDragOverType === key;
+
+                      return (
+                        <div key={key}>
+                          <div
+                            className={`flex items-center gap-2 mb-2 px-0.5 ${isDropHover ? 'text-cyan-300' : 'text-gray-500'}`}
+                          >
+                            <h3 className="text-[10px] font-semibold tracking-[0.1em] uppercase">
+                              {label}
+                            </h3>
+                            <span className="text-[10px] text-gray-600">
+                              {items.length}
+                            </span>
+                          </div>
+                          {hasItems ? (
+                            <div
+                              className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 ${isDropHover ? 'rounded-xl ring-1 ring-cyan-500/20 bg-cyan-500/[0.02]' : ''}`}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = 'move';
+                                if (wsDraggingId) setWsDragOverType(key);
+                              }}
+                              onDragLeave={() => {
+                                if (wsDragOverType === key) setWsDragOverType(null);
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                const moved =
+                                  e.dataTransfer.getData('text/plain') || wsDraggingId;
+                                const targetEl = e.target as HTMLElement;
+                                // Drop landed on the grid background (not a tile)
+                                // → append to end of THIS group.
+                                if (moved && targetEl === e.currentTarget) {
+                                  reorderWorkspace(moved, targetType, items.length);
+                                }
+                                setWsDraggingId(null);
+                                setWsDragOverId(null);
+                                setWsDragOverType(null);
+                              }}
+                            >
+                              {items.map((d, i) => renderTile(d, targetType, i))}
+                            </div>
+                          ) : (
+                            // Empty-group drop zone (only visible during drag).
+                            <div
+                              className={`rounded-xl border border-dashed px-3 py-4 text-[11px] italic transition-colors ${isDropHover ? 'border-cyan-500/50 bg-cyan-500/5 text-cyan-300' : 'border-gray-800 text-gray-600'}`}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = 'move';
+                                if (wsDraggingId) setWsDragOverType(key);
+                              }}
+                              onDragLeave={() => {
+                                if (wsDragOverType === key) setWsDragOverType(null);
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                const moved =
+                                  e.dataTransfer.getData('text/plain') || wsDraggingId;
+                                if (moved) reorderWorkspace(moved, targetType, 0);
+                                setWsDraggingId(null);
+                                setWsDragOverId(null);
+                                setWsDragOverType(null);
+                              }}
+                            >
+                              Drop here to mark as {label}
                             </div>
                           )}
                         </div>
-
-                        {/* Footer: activity hint */}
-                        {activity && (
-                          <div className="text-[10px] text-gray-600 tabular-nums">
-                            {activity}
-                          </div>
-                        )}
-
-                        {/* Hover-only archive button, top-right corner */}
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); archiveWorkspaceDoc(doc); }}
-                          className="absolute top-1.5 right-1.5 w-5 h-5 rounded text-gray-600 opacity-0 group-hover:opacity-100 hover:text-gray-300 hover:bg-gray-700/80 flex items-center justify-center transition-all"
-                          title="Archive from workspace"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </section>
 
             {/* WAITING */}
