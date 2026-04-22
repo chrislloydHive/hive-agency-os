@@ -24,7 +24,6 @@ import {
   type CreateTaskInput,
   type TaskPriority,
   type TaskSource,
-  type TaskRecord,
 } from '@/lib/airtable/tasks';
 
 export const dynamic = 'force-dynamic';
@@ -261,7 +260,11 @@ export async function POST(req: NextRequest) {
   const errors: string[] = [];
 
   try {
-    const { companyId } = await req.json().catch(() => ({}));
+    const { companyId: bodyCompanyId } = await req.json().catch(() => ({}));
+    // Prefer body companyId, fall back to env default (same id Command Center
+    // page passes). Passing an explicit id ensures /api/os/command-center uses
+    // the correct Google tokens and doesn't take the anonymous fallback path.
+    const companyId = bodyCompanyId || process.env.DMA_DEFAULT_COMPANY_ID || 'default';
 
     // Fetch the command-center payload from our own API. This is intentional:
     // all the Gmail/Calendar/SentMail computation lives in that route, and we
@@ -269,15 +272,23 @@ export async function POST(req: NextRequest) {
     // this runs at most once per minute.
     const origin = req.nextUrl.origin;
     const qs = new URLSearchParams();
-    if (companyId) qs.set('companyId', companyId);
+    qs.set('companyId', companyId);
     qs.set('refresh', '1');
     const ccUrl = `${origin}/api/os/command-center?${qs.toString()}`;
+    console.log(`[sync/auto-tasks] Fetching ${ccUrl}`);
 
     const ccRes = await fetch(ccUrl, { cache: 'no-store' });
     if (!ccRes.ok) {
-      throw new Error(`Command Center fetch failed: ${ccRes.status}`);
+      const text = await ccRes.text().catch(() => '');
+      throw new Error(`Command Center fetch failed: ${ccRes.status} — ${text.slice(0, 200)}`);
     }
     const cc: CommandCenterResponse = await ccRes.json();
+    console.log(
+      `[sync/auto-tasks] Command Center returned: ` +
+        `commitments=${cc.commitments?.length ?? 0}, ` +
+        `followUps=${cc.followUps?.length ?? 0}, ` +
+        `triage=${cc.triage?.length ?? 0}`,
+    );
 
     // Commitments
     for (const c of cc.commitments || []) {
@@ -327,6 +338,14 @@ export async function POST(req: NextRequest) {
       stats,
       errors: errors.slice(0, 10),
       durationMs: lastRunFinishedAt - lastRunStartedAt,
+      // Diagnostic: what the upstream Command Center returned. If these are
+      // all zero, the issue is in /api/os/command-center, not here.
+      upstream: {
+        companyId,
+        commitments: cc.commitments?.length ?? 0,
+        followUps: cc.followUps?.length ?? 0,
+        triage: cc.triage?.length ?? 0,
+      },
     });
   } catch (err) {
     return NextResponse.json(
@@ -389,5 +408,3 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-/** Only needed for TS unused-import stubs. */
-export type { TaskRecord };

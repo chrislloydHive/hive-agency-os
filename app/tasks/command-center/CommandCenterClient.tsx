@@ -699,7 +699,11 @@ export function CommandCenterClient({ companyId }: { companyId: string; backUrl?
   async function runAutoSync(manual = false) {
     setAutoSyncing(true);
     try {
-      const res = await fetch('/api/os/sync/auto-tasks', { method: 'POST' });
+      const res = await fetch('/api/os/sync/auto-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId }),
+      });
       const json = await res.json().catch(() => ({}));
       if (res.ok && json.stats) {
         const s = json.stats;
