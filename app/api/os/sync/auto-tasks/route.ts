@@ -28,10 +28,7 @@ import {
 } from '@/lib/airtable/tasks';
 import {
   getWorkspaceDocs,
-  createWorkspaceDoc,
   updateWorkspaceDoc,
-  findWorkspaceDocByUrl,
-  type WorkspaceCategory,
 } from '@/lib/airtable/workspaceDocs';
 
 export const dynamic = 'force-dynamic';
@@ -144,36 +141,6 @@ interface CommandCenterResponse {
   triage?: TriageItem[];
   websiteSubmissions?: TriageItem[];
   driveDocs?: DriveDocSummary[];
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Workspace discovery helpers
-// ────────────────────────────────────────────────────────────────────────────
-
-const WORKSPACE_DISCOVERY_WINDOW_DAYS = 7;   // add docs modified in this window
-const WORKSPACE_STALE_THRESHOLD_DAYS = 30;    // auto-hide auto-discovered older than this
-
-function mimeToCategory(mime: string): WorkspaceCategory {
-  if (!mime) return 'Other';
-  if (mime === 'application/vnd.google-apps.document') return 'Doc';
-  if (mime === 'application/vnd.google-apps.spreadsheet') return 'Sheet';
-  if (mime === 'application/vnd.google-apps.presentation') return 'Slides';
-  if (mime === 'application/vnd.google-apps.folder') return 'Folder';
-  return 'Other';
-}
-
-function isRecent(iso: string | undefined, windowDays: number): boolean {
-  if (!iso) return false;
-  const ts = Date.parse(iso);
-  if (!ts) return false;
-  return Date.now() - ts < windowDays * 24 * 60 * 60 * 1000;
-}
-
-function isStale(iso: string | null | undefined, thresholdDays: number): boolean {
-  if (!iso) return true; // never reviewed / never modified → treat as stale
-  const ts = Date.parse(iso);
-  if (!ts) return true;
-  return Date.now() - ts > thresholdDays * 24 * 60 * 60 * 1000;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -486,101 +453,39 @@ export async function POST(req: NextRequest) {
     }
 
     // ────────────────────────────────────────────────────────────────────────
-    // Workspace discovery pass
-    //   • Find Drive files I edited in the last N days
-    //   • Create new auto-discovered WorkspaceDocs for unfamiliar ones
-    //   • Un-archive + refresh lastReviewed if the same URL was previously
-    //     auto-archived for staleness (they're back in active rotation)
-    //   • Archive any existing auto-discovered docs whose LastReviewed is
-    //     older than the stale threshold (they've fallen out of use)
+    // Workspace pass — URL resolution ONLY
+    //
+    // Auto-discovery (creating new workspace docs from Drive activity) and
+    // stale-archive were removed intentionally: when the user hard-deleted a
+    // row in Airtable, the next sync re-created it from Drive because we
+    // have no persistent memory of dismissed URLs outside Airtable. The only
+    // reliable fix is to stop auto-creating. Users add docs explicitly via
+    // the "Add" dialog in My Day.
+    //
+    // What remains: a URL-resolution pass that fixes legacy rows which were
+    // copy-pasted from a Drive-chip spreadsheet and ended up with the file
+    // NAME in the URL field instead of a real http:// link. Purely a fixup
+    // of data the user already chose to keep — never creates or archives.
     // ────────────────────────────────────────────────────────────────────────
     try {
       const driveDocs = cc.driveDocs || [];
-      const recent = driveDocs.filter(
-        (d) => d.modifiedByMe === true && isRecent(d.modifiedTime, WORKSPACE_DISCOVERY_WINDOW_DAYS),
-      );
-
-      // Single read of all active workspace docs — used by both the URL-resolve
-      // and discovery passes. Hoisted here so the SortOrder seed for new items
-      // can see the current max without an extra round-trip.
       const allActiveWorkspaceDocs = await getWorkspaceDocs();
 
-      // URL resolution: legacy workspace rows copy-pasted from a Drive-chip
-      // spreadsheet ended up with the file NAME in the URL field instead of a
-      // real http:// link. Match those to actual Drive files (by name) and
-      // rewrite the URL so clicks open the real document. Runs before the
-      // discovery pass so we don't create duplicates.
-      try {
-        for (const doc of allActiveWorkspaceDocs) {
-          if (/^https?:\/\//i.test(doc.url)) continue; // already a real URL
-          if (!doc.url) continue;
-          const wanted = doc.url.trim().toLowerCase();
-          // Try exact-match first, then fuzzy contains.
-          const match =
-            driveDocs.find((d) => (d.name || '').trim().toLowerCase() === wanted) ||
-            driveDocs.find((d) => (d.name || '').trim().toLowerCase().includes(wanted));
-          if (match?.link) {
+      for (const doc of allActiveWorkspaceDocs) {
+        if (/^https?:\/\//i.test(doc.url)) continue; // already a real URL
+        if (!doc.url) continue;
+        const wanted = doc.url.trim().toLowerCase();
+        // Try exact-match first, then fuzzy contains.
+        const match =
+          driveDocs.find((d) => (d.name || '').trim().toLowerCase() === wanted) ||
+          driveDocs.find((d) => (d.name || '').trim().toLowerCase().includes(wanted));
+        if (match?.link) {
+          try {
             await updateWorkspaceDoc(doc.id, { url: match.link });
             stats.workspaceUrlResolved++;
-          }
-        }
-      } catch (err) {
-        console.warn('[sync/auto-tasks] URL resolve pass error:', err);
-      }
-
-      // Discovery: create / un-archive
-      // Seed SortOrder for new auto-discovered items at the end of the list,
-      // so they stack up AFTER whatever the user has manually arranged.
-      let nextSortOrder = (() => {
-        const orders = allActiveWorkspaceDocs
-          .map((d) => (typeof d.sortOrder === 'number' ? d.sortOrder : null))
-          .filter((v): v is number => v !== null);
-        return orders.length > 0 ? Math.max(...orders) + 1 : 1;
-      })();
-
-      for (const d of recent) {
-        if (!d.link) continue;
-        try {
-          // Check including archived rows so we DON'T re-create something the
-          // user previously dismissed. If a row exists (archived or not), leave
-          // it alone — auto-discovery only introduces *new* docs.
-          //
-          // Historical note: we used to un-archive auto-discovered docs when
-          // Drive saw activity on them again. That created a loop where the
-          // user's X-dismiss action got undone on the next sync. Now an archive
-          // is permanent; only manual un-archive in Airtable brings a doc back.
-          const existing = await findWorkspaceDocByUrl(d.link, { includeArchived: true });
-          if (!existing) {
-            await createWorkspaceDoc({
-              name: d.name || 'Untitled',
-              url: d.link,
-              category: mimeToCategory(d.mimeType),
-              lastReviewed: d.modifiedTime,
-              pinned: true,
-              autoDiscovered: true,
-              sortOrder: nextSortOrder,
-            });
-            nextSortOrder += 1;
-            stats.workspaceCreated++;
-          }
-          // existing != null (archived or active) → leave alone.
-        } catch (err) {
-          stats.errors++;
-          errors.push(`workspace discover ${d.id}: ${err instanceof Error ? err.message : err}`);
-        }
-      }
-
-      // Archive stale auto-discovered docs.
-      const allActive = await getWorkspaceDocs();
-      for (const doc of allActive) {
-        if (!doc.autoDiscovered) continue; // never auto-hide manual pins
-        if (isStale(doc.lastReviewed, WORKSPACE_STALE_THRESHOLD_DAYS)) {
-          try {
-            await updateWorkspaceDoc(doc.id, { archivedAt: new Date().toISOString() });
-            stats.workspaceArchivedStale++;
           } catch (err) {
             stats.errors++;
-            errors.push(`workspace archive ${doc.id}: ${err instanceof Error ? err.message : err}`);
+            errors.push(`workspace url-resolve ${doc.id}: ${err instanceof Error ? err.message : err}`);
           }
         }
       }
