@@ -992,7 +992,10 @@ export function TasksClient({ company }: TasksClientProps) {
    *  opening Google Drive search for that name so Chris still lands somewhere
    *  useful with one click. */
   const openWorkspaceDoc = useCallback((doc: WorkspaceDoc) => {
-    const isRealUrl = /^https?:\/\//i.test(doc.url || '');
+    // Any value with a scheme like `http://`, `https://`, `file://` counts as
+    // a real URL. Only route through Drive-search fallback when the URL field
+    // holds something like a bare file name (legacy Drive-chip pastes).
+    const isRealUrl = /^[a-z][\w+.-]*:\/\//i.test(doc.url || '');
     const target = isRealUrl
       ? doc.url
       : `https://drive.google.com/drive/search?q=${encodeURIComponent(doc.url || doc.name)}`;
