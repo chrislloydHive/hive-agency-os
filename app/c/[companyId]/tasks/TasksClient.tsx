@@ -140,6 +140,21 @@ const MONTHS: Record<string, number> = {
   jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
 };
 
+/** Returns null if the date is more than 2 years from now in either direction —
+ *  that almost always means a data entry error (e.g. year 2001 from a stale
+ *  Airtable value). Applied to ALL branches so no format sneaks past. */
+function withinSanityWindow(d: Date | null, raw: string): Date | null {
+  if (!d || isNaN(d.getTime())) return null;
+  const twoYearsMs = 1000 * 60 * 60 * 24 * 365 * 2;
+  if (Math.abs(d.getTime() - Date.now()) > twoYearsMs) {
+    if (typeof console !== 'undefined') {
+      console.warn(`[TasksClient] Ignoring unreasonable due date: "${raw}" → ${d.toISOString()}`);
+    }
+    return null;
+  }
+  return d;
+}
+
 function parseDue(d: string): Date | null {
   if (!d || typeof d !== 'string') return null;
   const s = d.trim();
@@ -148,7 +163,10 @@ function parseDue(d: string): Date | null {
   // ISO (YYYY-MM-DD)
   const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (iso) {
-    return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+    return withinSanityWindow(
+      new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])),
+      s,
+    );
   }
 
   // Text month: "Apr 10", "April 10, 2026"
@@ -157,7 +175,7 @@ function parseDue(d: string): Date | null {
     const m = MONTHS[text[1].slice(0, 3).toLowerCase()];
     if (m !== undefined) {
       const y = text[3] ? Number(text[3]) : new Date().getFullYear();
-      return new Date(y, m, Number(text[2]));
+      return withinSanityWindow(new Date(y, m, Number(text[2])), s);
     }
   }
 
@@ -166,23 +184,12 @@ function parseDue(d: string): Date | null {
   if (slash) {
     let y = slash[3] ? Number(slash[3]) : new Date().getFullYear();
     if (y < 100) y += y < 50 ? 2000 : 1900; // 2-digit year: <50 → 20xx, else 19xx
-    return new Date(y, Number(slash[1]) - 1, Number(slash[2]));
+    return withinSanityWindow(new Date(y, Number(slash[1]) - 1, Number(slash[2])), s);
   }
 
   // Last resort: trust the native parser.
   const native = new Date(s);
-  if (!isNaN(native.getTime())) {
-    // Sanity guard: silently discard dates that look like data errors rather
-    // than render "9000d late" badges. Two-year window either direction.
-    const two = 1000 * 60 * 60 * 24 * 365 * 2;
-    if (Math.abs(native.getTime() - Date.now()) > two) {
-      if (typeof console !== 'undefined') {
-        console.warn(`[TasksClient] Ignoring unreasonable due date: "${d}" → ${native.toISOString()}`);
-      }
-      return null;
-    }
-    return native;
-  }
+  if (!isNaN(native.getTime())) return withinSanityWindow(native, s);
   return null;
 }
 
@@ -1236,7 +1243,7 @@ export function TasksClient({ company }: TasksClientProps) {
                   <h2 className="text-[11px] font-semibold tracking-[0.1em] uppercase text-gray-400">Today</h2>
                   <span className="text-xs text-gray-500">{sortedActive.length} tasks · sorted by priority, then due</span>
                 </div>
-                <div className="space-y-1.5">
+                <div className="space-y-2.5">
                   {sortedActive.map((t) => (
                     <TaskRow
                       key={t.id}
@@ -1286,7 +1293,7 @@ export function TasksClient({ company }: TasksClientProps) {
                   <ChevronRight className={`w-3 h-3 text-gray-600 transition-transform ${waitingExpanded ? 'rotate-90' : ''}`} />
                 </button>
                 {waitingExpanded && (
-                  <div className="space-y-1.5">
+                  <div className="space-y-2.5">
                     {waitingInbox.map((t) => (
                       <TaskRow
                         key={t.id}
@@ -1326,7 +1333,7 @@ export function TasksClient({ company }: TasksClientProps) {
             )}
 
             {doneExpanded && doneToday.length > 0 && (
-              <div className="space-y-1.5 mt-2">
+              <div className="space-y-2.5 mt-2">
                 {doneToday.map((t) => (
                   <TaskRow
                     key={t.id}
@@ -1356,7 +1363,7 @@ export function TasksClient({ company }: TasksClientProps) {
 
         {/* Other views: flat list with Move-to-Tasks for braindump */}
         {activeView !== 'inbox' && (
-          <div className="space-y-1.5">
+          <div className="space-y-2.5">
             {filtered.length === 0 ? (
               <div className="text-center py-10 text-gray-500 text-sm">
                 {search ? `No tasks match "${search}"` : 'Nothing here yet.'}
