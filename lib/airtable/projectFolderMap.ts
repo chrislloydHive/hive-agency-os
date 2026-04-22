@@ -11,8 +11,14 @@ import { AIRTABLE_TABLES } from './tables';
 
 const PROJECTS_TABLE = AIRTABLE_TABLES.PROJECTS;
 
-/** Real Airtable field name for the Creative Review Hub folder on Projects. */
-const CRH_FOLDER_FIELD = 'Creative Review Hub Folder ID';
+/**
+ * Airtable Projects field that stores the Drive folder id for the Creative Review Hub.
+ * Must match the field name in the **OS base** `Projects` table exactly (case-sensitive).
+ * Override if your base uses a different label (422: Unknown field names otherwise).
+ */
+const CRH_FOLDER_FIELD =
+  (typeof process !== 'undefined' && process.env.PROJECT_CRH_FOLDER_FIELD?.trim()) ||
+  'Creative Review Hub Folder ID';
 
 /** Field name aliases for the Client Review Portal token on Projects. */
 const REVIEW_TOKEN_FIELD_ALIASES = [
@@ -59,7 +65,7 @@ export async function getProjectsByCreativeReviewHubFolderId(): Promise<
   // whether Creative Review Hub Folder ID is a plain text field, a formula
   // field, a lookup, or any other Airtable field type. != "" only works
   // reliably for text fields.
-  const filterFormula = `NOT({Creative Review Hub Folder ID} = BLANK())`;
+  const filterFormula = `NOT({${CRH_FOLDER_FIELD}} = BLANK())`;
 
   try {
     console.log(
