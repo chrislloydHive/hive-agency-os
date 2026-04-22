@@ -290,6 +290,15 @@ Draft a reply that ${identity.name} can quickly review and send. Return ONLY the
 
     const draftId = draft.data.id;
 
+    // Mark the thread as read — Chris has engaged with it by drafting a reply.
+    // Best-effort: failures here shouldn't bubble up and prevent the draft URL
+    // from being returned.
+    if (threadId) {
+      gmail.users.threads
+        .modify({ userId: 'me', id: threadId, requestBody: { removeLabelIds: ['UNREAD'] } })
+        .catch((err) => console.warn('[draft-reply] mark-read failed (non-fatal):', err?.message || err));
+    }
+
     logEventAsync({
       actorType: 'ai',
       actor: 'ai-drafter',

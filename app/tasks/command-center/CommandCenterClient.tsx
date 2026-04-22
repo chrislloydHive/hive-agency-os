@@ -12,7 +12,7 @@ import { TaskEditPanel } from './TaskEditPanel';
 import { CommandBar } from './CommandBar';
 import {
   Flame, Calendar, ChevronRight, RefreshCw,
-  Inbox, MessageSquare, BarChart3, Mail, AlertTriangle,
+  Inbox, MessageSquare, Mail, AlertTriangle,
   ListTodo, ArrowRight, CheckCircle2, Zap,
 } from 'lucide-react';
 
@@ -836,13 +836,6 @@ export function CommandCenterClient({ companyId }: { companyId: string; backUrl?
             >
               <Inbox className="w-3.5 h-3.5" />
               Open My Day →
-            </Link>
-            <Link
-              href="/tasks/summary"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md border border-sky-500/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 transition-colors"
-            >
-              <BarChart3 className="w-3.5 h-3.5" />
-              Daily Summary
             </Link>
             <button
               onClick={() => runAutoSync(true)}

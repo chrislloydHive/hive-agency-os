@@ -423,7 +423,28 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
                 {!isCreate && task?.project && <div>Project: <span className="text-gray-400">{task.project}</span></div>}
                 {!isCreate && task?.from && <div>From: <span className="text-gray-400">{task.from}</span></div>}
                 {!isCreate && task?.threadUrl && (
-                  <a href={task.threadUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300">
+                  <a
+                    href={task.threadUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => {
+                      // Best-effort mark-as-read (fire-and-forget). Extract
+                      // threadId from Gmail URL; ignore if not parseable.
+                      const url = task.threadUrl!;
+                      const frag = url.split('#')[1];
+                      if (!frag) return;
+                      const parts = frag.split('?')[0].split('/').filter(Boolean);
+                      const threadId = parts[parts.length - 1];
+                      if (threadId && /^[a-zA-Z0-9_-]{8,}$/.test(threadId)) {
+                        fetch('/api/os/gmail/mark-read', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ threadId }),
+                        }).catch(() => {});
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300"
+                  >
                     Open email thread <ExternalLink className="w-3 h-3" />
                   </a>
                 )}

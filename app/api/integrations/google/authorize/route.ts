@@ -28,6 +28,7 @@ const SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly', // Read calendar events
   'https://www.googleapis.com/auth/gmail.readonly', // Read Gmail messages
   'https://www.googleapis.com/auth/gmail.compose', // Create Gmail drafts (for Draft reply)
+  'https://www.googleapis.com/auth/gmail.modify', // Remove UNREAD label when user engages with email via app
 ];
 
 /**

@@ -484,7 +484,17 @@ function ActionButton({
 
   if (action.href) {
     return (
-      <a href={action.href} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+      <a
+        href={action.href}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(e) => {
+          e.stopPropagation();
+          // Fire onClick side-effect (e.g. mark-read) BEFORE the browser
+          // navigates to the new tab. onClick runs in parallel with nav.
+          onClick?.(e);
+        }}
+      >
         {content}
       </a>
     );
@@ -807,11 +817,48 @@ export function TasksClient({ company }: TasksClientProps) {
   // items (commitments, meeting follow-ups, stale triage) into My Day tasks.
   // The endpoint has its own 60-second cooldown so rapid reloads are safe.
   const autoSyncFired = useRef(false);
+  const [manualSyncing, setManualSyncing] = useState(false);
+  const [manualSyncSummary, setManualSyncSummary] = useState<string | null>(null);
+
+  async function runManualSync() {
+    setManualSyncing(true);
+    try {
+      const res = await fetch('/api/os/sync/auto-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}), // let server pick DMA_DEFAULT_COMPANY_ID
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.stats) {
+        const s = json.stats;
+        const parts: string[] = [];
+        if (s.created) parts.push(`${s.created} new`);
+        if (s.unarchived) parts.push(`${s.unarchived} re-surfaced`);
+        if (s.errors) parts.push(`${s.errors} errors`);
+        setManualSyncSummary(parts.length ? `Synced · ${parts.join(', ')}` : 'Synced · no changes');
+        if (s.created > 0 || s.unarchived > 0) fetchTasks();
+      } else if (json.reason === 'cooldown') {
+        const secs = Math.ceil((json.cooldownMsRemaining || 0) / 1000);
+        setManualSyncSummary(`Synced recently — wait ${secs}s to re-run`);
+      } else if (!res.ok) {
+        setManualSyncSummary(`Sync error: ${json.error || res.status}`);
+      }
+    } catch (err) {
+      setManualSyncSummary(`Sync failed: ${err instanceof Error ? err.message : 'unknown'}`);
+    } finally {
+      setManualSyncing(false);
+    }
+  }
+
   useEffect(() => {
     if (autoSyncFired.current) return;
     autoSyncFired.current = true;
     let cancelled = false;
-    fetch('/api/os/sync/auto-tasks', { method: 'POST' })
+    fetch('/api/os/sync/auto-tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
@@ -902,6 +949,19 @@ export function TasksClient({ company }: TasksClientProps) {
       }
       return updated;
     });
+  }, []);
+
+  /** Fire-and-forget mark-as-read. Called when Chris opens a thread via
+   *  "Review in Gmail" or "Open email thread" — we're confident he's engaged.
+   *  Failures are silent (scope missing, etc.) so the navigation isn't blocked. */
+  const markThreadRead = useCallback((taskItem: TaskItem) => {
+    const threadId = extractThreadId(taskItem.threadUrl);
+    if (!threadId) return;
+    fetch('/api/os/gmail/mark-read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadId }),
+    }).catch(() => {});
   }, []);
 
   const changeDue = useCallback((id: number, newDue: string) => {
@@ -1100,15 +1160,21 @@ export function TasksClient({ company }: TasksClientProps) {
               <Target className="w-3.5 h-3.5" />
               Command Center
             </Link>
-            <Link
-              href={company?.id ? `/c/${company.id}/tasks/summary` : '/tasks/summary'}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md border border-sky-500/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 transition-colors"
+            <button
+              type="button"
+              onClick={() => runManualSync()}
+              disabled={manualSyncing}
+              className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded-md border border-gray-700 hover:border-gray-600 disabled:opacity-50"
+              title="Pull in new commitments, meeting follow-ups, and stale triage emails as tasks"
             >
-              <BarChart3 className="w-3.5 h-3.5" />
-              Daily Summary
-            </Link>
+              <Zap className={`w-3.5 h-3.5 ${manualSyncing ? 'animate-pulse' : ''}`} />
+              {manualSyncing ? 'Syncing' : 'Sync now'}
+            </button>
           </div>
         </div>
+        {manualSyncSummary && (
+          <div className="mb-2 text-xs text-gray-500">{manualSyncSummary}</div>
+        )}
 
         {/* Day summary */}
         <div className="flex flex-wrap gap-x-5 gap-y-1 items-center text-xs text-gray-400 pb-4 mb-5 border-b border-gray-800">
@@ -1258,7 +1324,10 @@ export function TasksClient({ company }: TasksClientProps) {
                       onTitleSave={(v) => { changeTitle(t.id, v); setEditingTitleId(null); }}
                       onTitleCancel={() => setEditingTitleId(null)}
                       onActionClick={() => {
-                        if (inferType(t) === 'email') draftReply(t);
+                        const tt = inferType(t);
+                        if (tt === 'email') draftReply(t);
+                        else if (tt === 'email-draft') markThreadRead(t);
+                        else if (tt === 'doc' || tt === 'sheet') { /* link nav, no side effect */ }
                         else if (t.airtableId) setEditingAirtableId(t.airtableId);
                       }}
                       onOpenPanel={() => {
@@ -1348,7 +1417,10 @@ export function TasksClient({ company }: TasksClientProps) {
                     onTitleSave={(v) => { changeTitle(t.id, v); setEditingTitleId(null); }}
                     onTitleCancel={() => setEditingTitleId(null)}
                     onActionClick={() => {
-                      if (inferType(t) === 'email') draftReply(t);
+                      const tt = inferType(t);
+                      if (tt === 'email') draftReply(t);
+                      else if (tt === 'email-draft') markThreadRead(t);
+                      else if (tt === 'doc' || tt === 'sheet') { /* link nav */ }
                       else if (t.airtableId) setEditingAirtableId(t.airtableId);
                     }}
                     onOpenPanel={() => t.airtableId && setEditingAirtableId(t.airtableId)}
@@ -1383,7 +1455,10 @@ export function TasksClient({ company }: TasksClientProps) {
                   onTitleSave={(v) => { changeTitle(t.id, v); setEditingTitleId(null); }}
                   onTitleCancel={() => setEditingTitleId(null)}
                   onActionClick={() => {
-                    if (inferType(t) === 'email') draftReply(t);
+                    const tt = inferType(t);
+                    if (tt === 'email') draftReply(t);
+                    else if (tt === 'email-draft') markThreadRead(t);
+                    else if (tt === 'doc' || tt === 'sheet') { /* link nav */ }
                     else if (t.airtableId) setEditingAirtableId(t.airtableId);
                   }}
                   onOpenPanel={() => t.airtableId && setEditingAirtableId(t.airtableId)}
