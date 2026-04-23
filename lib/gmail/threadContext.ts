@@ -16,11 +16,14 @@ export type MsgPart = {
   parts?: MsgPart[] | null;
 };
 
+/** Thread root messages include RFC822 `headers` alongside MIME `parts`. */
 export type GmailMessageLike = {
   id?: string | null;
   snippet?: string | null;
   internalDate?: string | null;
-  payload?: MsgPart | null;
+  payload?: (MsgPart & {
+    headers?: Array<{ name?: string | null; value?: string | null }> | null;
+  }) | null;
 };
 
 /** Minimal HTML → text conversion for text/html-only messages (Framer,
@@ -115,9 +118,7 @@ export interface ConversationTurn {
 }
 
 export function messageToTurn(msg: GmailMessageLike, myEmailLower: string): ConversationTurn {
-  const headers =
-    (msg.payload as { headers?: Array<{ name?: string | null; value?: string | null }> } | undefined)
-      ?.headers || [];
+  const headers = msg.payload?.headers || [];
   const getHdr = (n: string) =>
     headers.find((h) => h.name?.toLowerCase() === n.toLowerCase())?.value || '';
   const fromHeader = getHdr('From');

@@ -36,7 +36,10 @@ import {
 } from '@/lib/airtable/workspaceDocs';
 import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
 import { refreshAccessToken, getGoogleAccountEmail } from '@/lib/google/oauth';
-import { buildConversationTranscript } from '@/lib/gmail/threadContext';
+import {
+  buildConversationTranscript,
+  type GmailMessageLike,
+} from '@/lib/gmail/threadContext';
 
 const anthropic = new Anthropic();
 
@@ -259,10 +262,7 @@ function parseThreadIdFromGmailUrl(url: string | null | undefined): string | nul
 
 /** Return the best timestamp for a Gmail message: Date header when parseable,
  *  otherwise the message's internalDate (epoch ms string). */
-function gmailMessageToIso(msg: {
-  payload?: { headers?: Array<{ name?: string | null; value?: string | null }> | null } | null;
-  internalDate?: string | null;
-}): string | null {
+function gmailMessageToIso(msg: Pick<GmailMessageLike, 'payload' | 'internalDate'>): string | null {
   const headers = msg.payload?.headers || [];
   const dateHeader = headers.find((h) => h.name?.toLowerCase() === 'date')?.value || '';
   if (dateHeader) {
@@ -279,11 +279,7 @@ function gmailMessageToIso(msg: {
 /** Pick the most recent message in a thread that isn't from the user. Used as
  *  the "inbound activity" signal. Returns null if every message was self-sent. */
 function findLatestInboundMessage(
-  messages: Array<{
-    id?: string | null;
-    internalDate?: string | null;
-    payload?: { headers?: Array<{ name?: string | null; value?: string | null }> | null } | null;
-  }>,
+  messages: GmailMessageLike[],
   myEmailLower: string,
 ): { id: string; iso: string } | null {
   // Walk newest → oldest; Gmail returns oldest first.
@@ -315,17 +311,12 @@ interface ThreadActivityContext {
  *  (no JSON, no markdown, no multi-sentence essays) before returning. */
 async function refreshNextActionFromThread(args: {
   task: TaskRecord;
-  messages: Array<{
-    id?: string | null;
-    snippet?: string | null;
-    internalDate?: string | null;
-    payload?: unknown;
-  }>;
+  messages: GmailMessageLike[];
   myEmailLower: string;
 }): Promise<string | null> {
   const { task, messages, myEmailLower } = args;
   const transcript = buildConversationTranscript(
-    messages as Parameters<typeof buildConversationTranscript>[0],
+    messages,
     myEmailLower,
     { maxCharsPerTurn: 600, maxTotalChars: 4000 },
   );
@@ -455,12 +446,7 @@ async function runThreadActivityPass(opts: {
     if (!threadId) continue;
 
     let latest: { id: string; iso: string } | null;
-    let threadMessages: Array<{
-      id?: string | null;
-      snippet?: string | null;
-      internalDate?: string | null;
-      payload?: unknown;
-    }> = [];
+    let threadMessages: GmailMessageLike[] = [];
     try {
       // format=full so we have message bodies ready if we decide to refresh
       // the Next Action. Slightly more bandwidth than metadata-only but lets
@@ -470,7 +456,7 @@ async function runThreadActivityPass(opts: {
         id: threadId,
         format: 'full',
       });
-      threadMessages = thread.data.messages || [];
+      threadMessages = (thread.data.messages || []) as GmailMessageLike[];
       latest = findLatestInboundMessage(threadMessages, ctx.myEmailLower);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
