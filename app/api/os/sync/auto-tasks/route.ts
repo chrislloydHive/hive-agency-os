@@ -260,10 +260,21 @@ function parseThreadIdFromGmailUrl(url: string | null | undefined): string | nul
   return match ? match[1] : null;
 }
 
+type GmailHeader = { name?: string | null; value?: string | null };
+
+function headersFromMessagePayload(payload: unknown): GmailHeader[] {
+  if (!payload || typeof payload !== 'object') return [];
+  const h = (payload as { headers?: GmailHeader[] | null }).headers;
+  return Array.isArray(h) ? h : [];
+}
+
 /** Return the best timestamp for a Gmail message: Date header when parseable,
  *  otherwise the message's internalDate (epoch ms string). */
-function gmailMessageToIso(msg: Pick<GmailMessageLike, 'payload' | 'internalDate'>): string | null {
-  const headers = msg.payload?.headers || [];
+function gmailMessageToIso(msg: {
+  payload?: unknown;
+  internalDate?: string | null;
+}): string | null {
+  const headers = headersFromMessagePayload(msg.payload);
   const dateHeader = headers.find((h) => h.name?.toLowerCase() === 'date')?.value || '';
   if (dateHeader) {
     const t = Date.parse(dateHeader);
@@ -279,14 +290,19 @@ function gmailMessageToIso(msg: Pick<GmailMessageLike, 'payload' | 'internalDate
 /** Pick the most recent message in a thread that isn't from the user. Used as
  *  the "inbound activity" signal. Returns null if every message was self-sent. */
 function findLatestInboundMessage(
-  messages: GmailMessageLike[],
+  messages: ReadonlyArray<{
+    id?: string | null;
+    internalDate?: string | null;
+    payload?: unknown;
+  }>,
   myEmailLower: string,
 ): { id: string; iso: string } | null {
   // Walk newest → oldest; Gmail returns oldest first.
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
+    const headers = headersFromMessagePayload(m.payload);
     const fromHeader = (
-      m.payload?.headers?.find((h) => h.name?.toLowerCase() === 'from')?.value || ''
+      headers.find((h) => h.name?.toLowerCase() === 'from')?.value || ''
     ).toLowerCase();
     if (myEmailLower && fromHeader.includes(myEmailLower)) continue; // self-sent; skip
     const iso = gmailMessageToIso(m);
@@ -456,7 +472,7 @@ async function runThreadActivityPass(opts: {
         id: threadId,
         format: 'full',
       });
-      threadMessages = (thread.data.messages || []) as GmailMessageLike[];
+      threadMessages = (thread.data.messages ?? []) as GmailMessageLike[];
       latest = findLatestInboundMessage(threadMessages, ctx.myEmailLower);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
