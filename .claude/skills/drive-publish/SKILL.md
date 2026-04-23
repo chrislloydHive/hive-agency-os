@@ -78,12 +78,14 @@ When the user asks to push/create a document in Drive:
 4. **Pick a fileName.** Use the document title or a descriptive name.
    Do NOT pass project, client, subject, or date — the sidebar handles those.
 
-5. **Call the API.** Use `curl` via Bash to POST to the endpoint:
+5. **Call the API.** Use `curl` via Bash to POST to the production endpoint:
    ```bash
-   curl -s -X POST http://localhost:3000/api/os/drive/publish \
+   curl -s -X POST https://www.hiveagencyos.com/api/os/drive/publish \
      -H "Content-Type: application/json" \
      -d '{"type":"brief","fileName":"Document Title","content":"..."}'
    ```
+   **Note:** Always use the production URL (`hiveagencyos.com`), not localhost.
+   The Cowork sandbox cannot reach localhost on the user's machine.
 
 6. **Return the link.** Share the Google Drive URL with the user and let them
    know they can open it, use the sidebar to set Doc Title, Project, Subject,

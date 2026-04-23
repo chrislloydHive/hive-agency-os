@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "skipLibCheck": true },
+  "include": [
+    "next-env.d.ts",
+    "lib/airtable/tasks.ts",
+    "lib/airtable/workspaceDocs.ts",
+    "app/api/os/command-center/route.ts",
+    "app/api/os/sync/auto-tasks/route.ts",
+    "app/api/os/workspace/route.ts",
+    "app/c/[companyId]/tasks/TasksClient.tsx"
+  ]
+}
