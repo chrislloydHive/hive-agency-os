@@ -167,6 +167,87 @@ function keyFrom(token: string, driveFileId: string): string {
   return `${token}::${driveFileId}`;
 }
 
+/** Drive file ids are URL-safe alphanumerics; Airtable record ids are `rec…` and are not Drive ids. */
+const DRIVE_FILE_ID_LIKE = /^[a-zA-Z0-9_-]{15,}$/;
+
+/**
+ * Read the CRAS "Source Folder ID" value as a Google Drive file id — same logic for
+ * {@link listAssetStatuses} and `/api/review/files` auth. Plain text ids and typical
+ * API shapes are supported; linked-record arrays skip `rec…` entries when possible.
+ */
+function extractDriveFileIdFromCrasSourceField(raw: unknown): string {
+  if (typeof raw === 'string') {
+    const t = raw.trim();
+    if (t) return t;
+  }
+  if (Array.isArray(raw)) {
+    const strings = raw.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((s) => s.trim());
+    for (const t of strings) {
+      if (t.startsWith('rec') && t.length <= 24) continue;
+      if (DRIVE_FILE_ID_LIKE.test(t)) return t;
+    }
+    return strings[0] ?? '';
+  }
+  return '';
+}
+
+/** Token → (Drive file id → CRAS record id), warmed by listAssetStatuses + file proxy. */
+const crasTokenDriveFileIndexCache = new Map<
+  string,
+  { map: Map<string, string>; expiresAt: number }
+>();
+const CRAS_TOKEN_INDEX_TTL_MS = 60 * 1000;
+const inflightCrasTokenIndex = new Map<string, Promise<Map<string, string>>>();
+
+function primeCrasTokenDriveFileIndex(tokenTrim: string, fileIdToRecordId: Map<string, string>): void {
+  if (!tokenTrim || fileIdToRecordId.size === 0) return;
+  crasTokenDriveFileIndexCache.set(tokenTrim, {
+    map: new Map(fileIdToRecordId),
+    expiresAt: Date.now() + CRAS_TOKEN_INDEX_TTL_MS,
+  });
+}
+
+async function loadCrasDriveFileIndexForToken(tokenTrim: string): Promise<Map<string, string>> {
+  const escaped = String(tokenTrim).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
+  if (!escaped) return new Map();
+
+  const osBase = getProjectsBase();
+  const formula = `{${REVIEW_CRAS_TOKEN_FIELD}} = "${escaped}"`;
+  const records = await osBase(TABLE).select({ filterByFormula: formula }).all();
+
+  const map = new Map<string, string>();
+  for (const r of records) {
+    const fields = r.fields as Record<string, unknown>;
+    const fid = extractDriveFileIdFromCrasSourceField(fields[SOURCE_FOLDER_ID_FIELD]);
+    if (fid) map.set(fid, r.id);
+  }
+  return map;
+}
+
+async function getCrasDriveFileIndexForToken(tokenTrim: string): Promise<Map<string, string>> {
+  const now = Date.now();
+  const hit = crasTokenDriveFileIndexCache.get(tokenTrim);
+  if (hit && hit.expiresAt > now) return hit.map;
+
+  const pending = inflightCrasTokenIndex.get(tokenTrim);
+  if (pending) return pending;
+
+  const p = (async () => {
+    try {
+      const map = await loadCrasDriveFileIndexForToken(tokenTrim);
+      crasTokenDriveFileIndexCache.set(tokenTrim, {
+        map,
+        expiresAt: Date.now() + CRAS_TOKEN_INDEX_TTL_MS,
+      });
+      return map;
+    } finally {
+      inflightCrasTokenIndex.delete(tokenTrim);
+    }
+  })();
+  inflightCrasTokenIndex.set(tokenTrim, p);
+  return p;
+}
+
 function parseStatus(raw: unknown): AssetStatusValue {
   const s = typeof raw === 'string' ? raw.trim() : '';
   if (s === 'New' || s === 'Seen' || s === 'Approved' || s === 'Needs Changes') return s;
@@ -319,24 +400,21 @@ export async function getCrasRecordIdByTokenAndFileId(
     return null;
   }
 
-  const tokenEsc = tokenTrim.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  const fileEsc = fileIdTrim.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  const formula = `AND({${REVIEW_CRAS_TOKEN_FIELD}} = "${tokenEsc}", {${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}")`;
-  const params = new URLSearchParams({
-    filterByFormula: formula,
-    maxRecords: '1',
-  });
-  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}?${params.toString()}`;
-  const res = await airtableFetch(url, { method: 'GET' });
-  if (!res.ok) {
-    const text = await res.text();
+  // Match rows the same way as listAssetStatuses: token filter in Airtable, then resolve
+  // Drive file id in JS. filterByFormula cannot reliably combine token + Source Folder ID
+  // when Source Folder ID is a formula/lookup/rollup or non-scalar in the API.
+  let recordId: string | null = null;
+  try {
+    const index = await getCrasDriveFileIndexForToken(tokenTrim);
+    recordId = index.get(fileIdTrim) ?? null;
+  } catch (err) {
     console.warn(
-      `[review/CRAS] getCrasRecordIdByTokenAndFileId Airtable ${res.status}: ${text.slice(0, 200)}`
+      '[review/CRAS] getCrasRecordIdByTokenAndFileId index load failed:',
+      err instanceof Error ? err.message : String(err),
     );
     return null;
   }
-  const json = (await res.json()) as { records?: Array<{ id: string }> };
-  const recordId = json.records?.[0]?.id ?? null;
+
   if (recordId) {
     recordIdByTokenFileIdCache.set(cacheKey, {
       recordId,
@@ -359,6 +437,9 @@ const recordIdByProjectFileIdCache = new Map<
  * `Project` is a linked-record field in typical bases — use FIND/ARRAYJOIN so
  * REST filterByFormula matches the same rows as the UI (plain `{Project} = id`
  * often returns zero records for links).
+ *
+ * Drive file id is matched in JS (same as token index) so Source Folder ID can be
+ * formula/lookup-backed without breaking filterByFormula.
  */
 export async function getCrasRecordIdByProjectAndFileId(
   projectRecordId: string,
@@ -374,30 +455,33 @@ export async function getCrasRecordIdByProjectAndFileId(
     return cached.recordId;
   }
 
-  const baseId = resolveProjectsBaseId();
-  if (!baseId) {
+  if (!resolveProjectsBaseId()) {
     console.warn('[review/CRAS] getCrasRecordIdByProjectAndFileId: no Projects base id');
     return null;
   }
 
   const projEsc = projTrim.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  const fileEsc = fileIdTrim.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  const formula = `AND(FIND("${projEsc}", ARRAYJOIN({Project})) > 0, {${SOURCE_FOLDER_ID_FIELD}} = "${fileEsc}")`;
-  const params = new URLSearchParams({
-    filterByFormula: formula,
-    maxRecords: '1',
-  });
-  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}?${params.toString()}`;
-  const res = await airtableFetch(url, { method: 'GET' });
-  if (!res.ok) {
-    const text = await res.text();
+  let recordId: string | null = null;
+  try {
+    const osBase = getProjectsBase();
+    const formula = `FIND("${projEsc}", ARRAYJOIN({Project})) > 0`;
+    const records = await osBase(TABLE).select({ filterByFormula: formula }).all();
+    for (const r of records) {
+      const fields = r.fields as Record<string, unknown>;
+      const fid = extractDriveFileIdFromCrasSourceField(fields[SOURCE_FOLDER_ID_FIELD]);
+      if (fid === fileIdTrim) {
+        recordId = r.id;
+        break;
+      }
+    }
+  } catch (err) {
     console.warn(
-      `[review/CRAS] getCrasRecordIdByProjectAndFileId Airtable ${res.status}: ${text.slice(0, 200)}`,
+      '[review/CRAS] getCrasRecordIdByProjectAndFileId:',
+      err instanceof Error ? err.message : String(err),
     );
     return null;
   }
-  const json = (await res.json()) as { records?: Array<{ id: string }> };
-  const recordId = json.records?.[0]?.id ?? null;
+
   if (recordId) {
     recordIdByProjectFileIdCache.set(cacheKey, {
       recordId,
@@ -413,6 +497,7 @@ export async function getCrasRecordIdByProjectAndFileId(
 export async function listAssetStatuses(token: string): Promise<Map<string, StatusRecord>> {
   const osBase = getProjectsBase();
   const escaped = String(token).replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
+  const tokenKey = String(token).trim();
   if (!escaped) return new Map();
 
   const formula = `{${REVIEW_CRAS_TOKEN_FIELD}} = "${escaped}"`;
@@ -424,7 +509,7 @@ export async function listAssetStatuses(token: string): Promise<Map<string, Stat
   let duplicateCount = 0;
   for (const r of records) {
     const fields = r.fields as Record<string, unknown>;
-    const driveFileId = (fields[SOURCE_FOLDER_ID_FIELD] as string) ?? '';
+    const driveFileId = extractDriveFileIdFromCrasSourceField(fields[SOURCE_FOLDER_ID_FIELD]);
     if (driveFileId) {
       const key = keyFrom(token, driveFileId);
       const existing = map.get(key);
@@ -444,6 +529,13 @@ export async function listAssetStatuses(token: string): Promise<Map<string, Stat
   if (duplicateCount > 0) {
     console.warn(`[listAssetStatuses] Found ${duplicateCount} duplicate CRAS records for token ${token.slice(0, 8)}... (kept approved/older records)`);
   }
+
+  const index = new Map<string, string>();
+  for (const rec of map.values()) {
+    if (rec.driveFileId) index.set(rec.driveFileId, rec.recordId);
+  }
+  primeCrasTokenDriveFileIndex(tokenKey, index);
+
   return map;
 }
 

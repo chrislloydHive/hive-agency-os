@@ -363,6 +363,30 @@ export async function GET(
 
     console.log('[review/files] upstream status (first)', upstreamStatus, '[review/files] range header', rangeHeader ?? '(none)');
 
+    // Some clients send Range on video/thumbnail requests; Drive occasionally responds 416.
+    // Retry once without Range so <video>/<img> still get a 200 body.
+    if (upstreamStatus === 416 && rangeHeader) {
+      destroyIfStream(mediaRes.data);
+      console.warn('[review/files] 416 with Range; retrying media fetch without Range', {
+        fileId: fileId.slice(0, 12),
+      });
+      const streamOptsFull = {
+        responseType: 'stream' as const,
+        validateStatus: (): boolean => true,
+      };
+      try {
+        mediaRes = await withTimeout(
+          drive.files.get({ fileId, alt: 'media', supportsAllDrives: true }, streamOptsFull),
+          120_000,
+          `drive.files.get media(no Range) fileId=${fileId}`,
+        );
+        upstreamStatus = mediaRes.status;
+      } catch (retryErr: unknown) {
+        const m = retryErr instanceof Error ? retryErr.message : String(retryErr);
+        console.error('[review/files] no-Range media retry threw:', m);
+      }
+    }
+
     if (
       !usingFallback &&
       (upstreamStatus === 404 || upstreamStatus === 403)
