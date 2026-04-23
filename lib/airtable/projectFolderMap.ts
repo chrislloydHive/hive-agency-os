@@ -13,8 +13,10 @@ const PROJECTS_TABLE = AIRTABLE_TABLES.PROJECTS;
 
 /**
  * Airtable Projects field that stores the Drive folder id for the Creative Review Hub.
- * Must match the field name in the **OS base** `Projects` table exactly (case-sensitive).
- * Override if your base uses a different label (422: Unknown field names otherwise).
+ * Must match the field name in the **Projects** table (`getProjectsBase()` / same base as
+ * CRAS) exactly — Airtable is case-sensitive; error messages may show names lowercased.
+ * If you see `INVALID_FILTER_BY_FORMULA` / Unknown field names, set
+ * `PROJECT_CRH_FOLDER_FIELD` to the exact label from Airtable field customize.
  */
 const CRH_FOLDER_FIELD =
   (typeof process !== 'undefined' && process.env.PROJECT_CRH_FOLDER_FIELD?.trim()) ||
