@@ -9,154 +9,19 @@ import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable
 import { refreshAccessToken, getGoogleAccountEmail } from '@/lib/google/oauth';
 import { getIdentity, getVoice, getVoiceRulesBlock } from '@/lib/personalContext';
 import { logEventAsync } from '@/lib/airtable/activityLog';
+import {
+  extractBody,
+  buildConversationTranscript,
+  type MsgPart,
+} from '@/lib/gmail/threadContext';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 const anthropic = new Anthropic();
 
-type MsgPart = { mimeType?: string | null; body?: { data?: string | null } | null; parts?: MsgPart[] | null };
-
-/** Minimal HTML → text conversion for when an email only has a text/html part
- *  (Framer, Mailchimp, some iOS clients). Mirrors the fuller helper in
- *  lib/os/commandCenterGoogle.ts — kept inline so draft-reply stays
- *  self-contained. */
-function stripTagsToText(html: string): string {
-  return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    // Turn block-closing tags into spaces so "<p>A</p><p>B</p>" → "A B".
-    .replace(/<\/(p|div|li|h[1-6]|tr|td|br)\s*>/gi, ' ')
-    .replace(/<br\s*\/?>/gi, ' ')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/** Extract best-effort body text from a Gmail payload. Prefers text/plain; falls
- *  back to text/html → stripped text when plain is empty (HTML-only senders). */
-function extractBody(payload: MsgPart | undefined | null): string {
-  if (!payload) return '';
-  let plain = '';
-  let html = '';
-  const walk = (part: MsgPart | undefined | null) => {
-    if (!part) return;
-    if (part.mimeType === 'text/plain' && part.body?.data) {
-      plain += Buffer.from(part.body.data, 'base64').toString('utf-8') + '\n';
-    } else if (part.mimeType === 'text/html' && part.body?.data) {
-      html += Buffer.from(part.body.data, 'base64').toString('utf-8') + '\n';
-    }
-    (part.parts || []).forEach(walk);
-  };
-  walk(payload);
-  if (plain.trim()) return plain;
-  if (html.trim()) return stripTagsToText(html);
-  return '';
-}
-
-/** Remove common quoted-reply boilerplate from a message body so conversation
- *  transcripts don't repeat the same content N times as the thread grows:
- *   - "On <date>, <name> wrote:" anchor and everything after it
- *   - Lines starting with "> " (Gmail-style quoted blocks)
- *   - "-----Original Message-----" separators (Outlook) */
-function stripQuotedReply(text: string): string {
-  let out = text;
-  // Gmail-style anchor: truncate at the first "On ...wrote:" line.
-  const onWroteMatch = out.match(/\n[^\n]*\bOn\b[^\n]{0,200}?\bwrote:\s*$/im);
-  if (onWroteMatch && typeof onWroteMatch.index === 'number') {
-    out = out.slice(0, onWroteMatch.index);
-  }
-  // Outlook-style separator.
-  const outlookMatch = out.match(/\n-{2,}\s*Original Message\s*-{2,}/i);
-  if (outlookMatch && typeof outlookMatch.index === 'number') {
-    out = out.slice(0, outlookMatch.index);
-  }
-  // Drop leading-">" quoted lines.
-  out = out
-    .split('\n')
-    .filter((line) => !/^\s*>/.test(line))
-    .join('\n');
-  return out.trim();
-}
-
-interface ConversationTurn {
-  fromLabel: string; // "Me" or "<Name>" or "<email>"
-  date: string;
-  body: string;
-}
-
-type GmailMessage = {
-  id?: string | null;
-  snippet?: string | null;
-  payload?: MsgPart | null;
-};
-
-function messageToTurn(msg: GmailMessage, myEmailLower: string): ConversationTurn {
-  const headers = (msg.payload as { headers?: Array<{ name?: string | null; value?: string | null }> } | undefined)?.headers || [];
-  const getHdr = (n: string) =>
-    headers.find((h) => h.name?.toLowerCase() === n.toLowerCase())?.value || '';
-  const fromHeader = getHdr('From');
-  const dateHeader = getHdr('Date');
-  const { name, email } = parseEmailHeader(fromHeader);
-  const isMe = !!myEmailLower && email.toLowerCase() === myEmailLower;
-  const rawBody = extractBody(msg.payload as MsgPart) || msg.snippet || '';
-  const cleaned = stripQuotedReply(rawBody);
-  return {
-    fromLabel: isMe ? 'Me' : name || email || 'Unknown sender',
-    date: dateHeader,
-    body: cleaned,
-  };
-}
-
-function formatTurn(t: ConversationTurn): string {
-  const header = t.date ? `${t.fromLabel} — ${t.date}` : t.fromLabel;
-  return `[${header}]\n${t.body}`;
-}
-
-/** Build a compact chronological transcript of prior thread messages.
- *  - Per-turn char cap prevents one huge forwarded novella from blowing the budget.
- *  - Total budget cap drops OLDEST turns first (freshest context survives).
- *  - Dropped turns are indicated in the output so the model knows context was elided. */
-function buildConversationTranscript(
-  priorMessages: GmailMessage[],
-  myEmailLower: string,
-  opts: { maxCharsPerTurn: number; maxTotalChars: number },
-): string {
-  if (priorMessages.length === 0) return '';
-  const turns = priorMessages.map((m) => messageToTurn(m, myEmailLower));
-  for (const t of turns) {
-    if (t.body.length > opts.maxCharsPerTurn) {
-      t.body = t.body.slice(0, opts.maxCharsPerTurn).trim() + '…';
-    }
-  }
-  // Walk newest → oldest, accumulate until budget; then reverse for chronological output.
-  const kept: ConversationTurn[] = [];
-  let total = 0;
-  let droppedCount = 0;
-  for (let i = turns.length - 1; i >= 0; i--) {
-    const block = formatTurn(turns[i]);
-    if (total + block.length > opts.maxTotalChars && kept.length > 0) {
-      droppedCount = i + 1;
-      break;
-    }
-    kept.unshift(turns[i]);
-    total += block.length;
-  }
-  let out = kept.map(formatTurn).join('\n---\n');
-  if (droppedCount > 0) {
-    out =
-      `[…${droppedCount} earlier message${droppedCount > 1 ? 's' : ''} omitted for brevity…]\n---\n` +
-      out;
-  }
-  return out;
-}
+// Thread-body + transcript helpers live in lib/gmail/threadContext.ts and are
+// shared with the auto-tasks sync (Phase 2 of smart tasks). See imports above.
 
 function encodeRFC2047(str: string): string {
   // Simple UTF-8 MIME encoded-word for headers with non-ASCII chars

@@ -17,19 +17,28 @@
 //   - Can be called manually for testing
 
 import { NextRequest, NextResponse } from 'next/server';
+import { google } from 'googleapis';
+import Anthropic from '@anthropic-ai/sdk';
 import {
   createTask,
   updateTask,
   findTaskBySourceRef,
   findTaskByThreadUrl,
+  getTasks,
   type CreateTaskInput,
   type TaskPriority,
+  type TaskRecord,
   type TaskSource,
 } from '@/lib/airtable/tasks';
 import {
   getWorkspaceDocs,
   updateWorkspaceDoc,
 } from '@/lib/airtable/workspaceDocs';
+import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
+import { refreshAccessToken, getGoogleAccountEmail } from '@/lib/google/oauth';
+import { buildConversationTranscript } from '@/lib/gmail/threadContext';
+
+const anthropic = new Anthropic();
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -233,6 +242,356 @@ function daysSince(iso: string): number {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Thread-activity detection (Phase 1 of "smart tasks")
+//
+// For each active email-tied task, fetch the current thread and record the
+// timestamp of the latest message that isn't from us. `Latest Inbound At` is
+// compared against `Last Seen At` in the UI to render a "new reply" pill.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** Extract a Gmail thread id from a Gmail web URL. Gmail thread ids are hex
+ *  strings, typically 16 chars; we accept 10+ to cover edge cases. */
+function parseThreadIdFromGmailUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const match = url.match(/[#/]([0-9a-f]{10,})(?:[?&/#]|$)/i);
+  return match ? match[1] : null;
+}
+
+/** Return the best timestamp for a Gmail message: Date header when parseable,
+ *  otherwise the message's internalDate (epoch ms string). */
+function gmailMessageToIso(msg: {
+  payload?: { headers?: Array<{ name?: string | null; value?: string | null }> | null } | null;
+  internalDate?: string | null;
+}): string | null {
+  const headers = msg.payload?.headers || [];
+  const dateHeader = headers.find((h) => h.name?.toLowerCase() === 'date')?.value || '';
+  if (dateHeader) {
+    const t = Date.parse(dateHeader);
+    if (!isNaN(t)) return new Date(t).toISOString();
+  }
+  if (msg.internalDate) {
+    const n = Number(msg.internalDate);
+    if (!isNaN(n) && n > 0) return new Date(n).toISOString();
+  }
+  return null;
+}
+
+/** Pick the most recent message in a thread that isn't from the user. Used as
+ *  the "inbound activity" signal. Returns null if every message was self-sent. */
+function findLatestInboundMessage(
+  messages: Array<{
+    id?: string | null;
+    internalDate?: string | null;
+    payload?: { headers?: Array<{ name?: string | null; value?: string | null }> | null } | null;
+  }>,
+  myEmailLower: string,
+): { id: string; iso: string } | null {
+  // Walk newest → oldest; Gmail returns oldest first.
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    const fromHeader = (
+      m.payload?.headers?.find((h) => h.name?.toLowerCase() === 'from')?.value || ''
+    ).toLowerCase();
+    if (myEmailLower && fromHeader.includes(myEmailLower)) continue; // self-sent; skip
+    const iso = gmailMessageToIso(m);
+    if (!iso || !m.id) continue;
+    return { id: m.id, iso };
+  }
+  return null;
+}
+
+interface ThreadActivityContext {
+  gmail: ReturnType<typeof google.gmail>;
+  myEmailLower: string;
+}
+
+/** Ask Claude to rewrite a task's Next Action based on the current state of
+ *  the email thread. Returns the new Next Action string, or null if the AI
+ *  signals NO_ACTION (thread resolved itself — leave existing Next Action
+ *  untouched rather than clobbering with a placeholder).
+ *
+ *  Intentionally small prompt + cap at 150 output tokens: Next Action should
+ *  be one concrete sentence. Model output is trimmed and sanity-checked
+ *  (no JSON, no markdown, no multi-sentence essays) before returning. */
+async function refreshNextActionFromThread(args: {
+  task: TaskRecord;
+  messages: Array<{
+    id?: string | null;
+    snippet?: string | null;
+    internalDate?: string | null;
+    payload?: unknown;
+  }>;
+  myEmailLower: string;
+}): Promise<string | null> {
+  const { task, messages, myEmailLower } = args;
+  const transcript = buildConversationTranscript(
+    messages as Parameters<typeof buildConversationTranscript>[0],
+    myEmailLower,
+    { maxCharsPerTurn: 600, maxTotalChars: 4000 },
+  );
+  if (!transcript) return null; // nothing useful to feed the model
+
+  try {
+    const res = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 150,
+      messages: [
+        {
+          role: 'user',
+          content: `A task in Chris Lloyd's task list tracks an email thread. A new reply just landed and the task's "Next Action" may need to be refreshed to reflect the latest state of the conversation.
+
+Current task:
+- Title: ${task.task}
+- Current Next Action: ${task.nextAction || '(none)'}
+- Status: ${task.status}
+- Source: ${task.source || 'manual'}${task.from ? ` (from ${task.from})` : ''}
+
+Full conversation in the thread (oldest → newest):
+"""
+${transcript}
+"""
+
+Write a new Next Action for Chris based on the CURRENT state of the conversation:
+- One short sentence, concrete and actionable.
+- Reflect the latest ask or state — not the original one.
+- Avoid vague verbs like "follow up" — name the specific action ("Send revised pricing for Option C", "Schedule a kickoff call for next week", etc.).
+- If the conversation is clearly resolved and no action is needed, respond with exactly: NO_ACTION
+
+Return ONLY the Next Action text. No explanation. No quote marks. No markdown.`,
+        },
+      ],
+    });
+    const content = res.content[0];
+    if (!content || content.type !== 'text') return null;
+    const raw = content.text.trim();
+    if (!raw) return null;
+    if (raw === 'NO_ACTION') return null;
+    // Defensive cleanup: occasionally models wrap in quotes or add prefixes.
+    const cleaned = raw
+      .replace(/^["'`]+|["'`]+$/g, '')
+      .replace(/^Next Action[:\s-]+/i, '')
+      .trim();
+    // Sanity: reject suspiciously long or empty outputs (models sometimes
+    // explain themselves despite instructions).
+    if (!cleaned || cleaned.length < 4 || cleaned.length > 300) return null;
+    return cleaned;
+  } catch (err) {
+    console.warn(
+      '[sync/auto-tasks] refreshNextActionFromThread error:',
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
+
+/** Resolve a Gmail thread id for a task: prefer the URL; fall back to a
+ *  messages.get(metadata) on sourceRef (the seed message id). */
+async function resolveThreadIdForTask(
+  ctx: ThreadActivityContext,
+  task: TaskRecord,
+): Promise<string | null> {
+  const fromUrl = parseThreadIdFromGmailUrl(task.threadUrl);
+  if (fromUrl) return fromUrl;
+  if (!task.sourceRef) return null;
+  // Only email-sourced tasks have a sourceRef that's a Gmail message id.
+  if (task.source !== 'email-triage' && task.source !== 'website-submission') return null;
+  try {
+    const meta = await ctx.gmail.users.messages.get({
+      userId: 'me',
+      id: task.sourceRef,
+      format: 'metadata',
+      metadataHeaders: [],
+    });
+    return meta.data.threadId || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Run thread-activity detection for every active email-tied task.
+ *  Updates Latest Inbound At when a newer inbound message exists; seeds
+ *  Last Seen At on first encounter so pre-existing tasks don't immediately
+ *  flash "new reply" badges. */
+async function runThreadActivityPass(opts: {
+  ctx: ThreadActivityContext;
+  stats: SyncStats;
+  errors: string[];
+}): Promise<void> {
+  const { ctx, stats, errors } = opts;
+
+  let activeTasks: TaskRecord[];
+  try {
+    activeTasks = await getTasks({ excludeDone: true });
+  } catch (err) {
+    console.warn('[sync/auto-tasks] thread-activity: getTasks failed:', err);
+    return;
+  }
+
+  // Only active + email-derived tasks are in scope.
+  const emailTasks = activeTasks.filter(
+    (t) =>
+      t.status !== 'Archive' &&
+      t.status !== 'Done' &&
+      (t.threadUrl || t.sourceRef),
+  );
+
+  if (emailTasks.length === 0) return;
+  console.log(`[sync/auto-tasks] thread-activity: scanning ${emailTasks.length} active email tasks`);
+
+  // Hard cap to protect against runaway costs on large backlogs. If a user has
+  // >50 active email tasks we're in a weird state anyway.
+  const MAX_CHECKS_PER_RUN = 50;
+  const scoped = emailTasks.slice(0, MAX_CHECKS_PER_RUN);
+
+  // Used for the "don't break everything if the Airtable fields are missing"
+  // guard — set on first UNKNOWN_FIELD response and short-circuits the rest.
+  let airtableFieldsMissing = false;
+
+  for (const task of scoped) {
+    if (airtableFieldsMissing) break;
+    stats.threadActivityChecked++;
+
+    const threadId = await resolveThreadIdForTask(ctx, task);
+    if (!threadId) continue;
+
+    let latest: { id: string; iso: string } | null;
+    let threadMessages: Array<{
+      id?: string | null;
+      snippet?: string | null;
+      internalDate?: string | null;
+      payload?: unknown;
+    }> = [];
+    try {
+      // format=full so we have message bodies ready if we decide to refresh
+      // the Next Action. Slightly more bandwidth than metadata-only but lets
+      // us avoid a second round-trip when refresh fires.
+      const thread = await ctx.gmail.users.threads.get({
+        userId: 'me',
+        id: threadId,
+        format: 'full',
+      });
+      threadMessages = thread.data.messages || [];
+      latest = findLatestInboundMessage(threadMessages, ctx.myEmailLower);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Thread deleted / access revoked / rare 404 — skip, don't error loudly.
+      if (/not\s*found|404/i.test(msg)) continue;
+      errors.push(`thread-activity fetch ${task.id}: ${msg.slice(0, 160)}`);
+      stats.errors++;
+      continue;
+    }
+    if (!latest) continue; // every message was from me — nothing to flag
+
+    // Decide what to write. Seed Last Seen At when missing so pre-existing
+    // tasks don't suddenly flash a pill on first sync after schema update.
+    const updates: {
+      latestInboundAt?: string;
+      lastSeenAt?: string;
+      nextAction?: string;
+    } = {};
+    const isFirstEncounter = !task.lastSeenAt;
+    const currentInbound = task.latestInboundAt || null;
+    const inboundChanged = currentInbound !== latest.iso;
+
+    if (inboundChanged) {
+      updates.latestInboundAt = latest.iso;
+    }
+    if (isFirstEncounter) {
+      updates.lastSeenAt = latest.iso;
+    }
+
+    // Phase 2: refresh Next Action when truly new inbound arrived (not a
+    // backfill seeding). Skip when the AI returns NO_ACTION or anything
+    // unusable. Errors are isolated — they don't prevent the activity-state
+    // fields from persisting.
+    const trulyNewInbound = inboundChanged && !isFirstEncounter;
+    if (trulyNewInbound) {
+      try {
+        const refreshed = await refreshNextActionFromThread({
+          task,
+          messages: threadMessages,
+          myEmailLower: ctx.myEmailLower,
+        });
+        if (
+          refreshed &&
+          refreshed.trim().length > 0 &&
+          refreshed !== task.nextAction
+        ) {
+          updates.nextAction = refreshed;
+        }
+      } catch (err) {
+        console.warn(
+          `[sync/auto-tasks] thread-activity refresh ${task.id}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
+    if (Object.keys(updates).length === 0) continue;
+
+    try {
+      await updateTask(task.id, updates);
+      stats.threadActivityUpdated++;
+      if (updates.nextAction) stats.threadActivityNextActionRefreshed++;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/UNKNOWN_FIELD|Unknown field|INVALID_FIELD/i.test(msg)) {
+        // Airtable schema not ready. Disable the pass until the fields exist.
+        console.warn(
+          '[sync/auto-tasks] thread-activity: Airtable fields missing — add "Last Seen At" and "Latest Inbound At" to the Tasks table. Pass disabled for this run.',
+        );
+        airtableFieldsMissing = true;
+        break;
+      }
+      errors.push(`thread-activity update ${task.id}: ${msg.slice(0, 160)}`);
+      stats.errors++;
+    }
+  }
+
+  if (airtableFieldsMissing) {
+    // Don't emit the "N tasks updated" line if we bailed — avoids confusion.
+    return;
+  }
+  console.log(
+    `[sync/auto-tasks] thread-activity: checked ${stats.threadActivityChecked}, updated ${stats.threadActivityUpdated}, nextAction refreshed ${stats.threadActivityNextActionRefreshed}`,
+  );
+}
+
+/** Build the Gmail client + resolve the user's email, using the same token
+ *  resolution order as /api/os/gmail/draft-reply. Returns null when no Google
+ *  token is available — the pass simply no-ops in that case. */
+async function buildThreadActivityContext(companyId: string): Promise<ThreadActivityContext | null> {
+  let refreshToken: string | undefined;
+  if (companyId && companyId !== 'default') {
+    const integrations = await getCompanyIntegrations(companyId);
+    if (integrations?.google?.refreshToken) refreshToken = integrations.google.refreshToken;
+  }
+  const defaultCompanyId = process.env.DMA_DEFAULT_COMPANY_ID;
+  if (!refreshToken && defaultCompanyId) {
+    const integrations = await getCompanyIntegrations(defaultCompanyId);
+    if (integrations?.google?.refreshToken) refreshToken = integrations.google.refreshToken;
+  }
+  if (!refreshToken) {
+    refreshToken = (await getAnyGoogleRefreshToken()) || undefined;
+  }
+  if (!refreshToken) {
+    console.warn('[sync/auto-tasks] thread-activity: no Google refresh token available, skipping pass');
+    return null;
+  }
+  try {
+    const accessToken = await refreshAccessToken(refreshToken);
+    const auth = new google.auth.OAuth2();
+    auth.setCredentials({ access_token: accessToken });
+    const gmail = google.gmail({ version: 'v1', auth });
+    const myEmail = (await getGoogleAccountEmail(accessToken)) || '';
+    return { gmail, myEmailLower: myEmail.toLowerCase() };
+  } catch (err) {
+    console.warn('[sync/auto-tasks] thread-activity: Google auth failed:', err);
+    return null;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Upsert logic
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -246,6 +605,9 @@ interface SyncStats {
   workspaceUnarchived: number;
   workspaceArchivedStale: number;
   workspaceUrlResolved: number;
+  threadActivityChecked: number;
+  threadActivityUpdated: number;
+  threadActivityNextActionRefreshed: number;
 }
 
 async function upsertAutoTask(
@@ -321,6 +683,7 @@ export async function POST(req: NextRequest) {
     created: 0, updated: 0, unarchived: 0, skipped: 0, errors: 0,
     workspaceCreated: 0, workspaceUnarchived: 0, workspaceArchivedStale: 0,
     workspaceUrlResolved: 0,
+    threadActivityChecked: 0, threadActivityUpdated: 0, threadActivityNextActionRefreshed: 0,
   };
   const errors: string[] = [];
 
@@ -492,6 +855,20 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       // Non-fatal — workspace pass failing shouldn't block the rest of the sync.
       console.error('[sync/auto-tasks] workspace pass error:', err);
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Thread-activity pass: for each active email-tied task, bump
+    // Latest Inbound At when a newer non-self message lands in the thread.
+    // Failures are non-fatal — the rest of the sync has already done its job.
+    // ────────────────────────────────────────────────────────────────────────
+    try {
+      const ctx = await buildThreadActivityContext(companyId);
+      if (ctx) {
+        await runThreadActivityPass({ ctx, stats, errors });
+      }
+    } catch (err) {
+      console.error('[sync/auto-tasks] thread-activity pass error:', err);
     }
 
     lastRunFinishedAt = Date.now();

@@ -62,6 +62,11 @@ interface TaskItem {
    *  tasks this is the Gmail messageId — used so Draft reply targets the
    *  specific submission instead of the latest message in the thread. */
   sourceRef?: string | null;
+  /** Thread-activity tracking (Airtable fields "Last Seen At" / "Latest
+   *  Inbound At"). When latestInboundAt > lastSeenAt, the task renders a
+   *  "new reply" pill. Cleared by engagement (open thread, draft reply). */
+  lastSeenAt?: string | null;
+  latestInboundAt?: string | null;
 }
 
 type Priority = 'P0' | 'P1' | 'P2' | 'P3';
@@ -136,6 +141,20 @@ const PRI_CONFIG: Record<Priority, { bg: string; text: string; border: string }>
 };
 
 type TaskType = 'email' | 'email-draft' | 'doc' | 'sheet' | 'meeting' | 'generic';
+
+/** True when a new inbound message has landed in this task's thread since the
+ *  user last engaged with it. Drives the "new reply" pill + ordering hint. */
+function hasNewReply(t: TaskItem): boolean {
+  if (!t.latestInboundAt) return false;
+  const latest = Date.parse(t.latestInboundAt);
+  if (isNaN(latest)) return false;
+  // No Last Seen At means the sync hasn't seeded it yet — treat as "not new"
+  // to avoid flashing every active email task on first deploy.
+  if (!t.lastSeenAt) return false;
+  const seen = Date.parse(t.lastSeenAt);
+  if (isNaN(seen)) return true;
+  return latest > seen;
+}
 
 function inferType(t: TaskItem): TaskType {
   if (t.draftUrl) return 'email-draft';
@@ -564,13 +583,14 @@ function InlineTitleEdit({
   );
 }
 
-type TagVariant = 'auto' | 'waiting' | 'draftReady' | 'neutral';
+type TagVariant = 'auto' | 'waiting' | 'draftReady' | 'newReply' | 'neutral';
 
 function Tag({ children, variant = 'neutral' }: { children: React.ReactNode; variant?: TagVariant }) {
   const variants: Record<TagVariant, string> = {
     auto: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30',
     waiting: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
     draftReady: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    newReply: 'bg-amber-500/15 text-amber-300 border-amber-500/40',
     neutral: 'bg-gray-500/10 text-gray-400 border-gray-500/30',
   };
   return (
@@ -716,6 +736,11 @@ function TaskRow({
             </span>
           )}
           {isDraftReady && <Tag variant="draftReady">● Draft ready</Tag>}
+          {hasNewReply(t) && (
+            <Tag variant="newReply">
+              ↻ new reply{t.latestInboundAt ? ` · ${shortRelativeTime(t.latestInboundAt)}` : ''}
+            </Tag>
+          )}
           {t.autoCreated && <Tag variant="auto"><Zap className="w-[10px] h-[10px]" /> auto</Tag>}
           <DuePill due={t.due} onChange={onDueChange} />
           {t.status === 'Waiting' && <Tag variant="waiting"><Clock className="w-[10px] h-[10px]" /> waiting</Tag>}
@@ -957,6 +982,8 @@ export function TasksClient({ company }: TasksClientProps) {
         autoCreated: (t.autoCreated as boolean) || false,
         source: (t.source as TaskItem['source']) || null,
         sourceRef: (t.sourceRef as string) || null,
+        lastSeenAt: (t.lastSeenAt as string) || null,
+        latestInboundAt: (t.latestInboundAt as string) || null,
       }));
       setTasks(mapped);
     } catch (err) {
@@ -1327,10 +1354,32 @@ export function TasksClient({ company }: TasksClientProps) {
     });
   }, []);
 
+  /** Mark a task as "seen" for the new-reply pill. Sets Last Seen At = now
+   *  optimistically in local state so the pill clears immediately; server
+   *  PATCH follows. Called on any engagement with the task (draft reply,
+   *  open thread, open detail panel). Fire-and-forget; failures are silent. */
+  const markTaskSeen = useCallback((taskItem: TaskItem) => {
+    if (!taskItem.airtableId) return;
+    // Only bother if there's actually activity to clear. Avoids a pointless
+    // round-trip on every task-panel open.
+    if (!hasNewReply(taskItem)) return;
+    const nowIso = new Date().toISOString();
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskItem.id ? { ...t, lastSeenAt: nowIso } : t)),
+    );
+    fetch('/api/os/tasks', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: taskItem.airtableId, lastSeenAt: nowIso }),
+    }).catch(() => {});
+  }, []);
+
   /** Fire-and-forget mark-as-read. Called when Chris opens a thread via
    *  "Review in Gmail" or "Open email thread" — we're confident he's engaged.
-   *  Failures are silent (scope missing, etc.) so the navigation isn't blocked. */
+   *  Failures are silent (scope missing, etc.) so the navigation isn't blocked.
+   *  Also clears the new-reply pill since opening the thread counts as "seen". */
   const markThreadRead = useCallback((taskItem: TaskItem) => {
+    markTaskSeen(taskItem);
     const threadId = extractThreadId(taskItem.threadUrl);
     if (!threadId) return;
     fetch('/api/os/gmail/mark-read', {
@@ -1338,7 +1387,7 @@ export function TasksClient({ company }: TasksClientProps) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ threadId }),
     }).catch(() => {});
-  }, []);
+  }, [markTaskSeen]);
 
   const changeDue = useCallback((id: number, newDue: string) => {
     setTasks((prev) => {
@@ -1357,6 +1406,8 @@ export function TasksClient({ company }: TasksClientProps) {
 
   const draftReply = useCallback(async (taskItem: TaskItem) => {
     const isSubmission = taskItem.source === 'website-submission';
+    // Engaging with the task — clear the new-reply pill if set.
+    markTaskSeen(taskItem);
     // If we already have a draft URL, just open it — no point spending an LLM
     // call. EXCEPT for submissions: their earlier drafts may have been
     // created with stale logic (wrong To, no signature), so always re-draft
@@ -1416,7 +1467,7 @@ export function TasksClient({ company }: TasksClientProps) {
     } finally {
       setDraftingId(null);
     }
-  }, []);
+  }, [markTaskSeen]);
 
   const moveToTasks = useCallback(async (taskItem: TaskItem) => {
     try {
@@ -1746,6 +1797,7 @@ export function TasksClient({ company }: TasksClientProps) {
                       }}
                       onOpenPanel={() => {
                         setFocusId(t.id);
+                        markTaskSeen(t);
                         if (t.airtableId) setEditingAirtableId(t.airtableId);
                       }}
                     />
@@ -2121,6 +2173,7 @@ export function TasksClient({ company }: TasksClientProps) {
                         onTitleCancel={() => setEditingTitleId(null)}
                         onOpenPanel={() => {
                           setFocusId(t.id);
+                          markTaskSeen(t);
                           if (t.airtableId) setEditingAirtableId(t.airtableId);
                         }}
                       />
@@ -2172,7 +2225,7 @@ export function TasksClient({ company }: TasksClientProps) {
                           else if (tt === 'email-draft') markThreadRead(t);
                           else if (t.airtableId) setEditingAirtableId(t.airtableId);
                         }}
-                        onOpenPanel={() => t.airtableId && setEditingAirtableId(t.airtableId)}
+                        onOpenPanel={() => { markTaskSeen(t); if (t.airtableId) setEditingAirtableId(t.airtableId); }}
                       />
                     ))}
                   </div>
@@ -2217,7 +2270,7 @@ export function TasksClient({ company }: TasksClientProps) {
                       else if (tt === 'doc' || tt === 'sheet') { /* link nav */ }
                       else if (t.airtableId) setEditingAirtableId(t.airtableId);
                     }}
-                    onOpenPanel={() => t.airtableId && setEditingAirtableId(t.airtableId)}
+                    onOpenPanel={() => { markTaskSeen(t); if (t.airtableId) setEditingAirtableId(t.airtableId); }}
                   />
                 ))}
               </div>
@@ -2255,7 +2308,7 @@ export function TasksClient({ company }: TasksClientProps) {
                     else if (tt === 'doc' || tt === 'sheet') { /* link nav */ }
                     else if (t.airtableId) setEditingAirtableId(t.airtableId);
                   }}
-                  onOpenPanel={() => t.airtableId && setEditingAirtableId(t.airtableId)}
+                  onOpenPanel={() => { markTaskSeen(t); if (t.airtableId) setEditingAirtableId(t.airtableId); }}
                   showMoveAction={activeView === 'braindump'}
                   onMoveToTasks={() => moveToTasks(t)}
                 />

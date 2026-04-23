@@ -64,6 +64,13 @@ const TASK_FIELDS = {
   SOURCE_REF: 'SourceRef',
   AUTO_CREATED: 'AutoCreated',
   DISMISSED_AT: 'DismissedAt',
+  // Thread-activity tracking (populated by /api/os/sync/auto-tasks for active
+  // email-tied tasks). LAST_SEEN_AT is what the user has acknowledged;
+  // LATEST_INBOUND_AT is updated when a newer non-self / non-auto inbound
+  // message lands in the thread. UI shows a "new reply" pill when the latter
+  // is later than the former.
+  LAST_SEEN_AT: 'Last Seen At',
+  LATEST_INBOUND_AT: 'Latest Inbound At',
 } as const;
 
 /** Source of an auto-created task. `manual` = user-created (default). */
@@ -105,6 +112,9 @@ export interface TaskRecord {
   sourceRef: string | null;
   autoCreated: boolean;
   dismissedAt: string | null;
+  /** Thread-activity tracking. See field constants above. */
+  lastSeenAt: string | null;
+  latestInboundAt: string | null;
 }
 
 export interface CreateTaskInput {
@@ -126,6 +136,8 @@ export interface CreateTaskInput {
   sourceRef?: string;
   autoCreated?: boolean;
   dismissedAt?: string | null;
+  lastSeenAt?: string | null;
+  latestInboundAt?: string | null;
 }
 
 export interface UpdateTaskInput {
@@ -148,6 +160,10 @@ export interface UpdateTaskInput {
   autoCreated?: boolean;
   /** ISO datetime; null clears the dismissal (re-surfaces in Command Center). */
   dismissedAt?: string | null;
+  /** ISO datetime; null leaves unchanged when omitted. */
+  lastSeenAt?: string | null;
+  /** ISO datetime; null leaves unchanged when omitted. */
+  latestInboundAt?: string | null;
 }
 
 // ============================================================================
@@ -178,6 +194,8 @@ function mapRecordToTask(record: any): TaskRecord {
     sourceRef: f[TASK_FIELDS.SOURCE_REF] || null,
     autoCreated: f[TASK_FIELDS.AUTO_CREATED] || false,
     dismissedAt: f[TASK_FIELDS.DISMISSED_AT] || null,
+    lastSeenAt: f[TASK_FIELDS.LAST_SEEN_AT] || null,
+    latestInboundAt: f[TASK_FIELDS.LATEST_INBOUND_AT] || null,
   };
 }
 
@@ -283,6 +301,8 @@ function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<stri
   if ('sourceRef' in input) fields[TASK_FIELDS.SOURCE_REF] = input.sourceRef || null;
   if ('autoCreated' in input && input.autoCreated !== undefined) fields[TASK_FIELDS.AUTO_CREATED] = input.autoCreated;
   if ('dismissedAt' in input) fields[TASK_FIELDS.DISMISSED_AT] = input.dismissedAt || null;
+  if ('lastSeenAt' in input) fields[TASK_FIELDS.LAST_SEEN_AT] = input.lastSeenAt || null;
+  if ('latestInboundAt' in input) fields[TASK_FIELDS.LATEST_INBOUND_AT] = input.latestInboundAt || null;
 
   return fields;
 }
