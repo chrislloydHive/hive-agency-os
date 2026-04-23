@@ -950,10 +950,22 @@ export async function GET(request: NextRequest) {
     const now = new Date();
 
     // ── Fetch tasks (Airtable: base/table via AIRTABLE_TASKS_* — see lib/airtable/tasks) ──
+    // Two views of the tasks list:
+    //   `tasks`       — active-only, rendered as WorkItems in Command Center
+    //   `tasksAll`    — everything including Done + Archive, used ONLY to build
+    //                   the dedup set so closed-out triage/submissions don't
+    //                   re-surface as "fresh" in Command Center just because
+    //                   the user finished them in My Day.
     let tasks: TaskRecord[] = [];
+    let tasksAll: TaskRecord[] = [];
     let airtableTasksError: string | null = null;
     try {
-      tasks = await getTasks({ excludeDone: true });
+      const [active, all] = await Promise.all([
+        getTasks({ excludeDone: true }),
+        getTasks(),
+      ]);
+      tasks = active;
+      tasksAll = all;
     } catch (err) {
       airtableTasksError = err instanceof Error ? err.message : String(err);
       console.error(
@@ -977,9 +989,24 @@ export async function GET(request: NextRequest) {
     let googleError: string | null = null;
     let resolvedAccessToken: string | null = null;
 
-    // Build set of thread URLs already linked to tasks so we can mark dupes
+    // Build dedup sets from ALL tasks (active + Done + Archive). Previously
+    // we only seeded from active tasks, which meant marking a submission Done
+    // in My Day would silently drop it from the set and cause Command Center
+    // to re-surface the same Gmail thread as a "new" submission.
+    //
+    // `existingSourceRefs` holds Gmail messageIds for website-submission
+    // tasks. Framer groups multiple form submissions into one thread (by
+    // subject line), so a thread-URL-only dedup would hide every submission
+    // after the first one in that thread. Matching by messageId lets us
+    // dedup per-submission while still handling multi-submission threads.
     const existingThreadUrls = new Set<string>();
-    for (const t of tasks) if (t.threadUrl) existingThreadUrls.add(t.threadUrl);
+    const existingSourceRefs = new Set<string>();
+    for (const t of tasksAll) {
+      if (t.threadUrl) existingThreadUrls.add(t.threadUrl);
+      if (t.source === 'website-submission' && t.sourceRef) {
+        existingSourceRefs.add(t.sourceRef);
+      }
+    }
 
     // Pulled from context/personal/senders.md + CC_IMPORTANT_SENDERS env override.
     const importantDomains = await getEffectiveImportantDomains();
@@ -1013,7 +1040,7 @@ export async function GET(request: NextRequest) {
           fetchSentMessages(accessToken, 14),
           fetchMyEmail(accessToken),
           fetchTriageInbox(accessToken, existingThreadUrls, 14, importantDomains),
-          fetchWebsiteSubmissions(accessToken, existingThreadUrls, 30),
+          fetchWebsiteSubmissions(accessToken, existingThreadUrls, 30, existingSourceRefs),
         ]);
         events = calResult.events;
         pastEvents = pastCalResult.events;

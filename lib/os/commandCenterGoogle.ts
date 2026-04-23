@@ -570,6 +570,10 @@ export async function fetchWebsiteSubmissions(
   accessToken: string,
   existingThreadUrls: Set<string>,
   days = 30,
+  /** Set of Gmail messageIds already linked to website-submission tasks.
+   *  Dedups at the individual-submission level, which matters because Framer
+   *  groups submissions with the same subject into one thread. */
+  existingSourceRefs: Set<string> = new Set(),
 ): Promise<TriageItem[]> {
   try {
     const auth = new google.auth.OAuth2();
@@ -641,6 +645,11 @@ export async function fetchWebsiteSubmissions(
             matchedReason: 'Website submission',
             link,
             hasExistingTask:
+              // Per-submission dedup (preferred) — matches against messageIds
+              // stored in SourceRef on website-submission tasks.
+              existingSourceRefs.has(id) ||
+              // Fallback: thread-level dedup for legacy tasks that didn't
+              // record SourceRef, and for non-Framer flows.
               existingThreadUrls.has(link) ||
               Array.from(existingThreadUrls).some((u) => u.includes(threadId)),
             score: 0,

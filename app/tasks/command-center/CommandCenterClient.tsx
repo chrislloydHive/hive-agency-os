@@ -1024,7 +1024,9 @@ export function CommandCenterClient({ companyId }: { companyId: string; backUrl?
           weekMeetings={weekMeetings}
         />
 
-        <WebsiteSubmissionsSection submissions={data.websiteSubmissions || []} />
+        <WebsiteSubmissionsSection
+          submissions={(data.websiteSubmissions || []).filter((s) => !s.hasExistingTask)}
+        />
 
         {/* Empty-state hint when everything is quiet */}
         {focus.length === 0 && overdue.length === 0 && commitments.length === 0 && followUps.length === 0 && staleTriage.length === 0 && (
