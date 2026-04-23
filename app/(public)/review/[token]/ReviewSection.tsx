@@ -1415,7 +1415,25 @@ function AssetCard({
   onToggleSelect,
   onDownloadAsset,
 }: {
-  asset: { fileId: string; name: string; mimeType: string; reviewState?: ReviewState; clickThroughUrl?: string | null; firstSeenByClientAt?: string | null; assetApprovedClient?: boolean; delivered?: boolean; deliveredFileUrl?: string | null; deliveredFolderId?: string | null; partnerDownloadedAt?: string | null; approvedAt?: string | null; approvedByName?: string | null; approvedByEmail?: string | null; firstSeenAt?: string | null; lastSeenAt?: string | null };
+  asset: {
+    fileId: string;
+    name: string;
+    mimeType: string;
+    reviewState?: ReviewState;
+    clickThroughUrl?: string | null;
+    firstSeenByClientAt?: string | null;
+    assetApprovedClient?: boolean;
+    delivered?: boolean;
+    deliveredFileUrl?: string | null;
+    deliveredFolderId?: string | null;
+    partnerDownloadedAt?: string | null;
+    approvedAt?: string | null;
+    approvedByName?: string | null;
+    approvedByEmail?: string | null;
+    firstSeenAt?: string | null;
+    lastSeenAt?: string | null;
+    airtableRecordId?: string;
+  };
   token: string;
   onClick: () => void;
   selected?: boolean;
