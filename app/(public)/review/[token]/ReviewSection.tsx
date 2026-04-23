@@ -1164,7 +1164,7 @@ function PlacementGroupCard({
               const isVideo = reviewAssetIsVideo(asset.mimeType, asset.name);
 
               // All assets (including animated GIFs) go through the file proxy.
-              const src = `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
+              const src = `/api/review/files/${encodeURIComponent(asset.fileId)}?token=${encodeURIComponent(token)}`;
 
               return (
                 <button
@@ -1419,7 +1419,7 @@ function AssetCard({
   // and browsers animate GIFs natively from <img src=…>. The previous code
   // pointed at https://drive.google.com/uc?export=view which requires the
   // file to be publicly shared and is otherwise rate-limited / deprecated.
-  const src = `/api/review/files/${asset.fileId}?token=${encodeURIComponent(token)}`;
+  const src = `/api/review/files/${encodeURIComponent(asset.fileId)}?token=${encodeURIComponent(token)}`;
   const isImage = reviewAssetIsImage(asset.mimeType, asset.name);
   const isVideo = reviewAssetIsVideo(asset.mimeType, asset.name);
   const isAudio = reviewAssetIsAudio(asset.mimeType, asset.name);

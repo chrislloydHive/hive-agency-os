@@ -21,8 +21,10 @@ import {
 
 const TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 
-/** Airtable field: Google Drive folder ID (source folder or file ID for delivery). */
-const SOURCE_FOLDER_ID_FIELD = 'Source Folder ID';
+/** Airtable field: Google Drive file id on CRAS (default name; override if base renames it). */
+const SOURCE_FOLDER_ID_FIELD =
+  (typeof process !== 'undefined' && process.env.CRAS_SOURCE_FOLDER_ID_FIELD?.trim()) ||
+  'Source Folder ID';
 
 /**
  * CRAS field used in filter formulas to match the portal token.
@@ -176,6 +178,10 @@ const DRIVE_FILE_ID_LIKE = /^[a-zA-Z0-9_-]{15,}$/;
  * API shapes are supported; linked-record arrays skip `rec…` entries when possible.
  */
 function extractDriveFileIdFromCrasSourceField(raw: unknown): string {
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    const t = String(raw).trim();
+    return DRIVE_FILE_ID_LIKE.test(t) ? t : '';
+  }
   if (typeof raw === 'string') {
     const t = raw.trim();
     if (t) return t;
@@ -186,7 +192,10 @@ function extractDriveFileIdFromCrasSourceField(raw: unknown): string {
       if (t.startsWith('rec') && t.length <= 24) continue;
       if (DRIVE_FILE_ID_LIKE.test(t)) return t;
     }
-    return strings[0] ?? '';
+    // Do not fall back to arbitrary strings — linked-record arrays are often
+    // only `rec…` ids; using them as Drive ids breaks /api/review/files auth.
+    const first = strings[0];
+    return first && DRIVE_FILE_ID_LIKE.test(first) ? first : '';
   }
   return '';
 }

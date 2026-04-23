@@ -121,13 +121,23 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ fileId: string }> },
 ) {
-  const { fileId } = await params;
-  const token = req.nextUrl.searchParams.get('token');
+  const { fileId: fileIdRaw } = await params;
+  const raw = String(fileIdRaw ?? '');
+  let fileId = raw.trim();
+  try {
+    fileId = decodeURIComponent(raw).trim();
+  } catch {
+    /* malformed % sequence — use raw segment */
+  }
+  const token = (req.nextUrl.searchParams.get('token') ?? '').trim();
   const rangeHeader = req.headers.get('range');
   const download = req.nextUrl.searchParams.get('dl') === '1';
 
   if (!token) {
     return jsonError(401, 'Missing token');
+  }
+  if (!fileId) {
+    return jsonError(400, 'Missing file id');
   }
 
   // Basic rate limiting by IP
