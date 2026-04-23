@@ -18,6 +18,7 @@ import { isDriveFileDirectChildOfAllowedReviewFolders } from '@/lib/review/revie
 import {
   getCrasRecordIdByProjectAndFileId,
   getCrasRecordIdByTokenAndFileId,
+  verifyCrasRecordAuthorizesPortalFile,
 } from '@/lib/airtable/reviewAssetStatus';
 import { getDriveClientWithServiceAccount } from '@/lib/google/driveClient';
 import {
@@ -56,11 +57,28 @@ async function isFileAuthorized(
   token: string,
   fileId: string,
   projectRecordId: string,
+  crasRecordId: string | null,
 ): Promise<boolean> {
   const key = `${token}::${fileId}`;
   const now = Date.now();
   const cached = authCache.get(key);
   if (cached && cached > now) return true;
+
+  if (crasRecordId) {
+    const ok = await verifyCrasRecordAuthorizesPortalFile({
+      crasRecordId,
+      token,
+      projectRecordId,
+      fileId,
+    });
+    if (ok) {
+      console.log('[review/files] authorized via CRAS rid + row verify', {
+        fileId: fileId.slice(0, 12),
+      });
+      authCache.set(key, now + AUTH_CACHE_TTL_MS);
+      return true;
+    }
+  }
 
   let recordId = await getCrasRecordIdByTokenAndFileId(token, fileId);
   if (!recordId) {
@@ -130,6 +148,7 @@ export async function GET(
     /* malformed % sequence — use raw segment */
   }
   const token = (req.nextUrl.searchParams.get('token') ?? '').trim();
+  const crasRecordId = (req.nextUrl.searchParams.get('rid') ?? '').trim() || null;
   const rangeHeader = req.headers.get('range');
   const download = req.nextUrl.searchParams.get('dl') === '1';
 
@@ -168,7 +187,7 @@ export async function GET(
   // Authorize via CRAS record (preferred). Cached briefly to absorb thumbnail bursts.
   // Fallback: same Drive folder allowlist as review/assets/download when CRAS row is
   // missing (e.g. cross-base Project link prevented CRAS create) — still requires valid token.
-  let authorized = await isFileAuthorized(token, fileId, project.recordId);
+  let authorized = await isFileAuthorized(token, fileId, project.recordId, crasRecordId);
   let authorizedViaDriveAllowlist = false;
   if (!authorized) {
     try {

@@ -84,3 +84,19 @@ export function resolveInlineContentType(driveMime: string, filename: string): s
   return inferred ?? driveMime;
 }
 
+/**
+ * Client Review Portal file proxy URL. Pass {@link options.crasRecordId} when the
+ * asset row came from GET /api/review/assets so `/api/review/files` can authorize
+ * via that CRAS record even when token+fileId index lookup misses (field quirks).
+ */
+export function buildReviewFileProxyUrl(
+  fileId: string,
+  token: string,
+  options?: { crasRecordId?: string | null },
+): string {
+  const q = new URLSearchParams({ token });
+  const rid = options?.crasRecordId?.trim();
+  if (rid) q.set('rid', rid);
+  return `/api/review/files/${encodeURIComponent(fileId)}?${q.toString()}`;
+}
+

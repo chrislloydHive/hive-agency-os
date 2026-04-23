@@ -8,7 +8,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AssetLightbox from './AssetLightbox';
 import { useAuthorIdentity } from './AuthorIdentityContext';
-import { reviewAssetIsAudio, reviewAssetIsImage, reviewAssetIsVideo } from '@/lib/review/reviewMediaDisplay';
+import {
+  buildReviewFileProxyUrl,
+  reviewAssetIsAudio,
+  reviewAssetIsImage,
+  reviewAssetIsVideo,
+} from '@/lib/review/reviewMediaDisplay';
 import { getSectionCounts, isAssetNew } from './reviewAssetUtils';
 import type { ReviewState } from './ReviewPortalClient';
 
@@ -263,6 +268,8 @@ interface ReviewAsset {
   placementType?: string | null;
   /** Sort order within the group (1, 2, 3, 4 for carousel cards). */
   placementCardOrder?: number | null;
+  /** CRAS record id from /api/review/assets — passed to file proxy for reliable auth. */
+  airtableRecordId?: string;
 }
 
 interface TacticFeedback {
@@ -1164,7 +1171,9 @@ function PlacementGroupCard({
               const isVideo = reviewAssetIsVideo(asset.mimeType, asset.name);
 
               // All assets (including animated GIFs) go through the file proxy.
-              const src = `/api/review/files/${encodeURIComponent(asset.fileId)}?token=${encodeURIComponent(token)}`;
+              const src = buildReviewFileProxyUrl(asset.fileId, token, {
+                crasRecordId: asset.airtableRecordId,
+              });
 
               return (
                 <button
@@ -1419,7 +1428,7 @@ function AssetCard({
   // and browsers animate GIFs natively from <img src=…>. The previous code
   // pointed at https://drive.google.com/uc?export=view which requires the
   // file to be publicly shared and is otherwise rate-limited / deprecated.
-  const src = `/api/review/files/${encodeURIComponent(asset.fileId)}?token=${encodeURIComponent(token)}`;
+  const src = buildReviewFileProxyUrl(asset.fileId, token, { crasRecordId: asset.airtableRecordId });
   const isImage = reviewAssetIsImage(asset.mimeType, asset.name);
   const isVideo = reviewAssetIsVideo(asset.mimeType, asset.name);
   const isAudio = reviewAssetIsAudio(asset.mimeType, asset.name);

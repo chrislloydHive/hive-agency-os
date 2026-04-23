@@ -7,7 +7,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuthorIdentity, type AuthorIdentity } from './AuthorIdentityContext';
-import { reviewAssetIsAudio, reviewAssetIsImage, reviewAssetIsVideo } from '@/lib/review/reviewMediaDisplay';
+import {
+  buildReviewFileProxyUrl,
+  reviewAssetIsAudio,
+  reviewAssetIsImage,
+  reviewAssetIsVideo,
+} from '@/lib/review/reviewMediaDisplay';
 import { reviewFileDownloadHref } from './ReviewSection';
 import type { ReviewState } from './ReviewPortalClient';
 
@@ -55,6 +60,8 @@ interface ReviewAsset {
   approvedByEmail?: string | null;
   firstSeenAt?: string | null;
   lastSeenAt?: string | null;
+  /** CRAS record id — file proxy auth when token+fileId index misses. */
+  airtableRecordId?: string;
 }
 
 interface AssetComment {
@@ -370,7 +377,7 @@ export default function AssetLightbox({
   // proxy. The streaming proxy serves the correct Content-Type and browsers
   // animate GIFs natively. drive.google.com/uc?export=view (the previous
   // approach) requires public sharing and is rate-limited / deprecated.
-  const src = `/api/review/files/${encodeURIComponent(asset.fileId)}?token=${encodeURIComponent(token)}`;
+  const src = buildReviewFileProxyUrl(asset.fileId, token, { crasRecordId: asset.airtableRecordId });
   const isImage = reviewAssetIsImage(asset.mimeType, asset.name);
   const isVideo = reviewAssetIsVideo(asset.mimeType, asset.name);
   const isAudio = reviewAssetIsAudio(asset.mimeType, asset.name);
@@ -589,7 +596,7 @@ export default function AssetLightbox({
               {approving ? 'Approving…' : asset.assetApprovedClient ? 'Approved' : 'Approve'}
             </button>
             <a
-              href={`/api/review/files/${encodeURIComponent(asset.fileId)}?token=${encodeURIComponent(token)}&dl=1`}
+              href={`${buildReviewFileProxyUrl(asset.fileId, token, { crasRecordId: asset.airtableRecordId })}&dl=1`}
               download={asset.name}
               className="inline-flex items-center gap-1 rounded-md bg-gray-700 px-3 py-1.5 text-xs font-medium text-gray-200 transition-colors hover:bg-gray-600 hover:text-white"
             >

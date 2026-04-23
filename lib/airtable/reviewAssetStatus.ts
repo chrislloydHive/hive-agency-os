@@ -500,6 +500,81 @@ export async function getCrasRecordIdByProjectAndFileId(
   return recordId;
 }
 
+const CRAS_RECORD_ID_RE = /^rec[a-zA-Z0-9]{14,}$/;
+
+/** Linked Project field on CRAS (same name as writes in batchEnsureCrasRecords). */
+const PROJECT_LINK_FIELD = 'Project';
+
+function crasRowTokenMatches(fields: Record<string, unknown>, tokenTrim: string): boolean {
+  if (!tokenTrim) return false;
+  const v = fields[REVIEW_CRAS_TOKEN_FIELD];
+  if (typeof v === 'string' && v.trim() === tokenTrim) return true;
+  if (Array.isArray(v)) {
+    for (const item of v) {
+      if (typeof item === 'string' && item.trim() === tokenTrim) return true;
+    }
+  }
+  return false;
+}
+
+function crasRowProjectMatches(fields: Record<string, unknown>, projectRecordId: string): boolean {
+  const want = projectRecordId.trim();
+  if (!want) return false;
+  const raw = fields[PROJECT_LINK_FIELD];
+  if (Array.isArray(raw)) {
+    for (const p of raw) {
+      if (typeof p === 'string' && p.trim() === want) return true;
+      if (p && typeof p === 'object' && 'id' in (p as Record<string, unknown>)) {
+        const id = String((p as { id: string }).id).trim();
+        if (id === want) return true;
+      }
+    }
+    return false;
+  }
+  if (typeof raw === 'string') return raw.trim() === want;
+  return false;
+}
+
+/**
+ * Authorize a portal file fetch using the CRAS record id returned from
+ * GET /api/review/assets (`airtableRecordId`). Fetches the row by id and checks
+ * that the Drive file id matches and the row belongs to this review (token field
+ * and/or Project link matches the resolved session).
+ */
+export async function verifyCrasRecordAuthorizesPortalFile(args: {
+  crasRecordId: string;
+  token: string;
+  projectRecordId: string;
+  fileId: string;
+}): Promise<boolean> {
+  const rid = args.crasRecordId.trim();
+  const tokenTrim = String(args.token).trim();
+  const fileIdTrim = String(args.fileId).trim();
+  const projTrim = String(args.projectRecordId).trim();
+  if (!CRAS_RECORD_ID_RE.test(rid) || !tokenTrim || !fileIdTrim || !projTrim) return false;
+
+  const baseId = resolveProjectsBaseId();
+  if (!baseId) return false;
+
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}/${encodeURIComponent(rid)}`;
+  try {
+    const res = await airtableFetch(url, { method: 'GET' });
+    if (!res.ok) return false;
+    const json = (await res.json()) as { fields?: Record<string, unknown> };
+    const fields = json.fields;
+    if (!fields) return false;
+
+    const driveId = extractDriveFileIdFromCrasSourceField(fields[SOURCE_FOLDER_ID_FIELD]);
+    if (driveId !== fileIdTrim) return false;
+
+    if (crasRowTokenMatches(fields, tokenTrim)) return true;
+    if (crasRowProjectMatches(fields, projTrim)) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * List all asset statuses for a review token. Returns Map keyed by token::driveFileId.
  */
