@@ -13,7 +13,7 @@
 // collapses concurrent calls per projectId, and `hasAnyBatchForProject` is the
 // authoritative existence check before any write.
 
-import { getBase } from '@/lib/airtable';
+import { getBase, getProjectsBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import {
   getDriveClient,
@@ -116,10 +116,10 @@ export async function ensurePartnerDeliverySetup(
  * always works regardless of other fields' state.
  */
 async function hasBatchWithBatchId(batchId: string): Promise<boolean> {
-  const base = getBase();
+  const projectsBase = getProjectsBase();
   const escaped = batchId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const formula = `{Batch ID} = "${escaped}"`;
-  const records = await base(TABLE)
+  const records = await projectsBase(TABLE)
     .select({ filterByFormula: formula, maxRecords: 1 })
     .firstPage();
   return records.length > 0;
@@ -164,7 +164,7 @@ async function getBrkthruCompanyId(): Promise<string | null> {
 }
 
 async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
-  const base = getBase();
+  const projectsBase = getProjectsBase();
   // Primary field is "Batch ID". Make it human-readable.
   const batchId = `${args.projectName} - ${PARTNER_NAME}`;
 
@@ -193,7 +193,7 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
 
   let recordId: string;
   try {
-    const created = await base(TABLE).create(createFields as any);
+    const created = await projectsBase(TABLE).create(createFields as any);
     recordId = (created as any).id as string;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -214,7 +214,7 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
       if (partnerCompanyId) {
         minimal.Partner = [partnerCompanyId];
       }
-      const created = await base(TABLE).create(minimal as any);
+      const created = await projectsBase(TABLE).create(minimal as any);
       recordId = (created as any).id as string;
     } else {
       throw err;
@@ -224,7 +224,7 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
   // Second write: flip Create Partner Batch to true. THIS is what fires the
   // Initialize Partner Delivery Batch automation in Airtable.
   try {
-    await base(TABLE).update(recordId, {
+    await projectsBase(TABLE).update(recordId, {
       'Create Partner Batch': true,
     } as any);
     console.log('[delivery-init] flipped Create Partner Batch to true', { recordId });
@@ -247,7 +247,7 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
       BRKTHRU_PARENT_FOLDER_ID,
       args.projectName
     );
-    await base(TABLE).update(recordId, {
+    await projectsBase(TABLE).update(recordId, {
       'Destination Folder ID': folder.id,
     } as any);
     console.log('[delivery-init] provisioned destination folder', {

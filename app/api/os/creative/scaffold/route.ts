@@ -8,8 +8,8 @@
 // Auth: Per-company OAuth2 (refresh token stored in Airtable Hive DB base).
 //
 // Airtable bases:
-//   AIRTABLE_OS_BASE_ID  – Projects table (OS base)
-//   AIRTABLE_DB_BASE_ID  – CompanyIntegrations table (Hive DB base)
+//   AIRTABLE_PROJECTS_BASE_ID – Projects, Creative Review Sets (Client PM OS)
+//   AIRTABLE_OS_BASE_ID       – Companies (Hive Database); CompanyIntegrations via DB base
 //
 // Required env vars:
 //   HIVE_OS_INTERNAL_API_KEY            – shared secret for endpoint auth
@@ -28,7 +28,8 @@
 import { randomBytes } from 'crypto';
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import { getBase } from '@/lib/airtable';
+import { getBase, getProjectsBase } from '@/lib/airtable';
+import { resolveProjectsBaseId } from '@/lib/airtable/bases';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { getCompanyGoogleOAuthFromDBBase, findCompanyIntegration } from '@/lib/airtable/companyIntegrations';
 import { getCompanyOAuthClient } from '@/lib/integrations/googleDrive';
@@ -146,6 +147,7 @@ function unauthorized(reason: string) {
 
 export async function POST(req: Request) {
   const osBaseId = process.env.AIRTABLE_OS_BASE_ID || process.env.AIRTABLE_BASE_ID || '(unset)';
+  const projectsBaseId = resolveProjectsBaseId() || '(unset)';
   const dbBaseId = process.env.AIRTABLE_DB_BASE_ID || '(unset)';
 
   // ── Env preflight ───────────────────────────────────────────────────
@@ -192,18 +194,30 @@ export async function POST(req: Request) {
     );
   }
 
-  // ── Resolve companyId from Project record (OS base) ────────────────
+  const projectsBase = getProjectsBase();
+  const osBase = getBase();
+
+  // ── Resolve companyId from Project record (Projects base — Client PM OS) ─
   let projectFields: Record<string, unknown>;
   try {
-    const osBase = getBase(); // AIRTABLE_OS_BASE_ID
-    const record = await osBase(AIRTABLE_TABLES.PROJECTS).find(recordId);
+    console.log('[creative/scaffold] Loading Project', {
+      recordId,
+      projectsBaseId,
+      baseIdFull: projectsBaseId !== '(unset)' ? projectsBaseId : undefined,
+    });
+    const record = await projectsBase(AIRTABLE_TABLES.PROJECTS).find(recordId);
     projectFields = record.fields as Record<string, unknown>;
   } catch (err: any) {
     return NextResponse.json(
       {
         ok: false,
         error: `Project not found for recordId ${recordId}: ${err?.message ?? err}`,
-        debug: { base: 'OS', baseId: osBaseId, table: AIRTABLE_TABLES.PROJECTS },
+        debug: {
+          base: 'Projects',
+          baseId: projectsBaseId,
+          table: AIRTABLE_TABLES.PROJECTS,
+          osBaseId,
+        },
       },
       { status: 400 },
     );
@@ -245,8 +259,8 @@ export async function POST(req: Request) {
           companyFieldNamesTried: COMPANY_FIELD_CANDIDATES,
           availableFieldKeys,
           candidateFieldValues,
-          base: 'OS',
-          baseId: osBaseId,
+          base: 'Projects',
+          baseId: projectsBaseId,
         },
       },
       { status: 400 },
@@ -266,7 +280,6 @@ export async function POST(req: Request) {
   }
 
   try {
-    const osBase = getBase();
     const companyRecord = await osBase('Companies').find(companyId);
     const cf = companyRecord.fields as Record<string, unknown>;
     if (!clientCode) {
@@ -528,22 +541,21 @@ export async function POST(req: Request) {
     // 7. Upsert Creative Review Sets (one per variant×tactic), keyed by (Project, Variant, Tactic).
     // Tactic single-select in Airtable must include all TACTICS (e.g. "Search"); missing options cause "insufficient permissions to create new select option" and are skipped so token/URLs still get written.
     const setsTable = AIRTABLE_TABLES.CREATIVE_REVIEW_SETS;
-    const osBase = getBase();
     let setsUpserted = 0;
     for (const row of tacticRows) {
       try {
         const formula = `AND(FIND("${recordId}", ARRAYJOIN({Project})) > 0, {Variant} = "${row.variant}", {Tactic} = "${row.tactic}")`;
-        const existing = await osBase(setsTable)
+        const existing = await projectsBase(setsTable)
           .select({ filterByFormula: formula, maxRecords: 1 })
           .firstPage();
         const folderUrlValue = `https://drive.google.com/drive/folders/${row.folderId}`;
         if (existing.length > 0) {
-          await osBase(setsTable).update(existing[0].id, {
+          await projectsBase(setsTable).update(existing[0].id, {
             'Folder ID': row.folderId,
             'Folder URL': folderUrlValue,
           } as any);
         } else {
-          await osBase(setsTable).create({
+          await projectsBase(setsTable).create({
             Project: [recordId],
             Variant: row.variant,
             Tactic: row.tactic,
@@ -568,7 +580,7 @@ export async function POST(req: Request) {
 
     // 8. Backfill: Ensure both variants exist for all tactics
     const backfillStats = await backfillMissingVariants(
-      osBase,
+      projectsBase,
       setsTable,
       recordId,
       jobFolder.id,
@@ -598,7 +610,7 @@ export async function POST(req: Request) {
       projectUpdates['Client Review Portal Token'] = reviewToken;
       projectUpdates['Client Review Portal URL'] = reviewPortalUrl;
     }
-    await osBase(AIRTABLE_TABLES.PROJECTS).update(recordId, projectUpdates as any);
+    await projectsBase(AIRTABLE_TABLES.PROJECTS).update(recordId, projectUpdates as any);
 
     console.log(`[creative/scaffold] recordId=${recordId}, projectName="${projectName}", hubName="${hubName}", sheetId=${copied.id}, jobFolderId=${jobFolder.id}, clientProjectsFolderId=${clientProjectsFolderId}, rowsWritten=${tacticRows.length}, reviewToken=${reviewToken}, reviewPortalUrl=${reviewPortalUrl}`);
 
@@ -648,7 +660,7 @@ interface BackfillStats {
  * Keys by (Variant, Tactic) only. Folder = job folder → tactic → variant (no Default – Set A).
  */
 async function backfillMissingVariants(
-  osBase: ReturnType<typeof getBase>,
+  projectsAirtable: ReturnType<typeof getProjectsBase>,
   setsTable: string,
   projectRecordId: string,
   jobFolderId: string,
@@ -662,7 +674,7 @@ async function backfillMissingVariants(
   };
 
   const formula = `FIND("${projectRecordId}", ARRAYJOIN({Project})) > 0`;
-  const existingRecords = await osBase(setsTable)
+  const existingRecords = await projectsAirtable(setsTable)
     .select({ filterByFormula: formula })
     .all();
 
@@ -702,7 +714,7 @@ async function backfillMissingVariants(
         console.warn(`[creative/scaffold] Backfill: Retargeting folder not found for tactic=${tactic}, project=${projectRecordId}`);
       }
       try {
-        await osBase(setsTable).create({
+        await projectsAirtable(setsTable).create({
           Project: [projectRecordId],
           Variant: 'Retargeting',
           Tactic: tactic,
@@ -742,7 +754,7 @@ async function backfillMissingVariants(
         console.warn(`[creative/scaffold] Backfill: Prospecting folder not found for tactic=${tactic}, project=${projectRecordId}`);
       }
       try {
-        await osBase(setsTable).create({
+        await projectsAirtable(setsTable).create({
           Project: [projectRecordId],
           Variant: 'Prospecting',
           Tactic: tactic,

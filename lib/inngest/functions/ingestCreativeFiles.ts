@@ -11,7 +11,7 @@
 
 import type { drive_v3 } from 'googleapis';
 import { inngest } from '../client';
-import { getBase } from '@/lib/airtable';
+import { getProjectsBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { getDriveClient } from '@/lib/google/driveClient';
 import { getProjectsByCreativeReviewHubFolderId } from '@/lib/airtable/projectFolderMap';
@@ -197,10 +197,10 @@ async function getExistingCrasFileIdsForProject(
 ): Promise<Set<string>> {
   const set = new Set<string>();
   try {
-    const base = getBase();
+    const projectsBase = getProjectsBase();
     // Match the Project link via FIND() over the linked record IDs.
     const formula = `FIND("${projectId}", ARRAYJOIN({Project})) > 0`;
-    const records = await base(CRAS_TABLE)
+    const records = await projectsBase(CRAS_TABLE)
       .select({
         filterByFormula: formula,
         fields: [SOURCE_FOLDER_ID_FIELD],
