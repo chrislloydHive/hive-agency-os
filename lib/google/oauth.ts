@@ -28,6 +28,8 @@ export interface ExchangeResult {
   refreshToken: string;
   accessToken: string;
   expiresAt: string; // ISO 8601
+  /** Space-separated scopes returned by Google (if present). */
+  grantedScope?: string;
 }
 
 // ============================================================================
@@ -160,6 +162,7 @@ export async function exchangeCodeForTokens(
     expiresAt: tokens.expiry_date
       ? new Date(tokens.expiry_date).toISOString()
       : new Date(Date.now() + 3600 * 1000).toISOString(),
+    grantedScope: typeof tokens.scope === 'string' ? tokens.scope : undefined,
   };
 }
 

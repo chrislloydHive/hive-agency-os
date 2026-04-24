@@ -4,6 +4,7 @@
 import { getAirtableConfig, updateRecord, createRecord } from '@/lib/airtable/client';
 import { airtableFetch } from '@/lib/airtable/airtableFetch';
 import { resolveOsBaseId } from '@/lib/airtable/bases';
+import { GOOGLE_OAUTH_SCOPE_VERSION } from '@/lib/google/oauth';
 
 const TABLE_NAME = 'CompanyIntegrations';
 
@@ -768,6 +769,11 @@ export async function updateGoogleTokensForCompany(args: {
   accessToken?: string | null;
   expiresAt?: string | null;
   connectedEmail?: string | null;
+  /**
+   * Persisted to CompanyIntegrations so Drive/creative flows can require re-consent
+   * when scopes bump. Defaults to {@link GOOGLE_OAUTH_SCOPE_VERSION}.
+   */
+  googleOAuthScopeVersion?: string | null;
 }): Promise<{ ok: true; updatedRecordId: string }> {
   if (!process.env.AIRTABLE_API_KEY) throw new Error('Missing AIRTABLE_API_KEY');
 
@@ -819,6 +825,13 @@ export async function updateGoogleTokensForCompany(args: {
   if (args.connectedEmail) {
     fields.GoogleConnectedEmail = args.connectedEmail;
   }
+
+  const scopeVersionToStore =
+    (typeof args.googleOAuthScopeVersion === 'string' &&
+      args.googleOAuthScopeVersion.trim().length > 0
+      ? args.googleOAuthScopeVersion.trim()
+      : null) ?? GOOGLE_OAUTH_SCOPE_VERSION;
+  fields.GoogleOAuthScopeVersion = scopeVersionToStore;
 
   // 3. PATCH (filter to known fields to avoid 422 on schema mismatches)
   const safeFields = await filterToKnownFields(baseId, 'CompanyIntegrations', fields);
@@ -934,6 +947,11 @@ export async function upsertCompanyGoogleTokens(
   const query = `${encodeURIComponent(COMPANY_INTEGRATIONS_TABLE)}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
   const found = await airtableGetDirect(baseId, query);
 
+  const scopeVersionToStore =
+    (typeof tokens.scopeVersion === 'string' && tokens.scopeVersion.trim().length > 0
+      ? tokens.scopeVersion.trim()
+      : null) ?? GOOGLE_OAUTH_SCOPE_VERSION;
+
   const fields: Record<string, unknown> = {
     CompanyId: companyId,
     GoogleConnected: true,
@@ -942,7 +960,7 @@ export async function upsertCompanyGoogleTokens(
     GoogleAccessTokenExpiresAt: tokens.expiresAt,
     GoogleConnectedAt: nowIso,
     GoogleConnectedEmail: tokens.connectedEmail || '',
-    ...(tokens.scopeVersion ? { GoogleOAuthScopeVersion: tokens.scopeVersion } : {}),
+    GoogleOAuthScopeVersion: scopeVersionToStore,
   };
 
   const recId = found?.records?.[0]?.id;

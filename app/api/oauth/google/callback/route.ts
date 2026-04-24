@@ -2,7 +2,12 @@
 // Google OAuth callback — exchanges code, stores tokens in Airtable, redirects.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { exchangeCodeForTokens, getAppBaseUrl, getGoogleAccountEmail } from '@/lib/google/oauth';
+import {
+  exchangeCodeForTokens,
+  getAppBaseUrl,
+  getGoogleAccountEmail,
+  GOOGLE_OAUTH_SCOPE_VERSION,
+} from '@/lib/google/oauth';
 import { verifyState } from '@/lib/oauth/state';
 import { upsertCompanyGoogleTokens } from '@/lib/airtable/companyIntegrations';
 
@@ -75,6 +80,22 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const grantedScopes = tokens.grantedScope?.split(/\s+/).filter(Boolean) ?? [];
+    const scopeVersionFromState =
+      typeof scopeVersion === 'string' && scopeVersion.trim().length > 0
+        ? scopeVersion.trim()
+        : null;
+    const resolvedScopeVersion = scopeVersionFromState ?? GOOGLE_OAUTH_SCOPE_VERSION;
+
+    console.log('[google-callback]', {
+      route: '/api/oauth/google/callback',
+      grantedScopesFromGoogle: grantedScopes,
+      scopeVersionFromState: scopeVersionFromState ?? '(missing — using required constant)',
+      requiredVersion: GOOGLE_OAUTH_SCOPE_VERSION,
+      writingScopeVersion: resolvedScopeVersion,
+      recordKey: { companyId },
+    });
+
     // Gmail profile email (OAuth2 userinfo needs openid/userinfo scopes we do not request)
     let connectedEmail: string | undefined;
     try {
@@ -85,14 +106,21 @@ export async function GET(request: NextRequest) {
 
     // Persist tokens to Airtable CompanyIntegrations (DB base)
     try {
-      await upsertCompanyGoogleTokens(companyId, {
+      const writeResult = await upsertCompanyGoogleTokens(companyId, {
         refreshToken: tokens.refreshToken,
         accessToken: tokens.accessToken,
         expiresAt: tokens.expiresAt,
         connectedEmail: connectedEmail ?? null,
-        scopeVersion: scopeVersion ?? null,
+        scopeVersion: resolvedScopeVersion,
       });
 
+      console.log('[google-callback] write result =', {
+        route: '/api/oauth/google/callback',
+        ok: true,
+        companyId,
+        scopeVersionWritten: resolvedScopeVersion,
+        airtableResponseKeys: writeResult && typeof writeResult === 'object' ? Object.keys(writeResult as object) : typeof writeResult,
+      });
       console.log(`[OAuth Google Callback] Tokens persisted for companyId=${companyId}`);
     } catch (storeErr) {
       const message = storeErr instanceof Error ? storeErr.message : 'Token storage failed';

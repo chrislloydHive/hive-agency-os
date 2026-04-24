@@ -6,7 +6,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { updateGoogleTokensForCompany } from '@/lib/airtable/companyIntegrations';
-import { getAppBaseUrl, getGoogleAccountEmail } from '@/lib/google/oauth';
+import {
+  getAppBaseUrl,
+  getGoogleAccountEmail,
+  GOOGLE_OAUTH_SCOPE_VERSION,
+} from '@/lib/google/oauth';
 
 /**
  * GET /api/integrations/google/callback
@@ -94,6 +98,17 @@ export async function GET(request: NextRequest) {
     console.log(`[Google OAuth Callback] Exchanging code for tokens for company ${companyId}`);
     const { tokens } = await oauth2Client.getToken(code);
 
+    const grantedScopes =
+      typeof tokens.scope === 'string'
+        ? tokens.scope.split(/\s+/).filter(Boolean)
+        : [];
+    console.log('[google-callback]', {
+      route: '/api/integrations/google/callback',
+      scopesFromGoogle: grantedScopes,
+      requiredVersion: GOOGLE_OAUTH_SCOPE_VERSION,
+      writingToRecord: { companyId },
+    });
+
     if (!tokens.refresh_token) {
       console.warn('[Google OAuth Callback] No refresh token returned. User may have already authorized.');
       // Still proceed - we may have an access token we can use short-term
@@ -110,7 +125,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Store tokens in CompanyIntegrations (finds record by companyId or by RECORD_ID when reconnecting for review)
-    await updateGoogleTokensForCompany({
+    const writeResult = await updateGoogleTokensForCompany({
       companyId,
       refreshToken: tokens.refresh_token || undefined,
       accessToken: tokens.access_token || undefined,
@@ -118,8 +133,14 @@ export async function GET(request: NextRequest) {
         ? new Date(tokens.expiry_date).toISOString()
         : undefined,
       connectedEmail,
+      googleOAuthScopeVersion: GOOGLE_OAUTH_SCOPE_VERSION,
     });
 
+    console.log('[google-callback] write result =', {
+      route: '/api/integrations/google/callback',
+      ...writeResult,
+      scopeVersionWritten: GOOGLE_OAUTH_SCOPE_VERSION,
+    });
     console.log(`[Google OAuth Callback] Successfully stored tokens for company ${companyId}`);
 
     // Redirect back to setup with success indicator
