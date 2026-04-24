@@ -4,7 +4,7 @@
 
 import { NextResponse } from 'next/server';
 import { inngest } from '@/lib/inngest/client';
-import { getBase, getProjectsBase } from '@/lib/airtable';
+import { getProjectsBase } from '@/lib/airtable';
 import { CREATIVE_REVIEW_ASSET_STATUS_TABLE } from '@/lib/airtable/deliveryWriteBack';
 import { DELIVERY_BATCH_ID_FIELD } from '@/lib/airtable/reviewAssetStatus';
 import { getBatchDetails, getBatchDetailsByRecordId, getDeliveryContextByProjectId, listBatchesByProjectId } from '@/lib/airtable/partnerDeliveryBatches';
@@ -77,8 +77,8 @@ export async function POST(req: Request) {
     // Only fetch CRAS record if we need to fallback to CRAS field lookup
     let resolutionPath = 'request-body';
     if (!batchRecordId) {
-      const base = getBase();
-      crasRecord = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
+      const projectsBase = getProjectsBase();
+      crasRecord = await projectsBase(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
 
       const partnerDeliveryBatchField = crasRecord?.fields?.["Partner Delivery Batch"];
       const deliveryBatchIdField = crasRecord?.fields?.[DELIVERY_BATCH_ID_FIELD];

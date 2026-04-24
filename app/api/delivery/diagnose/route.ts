@@ -3,7 +3,7 @@
 // Shows CRAS records and their delivery status
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getBase } from '@/lib/airtable';
+import { getProjectsBase } from '@/lib/airtable';
 import { READY_TO_DELIVER_WEBHOOK_FIELD, DELIVERY_BATCH_ID_FIELD, DELIVERED_AT_FIELD } from '@/lib/airtable/reviewAssetStatus';
 import { CREATIVE_REVIEW_ASSET_STATUS_TABLE } from '@/lib/airtable/deliveryWriteBack';
 
@@ -16,8 +16,8 @@ const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' } as const;
 
 export async function GET(req: NextRequest) {
   try {
-    const base = getBase();
-    
+    const base = getProjectsBase();
+
     // Get all records with Ready to Deliver (Webhook) = TRUE
     const readyRecords = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE)
       .select({

@@ -33,6 +33,7 @@ import { resolveProjectsBaseId } from '@/lib/airtable/bases';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import { getCompanyGoogleOAuthFromDBBase, findCompanyIntegration } from '@/lib/airtable/companyIntegrations';
 import { getCompanyOAuthClient } from '@/lib/integrations/googleDrive';
+import { ensurePartnerDeliverySetup } from '@/lib/delivery/ensurePartnerDeliverySetup';
 import { getGoogleOAuthUrl, getAppBaseUrl, GOOGLE_OAUTH_SCOPE_VERSION } from '@/lib/google/oauth';
 import type { drive_v3, sheets_v4 } from 'googleapis';
 
@@ -613,6 +614,16 @@ export async function POST(req: Request) {
     await projectsBase(AIRTABLE_TABLES.PROJECTS).update(recordId, projectUpdates as any);
 
     console.log(`[creative/scaffold] recordId=${recordId}, projectName="${projectName}", hubName="${hubName}", sheetId=${copied.id}, jobFolderId=${jobFolder.id}, clientProjectsFolderId=${clientProjectsFolderId}, rowsWritten=${tacticRows.length}, reviewToken=${reviewToken}, reviewPortalUrl=${reviewPortalUrl}`);
+
+    // Provisions Partner Delivery Batches row (non-blocking). Ingest/cron also calls this.
+    void ensurePartnerDeliverySetup({ projectId: recordId, projectName })
+      .then((r) => console.log('[creative/scaffold] ensurePartnerDeliverySetup', r))
+      .catch((e) =>
+        console.warn(
+          '[creative/scaffold] ensurePartnerDeliverySetup (non-blocking):',
+          e instanceof Error ? e.message : e,
+        ),
+      );
 
     return NextResponse.json({
       ok: true,

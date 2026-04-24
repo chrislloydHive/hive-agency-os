@@ -140,25 +140,55 @@ let brkthruCompanyIdCache: string | null = null;
 
 async function getBrkthruCompanyId(): Promise<string | null> {
   if (brkthruCompanyIdCache) return brkthruCompanyIdCache;
+
+  const envId = process.env.BRKTHRU_PARTNER_COMPANY_RECORD_ID?.trim();
+  if (envId) {
+    brkthruCompanyIdCache = envId;
+    return brkthruCompanyIdCache;
+  }
+
+  const formula = `LOWER({Company Name}) = "${PARTNER_NAME.toLowerCase()}"`;
+
+  // Partner Delivery Batches.Partner links to Companies in the **same** base (Client PM OS).
+  try {
+    const projectsBase = getProjectsBase();
+    const pmRecords = await projectsBase('Companies')
+      .select({ filterByFormula: formula, maxRecords: 1 })
+      .firstPage();
+    if (pmRecords.length > 0) {
+      brkthruCompanyIdCache = (pmRecords[0] as { id: string }).id;
+      console.log(
+        `[delivery-init] Brkthru Companies row from projects base: ${brkthruCompanyIdCache}`,
+      );
+      return brkthruCompanyIdCache;
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      '[delivery-init] Companies lookup in projects base failed (missing table or 403):',
+      msg,
+    );
+  }
+
   try {
     const base = getBase();
     const records = await base('Companies')
-      .select({
-        filterByFormula: `LOWER({Company Name}) = "${PARTNER_NAME.toLowerCase()}"`,
-        maxRecords: 1,
-      })
+      .select({ filterByFormula: formula, maxRecords: 1 })
       .firstPage();
     if (records.length === 0) {
       console.warn(
-        `[delivery-init] no Companies row found for Name="${PARTNER_NAME}"`
+        `[delivery-init] no Companies row found for Name="${PARTNER_NAME}" in OS base`,
       );
       return null;
     }
     brkthruCompanyIdCache = (records[0] as { id: string }).id;
+    console.warn(
+      `[delivery-init] Brkthru id from Hive/OS Companies (${brkthruCompanyIdCache}) — if PDB Partner link fails, set BRKTHRU_PARTNER_COMPANY_RECORD_ID to the Client PM Companies row.`,
+    );
     return brkthruCompanyIdCache;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn('[delivery-init] Brkthru lookup failed:', msg);
+    console.warn('[delivery-init] Brkthru OS-base lookup failed:', msg);
     return null;
   }
 }

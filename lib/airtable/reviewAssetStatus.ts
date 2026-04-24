@@ -11,7 +11,7 @@
 import { getProjectsBase } from '@/lib/airtable';
 import { airtableFetch } from '@/lib/airtable/airtableFetch';
 import { fetchWithRetry } from '@/lib/airtable/client';
-import { resolveOsBaseId, resolveProjectsBaseId } from '@/lib/airtable/bases';
+import { resolveProjectsBaseId } from '@/lib/airtable/bases';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import {
   getTableSchema,
@@ -44,9 +44,16 @@ function omitCrasTokenOnWrite(): boolean {
   return REVIEW_CRAS_TOKEN_FIELD.toLowerCase().includes('lookup');
 }
 
-/** Linked Project field only works when Projects rows live in the same base as CRAS. */
+/**
+ * Whether CRAS create/upsert may set the linked `Project` field.
+ * The link only works when Project records live in the same Airtable base as CRAS.
+ * All review CRAS + Project access in this app uses {@link getProjectsBase} /
+ * {@link resolveProjectsBaseId} — the same base as the Projects table — so the
+ * link is always valid. (Legacy conflation with `resolveOsBaseId()` was wrong once
+ * `AIRTABLE_PROJECTS_BASE_ID` split Client PM OS from Hive Database.)
+ */
 function shouldLinkProjectFieldOnCras(): boolean {
-  return resolveProjectsBaseId() === resolveOsBaseId();
+  return true;
 }
 
 
