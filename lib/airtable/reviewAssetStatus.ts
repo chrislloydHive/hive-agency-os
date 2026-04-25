@@ -33,10 +33,42 @@ const SOURCE_FOLDER_ID_FIELD =
  * `Review Portal Token (lookup)` — that field is read-only; do not write it on create.
  * Legacy bases with a plain text token column: set `REVIEW_CRAS_TOKEN_FIELD=Review Token`
  * and optionally `REVIEW_CRAS_WRITE_TOKEN_TO_RECORD=true` if the API should set it on create.
+ *
+ * When the token column is a **lookup** (omit write), set `REVIEW_CRAS_PLAIN_TOKEN_FIELD` (default
+ * **Review Token**) so the table primary / Airtable automations that filter on `{Review Token}` still work.
  */
 const REVIEW_CRAS_TOKEN_FIELD =
   (typeof process !== 'undefined' && process.env.REVIEW_CRAS_TOKEN_FIELD?.trim()) ||
   'Review Portal Token (lookup)';
+
+/** Writable duplicate of the portal token — often the primary field "Review Token". */
+function crasPlainTokenFieldName(): string {
+  return (
+    (typeof process !== 'undefined' && process.env.REVIEW_CRAS_PLAIN_TOKEN_FIELD?.trim()) ||
+    'Review Token'
+  );
+}
+
+/**
+ * Token fields to PATCH/POST on CRAS. When the schema uses a lookup for {@link REVIEW_CRAS_TOKEN_FIELD},
+ * writes the hex token to {@link crasPlainTokenFieldName} instead so records are named and automations match.
+ */
+function crasTokenWritePayload(token: string): Record<string, unknown> {
+  const t = String(token ?? '').trim();
+  const out: Record<string, unknown> = {};
+  if (!t) return out;
+
+  if (!omitCrasTokenOnWrite()) {
+    out[REVIEW_CRAS_TOKEN_FIELD] = t;
+    return out;
+  }
+
+  const plain = crasPlainTokenFieldName();
+  if (plain && plain !== REVIEW_CRAS_TOKEN_FIELD) {
+    out[plain] = t;
+  }
+  return out;
+}
 
 /** Lookup/formula token fields cannot be written; token is filled via linked Project. */
 function omitCrasTokenOnWrite(): boolean {
@@ -966,7 +998,7 @@ export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<bool
   const now = new Date().toISOString();
 
   const coreFields: Record<string, unknown> = {
-    ...(!omitCrasTokenOnWrite() ? { [REVIEW_CRAS_TOKEN_FIELD]: args.token } : {}),
+    ...crasTokenWritePayload(args.token),
     ...(shouldLinkProjectFieldOnCras() ? { Project: [args.projectId] } : {}),
     [SOURCE_FOLDER_ID_FIELD]: args.driveFileId,
     Filename: (args.filename ?? '').slice(0, 500),
@@ -1162,7 +1194,7 @@ export async function batchEnsureCrasRecords(
     const buildRecords = (includeOptional: boolean, includeProject: boolean) =>
       batch.map((asset) => ({
         fields: {
-          ...(!skipWrites ? { [REVIEW_CRAS_TOKEN_FIELD]: token } : {}),
+          ...crasTokenWritePayload(token),
           ...(includeProject ? { Project: [projectId] } : {}),
           [SOURCE_FOLDER_ID_FIELD]: asset.fileId,
           Filename: (asset.filename ?? '').slice(0, 500),
@@ -1218,7 +1250,7 @@ export async function upsertSeen(args: UpsertSeenArgs): Promise<void> {
       throw new Error('Cannot create CRAS without Project link when token is lookup-only');
     }
     const createFields: Record<string, unknown> = {
-      ...(!omitCrasTokenOnWrite() ? { [REVIEW_CRAS_TOKEN_FIELD]: args.token } : {}),
+      ...crasTokenWritePayload(args.token),
       ...(shouldLinkProjectFieldOnCras() ? { Project: [args.projectId] } : {}),
       [SOURCE_FOLDER_ID_FIELD]: args.driveFileId,
       Filename: (args.filename ?? '').slice(0, 500),
@@ -1327,7 +1359,7 @@ export async function upsertStatus(args: UpsertStatusArgs): Promise<void> {
       throw new Error('Cannot create CRAS without Project link when token is lookup-only');
     }
     await osBase(TABLE).create({
-      ...(!omitCrasTokenOnWrite() ? { [REVIEW_CRAS_TOKEN_FIELD]: args.token } : {}),
+      ...crasTokenWritePayload(args.token),
       ...(shouldLinkProjectFieldOnCras() ? { Project: [args.projectId] } : {}),
       [SOURCE_FOLDER_ID_FIELD]: args.driveFileId,
       Filename: '',
@@ -1395,6 +1427,8 @@ export interface BatchSetAssetApprovedClientOptions {
   approvedByEmail?: string;
   /** When set, write this to Delivery Batch ID on each CRAS record (Partner Delivery Batch link or Batch ID text). */
   deliveryBatchId?: string | null;
+  /** Portal token — backfills plain **Review Token** when the CRAS token column is a lookup (not writable). */
+  reviewPortalToken?: string | null;
 }
 
 /**
@@ -1429,6 +1463,10 @@ export async function batchSetAssetApprovedClient(
   if (options?.deliveryBatchId != null && String(options.deliveryBatchId).trim()) {
     const bid = String(options.deliveryBatchId).trim();
     baseFields[DELIVERY_BATCH_ID_FIELD] = bid.startsWith('rec') ? [bid] : bid;
+  }
+
+  if (options?.reviewPortalToken != null && String(options.reviewPortalToken).trim()) {
+    Object.assign(baseFields, crasTokenWritePayload(String(options.reviewPortalToken).trim()));
   }
 
   // Core approval fields (must exist) — used as fallback if full update fails
@@ -1538,7 +1576,7 @@ export async function setSingleAssetApprovedClient(
       return { error: 'Cannot create CRAS without Project link when token is lookup-only' };
     }
     const coreCreateFields: Record<string, unknown> = {
-      ...(!omitCrasTokenOnWrite() ? { [REVIEW_CRAS_TOKEN_FIELD]: token } : {}),
+      ...crasTokenWritePayload(token),
       ...(shouldLinkProjectFieldOnCras() ? { Project: [projectId] } : {}),
       [SOURCE_FOLDER_ID_FIELD]: driveFileId,
       Filename: (filename ?? '').slice(0, 500),
@@ -1596,6 +1634,8 @@ export async function setSingleAssetApprovedClient(
     const bid = String(deliveryBatchId).trim();
     fields[DELIVERY_BATCH_ID_FIELD] = bid.startsWith('rec') ? [bid] : bid;
   }
+
+  Object.assign(fields, crasTokenWritePayload(token));
 
   console.log(`[setSingleAssetApprovedClient] Updating record ${existing.id}:`, {
     recordId: existing.id,

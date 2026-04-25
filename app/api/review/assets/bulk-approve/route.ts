@@ -96,6 +96,7 @@ export async function POST(req: NextRequest) {
     approvedByName,
     approvedByEmail,
     deliveryBatchId: deliveryBatchId ?? undefined,
+    reviewPortalToken: token,
   });
 
   if (result.failedAt !== null) {

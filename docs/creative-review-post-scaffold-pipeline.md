@@ -29,7 +29,7 @@ All CRAS / CRS / PDB / project reads for the review portal and delivery must use
 ### 3. Asset upload → portal display
 
 1. **Drive**: files live under the job folder ID stored on the Project as **`Creative Review Hub Folder ID`** (same id CRS rows use for `Folder ID`).
-2. **Server render** (`/review/[token]`): loads CRS from the **projects** base, lists files in each CRS folder with **company Google OAuth**, then **`batchEnsureCrasRecords`** creates missing **CRAS** rows (`Project` link + `Show in Client Portal` = true, token via lookup from Project).
+2. **Server render** (`/review/[token]`): loads CRS from the **projects** base, lists files in each CRS folder with **company Google OAuth**, then **`batchEnsureCrasRecords`** creates missing **CRAS** rows (`Project` link + `Show in Client Portal` = true). If the API token field is a lookup, the app also writes the plain **`Review Token`** field (primary / automation filters); override with **`REVIEW_CRAS_PLAIN_TOKEN_FIELD`**.
 3. **Client refresh** (~250ms later): **`GET /api/review/assets`** loads **`listAssetStatuses(token)`** — **Airtable-first**. Only CRAS rows for that portal token drive the UI. If CRAS creation was blocked, the UI becomes empty after refresh even if the server render briefly listed Drive files.
 
 **Ingest cron** (`ingestCreativeFilesScheduled`, Inngest every 5 minutes): lists files under each project’s CRH folder using **service account / WIF** (`getDriveClient`). That only sees folders the SA can access; company-only folders need SA sharing or rely on portal SSR + `batchEnsureCrasRecords` instead.
