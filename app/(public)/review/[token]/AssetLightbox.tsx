@@ -15,15 +15,120 @@ import {
 } from '@/lib/review/reviewMediaDisplay';
 import { reviewFileDownloadHref } from './ReviewSection';
 import type { ReviewState } from './ReviewPortalClient';
+import {
+  isPortalFfmpegTranscodeEnabled,
+  transcodeReviewVideoToPlayableH264,
+} from '@/lib/review/client/transcodeForPortalPreview';
+
+type VideoBoxPhase = 'native' | 'transcoding' | 'h264' | 'unavailable';
 
 function LightboxVideoPreview({ src, fileName }: { src: string; fileName: string }) {
-  const [failed, setFailed] = useState(false);
+  const [phase, setPhase] = useState<VideoBoxPhase>('native');
+  const [tcProgress, setTcProgress] = useState(0);
+  const [tcLabel, setTcLabel] = useState('Preparing…');
+  const [h264Url, setH264Url] = useState<string | null>(null);
+  const transcodeTried = useRef(false);
   const dl = reviewFileDownloadHref(src);
-  if (failed) {
+
+  useEffect(() => {
+    setPhase('native');
+    transcodeTried.current = false;
+    setTcProgress(0);
+    setTcLabel('Preparing…');
+    setH264Url(null);
+  }, [src]);
+
+  useEffect(
+    () => () => {
+      if (h264Url) URL.revokeObjectURL(h264Url);
+    },
+    [h264Url],
+  );
+
+  useEffect(() => {
+    if (phase !== 'transcoding') return;
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const url = await transcodeReviewVideoToPlayableH264(
+          src,
+          fileName,
+          (p) => {
+            if (p.phase === 'load') {
+              setTcLabel('Loading video converter (one-time download, ~30 MB)…');
+            } else if (p.phase === 'fetch') {
+              setTcLabel('Downloading from review…');
+            } else {
+              setTcLabel('Converting to browser-friendly H.264…');
+              setTcProgress(p.progress);
+            }
+          },
+          ac.signal,
+        );
+        if (ac.signal.aborted) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        setH264Url((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+        setPhase('h264');
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') return;
+        console.warn('[LightboxVideo] in-browser transcode failed:', e);
+        setPhase('unavailable');
+      }
+    })();
+    return () => ac.abort();
+  }, [phase, fileName, src]);
+
+  if (phase === 'h264' && h264Url) {
+    return (
+      <div className="flex max-w-3xl flex-col items-center gap-2">
+        <p className="text-xs text-emerald-400/90">
+          Playing a converted H.264 preview in the browser (original file is unchanged).
+        </p>
+        <video
+          src={h264Url}
+          className="max-h-[75vh] max-w-full"
+          controls
+          playsInline
+          preload="metadata"
+          onError={() => setPhase('unavailable')}
+        />
+      </div>
+    );
+  }
+
+  if (phase === 'transcoding') {
+    return (
+      <div className="flex max-w-md flex-col items-center gap-4 rounded-lg bg-gray-800/90 p-6 text-center">
+        <p className="text-sm text-gray-200">{tcLabel}</p>
+        {tcProgress > 0 && (
+          <div className="h-1.5 w-full max-w-xs overflow-hidden rounded bg-gray-700">
+            <div
+              className="h-full bg-amber-500 transition-all duration-300"
+              style={{ width: `${Math.round(tcProgress * 100)}%` }}
+            />
+          </div>
+        )}
+        <p className="text-xs text-gray-500">This runs once in your tab; long clips may take a minute.</p>
+      </div>
+    );
+  }
+
+  if (phase === 'unavailable') {
     return (
       <div className="flex max-w-md flex-col items-center gap-4 rounded-lg bg-gray-800/90 p-6 text-center">
         <p className="text-sm text-gray-300">
-          This browser cannot decode this clip in the portal (common for some .mov codecs such as ProRes or HEVC). Download and open in QuickTime, VLC, or another desktop player.
+          The in-browser preview can’t decode this file, and automatic conversion failed or is disabled.
+          <span className="text-gray-400">
+            {' '}
+            Many .mp4 files use H.265 (HEVC) or other codecs that Chrome won’t play. Use <strong>Download</strong> and
+            open in QuickTime or VLC, or set <code className="text-amber-200/80">NEXT_PUBLIC_REVIEW_PORTAL_FFMPEG=0</code> to
+            skip the converter. Approval and delivery are unaffected.
+          </span>
         </p>
         <a
           href={dl}
@@ -34,6 +139,7 @@ function LightboxVideoPreview({ src, fileName }: { src: string; fileName: string
       </div>
     );
   }
+
   return (
     <video
       src={src}
@@ -41,7 +147,14 @@ function LightboxVideoPreview({ src, fileName }: { src: string; fileName: string
       controls
       playsInline
       preload="metadata"
-      onError={() => setFailed(true)}
+      onError={() => {
+        if (isPortalFfmpegTranscodeEnabled() && !transcodeTried.current) {
+          transcodeTried.current = true;
+          setPhase('transcoding');
+        } else {
+          setPhase('unavailable');
+        }
+      }}
     />
   );
 }
