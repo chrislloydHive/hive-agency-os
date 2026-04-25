@@ -1,6 +1,8 @@
 // lib/airtable/partnerDeliveryBatches.ts
 // Lookup destination folder by Batch ID for partner delivery webhook.
 
+import type { FieldSet } from 'airtable';
+
 import { getProjectsBase } from '@/lib/airtable';
 import { airtableFetch } from '@/lib/airtable/airtableFetch';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
@@ -593,14 +595,14 @@ export async function setPartnerDeliveryBatchStatusDeliveringForApproval(
   }
 
   try {
-    await base(TABLE).update(id, { [BATCH_STATUS_FIELD]: 'Delivering' } as Record<string, unknown>);
+    await base(TABLE).update(id, { [BATCH_STATUS_FIELD]: 'Delivering' } as Partial<FieldSet>);
     console.log(`[delivery/batch] Set ${TABLE} ${id} ${BATCH_STATUS_FIELD}=Delivering (post-approve)`);
     return { ok: true };
   } catch (_e1) {
     try {
       await base(TABLE).update(id, {
         [BATCH_DELIVERY_STATUS_FIELD]: 'Delivering',
-      } as Record<string, unknown>);
+      } as Partial<FieldSet>);
       console.log(
         `[delivery/batch] Set ${TABLE} ${id} ${BATCH_DELIVERY_STATUS_FIELD}=Delivering (post-approve)`,
       );
