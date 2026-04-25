@@ -1,8 +1,7 @@
 // app/api/review/assets/bulk-approve/route.ts
 // POST: Set Asset Approved (Client) = true on selected assets. Optionally sets Approved At
 // from client so the timestamp reflects when the user clicked.
-// NOTE: Approval sets delivery pipeline fields but does NOT trigger immediate delivery.
-// Delivery runs from batch activation (when Make Active = true on Partner Delivery Batch).
+// After Airtable updates, each approved row triggers `partner.delivery.requested` (Inngest).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveReviewProject } from '@/lib/review/resolveProject';
@@ -12,6 +11,7 @@ import {
   batchSetAssetApprovedClient,
   ensureCrasRecord,
 } from '@/lib/airtable/reviewAssetStatus';
+import { triggerPartnerDeliveryForCras } from '@/lib/delivery/triggerPartnerDeliveryForCras';
 
 export const dynamic = 'force-dynamic';
 
@@ -111,11 +111,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(payload, { status: 500, headers: NO_STORE });
   }
 
-  // Note: Delivery is NOT triggered immediately on approval.
-  // Assets are marked with Needs Delivery = true, Delivery Status = 'Ready for Delivery'.
-  // Actual delivery runs from batch activation (when Make Active = true on Partner Delivery Batch).
+  await Promise.allSettled(
+    toUpdate.map((crasRecordId) =>
+      triggerPartnerDeliveryForCras({
+        crasRecordId,
+        deliveryBatchId,
+        triggeredBy: 'review-assets-bulk-approve',
+      }).then((dr) => {
+        if (!dr.ok) {
+          console.warn(
+            '[bulk-approve] Partner delivery Inngest trigger failed (non-blocking):',
+            crasRecordId,
+            dr.error,
+          );
+        }
+      }),
+    ),
+  );
 
-  console.log(`[bulk-approve] Bulk approval complete. Delivery pipeline fields set (no immediate delivery).`, {
+  console.log(`[bulk-approve] Bulk approval complete.`, {
     approved: result.updated,
     alreadyApproved,
     deliveryBatchId: deliveryBatchId || 'undefined',

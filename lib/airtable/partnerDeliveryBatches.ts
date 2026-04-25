@@ -523,6 +523,8 @@ export async function updateDeliveryResultToRecord(
 const CRAS_TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 /** CRAS linked field → Partner Delivery Batches row (same base as CRAS). */
 const CRAS_PARTNER_DELIVERY_BATCH_FIELD = 'Partner Delivery Batch';
+/** CRAS: batch link, record id, or Batch ID name string (same field name as pipeline uses). */
+const CRAS_DELIVERY_BATCH_ID_FIELD = 'Delivery Batch ID';
 
 function partnerBatchDeliveringOnApproveDisabled(): boolean {
   const v = process.env.PARTNER_BATCH_SET_DELIVERING_ON_APPROVE?.trim().toLowerCase();
@@ -534,6 +536,24 @@ function extractProjectRecordId(raw: unknown): string | null {
     return raw[0];
   }
   if (typeof raw === 'string' && raw.startsWith('rec')) return raw;
+  return null;
+}
+
+/** Value from CRAS **Delivery Batch ID** (link, rec id, or batch name) for post-approve sync. */
+function extractCrasDeliveryBatchIdHintForSync(fields: Record<string, unknown>): string | null {
+  const raw = fields[CRAS_DELIVERY_BATCH_ID_FIELD];
+  if (Array.isArray(raw) && raw.length > 0) {
+    const first = raw[0];
+    if (typeof first === 'string' && first.startsWith('rec')) return first;
+    if (typeof first === 'object' && first !== null && 'id' in first) {
+      const id = (first as { id?: string }).id;
+      if (typeof id === 'string' && id.startsWith('rec')) return id;
+    }
+    if (typeof first === 'string' && first.trim()) return first.trim();
+  }
+  if (typeof raw === 'string' && raw.trim()) {
+    return raw.trim();
+  }
   return null;
 }
 
@@ -594,23 +614,38 @@ export async function setPartnerDeliveryBatchStatusDeliveringForApproval(
     return { ok: false, reason: msg };
   }
 
+  const deliveringPayload = {
+    [BATCH_STATUS_FIELD]: 'Delivering',
+    [BATCH_DELIVERY_STATUS_FIELD]: 'Delivering',
+  } as Partial<FieldSet>;
+
+  // Prefer a single update so Airtable automations that watch either field both see "Delivering".
   try {
-    await base(TABLE).update(id, { [BATCH_STATUS_FIELD]: 'Delivering' } as Partial<FieldSet>);
-    console.log(`[delivery/batch] Set ${TABLE} ${id} ${BATCH_STATUS_FIELD}=Delivering (post-approve)`);
+    await base(TABLE).update(id, deliveringPayload);
+    console.log(
+      `[delivery/batch] Set ${TABLE} ${id} ${BATCH_STATUS_FIELD}+${BATCH_DELIVERY_STATUS_FIELD}=Delivering (post-approve)`,
+    );
     return { ok: true };
-  } catch (_e1) {
+  } catch (bothErr) {
     try {
-      await base(TABLE).update(id, {
-        [BATCH_DELIVERY_STATUS_FIELD]: 'Delivering',
-      } as Partial<FieldSet>);
-      console.log(
-        `[delivery/batch] Set ${TABLE} ${id} ${BATCH_DELIVERY_STATUS_FIELD}=Delivering (post-approve)`,
-      );
+      await base(TABLE).update(id, { [BATCH_STATUS_FIELD]: 'Delivering' } as Partial<FieldSet>);
+      console.log(`[delivery/batch] Set ${TABLE} ${id} ${BATCH_STATUS_FIELD}=Delivering (post-approve)`);
       return { ok: true };
-    } catch (e2) {
-      const msg = e2 instanceof Error ? e2.message : String(e2);
-      console.warn(`[delivery/batch] Could not set Delivering on batch ${id}:`, msg);
-      return { ok: false, reason: msg };
+    } catch (_e1) {
+      try {
+        await base(TABLE).update(id, {
+          [BATCH_DELIVERY_STATUS_FIELD]: 'Delivering',
+        } as Partial<FieldSet>);
+        console.log(
+          `[delivery/batch] Set ${TABLE} ${id} ${BATCH_DELIVERY_STATUS_FIELD}=Delivering (post-approve)`,
+        );
+        return { ok: true };
+      } catch (e2) {
+        const msg = e2 instanceof Error ? e2.message : String(e2);
+        const bothMsg = bothErr instanceof Error ? bothErr.message : String(bothErr);
+        console.warn(`[delivery/batch] Could not set Delivering on batch ${id}:`, msg, { triedBothFields: bothMsg });
+        return { ok: false, reason: msg };
+      }
     }
   }
 }
@@ -620,8 +655,16 @@ async function resolvePartnerBatchRecordIdForApprovedCras(
   deliveryBatchId?: string | null,
   projectIdFallback?: string | null,
 ): Promise<string | null> {
-  const direct = extractPartnerBatchRecordIdFromCrasFields(fields, deliveryBatchId);
+  const fromCrasField = extractCrasDeliveryBatchIdHintForSync(fields);
+  const hint = (deliveryBatchId?.trim() || fromCrasField || '').trim() || null;
+
+  const direct = extractPartnerBatchRecordIdFromCrasFields(fields, hint);
   if (direct) return direct;
+
+  if (hint && !hint.startsWith('rec')) {
+    const byName = await getBatchDetails(hint);
+    if (byName?.recordId) return byName.recordId;
+  }
 
   const projectId =
     extractProjectRecordId(fields['Project']) ??
