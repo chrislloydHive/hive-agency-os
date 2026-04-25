@@ -18,6 +18,7 @@ import {
   resolveAlias,
   CRAS_PARTNER_DOWNLOADED_AT_ALIASES,
 } from '@/lib/airtable/deliveryWriteBack';
+import { syncPartnerDeliveryBatchesForApprovedCras } from '@/lib/airtable/partnerDeliveryBatches';
 
 const TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 
@@ -1476,6 +1477,16 @@ export async function batchSetAssetApprovedClient(
       return { updated, failedAt: i, error: message, airtableError: err };
     }
   }
+  if (recordIds.length > 0) {
+    try {
+      await syncPartnerDeliveryBatchesForApprovedCras(recordIds);
+    } catch (syncErr) {
+      console.warn(
+        '[batchSetAssetApprovedClient] syncPartnerDeliveryBatchesForApprovedCras:',
+        syncErr instanceof Error ? syncErr.message : syncErr,
+      );
+    }
+  }
   return { updated, failedAt: null };
 }
 
@@ -1593,6 +1604,14 @@ export async function setSingleAssetApprovedClient(
 
   try {
     await osBase(TABLE).update(existing.id, fields as any);
+    try {
+      await syncPartnerDeliveryBatchesForApprovedCras([existing.id]);
+    } catch (syncErr) {
+      console.warn(
+        '[setSingleAssetApprovedClient] syncPartnerDeliveryBatchesForApprovedCras:',
+        syncErr instanceof Error ? syncErr.message : syncErr,
+      );
+    }
     return { ok: true, recordId: existing.id };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1609,6 +1628,14 @@ export async function setSingleAssetApprovedClient(
       if (approvedByEmail !== undefined) coreFields['Approved By Email'] = String(approvedByEmail).slice(0, 200);
       try {
         await osBase(TABLE).update(existing.id, coreFields as any);
+        try {
+          await syncPartnerDeliveryBatchesForApprovedCras([existing.id]);
+        } catch (syncErr) {
+          console.warn(
+            '[setSingleAssetApprovedClient] syncPartnerDeliveryBatchesForApprovedCras (after core retry):',
+            syncErr instanceof Error ? syncErr.message : syncErr,
+          );
+        }
         return { ok: true, recordId: existing.id };
       } catch (retryErr) {
         const retryMessage = retryErr instanceof Error ? retryErr.message : String(retryErr);

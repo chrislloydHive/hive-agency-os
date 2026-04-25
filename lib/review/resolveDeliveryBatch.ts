@@ -1,7 +1,8 @@
 // lib/review/resolveDeliveryBatch.ts
 // Shared logic for resolving deliveryBatchId and batchRecordId from CRAS Project link
 
-import { getBase, getBaseId } from '@/lib/airtable';
+import { getProjectsBase } from '@/lib/airtable';
+import { resolveProjectsBaseId } from '@/lib/airtable/bases';
 import { CREATIVE_REVIEW_ASSET_STATUS_TABLE } from '@/lib/airtable/deliveryWriteBack';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 
@@ -18,8 +19,8 @@ export async function resolveDeliveryBatchFromCras(
   crasRecordId: string
 ): Promise<ResolvedDeliveryBatch | null> {
   try {
-    const base = getBase();
-    const baseId = getBaseId() || 'unknown';
+    const base = getProjectsBase();
+    const baseId = resolveProjectsBaseId() || 'unknown';
     const record = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
     const fields = record.fields as Record<string, unknown>;
     

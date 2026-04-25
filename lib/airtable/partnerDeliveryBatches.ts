@@ -515,3 +515,151 @@ export async function updateDeliveryResultToRecord(
     // Don't throw - allow delivery to succeed even if Airtable write-back fails
   }
 }
+
+// ── Post-approval: Partner Delivery Batch status (Airtable automations) ─────
+
+const CRAS_TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
+/** CRAS linked field → Partner Delivery Batches row (same base as CRAS). */
+const CRAS_PARTNER_DELIVERY_BATCH_FIELD = 'Partner Delivery Batch';
+
+function partnerBatchDeliveringOnApproveDisabled(): boolean {
+  const v = process.env.PARTNER_BATCH_SET_DELIVERING_ON_APPROVE?.trim().toLowerCase();
+  return v === '0' || v === 'false' || v === 'off';
+}
+
+function extractProjectRecordId(raw: unknown): string | null {
+  if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'string' && raw[0].startsWith('rec')) {
+    return raw[0];
+  }
+  if (typeof raw === 'string' && raw.startsWith('rec')) return raw;
+  return null;
+}
+
+function extractPartnerBatchRecordIdFromCrasFields(
+  fields: Record<string, unknown>,
+  deliveryBatchId?: string | null,
+): string | null {
+  if (deliveryBatchId?.trim().startsWith('rec')) return deliveryBatchId.trim();
+  const pdb = fields[CRAS_PARTNER_DELIVERY_BATCH_FIELD];
+  if (Array.isArray(pdb) && pdb.length > 0) {
+    const first = pdb[0];
+    if (typeof first === 'string' && first.startsWith('rec')) return first;
+    if (typeof first === 'object' && first !== null && 'id' in first) {
+      const id = (first as { id?: string }).id;
+      if (typeof id === 'string' && id.startsWith('rec')) return id;
+    }
+  }
+  if (typeof pdb === 'string' && pdb.startsWith('rec')) return pdb;
+  return null;
+}
+
+/**
+ * When a client approves an asset, some Airtable automations (e.g. production
+ * checklist) require at least one **Partner Delivery Batches** row for the
+ * project with **Status** (or **Delivery Status**) = `Delivering`. Batches
+ * often sit in `Active` until then — set `Delivering` idempotently.
+ *
+ * Disable with `PARTNER_BATCH_SET_DELIVERING_ON_APPROVE=0` if your base uses a
+ * different state machine.
+ */
+export async function setPartnerDeliveryBatchStatusDeliveringForApproval(
+  batchRecordId: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (partnerBatchDeliveringOnApproveDisabled()) {
+    return { ok: false, reason: 'PARTNER_BATCH_SET_DELIVERING_ON_APPROVE disabled' };
+  }
+  const id = String(batchRecordId).trim();
+  if (!id.startsWith('rec')) return { ok: false, reason: 'not a record id' };
+
+  const base = getProjectsBase();
+  try {
+    const rec = await base(TABLE).find(id);
+    const f = rec.fields as Record<string, unknown>;
+    const s1 = typeof f[BATCH_STATUS_FIELD] === 'string' ? (f[BATCH_STATUS_FIELD] as string).trim() : '';
+    const s2 =
+      typeof f[BATCH_DELIVERY_STATUS_FIELD] === 'string'
+        ? (f[BATCH_DELIVERY_STATUS_FIELD] as string).trim()
+        : '';
+    const merged = (s1 || s2).toLowerCase();
+    if (merged === 'delivered' || merged === 'cancelled' || merged === 'canceled') {
+      return { ok: false, reason: `terminal batch state: ${s1 || s2}` };
+    }
+    if (merged === 'delivering') {
+      return { ok: true };
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, reason: msg };
+  }
+
+  try {
+    await base(TABLE).update(id, { [BATCH_STATUS_FIELD]: 'Delivering' } as Record<string, unknown>);
+    console.log(`[delivery/batch] Set ${TABLE} ${id} ${BATCH_STATUS_FIELD}=Delivering (post-approve)`);
+    return { ok: true };
+  } catch (_e1) {
+    try {
+      await base(TABLE).update(id, {
+        [BATCH_DELIVERY_STATUS_FIELD]: 'Delivering',
+      } as Record<string, unknown>);
+      console.log(
+        `[delivery/batch] Set ${TABLE} ${id} ${BATCH_DELIVERY_STATUS_FIELD}=Delivering (post-approve)`,
+      );
+      return { ok: true };
+    } catch (e2) {
+      const msg = e2 instanceof Error ? e2.message : String(e2);
+      console.warn(`[delivery/batch] Could not set Delivering on batch ${id}:`, msg);
+      return { ok: false, reason: msg };
+    }
+  }
+}
+
+async function resolvePartnerBatchRecordIdForApprovedCras(
+  fields: Record<string, unknown>,
+  deliveryBatchId?: string | null,
+  projectIdFallback?: string | null,
+): Promise<string | null> {
+  const direct = extractPartnerBatchRecordIdFromCrasFields(fields, deliveryBatchId);
+  if (direct) return direct;
+
+  const projectId =
+    extractProjectRecordId(fields['Project']) ??
+    (projectIdFallback?.trim().startsWith('rec') ? projectIdFallback.trim() : null);
+  if (!projectId) return null;
+
+  const batches = await listBatchesByProjectId(projectId);
+  if (batches.length === 0) return null;
+  const preferred =
+    batches.find((b) => (b.status ?? '').toLowerCase() === 'active') ?? batches[0];
+  return preferred?.batchRecordId ?? null;
+}
+
+/**
+ * After CRAS rows are marked approved, flip linked Partner Delivery Batches to
+ * `Delivering` once per batch so Airtable scripts that gate on that status can run.
+ */
+export async function syncPartnerDeliveryBatchesForApprovedCras(
+  crasRecordIds: string[],
+): Promise<void> {
+  if (!crasRecordIds.length || partnerBatchDeliveringOnApproveDisabled()) return;
+
+  const base = getProjectsBase();
+  const seen = new Set<string>();
+
+  for (const rid of crasRecordIds) {
+    const id = String(rid).trim();
+    if (!id.startsWith('rec')) continue;
+    try {
+      const rec = await base(CRAS_TABLE).find(id);
+      const f = rec.fields as Record<string, unknown>;
+      const batchRec = await resolvePartnerBatchRecordIdForApprovedCras(f, null, null);
+      if (!batchRec || seen.has(batchRec)) continue;
+      seen.add(batchRec);
+      const r = await setPartnerDeliveryBatchStatusDeliveringForApproval(batchRec);
+      if (!r.ok && r.reason && !r.reason.includes('disabled')) {
+        console.warn(`[delivery/batch] post-approve batch ${batchRec}: ${r.reason}`);
+      }
+    } catch (e) {
+      console.warn(`[delivery/batch] post-approve sync skip CRAS ${id}:`, e instanceof Error ? e.message : e);
+    }
+  }
+}

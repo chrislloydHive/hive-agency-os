@@ -37,8 +37,9 @@ All CRAS / CRS / PDB / project reads for the review portal and delivery must use
 ### 4. Client approval → partner folders / copy
 
 1. **`POST /api/review/assets/approve`**: sets **Asset Approved (Client)** (and related fields) on CRAS via **`setSingleAssetApprovedClient`** — does **not** copy to partner Drive by itself.
-2. **Delivery** is driven by **Partner Delivery Batch** activation (`Make Active`, `Start Delivery`, or webhooks / Inngest **`partner.delivery.requested`**) per `docs/partner-delivery.md`.
-3. **`POST /api/delivery/partner/approved`**: resolves batch id from the **CRAS** record; the CRAS fetch must use **`getProjectsBase()`** so batch resolution works when CRAS lives in Client PM OS.
+2. **Partner Delivery Batches status:** Some Airtable automations (e.g. production checklist) require a batch row with **Status** = `Delivering`. Batches often sit in **`Active`** until handoff. After each successful approve, **`syncPartnerDeliveryBatchesForApprovedCras`** sets the linked batch (from CRAS **Partner Delivery Batch** or the project’s primary **Active** batch) to **`Delivering`**. Opt out with **`PARTNER_BATCH_SET_DELIVERING_ON_APPROVE=0`** if your base uses different select options.
+3. **Delivery** is still driven by **Partner Delivery Batch** activation (`Make Active`, `Start Delivery`, or webhooks / Inngest **`partner.delivery.requested`**) per `docs/partner-delivery.md`.
+4. **`POST /api/delivery/partner/approved`**: resolves batch id from the **CRAS** record; CRAS reads use **`getProjectsBase()`**.
 
 ## Regression note (Apr 9–10 class of bugs)
 
