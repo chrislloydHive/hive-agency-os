@@ -3,9 +3,9 @@
 // Skips non-writable fields (formula/lookup/rollup), safe for single-select (only set existing choices).
 // Logs which fields were found and written.
 
-import { getBase } from '@/lib/airtable';
+import { getProjectsBase } from '@/lib/airtable';
 import { airtableFetch } from '@/lib/airtable/airtableFetch';
-import { resolveOsBaseId } from '@/lib/airtable/bases';
+import { resolveProjectsBaseId } from '@/lib/airtable/bases';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 
 const READ_ONLY_FIELD_TYPES = new Set([
@@ -77,9 +77,10 @@ const schemaCache = new Map<
 >();
 const SCHEMA_CACHE_TTL_MS = 10 * 60 * 1000;
 
+/** Creative review + partner delivery tables live in the projects base; fall back to OS when not split. */
 function getBaseId(): string {
-  const id = resolveOsBaseId();
-  if (!id) throw new Error('AIRTABLE_OS_BASE_ID or AIRTABLE_BASE_ID required for delivery write-back');
+  const id = resolveProjectsBaseId();
+  if (!id) throw new Error('AIRTABLE_OS_BASE_ID or AIRTABLE_BASE_ID (or AIRTABLE_PROJECTS_BASE_ID) required for delivery write-back');
   return id;
 }
 
@@ -450,7 +451,7 @@ export async function writeDeliveryToRecord(
   const deliverDateValue = fieldsToWrite['Delivered At'] || null;
   
   try {
-    const base = getBase();
+    const base = getProjectsBase();
     await base(tableName).update(recordId, fieldsToWrite as any);
     console.log('[deliveryWriteBack] Written to Airtable:', {
       baseId: baseId ? `${baseId.substring(0, 20)}...` : 'unknown',
@@ -500,7 +501,7 @@ export async function writeDeliveryToRecord(
       }
       
       try {
-        const base = getBase();
+        const base = getProjectsBase();
         await base(tableName).update(recordId, dateOnlyFields as any);
         console.log('[deliveryWriteBack] Written to', tableName, 'record', recordId, 'fields (fallback, date-only Delivered At):', written.join(', '));
         return { ok: true, written, skipped };
@@ -575,7 +576,7 @@ export async function writeDeliveryToRecord(
           }
           
           try {
-            const base = getBase();
+            const base = getProjectsBase();
             await base(tableName).update(recordId, fallbackFields as any);
             const fallbackWritten = Object.keys(fallbackFields);
             console.log('[deliveryWriteBack] Written to', tableName, 'record', recordId, 'fields (final fallback, no Delivered At):', fallbackWritten.join(', '), {
@@ -635,7 +636,7 @@ export async function writeDeliveryToRecord(
       }
       
       try {
-        const base = getBase();
+        const base = getProjectsBase();
         await base(tableName).update(recordId, fieldsWithoutSummary as any);
         const retryWritten = Object.keys(fieldsWithoutSummary);
         console.log('[deliveryWriteBack] Written to', tableName, 'record', recordId, 'fields (without Delivery Summary):', retryWritten.join(', '));
@@ -730,7 +731,7 @@ export async function writePartnerActivityToRecord(
   }
 
   try {
-    const base = getBase();
+    const base = getProjectsBase();
     await base(tableName).update(recordId, fieldsToWrite as any);
     console.log('[deliveryWriteBack] Partner activity written to', tableName, 'record', recordId, 'fields:', written.join(', '));
     return { ok: true, written, skipped };

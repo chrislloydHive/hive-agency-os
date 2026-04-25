@@ -8,7 +8,7 @@ import {
   getAssetStatusRecordById,
   isAlreadyDelivered,
 } from '@/lib/airtable/reviewAssetDelivery';
-import { getBase } from '@/lib/airtable';
+import { getProjectsBase } from '@/lib/airtable';
 import { CREATIVE_REVIEW_ASSET_STATUS_TABLE } from '@/lib/airtable/deliveryWriteBack';
 import { DELIVERY_BATCH_ID_FIELD } from '@/lib/airtable/reviewAssetStatus';
 import {
@@ -255,7 +255,7 @@ export const partnerDeliveryRequested = inngest.createFunction(
         } else {
           // Last resort: fetch batch ID from Airtable record
           try {
-            const base = getBase();
+            const base = getProjectsBase();
             const airtableRecord = await base(CREATIVE_REVIEW_ASSET_STATUS_TABLE).find(crasRecordId);
             const batchRaw = airtableRecord.fields[DELIVERY_BATCH_ID_FIELD];
             if (Array.isArray(batchRaw) && batchRaw.length > 0 && typeof batchRaw[0] === 'string') {

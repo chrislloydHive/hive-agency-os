@@ -1,7 +1,7 @@
 // lib/airtable/reviewAssetDelivery.ts
 // Get and update Creative Review Asset Status delivery fields (webhook flow).
 
-import { getBase } from '@/lib/airtable';
+import { getProjectsBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import {
   writeDeliveryToRecord,
@@ -61,7 +61,7 @@ export interface AssetDeliveryRecord {
 export async function getAssetStatusRecordById(
   recordId: string
 ): Promise<AssetDeliveryRecord | null> {
-  const base = getBase();
+  const base = getProjectsBase();
   try {
     const record = await base(TABLE).find(recordId);
     const f = record.fields as Record<string, unknown>;
