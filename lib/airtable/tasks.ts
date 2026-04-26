@@ -97,8 +97,10 @@ export function parseRecurrenceFromRequestBody(body: Record<string, unknown>):
   | { ok: true; present: false }
   | { ok: true; present: true; value: TaskRecurrence | null }
   | { ok: false; error: string } {
-  if (!('recurrence' in body)) return { ok: true, present: false };
-  const v = body.recurrence;
+  const hasLower = Object.prototype.hasOwnProperty.call(body, 'recurrence');
+  const hasPascal = Object.prototype.hasOwnProperty.call(body, 'Recurrence');
+  if (!hasLower && !hasPascal) return { ok: true, present: false };
+  const v = hasLower ? body.recurrence : body.Recurrence;
   if (v === null || v === undefined || v === '') {
     return { ok: true, present: true, value: null };
   }
@@ -112,6 +114,44 @@ export function parseRecurrenceFromRequestBody(body: Record<string, unknown>):
     };
   }
   return { ok: true, present: true, value: v as TaskRecurrence };
+}
+
+/**
+ * Own-keys from JSON PATCH bodies that map to {@link UpdateTaskInput}.
+ * `recurrence` is omitted — HTTP routes merge it after {@link parseRecurrenceFromRequestBody}.
+ */
+export const TASK_HTTP_PATCH_KEYS = [
+  'task',
+  'priority',
+  'due',
+  'from',
+  'project',
+  'nextAction',
+  'status',
+  'view',
+  'threadUrl',
+  'draftUrl',
+  'attachUrl',
+  'done',
+  'notes',
+  'assignedTo',
+  'source',
+  'sourceRef',
+  'autoCreated',
+  'dismissedAt',
+  'lastSeenAt',
+  'latestInboundAt',
+] as const satisfies readonly (keyof UpdateTaskInput)[];
+
+/** Allow-listed patch fields from a client JSON body (excludes `recurrence`). */
+export function sanitizeTaskUpdateFromJsonBody(raw: Record<string, unknown>): UpdateTaskInput {
+  const out: UpdateTaskInput = {};
+  for (const key of TASK_HTTP_PATCH_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(raw, key)) {
+      (out as Record<string, unknown>)[key] = raw[key];
+    }
+  }
+  return out;
 }
 
 /** Source of an auto-created task. `manual` = user-created (default). */
@@ -372,7 +412,7 @@ function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<stri
   if ('dismissedAt' in input) fields[TASK_FIELDS.DISMISSED_AT] = input.dismissedAt || null;
   if ('lastSeenAt' in input) fields[TASK_FIELDS.LAST_SEEN_AT] = input.lastSeenAt || null;
   if ('latestInboundAt' in input) fields[TASK_FIELDS.LATEST_INBOUND_AT] = input.latestInboundAt || null;
-  if ('recurrence' in input) {
+  if (Object.prototype.hasOwnProperty.call(input, 'recurrence')) {
     fields[TASK_FIELDS.RECURRENCE] =
       input.recurrence === null || input.recurrence === undefined ? null : input.recurrence;
   }
@@ -579,7 +619,7 @@ export async function createTask(input: CreateTaskInput): Promise<TaskRecord> {
 
   const response = await fetchWithRetry(url, {
     method: 'POST',
-    body: JSON.stringify({ fields }),
+    body: JSON.stringify({ fields, typecast: true }),
   });
 
   if (!response.ok) {
@@ -632,7 +672,7 @@ export async function updateTask(recordId: string, input: UpdateTaskInput): Prom
 
   const response = await fetchWithRetry(url, {
     method: 'PATCH',
-    body: JSON.stringify({ fields }),
+    body: JSON.stringify({ fields, typecast: true }),
   });
 
   if (!response.ok) {

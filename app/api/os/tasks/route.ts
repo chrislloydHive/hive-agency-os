@@ -8,8 +8,9 @@ import {
   updateTask,
   deleteTask,
   parseRecurrenceFromRequestBody,
+  sanitizeTaskUpdateFromJsonBody,
 } from '@/lib/airtable/tasks';
-import type { TaskView, TaskStatus, UpdateTaskInput } from '@/lib/airtable/tasks';
+import type { TaskView, TaskStatus } from '@/lib/airtable/tasks';
 
 export const dynamic = 'force-dynamic';
 
@@ -107,7 +108,7 @@ export async function PATCH(request: NextRequest) {
     if (!bodyRec.ok) {
       return NextResponse.json({ error: bodyRec.error }, { status: 400 });
     }
-    const patch = { ...fields } as UpdateTaskInput;
+    const patch = sanitizeTaskUpdateFromJsonBody(fields as Record<string, unknown>);
     if (bodyRec.present) {
       patch.recurrence = bodyRec.value;
     } else {

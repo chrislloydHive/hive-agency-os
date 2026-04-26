@@ -2,8 +2,12 @@
 // Per-task GET + PATCH. Thin wrappers around lib/airtable/tasks.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getTasks, updateTask, parseRecurrenceFromRequestBody } from '@/lib/airtable/tasks';
-import type { UpdateTaskInput } from '@/lib/airtable/tasks';
+import {
+  getTasks,
+  updateTask,
+  parseRecurrenceFromRequestBody,
+  sanitizeTaskUpdateFromJsonBody,
+} from '@/lib/airtable/tasks';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +40,7 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     if (!bodyRec.ok) {
       return NextResponse.json({ error: bodyRec.error }, { status: 400 });
     }
-    const patch = { ...body } as UpdateTaskInput;
+    const patch = sanitizeTaskUpdateFromJsonBody(body as Record<string, unknown>);
     if (bodyRec.present) {
       patch.recurrence = bodyRec.value;
     } else {
