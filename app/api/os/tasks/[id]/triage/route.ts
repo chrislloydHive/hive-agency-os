@@ -7,9 +7,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { getTasks } from '@/lib/airtable/tasks';
 import type { TaskRecord } from '@/lib/airtable/tasks';
-import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
-import { refreshAccessToken } from '@/lib/google/oauth';
 import { extractGmailThreadIdFromUrl } from '@/lib/gmail/extractThreadIdFromUrl';
+import { getOsGoogleAccessToken } from '@/lib/gmail/osGoogleAccess';
 import {
   extractBody,
   type GmailMessageLike,
@@ -118,26 +117,6 @@ function formatLatestMessagesForPrompt(
   return blocks.join('\n\n');
 }
 
-async function resolveGoogleAccess(): Promise<{ accessToken: string } | { error: string; status: number }> {
-  let refreshToken: string | undefined;
-  const defaultCompanyId = process.env.DMA_DEFAULT_COMPANY_ID;
-  if (defaultCompanyId) {
-    const integrations = await getCompanyIntegrations(defaultCompanyId);
-    refreshToken = integrations?.google?.refreshToken;
-  }
-  if (!refreshToken) refreshToken = (await getAnyGoogleRefreshToken()) || undefined;
-  if (!refreshToken) {
-    return { error: 'No Google refresh token available', status: 500 };
-  }
-  try {
-    const accessToken = await refreshAccessToken(refreshToken);
-    return { accessToken };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Token refresh failed';
-    return { error: msg, status: 401 };
-  }
-}
-
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
@@ -159,8 +138,8 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    const googleAccess = await resolveGoogleAccess();
-    if ('error' in googleAccess) {
+    const googleAccess = await getOsGoogleAccessToken();
+    if (!googleAccess.ok) {
       return NextResponse.json({ error: googleAccess.error }, { status: googleAccess.status });
     }
 
