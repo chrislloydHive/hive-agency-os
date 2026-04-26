@@ -71,7 +71,48 @@ const TASK_FIELDS = {
   // is later than the former.
   LAST_SEEN_AT: 'Last Seen At',
   LATEST_INBOUND_AT: 'Latest Inbound At',
+  /** Single select: daily | weekdays | weekly | biweekly | monthly (lowercase). */
+  RECURRENCE: 'Recurrence',
 } as const;
+
+/** Allowed `recurrence` values for OS APIs and Airtable single-select. */
+export const TASK_RECURRENCE_VALUES = [
+  'daily',
+  'weekdays',
+  'weekly',
+  'biweekly',
+  'monthly',
+] as const;
+export type TaskRecurrence = (typeof TASK_RECURRENCE_VALUES)[number];
+
+const TASK_RECURRENCE_SET = new Set<string>(TASK_RECURRENCE_VALUES);
+
+/**
+ * Parse `recurrence` from a JSON body (PATCH/POST).
+ * - Field omitted → present: false (PATCH should not change Airtable).
+ * - null or "" → present: true, value: null (clear recurrence).
+ * - Otherwise must be one of TASK_RECURRENCE_VALUES (case-sensitive).
+ */
+export function parseRecurrenceFromRequestBody(body: Record<string, unknown>):
+  | { ok: true; present: false }
+  | { ok: true; present: true; value: TaskRecurrence | null }
+  | { ok: false; error: string } {
+  if (!('recurrence' in body)) return { ok: true, present: false };
+  const v = body.recurrence;
+  if (v === null || v === undefined || v === '') {
+    return { ok: true, present: true, value: null };
+  }
+  if (typeof v !== 'string') {
+    return { ok: false, error: 'recurrence must be a string, null, or empty string' };
+  }
+  if (!TASK_RECURRENCE_SET.has(v)) {
+    return {
+      ok: false,
+      error: `Invalid recurrence "${v}". Allowed: ${TASK_RECURRENCE_VALUES.join(', ')}`,
+    };
+  }
+  return { ok: true, present: true, value: v as TaskRecurrence };
+}
 
 /** Source of an auto-created task. `manual` = user-created (default). */
 export type TaskSource =
@@ -115,6 +156,8 @@ export interface TaskRecord {
   /** Thread-activity tracking. See field constants above. */
   lastSeenAt: string | null;
   latestInboundAt: string | null;
+  /** Repeating schedule; null = does not repeat. */
+  recurrence: TaskRecurrence | null;
 }
 
 export interface CreateTaskInput {
@@ -138,6 +181,7 @@ export interface CreateTaskInput {
   dismissedAt?: string | null;
   lastSeenAt?: string | null;
   latestInboundAt?: string | null;
+  recurrence?: TaskRecurrence | null;
 }
 
 export interface UpdateTaskInput {
@@ -164,6 +208,22 @@ export interface UpdateTaskInput {
   lastSeenAt?: string | null;
   /** ISO datetime; null leaves unchanged when omitted. */
   latestInboundAt?: string | null;
+  recurrence?: TaskRecurrence | null;
+}
+
+/** Map Airtable record → TaskRecord (includes recurrence). */
+export function deserializeTaskFromAirtable(record: {
+  id: string;
+  fields?: Record<string, unknown>;
+}): TaskRecord {
+  return mapRecordToTask(record);
+}
+
+/** Map create/update input → Airtable `fields` payload. */
+export function serializeTaskFieldsForAirtable(
+  input: CreateTaskInput | UpdateTaskInput,
+): Record<string, unknown> {
+  return mapInputToFields(input);
 }
 
 // ============================================================================
@@ -196,7 +256,16 @@ function mapRecordToTask(record: any): TaskRecord {
     dismissedAt: f[TASK_FIELDS.DISMISSED_AT] || null,
     lastSeenAt: f[TASK_FIELDS.LAST_SEEN_AT] || null,
     latestInboundAt: f[TASK_FIELDS.LATEST_INBOUND_AT] || null,
+    recurrence: normalizeRecurrenceFromAirtable(f[TASK_FIELDS.RECURRENCE]),
   };
+}
+
+function normalizeRecurrenceFromAirtable(raw: unknown): TaskRecurrence | null {
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'string' && TASK_RECURRENCE_SET.has(raw)) {
+    return raw as TaskRecurrence;
+  }
+  return null;
 }
 
 /**
@@ -303,6 +372,10 @@ function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<stri
   if ('dismissedAt' in input) fields[TASK_FIELDS.DISMISSED_AT] = input.dismissedAt || null;
   if ('lastSeenAt' in input) fields[TASK_FIELDS.LAST_SEEN_AT] = input.lastSeenAt || null;
   if ('latestInboundAt' in input) fields[TASK_FIELDS.LATEST_INBOUND_AT] = input.latestInboundAt || null;
+  if ('recurrence' in input) {
+    fields[TASK_FIELDS.RECURRENCE] =
+      input.recurrence === null || input.recurrence === undefined ? null : input.recurrence;
+  }
 
   return fields;
 }

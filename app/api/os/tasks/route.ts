@@ -2,8 +2,14 @@
 // API routes for Hive task management (CRUD)
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getTasks, createTask, updateTask, deleteTask } from '@/lib/airtable/tasks';
-import type { TaskView, TaskStatus } from '@/lib/airtable/tasks';
+import {
+  getTasks,
+  createTask,
+  updateTask,
+  deleteTask,
+  parseRecurrenceFromRequestBody,
+} from '@/lib/airtable/tasks';
+import type { TaskView, TaskStatus, UpdateTaskInput } from '@/lib/airtable/tasks';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +55,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const rec = parseRecurrenceFromRequestBody(body as Record<string, unknown>);
+    if (!rec.ok) {
+      return NextResponse.json({ error: rec.error }, { status: 400 });
+    }
+
     const created = await createTask({
       task: body.task,
       priority: body.priority,
@@ -63,6 +74,7 @@ export async function POST(request: NextRequest) {
       attachUrl: body.attachUrl,
       done: body.done,
       notes: body.notes,
+      ...(rec.present ? { recurrence: rec.value } : {}),
     });
 
     return NextResponse.json({ task: created }, { status: 201 });
@@ -91,7 +103,18 @@ export async function PATCH(request: NextRequest) {
     }
 
     const { id, ...fields } = body;
-    const updated = await updateTask(id, fields);
+    const bodyRec = parseRecurrenceFromRequestBody(fields as Record<string, unknown>);
+    if (!bodyRec.ok) {
+      return NextResponse.json({ error: bodyRec.error }, { status: 400 });
+    }
+    const patch = { ...fields } as UpdateTaskInput;
+    if (bodyRec.present) {
+      patch.recurrence = bodyRec.value;
+    } else {
+      delete patch.recurrence;
+    }
+
+    const updated = await updateTask(id, patch);
 
     return NextResponse.json({ task: updated });
   } catch (error) {

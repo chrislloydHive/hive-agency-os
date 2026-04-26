@@ -20,6 +20,13 @@ function baseTask(over: Partial<TaskRecord> = {}): TaskRecord {
     assignedTo: '',
     createdAt: null,
     lastModified: null,
+    source: null,
+    sourceRef: null,
+    autoCreated: false,
+    dismissedAt: null,
+    lastSeenAt: null,
+    latestInboundAt: null,
+    recurrence: null,
     ...over,
   };
 }

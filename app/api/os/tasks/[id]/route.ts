@@ -2,7 +2,8 @@
 // Per-task GET + PATCH. Thin wrappers around lib/airtable/tasks.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getTasks, updateTask } from '@/lib/airtable/tasks';
+import { getTasks, updateTask, parseRecurrenceFromRequestBody } from '@/lib/airtable/tasks';
+import type { UpdateTaskInput } from '@/lib/airtable/tasks';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,7 +32,18 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     const { id } = await ctx.params;
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
     const body = await request.json();
-    const updated = await updateTask(id, body);
+    const bodyRec = parseRecurrenceFromRequestBody(body as Record<string, unknown>);
+    if (!bodyRec.ok) {
+      return NextResponse.json({ error: bodyRec.error }, { status: 400 });
+    }
+    const patch = { ...body } as UpdateTaskInput;
+    if (bodyRec.present) {
+      patch.recurrence = bodyRec.value;
+    } else {
+      delete patch.recurrence;
+    }
+
+    const updated = await updateTask(id, patch);
     return NextResponse.json({ task: updated });
   } catch (err) {
     console.error('[Tasks/:id] PATCH error:', err);

@@ -33,6 +33,7 @@ import {
   type DecisionThreadInput,
   type DecisionActivitySummary,
 } from '@/lib/decisionEngine';
+import { extractGmailThreadIdFromUrl } from '@/lib/gmail/extractThreadIdFromUrl';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 45;
@@ -56,15 +57,6 @@ function extractPlainText(payload: MsgPart | undefined | null): string {
   };
   walk(payload);
   return body;
-}
-
-/** Pull the thread id out of a stored threadUrl. Accepts both old and new Gmail URLs. */
-function threadIdFromUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  const m1 = /#inbox\/([a-zA-Z0-9]+)/.exec(url);
-  if (m1) return m1[1];
-  const m2 = /[?&]th=([a-zA-Z0-9]+)/.exec(url);
-  return m2 ? m2[1] : null;
 }
 
 function overdueDaysFor(ymd: string | null, now: Date): number | null {
@@ -169,7 +161,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     // ── Thread context (best-effort) ──────────────────────────────────────
     let thread: DecisionThreadInput | undefined;
     let latestMessageId: string | null = null;
-    const threadId = threadIdFromUrl(task.threadUrl);
+    const threadId = extractGmailThreadIdFromUrl(task.threadUrl);
     if (threadId) {
       try {
         let refreshToken: string | undefined;
