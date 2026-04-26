@@ -6,6 +6,7 @@ import {
   getTasks,
   updateTask,
   parseRecurrenceFromRequestBody,
+  parseSuggestedResolutionPatchInput,
   sanitizeTaskUpdateFromJsonBody,
 } from '@/lib/airtable/tasks';
 
@@ -35,16 +36,25 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
   try {
     const { id } = await ctx.params;
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
-    const body = await request.json();
-    const bodyRec = parseRecurrenceFromRequestBody(body as Record<string, unknown>);
+    const body = (await request.json()) as Record<string, unknown>;
+    const bodyRec = parseRecurrenceFromRequestBody(body);
     if (!bodyRec.ok) {
       return NextResponse.json({ error: bodyRec.error }, { status: 400 });
     }
-    const patch = sanitizeTaskUpdateFromJsonBody(body as Record<string, unknown>);
+    const patch = sanitizeTaskUpdateFromJsonBody(body);
     if (bodyRec.present) {
       patch.recurrence = bodyRec.value;
     } else {
       delete patch.recurrence;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'suggestedResolution')) {
+      const sr = parseSuggestedResolutionPatchInput(body.suggestedResolution);
+      if (!sr.ok) {
+        return NextResponse.json({ error: sr.error }, { status: 400 });
+      }
+      patch.suggestedResolution = sr.value;
+    } else {
+      delete patch.suggestedResolution;
     }
 
     const updated = await updateTask(id, patch);

@@ -35,6 +35,7 @@ function baseTask(over: Partial<TaskRecord> = {}): TaskRecord {
     lastSeenAt: null,
     latestInboundAt: null,
     recurrence: null,
+    suggestedResolution: null,
     ...over,
   };
 }

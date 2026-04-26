@@ -5,6 +5,7 @@
  * Supports inbox triage, brain dump, projects, and archive views.
  */
 
+import { z } from 'zod';
 import { fetchWithRetry } from './client';
 import { resolveTasksBaseId } from './bases';
 import { logEventAsync, summarizeTaskUpdate, type ActivityAction } from './activityLog';
@@ -12,6 +13,13 @@ import { logEventAsync, summarizeTaskUpdate, type ActivityAction } from './activ
 // ============================================================================
 // Constants
 // ============================================================================
+
+/**
+ * Long-text JSON column for AI suggested resolution (POST /api/os/auto-resolve).
+ * Override if the Airtable column name differs: AIRTABLE_TASKS_FIELD_SUGGESTED_RESOLUTION.
+ */
+export const suggestedResolutionJsonFieldName =
+  process.env.AIRTABLE_TASKS_FIELD_SUGGESTED_RESOLUTION?.trim() || 'Suggested Resolution';
 
 /**
  * Table name or table ID (tbl...) for the Tasks table.
@@ -73,6 +81,8 @@ const TASK_FIELDS = {
   LATEST_INBOUND_AT: 'Latest Inbound At',
   /** Single select: daily | weekdays | weekly | biweekly | monthly (lowercase). */
   RECURRENCE: 'Recurrence',
+  /** Long text: JSON {@link SuggestedResolution} from auto-resolve; cleared via PATCH null. */
+  SUGGESTED_RESOLUTION: suggestedResolutionJsonFieldName,
 } as const;
 
 /** Allowed `recurrence` values for OS APIs and Airtable single-select. */
@@ -86,6 +96,82 @@ export const TASK_RECURRENCE_VALUES = [
 export type TaskRecurrence = (typeof TASK_RECURRENCE_VALUES)[number];
 
 const TASK_RECURRENCE_SET = new Set<string>(TASK_RECURRENCE_VALUES);
+
+// --- Suggested resolution (long-text JSON on Tasks) -------------------------------------------
+
+export type SuggestedResolutionAction = 'close' | 'update_nextAction' | 'leave';
+export type SuggestedResolutionConfidence = 'high' | 'medium' | 'low';
+
+/** Stored in Airtable "Suggested Resolution" and returned on GET /tasks. */
+export type SuggestedResolution = {
+  action: SuggestedResolutionAction;
+  /** Required when action is `update_nextAction`. */
+  newNextAction?: string;
+  reasoning: string;
+  confidence: SuggestedResolutionConfidence;
+  suggestedAt: string;
+};
+
+export const suggestedResolutionStoredSchema = z
+  .object({
+    action: z.enum(['close', 'update_nextAction', 'leave']),
+    newNextAction: z.string().min(1).optional(),
+    reasoning: z.string().min(1),
+    confidence: z.enum(['high', 'medium', 'low']),
+    suggestedAt: z.string().min(1),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    if (data.action === 'update_nextAction') {
+      if (!data.newNextAction?.trim()) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['newNextAction'],
+          message: 'newNextAction is required when action is update_nextAction',
+        });
+      }
+    } else if (data.newNextAction != null && String(data.newNextAction).trim() !== '') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['newNextAction'],
+        message: 'newNextAction must be omitted unless action is update_nextAction',
+      });
+    }
+  });
+
+/** Read Airtable cell → typed object or null if empty / invalid JSON / schema mismatch. */
+export function parseSuggestedResolutionFromAirtable(raw: unknown): SuggestedResolution | null {
+  if (raw == null || raw === '') return null;
+  if (typeof raw !== 'string') return null;
+  const t = raw.trim();
+  if (!t) return null;
+  try {
+    const obj = JSON.parse(t) as unknown;
+    const r = suggestedResolutionStoredSchema.safeParse(obj);
+    return r.success ? r.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Validate PATCH body value for `suggestedResolution`: `null` clears; object must match schema.
+ */
+export function parseSuggestedResolutionPatchInput(
+  v: unknown,
+): { ok: true; value: SuggestedResolution | null } | { ok: false; error: string } {
+  if (v === null) return { ok: true, value: null };
+  if (typeof v !== 'object' || Array.isArray(v)) {
+    return { ok: false, error: 'suggestedResolution must be null or an object' };
+  }
+  const r = suggestedResolutionStoredSchema.safeParse(v);
+  if (!r.success) {
+    const flat = r.error.flatten();
+    const detail = [...flat.formErrors, ...Object.values(flat.fieldErrors).flat()].filter(Boolean).join('; ');
+    return { ok: false, error: detail || 'Invalid suggestedResolution' };
+  }
+  return { ok: true, value: r.data };
+}
 
 /**
  * Parse `recurrence` from a JSON body (PATCH/POST).
@@ -141,6 +227,7 @@ export const TASK_HTTP_PATCH_KEYS = [
   'dismissedAt',
   'lastSeenAt',
   'latestInboundAt',
+  'suggestedResolution',
 ] as const satisfies readonly (keyof UpdateTaskInput)[];
 
 /** Allow-listed patch fields from a client JSON body (excludes `recurrence`). */
@@ -198,6 +285,8 @@ export interface TaskRecord {
   latestInboundAt: string | null;
   /** Repeating schedule; null = does not repeat. */
   recurrence: TaskRecurrence | null;
+  /** AI classifier output pending user review; null if none. */
+  suggestedResolution: SuggestedResolution | null;
 }
 
 export interface CreateTaskInput {
@@ -222,6 +311,7 @@ export interface CreateTaskInput {
   lastSeenAt?: string | null;
   latestInboundAt?: string | null;
   recurrence?: TaskRecurrence | null;
+  suggestedResolution?: SuggestedResolution | null;
 }
 
 export interface UpdateTaskInput {
@@ -249,6 +339,8 @@ export interface UpdateTaskInput {
   /** ISO datetime; null leaves unchanged when omitted. */
   latestInboundAt?: string | null;
   recurrence?: TaskRecurrence | null;
+  /** null clears pending suggestion; object sets/replaces (validated by route). */
+  suggestedResolution?: SuggestedResolution | null;
 }
 
 /** Map Airtable record → TaskRecord (includes recurrence). */
@@ -297,6 +389,7 @@ function mapRecordToTask(record: any): TaskRecord {
     lastSeenAt: f[TASK_FIELDS.LAST_SEEN_AT] || null,
     latestInboundAt: f[TASK_FIELDS.LATEST_INBOUND_AT] || null,
     recurrence: normalizeRecurrenceFromAirtable(f[TASK_FIELDS.RECURRENCE]),
+    suggestedResolution: parseSuggestedResolutionFromAirtable(f[TASK_FIELDS.SUGGESTED_RESOLUTION]),
   };
 }
 
@@ -415,6 +508,14 @@ function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<stri
   if (Object.prototype.hasOwnProperty.call(input, 'recurrence')) {
     fields[TASK_FIELDS.RECURRENCE] =
       input.recurrence === null || input.recurrence === undefined ? null : input.recurrence;
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'suggestedResolution')) {
+    const sr = (input as UpdateTaskInput & CreateTaskInput).suggestedResolution;
+    if (sr === null || sr === undefined) {
+      fields[TASK_FIELDS.SUGGESTED_RESOLUTION] = null;
+    } else if (typeof sr === 'object' && !Array.isArray(sr)) {
+      fields[TASK_FIELDS.SUGGESTED_RESOLUTION] = JSON.stringify(sr);
+    }
   }
 
   return fields;
