@@ -15,6 +15,45 @@ import {
 } from '@/lib/airtable/partnerDeliveryBatches';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 
+function normalizeLinkedOrScalarString(raw: unknown): string | null {
+  if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  if (Array.isArray(raw) && raw.length > 0) {
+    const first = raw[0];
+    if (typeof first === 'string' && first.trim()) return first.trim();
+    if (typeof first === 'object' && first !== null && 'name' in first) {
+      const n = (first as { name?: string }).name;
+      if (typeof n === 'string' && n.trim()) return n.trim();
+    }
+  }
+  return null;
+}
+
+/** Portal token on CRAS — try plain + configured lookup field names. */
+function reviewTokenFromCrasFields(fields: Record<string, unknown>): string | null {
+  const plain = process.env.REVIEW_CRAS_PLAIN_TOKEN_FIELD?.trim() || 'Review Token';
+  const configured =
+    process.env.REVIEW_CRAS_TOKEN_FIELD?.trim() || 'Review Portal Token (lookup)';
+  for (const key of [plain, configured, 'Review Token', 'Review Portal Token (lookup)']) {
+    const s = normalizeLinkedOrScalarString(fields[key]);
+    if (s) return s;
+  }
+  return null;
+}
+
+function projectRecordIdFromCrasFields(fields: Record<string, unknown>): string | null {
+  const raw = fields['Project'];
+  if (Array.isArray(raw) && raw.length > 0) {
+    const first = raw[0];
+    if (typeof first === 'string' && first.startsWith('rec')) return first;
+    if (typeof first === 'object' && first !== null && 'id' in first) {
+      const id = (first as { id?: string }).id;
+      if (typeof id === 'string' && id.startsWith('rec')) return id;
+    }
+  }
+  if (typeof raw === 'string' && raw.startsWith('rec')) return raw;
+  return null;
+}
+
 export interface TriggerPartnerDeliveryForCrasInput {
   crasRecordId: string;
   requestId?: string;
@@ -118,14 +157,14 @@ export async function triggerPartnerDeliveryForCras(
       }
 
       if (!batchRecordId) {
-        const reviewToken = crasRecord?.fields?.['Review Token'];
-        if (typeof reviewToken === 'string' && reviewToken.trim()) {
+        const reviewToken = crasRecord ? reviewTokenFromCrasFields(crasRecord.fields) : null;
+        if (reviewToken) {
           console.log(
             '[triggerPartnerDeliveryForCras] Path 3: Resolving batch via Review Token → Project → Batch',
           );
           try {
             const projectsBase = getProjectsBase();
-            const tokenEsc = reviewToken.trim().replace(/"/g, '\\"');
+            const tokenEsc = reviewToken.replace(/"/g, '\\"');
             const REVIEW_TOKEN_FIELD =
               process.env.REVIEW_PORTAL_TOKEN_FIELD?.trim() || 'Client Review Portal Token';
             const projectRecords = await projectsBase(AIRTABLE_TABLES.PROJECTS)
@@ -154,12 +193,39 @@ export async function triggerPartnerDeliveryForCras(
               }
             } else {
               console.warn(
-                `[triggerPartnerDeliveryForCras] Path 3: No project found for Review Token "${reviewToken.slice(0, 12)}..."`,
+                `[triggerPartnerDeliveryForCras] Path 3: No project found for portal token "${reviewToken.slice(0, 12)}..."`,
               );
             }
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             console.error(`[triggerPartnerDeliveryForCras] Path 3 failed:`, msg);
+          }
+        }
+      }
+
+      // Path 4: CRAS has Project link but no batch fields / token (common for webhook-only rows).
+      if (!batchRecordId && crasRecord) {
+        const projectId = projectRecordIdFromCrasFields(crasRecord.fields);
+        if (projectId) {
+          console.log(
+            `[triggerPartnerDeliveryForCras] Path 4: Resolving batch via CRAS Project link ${projectId}`,
+          );
+          try {
+            const batches = await listBatchesByProjectId(projectId);
+            if (batches.length > 0 && batches[0].batchRecordId) {
+              batchRecordId = batches[0].batchRecordId;
+              resolutionPath = `cras-project-link:listBatchesByProjectId (project=${projectId}, batch=${batches[0].batchId})`;
+            }
+            if (!batchRecordId) {
+              const ctx = await getDeliveryContextByProjectId(projectId);
+              if (ctx?.recordId) {
+                batchRecordId = ctx.recordId;
+                resolutionPath = `cras-project-link:getDeliveryContextByProjectId (project=${projectId})`;
+              }
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(`[triggerPartnerDeliveryForCras] Path 4 failed:`, msg);
           }
         }
       }
@@ -184,6 +250,8 @@ export async function triggerPartnerDeliveryForCras(
         ? {
             'Partner Delivery Batch': crasRecord.fields['Partner Delivery Batch'] ?? null,
             'Delivery Batch ID': crasRecord.fields[DELIVERY_BATCH_ID_FIELD] ?? null,
+            Project: crasRecord.fields['Project'] ?? null,
+            'Review token (resolved)': reviewTokenFromCrasFields(crasRecord.fields)?.slice(0, 16) ?? null,
             'Delivery Status': crasRecord.fields['Delivery Status'] ?? null,
             Filename: crasRecord.fields['Filename'] ?? null,
             'Source Folder ID': crasRecord.fields['Source Folder ID'] ?? null,
