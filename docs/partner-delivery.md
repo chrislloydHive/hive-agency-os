@@ -74,6 +74,16 @@ Table: **Partner Delivery Batches**
 
 If the webhook is sent with `deliveryBatchId` and no `destinationFolderId`, the app looks up this table by Batch ID and uses the Destination Folder ID. If the batch is missing or the field is empty, the request fails with a clear error and the asset status record is marked Error.
 
+## Airtable: “Enqueue delivery on approval” (CRAS)
+
+If an automation (e.g. **Enqueue delivery on approval**) sets **Ready to Deliver (Webhook)** or **Ready to Deliver** when an asset is approved, avoid gating on **CRAS `Delivery Status` is not Delivering**.
+
+When a CRAS row is linked to a **Partner Delivery Batches** record whose **Status** is already **Delivering**, **Delivery Status** on the CRAS row is often a **lookup** from that batch and shows **Delivering** immediately. A condition like *“Delivery Status is not Delivering”* then **fails**, so the automation never runs and **Ready to Deliver** is never set.
+
+**Recommended fix (simplest):** change that clause to **“Delivery Status” is not “Delivered”** (or equivalent: block only rows that have already finished delivery). That still allows **Not Delivered**, **Delivering**, and empty values, and you can keep **Delivered?** / webhook idempotency to prevent re-delivery.
+
+**Do not rely on** PDB sitting in **Active** for a window so CRAS **Delivery Status** stays non-Delivering long enough for the automation to fire; new projects should start with PDB **Delivering** immediately.
+
 ## Airtable automation (webhook config)
 
 1. **Trigger**  

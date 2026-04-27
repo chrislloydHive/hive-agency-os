@@ -18,6 +18,10 @@
 // findExistingPartnerDeliveryBatchForProject (Project + Partner link ids), not
 // Batch ID text — scaffold and ingest must use the same project display name
 // (see projectFolderMap "Project Name (Job #)") so Batch IDs stay aligned.
+//
+// PDB promotion env (optional):
+// - PARTNER_PDB_STATUS_DELIVERING_VALUE — single-select label (default: Delivering)
+// - PARTNER_PDB_STATUS_FIELD_NAME — if the workflow column is not literally "Status"
 
 import type { FieldSet } from 'airtable';
 
@@ -40,8 +44,42 @@ function partnerPdbStatusDeliveringValue(): string {
   return process.env.PARTNER_PDB_STATUS_DELIVERING_VALUE?.trim() || 'Delivering';
 }
 
+/** Primary workflow field on Partner Delivery Batches (override if your base renames it). */
+function partnerPdbStatusFieldName(): string {
+  return process.env.PARTNER_PDB_STATUS_FIELD_NAME?.trim() || 'Status';
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function logAirtableThrownError(PROM: string, label: string, recordId: string, e: unknown): void {
+  const err = e as {
+    message?: string;
+    statusCode?: number;
+    error?: string;
+  };
+  const extra =
+    e && typeof e === 'object'
+      ? Object.fromEntries(
+          Object.getOwnPropertyNames(e).map((k) => {
+            try {
+              return [k, (e as Record<string, unknown>)[k]];
+            } catch {
+              return [k, '(unreadable)'];
+            }
+          }),
+        )
+      : {};
+  console.error(`${PROM} thrown error detail`, {
+    label,
+    recordId,
+    message: err?.message ?? String(e),
+    statusCode: err?.statusCode,
+    error: err?.error,
+    ownKeys: e && typeof e === 'object' ? Object.getOwnPropertyNames(e) : [],
+    extra,
+  });
 }
 
 /** Parent folder in Drive: Operations/Partners/Brkthru */
@@ -182,16 +220,18 @@ async function promotePartnerBatchRowToDelivering(
 ): Promise<void> {
   const PROM = '[promote]';
   const delivering = partnerPdbStatusDeliveringValue();
+  const statusField = partnerPdbStatusFieldName();
 
   const getBatch = async () => {
     const rec = await projectsBase(TABLE).find(recordId);
     const f = rec.fields as Record<string, unknown>;
-    const statusRaw = f.Status;
+    const statusRaw = f[statusField];
     const status = typeof statusRaw === 'string' ? statusRaw.trim() : String(statusRaw ?? '').trim();
     const deliveryRaw = f['Delivery Status'];
     const deliveryStatus =
       typeof deliveryRaw === 'string' ? deliveryRaw.trim() : String(deliveryRaw ?? '').trim();
     return {
+      statusFieldName: statusField,
       Status: status,
       'Delivery Status': deliveryStatus,
       'Make Active': f['Make Active'] === true,
@@ -204,6 +244,7 @@ async function promotePartnerBatchRowToDelivering(
     console.log(`${PROM} read-after-write`, {
       step,
       recordId,
+      statusFieldName: snapshot.statusFieldName,
       Status: snapshot.Status,
       expectedStatus: delivering,
       statusWriteOk: ok,
@@ -215,6 +256,7 @@ async function promotePartnerBatchRowToDelivering(
         step,
         got: snapshot.Status,
         expected: delivering,
+        statusFieldName: statusField,
       });
     }
     return { ok, snapshot };
@@ -224,20 +266,26 @@ async function promotePartnerBatchRowToDelivering(
     label: string,
     body: Record<string, unknown>,
   ): Promise<{ ok: boolean }> => {
-    console.log(`${PROM} PATCH body =`, JSON.stringify(body));
-    console.log(`${PROM} choice value being written (Status) =`, body.Status ?? '(field omitted)');
+    console.log(`${PROM} PATCH body (SDK) =`, JSON.stringify(body));
+    console.log(`${PROM} choice value being written (Status-related keys) =`, {
+      [statusField]: body[statusField] ?? body.Status ?? '(omitted)',
+      'Delivery Status': body['Delivery Status'] ?? '(omitted)',
+    });
     try {
       const result = await projectsBase(TABLE).update(recordId, body as Partial<FieldSet>);
       const rf = result.fields as Record<string, unknown>;
+      const stNow = rf[statusField] ?? rf.Status;
       console.log(`${PROM} Airtable SDK update result (subset) =`, {
         label,
         recordId,
-        Status: rf.Status,
+        [statusField]: stNow,
         'Delivery Status': rf['Delivery Status'],
         'Make Active': rf['Make Active'],
+        returnedFieldKeys: Object.keys(rf),
       });
       return { ok: true };
     } catch (e) {
+      logAirtableThrownError(PROM, label, recordId, e);
       console.error(`${PROM} Airtable SDK update errors =`, {
         label,
         recordId,
@@ -247,70 +295,100 @@ async function promotePartnerBatchRowToDelivering(
     }
   };
 
-  const patchRest = async (fields: Record<string, unknown>): Promise<boolean> => {
+  /** REST PATCH: prefer typecast for single-select so Airtable coerces option names reliably. */
+  const patchRest = async (
+    label: string,
+    fields: Record<string, unknown>,
+    opts: { typecast: boolean },
+  ): Promise<boolean> => {
     const baseId = resolveProjectsBaseId()?.trim();
     if (!baseId || !process.env.AIRTABLE_API_KEY) {
-      console.error(`${PROM} REST fallback skipped (no base id or AIRTABLE_API_KEY)`);
+      console.error(`${PROM} REST PATCH skipped (no base id or AIRTABLE_API_KEY)`, { label });
       return false;
     }
     const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}/${recordId}`;
-    console.log(`${PROM} REST PATCH body =`, JSON.stringify({ fields }));
+    const payload = { fields, typecast: opts.typecast };
+    console.log(`${PROM} REST PATCH body =`, JSON.stringify(payload));
+    console.log(`${PROM} REST choice value (workflow status) =`, {
+      [statusField]: fields[statusField] ?? fields.Status ?? '(omitted)',
+      typecast: opts.typecast,
+    });
     const res = await airtableFetch(url, {
       method: 'PATCH',
-      body: JSON.stringify({ fields }),
+      body: JSON.stringify(payload),
     });
     const text = await res.text();
+    let parsed: { fields?: Record<string, unknown>; error?: unknown } | null = null;
+    try {
+      parsed = JSON.parse(text) as { fields?: Record<string, unknown>; error?: unknown };
+    } catch {
+      parsed = null;
+    }
     if (!res.ok) {
-      console.error(`${PROM} REST PATCH errors =`, { status: res.status, body: text.slice(0, 800) });
+      console.error(`${PROM} REST PATCH errors =`, {
+        label,
+        status: res.status,
+        body: text.slice(0, 1200),
+        parsedError: parsed?.error ?? null,
+      });
       return false;
     }
-    console.log(`${PROM} REST PATCH result =`, text.slice(0, 500));
+    const rf = parsed?.fields;
+    console.log(`${PROM} REST PATCH result =`, {
+      label,
+      [statusField]: rf?.[statusField] ?? rf?.Status,
+      'Delivery Status': rf?.['Delivery Status'],
+      'Make Active': rf?.['Make Active'],
+      rawKeys: rf ? Object.keys(rf) : [],
+    });
     return true;
   };
 
-  // ── 1) Workflow status without Make Active (avoids automations that pair Active with Make Active)
-  let ok = await patchSdk('1-status+delivery-status', {
-    Status: delivering,
-    'Delivery Status': delivering,
-  });
-  if (!ok.ok) {
-    ok = await patchSdk('1b-status-only (no Delivery Status field)', { Status: delivering });
-  }
+  const patchDeliveringStatusRest = async (label: string, includeDeliveryStatus: boolean): Promise<boolean> => {
+    const fields: Record<string, unknown> = {
+      [statusField]: delivering,
+    };
+    if (includeDeliveryStatus) {
+      fields['Delivery Status'] = delivering;
+    }
+    const ok = await patchRest(label, fields, { typecast: true });
+    if (!ok && includeDeliveryStatus) {
+      return patchRest(`${label}-retry-status-only`, { [statusField]: delivering }, { typecast: true });
+    }
+    return ok;
+  };
+
+  // ── 1) Workflow status via REST+typecast (single-select); omit Make Active here
+  await patchDeliveringStatusRest('1-rest-status+delivery', true);
   let { ok: stOk } = await verify('after-1-status');
 
-  // ── 2) Make Active — do not send Status in this PATCH (some automations set Active here)
+  // ── 2) Make Active — SDK only; do not send Status in this PATCH
   await patchSdk('2-make-active', { 'Make Active': true });
   ({ ok: stOk } = await verify('after-2-make-active'));
 
-  // ── 3) Always re-assert Delivering after Make Active (covers automations that flip Status to Active)
-  ok = await patchSdk('3-status+delivery-after-make-active', {
-    Status: delivering,
-    'Delivery Status': delivering,
-  });
-  if (!ok.ok) {
-    await patchSdk('3b-status-only-after-make-active', { Status: delivering });
-  }
+  // ── 3) Re-assert Delivering after Make Active (REST+typecast wins over automations that set Active)
+  await patchDeliveringStatusRest('3-rest-status+delivery-after-make-active', true);
   ({ ok: stOk } = await verify('after-3-reassert-status'));
 
-  // ── 4) Destination folder (may trigger another automation pass)
+  // ── 4) Destination folder (typecast off — plain field ids / text)
   if (Object.keys(extras).length > 0) {
-    await patchSdk('4-extras-destination-folder', { ...extras });
+    await patchRest('4-extras-destination-folder', { ...extras }, { typecast: false });
     ({ ok: stOk } = await verify('after-4-extras'));
   }
 
   if (!stOk) {
-    await patchSdk('5-final-status-sdk', { Status: delivering });
-    ({ ok: stOk } = await verify('after-5-final-status-sdk'));
+    await patchDeliveringStatusRest('5-rest-final-status', true);
+    ({ ok: stOk } = await verify('after-5-rest-final'));
   }
 
   if (!stOk) {
-    await patchRest({ Status: delivering });
-    ({ ok: stOk } = await verify('after-5b-rest-status'));
+    await patchSdk('5b-sdk-status-only', { [statusField]: delivering } as Record<string, unknown>);
+    ({ ok: stOk } = await verify('after-5b-sdk-status'));
   }
 
   if (!stOk) {
     await sleep(1200);
-    await patchSdk('6-delayed-status-sdk', { Status: delivering });
+    await patchDeliveringStatusRest('6-rest-delayed-status', false);
     ({ ok: stOk } = await verify('after-6-delayed'));
   }
 
@@ -319,6 +397,7 @@ async function promotePartnerBatchRowToDelivering(
     console.error(`${PROM} FATAL: Status still not Delivering after all retries`, {
       recordId,
       expectedStatus: delivering,
+      statusFieldName: statusField,
       snapshot: finalSnap,
     });
   }

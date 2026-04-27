@@ -5,6 +5,7 @@ import type { FieldSet } from 'airtable';
 
 import { getProjectsBase } from '@/lib/airtable';
 import { airtableFetch } from '@/lib/airtable/airtableFetch';
+import { resolveProjectsBaseId } from '@/lib/airtable/bases';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import {
   writeDeliveryToRecord,
@@ -730,6 +731,32 @@ export async function setPartnerDeliveryBatchStatusDeliveringForApproval(
         const msg = e2 instanceof Error ? e2.message : String(e2);
         const bothMsg = bothErr instanceof Error ? bothErr.message : String(bothErr);
         console.warn(`[delivery/batch] Could not set Delivering on batch ${id}:`, msg, { triedBothFields: bothMsg });
+        const baseId = resolveProjectsBaseId()?.trim();
+        if (baseId && process.env.AIRTABLE_API_KEY) {
+          const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}/${id}`;
+          const tryRest = async (fields: Record<string, unknown>, label: string) => {
+            const res = await airtableFetch(url, {
+              method: 'PATCH',
+              body: JSON.stringify({ fields, typecast: true }),
+            });
+            const text = await res.text();
+            if (res.ok) {
+              console.log(`[delivery/batch] REST+typecast ${label} ok for ${id}`);
+              return true;
+            }
+            console.warn(`[delivery/batch] REST+typecast ${label} failed`, res.status, text.slice(0, 500));
+            return false;
+          };
+          if (
+            (await tryRest(
+              { [BATCH_STATUS_FIELD]: 'Delivering', [BATCH_DELIVERY_STATUS_FIELD]: 'Delivering' },
+              'status+delivery',
+            )) ||
+            (await tryRest({ [BATCH_STATUS_FIELD]: 'Delivering' }, 'status-only'))
+          ) {
+            return { ok: true };
+          }
+        }
         return { ok: false, reason: msg };
       }
     }
