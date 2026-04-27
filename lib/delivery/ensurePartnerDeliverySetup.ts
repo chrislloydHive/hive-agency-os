@@ -21,7 +21,9 @@
 
 import type { FieldSet } from 'airtable';
 
+import { airtableFetch } from '@/lib/airtable/airtableFetch';
 import { getBase, getProjectsBase } from '@/lib/airtable';
+import { resolveProjectsBaseId } from '@/lib/airtable/bases';
 import { findExistingPartnerDeliveryBatchForProject } from '@/lib/airtable/partnerDeliveryBatches';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import {
@@ -32,6 +34,15 @@ import {
 const TABLE = AIRTABLE_TABLES.PARTNER_DELIVERY_BATCHES;
 
 const PARTNER_NAME = 'Brkthru';
+
+/** Single-select option name for PDB workflow (Airtable expects the label, not sel… id). */
+function partnerPdbStatusDeliveringValue(): string {
+  return process.env.PARTNER_PDB_STATUS_DELIVERING_VALUE?.trim() || 'Delivering';
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /** Parent folder in Drive: Operations/Partners/Brkthru */
 const BRKTHRU_PARENT_FOLDER_ID = '1jlxinp9VsGNMajmC-o8YLhzDVIOch7Md';
@@ -159,119 +170,157 @@ let brkthruCompanyIdCache: string | null = null;
 /**
  * Promote a freshly scaffolded PDB row to the state Airtable auto-assign expects:
  * Status (and Delivery Status when present) = Delivering, Make Active = true.
- * Writes Destination Folder ID in a follow-up patch after core status fields
- * succeed (avoids validation quirks from mixing single-select + folder id).
+ *
+ * Write order: some Airtable automations set Status to Active when Make Active
+ * becomes true. We set Status and Delivery Status before Make Active, then
+ * re-assert Status after Make Active and after optional Destination Folder ID.
  */
 async function promotePartnerBatchRowToDelivering(
   projectsBase: ReturnType<typeof getProjectsBase>,
   recordId: string,
   extras: Record<string, unknown> = {},
 ): Promise<void> {
-  const LOG = '[delivery-init] PDB promote';
+  const PROM = '[promote]';
+  const delivering = partnerPdbStatusDeliveringValue();
 
-  const readBack = async () => {
+  const getBatch = async () => {
     const rec = await projectsBase(TABLE).find(recordId);
     const f = rec.fields as Record<string, unknown>;
-    const status = typeof f.Status === 'string' ? f.Status.trim() : '';
+    const statusRaw = f.Status;
+    const status = typeof statusRaw === 'string' ? statusRaw.trim() : String(statusRaw ?? '').trim();
+    const deliveryRaw = f['Delivery Status'];
     const deliveryStatus =
-      typeof f['Delivery Status'] === 'string' ? (f['Delivery Status'] as string).trim() : '';
+      typeof deliveryRaw === 'string' ? deliveryRaw.trim() : String(deliveryRaw ?? '').trim();
     return {
-      status,
-      deliveryStatus,
-      makeActive: f['Make Active'] === true,
-      statusIsDelivering: status.toLowerCase() === 'delivering',
+      Status: status,
+      'Delivery Status': deliveryStatus,
+      'Make Active': f['Make Active'] === true,
     };
   };
 
-  const patch = async (
+  const verify = async (step: string): Promise<{ ok: boolean; snapshot: Awaited<ReturnType<typeof getBatch>> }> => {
+    const snapshot = await getBatch();
+    const ok = snapshot.Status.toLowerCase() === delivering.toLowerCase();
+    console.log(`${PROM} read-after-write`, {
+      step,
+      recordId,
+      Status: snapshot.Status,
+      expectedStatus: delivering,
+      statusWriteOk: ok,
+      'Delivery Status': snapshot['Delivery Status'],
+      'Make Active': snapshot['Make Active'],
+    });
+    if (!ok) {
+      console.error(`${PROM} Status mismatch after step`, {
+        step,
+        got: snapshot.Status,
+        expected: delivering,
+      });
+    }
+    return { ok, snapshot };
+  };
+
+  const patchSdk = async (
     label: string,
     body: Record<string, unknown>,
-  ): Promise<{ ok: boolean; returned?: Record<string, unknown> }> => {
-    console.log(`${LOG} PATCH attempt`, { label, recordId, body: JSON.stringify(body) });
+  ): Promise<{ ok: boolean }> => {
+    console.log(`${PROM} PATCH body =`, JSON.stringify(body));
+    console.log(`${PROM} choice value being written (Status) =`, body.Status ?? '(field omitted)');
     try {
-      const updated = await projectsBase(TABLE).update(recordId, body as Partial<FieldSet>);
-      const f = updated.fields as Record<string, unknown>;
-      const st = typeof f.Status === 'string' ? f.Status.trim() : '';
-      console.log(`${LOG} Airtable update response`, {
+      const result = await projectsBase(TABLE).update(recordId, body as Partial<FieldSet>);
+      const rf = result.fields as Record<string, unknown>;
+      console.log(`${PROM} Airtable SDK update result (subset) =`, {
         label,
         recordId,
-        returnedStatus: st,
-        returnedDeliveryStatus:
-          typeof f['Delivery Status'] === 'string' ? f['Delivery Status'] : f['Delivery Status'],
-        returnedMakeActive: f['Make Active'],
+        Status: rf.Status,
+        'Delivery Status': rf['Delivery Status'],
+        'Make Active': rf['Make Active'],
       });
-      return { ok: true, returned: f as Record<string, unknown> };
+      return { ok: true };
     } catch (e) {
-      console.error(`${LOG} Airtable update FAILED`, {
+      console.error(`${PROM} Airtable SDK update errors =`, {
         label,
         recordId,
-        error: e instanceof Error ? e.message : String(e),
-        body: JSON.stringify(body),
+        message: e instanceof Error ? e.message : String(e),
       });
       return { ok: false };
     }
   };
 
-  // Split: set workflow state first without Destination Folder ID (avoids
-  // single-select + long-text validation interactions), then folder id.
-  const coreDelivering: Record<string, unknown> = {
-    Status: 'Delivering',
-    'Delivery Status': 'Delivering',
-    'Make Active': true,
+  const patchRest = async (fields: Record<string, unknown>): Promise<boolean> => {
+    const baseId = resolveProjectsBaseId()?.trim();
+    if (!baseId || !process.env.AIRTABLE_API_KEY) {
+      console.error(`${PROM} REST fallback skipped (no base id or AIRTABLE_API_KEY)`);
+      return false;
+    }
+    const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(TABLE)}/${recordId}`;
+    console.log(`${PROM} REST PATCH body =`, JSON.stringify({ fields }));
+    const res = await airtableFetch(url, {
+      method: 'PATCH',
+      body: JSON.stringify({ fields }),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      console.error(`${PROM} REST PATCH errors =`, { status: res.status, body: text.slice(0, 800) });
+      return false;
+    }
+    console.log(`${PROM} REST PATCH result =`, text.slice(0, 500));
+    return true;
   };
 
-  let coreOk = await patch('core-status+delivery+make-active', coreDelivering);
-  if (!coreOk.ok) {
-    coreOk = await patch('core-status+make-active-no-delivery-field', {
-      Status: 'Delivering',
-      'Make Active': true,
-    });
-  }
-  if (!coreOk.ok) {
-    coreOk = await patch('core-status-only', { Status: 'Delivering' });
-  }
-  if (!coreOk.ok) {
-    coreOk = await patch('legacy-combined-all-fields', {
-      ...extras,
-      Status: 'Delivering',
-      'Delivery Status': 'Delivering',
-      'Make Active': true,
-    });
-  }
-
-  if (coreOk.ok) {
-    const mid = await readBack();
-    if (!mid.makeActive) {
-      await patch('follow-up-make-active', { 'Make Active': true });
-    }
-  } else {
-    console.error(`${LOG} failed to set core Delivering state — skipping Destination Folder write`, {
-      recordId,
-    });
-  }
-
-  if (coreOk.ok && Object.keys(extras).length > 0) {
-    await patch('extras-destination-folder', { ...extras });
-  }
-
-  let snap = await readBack();
-  console.log(`${LOG} read-back`, {
-    recordId,
-    ...snap,
-    statusWriteOk: snap.statusIsDelivering,
+  // ── 1) Workflow status without Make Active (avoids automations that pair Active with Make Active)
+  let ok = await patchSdk('1-status+delivery-status', {
+    Status: delivering,
+    'Delivery Status': delivering,
   });
+  if (!ok.ok) {
+    ok = await patchSdk('1b-status-only (no Delivery Status field)', { Status: delivering });
+  }
+  let { ok: stOk } = await verify('after-1-status');
 
-  if (!snap.statusIsDelivering) {
-    await patch('retry-status-delivering', { Status: 'Delivering' });
-    snap = await readBack();
-    console.log(`${LOG} read-back after Status retry`, { recordId, ...snap, statusWriteOk: snap.statusIsDelivering });
+  // ── 2) Make Active — do not send Status in this PATCH (some automations set Active here)
+  await patchSdk('2-make-active', { 'Make Active': true });
+  ({ ok: stOk } = await verify('after-2-make-active'));
+
+  // ── 3) Always re-assert Delivering after Make Active (covers automations that flip Status to Active)
+  ok = await patchSdk('3-status+delivery-after-make-active', {
+    Status: delivering,
+    'Delivery Status': delivering,
+  });
+  if (!ok.ok) {
+    await patchSdk('3b-status-only-after-make-active', { Status: delivering });
+  }
+  ({ ok: stOk } = await verify('after-3-reassert-status'));
+
+  // ── 4) Destination folder (may trigger another automation pass)
+  if (Object.keys(extras).length > 0) {
+    await patchSdk('4-extras-destination-folder', { ...extras });
+    ({ ok: stOk } = await verify('after-4-extras'));
   }
 
-  if (!snap.statusIsDelivering) {
-    console.error(
-      `${LOG} Status is still not "Delivering" after retries — CRAS auto-assign may not link until fixed in Airtable`,
-      { recordId, readBack: snap },
-    );
+  if (!stOk) {
+    await patchSdk('5-final-status-sdk', { Status: delivering });
+    ({ ok: stOk } = await verify('after-5-final-status-sdk'));
+  }
+
+  if (!stOk) {
+    await patchRest({ Status: delivering });
+    ({ ok: stOk } = await verify('after-5b-rest-status'));
+  }
+
+  if (!stOk) {
+    await sleep(1200);
+    await patchSdk('6-delayed-status-sdk', { Status: delivering });
+    ({ ok: stOk } = await verify('after-6-delayed'));
+  }
+
+  if (!stOk) {
+    const finalSnap = await getBatch();
+    console.error(`${PROM} FATAL: Status still not Delivering after all retries`, {
+      recordId,
+      expectedStatus: delivering,
+      snapshot: finalSnap,
+    });
   }
 }
 
