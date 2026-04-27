@@ -107,13 +107,13 @@ export async function resolveDeliveryBatchFromCras(
         return null;
       }
       
-      // Sort deterministically: Active first, then Delivering, then newest Created time
+      // Sort deterministically: Delivering first (batch that accepts new CRAS
+      // auto-assign per Airtable script), then Active, then newest Created time
       batches.sort((a, b) => {
-        // Status priority: Active (0) > Delivering (1) > others (2)
         const statusPriority = (s: string) => {
           const lower = s.toLowerCase();
-          if (lower === 'active') return 0;
-          if (lower === 'delivering') return 1;
+          if (lower === 'delivering') return 0;
+          if (lower === 'active') return 1;
           return 2;
         };
         const aPriority = statusPriority(a.status);

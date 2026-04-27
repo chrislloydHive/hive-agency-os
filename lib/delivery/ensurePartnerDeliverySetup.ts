@@ -5,13 +5,19 @@
 //   - This module: create one Partner Delivery Batches row per project, with
 //     `Create Partner Batch = true` to trigger the Airtable automation.
 //   - Airtable automation `Initialize Partner Delivery Batch`: runs a script
-//     that creates the Drive folders, links assets, and sets `Status`.
-//   - Human flips `Make Active` when ready to deliver; `Start Delivery`
-//     automation handles the actual handoff.
+//     that creates Drive folders / links (behavior may vary by base version).
+//   - **After** that handshake, this code promotes the row to **Status =
+//     "Delivering"** and **Make Active = true** so Airtable’s “Auto-assign
+//     assets…” script (which gates on `Status = "Delivering"`) can link newly
+//     approved CRAS rows. Canonical “accepting new approvals” state is
+//     **Delivering**, not **Active** (naming in some automations still says
+//     “Active batch” historically).
 //
 // Safe to call from multiple ingest events at once: an in-process promise lock
 // collapses concurrent calls per projectId, and `hasAnyBatchForProject` is the
 // authoritative existence check before any write.
+
+import type { FieldSet } from 'airtable';
 
 import { getBase, getProjectsBase } from '@/lib/airtable';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
@@ -138,6 +144,62 @@ interface CreateBatchArgs {
  */
 let brkthruCompanyIdCache: string | null = null;
 
+/**
+ * Promote a freshly scaffolded PDB row to the state Airtable auto-assign expects:
+ * Status (and Delivery Status when present) = Delivering, Make Active = true.
+ * Merges optional fields (e.g. Destination Folder ID) in one write when provided.
+ */
+async function promotePartnerBatchRowToDelivering(
+  projectsBase: ReturnType<typeof getProjectsBase>,
+  recordId: string,
+  extras: Record<string, unknown> = {},
+): Promise<void> {
+  const deliveringPayload = {
+    ...extras,
+    Status: 'Delivering',
+    'Delivery Status': 'Delivering',
+    'Make Active': true,
+  } as Partial<FieldSet>;
+
+  try {
+    await projectsBase(TABLE).update(recordId, deliveringPayload);
+    console.log('[delivery-init] PDB promoted: Status+Delivery Status=Delivering, Make Active=true', {
+      recordId,
+    });
+    return;
+  } catch (bothErr) {
+    const bothMsg = bothErr instanceof Error ? bothErr.message : String(bothErr);
+    try {
+      await projectsBase(TABLE).update(recordId, {
+        ...extras,
+        Status: 'Delivering',
+        'Make Active': true,
+      } as Partial<FieldSet>);
+      console.log('[delivery-init] PDB promoted (no Delivery Status field): Delivering + Make Active', {
+        recordId,
+      });
+      return;
+    } catch {
+      try {
+        await projectsBase(TABLE).update(recordId, {
+          ...extras,
+          Status: 'Delivering',
+        } as Partial<FieldSet>);
+        console.log('[delivery-init] PDB promoted: Status=Delivering only (Make Active / Delivery Status skipped)', {
+          recordId,
+        });
+        return;
+      } catch (e2) {
+        console.error(
+          '[delivery-init] Could not promote PDB to Delivering (CRAS auto-assign may fail until fixed manually):',
+          e2 instanceof Error ? e2.message : String(e2),
+          { firstError: bothMsg },
+        );
+      }
+    }
+  }
+}
+
 async function getBrkthruCompanyId(): Promise<string | null> {
   if (brkthruCompanyIdCache) return brkthruCompanyIdCache;
 
@@ -223,8 +285,8 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
 
   let recordId: string;
   try {
-    const created = await projectsBase(TABLE).create(createFields as any);
-    recordId = (created as any).id as string;
+    const created = await projectsBase(TABLE).create(createFields as Partial<FieldSet>);
+    recordId = created.id;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (
@@ -244,8 +306,8 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
       if (partnerCompanyId) {
         minimal.Partner = [partnerCompanyId];
       }
-      const created = await projectsBase(TABLE).create(minimal as any);
-      recordId = (created as any).id as string;
+      const created = await projectsBase(TABLE).create(minimal as Partial<FieldSet>);
+      recordId = created.id;
     } else {
       throw err;
     }
@@ -256,7 +318,7 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
   try {
     await projectsBase(TABLE).update(recordId, {
       'Create Partner Batch': true,
-    } as any);
+    } as Partial<FieldSet>);
     console.log('[delivery-init] flipped Create Partner Batch to true', { recordId });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -267,8 +329,10 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
     // Don't throw — the row exists, you can flip the checkbox manually.
   }
 
-  // Provision the Drive destination folder under Brkthru parent and write
-  // the folder ID back to the batch row so delivery knows where to copy.
+  // Provision the Drive destination folder under Brkthru parent (when possible)
+  // and promote the batch to **Delivering** + **Make Active** so Airtable
+  // scripts that assign approved CRAS rows to a batch can find this row.
+  let destinationFolderExtras: Record<string, unknown> = {};
   try {
     const oidcToken = process.env.VERCEL_OIDC_TOKEN || undefined;
     const drive = await getDriveClient({ vercelOidcToken: oidcToken });
@@ -277,9 +341,7 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
       BRKTHRU_PARENT_FOLDER_ID,
       args.projectName
     );
-    await projectsBase(TABLE).update(recordId, {
-      'Destination Folder ID': folder.id,
-    } as any);
+    destinationFolderExtras = { 'Destination Folder ID': folder.id };
     console.log('[delivery-init] provisioned destination folder', {
       recordId,
       folderId: folder.id,
@@ -293,6 +355,8 @@ async function createBatchRecord(args: CreateBatchArgs): Promise<string> {
     );
     // Don't throw — batch row exists, folder can be created manually.
   }
+
+  await promotePartnerBatchRowToDelivering(projectsBase, recordId, destinationFolderExtras);
 
   return recordId;
 }

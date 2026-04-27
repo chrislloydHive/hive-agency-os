@@ -59,6 +59,65 @@ function parseEmailHeader(h: string): { name: string; email: string } {
   return { name: h.trim(), email: '' };
 }
 
+const zStrictEmail = z.string().email();
+
+/** Single-line `Label: value` from Framer-style notes (same table as command center). */
+function linesMatchingLabel(notes: string, labelRe: RegExp): string[] {
+  const out: string[] = [];
+  for (const line of notes.split(/\r?\n/)) {
+    const m = line.match(labelRe);
+    if (m?.[1] != null && String(m[1]).trim()) out.push(String(m[1]).trim());
+  }
+  return out;
+}
+
+/**
+ * Parse submitter email from task Notes (`Email: …`) and topic (`Select a Topic: …`).
+ * recipientConfidence: high = one Email line, zod-valid address, no display-name brackets,
+ * no trimming fixes; medium = multiple Email lines, angle brackets, or punctuation trimmed;
+ * low = missing or not a valid email.
+ */
+function parseWebsiteSubmissionNotesFields(notes: string | null | undefined): {
+  email: string | null;
+  recipientConfidence: 'high' | 'medium' | 'low';
+  topic: string | null;
+} {
+  const raw = typeof notes === 'string' ? notes : '';
+  const topicLines = linesMatchingLabel(raw, /^\s*Select a Topic:\s*(.+)$/i);
+  const topic = topicLines.length === 0 ? null : topicLines[0];
+
+  const emailLines = linesMatchingLabel(raw, /^\s*Email:\s*(.+)$/i);
+  if (emailLines.length === 0) {
+    return { email: null, recipientConfidence: 'low', topic };
+  }
+
+  const ambiguousMultipleEmail = emailLines.length > 1;
+  const rawValue = emailLines[0];
+  let working = rawValue.trim();
+  if (working.toLowerCase().startsWith('mailto:')) {
+    working = working.slice('mailto:'.length).trim();
+  }
+
+  const hadBrackets = /<[^>]+>/.test(working);
+  const { email: loose } = parseEmailHeader(working);
+  let candidate = (loose || working).trim();
+  const beforeTrim = candidate;
+  candidate = candidate.replace(/[.,;)\]]+$/g, '').trim();
+
+  if (!candidate || !zStrictEmail.safeParse(candidate).success) {
+    return { email: null, recipientConfidence: 'low', topic };
+  }
+
+  if (ambiguousMultipleEmail || hadBrackets || beforeTrim !== candidate || rawValue.trim() !== beforeTrim) {
+    return { email: candidate, recipientConfidence: 'medium', topic };
+  }
+  return { email: candidate, recipientConfidence: 'high', topic };
+}
+
+function escapeForDoubleQuotedPrompt(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, ' ');
+}
+
 function formatMessagesForPrompt(messages: GmailMessageLike[], max: number): string {
   const slice = messages.length <= max ? messages : messages.slice(-max);
   const blocks: string[] = [];
@@ -160,6 +219,7 @@ function taskJsonForPrompt(t: TaskRecord): string {
     {
       id: t.id,
       title: t.task,
+      source: t.source,
       nextAction: t.nextAction,
       project: t.project,
       from: t.from,
@@ -205,13 +265,36 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     const myEmail = profileEmail || identity.email;
     const myEmailLower = (myEmail || '').toLowerCase();
 
+    const isWebsiteSubmission = task.source === 'website-submission';
+    const websiteParse = isWebsiteSubmission ? parseWebsiteSubmissionNotesFields(task.notes) : null;
+
     const threadId = extractGmailThreadIdFromUrl(task.threadUrl);
     let threadBlock = '';
     let mode: 'reply' | 'new' = 'new';
     let replyToEmail: string | null = null;
     let threadSubjectBase = '';
 
-    if (threadId) {
+    if (isWebsiteSubmission) {
+      mode = 'new';
+      replyToEmail = null;
+      threadSubjectBase = '';
+      const parts = [
+        'Website form submission: the task Notes contain the submitter fields (Name, Email, Select a Topic, Message, etc.).',
+        'The Gmail threadUrl on this task (if any) is only a Framer/relay notification thread — do NOT use it for recipient, subject, or reply framing.',
+        'Compose a brand-new outbound email to the submitter (not an in-thread reply). Do not use a "Re:" subject or imply you are replying within that notification thread.',
+      ];
+      if (websiteParse?.email) {
+        parts.push(`Parsed submitter Email (use as "to" exactly): ${JSON.stringify(websiteParse.email)}`);
+      } else {
+        parts.push(
+          'No valid Email: line was parsed from notes — infer "to" from the notes text if possible, else use a clear placeholder.',
+        );
+      }
+      if (websiteParse?.topic) {
+        parts.push(`Parsed submitter topic (Select a Topic): ${JSON.stringify(websiteParse.topic)}`);
+      }
+      threadBlock = parts.join('\n');
+    } else if (threadId) {
       try {
         const thread = await gmail.users.threads.get({
           userId: 'me',
@@ -238,8 +321,29 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     }
 
     const escapedTopic = threadSubjectBase.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    const systemPrompt =
-      mode === 'reply' && replyToEmail
+    const escapedTaskTitle = escapeForDoubleQuotedPrompt(task.task);
+    const escapedSubmitTopic = websiteParse?.topic
+      ? escapeForDoubleQuotedPrompt(websiteParse.topic)
+      : '';
+
+    const systemPrompt = isWebsiteSubmission
+      ? `You are a triage assistant for Chris Lloyd's Hive OS task system.
+This task is a WEBSITE FORM SUBMISSION follow-up. Output strict JSON only — no prose outside the JSON — matching this schema:
+{
+  "to": "<email>",
+  "subject": "<subject line>",
+  "body": "<full plain-text body>",
+  "reasoning": "<1-2 short sentences>",
+  "recipientConfidence": "high" | "medium" | "low"
+}
+
+Rules:
+- This is a NEW outbound email to the human who submitted the form — NOT a reply to Framer/noreply and NOT a continuation of the notification thread. Never prefix the subject with "Re:" or "RE:" or "Fwd:".
+- Do not base the subject on "New Submission" or other automated notification subject lines alone. Use the task title ("${escapedTaskTitle}")${escapedSubmitTopic ? ` and/or the submitter's chosen topic ("${escapedSubmitTopic}")` : ''} to craft a short, natural subject (e.g. their topic + "— thanks for reaching out").
+- Set "to" to the parsed submitter email from Context when one is given; otherwise derive from notes "Email:" only — never use a noreply relay as the recipient.
+- Body: Chris's voice — first personal response, reference their message/topic from notes when helpful, 2-4 short paragraphs, one clear next step when appropriate.
+- recipientConfidence: use "high" only if "to" is a single obvious RFC-style address with no ambiguity; "medium" if display names, multiple possibilities, or light cleanup was needed; "low" if "to" is a placeholder or uncertain.`
+      : mode === 'reply' && replyToEmail
         ? `You are a triage assistant for Chris Lloyd's Hive OS task system.
 The user is replying in an existing Gmail thread. Output strict JSON only — no prose outside the JSON — matching this schema:
 {
@@ -322,8 +426,18 @@ Rules:
       return NextResponse.json({ error: rawText }, { status: 502 });
     }
 
-    if (mode === 'reply' && replyToEmail && proposal.to.trim().toLowerCase() !== replyToEmail.toLowerCase()) {
+    if (!isWebsiteSubmission && mode === 'reply' && replyToEmail && proposal.to.trim().toLowerCase() !== replyToEmail.toLowerCase()) {
       proposal = { ...proposal, to: replyToEmail, recipientConfidence: 'high' };
+    }
+
+    if (isWebsiteSubmission && websiteParse) {
+      const strippedSubject = proposal.subject.replace(/^(Re|RE|Fwd|FWD):\s*/i, '').trim();
+      proposal = {
+        ...proposal,
+        ...(websiteParse.email ? { to: websiteParse.email } : {}),
+        recipientConfidence: websiteParse.recipientConfidence,
+        subject: strippedSubject.length > 0 ? strippedSubject : proposal.subject.trim(),
+      };
     }
 
     return NextResponse.json({ proposal });

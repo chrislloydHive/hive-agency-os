@@ -275,7 +275,7 @@ function mapRecordToListItem(record: { id: string; fields: Record<string, unknow
 /**
  * List all Partner Delivery Batches linked to a project (Option B).
  * Uses default base first; if empty and PARTNER_DELIVERY_BASE_ID is set, queries that base.
- * Returns BatchContext[] sorted: Active first, then createdTime desc.
+ * Returns BatchContext[] sorted: Delivering first, then Active, then createdTime desc.
  */
 export async function listBatchesByProjectId(
   projectId: string
@@ -305,9 +305,15 @@ export async function listBatchesByProjectId(
   }
 
   list.sort((a, b) => {
-    const aActive = a.status.toLowerCase() === 'active' ? 0 : 1;
-    const bActive = b.status.toLowerCase() === 'active' ? 0 : 1;
-    if (aActive !== bActive) return aActive - bActive;
+    const pri = (s: string) => {
+      const x = s.toLowerCase();
+      if (x === 'delivering') return 0;
+      if (x === 'active') return 1;
+      return 2;
+    };
+    const ap = pri(a.status);
+    const bp = pri(b.status);
+    if (ap !== bp) return ap - bp;
     const aTime = a.createdTime ? new Date(a.createdTime).getTime() : 0;
     const bTime = b.createdTime ? new Date(b.createdTime).getTime() : 0;
     return bTime - aTime;
@@ -578,8 +584,10 @@ function extractPartnerBatchRecordIdFromCrasFields(
 /**
  * When a client approves an asset, some Airtable automations (e.g. production
  * checklist) require at least one **Partner Delivery Batches** row for the
- * project with **Status** (or **Delivery Status**) = `Delivering`. Batches
- * often sit in `Active` until then — set `Delivering` idempotently.
+ * project with **Status** (or **Delivery Status**) = `Delivering`. New rows
+ * from `ensurePartnerDeliverySetup` are promoted to Delivering at scaffold
+ * time; this helper still sets `Delivering` idempotently for older rows stuck
+ * in `Active`.
  *
  * Disable with `PARTNER_BATCH_SET_DELIVERING_ON_APPROVE=0` if your base uses a
  * different state machine.
@@ -631,7 +639,7 @@ export async function setPartnerDeliveryBatchStatusDeliveringForApproval(
       await base(TABLE).update(id, { [BATCH_STATUS_FIELD]: 'Delivering' } as Partial<FieldSet>);
       console.log(`[delivery/batch] Set ${TABLE} ${id} ${BATCH_STATUS_FIELD}=Delivering (post-approve)`);
       return { ok: true };
-    } catch (_e1) {
+    } catch {
       try {
         await base(TABLE).update(id, {
           [BATCH_DELIVERY_STATUS_FIELD]: 'Delivering',
@@ -674,7 +682,9 @@ async function resolvePartnerBatchRecordIdForApprovedCras(
   const batches = await listBatchesByProjectId(projectId);
   if (batches.length === 0) return null;
   const preferred =
-    batches.find((b) => (b.status ?? '').toLowerCase() === 'active') ?? batches[0];
+    batches.find((b) => (b.status ?? '').toLowerCase() === 'delivering') ??
+    batches.find((b) => (b.status ?? '').toLowerCase() === 'active') ??
+    batches[0];
   return preferred?.batchRecordId ?? null;
 }
 
