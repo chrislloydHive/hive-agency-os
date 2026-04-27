@@ -48,6 +48,8 @@ interface ReviewAsset {
   placementCardOrder?: number | null;
   muxPlaybackId?: string | null;
   muxStatus?: string | null;
+  /** CRAS "Mux Aspect Ratio" (e.g. 9:16) — used to size MuxPlayer in the lightbox. */
+  muxAspectRatio?: string | null;
 }
 
 interface TacticSectionData {

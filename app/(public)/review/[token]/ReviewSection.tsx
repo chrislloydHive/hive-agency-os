@@ -272,6 +272,7 @@ interface ReviewAsset {
   airtableRecordId?: string;
   muxPlaybackId?: string | null;
   muxStatus?: string | null;
+  muxAspectRatio?: string | null;
 }
 
 interface TacticFeedback {

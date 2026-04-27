@@ -5,7 +5,7 @@
 // Supports images, video, and audio. ESC to close, arrow keys to navigate.
 // Includes per-asset commenting with required author identity.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useAuthorIdentity, type AuthorIdentity } from './AuthorIdentityContext';
 import {
   buildReviewFileProxyUrl,
@@ -22,6 +22,37 @@ import {
 import MuxPlayer from '@mux/mux-player-react';
 
 type VideoBoxPhase = 'native' | 'transcoding' | 'h264' | 'unavailable';
+
+/** Parse CRAS "Mux Aspect Ratio" (e.g. 9:16, 4:5) for CSS sizing; default 16:9. */
+function parseMuxAspectForPlayer(muxAspectRatio: string | null | undefined): {
+  cssRatio: string;
+  widthNum: number;
+  heightNum: number;
+} {
+  const raw = muxAspectRatio?.trim();
+  if (!raw) return { cssRatio: '16/9', widthNum: 16, heightNum: 9 };
+  const compact = raw.replace(/\s+/g, '').replace(/×/g, ':');
+  const parts = compact.includes(':') ? compact.split(':') : compact.split('/');
+  if (parts.length === 2) {
+    const widthNum = parseFloat(parts[0]);
+    const heightNum = parseFloat(parts[1]);
+    if (widthNum > 0 && heightNum > 0) {
+      return { cssRatio: `${widthNum}/${heightNum}`, widthNum, heightNum };
+    }
+  }
+  return { cssRatio: '16/9', widthNum: 16, heightNum: 9 };
+}
+
+function muxPlayerViewportBoxStyle(muxAspectRatio: string | null | undefined): CSSProperties {
+  const { cssRatio, widthNum, heightNum } = parseMuxAspectForPlayer(muxAspectRatio);
+  return {
+    maxHeight: '85vh',
+    maxWidth: '100%',
+    width: `min(100%, calc(85vh * ${widthNum} / ${heightNum}))`,
+    aspectRatio: cssRatio,
+    margin: '0 auto',
+  };
+}
 
 function LightboxVideoPreview({ src, fileName }: { src: string; fileName: string }) {
   const [phase, setPhase] = useState<VideoBoxPhase>('native');
@@ -178,6 +209,7 @@ interface ReviewAsset {
   airtableRecordId?: string;
   muxPlaybackId?: string | null;
   muxStatus?: string | null;
+  muxAspectRatio?: string | null;
 }
 
 interface AssetComment {
@@ -614,7 +646,7 @@ export default function AssetLightbox({
       {/* Main content area */}
       <div className={`flex flex-1 flex-col items-center justify-center p-4 transition-all ${showComments ? 'pr-80 sm:pr-96' : ''}`}>
         {/* Asset preview */}
-        <div className="flex max-h-[75vh] w-full items-center justify-center">
+        <div className="flex max-h-[85vh] w-full min-w-0 items-center justify-center">
           {isImage && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -629,11 +661,13 @@ export default function AssetLightbox({
               const pid = asset.muxPlaybackId?.trim();
               if (pid && ms === 'ready') {
                 return (
-                  <MuxPlayer
-                    playbackId={pid}
-                    streamType="on-demand"
-                    style={{ maxWidth: '100%', maxHeight: '75vh', width: '100%' }}
-                  />
+                  <div style={muxPlayerViewportBoxStyle(asset.muxAspectRatio)} className="min-h-0 min-w-0 shrink-0">
+                    <MuxPlayer
+                      playbackId={pid}
+                      streamType="on-demand"
+                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                    />
+                  </div>
                 );
               }
               if (ms === 'preparing') {
