@@ -14,6 +14,11 @@ import {
   reviewAssetIsImage,
   reviewAssetIsVideo,
 } from '@/lib/review/reviewMediaDisplay';
+import {
+  muxAspectRatioCssString,
+  muxPlaybackReadyForThumbnail,
+  muxThumbnailImageUrl,
+} from '@/lib/review/muxThumbnail';
 import { getSectionCounts, isAssetNew } from './reviewAssetUtils';
 import type { ReviewState } from './ReviewPortalClient';
 
@@ -1172,6 +1177,8 @@ function PlacementGroupCard({
               const cardNumber = asset.placementCardOrder ?? index + 1;
               const isImage = reviewAssetIsImage(asset.mimeType, asset.name);
               const isVideo = reviewAssetIsVideo(asset.mimeType, asset.name);
+              const carouselMuxPid = asset.muxPlaybackId?.trim();
+              const carouselMuxPoster = muxPlaybackReadyForThumbnail(asset.muxStatus, carouselMuxPid);
 
               // All assets (including animated GIFs) go through the file proxy.
               const src = buildReviewFileProxyUrl(asset.fileId, token, {
@@ -1202,17 +1209,33 @@ function PlacementGroupCard({
                       <img
                         src={src}
                         alt={`Card ${cardNumber}`}
+                        loading="lazy"
+                        decoding="async"
                         className="h-full w-full object-cover transition-transform group-hover:scale-105"
                       />
                     )}
                     {isVideo && (
                       <div className="relative h-full w-full">
-                        <VideoWithThumbnail
-                          key={asset.fileId}
-                          src={src}
-                          downloadHref={reviewFileDownloadHref(src)}
-                          className="h-full w-full object-cover"
-                        />
+                        {carouselMuxPoster && carouselMuxPid ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={muxThumbnailImageUrl(carouselMuxPid, {
+                              squareLogicalPx: 140,
+                              fitMode: 'smartcrop',
+                            })}
+                            alt={asset.name}
+                            loading="lazy"
+                            decoding="async"
+                            className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                          />
+                        ) : (
+                          <VideoWithThumbnail
+                            key={asset.fileId}
+                            src={src}
+                            downloadHref={reviewFileDownloadHref(src)}
+                            className="h-full w-full object-cover"
+                          />
+                        )}
                         {/* Video play icon overlay */}
                         <div className="absolute inset-0 flex items-center justify-center">
                           <div className="rounded-full bg-black/60 p-2">
@@ -1436,6 +1459,9 @@ function AssetCard({
     firstSeenAt?: string | null;
     lastSeenAt?: string | null;
     airtableRecordId?: string;
+    muxPlaybackId?: string | null;
+    muxStatus?: string | null;
+    muxAspectRatio?: string | null;
   };
   token: string;
   onClick: () => void;
@@ -1453,6 +1479,9 @@ function AssetCard({
   const isImage = reviewAssetIsImage(asset.mimeType, asset.name);
   const isVideo = reviewAssetIsVideo(asset.mimeType, asset.name);
   const isAudio = reviewAssetIsAudio(asset.mimeType, asset.name);
+  const muxPid = asset.muxPlaybackId?.trim();
+  const muxPoster = muxPlaybackReadyForThumbnail(asset.muxStatus, muxPid);
+  const thumbAspectFromMux = Boolean(muxPoster && asset.muxAspectRatio?.trim());
   const isNew = isAssetNew(asset);
   const effectiveState: ReviewState | undefined = asset.assetApprovedClient ? 'approved' : asset.reviewState;
   const badgeLabel = isNew ? 'New' : statusBadgeLabel(effectiveState);
@@ -1488,7 +1517,16 @@ function AssetCard({
       onClick={onClick}
       className="group flex-1 overflow-hidden text-left focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:ring-inset"
     >
-      <div className="relative flex aspect-video items-center justify-center bg-gray-900">
+      <div
+        className={`relative flex w-full items-center justify-center bg-gray-900 ${
+          thumbAspectFromMux ? '' : 'aspect-video'
+        }`}
+        style={
+          thumbAspectFromMux
+            ? { aspectRatio: muxAspectRatioCssString(asset.muxAspectRatio) }
+            : undefined
+        }
+      >
         {/* Status badge: right of checkbox when checkbox present, else left-2 */}
         <span
           className={`absolute ${onToggleSelect ? 'left-10' : 'left-2'} top-2 z-10 rounded-md px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
@@ -1501,17 +1539,33 @@ function AssetCard({
           <img
             src={src}
             alt={asset.name}
+            loading="lazy"
+            decoding="async"
             className="h-full w-full object-contain"
           />
         )}
         {isVideo && (
           <div className="relative h-full w-full">
-            <VideoWithThumbnail
-              key={asset.fileId}
-              src={src}
-              downloadHref={reviewFileDownloadHref(src)}
-              className="h-full w-full object-contain"
-            />
+            {muxPoster && muxPid ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={muxThumbnailImageUrl(muxPid, {
+                  logicalWidthPx: 300,
+                  fitMode: 'preserve',
+                })}
+                alt={asset.name}
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-contain"
+              />
+            ) : (
+              <VideoWithThumbnail
+                key={asset.fileId}
+                src={src}
+                downloadHref={reviewFileDownloadHref(src)}
+                className="h-full w-full object-contain"
+              />
+            )}
             {/* Play icon overlay */}
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="rounded-full bg-black/60 p-3 transition-transform group-hover:scale-110">

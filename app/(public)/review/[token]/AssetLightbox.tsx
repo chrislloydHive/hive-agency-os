@@ -20,31 +20,12 @@ import {
   transcodeReviewVideoToPlayableH264,
 } from '@/lib/review/client/transcodeForPortalPreview';
 import MuxPlayer from '@mux/mux-player-react';
+import { parseMuxAspectDimensions } from '@/lib/review/muxThumbnail';
 
 type VideoBoxPhase = 'native' | 'transcoding' | 'h264' | 'unavailable';
 
-/** Parse CRAS "Mux Aspect Ratio" (e.g. 9:16, 4:5) for CSS sizing; default 16:9. */
-function parseMuxAspectForPlayer(muxAspectRatio: string | null | undefined): {
-  cssRatio: string;
-  widthNum: number;
-  heightNum: number;
-} {
-  const raw = muxAspectRatio?.trim();
-  if (!raw) return { cssRatio: '16/9', widthNum: 16, heightNum: 9 };
-  const compact = raw.replace(/\s+/g, '').replace(/×/g, ':');
-  const parts = compact.includes(':') ? compact.split(':') : compact.split('/');
-  if (parts.length === 2) {
-    const widthNum = parseFloat(parts[0]);
-    const heightNum = parseFloat(parts[1]);
-    if (widthNum > 0 && heightNum > 0) {
-      return { cssRatio: `${widthNum}/${heightNum}`, widthNum, heightNum };
-    }
-  }
-  return { cssRatio: '16/9', widthNum: 16, heightNum: 9 };
-}
-
 function muxPlayerViewportBoxStyle(muxAspectRatio: string | null | undefined): CSSProperties {
-  const { cssRatio, widthNum, heightNum } = parseMuxAspectForPlayer(muxAspectRatio);
+  const { cssRatio, widthNum, heightNum } = parseMuxAspectDimensions(muxAspectRatio);
   return {
     maxHeight: '85vh',
     maxWidth: '100%',
