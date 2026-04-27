@@ -14,12 +14,15 @@
 //     “Active batch” historically).
 //
 // Safe to call from multiple ingest events at once: an in-process promise lock
-// collapses concurrent calls per projectId, and `hasAnyBatchForProject` is the
-// authoritative existence check before any write.
+// collapses concurrent calls per projectId. Existence is determined by
+// findExistingPartnerDeliveryBatchForProject (Project + Partner link ids), not
+// Batch ID text — scaffold and ingest must use the same project display name
+// (see projectFolderMap "Project Name (Job #)") so Batch IDs stay aligned.
 
 import type { FieldSet } from 'airtable';
 
 import { getBase, getProjectsBase } from '@/lib/airtable';
+import { findExistingPartnerDeliveryBatchForProject } from '@/lib/airtable/partnerDeliveryBatches';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import {
   getDriveClient,
@@ -42,7 +45,7 @@ export interface EnsureDeliverySetupArgs {
 }
 
 export type EnsureDeliverySetupResult =
-  | { status: 'exists' }
+  | { status: 'exists'; existingBatchRecordId?: string }
   | { status: 'created'; batchRecordId: string }
   | { status: 'error'; error: string };
 
@@ -60,32 +63,41 @@ export async function ensurePartnerDeliverySetup(
         projectId: args.projectId,
       });
 
-      // 1) Skip if a batch row already exists for this project. Look up by
-      // Batch ID (the primary field) — we set it deterministically below to
-      // "{Project Name} - Brkthru". A primary-field lookup is fast and
-      // reliable.
-      //
-      // DO NOT try to filter on the {Project} linked field — Airtable's
-      // ARRAYJOIN({Project}) returns the linked records' primary-field values
-      // (project names), not record IDs, so FIND("rec...", ARRAYJOIN(...))
-      // never matches and you get unbounded duplicate creation.
+      const partnerCompanyId = await getBrkthruCompanyId();
+      try {
+        const existing = await findExistingPartnerDeliveryBatchForProject(
+          args.projectId,
+          partnerCompanyId,
+          { partnerNameTokenForBatchIdSuffix: PARTNER_NAME },
+        );
+        if (existing) {
+          console.log('[delivery-init] batch already exists for project+partner — skipping create', {
+            batchRecordId: existing.batchRecordId,
+            batchId: existing.batchId,
+            projectId: args.projectId,
+          });
+          return { status: 'exists', existingBatchRecordId: existing.batchRecordId };
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(
+          '[delivery-init] existing-batch lookup failed (NOT creating to avoid duplicates):',
+          msg,
+        );
+        return { status: 'error', error: msg };
+      }
+
       const expectedBatchId = `${args.projectName} - ${PARTNER_NAME}`;
       try {
-        const exists = await hasBatchWithBatchId(expectedBatchId);
-        if (exists) {
-          console.log('[delivery-init] batch exists — skipping', {
+        if (await hasBatchWithBatchId(expectedBatchId)) {
+          console.log('[delivery-init] batch with same Batch ID primary already exists — skipping', {
             batchId: expectedBatchId,
           });
           return { status: 'exists' };
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.warn(
-          '[delivery-init] batch lookup failed (NOT creating to avoid duplicates):',
-          msg
-        );
-        // Bail rather than create — better to skip a tick than spam duplicates.
-        return { status: 'error', error: msg };
+        console.warn('[delivery-init] Batch ID lookup failed:', msg);
       }
 
       console.log('[delivery-init] creating batch (Create Partner Batch=true → Airtable script will provision folders)');
@@ -147,56 +159,119 @@ let brkthruCompanyIdCache: string | null = null;
 /**
  * Promote a freshly scaffolded PDB row to the state Airtable auto-assign expects:
  * Status (and Delivery Status when present) = Delivering, Make Active = true.
- * Merges optional fields (e.g. Destination Folder ID) in one write when provided.
+ * Writes Destination Folder ID in a follow-up patch after core status fields
+ * succeed (avoids validation quirks from mixing single-select + folder id).
  */
 async function promotePartnerBatchRowToDelivering(
   projectsBase: ReturnType<typeof getProjectsBase>,
   recordId: string,
   extras: Record<string, unknown> = {},
 ): Promise<void> {
-  const deliveringPayload = {
-    ...extras,
+  const LOG = '[delivery-init] PDB promote';
+
+  const readBack = async () => {
+    const rec = await projectsBase(TABLE).find(recordId);
+    const f = rec.fields as Record<string, unknown>;
+    const status = typeof f.Status === 'string' ? f.Status.trim() : '';
+    const deliveryStatus =
+      typeof f['Delivery Status'] === 'string' ? (f['Delivery Status'] as string).trim() : '';
+    return {
+      status,
+      deliveryStatus,
+      makeActive: f['Make Active'] === true,
+      statusIsDelivering: status.toLowerCase() === 'delivering',
+    };
+  };
+
+  const patch = async (
+    label: string,
+    body: Record<string, unknown>,
+  ): Promise<{ ok: boolean; returned?: Record<string, unknown> }> => {
+    console.log(`${LOG} PATCH attempt`, { label, recordId, body: JSON.stringify(body) });
+    try {
+      const updated = await projectsBase(TABLE).update(recordId, body as Partial<FieldSet>);
+      const f = updated.fields as Record<string, unknown>;
+      const st = typeof f.Status === 'string' ? f.Status.trim() : '';
+      console.log(`${LOG} Airtable update response`, {
+        label,
+        recordId,
+        returnedStatus: st,
+        returnedDeliveryStatus:
+          typeof f['Delivery Status'] === 'string' ? f['Delivery Status'] : f['Delivery Status'],
+        returnedMakeActive: f['Make Active'],
+      });
+      return { ok: true, returned: f as Record<string, unknown> };
+    } catch (e) {
+      console.error(`${LOG} Airtable update FAILED`, {
+        label,
+        recordId,
+        error: e instanceof Error ? e.message : String(e),
+        body: JSON.stringify(body),
+      });
+      return { ok: false };
+    }
+  };
+
+  // Split: set workflow state first without Destination Folder ID (avoids
+  // single-select + long-text validation interactions), then folder id.
+  const coreDelivering: Record<string, unknown> = {
     Status: 'Delivering',
     'Delivery Status': 'Delivering',
     'Make Active': true,
-  } as Partial<FieldSet>;
+  };
 
-  try {
-    await projectsBase(TABLE).update(recordId, deliveringPayload);
-    console.log('[delivery-init] PDB promoted: Status+Delivery Status=Delivering, Make Active=true', {
+  let coreOk = await patch('core-status+delivery+make-active', coreDelivering);
+  if (!coreOk.ok) {
+    coreOk = await patch('core-status+make-active-no-delivery-field', {
+      Status: 'Delivering',
+      'Make Active': true,
+    });
+  }
+  if (!coreOk.ok) {
+    coreOk = await patch('core-status-only', { Status: 'Delivering' });
+  }
+  if (!coreOk.ok) {
+    coreOk = await patch('legacy-combined-all-fields', {
+      ...extras,
+      Status: 'Delivering',
+      'Delivery Status': 'Delivering',
+      'Make Active': true,
+    });
+  }
+
+  if (coreOk.ok) {
+    const mid = await readBack();
+    if (!mid.makeActive) {
+      await patch('follow-up-make-active', { 'Make Active': true });
+    }
+  } else {
+    console.error(`${LOG} failed to set core Delivering state — skipping Destination Folder write`, {
       recordId,
     });
-    return;
-  } catch (bothErr) {
-    const bothMsg = bothErr instanceof Error ? bothErr.message : String(bothErr);
-    try {
-      await projectsBase(TABLE).update(recordId, {
-        ...extras,
-        Status: 'Delivering',
-        'Make Active': true,
-      } as Partial<FieldSet>);
-      console.log('[delivery-init] PDB promoted (no Delivery Status field): Delivering + Make Active', {
-        recordId,
-      });
-      return;
-    } catch {
-      try {
-        await projectsBase(TABLE).update(recordId, {
-          ...extras,
-          Status: 'Delivering',
-        } as Partial<FieldSet>);
-        console.log('[delivery-init] PDB promoted: Status=Delivering only (Make Active / Delivery Status skipped)', {
-          recordId,
-        });
-        return;
-      } catch (e2) {
-        console.error(
-          '[delivery-init] Could not promote PDB to Delivering (CRAS auto-assign may fail until fixed manually):',
-          e2 instanceof Error ? e2.message : String(e2),
-          { firstError: bothMsg },
-        );
-      }
-    }
+  }
+
+  if (coreOk.ok && Object.keys(extras).length > 0) {
+    await patch('extras-destination-folder', { ...extras });
+  }
+
+  let snap = await readBack();
+  console.log(`${LOG} read-back`, {
+    recordId,
+    ...snap,
+    statusWriteOk: snap.statusIsDelivering,
+  });
+
+  if (!snap.statusIsDelivering) {
+    await patch('retry-status-delivering', { Status: 'Delivering' });
+    snap = await readBack();
+    console.log(`${LOG} read-back after Status retry`, { recordId, ...snap, statusWriteOk: snap.statusIsDelivering });
+  }
+
+  if (!snap.statusIsDelivering) {
+    console.error(
+      `${LOG} Status is still not "Delivering" after retries — CRAS auto-assign may not link until fixed in Airtable`,
+      { recordId, readBack: snap },
+    );
   }
 }
 

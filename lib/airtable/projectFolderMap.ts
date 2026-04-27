@@ -92,9 +92,16 @@ export async function getProjectsByCreativeReviewHubFolderId(): Promise<
         skipped++;
         continue;
       }
+      // Prefer "Project Name (Job #)" first so ingest/cron matches scaffold and
+      // ensurePartnerDeliverySetup (same canonical label as creative/scaffold + review).
       const projectName =
-        readStringField(fields, ['Project', 'Name', 'Project Name', 'Title']) ||
-        '(unnamed)';
+        readStringField(fields, [
+          'Project Name (Job #)',
+          'Project',
+          'Name',
+          'Project Name',
+          'Title',
+        ]) || '(unnamed)';
       const reviewToken = readStringField(fields, REVIEW_TOKEN_FIELD_ALIASES);
       map.set(folderId, {
         projectId: record.id,

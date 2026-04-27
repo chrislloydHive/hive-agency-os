@@ -242,6 +242,84 @@ function escapeFormula(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
+/** Airtable linked-record fields return an array of record ids (strings). */
+export function readLinkedRecordIdsFromAirtableField(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item === 'string' && item.startsWith('rec')) {
+      out.push(item);
+      continue;
+    }
+    if (typeof item === 'object' && item !== null && 'id' in item) {
+      const id = (item as { id?: string }).id;
+      if (typeof id === 'string' && id.startsWith('rec')) out.push(id);
+    }
+  }
+  return out;
+}
+
+const PARTNER_LINK_FIELD = 'Partner';
+
+/**
+ * Return an existing Partner Delivery Batches row for this project+partner pair
+ * (lookup by Project link in JS — reliable for record ids). Used to prevent
+ * duplicate PDB rows when scaffold and ingest use different Batch ID strings.
+ *
+ * When `partnerCompanyRecordId` is null, any batch linked to the project is treated
+ * as existing (single-partner bases). Otherwise we match Partner link ids first,
+ * then fall back to Batch ID ending with " - {partnerNameToken}".
+ */
+export async function findExistingPartnerDeliveryBatchForProject(
+  projectRecordId: string,
+  partnerCompanyRecordId: string | null,
+  options?: { partnerNameTokenForBatchIdSuffix?: string },
+): Promise<{ batchRecordId: string; batchId: string } | null> {
+  const pid = String(projectRecordId).trim();
+  if (!pid.startsWith('rec')) return null;
+
+  const base = getProjectsBase();
+  const projEsc = escapeFormula(pid);
+  const formula = `FIND("${projEsc}", ARRAYJOIN({${BATCH_PROJECT_LINK_FIELD}})) > 0`;
+  let records: Array<{ id: string; fields: Record<string, unknown> }> = [];
+  try {
+    const page = await base(TABLE).select({ filterByFormula: formula }).firstPage();
+    records = page as unknown as Array<{ id: string; fields: Record<string, unknown> }>;
+  } catch {
+    return null;
+  }
+  if (records.length === 0) return null;
+
+  const partnerToken = (options?.partnerNameTokenForBatchIdSuffix ?? 'Brkthru').trim();
+  const suffix = partnerToken ? ` - ${partnerToken}` : '';
+
+  const readBatchId = (f: Record<string, unknown>): string => {
+    const raw = f[BATCH_ID_FIELD];
+    return typeof raw === 'string' ? raw.trim() : '';
+  };
+
+  if (!partnerCompanyRecordId) {
+    const r = records[0];
+    return { batchRecordId: r.id, batchId: readBatchId(r.fields) };
+  }
+
+  for (const r of records) {
+    const partnerIds = readLinkedRecordIdsFromAirtableField(r.fields[PARTNER_LINK_FIELD]);
+    if (partnerIds.includes(partnerCompanyRecordId)) {
+      return { batchRecordId: r.id, batchId: readBatchId(r.fields) };
+    }
+  }
+
+  if (suffix) {
+    const byName = records.find((r) => readBatchId(r.fields).endsWith(suffix));
+    if (byName) {
+      return { batchRecordId: byName.id, batchId: readBatchId(byName.fields) };
+    }
+  }
+
+  return null;
+}
+
 function mapRecordToListItem(record: { id: string; fields: Record<string, unknown>; createdTime?: string }): DeliveryBatchListItem | null {
   const f = record.fields;
   const batchIdRaw = f[BATCH_ID_FIELD];
