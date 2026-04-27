@@ -6,10 +6,12 @@ import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { createTask } from '@/lib/airtable/tasks';
 
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
 
-const MODEL = 'claude-sonnet-4-6';
+const MODEL = 'claude-haiku-4-5';
+/** Hard cap on the Claude round-trip so the serverless function cannot hang indefinitely. */
+const ANTHROPIC_CALL_MS = 30_000;
 
 function laYmdToday(): string {
   return new Intl.DateTimeFormat('en-CA', {
@@ -92,13 +94,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'transcript is required (non-empty string)' }, { status: 400 });
     }
 
-    const anthropic = new Anthropic({ apiKey, timeout: 28_000 });
-    const ai = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 600,
-      system: buildSystemPrompt(),
-      messages: [{ role: 'user', content: transcript.trim() }],
-    });
+    const anthropic = new Anthropic({ apiKey, maxRetries: 0 });
+    const ai = await anthropic.messages.create(
+      {
+        model: MODEL,
+        max_tokens: 400,
+        system: buildSystemPrompt(),
+        messages: [{ role: 'user', content: transcript.trim() }],
+      },
+      {
+        timeout: ANTHROPIC_CALL_MS,
+        signal: AbortSignal.timeout(ANTHROPIC_CALL_MS),
+      },
+    );
 
     const block = ai.content[0];
     if (!block || block.type !== 'text') {
@@ -156,7 +164,11 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     console.error('[voice-capture] error:', err);
     const msg = err instanceof Error ? err.message : 'Voice capture failed';
-    if (msg.toLowerCase().includes('timeout') || msg.includes('ETIMEDOUT')) {
+    if (
+      msg.toLowerCase().includes('timeout') ||
+      msg.includes('ETIMEDOUT') ||
+      (err instanceof Error && err.name === 'AbortError')
+    ) {
       return NextResponse.json({ error: msg }, { status: 504 });
     }
     return NextResponse.json({ error: msg }, { status: 500 });
