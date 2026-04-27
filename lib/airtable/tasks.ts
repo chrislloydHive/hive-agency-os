@@ -247,7 +247,8 @@ export type TaskSource =
   | 'commitment'
   | 'meeting-follow-up'
   | 'email-triage'
-  | 'website-submission';
+  | 'website-submission'
+  | 'voice-capture';
 
 // ============================================================================
 // Types
