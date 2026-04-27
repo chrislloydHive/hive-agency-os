@@ -13,17 +13,30 @@ const MODEL = 'claude-haiku-4-5';
 /** Hard cap on the Claude round-trip so the serverless function cannot hang indefinitely. */
 const ANTHROPIC_CALL_MS = 30_000;
 
-function laYmdToday(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Los_Angeles',
+const LA_TZ = 'America/Los_Angeles';
+
+/** Wall-clock calendar date + weekday name in Los Angeles (for model anchoring). */
+function laDateContext(ref = new Date()): { ymd: string; weekday: string } {
+  const ymd = new Intl.DateTimeFormat('en-CA', {
+    timeZone: LA_TZ,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(new Date());
+  }).format(ref);
+  const weekday = new Intl.DateTimeFormat('en-US', {
+    timeZone: LA_TZ,
+    weekday: 'long',
+  }).format(ref);
+  return { ymd, weekday };
+}
+
+/** Prepended to the transcript so relative dates anchor to LA local "today". Exported for tests. */
+export function buildVoiceCaptureUserContent(transcript: string, ref = new Date()): string {
+  const { ymd, weekday } = laDateContext(ref);
+  return `Today is ${ymd} (${LA_TZ}, ${weekday}).\n\n${transcript.trim()}`;
 }
 
 function buildSystemPrompt(): string {
-  const todayLa = laYmdToday();
   return `You turn a voice memo into a structured task. Output:
 {
   "task":        "<short imperative title, ≤80 chars>",
@@ -33,7 +46,30 @@ function buildSystemPrompt(): string {
   "project":     "<best-guess project name from context>" | null,
   "reasoning":   "<one sentence on the parse>"
 }
-Rules: Priority defaults to P2 unless the transcript signals urgency ("urgent", "asap", "P1") or low importance ("sometime", "someday", "low priority"). Resolve relative dates ("tomorrow", "next Monday", "end of week") against today's local date in America/Los_Angeles (today is ${todayLa}). Project is best-guess — if the transcript mentions Car Toys, Atlas, etc., set it; if unclear, null.
+
+Date extraction rules (due field):
+- The user message begins with today's date in ${LA_TZ} — anchor ALL relative dates to that calendar date (not UTC).
+- If no date or deadline is mentioned anywhere in the transcript, set due to null. Do not guess.
+- Output due as YYYY-MM-DD with leading zeros, or null.
+
+Map natural language to YYYY-MM-DD using the provided "today":
+- "today" → today
+- "tomorrow" → today + 1 day
+- "tonight", "this evening" → today
+- "Monday" / "Tuesday" / … / "Sunday" with no "this"/"next" → the next occurrence of that weekday strictly AFTER today (never today; if today is already that weekday, use that weekday 7 days later)
+- "next Monday" / … / "next Sunday" → first compute the date for bare "[Weekday]" as above, then add 7 calendar days (the following week's same weekday)
+- "this Monday" / … / "this Sunday" → that weekday within the current Sunday–Saturday week that contains today; if that calendar date is before today in ${LA_TZ}, use the same weekday in the following week (+7 days)
+- "this weekend" → the upcoming Saturday (from today)
+- "next week" → today + 7 days
+- "in N days" / "N days from now" (N a positive integer) → today + N days
+- "in a week" → today + 7 days
+- "in two weeks" → today + 14 days
+- "May 3rd", "May 3", "5/3" (month/day) → that month and day in the current calendar year; if that date is already before today in ${LA_TZ}, use next year instead
+- "end of the month" → last calendar day of the current month in ${LA_TZ}
+- "end of the week" → the upcoming Sunday (from today) in ${LA_TZ}
+
+Other rules: Priority defaults to P2 unless the transcript signals urgency ("urgent", "asap", "P1") or low importance ("sometime", "someday", "low priority"). Project is best-guess — if the transcript mentions Car Toys, Atlas, etc., set it; if unclear, null.
+
 Output strict JSON only, no prose outside the JSON.`;
 }
 
@@ -56,6 +92,14 @@ function isValidYmd(s: string): boolean {
   const d = Number(m[3]);
   const dt = new Date(y, mo - 1, d);
   return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d;
+}
+
+/** If the model returned a non-ISO or impossible date, treat as missing. Exported for tests. */
+export function coerceVoiceCaptureDue(due: string | null): string | null {
+  if (due === null) return null;
+  const s = due.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !isValidYmd(s)) return null;
+  return s;
 }
 
 function extractJsonObject(raw: string): string {
@@ -100,7 +144,7 @@ export async function POST(request: NextRequest) {
         model: MODEL,
         max_tokens: 400,
         system: buildSystemPrompt(),
-        messages: [{ role: 'user', content: transcript.trim() }],
+        messages: [{ role: 'user', content: buildVoiceCaptureUserContent(transcript) }],
       },
       {
         timeout: ANTHROPIC_CALL_MS,
@@ -128,10 +172,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: rawText }, { status: 502 });
     }
 
-    let due: string | null = parsed.due;
-    if (due !== null && !isValidYmd(due)) {
-      return NextResponse.json({ error: rawText }, { status: 502 });
-    }
+    const due = coerceVoiceCaptureDue(parsed.due);
 
     const nextAction =
       typeof parsed.nextAction === 'string' ? parsed.nextAction.trim() : parsed.nextAction === null ? '' : '';

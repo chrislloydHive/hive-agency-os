@@ -435,6 +435,22 @@ function extractPlainBody(payload: MsgPart | undefined | null): string {
  */
 const FORM_FIELD_RE = /^([A-Z][A-Za-z0-9\s]{0,40}):\s*(.+)$/;
 
+/** Framer General Contact (plain-text) notifications list fixed labels. Values
+ *  may span multiple lines (RFC soft-wrap) until the next label or the Framer
+ *  footer sentinel — the old single-line `Label: value` regex truncated Message. */
+const FRAMER_FORM_SENTINEL = /This email is a submission of a Framer form/i;
+/** Match only at start of body or after a newline so "… regarding Name:" does not split. */
+const FRAMER_KNOWN_LABEL_RE =
+  /(?:^|\n)\s*(Name|Email|Phone Number|Select a Topic|Message)\s*:\s*/gi;
+
+const CANONICAL_LABEL: Record<string, string> = {
+  name: 'Name',
+  email: 'Email',
+  'phone number': 'Phone Number',
+  'select a topic': 'Select a Topic',
+  message: 'Message',
+};
+
 /** Labels to surface in the compact preview. Chris only wants to see Topic
  *  + Message in the row; everything else (Name, Email, Phone) is identifying
  *  noise that lives in the Notes field. */
@@ -510,20 +526,61 @@ function looksLikeSpamSubmission(fields: Array<{ label: string; value: string }>
   return signals >= 2;
 }
 
-function parseSubmissionBody(body: string): ParsedSubmission {
+/** Parse Framer-style bodies where known labels start lines and values run until
+ *  the next label or `This email is a submission of a Framer form`. */
+function parseFramerKnownLabelBody(normalizedBody: string): Array<{ label: string; value: string }> | null {
+  const sentinelMatch = FRAMER_FORM_SENTINEL.exec(normalizedBody);
+  const scanEnd = sentinelMatch ? sentinelMatch.index : normalizedBody.length;
+
+  const matches: { label: string; fieldStart: number; valueStart: number }[] = [];
+  FRAMER_KNOWN_LABEL_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = FRAMER_KNOWN_LABEL_RE.exec(normalizedBody)) !== null) {
+    if (m.index >= scanEnd) break;
+    const rawLabel = m[1];
+    const label = CANONICAL_LABEL[rawLabel.toLowerCase()] ?? rawLabel;
+    matches.push({ label, fieldStart: m.index, valueStart: m.index + m[0].length });
+    if (m[0].length === 0) FRAMER_KNOWN_LABEL_RE.lastIndex++;
+  }
+
+  // Need at least two anchors so the first slice is bounded; otherwise fall back.
+  if (matches.length < 2) return null;
+
+  const fields: Array<{ label: string; value: string }> = [];
+  for (let i = 0; i < matches.length; i++) {
+    const end = i + 1 < matches.length ? matches[i + 1].fieldStart : scanEnd;
+    const raw = normalizedBody.slice(matches[i].valueStart, end);
+    let value = raw.trim();
+    if (matches[i].label === 'Message') {
+      value = value.replace(/\s+/g, ' ').trim();
+    }
+    fields.push({ label: matches[i].label, value });
+  }
+  return fields;
+}
+
+/** Exported for unit tests (Framer website submission body parsing). */
+export function parseSubmissionBody(body: string): ParsedSubmission {
   if (!body) return { preview: '', fullBody: '', hasFields: false, isSpam: false };
 
   const stripped = body.replace(INVISIBLE_PADDING_RE, '');
-  const lines = stripped
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
+  const normalized = stripped.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
-  const fields: Array<{ label: string; value: string }> = [];
-  for (const line of lines) {
-    const m = line.match(FORM_FIELD_RE);
-    if (m) fields.push({ label: m[1].trim(), value: m[2].trim() });
+  let fields: Array<{ label: string; value: string }> | null = parseFramerKnownLabelBody(normalized);
+
+  if (!fields) {
+    const lines = normalized
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+
+    fields = [];
+    for (const line of lines) {
+      const fm = line.match(FORM_FIELD_RE);
+      if (fm) fields.push({ label: fm[1].trim(), value: fm[2].trim() });
+    }
   }
+
   if (fields.length === 0) {
     return { preview: '', fullBody: '', hasFields: false, isSpam: false };
   }
