@@ -19,6 +19,7 @@ import {
   isPortalFfmpegTranscodeEnabled,
   transcodeReviewVideoToPlayableH264,
 } from '@/lib/review/client/transcodeForPortalPreview';
+import MuxPlayer from '@mux/mux-player-react';
 
 type VideoBoxPhase = 'native' | 'transcoding' | 'h264' | 'unavailable';
 
@@ -175,6 +176,8 @@ interface ReviewAsset {
   lastSeenAt?: string | null;
   /** CRAS record id — file proxy auth when token+fileId index misses. */
   airtableRecordId?: string;
+  muxPlaybackId?: string | null;
+  muxStatus?: string | null;
 }
 
 interface AssetComment {
@@ -620,7 +623,34 @@ export default function AssetLightbox({
               className="max-h-[75vh] max-w-full object-contain"
             />
           )}
-          {isVideo && <LightboxVideoPreview src={src} fileName={asset.name} />}
+          {isVideo &&
+            (() => {
+              const ms = (asset.muxStatus ?? '').toLowerCase();
+              const pid = asset.muxPlaybackId?.trim();
+              if (pid && ms === 'ready') {
+                return (
+                  <MuxPlayer
+                    playbackId={pid}
+                    streamType="on-demand"
+                    style={{ maxWidth: '100%', maxHeight: '75vh', width: '100%' }}
+                  />
+                );
+              }
+              if (ms === 'preparing') {
+                return (
+                  <div className="flex max-w-md flex-col items-center gap-3 rounded-lg bg-gray-800/90 p-6 text-center">
+                    <p className="text-sm text-gray-200">Transcoding on Mux…</p>
+                    <p className="text-xs text-gray-500">
+                      Usually completes within a minute or two. Refresh the page to check again.
+                    </p>
+                  </div>
+                );
+              }
+              if (ms === 'errored') {
+                return <LightboxVideoPreview src={src} fileName={asset.name} />;
+              }
+              return <LightboxVideoPreview src={src} fileName={asset.name} />;
+            })()}
           {isAudio && (
             <div className="flex flex-col items-center gap-6 rounded-lg bg-gray-800 p-8">
               <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gray-700">

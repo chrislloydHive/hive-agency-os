@@ -19,6 +19,12 @@ import {
   CRAS_PARTNER_DOWNLOADED_AT_ALIASES,
 } from '@/lib/airtable/deliveryWriteBack';
 import { syncPartnerDeliveryBatchesForApprovedCras } from '@/lib/airtable/partnerDeliveryBatches';
+import {
+  CRAS_MUX_ASPECT_RATIO_FIELD,
+  CRAS_MUX_DURATION_FIELD,
+  CRAS_MUX_PLAYBACK_ID_FIELD,
+  CRAS_MUX_STATUS_FIELD,
+} from '@/lib/mux/crasMuxFields';
 
 const TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 
@@ -203,6 +209,11 @@ export interface StatusRecord {
   placementType: string | null;
   /** Sort order within the group (1, 2, 3, 4 for carousel cards). */
   placementCardOrder: number | null;
+  /** Mux playback (see lib/mux/crasMuxFields.ts — Airtable columns added in UI). */
+  muxPlaybackId: string | null;
+  muxStatus: string | null;
+  muxDuration: number | null;
+  muxAspectRatio: string | null;
 }
 
 function keyFrom(token: string, driveFileId: string): string {
@@ -382,6 +393,23 @@ function recordToStatus(r: { id: string; fields: Record<string, unknown> }, toke
     ? parseInt(placementCardOrderRaw, 10)
     : null;
 
+  const muxPlaybackRaw = f[CRAS_MUX_PLAYBACK_ID_FIELD];
+  const muxPlaybackId =
+    typeof muxPlaybackRaw === 'string' && muxPlaybackRaw.trim() ? muxPlaybackRaw.trim() : null;
+  const muxStatusRaw = f[CRAS_MUX_STATUS_FIELD];
+  const muxStatus =
+    typeof muxStatusRaw === 'string' && muxStatusRaw.trim() ? muxStatusRaw.trim().toLowerCase() : null;
+  const muxDurationRaw = f[CRAS_MUX_DURATION_FIELD];
+  const muxDuration =
+    typeof muxDurationRaw === 'number' && Number.isFinite(muxDurationRaw)
+      ? muxDurationRaw
+      : typeof muxDurationRaw === 'string' && muxDurationRaw.trim() && !Number.isNaN(Number(muxDurationRaw))
+        ? Number(muxDurationRaw)
+        : null;
+  const muxArRaw = f[CRAS_MUX_ASPECT_RATIO_FIELD];
+  const muxAspectRatio =
+    typeof muxArRaw === 'string' && muxArRaw.trim() ? muxArRaw.trim() : null;
+
   return {
     recordId: r.id,
     driveFileId,
@@ -414,6 +442,10 @@ function recordToStatus(r: { id: string; fields: Record<string, unknown> }, toke
     placementGroupName,
     placementType,
     placementCardOrder,
+    muxPlaybackId,
+    muxStatus,
+    muxDuration,
+    muxAspectRatio,
   };
 }
 
@@ -974,7 +1006,7 @@ export interface UpsertSeenArgs {
 
 /**
  * Ensure a CRAS record exists for this token + drive file. Creates with Status=New if missing (for backfill).
- * Returns true if a record was created, false if one already existed.
+ * Returns whether a row was created and the CRAS record id (existing or new).
  */
 export interface EnsureCrasRecordArgs {
   token: string;
@@ -985,9 +1017,15 @@ export interface EnsureCrasRecordArgs {
   variant: string;
 }
 
-export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<boolean> {
+export interface EnsureCrasRecordResult {
+  created: boolean;
+  /** Always set when `created` is false (existing row); set when `created` is true (new row id). */
+  recordId: string | null;
+}
+
+export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<EnsureCrasRecordResult> {
   const existing = await findExisting(args.token, args.driveFileId);
-  if (existing) return false;
+  if (existing) return { created: false, recordId: existing.id };
   if (omitCrasTokenOnWrite() && !shouldLinkProjectFieldOnCras()) {
     console.error(
       '[ensureCrasRecord] Token is lookup-only; need Project link but Projects base ≠ OS base. Cannot create CRAS.',
@@ -1016,17 +1054,20 @@ export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<bool
   if (args.variant && args.variant.trim()) coreFields.Variant = args.variant.trim();
 
   try {
-    await osBase(TABLE).create({ ...coreFields, 'Last Activity At': now } as any);
+    const rec = (await osBase(TABLE).create({ ...coreFields, 'Last Activity At': now } as any)) as unknown as {
+      id: string;
+    };
+    return { created: true, recordId: rec.id };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('UNKNOWN_FIELD') || msg.includes('unknown field') || msg.includes('Cannot create field')) {
       console.warn('[ensureCrasRecord] Retrying without optional fields:', msg);
-      await osBase(TABLE).create(coreFields as any);
+      const rec = (await osBase(TABLE).create(coreFields as any)) as unknown as { id: string };
+      return { created: true, recordId: rec.id };
     } else {
       throw err;
     }
   }
-  return true;
 }
 
 /** List CRAS rows for this token + file-id batch via REST (same auth as airtableFetch). */

@@ -270,6 +270,8 @@ interface ReviewAsset {
   placementCardOrder?: number | null;
   /** CRAS record id from /api/review/assets — passed to file proxy for reliable auth. */
   airtableRecordId?: string;
+  muxPlaybackId?: string | null;
+  muxStatus?: string | null;
 }
 
 interface TacticFeedback {

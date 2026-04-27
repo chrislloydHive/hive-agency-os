@@ -85,6 +85,11 @@ interface ReviewAsset {
   placementType?: string | null;
   /** Sort order within the group (1, 2, 3, 4 for carousel cards). */
   placementCardOrder?: number | null;
+  /** Mux streaming (when Airtable Mux columns are present). */
+  muxPlaybackId?: string | null;
+  muxStatus?: string | null;
+  muxDuration?: number | null;
+  muxAspectRatio?: string | null;
 }
 
 interface TacticSectionData {
@@ -238,6 +243,10 @@ function statusRecordToReviewAsset(
     placementGroupName: rec.placementGroupName,
     placementType: rec.placementType,
     placementCardOrder: rec.placementCardOrder,
+    muxPlaybackId: rec.muxPlaybackId,
+    muxStatus: rec.muxStatus,
+    muxDuration: rec.muxDuration,
+    muxAspectRatio: rec.muxAspectRatio,
   };
 }
 

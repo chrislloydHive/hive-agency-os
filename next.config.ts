@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  transpilePackages: ['@mux/mux-player-react'],
 
   // ESLint: Don't fail on warnings during builds
   eslint: {

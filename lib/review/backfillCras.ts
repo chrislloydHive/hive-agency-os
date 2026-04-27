@@ -63,7 +63,7 @@ export async function backfillCras(params: {
           result.skipped += 1;
           continue;
         }
-        const created = await ensureCrasRecord({
+        const cr = await ensureCrasRecord({
           token,
           projectId,
           driveFileId: file.id,
@@ -71,7 +71,7 @@ export async function backfillCras(params: {
           tactic,
           variant,
         });
-        if (created) result.created += 1;
+        if (cr.created) result.created += 1;
         else result.skipped += 1;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

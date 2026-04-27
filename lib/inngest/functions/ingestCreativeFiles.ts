@@ -332,7 +332,7 @@ export const ingestCreativeFilesScheduled = inngest.createFunction(
               });
             }
             try {
-              const r = await ingestFilesToCras(batch);
+              const r = await ingestFilesToCras(batch, { drive });
               created += r.created;
               errors += r.errors;
             } catch (err) {

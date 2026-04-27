@@ -46,6 +46,8 @@ interface ReviewAsset {
   placementType?: string | null;
   /** Sort order within the group (1, 2, 3, 4 for carousel cards). */
   placementCardOrder?: number | null;
+  muxPlaybackId?: string | null;
+  muxStatus?: string | null;
 }
 
 interface TacticSectionData {

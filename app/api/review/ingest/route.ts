@@ -20,6 +20,7 @@
 // verify the route is wired up. Use ?fileId=...&folderId=... to provide values.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getDriveClient } from '@/lib/google/driveClient';
 import {
   ingestFileToCras,
   ingestFilesToCras,
@@ -41,6 +42,14 @@ function isValidFile(x: unknown): x is IngestFileInput {
   );
 }
 
+async function tryIngestDriveClient() {
+  try {
+    return await getDriveClient({ vercelOidcToken: process.env.VERCEL_OIDC_TOKEN ?? null });
+  } catch {
+    return undefined;
+  }
+}
+
 export async function POST(req: NextRequest) {
   let body: unknown;
   try {
@@ -53,6 +62,8 @@ export async function POST(req: NextRequest) {
   }
 
   const b = body as Record<string, unknown>;
+  const drive = await tryIngestDriveClient();
+  const ingestOpts = drive ? { drive } : {};
 
   // Batch form
   if (Array.isArray(b.files)) {
@@ -63,13 +74,13 @@ export async function POST(req: NextRequest) {
         { status: 400, headers: NO_STORE }
       );
     }
-    const summary = await ingestFilesToCras(files);
+    const summary = await ingestFilesToCras(files, ingestOpts);
     return NextResponse.json({ ok: true, ...summary }, { headers: NO_STORE });
   }
 
   // Single form
   if (isValidFile(b)) {
-    const result = await ingestFileToCras(b);
+    const result = await ingestFileToCras(b, undefined, ingestOpts);
     return NextResponse.json({ ok: true, result }, { headers: NO_STORE });
   }
 

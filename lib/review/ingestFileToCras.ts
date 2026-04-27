@@ -15,6 +15,7 @@ import {
 } from '@/lib/airtable/projectFolderMap';
 import { ensureCrasRecord } from '@/lib/airtable/reviewAssetStatus';
 import { ensurePartnerDeliverySetup } from '@/lib/delivery/ensurePartnerDeliverySetup';
+import { createMuxAssetFromDrive } from '@/lib/mux/createMuxAsset';
 
 export interface IngestFileInput {
   /** Drive file ID. */
@@ -199,7 +200,7 @@ export async function ingestFileToCras(
   }
 
   try {
-    const created = await ensureCrasRecord({
+    const cr = await ensureCrasRecord({
       token: matched.reviewToken ?? '',
       projectId: matched.projectId,
       driveFileId: file.fileId,
@@ -207,11 +208,30 @@ export async function ingestFileToCras(
       tactic: file.tactic ?? '',
       variant: file.variant ?? '',
     });
-    if (created) {
+    if (cr.created) {
       console.log('[ingest] CRAS created', {
         projectId: matched.projectId,
         fileId: file.fileId,
+        recordId: cr.recordId,
       });
+      if (cr.recordId && options.drive) {
+        try {
+          const muxRes = await createMuxAssetFromDrive({
+            drive: options.drive,
+            driveFileId: file.fileId,
+            crasRecordId: cr.recordId,
+            fileName: file.fileName ?? '',
+          });
+          if (muxRes.ok) {
+            console.log('[ingest][mux] upload started', { uploadId: muxRes.uploadId, crasRecordId: cr.recordId });
+          } else if (!muxRes.skipped) {
+            console.warn('[ingest][mux] upload failed', { error: muxRes.error, crasRecordId: cr.recordId });
+          }
+        } catch (muxErr) {
+          const m = muxErr instanceof Error ? muxErr.message : String(muxErr);
+          console.error('[ingest][mux] unexpected error', m);
+        }
+      }
       // Auto-provision partner delivery on first CRAS for this project.
       // Wrapped so failures never break ingestion (the helper also catches
       // and logs internally — this is belt + suspenders).
@@ -236,7 +256,7 @@ export async function ingestFileToCras(
         fileId: file.fileId,
       });
     }
-    return { status: created ? 'created' : 'exists', project: matched };
+    return { status: cr.created ? 'created' : 'exists', project: matched };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[ingest] failed to create CRAS record:', msg);
