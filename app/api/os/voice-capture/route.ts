@@ -5,6 +5,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { createTask } from '@/lib/airtable/tasks';
+import {
+  VOICE_CAPTURE_LA_TZ,
+  buildVoiceCaptureUserContent,
+  coerceVoiceCaptureDue,
+} from '@/lib/os/voiceCaptureTaskParse';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -12,29 +17,6 @@ export const dynamic = 'force-dynamic';
 const MODEL = 'claude-haiku-4-5';
 /** Hard cap on the Claude round-trip so the serverless function cannot hang indefinitely. */
 const ANTHROPIC_CALL_MS = 30_000;
-
-const LA_TZ = 'America/Los_Angeles';
-
-/** Wall-clock calendar date + weekday name in Los Angeles (for model anchoring). */
-function laDateContext(ref = new Date()): { ymd: string; weekday: string } {
-  const ymd = new Intl.DateTimeFormat('en-CA', {
-    timeZone: LA_TZ,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(ref);
-  const weekday = new Intl.DateTimeFormat('en-US', {
-    timeZone: LA_TZ,
-    weekday: 'long',
-  }).format(ref);
-  return { ymd, weekday };
-}
-
-/** Prepended to the transcript so relative dates anchor to LA local "today". Exported for tests. */
-export function buildVoiceCaptureUserContent(transcript: string, ref = new Date()): string {
-  const { ymd, weekday } = laDateContext(ref);
-  return `Today is ${ymd} (${LA_TZ}, ${weekday}).\n\n${transcript.trim()}`;
-}
 
 function buildSystemPrompt(): string {
   return `You turn a voice memo into a structured task. Output:
@@ -48,7 +30,7 @@ function buildSystemPrompt(): string {
 }
 
 Date extraction rules (due field):
-- The user message begins with today's date in ${LA_TZ} — anchor ALL relative dates to that calendar date (not UTC).
+- The user message begins with today's date in ${VOICE_CAPTURE_LA_TZ} — anchor ALL relative dates to that calendar date (not UTC).
 - If no date or deadline is mentioned anywhere in the transcript, set due to null. Do not guess.
 - Output due as YYYY-MM-DD with leading zeros, or null.
 
@@ -58,15 +40,15 @@ Map natural language to YYYY-MM-DD using the provided "today":
 - "tonight", "this evening" → today
 - "Monday" / "Tuesday" / … / "Sunday" with no "this"/"next" → the next occurrence of that weekday strictly AFTER today (never today; if today is already that weekday, use that weekday 7 days later)
 - "next Monday" / … / "next Sunday" → first compute the date for bare "[Weekday]" as above, then add 7 calendar days (the following week's same weekday)
-- "this Monday" / … / "this Sunday" → that weekday within the current Sunday–Saturday week that contains today; if that calendar date is before today in ${LA_TZ}, use the same weekday in the following week (+7 days)
+- "this Monday" / … / "this Sunday" → that weekday within the current Sunday–Saturday week that contains today; if that calendar date is before today in ${VOICE_CAPTURE_LA_TZ}, use the same weekday in the following week (+7 days)
 - "this weekend" → the upcoming Saturday (from today)
 - "next week" → today + 7 days
 - "in N days" / "N days from now" (N a positive integer) → today + N days
 - "in a week" → today + 7 days
 - "in two weeks" → today + 14 days
-- "May 3rd", "May 3", "5/3" (month/day) → that month and day in the current calendar year; if that date is already before today in ${LA_TZ}, use next year instead
-- "end of the month" → last calendar day of the current month in ${LA_TZ}
-- "end of the week" → the upcoming Sunday (from today) in ${LA_TZ}
+- "May 3rd", "May 3", "5/3" (month/day) → that month and day in the current calendar year; if that date is already before today in ${VOICE_CAPTURE_LA_TZ}, use next year instead
+- "end of the month" → last calendar day of the current month in ${VOICE_CAPTURE_LA_TZ}
+- "end of the week" → the upcoming Sunday (from today) in ${VOICE_CAPTURE_LA_TZ}
 
 Other rules: Priority defaults to P2 unless the transcript signals urgency ("urgent", "asap", "P1") or low importance ("sometime", "someday", "low priority"). Project is best-guess — if the transcript mentions Car Toys, Atlas, etc., set it; if unclear, null.
 
@@ -83,24 +65,6 @@ const voiceParseSchema = z
     reasoning: z.string().min(1),
   })
   .strict();
-
-function isValidYmd(s: string): boolean {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  if (!m) return false;
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const d = Number(m[3]);
-  const dt = new Date(y, mo - 1, d);
-  return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d;
-}
-
-/** If the model returned a non-ISO or impossible date, treat as missing. Exported for tests. */
-export function coerceVoiceCaptureDue(due: string | null): string | null {
-  if (due === null) return null;
-  const s = due.trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !isValidYmd(s)) return null;
-  return s;
-}
 
 function extractJsonObject(raw: string): string {
   const stripped = raw

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   buildVoiceCaptureUserContent,
   coerceVoiceCaptureDue,
-} from '@/app/api/os/voice-capture/route';
+} from '@/lib/os/voiceCaptureTaskParse';
 
 describe('voice-capture date helpers', () => {
   test('prepends LA date and weekday before transcript', () => {
