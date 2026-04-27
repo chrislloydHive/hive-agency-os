@@ -1021,11 +1021,16 @@ export interface EnsureCrasRecordResult {
   created: boolean;
   /** Always set when `created` is false (existing row); set when `created` is true (new row id). */
   recordId: string | null;
+  /**
+   * When `created` is false, the existing row as returned from Airtable (same query as find).
+   * Omitted when `created` is true (new row has no prior fields).
+   */
+  existingFields?: Record<string, unknown>;
 }
 
 export async function ensureCrasRecord(args: EnsureCrasRecordArgs): Promise<EnsureCrasRecordResult> {
   const existing = await findExisting(args.token, args.driveFileId);
-  if (existing) return { created: false, recordId: existing.id };
+  if (existing) return { created: false, recordId: existing.id, existingFields: existing.fields };
   if (omitCrasTokenOnWrite() && !shouldLinkProjectFieldOnCras()) {
     console.error(
       '[ensureCrasRecord] Token is lookup-only; need Project link but Projects base ≠ OS base. Cannot create CRAS.',

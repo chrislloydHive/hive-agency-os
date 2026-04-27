@@ -357,8 +357,8 @@ export const ingestCreativeFilesScheduled = inngest.createFunction(
         totalErrors++;
       }
 
-      // Self-healing partner delivery provisioning. The original hook in
-      // ingestFileToCras only fires on the FIRST CRAS row for a project, so
+      // Self-healing partner delivery provisioning. ensurePartnerDeliverySetup
+      // in ingestFileToCras only runs when a CRAS row is newly created, so
       // projects whose CRAS records pre-date that hook never get provisioned.
       // ensurePartnerDeliverySetup is idempotent (existing-batch check), so
       // running it every tick is a no-op for already-provisioned projects and

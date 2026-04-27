@@ -9,6 +9,8 @@
 // folder IDs — and supports multiple projects simultaneously.
 
 import type { drive_v3 } from 'googleapis';
+import { getProjectsBase } from '@/lib/airtable';
+import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
 import {
   getProjectsByCreativeReviewHubFolderId,
   type ProjectFolderMapping,
@@ -16,6 +18,11 @@ import {
 import { ensureCrasRecord } from '@/lib/airtable/reviewAssetStatus';
 import { ensurePartnerDeliverySetup } from '@/lib/delivery/ensurePartnerDeliverySetup';
 import { createMuxAssetFromDrive } from '@/lib/mux/createMuxAsset';
+import {
+  crasFieldsHaveAnyMuxIdentifier,
+  CRAS_MUX_IDENTIFIER_FIELD_NAMES,
+} from '@/lib/mux/crasMuxFields';
+import { inferMimeTypeFromFilename } from '@/lib/review/reviewMediaDisplay';
 
 export interface IngestFileInput {
   /** Drive file ID. */
@@ -50,6 +57,21 @@ export type IngestFileResult =
   | { status: 'error'; error: string };
 
 const DEFAULT_MAX_DEPTH = 10;
+
+/** Single-record read of only Mux identifier columns (cheaper than loading the full CRAS row). */
+async function fetchCrasMuxIdentifierFields(recordId: string): Promise<Record<string, unknown>> {
+  const base = getProjectsBase();
+  const table = base(AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS);
+  const idEsc = String(recordId).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const rows = await table
+    .select({
+      filterByFormula: `RECORD_ID()="${idEsc}"`,
+      fields: [...CRAS_MUX_IDENTIFIER_FIELD_NAMES],
+      maxRecords: 1,
+    })
+    .firstPage();
+  return (rows[0]?.fields as Record<string, unknown>) ?? {};
+}
 
 /**
  * Lightweight in-process cache mapping a Drive folder ID → its parent folder ID.
@@ -214,8 +236,29 @@ export async function ingestFileToCras(
         fileId: file.fileId,
         recordId: cr.recordId,
       });
-      if (cr.recordId && options.drive) {
-        try {
+    } else {
+      console.log('[ingest] CRAS already exists', {
+        projectId: matched.projectId,
+        fileId: file.fileId,
+      });
+    }
+
+    if (cr.recordId && options.drive) {
+      try {
+        let muxFieldsRow: Record<string, unknown> | undefined = cr.existingFields;
+        if (!cr.created && muxFieldsRow === undefined) {
+          muxFieldsRow = await fetchCrasMuxIdentifierFields(cr.recordId);
+        }
+        if (crasFieldsHaveAnyMuxIdentifier(muxFieldsRow)) {
+          console.log('[ingest][mux] skipping, already has mux fields', { crasRecordId: cr.recordId });
+        } else {
+          const fileName = file.fileName ?? '';
+          const mimeType = inferMimeTypeFromFilename(fileName) ?? 'unknown';
+          console.log('[mux] entering ingest path', {
+            fileName,
+            mimeType,
+            hasDrive: Boolean(options.drive),
+          });
           const muxRes = await createMuxAssetFromDrive({
             drive: options.drive,
             driveFileId: file.fileId,
@@ -227,11 +270,14 @@ export async function ingestFileToCras(
           } else if (!muxRes.skipped) {
             console.warn('[ingest][mux] upload failed', { error: muxRes.error, crasRecordId: cr.recordId });
           }
-        } catch (muxErr) {
-          const m = muxErr instanceof Error ? muxErr.message : String(muxErr);
-          console.error('[ingest][mux] unexpected error', m);
         }
+      } catch (muxErr) {
+        const m = muxErr instanceof Error ? muxErr.message : String(muxErr);
+        console.error('[ingest][mux] unexpected error', m);
       }
+    }
+
+    if (cr.created) {
       // Auto-provision partner delivery on first CRAS for this project.
       // Wrapped so failures never break ingestion (the helper also catches
       // and logs internally — this is belt + suspenders).
@@ -250,11 +296,6 @@ export async function ingestFileToCras(
           dmsg
         );
       }
-    } else {
-      console.log('[ingest] CRAS already exists', {
-        projectId: matched.projectId,
-        fileId: file.fileId,
-      });
     }
     return { status: cr.created ? 'created' : 'exists', project: matched };
   } catch (err) {
