@@ -83,6 +83,8 @@ const TASK_FIELDS = {
   RECURRENCE: 'Recurrence',
   /** Long text: JSON {@link SuggestedResolution} from auto-resolve; cleared via PATCH null. */
   SUGGESTED_RESOLUTION: suggestedResolutionJsonFieldName,
+  /** Google Calendar event web URL (htmlLink) for meeting-style tasks. */
+  CALENDAR_EVENT_URL: 'CalendarEventUrl',
 } as const;
 
 /** Allowed `recurrence` values for OS APIs and Airtable single-select. */
@@ -216,6 +218,7 @@ export const TASK_HTTP_PATCH_KEYS = [
   'status',
   'view',
   'threadUrl',
+  'calendarEventUrl',
   'draftUrl',
   'attachUrl',
   'done',
@@ -269,6 +272,8 @@ export interface TaskRecord {
   status: TaskStatus;
   view: TaskView;
   threadUrl: string | null;
+  /** Google Calendar event page (htmlLink), when the task is meeting-related. */
+  calendarEventUrl: string | null;
   draftUrl: string | null;
   attachUrl: string | null;
   done: boolean;
@@ -300,6 +305,7 @@ export interface CreateTaskInput {
   status?: TaskStatus;
   view?: TaskView;
   threadUrl?: string;
+  calendarEventUrl?: string | null;
   draftUrl?: string;
   attachUrl?: string;
   done?: boolean;
@@ -325,6 +331,7 @@ export interface UpdateTaskInput {
   status?: TaskStatus;
   view?: TaskView;
   threadUrl?: string | null;
+  calendarEventUrl?: string | null;
   draftUrl?: string | null;
   attachUrl?: string | null;
   done?: boolean;
@@ -376,6 +383,7 @@ function mapRecordToTask(record: any): TaskRecord {
     status: f[TASK_FIELDS.STATUS] || 'Inbox',
     view: f[TASK_FIELDS.VIEW] || 'inbox',
     threadUrl: f[TASK_FIELDS.THREAD_URL] || null,
+    calendarEventUrl: (f[TASK_FIELDS.CALENDAR_EVENT_URL] as string) || null,
     draftUrl: f[TASK_FIELDS.DRAFT_URL] || null,
     attachUrl: f[TASK_FIELDS.ATTACHMENT_URL] || null,
     done: f[TASK_FIELDS.DONE] || false,
@@ -495,6 +503,9 @@ function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<stri
   if ('status' in input && input.status !== undefined) fields[TASK_FIELDS.STATUS] = input.status;
   if ('view' in input && input.view !== undefined) fields[TASK_FIELDS.VIEW] = input.view;
   if ('threadUrl' in input) fields[TASK_FIELDS.THREAD_URL] = input.threadUrl || null;
+  if ('calendarEventUrl' in input) {
+    fields[TASK_FIELDS.CALENDAR_EVENT_URL] = input.calendarEventUrl || null;
+  }
   if ('draftUrl' in input) fields[TASK_FIELDS.DRAFT_URL] = input.draftUrl || null;
   if ('attachUrl' in input) fields[TASK_FIELDS.ATTACHMENT_URL] = input.attachUrl || null;
   if ('done' in input && input.done !== undefined) fields[TASK_FIELDS.DONE] = input.done;

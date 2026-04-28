@@ -5,7 +5,7 @@
 //
 // Pattern: each task row has exactly one primary action button tied to its
 // type. Email → Draft reply (or Review in Gmail if draft already exists).
-// Doc → Open in Drive. Spreadsheet → Open workbook. Meeting → Draft brief.
+// Doc → Open in Drive. Spreadsheet → Open workbook. Meeting → Open event (Calendar).
 // Metadata (priority, title) is click-to-edit on hover; serial edits via J/K/1/2/3/X.
 //
 // Reference prototype: /Users/chrislloyd/Documents/Claude/Projects/Email Inbox Management/my-day.jsx
@@ -21,6 +21,11 @@ import {
   Clock, ArrowRightCircle, Zap,
   Folder, Globe, Link2, Presentation, Table2, X,
 } from 'lucide-react';
+import {
+  inferTaskRowType,
+  taskRowPrimaryAction,
+  type MyDayTaskRowType,
+} from '@/lib/os/myDayTaskRowAction';
 
 // ============================================================================
 // Types
@@ -46,6 +51,8 @@ interface TaskItem {
   nextAction: string;
   status: TaskStatus;
   threadUrl: string | null;
+  /** Google Calendar event page (Airtable `CalendarEventUrl`). */
+  calendarEventUrl: string | null;
   draftUrl: string | null;
   attachUrl: string | null;
   notes: string;
@@ -140,7 +147,7 @@ const PRI_CONFIG: Record<Priority, { bg: string; text: string; border: string }>
   P3: { bg: 'bg-gray-500/10', text: 'text-gray-400', border: 'border-gray-500/30' },
 };
 
-type TaskType = 'email' | 'email-draft' | 'doc' | 'sheet' | 'meeting' | 'generic';
+type TaskType = MyDayTaskRowType;
 
 /** True when a new inbound message has landed in this task's thread since the
  *  user last engaged with it. Drives the "new reply" pill + ordering hint. */
@@ -157,14 +164,7 @@ function hasNewReply(t: TaskItem): boolean {
 }
 
 function inferType(t: TaskItem): TaskType {
-  if (t.draftUrl) return 'email-draft';
-  if (t.threadUrl) return 'email';
-  if (t.attachUrl?.includes('docs.google.com/spreadsheets')) return 'sheet';
-  if (t.attachUrl?.includes('docs.google.com')) return 'doc';
-  if (t.attachUrl) return 'doc';
-  const lower = t.task.toLowerCase();
-  if (/\b(meet|prep|agenda|sync|standup|kickoff)\b/.test(lower)) return 'meeting';
-  return 'generic';
+  return inferTaskRowType(t);
 }
 
 const TYPE_CONFIG: Record<TaskType, { icon: typeof Mail; label: string }> = {
@@ -176,31 +176,22 @@ const TYPE_CONFIG: Record<TaskType, { icon: typeof Mail; label: string }> = {
   generic: { icon: ClipboardList, label: 'Task' },
 };
 
-function actionFor(t: TaskItem): {
-  label: string;
-  variant: 'primary' | 'success' | 'neutral';
-  href?: string;
-  trailing?: boolean;
-} {
-  const type = inferType(t);
-  if (type === 'email-draft') {
-    return { label: 'Review in Gmail', variant: 'success', href: t.draftUrl!, trailing: true };
-  }
-  if (type === 'email') {
-    return { label: 'Draft reply', variant: 'primary' };
-  }
-  if (type === 'doc') {
-    if (t.attachUrl) return { label: 'Open in Drive', variant: 'neutral', href: t.attachUrl, trailing: true };
-    return { label: 'Start draft', variant: 'primary' };
-  }
-  if (type === 'sheet') {
-    return { label: 'Open workbook', variant: 'neutral', href: t.attachUrl!, trailing: true };
-  }
-  if (type === 'meeting') {
-    return { label: 'Draft brief', variant: 'primary' };
-  }
-  if (t.threadUrl) return { label: 'Open thread', variant: 'neutral', href: t.threadUrl, trailing: true };
-  return { label: 'Open', variant: 'neutral' };
+function actionFor(t: TaskItem) {
+  return taskRowPrimaryAction(t);
+}
+
+/** Primary CTA: external links (Drive, Calendar) must not also open the edit panel. */
+function onPrimaryActionSideEffect(
+  t: TaskItem,
+  o: { draftReply: (x: TaskItem) => void; markThreadRead: (x: TaskItem) => void; openEdit: (id: string) => void },
+) {
+  const tt = inferType(t);
+  const act = actionFor(t);
+  if (tt === 'email') o.draftReply(t);
+  else if (tt === 'email-draft') o.markThreadRead(t);
+  else if (tt === 'doc' || tt === 'sheet' || (tt === 'meeting' && act.href)) {
+    // Tab navigation only
+  } else if (t.airtableId) o.openEdit(t.airtableId);
 }
 
 // ============================================================================
@@ -614,7 +605,9 @@ function ActionButton({
   } as const;
 
   const content = (
-    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border transition-colors whitespace-nowrap ${classes[action.variant]} ${busy ? 'opacity-70 cursor-wait' : ''}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border transition-colors whitespace-nowrap ${classes[action.variant]} ${busy ? 'opacity-70 cursor-wait' : ''} ${action.disabled ? 'opacity-45 cursor-not-allowed border-gray-800 text-gray-500' : ''}`}
+    >
       {busy ? (
         <>
           <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
@@ -628,6 +621,19 @@ function ActionButton({
       )}
     </span>
   );
+
+  if (action.disabled) {
+    return (
+      <button
+        type="button"
+        disabled
+        onClick={(e) => e.stopPropagation()}
+        className="p-0 border-0 bg-transparent"
+      >
+        {content}
+      </button>
+    );
+  }
 
   if (action.href) {
     return (
@@ -939,6 +945,7 @@ export function TasksClient({ company }: TasksClientProps) {
         nextAction: t.nextAction || '',
         status: (t.status || 'Inbox') as TaskStatus,
         threadUrl: t.threadUrl || null,
+        calendarEventUrl: t.calendarEventUrl || null,
         draftUrl: t.draftUrl || null,
         attachUrl: t.attachUrl || null,
         notes: t.notes || '',
@@ -973,6 +980,7 @@ export function TasksClient({ company }: TasksClientProps) {
         nextAction: (t.nextAction as string) || '',
         status: (t.status as TaskStatus) || 'Inbox',
         threadUrl: (t.threadUrl as string) || null,
+        calendarEventUrl: (t.calendarEventUrl as string) || null,
         draftUrl: (t.draftUrl as string) || null,
         attachUrl: (t.attachUrl as string) || null,
         notes: (t.notes as string) || '',
@@ -1789,11 +1797,11 @@ export function TasksClient({ company }: TasksClientProps) {
                       onTitleSave={(v) => { changeTitle(t.id, v); setEditingTitleId(null); }}
                       onTitleCancel={() => setEditingTitleId(null)}
                       onActionClick={() => {
-                        const tt = inferType(t);
-                        if (tt === 'email') draftReply(t);
-                        else if (tt === 'email-draft') markThreadRead(t);
-                        else if (tt === 'doc' || tt === 'sheet') { /* link nav, no side effect */ }
-                        else if (t.airtableId) setEditingAirtableId(t.airtableId);
+                        onPrimaryActionSideEffect(t, {
+                          draftReply,
+                          markThreadRead,
+                          openEdit: setEditingAirtableId,
+                        });
                       }}
                       onOpenPanel={() => {
                         setFocusId(t.id);
@@ -2218,12 +2226,11 @@ export function TasksClient({ company }: TasksClientProps) {
                         onTitleSave={(v) => { changeTitle(t.id, v); setEditingTitleId(null); }}
                         onTitleCancel={() => setEditingTitleId(null)}
                         onActionClick={() => {
-                          // Submissions are email-type (threadUrl set) — draft a reply.
-                          // Email-draft type already has href and goes through the link.
-                          const tt = inferType(t);
-                          if (tt === 'email') draftReply(t);
-                          else if (tt === 'email-draft') markThreadRead(t);
-                          else if (t.airtableId) setEditingAirtableId(t.airtableId);
+                          onPrimaryActionSideEffect(t, {
+                            draftReply,
+                            markThreadRead,
+                            openEdit: setEditingAirtableId,
+                          });
                         }}
                         onOpenPanel={() => { markTaskSeen(t); if (t.airtableId) setEditingAirtableId(t.airtableId); }}
                       />
@@ -2264,11 +2271,11 @@ export function TasksClient({ company }: TasksClientProps) {
                     onTitleSave={(v) => { changeTitle(t.id, v); setEditingTitleId(null); }}
                     onTitleCancel={() => setEditingTitleId(null)}
                     onActionClick={() => {
-                      const tt = inferType(t);
-                      if (tt === 'email') draftReply(t);
-                      else if (tt === 'email-draft') markThreadRead(t);
-                      else if (tt === 'doc' || tt === 'sheet') { /* link nav */ }
-                      else if (t.airtableId) setEditingAirtableId(t.airtableId);
+                      onPrimaryActionSideEffect(t, {
+                        draftReply,
+                        markThreadRead,
+                        openEdit: setEditingAirtableId,
+                      });
                     }}
                     onOpenPanel={() => { markTaskSeen(t); if (t.airtableId) setEditingAirtableId(t.airtableId); }}
                   />
@@ -2302,11 +2309,11 @@ export function TasksClient({ company }: TasksClientProps) {
                   onTitleSave={(v) => { changeTitle(t.id, v); setEditingTitleId(null); }}
                   onTitleCancel={() => setEditingTitleId(null)}
                   onActionClick={() => {
-                    const tt = inferType(t);
-                    if (tt === 'email') draftReply(t);
-                    else if (tt === 'email-draft') markThreadRead(t);
-                    else if (tt === 'doc' || tt === 'sheet') { /* link nav */ }
-                    else if (t.airtableId) setEditingAirtableId(t.airtableId);
+                    onPrimaryActionSideEffect(t, {
+                      draftReply,
+                      markThreadRead,
+                      openEdit: setEditingAirtableId,
+                    });
                   }}
                   onOpenPanel={() => { markTaskSeen(t); if (t.airtableId) setEditingAirtableId(t.airtableId); }}
                   showMoveAction={activeView === 'braindump'}

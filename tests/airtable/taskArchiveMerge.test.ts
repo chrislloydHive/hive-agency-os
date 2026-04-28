@@ -13,6 +13,7 @@ function baseTask(over: Partial<TaskRecord> = {}): TaskRecord {
     status: 'Next',
     view: 'inbox',
     threadUrl: null,
+    calendarEventUrl: null,
     draftUrl: null,
     attachUrl: null,
     done: false,

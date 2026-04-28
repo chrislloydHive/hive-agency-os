@@ -72,6 +72,7 @@ export async function POST(request: NextRequest) {
       status: body.status || 'Inbox',
       view: body.view || 'inbox',
       threadUrl: body.threadUrl,
+      calendarEventUrl: body.calendarEventUrl,
       draftUrl: body.draftUrl,
       attachUrl: body.attachUrl,
       done: body.done,

@@ -189,7 +189,8 @@ function followUpToTaskInput(f: FollowUpItem): CreateTaskInput {
     nextAction: `Meeting: ${f.when}. Log any follow-up actions or mark "nothing to capture".`,
     status: 'Next',
     view: 'inbox',
-    threadUrl: f.link || undefined,
+    /** Google Calendar event page — do not use Thread URL (Gmail) for this. */
+    calendarEventUrl: f.link || null,
     source: 'meeting-follow-up',
     sourceRef: f.id,
     autoCreated: true,
@@ -654,6 +655,23 @@ async function upsertAutoTask(
       }
     }
     return { action: 'skipped' }; // dismissed, no new activity
+  }
+
+  // Backfill / refresh Calendar URL for meeting follow-ups (moves legacy
+  // htmlLink out of Thread URL on first run after the CalendarEventUrl column exists).
+  if (source === 'meeting-follow-up' && input.calendarEventUrl) {
+    const cal = input.calendarEventUrl;
+    if (!existing.calendarEventUrl || existing.calendarEventUrl !== cal) {
+      const threadWasCal =
+        existing.threadUrl &&
+        (existing.threadUrl === cal ||
+          /google\.com\/calendar|calendar\.google\.com/.test(existing.threadUrl));
+      await updateTask(existing.id, {
+        calendarEventUrl: cal,
+        ...(threadWasCal ? { threadUrl: null } : {}),
+      });
+      return { action: 'updated' };
+    }
   }
 
   // Refresh the preview for website submissions on every sync. Earlier syncs
