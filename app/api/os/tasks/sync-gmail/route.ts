@@ -8,6 +8,7 @@
 
 import { NextResponse } from 'next/server';
 import { getTasks } from '@/lib/airtable/tasks';
+import { buildTriageThreadDedupFromTasks } from '@/lib/airtable/taskThreadDedup';
 import { getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
 import { refreshAccessToken } from '@/lib/google/oauth';
 import { getEffectiveImportantDomains } from '@/lib/personalContext';
@@ -39,8 +40,7 @@ export async function POST() {
     //    Any task — active, completed, or archived — means the thread is handled.
     //    This prevents completed tasks from coming back as zombies.
     const tasks = await getTasks({ excludeDone: false });
-    const existingThreadUrls = new Set<string>();
-    for (const t of tasks) if (t.threadUrl) existingThreadUrls.add(t.threadUrl);
+    const threadDedup = buildTriageThreadDedupFromTasks(tasks);
 
     // 2. Get Google access token
     const refreshToken = await getAnyGoogleRefreshToken();
@@ -51,7 +51,7 @@ export async function POST() {
 
     // 3. Fetch triage inbox
     const importantDomains = await getEffectiveImportantDomains();
-    const triageItems = await fetchTriageInbox(accessToken, existingThreadUrls, 14, importantDomains);
+    const triageItems = await fetchTriageInbox(accessToken, threadDedup, 14, importantDomains);
 
     // 4. Auto-create tasks for items without existing tasks.
     //    Deduplicate by threadId within this batch to prevent intra-run dupes.

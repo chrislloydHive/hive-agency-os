@@ -25,6 +25,7 @@ import {
   type CalEvent,
   type TriageItem,
 } from '@/lib/os/commandCenterGoogle';
+import { buildTriageThreadDedupFromTasks } from '@/lib/airtable/taskThreadDedup';
 // Auto-triage runs via /api/os/tasks/sync-gmail (called by clients in background)
 
 export const dynamic = 'force-dynamic';
@@ -1007,6 +1008,7 @@ export async function GET(request: NextRequest) {
         existingSourceRefs.add(t.sourceRef);
       }
     }
+    const triageThreadDedup = buildTriageThreadDedupFromTasks(tasksAll);
 
     // Pulled from context/personal/senders.md + CC_IMPORTANT_SENDERS env override.
     const importantDomains = await getEffectiveImportantDomains();
@@ -1039,7 +1041,7 @@ export async function GET(request: NextRequest) {
           fetchDriveRecent(accessToken, 14),
           fetchSentMessages(accessToken, 14),
           fetchMyEmail(accessToken),
-          fetchTriageInbox(accessToken, existingThreadUrls, 14, importantDomains),
+          fetchTriageInbox(accessToken, triageThreadDedup, 14, importantDomains),
           fetchWebsiteSubmissions(accessToken, existingThreadUrls, 30, existingSourceRefs),
         ]);
         events = calResult.events;

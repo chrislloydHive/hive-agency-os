@@ -27,6 +27,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getTasks, type TaskRecord } from '@/lib/airtable/tasks';
+import { buildTriageThreadDedupFromTasks } from '@/lib/airtable/taskThreadDedup';
 import { rankTasks, type ActivitySignals } from '@/lib/prioritization';
 import { detectRisks } from '@/lib/riskDetection';
 import {
@@ -334,8 +335,7 @@ export async function GET(req: NextRequest) {
     const accessToken = await getGoogleAccessToken(companyId);
     if (accessToken) {
       // Run Gmail + Calendar in parallel. Either can fail independently.
-      const existingThreadUrls = new Set<string>();
-      for (const t of tasks) if (t.threadUrl) existingThreadUrls.add(t.threadUrl);
+      const triageThreadDedup = buildTriageThreadDedupFromTasks(tasks);
       const importantDomains = await getEffectiveImportantDomains();
 
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -343,7 +343,7 @@ export async function GET(req: NextRequest) {
       todayEnd.setDate(todayEnd.getDate() + 1);
 
       const [triageResult, calResult] = await Promise.allSettled([
-        fetchTriageInbox(accessToken, existingThreadUrls, 14, importantDomains),
+        fetchTriageInbox(accessToken, triageThreadDedup, 14, importantDomains),
         // Full local calendar day — using `now` as timeMin hid meetings earlier today.
         fetchCalendarRange(accessToken, todayStart.toISOString(), todayEnd.toISOString()),
       ]);

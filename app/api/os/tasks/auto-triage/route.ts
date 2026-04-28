@@ -22,6 +22,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { google } from 'googleapis';
 import { fetchTriageInbox, type TriageItem } from '@/lib/os/commandCenterGoogle';
 import { getTasks, createTask } from '@/lib/airtable/tasks';
+import { buildTriageThreadDedupFromTasks } from '@/lib/airtable/taskThreadDedup';
 import type { TaskPriority, TaskStatus, TaskRecord } from '@/lib/airtable/tasks';
 import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
 import { refreshAccessToken } from '@/lib/google/oauth';
@@ -190,22 +191,21 @@ export async function POST(req: NextRequest) {
     auth.setCredentials({ access_token: accessToken });
     const gmail = google.gmail({ version: 'v1', auth });
 
-    // ── Fetch existing tasks so we can detect dupes ─────────────────────
-    let tasks: TaskRecord[] = [];
+    // ── Fetch all tasks for thread dedup (open thread + 24h recent create)
+    let tasksForDedup: TaskRecord[] = [];
     try {
-      tasks = await getTasks({ excludeDone: true });
+      tasksForDedup = await getTasks({ excludeDone: false });
     } catch (err) {
       console.error('[auto-triage] Airtable getTasks failed:', err);
       return NextResponse.json({ error: 'Airtable unavailable; refusing to run (could create dupes)' }, { status: 502 });
     }
-    const existingThreadUrls = new Set<string>();
-    for (const t of tasks) if (t.threadUrl) existingThreadUrls.add(t.threadUrl);
+    const threadDedup = buildTriageThreadDedupFromTasks(tasksForDedup);
 
     // Pulled from context/personal/senders.md + CC_IMPORTANT_SENDERS env override.
     const importantDomains = await getEffectiveImportantDomains();
 
     // ── Scan Gmail (14-day window, shares the Command Center scoring) ───
-    const triage: TriageItem[] = await fetchTriageInbox(accessToken, existingThreadUrls, 14, importantDomains);
+    const triage: TriageItem[] = await fetchTriageInbox(accessToken, threadDedup, 14, importantDomains);
 
     // Candidates: no existing task, AND either (a) explicitly starred by Chris, or
     // (b) scored at-or-above threshold. Stars are a hard "I care about this" signal

@@ -133,6 +133,8 @@ interface TriageItem {
   date: string;
   link: string;
   hasExistingTask: boolean;
+  /** Companies / Is Client primary contact — stale-sync creates tasks same-day. */
+  isKnownClientContact?: boolean;
   /** Only populated for website submissions — full form body for Notes. */
   submissionBody?: string;
 }
@@ -197,13 +199,22 @@ function followUpToTaskInput(f: FollowUpItem): CreateTaskInput {
 function triageToTaskInput(t: TriageItem, ageDays: number): CreateTaskInput {
   const subj = t.subject.length > 80 ? t.subject.slice(0, 77) + '…' : t.subject;
   const snip = t.snippet ? (t.snippet.length > 180 ? t.snippet.slice(0, 177) + '…' : t.snippet) : '';
+  const nextBase =
+    snip || `Email from ${ageDays}d ago — reply, convert to task, or archive.`;
+  const nextAction = t.isKnownClientContact
+    ? `${nextBase} (Client contact — review forward or vendor pitch and decide next step.)`
+    : nextBase;
+  const notes = t.isKnownClientContact
+    ? '[needs your eyes] Known client; short forward may have no explicit ask but still needs judgment.'
+    : '';
   return {
     task: `Reply: ${subj}`,
     priority: priorityForTriage(ageDays),
     due: isoDay(new Date()), // due today — it's already stale
     from: t.fromName || t.fromEmail || t.from,
     project: '',
-    nextAction: snip || `Email from ${ageDays}d ago — reply, convert to task, or archive.`,
+    nextAction,
+    notes,
     status: 'Inbox',
     view: 'inbox',
     threadUrl: t.link,
@@ -742,10 +753,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Stale triage (>2 days old, no existing task)
+    // Stale triage (>2 days old, no existing task), OR any age when the sender
+    // is a known client contact (forwards & trade-out pitches must not wait 3 days).
     for (const t of cc.triage || []) {
       const ageDays = daysSince(t.date);
-      if (ageDays <= 2) continue;
+      if (ageDays <= 2 && !t.isKnownClientContact) continue;
       if (t.hasExistingTask) continue;
       try {
         const r = await upsertAutoTask(

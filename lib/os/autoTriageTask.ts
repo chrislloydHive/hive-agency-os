@@ -7,6 +7,7 @@ import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
 import { createTask, type TaskPriority, type CreateTaskInput } from '@/lib/airtable/tasks';
 import { getIdentityPreamble, getProjectCategoriesList } from '@/lib/personalContext';
+import { getKnownClientContactEmails, isKnownClientEmail } from '@/lib/os/knownClientContacts';
 
 const anthropic = new Anthropic();
 
@@ -20,6 +21,12 @@ function defaultDueForPriority(priority: TaskPriority): string {
 }
 
 type MsgPart = { mimeType?: string | null; body?: { data?: string | null } | null; parts?: MsgPart[] | null };
+function parseEmailFromFromHeader(from: string): string {
+  const m = from.match(/<([^>]+)>/);
+  const raw = (m ? m[1] : from).trim().toLowerCase();
+  return raw;
+}
+
 function extractPlainText(payload: MsgPart | undefined | null): string {
   let body = '';
   const walk = (part: MsgPart | undefined | null) => {
@@ -73,10 +80,16 @@ export async function autoCreateTaskFromEmail(
     const gmailLink = `https://mail.google.com/mail/u/0/#inbox/${threadId}`;
     const today = new Date().toISOString().slice(0, 10);
 
-    const [identityPreamble, projectCategories] = await Promise.all([
+    const [identityPreamble, projectCategories, knownClients] = await Promise.all([
       getIdentityPreamble(),
       getProjectCategoriesList(),
+      getKnownClientContactEmails(),
     ]);
+    const senderEmail = parseEmailFromFromHeader(from);
+    const isKnownClient = isKnownClientEmail(knownClients, senderEmail);
+    const knownClientBlock = isKnownClient
+      ? `\nIMPORTANT: The sender is a known paying client contact in your CRM. Short forwards, FW: subjects, and pasted vendor/ad pitches still imply Chris should review and decide — treat as needing action unless it is clearly automated/system-only. Prefer at least priority P2. If the only content is a forward with no explicit question, the task is still "review and reply or decline".\n`
+      : '';
 
     const ai = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -89,7 +102,7 @@ export async function autoCreateTaskFromEmail(
 You are a task parser. An email has arrived that the user needs to act on. Parse it into a structured task.
 
 Today's date: ${today}
-
+${knownClientBlock}
 Email:
 From: ${from}
 Subject: ${subject}
@@ -123,9 +136,20 @@ Return a JSON object with these fields (ONLY JSON, no markdown):
     }
     const parsed = JSON.parse(jsonText);
 
-    const priority: TaskPriority = (['P0', 'P1', 'P2', 'P3'].includes(parsed.priority) ? parsed.priority : 'P2') as TaskPriority;
+    let priority: TaskPriority = (['P0', 'P1', 'P2', 'P3'].includes(parsed.priority)
+      ? parsed.priority
+      : 'P2') as TaskPriority;
+    if (isKnownClient && priority === 'P3') {
+      priority = 'P2';
+    }
     const isValidDate = typeof parsed.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.due);
     const due = isValidDate ? parsed.due : defaultDueForPriority(priority);
+
+    let notes = typeof parsed.notes === 'string' ? parsed.notes : '';
+    if (isKnownClient) {
+      const tag = '[needs your eyes — known client forward; review even if no explicit ask.]';
+      notes = notes ? `${tag}\n${notes}` : tag;
+    }
 
     const taskInput: CreateTaskInput = {
       task: parsed.task || subject || '(untitled)',
@@ -137,7 +161,10 @@ Return a JSON object with these fields (ONLY JSON, no markdown):
       status: 'Inbox',
       view: 'inbox',
       threadUrl: gmailLink,
-      notes: parsed.notes || '',
+      notes,
+      source: 'email-triage',
+      sourceRef: messageId,
+      autoCreated: true,
     };
 
     const created = await createTask(taskInput);

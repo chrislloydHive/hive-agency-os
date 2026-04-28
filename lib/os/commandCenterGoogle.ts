@@ -5,6 +5,8 @@
  */
 
 import { google } from 'googleapis';
+import { triageThreadIsDeduped, type TriageThreadDedup } from '@/lib/airtable/taskThreadDedup';
+import { getKnownClientContactEmails, isKnownClientEmail } from '@/lib/os/knownClientContacts';
 
 // ============================================================================
 // Calendar
@@ -87,6 +89,8 @@ export interface TriageItem {
   matchedReason: string; // why it surfaced ("Important sender", "Unread primary", etc)
   link: string;
   hasExistingTask: boolean;
+  /** Sender email matches Companies / Is Client / Primary Contact Email. */
+  isKnownClientContact?: boolean;
   score: number; // higher = more likely needs Chris's attention
   scoreReasons: string[]; // short labels for why we scored it this way
   /** Only populated for website-submission items — the fully formatted form
@@ -129,11 +133,13 @@ const REPLY_SUBJECT_RE = /^\s*(re|fwd?):/i;
 // Workspace / personal-mail-style domains — suggests a human, not a bulk system.
 const PERSONAL_DOMAIN_RE = /@(gmail|outlook|hotmail|live|icloud|me|mac|yahoo|aol|protonmail|pm\.me|fastmail|hey\.com)\.com$/i;
 
-function scoreTriageItem(
+export function scoreTriageItem(
   item: Omit<TriageItem, 'score' | 'scoreReasons'>,
   importantDomains: string[],
   now: Date,
+  options?: { isKnownClient?: boolean },
 ): { score: number; reasons: string[] } {
+  const isKnownClient = Boolean(options?.isKnownClient);
   let score = 0;
   const reasons: string[] = [];
   const domain = item.fromDomain || '';
@@ -143,6 +149,10 @@ function scoreTriageItem(
   const subject = item.subject || '';
 
   // ── Strong positives ────────────────────────────────────────
+  if (isKnownClient) {
+    score += 100;
+    reasons.push('client contact');
+  }
   if (importantDomains.some((d) => domain.endsWith(d))) {
     score += 60;
     reasons.push('key sender');
@@ -177,7 +187,7 @@ function scoreTriageItem(
     score -= 35;
     reasons.push('noreply/notif');
   }
-  if (NOISE_SUBJECT_RE.test(subject) || NOISE_SUBJECT_RE.test(item.snippet || '')) {
+  if (!isKnownClient && (NOISE_SUBJECT_RE.test(subject) || NOISE_SUBJECT_RE.test(item.snippet || ''))) {
     score -= 40;
     reasons.push('noise subject');
   }
@@ -216,11 +226,12 @@ export const TRIAGE_IMPORTANT_SENDER_DOMAINS = DEFAULT_IMPORTANT_SENDER_DOMAINS;
 
 export async function fetchTriageInbox(
   accessToken: string,
-  existingThreadUrls: Set<string>,
+  threadDedup: TriageThreadDedup,
   days = 14,
   importantDomains: string[] = DEFAULT_IMPORTANT_SENDER_DOMAINS,
 ): Promise<TriageItem[]> {
   try {
+    const knownClientEmails = await getKnownClientContactEmails();
     const auth = new google.auth.OAuth2();
     auth.setCredentials({ access_token: accessToken });
     const gmail = google.gmail({ version: 'v1', auth });
@@ -287,6 +298,7 @@ export async function fetchTriageInbox(
             /* noop */
           }
 
+          const isKnownClientContact = isKnownClientEmail(knownClientEmails, email);
           const base: Omit<TriageItem, 'score' | 'scoreReasons'> = {
             id,
             threadId,
@@ -302,10 +314,12 @@ export async function fetchTriageInbox(
             important,
             matchedReason,
             link,
-            hasExistingTask:
-              existingThreadUrls.has(link) || Array.from(existingThreadUrls).some((u) => u.includes(threadId)),
+            isKnownClientContact,
+            hasExistingTask: triageThreadIsDeduped(threadId, threadDedup),
           };
-          const { score, reasons } = scoreTriageItem(base, importantDomains, now);
+          const { score, reasons } = scoreTriageItem(base, importantDomains, now, {
+            isKnownClient: isKnownClientContact,
+          });
           return { ...base, score, scoreReasons: reasons } as TriageItem;
         } catch {
           return null;
@@ -319,13 +333,16 @@ export async function fetchTriageInbox(
     const filtered = msgs
       .filter((m): m is TriageItem => !!m)
       .filter((m) => {
+        const isKnown = Boolean(m.isKnownClientContact);
         // Capture-only: once a Task exists for this thread, it's "tracked work" and
         // lives in the Tasks table — drop from Needs Triage so nothing lives here.
         if (m.hasExistingTask) return false;
         // Auto-replies / out-of-office are always dropped, even if starred (they're noise).
         if (AUTO_REPLY_RE.test(m.subject)) return false;
-        // Cold outreach is always dropped — sales spam doesn't deserve attention.
-        if (COLD_OUTREACH_RE.test(m.subject) || COLD_OUTREACH_RE.test(m.snippet || '')) return false;
+        // Cold outreach — usually sales spam. Known client contacts may forward pitches;
+        // their implicit ask ("should we do this?") must still surface.
+        if (!isKnown && (COLD_OUTREACH_RE.test(m.subject) || COLD_OUTREACH_RE.test(m.snippet || '')))
+          return false;
         // Starred bypass: starred items surface with age limits.
         // - Bulk sender starred items drop after 14 days (forgotten star on a notification).
         // - All other starred items drop after 30 days (if you haven't acted in a month,
