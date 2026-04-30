@@ -15,6 +15,13 @@ import type { TaskView, TaskStatus } from '@/lib/airtable/tasks';
 
 export const dynamic = 'force-dynamic';
 
+/** For POST: only pass URL fields into createTask so Airtable isn't written with empty / junk keys. */
+function nonEmptyStringField(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const t = v.trim();
+  return t === '' ? undefined : t;
+}
+
 /**
  * GET /api/os/tasks
  * Fetch tasks with optional filters: ?view=inbox&status=Next&excludeDone=true
@@ -62,6 +69,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: rec.error }, { status: 400 });
     }
 
+    const threadUrl = nonEmptyStringField(body.threadUrl);
+    const calendarEventUrl = nonEmptyStringField(body.calendarEventUrl);
+    const draftUrl = nonEmptyStringField(body.draftUrl);
+    const attachUrl = nonEmptyStringField(body.attachUrl);
+
     const created = await createTask({
       task: body.task,
       priority: body.priority,
@@ -71,10 +83,10 @@ export async function POST(request: NextRequest) {
       nextAction: body.nextAction,
       status: body.status || 'Inbox',
       view: body.view || 'inbox',
-      threadUrl: body.threadUrl,
-      calendarEventUrl: body.calendarEventUrl,
-      draftUrl: body.draftUrl,
-      attachUrl: body.attachUrl,
+      ...(threadUrl !== undefined ? { threadUrl } : {}),
+      ...(calendarEventUrl !== undefined ? { calendarEventUrl } : {}),
+      ...(draftUrl !== undefined ? { draftUrl } : {}),
+      ...(attachUrl !== undefined ? { attachUrl } : {}),
       done: body.done,
       notes: body.notes,
       ...(rec.present ? { recurrence: rec.value } : {}),

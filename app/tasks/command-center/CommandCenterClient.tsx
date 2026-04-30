@@ -689,7 +689,7 @@ export function CommandCenterClient({ companyId }: { companyId: string; backUrl?
     }
   }
 
-  async function load(refresh = false) {
+  async function load(refresh = false, runTriage = false) {
     if (refresh) setRefreshing(true);
     else setLoading(true);
     setError(null);
@@ -699,6 +699,17 @@ export function CommandCenterClient({ companyId }: { companyId: string; backUrl?
       setScanStep((s) => (s >= 5 ? 5 : s + 1));
     }, 400);
     try {
+      // When the user clicks Refresh, run inbox-to-task conversion BEFORE
+      // fetching command-center data so any newly created tasks appear in
+      // the same render. The endpoint has its own 30-second cooldown, so
+      // rapid clicks are no-ops. Failure here is non-fatal — we still
+      // refresh the view.
+      if (refresh && runTriage) {
+        await fetch('/api/os/tasks/sync-gmail', {
+          method: 'POST',
+          cache: 'no-store',
+        }).catch(() => {});
+      }
       const res = await fetch(
         `/api/os/command-center?companyId=${companyId}${refresh ? '&refresh=1' : ''}`,
         { cache: 'no-store' }
@@ -892,10 +903,10 @@ export function CommandCenterClient({ companyId }: { companyId: string; backUrl?
               {autoSyncing ? 'Syncing' : 'Sync now'}
             </button>
             <button
-              onClick={() => load(true)}
+              onClick={() => load(true, true)}
               disabled={refreshing}
               className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded-md border border-gray-700 hover:border-gray-600 disabled:opacity-50"
-              title="Refresh"
+              title="Refresh — pulls new emails into tasks, then re-reads the board"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
               {refreshing ? 'Refreshing' : 'Refresh'}
