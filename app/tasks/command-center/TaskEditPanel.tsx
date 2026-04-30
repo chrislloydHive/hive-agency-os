@@ -489,6 +489,31 @@ export function TaskEditPanel({ mode = 'edit', taskId, prefill, emailMeta, onClo
                     : ''}
           </div>
           <div className="flex gap-2">
+            {/* Mark Done — duplicates the toggle at the top of the body so the
+                action is reachable from the footer after the user scrolls down
+                through notes/fields. Uses the same handler; auto-save persists
+                the status change. Hidden in create mode (nothing to complete
+                until the task exists). */}
+            {!isCreate && (
+              <button
+                type="button"
+                onClick={() => mark(setStatus)(status === 'Done' ? 'Next' : 'Done')}
+                className={`px-3 py-1.5 text-xs rounded border flex items-center gap-1.5 ${
+                  status === 'Done'
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/15'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white border-transparent'
+                }`}
+                aria-pressed={status === 'Done'}
+                title={status === 'Done' ? 'Undo — set status back to Next' : 'Mark this task done'}
+              >
+                {status === 'Done' ? (
+                  <CheckSquare className="w-3.5 h-3.5" />
+                ) : (
+                  <Check className="w-3.5 h-3.5" />
+                )}
+                {status === 'Done' ? 'Done · undo' : 'Mark Done'}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => void handleClose()}
