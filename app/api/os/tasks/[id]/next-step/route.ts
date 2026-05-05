@@ -13,6 +13,7 @@ import { getOsGoogleAccessToken } from '@/lib/gmail/osGoogleAccess';
 import { extractGmailThreadIdFromUrl } from '@/lib/gmail/extractThreadIdFromUrl';
 import { buildMeetingTranscriptContextBlock } from '@/lib/os/taskNotesTranscript';
 import { buildConversationTranscript } from '@/lib/gmail/threadContext';
+import type { GmailMessageLike } from '@/lib/gmail/threadContext';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -164,11 +165,32 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     const hasThread = !!threadId;
     const isWebsite = task.source === 'website-submission';
 
-    // Fetch the actual Gmail thread when one is linked. Without this, Claude is
-    // reasoning from the task title/notes alone and can mistake a mid-flight
-    // conversation for an intro outreach. Mirror the draft-reply pattern:
-    // graceful-degrade on failure so missing-thread tasks keep working.
-    let conversationTranscript = '';
+    // Build a comprehensive conversation pool for Claude to reason over.
+    //
+    // Two sources, merged and de-duped by message id, then sorted chronologically:
+    //   1. The thread linked on the task (when present).
+    //   2. Recent emails to/from the same participants across ALL threads
+    //      (newer_than:30d), to catch post-meeting follow-ups, separate
+    //      doc-share threads, etc. that don't share a Gmail threadId with the
+    //      original task thread. This is the difference between Claude seeing
+    //      the original outreach vs. seeing yesterday's confirmation reply.
+    //
+    // Both stages are best-effort and graceful-degrade — a missing thread or
+    // failed search just means less context, never an error response.
+    const myEmailLower = (identity.email || '').toLowerCase();
+    const messagePool = new Map<string, GmailMessageLike>();
+    const participantEmails = new Set<string>();
+
+    /** Pull an email out of a `From:` (or similar) header. */
+    const emailFromHeader = (h: string): string => {
+      if (!h) return '';
+      const bracket = h.match(/<([^>]+)>/);
+      if (bracket) return bracket[1].trim();
+      const bare = h.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+      return bare ? bare[0] : '';
+    };
+
+    // Stage 1: linked thread.
     if (threadId) {
       try {
         const threadFull = await gmail.users.threads.get({
@@ -176,21 +198,85 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
           id: threadId,
           format: 'full',
         });
-        const threadMessages = threadFull.data.messages || [];
-        const myEmailLower = (identity.email || '').toLowerCase();
-        // Pass everything; buildConversationTranscript trims to budget,
-        // newest-first, with an "[…N earlier messages omitted…]" marker.
-        conversationTranscript = buildConversationTranscript(threadMessages, myEmailLower, {
-          maxCharsPerTurn: 800,
-          maxTotalChars: 6000,
-        });
+        for (const m of threadFull.data.messages || []) {
+          if (m.id) messagePool.set(m.id, m as GmailMessageLike);
+          const fromVal = (m.payload?.headers || []).find(
+            (h) => h.name?.toLowerCase() === 'from',
+          )?.value || '';
+          const email = emailFromHeader(fromVal).toLowerCase();
+          if (email && email !== myEmailLower) participantEmails.add(email);
+        }
       } catch (err) {
         console.warn(
-          '[next-step] thread fetch failed (non-fatal, proceeding without conversation context):',
+          '[next-step] linked-thread fetch failed (non-fatal):',
           err instanceof Error ? err.message : err,
         );
       }
     }
+
+    // Also seed from task.from in case the thread has no usable From: or
+    // there's no linked thread at all.
+    {
+      const taskFromEmail = emailFromHeader(task.from || '').toLowerCase();
+      if (taskFromEmail && taskFromEmail !== myEmailLower) {
+        participantEmails.add(taskFromEmail);
+      }
+    }
+
+    // Stage 2: cross-thread recent emails with the participants.
+    if (participantEmails.size > 0) {
+      try {
+        const participants = Array.from(participantEmails).slice(0, 3);
+        const orClauses: string[] = [];
+        for (const p of participants) {
+          orClauses.push(`from:${p}`, `to:${p}`);
+        }
+        const q = `(${orClauses.join(' OR ')}) newer_than:30d`;
+        const list = await gmail.users.messages.list({
+          userId: 'me',
+          q,
+          maxResults: 10,
+        });
+        const ids = (list.data.messages || [])
+          .map((m) => m.id)
+          .filter((s): s is string => !!s)
+          .filter((id) => !messagePool.has(id));
+        // Fetch in parallel; null out failures so one bad message doesn't
+        // poison the whole pool.
+        const fetched = await Promise.all(
+          ids.map((id) =>
+            gmail.users.messages
+              .get({ userId: 'me', id, format: 'full' })
+              .then((r) => r.data)
+              .catch(() => null),
+          ),
+        );
+        for (const m of fetched) {
+          if (m && m.id && !messagePool.has(m.id)) {
+            messagePool.set(m.id, m as GmailMessageLike);
+          }
+        }
+      } catch (err) {
+        console.warn(
+          '[next-step] cross-thread search failed (non-fatal):',
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
+    // Sort chronologically (oldest → newest) and build the transcript.
+    const allMessages = Array.from(messagePool.values()).sort((a, b) => {
+      const da = Number(a.internalDate || 0);
+      const db = Number(b.internalDate || 0);
+      return da - db;
+    });
+    const conversationTranscript =
+      allMessages.length === 0
+        ? ''
+        : buildConversationTranscript(allMessages, myEmailLower, {
+            maxCharsPerTurn: 800,
+            maxTotalChars: 8000,
+          });
 
     const signatureBlock = [
       '',
@@ -256,7 +342,8 @@ Allowed option types (each object MUST include "type" exactly as shown). Never r
 }
 
 Reading the conversation state:
-- If a "Recent Gmail thread" block is provided below, READ IT before deciding what's next. The task title and notes were written when the task was first created — they may be days or weeks out of date. The thread is the source of truth for the *current* state of the relationship.
+- If a "Recent Gmail with this contact" block is provided below, READ IT before deciding what's next. This may span MULTIPLE Gmail threads (e.g. an original outreach thread plus a fresh post-meeting follow-up thread with a different subject). The task title and notes were written when the task was first created — they may be days or weeks out of date. These messages are the source of truth for the *current* state of the relationship.
+- Always anchor on the MOST RECENT messages first. If the latest message is from yesterday and confirms receipt, that's the state — even if older messages in the same context look like an unstarted intro.
 - Specifically check: has Chris already pitched/presented/sent the thing? Did the other party acknowledge, ask for time, commit to a follow-up, or go silent? Who owes whom the next response? Are there commitments ("I'll get back to you Monday", "I'll loop in Mike") that change what should happen next?
 - Pick options that move the *current* state forward, not the original task title. If Chris already presented and the other party said "I'll review and follow up", an "intro email" is wrong — a polite nudge / status check / scheduled follow-up call is right. If the other party already responded with what Chris asked for, the right move may be subtasks to act on it, or a doc to organize the response.
 
@@ -281,10 +368,10 @@ Project folder hint for doc options: ${
 recipientConfidence for email: "high" only when "to" is a single clear email; otherwise "low".`;
 
     const recentThreadBlock = conversationTranscript
-      ? `Recent Gmail thread (oldest → newest; read this to determine the current state of the relationship — proposals already made, commitments already given, who owes the next response):\n${conversationTranscript}`
+      ? `Recent Gmail with this contact (oldest → newest, may span multiple threads; read this to determine the current state of the relationship — proposals already made, commitments already given, who owes the next response):\n${conversationTranscript}`
       : hasThread
-        ? 'Recent Gmail thread: (a thread is linked but contents could not be fetched — proceed cautiously and prefer asking the user for status over re-introducing.)'
-        : 'Recent Gmail thread: (none — task has no linked thread)';
+        ? 'Recent Gmail with this contact: (a thread is linked but contents could not be fetched — proceed cautiously and prefer asking the user for status over re-introducing.)'
+        : 'Recent Gmail with this contact: (none found — no linked thread and no recent emails with the participants)';
 
     const userContent = `Task JSON:\n${taskJsonForPrompt(task)}\n\n---\nHas Gmail thread id usable in client: ${hasThread}\nWebsite submission task: ${isWebsite}\n\n---\n${recentThreadBlock}\n\n---\nExtra transcript / doc text from linked Google Docs in notes (may be empty):\n${transcriptBlock || '(none)'}`;
 
