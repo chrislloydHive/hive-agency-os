@@ -15,7 +15,8 @@ import {
   CRAS_MUX_IDENTIFIER_FIELD_NAMES,
   crasFieldsHaveAnyMuxIdentifier,
 } from '@/lib/mux/crasMuxFields';
-import { createMuxAssetFromDrive } from '@/lib/mux/createMuxAsset';
+import { createMuxAssetFromDrive, isCrasAssetEligibleForMux } from '@/lib/mux/createMuxAsset';
+import { inferMimeTypeFromFilename } from '@/lib/review/reviewMediaDisplay';
 
 const CRAS_TABLE = AIRTABLE_TABLES.CREATIVE_REVIEW_ASSET_STATUS;
 
@@ -84,7 +85,10 @@ export async function backfillMux(params: {
   const recordIds = candidates.map((c) => c.recordId);
   const muxFieldsByRecordId = await fetchMuxIdentifierFieldsForRecords(recordIds);
 
-  let triggeredOrTraced = 0;
+  // `limit` caps actual Mux uploads (or `would-trigger` traces in dry-run mode).
+  // Non-video skips and already-has-Mux skips do NOT consume the limit, so
+  // `--limit 1` reliably triggers exactly one real video upload.
+  let used = 0;
 
   for (const rec of candidates) {
     const muxFields = muxFieldsByRecordId.get(rec.recordId) ?? {};
@@ -100,11 +104,30 @@ export async function backfillMux(params: {
       continue;
     }
 
-    if (limit != null && triggeredOrTraced >= limit) {
-      // Reached the smoke-test cap — stop here without counting the rest.
+    // Cheap upfront video check: classify by filename-inferred MIME. Saves a
+    // Drive metadata round-trip per non-video and keeps dry-run output focused
+    // on rows that would actually be uploaded. createMuxAssetFromDrive does
+    // the same check authoritatively against Drive metadata, so anything
+    // with an ambiguous extension (no inferred MIME) falls through to it.
+    const fileName = rec.filename ?? '';
+    const inferredMime = inferMimeTypeFromFilename(fileName) ?? '';
+    if (inferredMime && !isCrasAssetEligibleForMux(inferredMime, fileName)) {
+      result.notVideo += 1;
+      result.trace.push({
+        crasRecordId: rec.recordId,
+        filename: rec.filename,
+        driveFileId: rec.driveFileId,
+        action: 'skip-not-video',
+        detail: `inferred mime: ${inferredMime}`,
+      });
+      continue;
+    }
+
+    if (limit != null && used >= limit) {
+      // Reached the smoke-test cap.
       break;
     }
-    triggeredOrTraced += 1;
+    used += 1;
 
     if (dryRun) {
       result.trace.push({

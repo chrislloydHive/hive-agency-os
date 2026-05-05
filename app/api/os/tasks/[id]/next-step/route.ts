@@ -1,5 +1,5 @@
 // POST /api/os/tasks/:id/next-step
-// Claude proposes 2–3 typed "next step" options (email | doc | subtasks) for My Day.
+// Claude proposes 2–3 typed "next step" options (email | doc | schedule | subtasks) for My Day.
 
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
@@ -12,6 +12,7 @@ import { getIdentity, getVoice } from '@/lib/personalContext';
 import { getOsGoogleAccessToken } from '@/lib/gmail/osGoogleAccess';
 import { extractGmailThreadIdFromUrl } from '@/lib/gmail/extractThreadIdFromUrl';
 import { buildMeetingTranscriptContextBlock } from '@/lib/os/taskNotesTranscript';
+import { buildConversationTranscript } from '@/lib/gmail/threadContext';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -41,6 +42,22 @@ const docOptionSchema = z
   })
   .strict();
 
+const scheduleOptionSchema = z
+  .object({
+    type: z.literal('schedule'),
+    label: z.string().min(1),
+    summary: z.string().min(1),
+    eventTitle: z.string().min(1),
+    // RFC3339, e.g. "2026-05-06T09:00:00-04:00". Frontend re-parses to local
+    // and re-emits with the user's offset, so we keep validation lenient.
+    startISO: z.string().min(1),
+    endISO: z.string().min(1),
+    attendees: z.array(z.string().min(1)).optional(),
+    description: z.string().optional(),
+    location: z.string().optional(),
+  })
+  .strict();
+
 const subtasksOptionSchema = z
   .object({
     type: z.literal('subtasks'),
@@ -52,7 +69,10 @@ const subtasksOptionSchema = z
 
 const nextStepResponseSchema = z
   .object({
-    options: z.array(z.union([emailOptionSchema, docOptionSchema, subtasksOptionSchema])).min(2).max(3),
+    options: z
+      .array(z.union([emailOptionSchema, docOptionSchema, scheduleOptionSchema, subtasksOptionSchema]))
+      .min(2)
+      .max(3),
     reasoning: z.string().min(1),
   })
   .strict();
@@ -131,6 +151,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     const auth = new google.auth.OAuth2();
     auth.setCredentials({ access_token: googleAccess.accessToken });
     const drive = google.drive({ version: 'v3', auth });
+    const gmail = google.gmail({ version: 'v1', auth });
 
     const [identity, voice, transcriptBlock, projectFolderUrl] = await Promise.all([
       getIdentity(),
@@ -142,6 +163,34 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     const threadId = extractGmailThreadIdFromUrl(task.threadUrl);
     const hasThread = !!threadId;
     const isWebsite = task.source === 'website-submission';
+
+    // Fetch the actual Gmail thread when one is linked. Without this, Claude is
+    // reasoning from the task title/notes alone and can mistake a mid-flight
+    // conversation for an intro outreach. Mirror the draft-reply pattern:
+    // graceful-degrade on failure so missing-thread tasks keep working.
+    let conversationTranscript = '';
+    if (threadId) {
+      try {
+        const threadFull = await gmail.users.threads.get({
+          userId: 'me',
+          id: threadId,
+          format: 'full',
+        });
+        const threadMessages = threadFull.data.messages || [];
+        const myEmailLower = (identity.email || '').toLowerCase();
+        // Pass everything; buildConversationTranscript trims to budget,
+        // newest-first, with an "[…N earlier messages omitted…]" marker.
+        conversationTranscript = buildConversationTranscript(threadMessages, myEmailLower, {
+          maxCharsPerTurn: 800,
+          maxTotalChars: 6000,
+        });
+      } catch (err) {
+        console.warn(
+          '[next-step] thread fetch failed (non-fatal, proceeding without conversation context):',
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
 
     const signatureBlock = [
       '',
@@ -185,7 +234,20 @@ Allowed option types (each object MUST include "type" exactly as shown). Never r
   "projectFolderUrl": "<optional; leave empty string or omit — server may fill from project>"
 }
 
-3) Break into subtasks:
+3) Calendar / schedule:
+{
+  "type": "schedule",
+  "label": "<one-line user-facing description>",
+  "summary": "<one sentence why this>",
+  "eventTitle": "<short, specific event title — not generic>",
+  "startISO": "<RFC3339 start, e.g. '2026-05-06T09:00:00-04:00'>",
+  "endISO":   "<RFC3339 end, same TZ as startISO>",
+  "attendees": ["<email>", "..."],
+  "description": "<optional agenda / context for the event body>",
+  "location": "<optional Google Meet link, address, or 'TBD'>"
+}
+
+4) Break into subtasks:
 {
   "type": "subtasks",
   "label": "<one-line user-facing description>",
@@ -193,9 +255,15 @@ Allowed option types (each object MUST include "type" exactly as shown). Never r
   "subtasks": ["<3–7 short imperative items>"]
 }
 
+Reading the conversation state:
+- If a "Recent Gmail thread" block is provided below, READ IT before deciding what's next. The task title and notes were written when the task was first created — they may be days or weeks out of date. The thread is the source of truth for the *current* state of the relationship.
+- Specifically check: has Chris already pitched/presented/sent the thing? Did the other party acknowledge, ask for time, commit to a follow-up, or go silent? Who owes whom the next response? Are there commitments ("I'll get back to you Monday", "I'll loop in Mike") that change what should happen next?
+- Pick options that move the *current* state forward, not the original task title. If Chris already presented and the other party said "I'll review and follow up", an "intro email" is wrong — a polite nudge / status check / scheduled follow-up call is right. If the other party already responded with what Chris asked for, the right move may be subtasks to act on it, or a doc to organize the response.
+
 Selection guidance:
-- If the task has a Gmail thread (threadUrl) or website-submission origin → include exactly one "email" option when a real reply or outreach makes sense.
+- If the task has a Gmail thread (threadUrl) or website-submission origin → include exactly one "email" option when a real reply or outreach makes sense GIVEN the current thread state. The body must reflect what's actually been said — never re-introduce yourself or re-pitch something already presented.
 - If the task is planning / strategy (marketing plan, proposal, brief, roadmap, narrative, campaign plan) → include exactly one "doc" option with a substantive outline (not placeholder lorem).
+- If the task involves putting time on the calendar — setting up a call/meeting, blocking focus time, prepping for a meeting that needs its own block, or "find time to do X" — include exactly one "schedule" option. Default to a sensible block (next business day morning if no signal; 30 min duration unless the task implies longer; 60 min for prep blocks; 25 min for "quick chat"). Use the user's local timezone offset. Pull attendee emails from the task's "from" or thread context only when high-confidence; otherwise leave attendees empty so the user fills it in. The user will adjust before saving — pick reasonable, not perfect.
 - If the task is broad or ambiguous (vague nextAction, no thread, weak context) → include exactly one "subtasks" option with concrete verbs to un-stick the work.
 - Never more than one option per type. Never invent other types.
 - ${signatureRule}
@@ -212,7 +280,13 @@ Project folder hint for doc options: ${
 
 recipientConfidence for email: "high" only when "to" is a single clear email; otherwise "low".`;
 
-    const userContent = `Task JSON:\n${taskJsonForPrompt(task)}\n\n---\nHas Gmail thread id usable in client: ${hasThread}\nWebsite submission task: ${isWebsite}\n\n---\nExtra transcript / doc text from linked Google Docs in notes (may be empty):\n${transcriptBlock || '(none)'}`;
+    const recentThreadBlock = conversationTranscript
+      ? `Recent Gmail thread (oldest → newest; read this to determine the current state of the relationship — proposals already made, commitments already given, who owes the next response):\n${conversationTranscript}`
+      : hasThread
+        ? 'Recent Gmail thread: (a thread is linked but contents could not be fetched — proceed cautiously and prefer asking the user for status over re-introducing.)'
+        : 'Recent Gmail thread: (none — task has no linked thread)';
+
+    const userContent = `Task JSON:\n${taskJsonForPrompt(task)}\n\n---\nHas Gmail thread id usable in client: ${hasThread}\nWebsite submission task: ${isWebsite}\n\n---\n${recentThreadBlock}\n\n---\nExtra transcript / doc text from linked Google Docs in notes (may be empty):\n${transcriptBlock || '(none)'}`;
 
     const anthropic = new Anthropic({
       apiKey,
