@@ -37,6 +37,8 @@ function baseTask(over: Partial<TaskRecord> = {}): TaskRecord {
     latestInboundAt: null,
     recurrence: null,
     suggestedResolution: null,
+    lastSyncedAt: null,
+    threadRefreshMessageId: null,
     ...over,
   };
 }

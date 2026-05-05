@@ -1,5 +1,6 @@
 // POST /api/os/auto-resolve
-// Claude classifies threaded open tasks; writes only suggestedResolution (medium/high).
+// 1) Thread refresh: open tasks with new Gmail activity → suggestedResolution update_full + sync fields.
+// 2) Legacy classifier: threaded open tasks → close / update_nextAction (medium/high).
 
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
@@ -11,6 +12,7 @@ import {
   suggestedResolutionStoredSchema,
   type SuggestedResolution,
   type TaskRecord,
+  type UpdateTaskInput,
 } from '@/lib/airtable/tasks';
 import { getOsGoogleAccessToken } from '@/lib/gmail/osGoogleAccess';
 import { extractGmailThreadIdFromUrl } from '@/lib/gmail/extractThreadIdFromUrl';
@@ -20,12 +22,15 @@ import {
   type GmailMessageLike,
   type MsgPart,
 } from '@/lib/gmail/threadContext';
+import { getGoogleAccountEmail } from '@/lib/google/oauth';
+import { getIdentity } from '@/lib/personalContext';
+import { runTaskRefreshFromThread, shouldRunThreadRefreshForSync } from '@/lib/os/taskRefreshFromThread';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const MODEL = 'claude-sonnet-4-6';
-const CLAUDE_TIMEOUT_MS = 30_000;
+const CLAUDE_TIMEOUT_MS = 55_000;
 const BODY_CLIP = 2000;
 const THREAD_MSG_WINDOW = 5;
 const CONCURRENCY = 3;
@@ -134,6 +139,46 @@ function pickCandidates(tasks: TaskRecord[]): TaskRecord[] {
   );
 }
 
+/** Open tasks with a Gmail thread (refresh phase; does not require empty suggestedResolution). */
+function pickThreadRefreshCandidates(tasks: TaskRecord[]): TaskRecord[] {
+  return tasks.filter(
+    (t) =>
+      isOpenTask(t) &&
+      !t.dismissedAt &&
+      t.threadUrl &&
+      isLikelyMailGoogleThreadUrl(t.threadUrl),
+  );
+}
+
+async function updateTaskWithOptionalSyncColumns(taskId: string, input: UpdateTaskInput): Promise<void> {
+  try {
+    await updateTask(taskId, input);
+  } catch (e) {
+    const rest = Object.fromEntries(
+      Object.entries(input).filter(([k]) => k !== 'lastSyncedAt' && k !== 'threadRefreshMessageId'),
+    ) as UpdateTaskInput;
+    const onlySyncFields =
+      Object.keys(rest).length === 0 &&
+      (input.lastSyncedAt !== undefined || input.threadRefreshMessageId !== undefined);
+    if (onlySyncFields) {
+      console.warn(
+        '[auto-resolve] Could not write Last Synced At / Thread Refresh Message Id (add columns to Tasks):',
+        e instanceof Error ? e.message : e,
+      );
+      return;
+    }
+    if (Object.keys(rest).length > 0) {
+      await updateTask(taskId, rest);
+      console.warn(
+        '[auto-resolve] Retried without sync tracking fields:',
+        e instanceof Error ? e.message : e,
+      );
+      return;
+    }
+    throw e;
+  }
+}
+
 async function runPool<T, R>(items: T[], poolSize: number, worker: (item: T) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
   let nextIndex = 0;
@@ -156,6 +201,11 @@ export async function POST() {
   let candidates = 0;
   let suggested = 0;
   let skipped = 0;
+  let refreshCandidates = 0;
+  let refreshSuggested = 0;
+  let refreshNoChange = 0;
+  let refreshPrecheckSkipped = 0;
+  let refreshErrors = 0;
 
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
@@ -173,10 +223,113 @@ export async function POST() {
     const gmail = google.gmail({ version: 'v1', auth });
 
     const all = await getTasks({});
-    const list = pickCandidates(all);
-    candidates = list.length;
+    const [identity, profileEmail] = await Promise.all([
+      getIdentity(),
+      getGoogleAccountEmail(googleAccess.accessToken),
+    ]);
+    const userEmail = profileEmail || identity.email;
 
     const anthropic = new Anthropic({ apiKey, timeout: CLAUDE_TIMEOUT_MS });
+
+    const refreshList = pickThreadRefreshCandidates(all);
+    refreshCandidates = refreshList.length;
+
+    const ranThreadRefreshClaude = new Set<string>();
+
+    type RefreshOutcome =
+      | { taskId: string; kind: 'refresh_suggested' }
+      | { taskId: string; kind: 'refresh_nochange' }
+      | { taskId: string; kind: 'refresh_precheck_skip' }
+      | { taskId: string; kind: 'refresh_error'; error: string };
+
+    const refreshOutcomes = await runPool<TaskRecord, RefreshOutcome>(refreshList, 2, async (task) => {
+      const threadId = extractGmailThreadIdFromUrl(task.threadUrl);
+      if (!threadId) {
+        return { taskId: task.id, kind: 'refresh_precheck_skip' };
+      }
+      try {
+        const thread = await gmail.users.threads.get({
+          userId: 'me',
+          id: threadId,
+          format: 'full',
+        });
+        const messages = (thread.data.messages || []) as GmailMessageLike[];
+        if (!shouldRunThreadRefreshForSync(task, messages)) {
+          return { taskId: task.id, kind: 'refresh_precheck_skip' };
+        }
+        ranThreadRefreshClaude.add(task.id);
+
+        const result = await runTaskRefreshFromThread({
+          task,
+          gmail,
+          anthropic,
+          userName: identity.name,
+          userEmail,
+          primaryThreadMessages: messages,
+        });
+        const nowIso = new Date().toISOString();
+        const latestId = result.ok ? result.data.latestMessageId : '';
+
+        if (!result.ok) {
+          return { taskId: task.id, kind: 'refresh_error', error: result.error };
+        }
+
+        const d = result.data;
+        if (d.noChange) {
+          const patch: UpdateTaskInput = { lastSyncedAt: nowIso };
+          if (latestId) patch.threadRefreshMessageId = latestId;
+          await updateTaskWithOptionalSyncColumns(task.id, patch);
+          return { taskId: task.id, kind: 'refresh_nochange' };
+        }
+
+        if (Object.keys(d.proposal).length === 0) {
+          const patch: UpdateTaskInput = { lastSyncedAt: nowIso };
+          if (latestId) patch.threadRefreshMessageId = latestId;
+          await updateTaskWithOptionalSyncColumns(task.id, patch);
+          return { taskId: task.id, kind: 'refresh_nochange' };
+        }
+
+        const srRaw = {
+          action: 'update_full' as const,
+          proposal: d.proposal,
+          fields: d.fields,
+          changeSummary: d.changeSummary,
+          reasoning: d.reasoning,
+          confidence: d.confidence,
+          suggestedAt: nowIso,
+        };
+        const finalCheck = suggestedResolutionStoredSchema.safeParse(srRaw);
+        if (!finalCheck.success) {
+          const patch: UpdateTaskInput = { lastSyncedAt: nowIso };
+          if (latestId) patch.threadRefreshMessageId = latestId;
+          await updateTaskWithOptionalSyncColumns(task.id, patch);
+          return { taskId: task.id, kind: 'refresh_nochange' };
+        }
+
+        await updateTaskWithOptionalSyncColumns(task.id, {
+          lastSyncedAt: nowIso,
+          ...(latestId ? { threadRefreshMessageId: latestId } : {}),
+          suggestedResolution: finalCheck.data,
+        });
+        return { taskId: task.id, kind: 'refresh_suggested' };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Unknown error';
+        return { taskId: task.id, kind: 'refresh_error', error: msg };
+      }
+    });
+
+    for (const o of refreshOutcomes) {
+      if (o.kind === 'refresh_suggested') refreshSuggested += 1;
+      else if (o.kind === 'refresh_nochange') refreshNoChange += 1;
+      else if (o.kind === 'refresh_precheck_skip') refreshPrecheckSkipped += 1;
+      else if (o.kind === 'refresh_error') {
+        refreshErrors += 1;
+        errors.push({ taskId: o.taskId, error: o.error });
+      }
+    }
+
+    const list = pickCandidates(all).filter((t) => !ranThreadRefreshClaude.has(t.id));
+    candidates = list.length;
 
     type Outcome =
       | { taskId: string; kind: 'suggested' }
@@ -253,7 +406,7 @@ export async function POST() {
         }
 
         const suggestedAt = new Date().toISOString();
-        const full: SuggestedResolution = {
+        const full = {
           action: parsed.action,
           reasoning: parsed.reasoning,
           confidence: parsed.confidence,
@@ -261,7 +414,7 @@ export async function POST() {
           ...(parsed.action === 'update_nextAction' && parsed.newNextAction
             ? { newNextAction: parsed.newNextAction.trim() }
             : {}),
-        };
+        } as SuggestedResolution;
 
         const finalCheck = suggestedResolutionStoredSchema.safeParse(full);
         if (!finalCheck.success) {
@@ -283,7 +436,16 @@ export async function POST() {
     }
 
     return NextResponse.json({
-      summary: { candidates, suggested, skipped },
+      summary: {
+        candidates,
+        suggested,
+        skipped,
+        refreshCandidates,
+        refreshSuggested,
+        refreshNoChange,
+        refreshPrecheckSkipped,
+        refreshErrors,
+      },
       errors,
     });
   } catch (err) {
@@ -291,7 +453,16 @@ export async function POST() {
     return NextResponse.json(
       {
         error: err instanceof Error ? err.message : 'auto-resolve failed',
-        summary: { candidates, suggested, skipped },
+        summary: {
+          candidates,
+          suggested,
+          skipped,
+          refreshCandidates,
+          refreshSuggested,
+          refreshNoChange,
+          refreshPrecheckSkipped,
+          refreshErrors,
+        },
         errors,
       },
       { status: 500 },

@@ -15,7 +15,7 @@ import { logEventAsync, summarizeTaskUpdate, type ActivityAction } from './activ
 // ============================================================================
 
 /**
- * Long-text JSON column for AI suggested resolution (POST /api/os/auto-resolve).
+ * Long-text JSON column for AI suggested resolution (POST /api/os/auto-resolve, thread refresh).
  * Override if the Airtable column name differs: AIRTABLE_TASKS_FIELD_SUGGESTED_RESOLUTION.
  */
 export const suggestedResolutionJsonFieldName =
@@ -85,6 +85,13 @@ const TASK_FIELDS = {
   SUGGESTED_RESOLUTION: suggestedResolutionJsonFieldName,
   /** Google Calendar event web URL (htmlLink) for meeting-style tasks. */
   CALENDAR_EVENT_URL: 'CalendarEventUrl',
+  /** ISO datetime: last Gmail thread refresh / auto-resolve sync for this task. */
+  LAST_SYNCED_AT:
+    process.env.AIRTABLE_TASKS_FIELD_LAST_SYNCED_AT?.trim() || 'Last Synced At',
+  /** Gmail message id of the latest thread message when we last evaluated (skip if unchanged). */
+  THREAD_REFRESH_MESSAGE_ID:
+    process.env.AIRTABLE_TASKS_FIELD_THREAD_REFRESH_MESSAGE_ID?.trim() ||
+    'Thread Refresh Message Id',
 } as const;
 
 /** Allowed `recurrence` values for OS APIs and Airtable single-select. */
@@ -101,45 +108,62 @@ const TASK_RECURRENCE_SET = new Set<string>(TASK_RECURRENCE_VALUES);
 
 // --- Suggested resolution (long-text JSON on Tasks) -------------------------------------------
 
-export type SuggestedResolutionAction = 'close' | 'update_nextAction' | 'leave';
+export type SuggestedResolutionAction = 'close' | 'update_nextAction' | 'leave' | 'update_full';
 export type SuggestedResolutionConfidence = 'high' | 'medium' | 'low';
 
-/** Stored in Airtable "Suggested Resolution" and returned on GET /tasks. */
-export type SuggestedResolution = {
-  action: SuggestedResolutionAction;
-  /** Required when action is `update_nextAction`. */
-  newNextAction?: string;
-  reasoning: string;
-  confidence: SuggestedResolutionConfidence;
-  suggestedAt: string;
-};
-
-export const suggestedResolutionStoredSchema = z
+const suggestedResolutionCloseSchema = z
   .object({
-    action: z.enum(['close', 'update_nextAction', 'leave']),
-    newNextAction: z.string().min(1).optional(),
+    action: z.literal('close'),
     reasoning: z.string().min(1),
     confidence: z.enum(['high', 'medium', 'low']),
     suggestedAt: z.string().min(1),
   })
-  .strict()
-  .superRefine((data, ctx) => {
-    if (data.action === 'update_nextAction') {
-      if (!data.newNextAction?.trim()) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['newNextAction'],
-          message: 'newNextAction is required when action is update_nextAction',
-        });
-      }
-    } else if (data.newNextAction != null && String(data.newNextAction).trim() !== '') {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['newNextAction'],
-        message: 'newNextAction must be omitted unless action is update_nextAction',
-      });
-    }
-  });
+  .strict();
+
+const suggestedResolutionLeaveSchema = z
+  .object({
+    action: z.literal('leave'),
+    reasoning: z.string().min(1),
+    confidence: z.enum(['high', 'medium', 'low']),
+    suggestedAt: z.string().min(1),
+  })
+  .strict();
+
+const suggestedResolutionUpdateNextSchema = z
+  .object({
+    action: z.literal('update_nextAction'),
+    newNextAction: z.string().min(1),
+    reasoning: z.string().min(1),
+    confidence: z.enum(['high', 'medium', 'low']),
+    suggestedAt: z.string().min(1),
+  })
+  .strict();
+
+const suggestedResolutionUpdateFullSchema = z
+  .object({
+    action: z.literal('update_full'),
+    proposal: z.record(z.string(), z.unknown()),
+    fields: z.array(z.string().min(1)).min(1),
+    changeSummary: z.string().min(1),
+    reasoning: z.string().min(1),
+    confidence: z.enum(['high', 'medium', 'low']),
+    suggestedAt: z.string().min(1),
+  })
+  .strict();
+
+/** Stored in Airtable "Suggested Resolution" and returned on GET /tasks. */
+export type SuggestedResolution =
+  | z.infer<typeof suggestedResolutionCloseSchema>
+  | z.infer<typeof suggestedResolutionLeaveSchema>
+  | z.infer<typeof suggestedResolutionUpdateNextSchema>
+  | z.infer<typeof suggestedResolutionUpdateFullSchema>;
+
+export const suggestedResolutionStoredSchema = z.discriminatedUnion('action', [
+  suggestedResolutionCloseSchema,
+  suggestedResolutionLeaveSchema,
+  suggestedResolutionUpdateNextSchema,
+  suggestedResolutionUpdateFullSchema,
+]);
 
 /** Read Airtable cell → typed object or null if empty / invalid JSON / schema mismatch. */
 export function parseSuggestedResolutionFromAirtable(raw: unknown): SuggestedResolution | null {
@@ -293,6 +317,10 @@ export interface TaskRecord {
   recurrence: TaskRecurrence | null;
   /** AI classifier output pending user review; null if none. */
   suggestedResolution: SuggestedResolution | null;
+  /** Last time Gmail thread refresh / auto-resolve sync evaluated this task. */
+  lastSyncedAt: string | null;
+  /** Gmail id of the latest thread message at last refresh (skip re-run if unchanged). */
+  threadRefreshMessageId: string | null;
 }
 
 export interface CreateTaskInput {
@@ -319,6 +347,8 @@ export interface CreateTaskInput {
   latestInboundAt?: string | null;
   recurrence?: TaskRecurrence | null;
   suggestedResolution?: SuggestedResolution | null;
+  lastSyncedAt?: string | null;
+  threadRefreshMessageId?: string | null;
 }
 
 export interface UpdateTaskInput {
@@ -349,6 +379,8 @@ export interface UpdateTaskInput {
   recurrence?: TaskRecurrence | null;
   /** null clears pending suggestion; object sets/replaces (validated by route). */
   suggestedResolution?: SuggestedResolution | null;
+  lastSyncedAt?: string | null;
+  threadRefreshMessageId?: string | null;
 }
 
 /** Map Airtable record → TaskRecord (includes recurrence). */
@@ -399,6 +431,8 @@ function mapRecordToTask(record: any): TaskRecord {
     latestInboundAt: f[TASK_FIELDS.LATEST_INBOUND_AT] || null,
     recurrence: normalizeRecurrenceFromAirtable(f[TASK_FIELDS.RECURRENCE]),
     suggestedResolution: parseSuggestedResolutionFromAirtable(f[TASK_FIELDS.SUGGESTED_RESOLUTION]),
+    lastSyncedAt: (f[TASK_FIELDS.LAST_SYNCED_AT] as string) || null,
+    threadRefreshMessageId: (f[TASK_FIELDS.THREAD_REFRESH_MESSAGE_ID] as string) || null,
   };
 }
 
@@ -528,6 +562,12 @@ function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<stri
     } else if (typeof sr === 'object' && !Array.isArray(sr)) {
       fields[TASK_FIELDS.SUGGESTED_RESOLUTION] = JSON.stringify(sr);
     }
+  }
+  if ('lastSyncedAt' in input) {
+    fields[TASK_FIELDS.LAST_SYNCED_AT] = input.lastSyncedAt || null;
+  }
+  if ('threadRefreshMessageId' in input) {
+    fields[TASK_FIELDS.THREAD_REFRESH_MESSAGE_ID] = input.threadRefreshMessageId || null;
   }
 
   return fields;

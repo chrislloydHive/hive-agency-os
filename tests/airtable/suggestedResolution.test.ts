@@ -57,6 +57,37 @@ describe('suggestedResolution', () => {
     expect(parseSuggestedResolutionPatchInput(null)).toEqual({ ok: true, value: null });
   });
 
+  it('parses update_full from Airtable JSON', () => {
+    const raw = JSON.stringify({
+      action: 'update_full',
+      proposal: { nextAction: 'Follow up on pricing', task: 'ACME — pricing thread' },
+      fields: ['nextAction', 'task'],
+      changeSummary: 'They replied with a counter-offer.',
+      reasoning: 'Latest inbound message includes new numbers.',
+      confidence: 'high',
+      suggestedAt: '2026-05-04T12:00:00.000Z',
+    });
+    const parsed = parseSuggestedResolutionFromAirtable(raw);
+    expect(parsed?.action).toBe('update_full');
+    if (parsed?.action === 'update_full') {
+      expect(parsed.fields).toEqual(['nextAction', 'task']);
+      expect(parsed.proposal.nextAction).toBe('Follow up on pricing');
+    }
+  });
+
+  it('PATCH parser accepts update_full', () => {
+    const obj = {
+      action: 'update_full' as const,
+      proposal: { notes: 'May 4: pinged again.' },
+      fields: ['notes'],
+      changeSummary: 'Append note',
+      reasoning: 'r',
+      confidence: 'medium' as const,
+      suggestedAt: '2026-05-04T12:00:00.000Z',
+    };
+    expect(parseSuggestedResolutionPatchInput(obj)).toEqual({ ok: true, value: obj });
+  });
+
   it('serialize writes JSON string under configured column name', () => {
     const obj = {
       action: 'close' as const,
@@ -103,6 +134,8 @@ describe('suggestedResolution', () => {
         'Last Seen At': null,
         'Latest Inbound At': null,
         Recurrence: null,
+        'Last Synced At': null,
+        'Thread Refresh Message Id': null,
         [suggestedResolutionJsonFieldName]: json,
       },
     });
