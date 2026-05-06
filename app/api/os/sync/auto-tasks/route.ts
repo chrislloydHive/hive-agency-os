@@ -43,6 +43,7 @@ import {
 import { createDraftReply } from '@/lib/gmail/createDraftReply';
 import { extractGmailThreadIdFromUrl } from '@/lib/gmail/extractThreadIdFromUrl';
 import { getIdentity, getVoice } from '@/lib/personalContext';
+import { COLD_OUTREACH_RE, NOISE_SUBJECT_RE } from '@/lib/os/commandCenterGoogle';
 
 const anthropic = new Anthropic();
 
@@ -910,6 +911,7 @@ interface SyncStats {
   nudgesDrafted: number;
   sentDraftsClosed: number;
   autoSkippedViaDismissals: number;
+  retroactivelyDismissed: number;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1002,6 +1004,87 @@ function domainFromEmail(email: string): string {
   const normalized = email.trim().toLowerCase();
   const at = normalized.lastIndexOf('@');
   return at > 0 && at < normalized.length - 1 ? normalized.slice(at + 1) : '';
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Retroactive cleanup
+//
+// New filter rules (Gmail -from:me, list-unsubscribe, expanded cold-outreach
+// patterns, LLM relevance backstop) only block NEW triage candidates. Tasks
+// auto-created before those rules deployed stay in My Day until manually
+// dismissed. This pass scans existing autoCreated email-triage tasks and
+// auto-dismisses ones that match the same patterns the new filter would
+// reject.
+//
+// Skip safeguards:
+// - Only autoCreated email-triage tasks (don't touch user-curated work)
+// - Skip tasks with draftUrl set (user is actively replying)
+// - Skip already-done or already-dismissed tasks
+//
+// Each dismissal also feeds the dismissal-history learning loop, so the same
+// sender/domain becomes more likely to be hard-blocked next time.
+// ────────────────────────────────────────────────────────────────────────────
+
+const SELF_DOMAIN_RE = /@(hive8\.us|hiveadagency\.com|hiveagencyos\.com)/i;
+
+interface CleanupReason {
+  reason: string;
+  matchedOn: 'self-digest' | 'cold-outreach' | 'noise-subject';
+}
+
+function classifyLegacyTask(t: TaskRecord): CleanupReason | null {
+  // Strip the auto-prepended "Reply: " from triage tasks so the regex can
+  // see the original subject text.
+  const subject = (t.task || '').replace(/^Reply:\s*/i, '').trim();
+  const snippet = t.nextAction || '';
+  const fromField = t.from || '';
+
+  if (SELF_DOMAIN_RE.test(fromField)) {
+    return { reason: 'self-sent system digest', matchedOn: 'self-digest' };
+  }
+  if (COLD_OUTREACH_RE.test(subject) || COLD_OUTREACH_RE.test(snippet)) {
+    return { reason: 'cold outreach pattern', matchedOn: 'cold-outreach' };
+  }
+  if (NOISE_SUBJECT_RE.test(subject) || NOISE_SUBJECT_RE.test(snippet)) {
+    return { reason: 'newsletter / promo pattern', matchedOn: 'noise-subject' };
+  }
+  return null;
+}
+
+async function runRetroactiveCleanupPass(
+  allTasks: TaskRecord[],
+  stats: SyncStats,
+  errors: string[],
+): Promise<void> {
+  const candidates = allTasks.filter((t) => {
+    if (t.source !== 'email-triage') return false;
+    if (!t.autoCreated) return false;
+    if (t.done) return false;
+    if (t.dismissedAt) return false;
+    if (t.draftUrl) return false; // actively being worked on
+    return true;
+  });
+  if (candidates.length === 0) return;
+
+  let scanned = 0;
+  for (const task of candidates) {
+    scanned++;
+    const verdict = classifyLegacyTask(task);
+    if (!verdict) continue;
+    try {
+      await updateTask(task.id, { dismissedAt: new Date().toISOString() });
+      stats.retroactivelyDismissed++;
+      console.log(
+        `[sync/auto-tasks] retroactive cleanup: dismissed "${task.task?.slice(0, 60)}" — ${verdict.reason} (matched: ${verdict.matchedOn})`,
+      );
+    } catch (err) {
+      stats.errors++;
+      errors.push(`cleanup ${task.id}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+  if (scanned > 0) {
+    console.log(`[sync/auto-tasks] retroactive cleanup: scanned ${scanned}, dismissed ${stats.retroactivelyDismissed}`);
+  }
 }
 
 function checkDismissals(t: TriageItem, counts: DismissalCounts): DismissalHints {
@@ -1225,6 +1308,7 @@ export async function POST(req: NextRequest) {
     nudgesDrafted: 0,
     sentDraftsClosed: 0,
     autoSkippedViaDismissals: 0,
+    retroactivelyDismissed: 0,
   };
   const errors: string[] = [];
 
@@ -1281,14 +1365,21 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Build dismissal-history counts ONCE for this run. Reads from the same
-    // `activeTasks` snapshot we already loaded for thread-activity below, but
-    // we need the FULL task set including dismissed-and-not-done rows, so
-    // re-fetch without filters. (One Airtable round-trip.)
+    // Load the full task set ONCE for this run — used by both the
+    // dismissal-history counts and the retroactive cleanup pass.
     let dismissalCounts: DismissalCounts;
     try {
       const allTasks = await getTasks({});
       dismissalCounts = buildDismissalCounts(allTasks);
+      // Retroactive cleanup: dismiss legacy autoCreated email-triage tasks
+      // that match self-digest / cold-outreach / newsletter patterns. Runs
+      // BEFORE the new triage loop so cleared dismissals feed the
+      // dismissal-history counts immediately. Best-effort.
+      try {
+        await runRetroactiveCleanupPass(allTasks, stats, errors);
+      } catch (err) {
+        console.error('[sync/auto-tasks] retroactive cleanup error:', err);
+      }
     } catch (err) {
       console.warn('[sync/auto-tasks] failed to build dismissal counts (proceeding without):', err instanceof Error ? err.message : err);
       dismissalCounts = { bySender: new Map(), byDomain: new Map() };

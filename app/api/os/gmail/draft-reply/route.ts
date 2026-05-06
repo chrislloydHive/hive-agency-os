@@ -14,6 +14,7 @@ import {
   buildConversationTranscript,
   type MsgPart,
 } from '@/lib/gmail/threadContext';
+import { findTaskByThreadUrl, updateTask } from '@/lib/airtable/tasks';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -456,6 +457,26 @@ ${htmlSignature
     // Gmail's web app doesn't expose a stable deep-link to a specific draft by draftId,
     // but the draft is visible in the original thread view. That's the best landing spot.
     const threadUrl = threadId ? `https://mail.google.com/mail/u/0/#inbox/${threadId}` : 'https://mail.google.com/mail/u/0/#drafts';
+
+    // Stamp the matching Hive OS task with the new draftUrl so My Day's row
+    // flips from "Draft reply" to "Review in Gmail" on next loadTasks(). Without
+    // this, the row keeps showing "Draft reply" even though a Gmail draft
+    // exists — confusing UX (clicking creates a duplicate draft each time).
+    // Best-effort: missing/failing task lookups don't break the response.
+    if (threadId) {
+      try {
+        const matchUrl = `https://mail.google.com/mail/u/0/#inbox/${threadId}`;
+        const task = await findTaskByThreadUrl(matchUrl);
+        if (task && task.draftUrl !== matchUrl) {
+          await updateTask(task.id, { draftUrl: matchUrl });
+        }
+      } catch (err) {
+        console.warn(
+          '[draft-reply] failed to stamp task draftUrl (non-fatal):',
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
 
     return NextResponse.json({
       draftId,
