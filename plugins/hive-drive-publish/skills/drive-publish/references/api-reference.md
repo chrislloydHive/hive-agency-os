@@ -1,5 +1,14 @@
 # Drive Publish API Reference
 
+## Related: binary file upload
+
+```
+POST /api/os/drive/upload-file
+Content-Type: multipart/form-data
+```
+
+Uploads or replaces-by-name an arbitrary file in a folder using the same company Google OAuth as publish. Fields: `file` (required), `folderId` (required), `fileName` (optional), `companyId` (optional, defaults to `DMA_DEFAULT_COMPANY_ID`). Response: `{ ok, fileId, fileUrl, action: "Uploaded" | "Updated" }`.
+
 ## Endpoint
 
 ```

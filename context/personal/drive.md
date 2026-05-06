@@ -22,6 +22,8 @@ The drive-publish endpoint now uses the OS's built-in template instantiation pip
 2. The user says "push to Drive" or the skill auto-suggests after file creation.
 3. The Cowork skill reads the file, picks the document type, and calls
    `/api/os/drive/publish` with the content and metadata.
+   For non-Docs binary deliverables (PDFs, images, etc.), use
+   `POST /api/os/drive/upload-file` (multipart: `file`, `folderId`, optional `fileName`).
 4. The endpoint looks up the branded template from **Airtable's Templates table**.
 5. `instantiateFromTemplate()` clones the template into the correct Drive folder
    (with job subfolder routing if a jobId is provided).
