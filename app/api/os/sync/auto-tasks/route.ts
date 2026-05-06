@@ -909,6 +909,7 @@ interface SyncStats {
   threadActivityNextActionRefreshed: number;
   nudgesDrafted: number;
   sentDraftsClosed: number;
+  autoSkippedViaDismissals: number;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -926,6 +927,100 @@ interface SyncStats {
 // ────────────────────────────────────────────────────────────────────────────
 
 const RELEVANCE_MODEL = 'claude-haiku-4-5-20251001';
+
+// ────────────────────────────────────────────────────────────────────────────
+// Dismissal-learning: compounding noise filter
+//
+// Every time Chris dismisses an auto-created email-triage task, that's a
+// signal "this sender/domain is noise." Aggregate the signal: if the same
+// sender has been dismissed 2+ times in the last 60 days, future tasks from
+// them auto-skip with no LLM call. If 3+ distinct senders from the same
+// domain have been dismissed, the whole domain auto-skips.
+//
+// Below those hard thresholds, dismissal counts are passed to the LLM as a
+// soft hint — even one prior dismissal nudges the model toward false.
+//
+// Data source: Airtable's existing tasks table. No schema change. We scan
+// dismissedAt + source='email-triage' + autoCreated and aggregate from there.
+// ────────────────────────────────────────────────────────────────────────────
+
+const DISMISSAL_LOOKBACK_DAYS = 60;
+const DISMISS_HARD_BLOCK_SENDER = 2;     // same sender dismissed N+ times → hard skip
+const DISMISS_HARD_BLOCK_DOMAIN = 3;     // distinct senders on a domain N+ → hard skip
+
+interface DismissalCounts {
+  /** lowercase email → number of times dismissed in the lookback window */
+  bySender: Map<string, number>;
+  /** lowercase domain → distinct sender count dismissed in the lookback window */
+  byDomain: Map<string, number>;
+}
+
+/** Pull a lowercase email out of an Airtable `from` field, which may be
+ *  "Display Name <a@b.com>", a bare email, or just a name. */
+function extractEmailFromTaskField(from: string): string {
+  if (!from) return '';
+  const bracket = from.match(/<([^>]+)>/);
+  if (bracket) return bracket[1].trim().toLowerCase();
+  const bare = from.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  return bare ? bare[0].toLowerCase() : '';
+}
+
+function buildDismissalCounts(allTasks: TaskRecord[]): DismissalCounts {
+  const cutoffMs = Date.now() - DISMISSAL_LOOKBACK_DAYS * 86400_000;
+  const bySender = new Map<string, number>();
+  const domainSenders = new Map<string, Set<string>>();
+
+  for (const t of allTasks) {
+    if (t.source !== 'email-triage') continue;
+    if (!t.autoCreated) continue;
+    if (!t.dismissedAt) continue;
+    const ts = Date.parse(t.dismissedAt);
+    if (!Number.isFinite(ts) || ts < cutoffMs) continue;
+    const email = extractEmailFromTaskField(t.from);
+    if (!email) continue;
+    bySender.set(email, (bySender.get(email) || 0) + 1);
+    const domain = email.split('@')[1] || '';
+    if (domain) {
+      if (!domainSenders.has(domain)) domainSenders.set(domain, new Set());
+      domainSenders.get(domain)!.add(email);
+    }
+  }
+
+  const byDomain = new Map<string, number>();
+  for (const [domain, set] of domainSenders) byDomain.set(domain, set.size);
+  return { bySender, byDomain };
+}
+
+interface DismissalHints {
+  senderCount: number;
+  domainCount: number;
+  hardBlock: boolean;
+  hardBlockReason?: string;
+}
+
+function checkDismissals(t: TriageItem, counts: DismissalCounts): DismissalHints {
+  const email = (t.fromEmail || '').toLowerCase();
+  const domain = (t.fromDomain || '').toLowerCase();
+  const senderCount = email ? counts.bySender.get(email) || 0 : 0;
+  const domainCount = domain ? counts.byDomain.get(domain) || 0 : 0;
+  if (senderCount >= DISMISS_HARD_BLOCK_SENDER) {
+    return {
+      senderCount,
+      domainCount,
+      hardBlock: true,
+      hardBlockReason: `you dismissed this sender ${senderCount}× recently`,
+    };
+  }
+  if (domainCount >= DISMISS_HARD_BLOCK_DOMAIN) {
+    return {
+      senderCount,
+      domainCount,
+      hardBlock: true,
+      hardBlockReason: `you dismissed ${domainCount} senders from ${domain} recently`,
+    };
+  }
+  return { senderCount, domainCount, hardBlock: false };
+}
 
 const RELEVANCE_SYSTEM_PROMPT = `You decide whether an email warrants a work task in Chris Lloyd's task system.
 
@@ -960,14 +1055,23 @@ Strong signals it's warm-cold sales (not real outreach):
 Output STRICT JSON only — no prose, no markdown:
 {"workRelated": true|false, "reason": "<short phrase, max 8 words>"}
 
-DEFAULT POSTURE: if the sender appears to be a stranger pitching something, lean FALSE. The cost of a missed cold pitch is near-zero (Chris will star anything important). The cost of a false-positive task is high (it adds noise to his queue). Only flag TRUE when there's a real business signal — a client he works with, a billing item, an active vendor relationship, a question he must answer.`;
+DEFAULT POSTURE: if the sender appears to be a stranger pitching something, lean FALSE. The cost of a missed cold pitch is near-zero (Chris will star anything important). The cost of a false-positive task is high (it adds noise to his queue). Only flag TRUE when there's a real business signal — a client he works with, a billing item, an active vendor relationship, a question he must answer.
+
+DISMISSAL HISTORY (when shown):
+The "Past dismissals" line tells you how many times Chris has dismissed prior auto-tasks from this sender / from this domain in the last 60 days. Treat this as a STRONG signal — Chris has personally shown that this sender/domain is noise to him. Specifically:
+- senderCount ≥ 1: lean false unless the email is unmistakably real work (a clear billing item, an explicit question that requires Chris to answer, a confirmed client/vendor he engages with).
+- domainCount ≥ 2: lean false unless the email is unmistakably real work — multiple senders from this org have already been dismissed.
+- Both 0: no signal from history; judge on content alone using the rules above.`;
 
 interface RelevanceResult {
   workRelated: boolean;
   reason: string;
 }
 
-async function isWorkRelatedEmail(t: TriageItem): Promise<RelevanceResult> {
+async function isWorkRelatedEmail(
+  t: TriageItem,
+  dismissalHints?: DismissalHints,
+): Promise<RelevanceResult> {
   // Defense in depth: if the sender is one of Chris's own addresses, skip
   // unconditionally. Hive OS itself sends a daily task digest that would
   // otherwise become a task, feeding a self-recursion loop. The Gmail-side
@@ -982,7 +1086,14 @@ async function isWorkRelatedEmail(t: TriageItem): Promise<RelevanceResult> {
     return { workRelated: true, reason: 'known client contact' };
   }
   const fromLine = t.from || `${t.fromName || ''} <${t.fromEmail || ''}>`.trim();
-  const userContent = `From: ${fromLine}\nSubject: ${t.subject || '(no subject)'}\nSnippet: ${(t.snippet || '').slice(0, 400)}`;
+  // Surface below-threshold dismissal counts as a soft signal. Even ONE prior
+  // dismissal of the same sender or domain should nudge the model toward
+  // skepticism — the user has shown a pattern we can build on.
+  const dismissalLine =
+    dismissalHints && (dismissalHints.senderCount > 0 || dismissalHints.domainCount > 0)
+      ? `\nPast dismissals (last 60 days): this sender ${dismissalHints.senderCount}×, this domain ${dismissalHints.domainCount}×.`
+      : '';
+  const userContent = `From: ${fromLine}\nSubject: ${t.subject || '(no subject)'}\nSnippet: ${(t.snippet || '').slice(0, 400)}${dismissalLine}`;
   try {
     const ai = await anthropic.messages.create({
       model: RELEVANCE_MODEL,
@@ -1107,6 +1218,7 @@ export async function POST(req: NextRequest) {
     threadActivityChecked: 0, threadActivityUpdated: 0, threadActivityNextActionRefreshed: 0,
     nudgesDrafted: 0,
     sentDraftsClosed: 0,
+    autoSkippedViaDismissals: 0,
   };
   const errors: string[] = [];
 
@@ -1163,6 +1275,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Build dismissal-history counts ONCE for this run. Reads from the same
+    // `activeTasks` snapshot we already loaded for thread-activity below, but
+    // we need the FULL task set including dismissed-and-not-done rows, so
+    // re-fetch without filters. (One Airtable round-trip.)
+    let dismissalCounts: DismissalCounts;
+    try {
+      const allTasks = await getTasks({});
+      dismissalCounts = buildDismissalCounts(allTasks);
+    } catch (err) {
+      console.warn('[sync/auto-tasks] failed to build dismissal counts (proceeding without):', err instanceof Error ? err.message : err);
+      dismissalCounts = { bySender: new Map(), byDomain: new Map() };
+    }
+
     // Stale triage (>2 days old, no existing task), OR any age when the sender
     // is a known client contact (forwards & trade-out pitches must not wait 3 days).
     for (const t of cc.triage || []) {
@@ -1170,9 +1295,22 @@ export async function POST(req: NextRequest) {
       if (ageDays <= 2 && !t.isKnownClientContact) continue;
       if (t.hasExistingTask) continue;
       try {
+        // Hard-block via dismissal history: senders/domains Chris has already
+        // dismissed N+ times in the last 60 days. No LLM call needed — the
+        // user has shown this is noise.
+        const dismissalHints = checkDismissals(t, dismissalCounts);
+        if (dismissalHints.hardBlock) {
+          stats.autoSkippedViaDismissals++;
+          console.log(
+            `[sync/auto-tasks] auto-skipped via dismissal-history: "${t.subject?.slice(0, 60)}" from ${t.fromEmail} — ${dismissalHints.hardBlockReason}`,
+          );
+          continue;
+        }
+
         // LLM relevance backstop — cheap noise filter past the heuristic score.
         // Known clients short-circuit (no LLM call). Failures degrade open.
-        const relevance = await isWorkRelatedEmail(t);
+        // Below-threshold dismissal counts are passed as a soft hint.
+        const relevance = await isWorkRelatedEmail(t, dismissalHints);
         if (!relevance.workRelated) {
           stats.filteredIrrelevant++;
           console.log(
