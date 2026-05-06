@@ -40,6 +40,9 @@ import {
   buildConversationTranscript,
   type GmailMessageLike,
 } from '@/lib/gmail/threadContext';
+import { createDraftReply } from '@/lib/gmail/createDraftReply';
+import { extractGmailThreadIdFromUrl } from '@/lib/gmail/extractThreadIdFromUrl';
+import { getIdentity, getVoice } from '@/lib/personalContext';
 
 const anthropic = new Anthropic();
 
@@ -327,6 +330,8 @@ function findLatestInboundMessage(
 interface ThreadActivityContext {
   gmail: ReturnType<typeof google.gmail>;
   myEmailLower: string;
+  /** Raw access token — needed by createDraftReply (it builds its own auth client). */
+  accessToken: string;
 }
 
 /** Ask Claude to rewrite a task's Next Action based on the current state of
@@ -598,10 +603,201 @@ async function buildThreadActivityContext(companyId: string): Promise<ThreadActi
     auth.setCredentials({ access_token: accessToken });
     const gmail = google.gmail({ version: 'v1', auth });
     const myEmail = (await getGoogleAccountEmail(accessToken)) || '';
-    return { gmail, myEmailLower: myEmail.toLowerCase() };
+    return { gmail, myEmailLower: myEmail.toLowerCase(), accessToken };
   } catch (err) {
     console.warn('[sync/auto-tasks] thread-activity: Google auth failed:', err);
     return null;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Auto-nudge for stale waiting items
+//
+// Slice 1 surfaced "stalled >7d" tasks with an amber tag in the Waiting section.
+// This pass closes the loop: for each waiting task whose latest activity is >
+// STALE_NUDGE_DAYS old AND has no draft yet, generate a polite check-in email
+// and create a Gmail draft on the original thread. The task flips to
+// draft-ready in My Day; Chris reviews + sends from Gmail.
+//
+// Capped at MAX_NUDGES_PER_RUN to bound LLM + Gmail costs per sync.
+// ────────────────────────────────────────────────────────────────────────────
+
+const STALE_NUDGE_DAYS = 7;
+const MAX_NUDGES_PER_RUN = 5;
+const NUDGE_MODEL = 'claude-sonnet-4-6';
+
+const WAIT_PHRASE_RE =
+  /(^|\b)(waiting on|wait for|pending from|awaiting|expect.*from|follow up on|as promised)\b/i;
+
+function isWaitingTask(t: TaskRecord): boolean {
+  return !!t.nextAction && WAIT_PHRASE_RE.test(t.nextAction);
+}
+
+function waitingDays(t: TaskRecord, now = new Date()): number | null {
+  const ts = t.lastSeenAt || t.latestInboundAt || t.createdAt;
+  if (!ts) return null;
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return null;
+  return Math.max(1, Math.round((now.getTime() - d.getTime()) / 86400000));
+}
+
+interface NudgeBody {
+  body: string;
+  /** Brief one-liner the model thinks captures the nudge — used as the new nextAction. */
+  summary: string;
+}
+
+async function generateNudgeBody(args: {
+  task: TaskRecord;
+  conversationTranscript: string;
+  identity: { name: string; role: string; company: string; email: string };
+  voiceTone: string;
+}): Promise<NudgeBody | null> {
+  const { task, conversationTranscript, identity, voiceTone } = args;
+
+  const systemPrompt = `You are drafting a SHORT, polite follow-up "checking in" email for ${identity.name} (${identity.role}, ${identity.company}). The other party owes a response and has gone quiet for over a week.
+
+Style:
+- Voice: ${voiceTone}.
+- Plain text only. 3-5 sentences MAX.
+- Open warmly but NOT obsequious. No "Hope you're well!" filler.
+- Reference what's specifically been waiting (use the thread to anchor).
+- Soft ask — give them an easy yes or an easy "still working on it." Avoid pressure.
+- Do NOT re-pitch or re-introduce. They already know who you are.
+- Do NOT include a signature block — the system appends one.
+
+Output STRICT JSON only — no prose, no markdown:
+{"body": "<plain-text email body>", "summary": "<one-line description of what this nudges, max 12 words>"}`;
+
+  const userContent = `Task: ${task.task}
+What we're waiting on: ${task.nextAction || '(unspecified)'}
+Project: ${task.project || '(none)'}
+
+---
+Recent thread (oldest → newest):
+${conversationTranscript || '(no thread context available — keep nudge generic)'}`;
+
+  try {
+    const ai = await anthropic.messages.create({
+      model: NUDGE_MODEL,
+      max_tokens: 600,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userContent }],
+    });
+    const block = ai.content[0];
+    if (!block || block.type !== 'text') return null;
+    const raw = block.text.trim();
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start === -1 || end === -1) return null;
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as { body?: unknown; summary?: unknown };
+    const body = typeof parsed.body === 'string' ? parsed.body.trim() : '';
+    const summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
+    if (!body) return null;
+    return { body, summary: summary || 'Auto-drafted nudge — review and send.' };
+  } catch (err) {
+    console.warn('[sync/auto-tasks] nudge generation failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+async function runStaleNudgePass(
+  ctx: ThreadActivityContext,
+  activeTasks: TaskRecord[],
+  stats: SyncStats,
+  errors: string[],
+): Promise<void> {
+  // Filter: waiting + stalled + no existing draft + has a thread to reply on.
+  const candidates = activeTasks
+    .filter((t) => !t.done && !t.dismissedAt)
+    .filter((t) => isWaitingTask(t))
+    .filter((t) => !t.draftUrl)
+    .filter((t) => !!t.threadUrl)
+    .filter((t) => {
+      const days = waitingDays(t);
+      return days != null && days > STALE_NUDGE_DAYS;
+    })
+    .slice(0, MAX_NUDGES_PER_RUN);
+
+  if (candidates.length === 0) return;
+  console.log(`[sync/auto-tasks] auto-nudge: ${candidates.length} candidate(s)`);
+
+  // Identity + voice are shared across all candidates; load once.
+  const [identity, voice] = await Promise.all([getIdentity(), getVoice()]);
+
+  for (const task of candidates) {
+    try {
+      const threadId = extractGmailThreadIdFromUrl(task.threadUrl);
+      if (!threadId) continue;
+
+      // Fetch full thread, find latest non-Chris message (the one to reply to).
+      const threadFull = await ctx.gmail.users.threads.get({
+        userId: 'me',
+        id: threadId,
+        format: 'full',
+      });
+      const messages = threadFull.data.messages || [];
+      if (messages.length === 0) continue;
+
+      // Pick the latest message that wasn't sent by us.
+      let replyToMessageId: string | null = null;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        const fromVal = (m.payload?.headers || []).find(
+          (h) => h.name?.toLowerCase() === 'from',
+        )?.value || '';
+        if (ctx.myEmailLower && fromVal.toLowerCase().includes(ctx.myEmailLower)) continue;
+        if (m.id) {
+          replyToMessageId = m.id;
+          break;
+        }
+      }
+      // If every message is from us, nothing to nudge — they never responded.
+      // Fall back to the latest message in the thread.
+      if (!replyToMessageId) {
+        const last = messages[messages.length - 1];
+        if (!last?.id) continue;
+        replyToMessageId = last.id;
+      }
+
+      const conversationTranscript = buildConversationTranscript(
+        messages as GmailMessageLike[],
+        ctx.myEmailLower,
+        { maxCharsPerTurn: 600, maxTotalChars: 4000 },
+      );
+
+      const nudge = await generateNudgeBody({
+        task,
+        conversationTranscript,
+        identity,
+        voiceTone: voice.tone,
+      });
+      if (!nudge) continue;
+
+      const created = await createDraftReply({
+        accessToken: ctx.accessToken,
+        messageId: replyToMessageId,
+        threadId,
+        body: nudge.body,
+        myEmail: identity.email,
+        myName: identity.name,
+      });
+
+      // Open Gmail at the thread; the new draft is shown there.
+      const draftUrl = `https://mail.google.com/mail/u/0/#inbox/${created.threadId || threadId}`;
+
+      await updateTask(task.id, {
+        draftUrl,
+        nextAction: `Nudge drafted — review & send. ${nudge.summary}`,
+      });
+      stats.nudgesDrafted++;
+      console.log(
+        `[sync/auto-tasks] auto-nudge: drafted nudge for "${task.task?.slice(0, 60)}" (waiting ${waitingDays(task)}d)`,
+      );
+    } catch (err) {
+      stats.errors++;
+      errors.push(`nudge ${task.id}: ${err instanceof Error ? err.message : err}`);
+    }
   }
 }
 
@@ -614,6 +810,7 @@ interface SyncStats {
   updated: number;
   unarchived: number;
   skipped: number;
+  filteredIrrelevant: number;
   errors: number;
   workspaceCreated: number;
   workspaceUnarchived: number;
@@ -622,6 +819,88 @@ interface SyncStats {
   threadActivityChecked: number;
   threadActivityUpdated: number;
   threadActivityNextActionRefreshed: number;
+  nudgesDrafted: number;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// LLM relevance backstop
+//
+// Heuristic scoring catches the obvious noise (bulk senders, list-unsubscribe
+// headers, marketing patterns), but inevitably misses some cold-outreach and
+// service-account email that scores positive. Before turning a triage item
+// into a Hive OS task, ask Claude Haiku — cheap, fast — whether this is real
+// work or noise.
+//
+// Skip-on-error degrades OPEN: if the API call fails, we create the task
+// rather than silently dropping it. Losing a real task is worse than letting
+// occasional noise through.
+// ────────────────────────────────────────────────────────────────────────────
+
+const RELEVANCE_MODEL = 'claude-haiku-4-5-20251001';
+
+const RELEVANCE_SYSTEM_PROMPT = `You decide whether an email warrants a work task in Chris Lloyd's task system.
+
+Chris runs an ad agency. WORK-RELATED email includes:
+- Direct messages from clients, prospects, or vendors he actually engages with
+- Finance & billing he must act on (unpaid invoices, A/R aging issues, IRS notices, contracts to sign)
+- Operational requests from his team or partners
+- Partner/vendor outreach he is actively pursuing (not generic cold pitches)
+- Replies to threads HE started
+
+NOT WORK-RELATED includes:
+- Newsletters, digests, "today's edition", weekly recaps, blogs
+- Promotional / marketing email (sales, % off, new arrivals, free trials, webinars)
+- Cold outbound sales pitches he didn't ask for ("15 minutes of your time", "we help agencies grow", lead-gen offers, "circling back" from someone he doesn't know)
+- Consumer service auto-emails (shipping, delivery, receipts, account notifications, security alerts, password resets)
+- Social network notifications (LinkedIn, Twitter, etc.)
+
+Output STRICT JSON only — no prose, no markdown:
+{"workRelated": true|false, "reason": "<short phrase, max 8 words>"}
+
+When uncertain, lean toward workRelated:true. Real work missing > occasional noise.`;
+
+interface RelevanceResult {
+  workRelated: boolean;
+  reason: string;
+}
+
+async function isWorkRelatedEmail(t: TriageItem): Promise<RelevanceResult> {
+  // Known client contact short-circuits the LLM call entirely — they're work
+  // by definition, no need to spend a token.
+  if (t.isKnownClientContact) {
+    return { workRelated: true, reason: 'known client contact' };
+  }
+  const fromLine = t.from || `${t.fromName || ''} <${t.fromEmail || ''}>`.trim();
+  const userContent = `From: ${fromLine}\nSubject: ${t.subject || '(no subject)'}\nSnippet: ${(t.snippet || '').slice(0, 400)}`;
+  try {
+    const ai = await anthropic.messages.create({
+      model: RELEVANCE_MODEL,
+      max_tokens: 80,
+      system: RELEVANCE_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userContent }],
+    });
+    const block = ai.content[0];
+    if (!block || block.type !== 'text') {
+      return { workRelated: true, reason: 'parse fallback' };
+    }
+    const raw = block.text.trim();
+    // Pull out the first {...} block, stripping any code-fence wrap.
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start === -1 || end === -1) {
+      return { workRelated: true, reason: 'parse fallback' };
+    }
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as { workRelated?: unknown; reason?: unknown };
+    const workRelated = parsed.workRelated !== false; // default true on missing
+    const reason = typeof parsed.reason === 'string' ? parsed.reason.slice(0, 80) : '';
+    return { workRelated, reason };
+  } catch (err) {
+    console.warn(
+      '[sync/auto-tasks] relevance check failed (degrading open, will create task):',
+      err instanceof Error ? err.message : err,
+    );
+    return { workRelated: true, reason: 'check failed' };
+  }
 }
 
 async function upsertAutoTask(
@@ -711,10 +990,11 @@ export async function POST(req: NextRequest) {
   lastRunStartedAt = Date.now();
 
   const stats: SyncStats = {
-    created: 0, updated: 0, unarchived: 0, skipped: 0, errors: 0,
+    created: 0, updated: 0, unarchived: 0, skipped: 0, filteredIrrelevant: 0, errors: 0,
     workspaceCreated: 0, workspaceUnarchived: 0, workspaceArchivedStale: 0,
     workspaceUrlResolved: 0,
     threadActivityChecked: 0, threadActivityUpdated: 0, threadActivityNextActionRefreshed: 0,
+    nudgesDrafted: 0,
   };
   const errors: string[] = [];
 
@@ -778,6 +1058,16 @@ export async function POST(req: NextRequest) {
       if (ageDays <= 2 && !t.isKnownClientContact) continue;
       if (t.hasExistingTask) continue;
       try {
+        // LLM relevance backstop — cheap noise filter past the heuristic score.
+        // Known clients short-circuit (no LLM call). Failures degrade open.
+        const relevance = await isWorkRelatedEmail(t);
+        if (!relevance.workRelated) {
+          stats.filteredIrrelevant++;
+          console.log(
+            `[sync/auto-tasks] filtered as not work-related: "${t.subject?.slice(0, 60)}" from ${t.fromEmail} — reason: ${relevance.reason}`,
+          );
+          continue;
+        }
         const r = await upsertAutoTask(
           'email-triage',
           t.id,
@@ -898,6 +1188,15 @@ export async function POST(req: NextRequest) {
       const ctx = await buildThreadActivityContext(companyId);
       if (ctx) {
         await runThreadActivityPass({ ctx, stats, errors });
+        // Auto-nudge pass: re-load active tasks AFTER thread-activity (which
+        // may have just updated lastSeenAt/latestInboundAt for some tasks),
+        // then draft polite check-ins for stale waiting items.
+        try {
+          const freshActiveTasks = await getTasks({ excludeDone: true });
+          await runStaleNudgePass(ctx, freshActiveTasks, stats, errors);
+        } catch (err) {
+          console.error('[sync/auto-tasks] auto-nudge pass error:', err);
+        }
       }
     } catch (err) {
       console.error('[sync/auto-tasks] thread-activity pass error:', err);

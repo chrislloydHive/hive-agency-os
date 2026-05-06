@@ -119,14 +119,14 @@ const AUTO_REPLY_RE =
 // Noise signals — senders, local parts, and subjects that should be heavily down-ranked.
 // These are broad filters; a starred/important flag or finance keyword can still override.
 const BULK_DOMAIN_RE =
-  /(^|\.)((strava|netflix|amazon|amazonses|southwest|airbnb|uber|lyft|doordash|instacart|grubhub|spotify|apple|youtube|google(?!\.com$)|linkedin|twitter|facebook|instagram|pinterest|slack|zoom|calendly|dropbox|notion|github|heygen|framer|wordfence|wix|squarespace|shopify|stripe|paypal|venmo|zelle|chase|wellsfargo|bankofamerica|capital-?one|amex|americanexpress|discover|visa|mastercard|experian|equifax|transunion|credit-?karma|mint|turbotax|quickbooks-?mail|mailchimp|sendgrid|hubspot|salesforce|intercom|zendesk|asana|monday|trello|basecamp|medium|substack|patreon|eventbrite|meetup|yelp|opentable|doordash|peloton|nike|adidas|ups|fedex|usps|dhl|ticketmaster|stubhub|expedia|booking|hotels|airbnb|kayak|tripadvisor|ikea|home-?depot|lowes|costco|walmart|target|bestbuy|newegg|ebay|etsy|aliexpress|wayfair|chewy|petco|petsmart|duolingo|audible|kindle|goodreads|grammarly|1password|lastpass|dashlane|webflow|figma|loom|airtable|coda|clickup|miro|canva|adobe|autodesk|microsoft|office|sharepoint|dropbox|box|docusign|hellosign|robinhood|coinbase|kraken|binance|gemini|plaid|carta|angellist|producthunt|techcrunch|verge|wired|bloomberg|wsj|nyt|washingtonpost|economist|bbc|cnn|foxnews|reuters|associated-?press|nfl|nba|mlb|nhl|espn)\.)/i;
+  /(^|\.)((strava|netflix|amazon|amazonses|southwest|airbnb|uber|lyft|doordash|instacart|grubhub|spotify|apple|youtube|google(?!\.com$)|linkedin|twitter|facebook|instagram|pinterest|slack|zoom|calendly|dropbox|heygen|framer|wordfence|wix|squarespace|shopify|stripe|paypal|venmo|zelle|chase|wellsfargo|bankofamerica|capital-?one|amex|americanexpress|discover|visa|mastercard|experian|equifax|transunion|credit-?karma|mint|turbotax|quickbooks-?mail|mailchimp|sendgrid|hubspot|salesforce|intercom|zendesk|trello|basecamp|medium|substack|patreon|eventbrite|meetup|yelp|opentable|peloton|nike|adidas|ups|fedex|usps|dhl|ticketmaster|stubhub|expedia|booking|hotels|kayak|tripadvisor|ikea|home-?depot|lowes|costco|walmart|target|bestbuy|newegg|ebay|etsy|aliexpress|wayfair|chewy|petco|petsmart|duolingo|audible|kindle|goodreads|grammarly|1password|lastpass|dashlane|webflow|loom|coda|clickup|miro|canva|adobe|autodesk|microsoft|office|sharepoint|box|docusign|hellosign|robinhood|coinbase|kraken|binance|gemini|plaid|carta|angellist|producthunt|techcrunch|verge|wired|bloomberg|wsj|nyt|washingtonpost|economist|bbc|cnn|foxnews|reuters|associated-?press|nfl|nba|mlb|nhl|espn|klaviyo|customer\.io|customeriomail|mailgun|mailchimpapp|constantcontact|convertkit|aweber|getresponse|drip|activecampaign|sendinblue|brevo|mandrill|postmark|sparkpost|mixpanel|amplitude|fullstory|hotjar|braze|onesignal|attentive|attentivemobile|klaviyomail|iterable|hsforms|hs-?sites|smtp2go|exacttarget|marketo|mktomail|pardot|listrak|emarsys|cordial|sailthru|silverpop|responsys|salesfusion|lemlist|woodpecker|reply\.io|smartlead|instantly\.ai|apollo\.io|outreach\.io|salesloft|chilipiper|crexi|loopnet|zillow|redfin|realtor|trulia|hotpads|apartments|reddit|quora|tiktok|snapchat)\.)/i;
 const BULK_LOCAL_RE =
   /^(no-?reply|noreply|notifications?|automated|mailer|bounces|bulk|marketing|newsletter|info|hello|team|support|updates?|digest|alerts?|donotreply|do-?not-?reply|feedback|community|social|promo|deals|offers)@/i;
 const NOISE_SUBJECT_RE =
-  /\b(gave\s+you\s+kudos|new\s+submission|updates?\s+to\s+our\s+(terms|privacy|policy)|shipped[:\s]|your\s+.+\s+order|order\s+(confirm|ship)|receipt|welcome\s+to|verify\s+your|security\s+alert|booking\s+confirm|save\s+more|earn\s+more|you.re\s+invited|flash\s+sale|ends\s+tonight|new\s+follower|liked\s+your|started\s+following|reminder.+subscription|subscription\s+(renew|confirm)|free\s+trial|upgrade\s+now|line\s+of\s+credit|credit\s+line|pre[- ]?approv|get\s+funded|funding\s+(option|opportunit)|business\s+loan|business\s+financing|capital\s+for\s+your|no\s+hard\s+credit\s+pull|flexible\s+financ|got\s+approved|you.ve\s+been\s+approved|approved\s+for|your\s+opinion|take\s+a\s+survey|take\s+our\s+survey|quick\s+survey|feedback\s+survey|2[- ]?minute\s+survey|how\s+was\s+your|rate\s+your\s+(experience|recent)|we.d\s+like\s+your|share\s+your\s+(opinion|feedback|thoughts)|unsubscribe|this\s+has\s+been\s+earth\s+approved|eco[- ]?friendly|gift\s+baskets?|size\s+passport|your\s+withholding|one\s+quick\s+fix|take\s+control)\b/i;
+  /\b(gave\s+you\s+kudos|new\s+submission|updates?\s+to\s+our\s+(terms|privacy|policy)|shipped[:\s]|your\s+.+\s+order|order\s+(confirm|ship|update|status)|tracking\s+(number|info|update)|out\s+for\s+delivery|delivered\s+(today|to\s+you)|package\s+(arriving|delivered)|return\s+(initiated|received)|receipt|welcome\s+to|verify\s+your|security\s+alert|booking\s+confirm|save\s+more|earn\s+more|you.re\s+invited|flash\s+sale|ends\s+(tonight|today|soon|in\s+\d)|new\s+follower|liked\s+your|started\s+following|reminder.+subscription|subscription\s+(renew|confirm|expir)|free\s+trial|upgrade\s+now|line\s+of\s+credit|credit\s+line|pre[- ]?approv|get\s+funded|funding\s+(option|opportunit)|business\s+loan|business\s+financing|capital\s+for\s+your|no\s+hard\s+credit\s+pull|flexible\s+financ|got\s+approved|you.ve\s+been\s+approved|approved\s+for|your\s+opinion|take\s+a\s+survey|take\s+our\s+survey|quick\s+survey|feedback\s+survey|2[- ]?minute\s+survey|how\s+was\s+your|rate\s+your\s+(experience|recent)|we.d\s+like\s+your|share\s+your\s+(opinion|feedback|thoughts)|unsubscribe|this\s+has\s+been\s+earth\s+approved|eco[- ]?friendly|gift\s+baskets?|size\s+passport|your\s+withholding|one\s+quick\s+fix|take\s+control|today.?s\s+(edition|newsletter|digest|brief|read|top|stories)|your\s+(daily|weekly|monthly)\s+(brief|digest|update|recap|roundup|edition|read|stories)|this\s+week\s+in|in\s+case\s+you\s+missed|icymi|trending\s+(now|today|this\s+week)|new\s+from\s+\w|the\s+latest\s+from|\d+%\s*off|\$\d+\s*off|limited[- ]time|don.?t\s+miss|last\s+chance|hours\s+left|minutes\s+left|sale\s+(ends|extended)|deal\s+(of\s+the\s+(day|week)|alert)|(early|exclusive)\s+access|members?\s+only|new\s+arrivals?|just\s+(landed|in)|back\s+in\s+stock|now\s+available|introducing\s+(our|the)|launch(ing)?\s+(today|now|this\s+week)|join\s+(us|me)\s+(for|on)|register\s+(now|today)|free\s+webinar|free\s+ebook|free\s+guide|free\s+report|free\s+download|exclusive\s+content|read\s+(more|this)|continue\s+reading|view\s+(in\s+browser|online)|newsletter)\b/i;
 // Cold outreach / sales spam — subject or snippet signals.
 const COLD_OUTREACH_RE =
-  /\b(cold\s+email|outbound\s+(system|leads?|campaign)|done[- ]for[- ]you\s+(outbound|lead|system)|qualified\s+leads|book\s+(a\s+)?call|get\s+booked|15[- ]?min(ute)?\s+(call|chat)|schedule\s+a\s+(demo|call|meeting)|quick\s+question|saw\s+your\s+(company|profile|website|linkedin)|reaching\s+out\s+because|thought\s+you.d\s+be\s+interested|would\s+love\s+to\s+connect|open\s+to\s+a\s+quick\s+chat|let.s\s+hop\s+on\s+a\s+call|we\s+help\s+(companies|businesses|agencies|founders))\b/i;
+  /\b(cold\s+email|outbound\s+(system|leads?|campaign)|done[- ]for[- ]you\s+(outbound|lead|system)|qualified\s+leads|pre[- ]?vetted\s+(leads?|prospects?)|book\s+(a\s+)?call|get\s+booked|15[- ]?min(ute)?\s+(call|chat|of\s+your\s+time)|\d+\s*minutes?\s+of\s+your\s+time|schedule\s+a\s+(demo|call|meeting)|quick\s+question|saw\s+your\s+(company|profile|website|linkedin|recent)|reaching\s+out\s+because|thought\s+you.d\s+be\s+interested|would\s+love\s+to\s+connect|open\s+to\s+a\s+quick\s+chat|let.s\s+hop\s+on\s+a\s+call|we\s+help\s+(companies|businesses|agencies|founders|brands)|(increase|grow|3x|2x|10x)\s+(your\s+)?(pipeline|revenue|leads?|sales|conversions?|roas)|generate\s+(more\s+)?leads|partnership\s+opportunit|strategic\s+partnership|circling\s+back|circle\s+back|following\s+up\s+on\s+my\s+(previous|last)|(my\s+)?previous\s+(email|message|note)|just\s+(checking\s+in|wanted\s+to\s+(check|follow))|did\s+(you|this)\s+(get\s+a\s+chance|land|come\s+through|fall\s+through)|bumping\s+this\s+(up|to\s+the\s+top)|\bICP\b|ideal\s+customer|introduce\s+(myself|us|our\s+(company|firm|agency))|on\s+behalf\s+of\s+\w+|investing\s+in|help\s+you\s+(scale|grow|reach)|exclusive\s+(opportunit|invite|access)|free\s+(trial|consultation|audit|strategy\s+session)|complimentary\s+(audit|consultation|session))\b/i;
 // "Re: ..." pattern → likely a direct reply from a human, strong positive signal.
 const REPLY_SUBJECT_RE = /^\s*(re|fwd?):/i;
 
@@ -137,9 +137,10 @@ export function scoreTriageItem(
   item: Omit<TriageItem, 'score' | 'scoreReasons'>,
   importantDomains: string[],
   now: Date,
-  options?: { isKnownClient?: boolean },
+  options?: { isKnownClient?: boolean; isBulkHeader?: boolean },
 ): { score: number; reasons: string[] } {
   const isKnownClient = Boolean(options?.isKnownClient);
+  const isBulkHeader = Boolean(options?.isBulkHeader);
   let score = 0;
   const reasons: string[] = [];
   const domain = item.fromDomain || '';
@@ -186,6 +187,13 @@ export function scoreTriageItem(
   if (BULK_LOCAL_RE.test(`${localPart}@`) || BULK_LOCAL_RE.test(localAt)) {
     score -= 35;
     reasons.push('noreply/notif');
+  }
+  // List-Unsubscribe / Precedence:bulk — RFC-spec'd "this is mass mail" signal.
+  // Almost zero false positives on legit person-to-person mail; very high recall
+  // on newsletters, marketing blasts, and consumer service auto-emails.
+  if (isBulkHeader) {
+    score -= 65;
+    reasons.push('list-unsub header');
   }
   if (!isKnownClient && (NOISE_SUBJECT_RE.test(subject) || NOISE_SUBJECT_RE.test(item.snippet || ''))) {
     score -= 40;
@@ -269,7 +277,7 @@ export async function fetchTriageInbox(
             userId: 'me',
             id,
             format: 'metadata',
-            metadataHeaders: ['From', 'Subject', 'Date'],
+            metadataHeaders: ['From', 'Subject', 'Date', 'List-Unsubscribe', 'List-Unsubscribe-Post', 'Precedence'],
           });
           const headers = m.data.payload?.headers || [];
           const get = (n: string) =>
@@ -278,6 +286,14 @@ export async function fetchTriageInbox(
           const from = get('From');
           const subject = get('Subject');
           const dateStr = get('Date');
+          // RFC 2369 List-Unsubscribe header: virtually all newsletter, marketing,
+          // and notification platforms set this; legitimate person-to-person mail
+          // does not. Combined with Precedence: bulk/list/junk, this is the
+          // single highest-precision "this is bulk mail" signal.
+          const hasListUnsub = !!(get('List-Unsubscribe') || get('List-Unsubscribe-Post'));
+          const precedence = get('Precedence').toLowerCase();
+          const isBulkPrecedence = /\b(bulk|list|junk)\b/.test(precedence);
+          const isBulkHeader = hasListUnsub || isBulkPrecedence;
           const { name, email, domain } = parseFromHeader(from);
           const labels = m.data.labelIds || [];
           const unread = labels.includes('UNREAD');
@@ -319,6 +335,7 @@ export async function fetchTriageInbox(
           };
           const { score, reasons } = scoreTriageItem(base, importantDomains, now, {
             isKnownClient: isKnownClientContact,
+            isBulkHeader,
           });
           return { ...base, score, scoreReasons: reasons } as TriageItem;
         } catch {
