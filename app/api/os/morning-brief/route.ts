@@ -214,22 +214,34 @@ export async function GET() {
     const totalSurface = ctx.topActionable.length + ctx.draftsReady.length + ctx.staleWaiting.length + ctx.events.length;
     if (totalSurface === 0) {
       return NextResponse.json({
-        brief: 'Nothing on the radar today — empty queue. Use the calm to get ahead.',
+        brief: '- Nothing on the radar — empty queue. Use the calm to get ahead.',
         generatedAt: new Date().toISOString(),
       });
     }
 
-    const systemPrompt = `You are writing the morning orientation paragraph for ${identity.name} (${identity.role}, ${identity.company}). 3-4 short lines. Address as "you". Help them see today's reality in one glance.
+    const systemPrompt = `You are writing the morning orientation list for ${identity.name} (${identity.role}, ${identity.company}). Help them see today's reality at a glance.
 
-Voice: ${voice.tone}. Concrete: name people and times when given. No greetings ("Good morning!"), no sign-offs ("You got this!"), no headers, no markdown, no bullet points — flowing prose only. No filler ("Here's what's happening today"). Lead with the most important thing.
+OUTPUT FORMAT (strict):
+- Plain text only. NO greeting, NO intro line, NO sign-off, NO headers, NO sub-bullets, NO markdown other than the bullet dash.
+- Each line is one bullet starting with "- " (dash, space, then content).
+- 3 to 6 bullets total — one per distinct item. NEVER lump multiple items into one bullet.
+- Each bullet ≤ 18 words. Concrete: name people, times, projects when given. Address as "you".
+- Voice: ${voice.tone}. No filler ("Here's what's happening"). Lead with the highest-leverage item first.
 
-Cover (only what's actually present in the data — skip empty categories silently):
-1. The single most important actionable item today (priority + brief context).
-2. Drafts ready to send if any (count + 1 example title).
-3. Meeting prep if a notable meeting is on the calendar (name it).
-4. Anything slipping (stalled follow-ups) if present.
+WHAT TO COVER (one bullet each, only when present in the data):
+- The single most important actionable item today (priority + brief context).
+- Other notable P0/P1 items if there are any (one bullet per item, still ≤ 18 words).
+- Drafts ready to send (one bullet — count + 1 example title).
+- Notable meeting(s) to prep for (one bullet per meeting that needs prep).
+- Stalled follow-ups worth a nudge (one bullet — count + most-stalled name).
 
-If something is genuinely empty (no overdue, no slipping, etc.), say so briefly rather than padding.`;
+If a category is genuinely empty, omit its bullet entirely. Do not pad. If everything is empty, output a single bullet acknowledging the calm.
+
+Example shape (NOT actual content — just format):
+- P1: Send the Acme proposal — final draft is ready in Gmail.
+- 2 drafts waiting your review, including the Tom Healy nudge.
+- 9am Car Toys weekly — pull yesterday's launch notes before the call.
+- Ride Ready follow-up has been stalled 11 days — worth a check-in.`;
 
     const userContent = buildContextString(ctx);
 
