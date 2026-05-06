@@ -998,9 +998,15 @@ interface DismissalHints {
   hardBlockReason?: string;
 }
 
+function domainFromEmail(email: string): string {
+  const normalized = email.trim().toLowerCase();
+  const at = normalized.lastIndexOf('@');
+  return at > 0 && at < normalized.length - 1 ? normalized.slice(at + 1) : '';
+}
+
 function checkDismissals(t: TriageItem, counts: DismissalCounts): DismissalHints {
   const email = (t.fromEmail || '').toLowerCase();
-  const domain = (t.fromDomain || '').toLowerCase();
+  const domain = domainFromEmail(email);
   const senderCount = email ? counts.bySender.get(email) || 0 : 0;
   const domainCount = domain ? counts.byDomain.get(domain) || 0 : 0;
   if (senderCount >= DISMISS_HARD_BLOCK_SENDER) {
