@@ -802,6 +802,94 @@ async function runStaleNudgePass(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Auto-close sent drafts
+//
+// Closes the loop opened by auto-nudge: once a task has a draftUrl, list
+// Gmail's pending drafts. If the task's thread is no longer in the pending
+// set, the draft was sent (or discarded). Transition the task:
+//   - draftUrl cleared (so the row stops showing "Review in Gmail")
+//   - nextAction → "Sent — awaiting reply" (becomes a Waiting-on item via
+//     WAIT_PHRASE_RE)
+//   - due → today + 5 days (re-surfaces as a follow-up if no reply lands;
+//     auto-nudge re-fires after 7d if it stalls again)
+//
+// Skips tasks whose draftUrl was set within the last DRAFT_GRACE_MIN minutes
+// to avoid racing the just-created auto-nudge drafts.
+// ────────────────────────────────────────────────────────────────────────────
+
+const DRAFT_GRACE_MIN = 10;
+
+/** Pull a Gmail thread id out of a `https://mail.google.com/.../<threadId>` URL. */
+function threadIdFromMailUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const m = url.match(/[#/]([0-9a-f]{10,})(?:[?&/#]|$)/i);
+  return m ? m[1] : null;
+}
+
+async function runSentDraftsPass(
+  ctx: ThreadActivityContext,
+  activeTasks: TaskRecord[],
+  stats: SyncStats,
+  errors: string[],
+): Promise<void> {
+  const candidates = activeTasks.filter((t) => !t.done && !t.dismissedAt && !!t.draftUrl);
+  if (candidates.length === 0) return;
+
+  // Single bulk call: fetch up to 500 currently-pending drafts. Each draft
+  // includes its Gmail threadId, which we use to dedupe against tasks.
+  let pendingThreadIds: Set<string>;
+  try {
+    const res = await ctx.gmail.users.drafts.list({
+      userId: 'me',
+      maxResults: 500,
+    });
+    pendingThreadIds = new Set(
+      (res.data.drafts || [])
+        .map((d) => d.message?.threadId || '')
+        .filter(Boolean),
+    );
+  } catch (err) {
+    console.warn('[sync/auto-tasks] sent-drafts: failed to list drafts (skipping pass):', err instanceof Error ? err.message : err);
+    return;
+  }
+
+  const nowMs = Date.now();
+  for (const task of candidates) {
+    try {
+      const threadId = threadIdFromMailUrl(task.draftUrl) || threadIdFromMailUrl(task.threadUrl);
+      if (!threadId) continue;
+      // Skip if still pending — Chris hasn't sent yet.
+      if (pendingThreadIds.has(threadId)) continue;
+      // Grace window: don't transition drafts that were JUST set this run, in
+      // case bulk drafts.list has a slight propagation delay.
+      const lastTouched = new Date(task.lastModified || 0).getTime();
+      if (Number.isFinite(lastTouched) && nowMs - lastTouched < DRAFT_GRACE_MIN * 60_000) {
+        continue;
+      }
+
+      const followUpDate = new Date();
+      followUpDate.setDate(followUpDate.getDate() + 5);
+      const yyyy = followUpDate.getFullYear();
+      const mm = String(followUpDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(followUpDate.getDate()).padStart(2, '0');
+
+      await updateTask(task.id, {
+        draftUrl: null,
+        nextAction: 'Sent — awaiting reply',
+        due: `${yyyy}-${mm}-${dd}`,
+      });
+      stats.sentDraftsClosed++;
+      console.log(
+        `[sync/auto-tasks] sent-drafts: closed "${task.task?.slice(0, 60)}" — followup ${yyyy}-${mm}-${dd}`,
+      );
+    } catch (err) {
+      stats.errors++;
+      errors.push(`sent-draft ${task.id}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Upsert logic
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -820,6 +908,7 @@ interface SyncStats {
   threadActivityUpdated: number;
   threadActivityNextActionRefreshed: number;
   nudgesDrafted: number;
+  sentDraftsClosed: number;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -840,24 +929,38 @@ const RELEVANCE_MODEL = 'claude-haiku-4-5-20251001';
 
 const RELEVANCE_SYSTEM_PROMPT = `You decide whether an email warrants a work task in Chris Lloyd's task system.
 
-Chris runs an ad agency. WORK-RELATED email includes:
-- Direct messages from clients, prospects, or vendors he actually engages with
-- Finance & billing he must act on (unpaid invoices, A/R aging issues, IRS notices, contracts to sign)
+Chris runs an ad agency (Hive). WORK-RELATED email includes:
+- Direct messages from clients, prospects, or vendors he actively engages with
+- Finance & billing he must act on (unpaid invoices, A/R aging, IRS notices, contracts to sign)
 - Operational requests from his team or partners
-- Partner/vendor outreach he is actively pursuing (not generic cold pitches)
-- Replies to threads HE started
+- Partner/vendor outreach he is actively pursuing (NOT generic cold pitches dressed up as warm)
+- Replies to threads HE started or where HE owes a response
 
 NOT WORK-RELATED includes:
-- Newsletters, digests, "today's edition", weekly recaps, blogs
+- Newsletters, digests, "today's edition", weekly recaps, blogs (often have an Unsubscribe link)
 - Promotional / marketing email (sales, % off, new arrivals, free trials, webinars)
-- Cold outbound sales pitches he didn't ask for ("15 minutes of your time", "we help agencies grow", lead-gen offers, "circling back" from someone he doesn't know)
-- Consumer service auto-emails (shipping, delivery, receipts, account notifications, security alerts, password resets)
+- Cold outbound sales pitches — INCLUDING the "warm cold" variety that opens with personalized flattery before a soft pitch
+- Auto-generated digests / system notifications (shipping, delivery, receipts, account notifications, security alerts, password resets, daily task digests Chris's own systems email him)
 - Social network notifications (LinkedIn, Twitter, etc.)
+
+WARM-COLD PATTERN — flag false even though it sounds personal:
+A salesperson Chris doesn't actively work with, opening with a friendly hook ("Hope all is well!", "Congrats on the launch!", "Been a while!"), then transitioning to a pitch ("As you look to scale", "I'd love to reconnect and share how we help agencies improve their media performance", "have any opportunities on your radar"). The flattery is generic, the ask is fishing, and they've sent multiple unanswered follow-ups. This is a SALES PITCH no matter how warmly it's worded.
+
+Strong signals it's warm-cold sales (not real outreach):
+- "Hope all is well" / "Hope you're doing well"
+- "Congrats on the launch / new role / recent news"
+- "Reaching back out" / "Just following up" / "Circling back"
+- "Love to (re)connect"
+- "Share how we're helping agencies..."
+- "Improve their media/advertising performance/efficiency"
+- "Opportunities on your radar"
+- A previous email (or two) in the thread, all from them, no replies from Chris
+- Sender domain is a vendor in Chris's industry (programmatic ad platforms, agency tools, etc.) but not someone he's currently working with
 
 Output STRICT JSON only — no prose, no markdown:
 {"workRelated": true|false, "reason": "<short phrase, max 8 words>"}
 
-When uncertain, lean toward workRelated:true. Real work missing > occasional noise.`;
+DEFAULT POSTURE: if the sender appears to be a stranger pitching something, lean FALSE. The cost of a missed cold pitch is near-zero (Chris will star anything important). The cost of a false-positive task is high (it adds noise to his queue). Only flag TRUE when there's a real business signal — a client he works with, a billing item, an active vendor relationship, a question he must answer.`;
 
 interface RelevanceResult {
   workRelated: boolean;
@@ -865,6 +968,14 @@ interface RelevanceResult {
 }
 
 async function isWorkRelatedEmail(t: TriageItem): Promise<RelevanceResult> {
+  // Defense in depth: if the sender is one of Chris's own addresses, skip
+  // unconditionally. Hive OS itself sends a daily task digest that would
+  // otherwise become a task, feeding a self-recursion loop. The Gmail-side
+  // -from:me filter should catch this upstream, but belt-and-suspenders.
+  const fromEmailLower = (t.fromEmail || '').toLowerCase();
+  if (fromEmailLower && /@(hive8\.us|hiveadagency\.com|hiveagencyos\.com)$/.test(fromEmailLower)) {
+    return { workRelated: false, reason: 'self-sent system digest' };
+  }
   // Known client contact short-circuits the LLM call entirely — they're work
   // by definition, no need to spend a token.
   if (t.isKnownClientContact) {
@@ -995,6 +1106,7 @@ export async function POST(req: NextRequest) {
     workspaceUrlResolved: 0,
     threadActivityChecked: 0, threadActivityUpdated: 0, threadActivityNextActionRefreshed: 0,
     nudgesDrafted: 0,
+    sentDraftsClosed: 0,
   };
   const errors: string[] = [];
 
@@ -1188,9 +1300,18 @@ export async function POST(req: NextRequest) {
       const ctx = await buildThreadActivityContext(companyId);
       if (ctx) {
         await runThreadActivityPass({ ctx, stats, errors });
-        // Auto-nudge pass: re-load active tasks AFTER thread-activity (which
-        // may have just updated lastSeenAt/latestInboundAt for some tasks),
-        // then draft polite check-ins for stale waiting items.
+        // Sent-drafts pass: close the loop on drafts Chris has actually sent.
+        // Runs BEFORE auto-nudge so we don't immediately re-nudge a task we
+        // just discovered was already responded to.
+        try {
+          const tasksForSentCheck = await getTasks({ excludeDone: true });
+          await runSentDraftsPass(ctx, tasksForSentCheck, stats, errors);
+        } catch (err) {
+          console.error('[sync/auto-tasks] sent-drafts pass error:', err);
+        }
+        // Auto-nudge pass: re-load active tasks AFTER thread-activity +
+        // sent-drafts (both may have updated tasks), then draft polite
+        // check-ins for stale waiting items.
         try {
           const freshActiveTasks = await getTasks({ excludeDone: true });
           await runStaleNudgePass(ctx, freshActiveTasks, stats, errors);
