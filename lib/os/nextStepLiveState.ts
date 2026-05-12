@@ -91,6 +91,7 @@ export interface LiveState {
   meetingNotes: MeetingNoteMatch[];
   crossThreadCandidates: CrossThreadCandidate[];
   primaryOutboundContact: string | null;
+  contactSource: string | null;
   stats: {
     threadMsgs: number;
     newSinceTask: number;
@@ -505,73 +506,179 @@ function filterMeetingNotes(
 // 5. Cross-thread discovery
 // ────────────────────────────────────────────────────────────────────────────
 
+interface ContactDetectionResult {
+  email: string;
+  source: string; // "step-1-name-match" | "step-3-outbound-recipient" | "step-4-frequent-participant"
+}
+
+const NAME_STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'this', 'that', 'have', 'has',
+  'are', 'was', 'were', 'been', 'will', 'would', 'could', 'should',
+  'not', 'but', 'also', 'just', 'about', 'into', 'over', 'more',
+  'than', 'then', 'now', 'very', 'new', 'all', 'some', 'any',
+  'each', 'every', 'both', 'few', 'most', 'other', 'reply', 'follow',
+  'sent', 'send', 'check', 'update', 'email', 'task', 'get', 'set',
+  'call', 'meeting', 'next', 'step', 'action', 'status', 'please',
+  'thanks', 'thank', 'dear', 'hello', 'hey', 'note', 'notes',
+]);
+
+/** Extract display name from a raw From/To header like "Tom Healy" <tom@example.com> */
+function displayNameFromHeader(h: string): string {
+  if (!h) return '';
+  const bracket = h.indexOf('<');
+  if (bracket > 0) {
+    return h.slice(0, bracket).trim().replace(/^"|"$/g, '');
+  }
+  return '';
+}
+
 /**
- * Identify the primary outbound contact from the linked thread:
- * 1. Recipient on the user's most-recent outbound message
- * 2. Non-user participant most frequently named in task title/nextAction/notes
- * 3. Most-frequent non-user participant in the thread
+ * Extract likely person names from task text.
+ * Looks for capitalized two-word sequences that aren't at sentence start
+ * and aren't common stopwords.
+ */
+function extractProperNames(text: string): Map<string, number> {
+  const names = new Map<string, number>();
+  // Match capitalized word sequences (2+ words, e.g. "Tom Healy")
+  // We look for sequences mid-sentence (preceded by space/punctuation, not start-of-line)
+  const matches = Array.from(
+    text.matchAll(/(?:^|[.!?]\s+|\n|—\s*|,\s+|\(\s*|\s)([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/g),
+  );
+  for (const m of matches) {
+    const name = m[1].trim();
+    const parts = name.split(/\s+/);
+    if (parts.some((p) => NAME_STOPWORDS.has(p.toLowerCase()))) continue;
+    if (parts.length > 3) continue; // likely not a person name
+    const key = name.toLowerCase();
+    names.set(key, (names.get(key) || 0) + 1);
+  }
+
+  // Also try single capitalized words that appear frequently (first names)
+  const singleMatches = Array.from(
+    text.matchAll(/(?:^|[\s,;:(]|\n)([A-Z][a-z]{2,})\b/g),
+  );
+  for (const m of singleMatches) {
+    const word = m[1].trim();
+    if (NAME_STOPWORDS.has(word.toLowerCase())) continue;
+    if (word.length < 3) continue;
+    const key = word.toLowerCase();
+    names.set(key, (names.get(key) || 0) + 1);
+  }
+
+  return names;
+}
+
+/**
+ * Identify the primary outbound contact from the linked thread.
+ *
+ * Priority order:
+ * 1. Name-match: extract proper-noun names from task text, match against
+ *    thread participant display names (NOT task.from — it's often the introducer)
+ * 2. (skipped — name match is step 1)
+ * 3. Recipient on user's most-recent outbound message
+ * 4. Most-frequent non-user participant in the thread
  */
 export function identifyPrimaryOutboundContact(
   thread: LiveThreadState,
   task: TaskRecord,
   myEmail: string,
-): string | null {
+): ContactDetectionResult | null {
   const myEmailLower = myEmail.toLowerCase();
 
-  // Strategy 1: recipient on user's most-recent outbound message
+  // Build participant map: email → display name
+  const participantNames = new Map<string, string>(); // email → display name
+  const participantFreq = new Map<string, number>(); // email → appearance count
+  for (const msg of thread.messages) {
+    for (const field of [msg.from, msg.to, msg.cc]) {
+      if (!field) continue;
+      // Headers can contain multiple addresses separated by commas
+      const parts = field.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+      for (const part of parts) {
+        const email = emailFromHeader(part);
+        if (!email || email === myEmailLower) continue;
+        participantFreq.set(email, (participantFreq.get(email) || 0) + 1);
+        const name = displayNameFromHeader(part.trim());
+        if (name && !participantNames.has(email)) {
+          participantNames.set(email, name);
+        }
+      }
+    }
+  }
+
+  // Step 1: Extract names from task text, match against participant display names
+  const taskText = [task.task, task.nextAction, task.notes].filter(Boolean).join('\n');
+  const taskNames = extractProperNames(taskText);
+
+  if (taskNames.size > 0) {
+    let bestMatch: string | null = null;
+    let bestScore = 0;
+
+    for (const [email, displayName] of Array.from(participantNames.entries())) {
+      const displayLower = displayName.toLowerCase();
+      const displayParts = displayLower.split(/\s+/);
+      let score = 0;
+
+      // Check full name match
+      if (taskNames.has(displayLower)) {
+        score += (taskNames.get(displayLower) || 0) * 10;
+      }
+
+      // Check each part of the display name against task names
+      for (const part of displayParts) {
+        if (part.length < 3) continue;
+        for (const [taskName, freq] of Array.from(taskNames.entries())) {
+          if (taskName.includes(part) || part.includes(taskName.split(/\s+/)[0])) {
+            score += freq;
+          }
+        }
+      }
+
+      // Also check if first name or last name appears standalone in task text
+      for (const part of displayParts) {
+        if (part.length < 3) continue;
+        const re = new RegExp(`\\b${part}\\b`, 'gi');
+        const matches = taskText.match(re);
+        if (matches) score += matches.length;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = email;
+      }
+    }
+
+    if (bestMatch && bestScore >= 2) {
+      return { email: bestMatch, source: 'step-1-name-match' };
+    }
+  }
+
+  // Step 3: Recipient on user's most-recent outbound message
   for (let i = thread.messages.length - 1; i >= 0; i--) {
     const msg = thread.messages[i];
     if (!msg.fromUser) continue;
     const toEmails = (msg.to || '').match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
     for (const e of toEmails) {
       const lower = e.toLowerCase();
-      if (lower !== myEmailLower) return lower;
-    }
-  }
-
-  // Strategy 2: non-user participant most frequently named in task text
-  const taskText = [task.task, task.nextAction, task.notes].filter(Boolean).join(' ').toLowerCase();
-  const allNonUserEmails = new Map<string, number>();
-  for (const msg of thread.messages) {
-    for (const field of [msg.from, msg.to, msg.cc]) {
-      const emails = (field || '').match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
-      for (const e of emails) {
-        const lower = e.toLowerCase();
-        if (lower !== myEmailLower) {
-          allNonUserEmails.set(lower, (allNonUserEmails.get(lower) || 0) + 1);
-        }
+      if (lower !== myEmailLower) {
+        return { email: lower, source: 'step-3-outbound-recipient' };
       }
     }
   }
 
-  let bestTaskMention: string | null = null;
-  let bestTaskMentionCount = 0;
-  for (const [email, _count] of Array.from(allNonUserEmails.entries())) {
-    const localPart = email.split('@')[0] || '';
-    const nameParts = localPart.split(/[._-]/).filter((p) => p.length >= 2);
-    let mentions = 0;
-    for (const part of nameParts) {
-      const re = new RegExp(`\\b${part}\\b`, 'gi');
-      const match = taskText.match(re);
-      if (match) mentions += match.length;
-    }
-    if (mentions > bestTaskMentionCount) {
-      bestTaskMentionCount = mentions;
-      bestTaskMention = email;
-    }
-  }
-  if (bestTaskMention) return bestTaskMention;
-
-  // Strategy 3: most-frequent non-user participant
+  // Step 4: Most-frequent non-user participant
   let bestFreq: string | null = null;
   let bestFreqCount = 0;
-  for (const [email, count] of Array.from(allNonUserEmails.entries())) {
+  for (const [email, count] of Array.from(participantFreq.entries())) {
     if (count > bestFreqCount) {
       bestFreqCount = count;
       bestFreq = email;
     }
   }
-  return bestFreq;
+  if (bestFreq) {
+    return { email: bestFreq, source: 'step-4-frequent-participant' };
+  }
+
+  return null;
 }
 
 /**
@@ -695,12 +802,15 @@ export async function fetchLiveState(opts: {
   // Cross-thread discovery: find other recent threads with the primary contact
   let crossThreadCandidates: CrossThreadCandidate[] = [];
   let primaryOutboundContact: string | null = null;
+  let contactSource: string | null = null;
   if (liveThread && threadId) {
-    primaryOutboundContact = identifyPrimaryOutboundContact(liveThread, task, myEmail);
-    if (primaryOutboundContact) {
+    const contactResult = identifyPrimaryOutboundContact(liveThread, task, myEmail);
+    if (contactResult) {
+      primaryOutboundContact = contactResult.email;
+      contactSource = contactResult.source;
       crossThreadCandidates = await fetchCrossThreadCandidates(
         gmail,
-        primaryOutboundContact,
+        contactResult.email,
         threadId,
         myEmail,
       );
@@ -713,6 +823,7 @@ export async function fetchLiveState(opts: {
     meetingNotes,
     crossThreadCandidates,
     primaryOutboundContact,
+    contactSource,
     stats: {
       threadMsgs: liveThread?.totalMessages ?? 0,
       newSinceTask: liveThread?.newSinceTask ?? 0,

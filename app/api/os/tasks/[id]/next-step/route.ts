@@ -436,7 +436,7 @@ recipientConfidence for email: "high" only when "to" is a single clear email; ot
 
     const chosenTypes = options.map((o) => o.type);
     console.log(
-      `[next-step] live-state: ${task.id} threadMsgs=${live.stats.threadMsgs} newSinceTask=${live.stats.newSinceTask} linkedDocs=${live.stats.linkedDocs} meetingCandidates=${live.stats.meetingCandidates} meetingMatched=${live.stats.meetingMatched} ballInCourt=${live.stats.ballInCourt} contactCandidates=${live.stats.contactCandidates} suggestedRelink=${!!suggestedThreadRelink} chosenTypes=[${chosenTypes.join(',')}]`,
+      `[next-step] live-state: ${task.id} threadMsgs=${live.stats.threadMsgs} newSinceTask=${live.stats.newSinceTask} linkedDocs=${live.stats.linkedDocs} meetingCandidates=${live.stats.meetingCandidates} meetingMatched=${live.stats.meetingMatched} ballInCourt=${live.stats.ballInCourt} primaryContact=${live.primaryOutboundContact || 'none'} contactSource=${live.contactSource || 'none'} contactCandidates=${live.stats.contactCandidates} suggestedRelink=${!!suggestedThreadRelink} chosenTypes=[${chosenTypes.join(',')}]`,
     );
 
     const response: Record<string, unknown> = {
