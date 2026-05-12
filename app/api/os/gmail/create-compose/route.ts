@@ -5,10 +5,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { z } from 'zod';
 import { getTasks, updateTask } from '@/lib/airtable/tasks';
-import { getGoogleAccountEmail } from '@/lib/google/oauth';
-import { getIdentity } from '@/lib/personalContext';
 import { getOsGoogleAccessToken } from '@/lib/gmail/osGoogleAccess';
-import { buildStandaloneDraftRaw } from '@/lib/gmail/standaloneDraftRaw';
+import {
+  stripAndAppendSignature,
+  buildCanonicalRaw,
+  CANONICAL_FROM_EMAIL,
+  CANONICAL_FROM_NAME,
+} from '@/lib/gmail/canonicalSignature';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -61,19 +64,14 @@ export async function POST(req: NextRequest) {
     auth.setCredentials({ access_token: googleAccess.accessToken });
     const gmail = google.gmail({ version: 'v1', auth });
 
-    const [profileEmail, identity] = await Promise.all([
-      getGoogleAccountEmail(googleAccess.accessToken),
-      getIdentity(),
-    ]);
-    const fromEmail = profileEmail || identity.email;
-    const fromName = identity.name;
+    const finalBody = stripAndAppendSignature(parsedBody.data.body);
 
-    const raw = buildStandaloneDraftRaw({
-      fromEmail,
-      fromName: fromName || undefined,
+    const raw = buildCanonicalRaw({
+      fromEmail: CANONICAL_FROM_EMAIL,
+      fromName: CANONICAL_FROM_NAME,
       toEmail: toNorm,
       subject: parsedBody.data.subject,
-      body: parsedBody.data.body,
+      body: finalBody,
     });
 
     const draft = await gmail.users.drafts.create({

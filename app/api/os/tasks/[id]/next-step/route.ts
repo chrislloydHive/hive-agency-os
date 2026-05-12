@@ -20,6 +20,7 @@ import {
 } from '@/lib/os/nextStepLiveState';
 import type { SuggestedThreadRelink } from '@/lib/os/nextStepLiveState';
 import { callAnthropicWithRetry, httpStatusForAnthropicError } from '@/lib/ai/anthropicRetry';
+import { NO_SIGNATURE_PROMPT_CLAUSE } from '@/lib/gmail/canonicalSignature';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
@@ -226,16 +227,6 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       }
     }
 
-    const signatureBlock = [
-      '',
-      '--',
-      identity.name,
-      `${identity.role}, ${identity.company}`,
-      identity.email,
-    ].join('\n');
-
-    const signatureRule = `For every "email" option, the "body" MUST end with this exact signature block (copy these lines verbatim, including the leading blank line):\n${signatureBlock}`;
-
     // Available meeting notes for meetingSource references
     const meetingSourceRefs = live.meetingNotes.map((n) => ({
       title: n.title,
@@ -271,7 +262,7 @@ Allowed option types (each object MUST include "type" exactly as shown). Never r
   "summary": "<one sentence why this>",
   "to": "<best-guess recipient email or empty string>",
   "subject": "<draft subject>",
-  "body": "<full plain-text draft including the signature block below>",
+  "body": "<full plain-text draft body — NO signature, NO closing salutation>",
   "recipientConfidence": "high" | "low"
 }
 
@@ -332,7 +323,7 @@ Selection guidance:
 - If the task is broad or ambiguous → include one "subtasks" option.
 - If the user is waiting on someone with no overdue signal → include one "no-action" option.
 - Never more than one option per type. Never invent types not listed above.
-- ${signatureRule}${meetingSourceInstruction}
+- ${NO_SIGNATURE_PROMPT_CLAUSE}${meetingSourceInstruction}
 
 MEETING NOTES: Use these to inform proposals when they meaningfully change what's outstanding. If a note moves a deadline, changes scope, names a new decision-maker, or supersedes the task's current nextAction, reflect that in your proposals.
 

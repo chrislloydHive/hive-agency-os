@@ -6,6 +6,7 @@ import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { callAnthropicWithRetry, httpStatusForAnthropicError } from '@/lib/ai/anthropicRetry';
+import { NO_SIGNATURE_PROMPT_CLAUSE } from '@/lib/gmail/canonicalSignature';
 import { getTasks } from '@/lib/airtable/tasks';
 import type { TaskRecord } from '@/lib/airtable/tasks';
 import { getGoogleAccountEmail } from '@/lib/google/oauth';
@@ -327,13 +328,15 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       ? escapeForDoubleQuotedPrompt(websiteParse.topic)
       : '';
 
+    const sigClause = `\n- ${NO_SIGNATURE_PROMPT_CLAUSE}`;
+
     const systemPrompt = isWebsiteSubmission
       ? `You are a triage assistant for Chris Lloyd's Hive OS task system.
 This task is a WEBSITE FORM SUBMISSION follow-up. Output strict JSON only — no prose outside the JSON — matching this schema:
 {
   "to": "<email>",
   "subject": "<subject line>",
-  "body": "<full plain-text body>",
+  "body": "<plain-text message body — NO signature or closing salutation>",
   "reasoning": "<1-2 short sentences>",
   "recipientConfidence": "high" | "medium" | "low"
 }
@@ -343,14 +346,14 @@ Rules:
 - Do not base the subject on "New Submission" or other automated notification subject lines alone. Use the task title ("${escapedTaskTitle}")${escapedSubmitTopic ? ` and/or the submitter's chosen topic ("${escapedSubmitTopic}")` : ''} to craft a short, natural subject (e.g. their topic + "— thanks for reaching out").
 - Set "to" to the parsed submitter email from Context when one is given; otherwise derive from notes "Email:" only — never use a noreply relay as the recipient.
 - Body: Chris's voice — first personal response, reference their message/topic from notes when helpful, 2-4 short paragraphs, one clear next step when appropriate.
-- recipientConfidence: use "high" only if "to" is a single obvious RFC-style address with no ambiguity; "medium" if display names, multiple possibilities, or light cleanup was needed; "low" if "to" is a placeholder or uncertain.`
+- recipientConfidence: use "high" only if "to" is a single obvious RFC-style address with no ambiguity; "medium" if display names, multiple possibilities, or light cleanup was needed; "low" if "to" is a placeholder or uncertain.${sigClause}`
       : mode === 'reply' && replyToEmail
         ? `You are a triage assistant for Chris Lloyd's Hive OS task system.
 The user is replying in an existing Gmail thread. Output strict JSON only — no prose outside the JSON — matching this schema:
 {
   "to": "<email>",
   "subject": "<subject line>",
-  "body": "<full plain-text body>",
+  "body": "<plain-text message body — NO signature or closing salutation>",
   "reasoning": "<1-2 short sentences>",
   "recipientConfidence": "high" | "medium" | "low"
 }
@@ -359,14 +362,14 @@ Rules:
 - This is a REPLY. Set "to" EXACTLY to: ${JSON.stringify(replyToEmail)} (the latest non-self correspondent).
 - Subject: use the thread topic "${escapedTopic}" — prefix with "Re: " if not already present (case-insensitive check for leading Re:).
 - Body: reply in Chris's voice — concise, reference the thread, 2-4 short paragraphs, clear next step if appropriate.
-- recipientConfidence: "high" if "to" is the mandated address above; otherwise explain via reasoning.`
+- recipientConfidence: "high" if "to" is the mandated address above; otherwise explain via reasoning.${sigClause}`
         : mode === 'reply' && !replyToEmail
           ? `You are a triage assistant for Chris Lloyd's Hive OS task system.
 The task links a Gmail thread but no clear non-self reply address was derived. Output strict JSON only — no prose outside the JSON — matching this schema:
 {
   "to": "<email>",
   "subject": "<subject line>",
-  "body": "<full plain-text body>",
+  "body": "<plain-text message body — NO signature or closing salutation>",
   "reasoning": "<1-2 short sentences>",
   "recipientConfidence": "high" | "medium" | "low"
 }
@@ -375,13 +378,13 @@ Rules:
 - This is a REPLY. Infer "to" from the thread headers (From/To/Cc) — the person Chris should respond to, not Chris himself.
 - Subject: use the thread topic "${escapedTopic}" — prefix with "Re: " if not already present.
 - Body: reply in Chris's voice — concise, reference the thread, 2-4 short paragraphs.
-- recipientConfidence reflects how sure you are about "to".`
+- recipientConfidence reflects how sure you are about "to".${sigClause}`
           : `You are a triage assistant for Chris Lloyd's Hive OS task system.
 There is NO active Gmail thread for this task — propose a brand-new email. Output strict JSON only — no prose outside the JSON — matching this schema:
 {
   "to": "<email OR placeholder like \\"<adam>\\" if unknown>",
   "subject": "<short action-oriented subject, no boilerplate>",
-  "body": "<full plain-text body>",
+  "body": "<plain-text message body — NO signature or closing salutation>",
   "reasoning": "<1-2 short sentences>",
   "recipientConfidence": "high" | "medium" | "low"
 }
@@ -391,7 +394,7 @@ Rules:
 - If you cannot find a real address, use a placeholder like "<firstname>" and set recipientConfidence to "low".
 - Subject: short, action-oriented (e.g. "Pioneer install — what did we learn?").
 - Body: friendly, concise, 2-4 short paragraphs, reference project context, end with one clear ask when applicable.
-- Keep reasoning under two sentences.`;
+- Keep reasoning under two sentences.${sigClause}`;
 
     const userContent = `Task JSON:\n${taskJsonForPrompt(task)}\n\n---\n\nContext:\n${threadBlock}\n\nSigned-in Gmail address (do not use as "to"): ${myEmail || '(unknown)'}`;
 

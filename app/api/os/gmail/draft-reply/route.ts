@@ -6,6 +6,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
 import { callAnthropicWithRetry, httpStatusForAnthropicError } from '@/lib/ai/anthropicRetry';
+import {
+  stripAndAppendSignature,
+  buildCanonicalRaw,
+  CANONICAL_FROM_EMAIL,
+  CANONICAL_FROM_NAME,
+  NO_SIGNATURE_PROMPT_CLAUSE,
+} from '@/lib/gmail/canonicalSignature';
 import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
 import { refreshAccessToken, getGoogleAccountEmail } from '@/lib/google/oauth';
 import { getIdentity, getVoice, getVoiceRulesBlock } from '@/lib/personalContext';
@@ -22,121 +29,6 @@ export const maxDuration = 30;
 
 const anthropic = new Anthropic();
 
-// Thread-body + transcript helpers live in lib/gmail/threadContext.ts and are
-// shared with the auto-tasks sync (Phase 2 of smart tasks). See imports above.
-
-function encodeRFC2047(str: string): string {
-  // Simple UTF-8 MIME encoded-word for headers with non-ASCII chars
-  // eslint-disable-next-line no-control-regex
-  if (/^[\x00-\x7F]*$/.test(str)) return str;
-  const b64 = Buffer.from(str, 'utf-8').toString('base64');
-  return `=?UTF-8?B?${b64}?=`;
-}
-
-/** Convert plain-text reply body into simple HTML (preserves line breaks). */
-function bodyToHtml(body: string): string {
-  const escaped = body
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  // Paragraphs on blank lines; <br> on single newlines.
-  return escaped
-    .split(/\n\s*\n/)
-    .map((para) => `<p>${para.replace(/\n/g, '<br>')}</p>`)
-    .join('\n');
-}
-
-function buildRawReply(params: {
-  fromEmail: string;
-  fromName?: string;
-  toEmail: string;
-  toName?: string;
-  subject: string;
-  inReplyTo: string;
-  references: string;
-  body: string;
-  /** Optional HTML signature (from Gmail sendAs). When provided, the draft is
-   *  built as multipart/alternative — plain text for older clients, HTML for
-   *  modern ones. Signature goes at the end of both. */
-  htmlSignature?: string;
-}) {
-  const { fromEmail, fromName, toEmail, toName, subject, inReplyTo, references, body, htmlSignature } = params;
-  const fromHdr = fromName ? `${encodeRFC2047(fromName)} <${fromEmail}>` : fromEmail;
-  const toHdr = toName ? `${encodeRFC2047(toName)} <${toEmail}>` : toEmail;
-  const subjectHdr = encodeRFC2047(subject.startsWith('Re:') ? subject : `Re: ${subject}`);
-
-  const commonHeaders = [
-    `From: ${fromHdr}`,
-    `To: ${toHdr}`,
-    `Subject: ${subjectHdr}`,
-    inReplyTo ? `In-Reply-To: ${inReplyTo}` : '',
-    references ? `References: ${references}` : '',
-    'MIME-Version: 1.0',
-  ].filter(Boolean);
-
-  let raw: string;
-
-  if (htmlSignature) {
-    // multipart/alternative: both a plain and HTML version of the body.
-    // HTML version includes the user's real Gmail signature (logo, styled).
-    const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const plainBody = body; // Plain body stands on its own; the signature is
-                            // rich HTML and doesn't degrade cleanly, so we skip
-                            // it from the plain part.
-    const htmlBody = `${bodyToHtml(body)}\n<br>\n${htmlSignature}`;
-
-    raw = [
-      ...commonHeaders,
-      `Content-Type: multipart/alternative; boundary="${boundary}"`,
-      '',
-      `--${boundary}`,
-      'Content-Type: text/plain; charset=UTF-8',
-      'Content-Transfer-Encoding: 7bit',
-      '',
-      plainBody,
-      '',
-      `--${boundary}`,
-      'Content-Type: text/html; charset=UTF-8',
-      'Content-Transfer-Encoding: 7bit',
-      '',
-      htmlBody,
-      '',
-      `--${boundary}--`,
-    ].join('\r\n');
-  } else {
-    // Plain-only fallback (gmail.settings.basic scope not yet granted).
-    raw = [
-      ...commonHeaders,
-      'Content-Type: text/plain; charset=UTF-8',
-      'Content-Transfer-Encoding: 7bit',
-      '',
-      body,
-    ].join('\r\n');
-  }
-
-  return Buffer.from(raw, 'utf-8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-/** Fetch the user's HTML signature for the given send-as address (their main
- *  account email by default). Returns empty string on permission issues so
- *  the draft can still be built without a signature. */
-async function fetchSignature(
-  gmail: ReturnType<typeof google.gmail>,
-  sendAsEmail: string,
-): Promise<string> {
-  try {
-    const list = await gmail.users.settings.sendAs.list({ userId: 'me' });
-    const addresses = list.data.sendAs || [];
-    // Prefer the one matching our from address; fall back to isPrimary.
-    const match =
-      addresses.find((a) => a.sendAsEmail?.toLowerCase() === sendAsEmail.toLowerCase())
-      ?? addresses.find((a) => a.isPrimary);
-    return (match?.signature || '').trim();
-  } catch (err) {
-    console.warn('[draft-reply] fetchSignature failed (non-fatal):', err instanceof Error ? err.message : err);
-    return '';
-  }
-}
 
 function parseEmailHeader(h: string): { name: string; email: string } {
   if (!h) return { name: '', email: '' };
@@ -358,11 +250,6 @@ export async function POST(req: NextRequest) {
       ? `\n\nNote: this is a website form submission. The reply will go to the submitter at ${fromEmail}${fromName ? ` (${fromName})` : ''}, NOT to the form relay service. Address your reply to that person, not to "Framer".`
       : '';
 
-    // Fetch the user's real Gmail signature (HTML with logo/formatting).
-    // Requires gmail.settings.basic scope — falls back to AI-written sign-off
-    // if missing, so the draft still has some attribution.
-    const htmlSignature = await fetchSignature(gmail, myEmail);
-
     const aiResult = await callAnthropicWithRetry(
       () =>
         anthropic.messages.create({
@@ -374,6 +261,8 @@ export async function POST(req: NextRequest) {
               content: `You are drafting a reply on behalf of ${identity.name}, ${identity.role} of ${identity.company}. Write in their voice: ${voice.tone}. No corporate fluff.
 
 ${voiceRules}
+
+${NO_SIGNATURE_PROMPT_CLAUSE}
 
 ${instructionsBlock}${conversationTranscript
   ? `Prior conversation in this thread (oldest → newest, quoted history stripped):
@@ -390,11 +279,7 @@ Subject: ${subject}${recipientHint}
 ${trimmed}
 """
 
-Draft a reply that ${identity.name} can quickly review and send. Use the prior conversation (if shown above) to understand what's already been discussed, agreed, promised, or left open — don't repeat context the other party already has. If the message references something from earlier in the thread, match that reference accurately. Return ONLY the body text, no JSON, no quote block, no markdown fences.
-
-${htmlSignature
-  ? 'Do NOT include a signature — one will be appended automatically. End the body with a simple sign-off word like "Thanks," or "Best," on its own line.'
-  : `End the reply with this signature on its own lines, preceded by a blank line:\n\n${identity.name}${identity.role && identity.company ? `\n${identity.role}, ${identity.company}` : ''}`}`,
+Draft a reply that ${identity.name} can quickly review and send. Use the prior conversation (if shown above) to understand what's already been discussed, agreed, promised, or left open — don't repeat context the other party already has. If the message references something from earlier in the thread, match that reference accurately. Return ONLY the body text, no JSON, no quote block, no markdown fences.`,
             },
           ],
         }),
@@ -412,19 +297,17 @@ ${htmlSignature
     const ai = aiResult.value;
     const content = ai.content[0];
     if (content.type !== 'text') throw new Error('Unexpected AI response type');
-    const replyBody = content.text.trim();
+    const replyBody = stripAndAppendSignature(content.text.trim());
 
-    // Build raw RFC 2822 message (multipart with HTML signature when available)
-    const raw = buildRawReply({
-      fromEmail: myEmail,
-      fromName: myName,
+    const raw = buildCanonicalRaw({
+      fromEmail: CANONICAL_FROM_EMAIL,
+      fromName: CANONICAL_FROM_NAME,
       toEmail: fromEmail,
       toName: fromName,
-      subject,
+      subject: subject.startsWith('Re:') ? subject : `Re: ${subject}`,
       inReplyTo: messageIdHdr,
       references: referencesHdr ? `${referencesHdr} ${messageIdHdr}` : messageIdHdr,
       body: replyBody,
-      htmlSignature: htmlSignature || undefined,
     });
 
     // Create draft in the original thread
