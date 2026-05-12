@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
+import { callAnthropicWithRetry } from '@/lib/ai/anthropicRetry';
 import {
   createTask,
   updateTask,
@@ -357,13 +358,15 @@ async function refreshNextActionFromThread(args: {
   if (!transcript) return null; // nothing useful to feed the model
 
   try {
-    const res = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 150,
-      messages: [
-        {
-          role: 'user',
-          content: `A task in Chris Lloyd's task list tracks an email thread. A new reply just landed and the task's "Next Action" may need to be refreshed to reflect the latest state of the conversation.
+    const aiResult = await callAnthropicWithRetry(
+      () =>
+        anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 150,
+          messages: [
+            {
+              role: 'user',
+              content: `A task in Chris Lloyd's task list tracks an email thread. A new reply just landed and the task's "Next Action" may need to be refreshed to reflect the latest state of the conversation.
 
 Current task:
 - Title: ${task.task}
@@ -383,9 +386,13 @@ Write a new Next Action for Chris based on the CURRENT state of the conversation
 - If the conversation is clearly resolved and no action is needed, respond with exactly: NO_ACTION
 
 Return ONLY the Next Action text. No explanation. No quote marks. No markdown.`,
-        },
-      ],
-    });
+            },
+          ],
+        }),
+      `sync/refreshNextAction/${task.id}`,
+    );
+    if (!aiResult.ok) return null;
+    const res = aiResult.value;
     const content = res.content[0];
     if (!content || content.type !== 'text') return null;
     const raw = content.text.trim();
@@ -679,12 +686,18 @@ Recent thread (oldest → newest):
 ${conversationTranscript || '(no thread context available — keep nudge generic)'}`;
 
   try {
-    const ai = await anthropic.messages.create({
-      model: NUDGE_MODEL,
-      max_tokens: 600,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userContent }],
-    });
+    const aiResult = await callAnthropicWithRetry(
+      () =>
+        anthropic.messages.create({
+          model: NUDGE_MODEL,
+          max_tokens: 600,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userContent }],
+        }),
+      `sync/nudge/${task.id}`,
+    );
+    if (!aiResult.ok) return null;
+    const ai = aiResult.value;
     const block = ai.content[0];
     if (!block || block.type !== 'text') return null;
     const raw = block.text.trim();
@@ -1188,12 +1201,20 @@ async function isWorkRelatedEmail(
       : '';
   const userContent = `From: ${fromLine}\nSubject: ${t.subject || '(no subject)'}\nSnippet: ${(t.snippet || '').slice(0, 400)}${dismissalLine}`;
   try {
-    const ai = await anthropic.messages.create({
-      model: RELEVANCE_MODEL,
-      max_tokens: 80,
-      system: RELEVANCE_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userContent }],
-    });
+    const aiResult = await callAnthropicWithRetry(
+      () =>
+        anthropic.messages.create({
+          model: RELEVANCE_MODEL,
+          max_tokens: 80,
+          system: RELEVANCE_SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: userContent }],
+        }),
+      'sync/relevance',
+    );
+    if (!aiResult.ok) {
+      return { workRelated: true, reason: 'parse fallback' };
+    }
+    const ai = aiResult.value;
     const block = ai.content[0];
     if (!block || block.type !== 'text') {
       return { workRelated: true, reason: 'parse fallback' };
@@ -1218,6 +1239,8 @@ async function isWorkRelatedEmail(
   }
 }
 
+const SYNC_RESURRECT_ARCHIVED = process.env.SYNC_RESURRECT_ARCHIVED !== 'false';
+
 async function upsertAutoTask(
   source: TaskSource,
   sourceRef: string,
@@ -1225,9 +1248,49 @@ async function upsertAutoTask(
   /** For email-triage: if the source has newer activity than `existing.dismissedAt`, un-dismiss. */
   sourceActivityDate?: string | null,
 ): Promise<{ action: 'created' | 'updated' | 'unarchived' | 'skipped' }> {
-  const existing = await findTaskBySourceRef(source, sourceRef);
+  let existing = await findTaskBySourceRef(source, sourceRef);
+
+  // Fallback: if sourceRef miss (e.g. email-triage uses message ID which
+  // changes with new replies), check by threadUrl to avoid duplicates.
+  if (!existing && input.threadUrl) {
+    existing = await findTaskByThreadUrl(input.threadUrl);
+    if (existing) {
+      // Backfill sourceRef so future syncs hit the fast path
+      await updateTask(existing.id, { source, sourceRef });
+    }
+  }
 
   if (!existing) {
+    // Last resort for email-triage: check Done tasks with the same threadUrl.
+    // If SYNC_RESURRECT_ARCHIVED is true (default), un-archive instead of re-creating.
+    if (SYNC_RESURRECT_ARCHIVED && source === 'email-triage' && input.threadUrl) {
+      const allTasks = await getTasks({});
+      const threadId = extractGmailThreadIdFromUrl(input.threadUrl);
+      if (threadId) {
+        const doneMatches = allTasks
+          .filter((t) => {
+            const tid = extractGmailThreadIdFromUrl(t.threadUrl);
+            return tid === threadId && t.status === 'Done';
+          })
+          .sort((a, b) => (b.lastModified || '').localeCompare(a.lastModified || ''));
+        if (doneMatches.length > 0) {
+          const resurrected = doneMatches[0];
+          console.log(
+            `[sync/auto-tasks] resurrecting archived task ${resurrected.id} for thread ${threadId} instead of creating duplicate`,
+          );
+          await updateTask(resurrected.id, {
+            status: 'Inbox',
+            view: 'inbox',
+            dismissedAt: null,
+            source,
+            sourceRef,
+            nextAction: input.nextAction,
+          });
+          return { action: 'unarchived' };
+        }
+      }
+    }
+
     await createTask(input);
     return { action: 'created' };
   }
@@ -1402,19 +1465,24 @@ async function runLinkDetectionPass(
           )
           .join('\n');
 
-        const res = await anthropic.messages.create({
-          model: 'claude-haiku-4-5-20241022',
-          max_tokens: 1024,
-          system: `You evaluate task dependencies. For each candidate, determine if task T MUST wait for the candidate to complete before T can meaningfully start or advance. "Related but parallel" is NOT a dependency — only strict sequential blocking qualifies. Output strict JSON array: [{ "candidateIndex": 1, "dependsOn": bool, "confidence": "high"|"medium"|"low", "why": "..." }, ...]`,
-          messages: [
-            {
-              role: 'user',
-              content: `Task T (id=${task.id}): "${task.task}" — nextAction: "${task.nextAction || 'none'}" — project: ${task.project || 'none'}\n\n${evaluations}`,
-            },
-          ],
-        });
+        const depResult = await callAnthropicWithRetry(
+          () =>
+            anthropic.messages.create({
+              model: 'claude-haiku-4-5-20241022',
+              max_tokens: 1024,
+              system: `You evaluate task dependencies. For each candidate, determine if task T MUST wait for the candidate to complete before T can meaningfully start or advance. "Related but parallel" is NOT a dependency — only strict sequential blocking qualifies. Output strict JSON array: [{ "candidateIndex": 1, "dependsOn": bool, "confidence": "high"|"medium"|"low", "why": "..." }, ...]`,
+              messages: [
+                {
+                  role: 'user',
+                  content: `Task T (id=${task.id}): "${task.task}" — nextAction: "${task.nextAction || 'none'}" — project: ${task.project || 'none'}\n\n${evaluations}`,
+                },
+              ],
+            }),
+          `sync/linkDetection/${task.id}`,
+        );
+        if (!depResult.ok) continue;
 
-        const text = res.content[0]?.type === 'text' ? res.content[0].text : '';
+        const text = depResult.value.content[0]?.type === 'text' ? depResult.value.content[0].text : '';
         let evals: Array<{
           candidateIndex: number;
           dependsOn: boolean;
@@ -1466,19 +1534,24 @@ async function runLinkDetectionPass(
 
       if (daysSinceActivity >= 7 && hasWaitingLanguage && !wasDismissed(task, 'set_waiting_on')) {
         try {
-          const waitRes = await anthropic.messages.create({
-            model: 'claude-haiku-4-5-20241022',
-            max_tokens: 256,
-            system: `Extract the external wait from the task text. Output strict JSON: { "type": "date"|"decision"|"person"|"meeting", "description": "one-liner", "until": "ISO date or null" }. If no clear wait signal, output { "type": null }.`,
-            messages: [
-              {
-                role: 'user',
-                content: `Task: "${task.task}"\nNext action: "${task.nextAction || ''}"\nNotes: "${(task.notes || '').slice(0, 500)}"`,
-              },
-            ],
-          });
+          const waitResult = await callAnthropicWithRetry(
+            () =>
+              anthropic.messages.create({
+                model: 'claude-haiku-4-5-20241022',
+                max_tokens: 256,
+                system: `Extract the external wait from the task text. Output strict JSON: { "type": "date"|"decision"|"person"|"meeting", "description": "one-liner", "until": "ISO date or null" }. If no clear wait signal, output { "type": null }.`,
+                messages: [
+                  {
+                    role: 'user',
+                    content: `Task: "${task.task}"\nNext action: "${task.nextAction || ''}"\nNotes: "${(task.notes || '').slice(0, 500)}"`,
+                  },
+                ],
+              }),
+            `sync/waitingOn/${task.id}`,
+          );
+          if (!waitResult.ok) throw new Error(waitResult.error);
 
-          const waitText = waitRes.content[0]?.type === 'text' ? waitRes.content[0].text : '';
+          const waitText = waitResult.value.content[0]?.type === 'text' ? waitResult.value.content[0].text : '';
           try {
             const waitParsed = JSON.parse(
               waitText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim(),

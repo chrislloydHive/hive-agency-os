@@ -19,6 +19,7 @@ import {
   formatMeetingNotesForPrompt,
 } from '@/lib/os/nextStepLiveState';
 import type { SuggestedThreadRelink } from '@/lib/os/nextStepLiveState';
+import { callAnthropicWithRetry, httpStatusForAnthropicError } from '@/lib/ai/anthropicRetry';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
@@ -410,13 +411,26 @@ recipientConfidence for email: "high" only when "to" is a single clear email; ot
       timeout: 55_000,
     });
 
-    const ai = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userContent }],
-    });
+    const aiResult = await callAnthropicWithRetry(
+      () =>
+        anthropic.messages.create({
+          model: MODEL,
+          max_tokens: 4096,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userContent }],
+        }),
+      `next-step/${task.id}`,
+    );
 
+    if (!aiResult.ok) {
+      const status = httpStatusForAnthropicError(aiResult);
+      return NextResponse.json(
+        { error: aiResult.error, upstreamStatus: aiResult.upstreamStatus, retryable: aiResult.retryable },
+        { status },
+      );
+    }
+
+    const ai = aiResult.value;
     const block = ai.content[0];
     if (!block || block.type !== 'text') {
       return NextResponse.json(
@@ -498,9 +512,6 @@ recipientConfidence for email: "high" only when "to" is a single clear email; ot
   } catch (err) {
     console.error('[tasks/:id/next-step] error:', err);
     const msg = err instanceof Error ? err.message : 'Next step failed';
-    if (msg.toLowerCase().includes('timeout') || msg.includes('ETIMEDOUT')) {
-      return NextResponse.json({ error: msg }, { status: 504 });
-    }
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

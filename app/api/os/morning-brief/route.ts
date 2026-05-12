@@ -11,6 +11,7 @@
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
+import { callAnthropicWithRetry, httpStatusForAnthropicError } from '@/lib/ai/anthropicRetry';
 import { getTasks, type TaskRecord } from '@/lib/airtable/tasks';
 import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
 import { refreshAccessToken } from '@/lib/google/oauth';
@@ -246,12 +247,26 @@ Example shape (NOT actual content — just format):
     const userContent = buildContextString(ctx);
 
     const anthropic = new Anthropic({ apiKey, timeout: 25_000 });
-    const ai = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 400,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userContent }],
-    });
+    const aiResult = await callAnthropicWithRetry(
+      () =>
+        anthropic.messages.create({
+          model: MODEL,
+          max_tokens: 400,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userContent }],
+        }),
+      'morning-brief',
+    );
+
+    if (!aiResult.ok) {
+      const status = httpStatusForAnthropicError(aiResult);
+      return NextResponse.json(
+        { error: aiResult.error, upstreamStatus: aiResult.upstreamStatus, retryable: aiResult.retryable },
+        { status },
+      );
+    }
+
+    const ai = aiResult.value;
     const block = ai.content[0];
     if (!block || block.type !== 'text') {
       return NextResponse.json({ error: 'Unexpected Claude response shape' }, { status: 502 });

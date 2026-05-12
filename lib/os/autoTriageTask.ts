@@ -5,6 +5,7 @@
 
 import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
+import { callAnthropicWithRetry } from '@/lib/ai/anthropicRetry';
 import { createTask, type TaskPriority, type CreateTaskInput } from '@/lib/airtable/tasks';
 import { getIdentityPreamble, getProjectCategoriesList } from '@/lib/personalContext';
 import { getKnownClientContactEmails, isKnownClientEmail } from '@/lib/os/knownClientContacts';
@@ -91,13 +92,15 @@ export async function autoCreateTaskFromEmail(
       ? `\nIMPORTANT: The sender is a known paying client contact in your CRM. Short forwards, FW: subjects, and pasted vendor/ad pitches still imply Chris should review and decide — treat as needing action unless it is clearly automated/system-only. Prefer at least priority P2. If the only content is a forward with no explicit question, the task is still "review and reply or decline".\n`
       : '';
 
-    const ai = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 800,
-      messages: [
-        {
-          role: 'user',
-          content: `${identityPreamble}
+    const aiResult = await callAnthropicWithRetry(
+      () =>
+        anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 800,
+          messages: [
+            {
+              role: 'user',
+              content: `${identityPreamble}
 
 You are a task parser. An email has arrived that the user needs to act on. Parse it into a structured task.
 
@@ -124,9 +127,13 @@ Return a JSON object with these fields (ONLY JSON, no markdown):
   3. If the email signals urgency (client awaiting reply, approval/answer needed, invoice past due, time-sensitive contract) but gives no explicit date, pick the tighter of rule 2 or +2 days from today.
 - "status": "Inbox"
 - "notes": any key facts or context worth preserving (numbers, names, amounts). Keep under 300 chars. Empty string if nothing notable.`,
-        },
-      ],
-    });
+            },
+          ],
+        }),
+      'sync/autoTriage',
+    );
+    if (!aiResult.ok) throw new Error(aiResult.error);
+    const ai = aiResult.value;
 
     const content = ai.content[0];
     if (content.type !== 'text') throw new Error('Unexpected AI response type');

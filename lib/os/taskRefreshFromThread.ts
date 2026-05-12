@@ -3,6 +3,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { gmail_v1 } from 'googleapis';
 import { z } from 'zod';
+import { callAnthropicWithRetry } from '@/lib/ai/anthropicRetry';
 import type { TaskRecord } from '@/lib/airtable/tasks';
 import { extractGmailThreadIdFromUrl } from '@/lib/gmail/extractThreadIdFromUrl';
 import {
@@ -407,12 +408,23 @@ ${JSON.stringify(taskPayload, null, 2)}
 ${transcript || '(empty)'}`;
 
   try {
-    const ai = await anthropic.messages.create({
-      model: REFRESH_FROM_THREAD_MODEL,
-      max_tokens: 2500,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userContent }],
-    });
+    const aiResult = await callAnthropicWithRetry(
+      () =>
+        anthropic.messages.create({
+          model: REFRESH_FROM_THREAD_MODEL,
+          max_tokens: 2500,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: userContent }],
+        }),
+      `refresh-from-thread/${task.id}`,
+    );
+    if (!aiResult.ok) {
+      const status =
+        aiResult.upstreamStatus === 529 || aiResult.upstreamStatus === 503 ? 503 :
+        aiResult.error.toLowerCase().includes('timeout') ? 504 : 502;
+      return { ok: false, error: aiResult.error, status };
+    }
+    const ai = aiResult.value;
     const block = ai.content[0];
     if (!block || block.type !== 'text') {
       return { ok: false, error: 'Unexpected Claude response (no text block)', status: 502 };
@@ -475,9 +487,6 @@ ${transcript || '(empty)'}`;
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Claude request failed';
-    if (msg.toLowerCase().includes('timeout') || msg.includes('ETIMEDOUT')) {
-      return { ok: false, error: msg, status: 504 };
-    }
     return { ok: false, error: msg, status: 500 };
   }
 }

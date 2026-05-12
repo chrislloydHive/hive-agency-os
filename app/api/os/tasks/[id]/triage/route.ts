@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
+import { callAnthropicWithRetry, httpStatusForAnthropicError } from '@/lib/ai/anthropicRetry';
 import { getTasks } from '@/lib/airtable/tasks';
 import type { TaskRecord } from '@/lib/airtable/tasks';
 import { extractGmailThreadIdFromUrl } from '@/lib/gmail/extractThreadIdFromUrl';
@@ -178,13 +179,26 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       timeout: 28_000,
     });
 
-    const ai = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 1500,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userContent }],
-    });
+    const aiResult = await callAnthropicWithRetry(
+      () =>
+        anthropic.messages.create({
+          model: MODEL,
+          max_tokens: 1500,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: userContent }],
+        }),
+      `triage/${task.id}`,
+    );
 
+    if (!aiResult.ok) {
+      const status = httpStatusForAnthropicError(aiResult);
+      return NextResponse.json(
+        { error: aiResult.error, upstreamStatus: aiResult.upstreamStatus, retryable: aiResult.retryable },
+        { status },
+      );
+    }
+
+    const ai = aiResult.value;
     const block = ai.content[0];
     if (!block || block.type !== 'text') {
       return NextResponse.json(
@@ -236,9 +250,6 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   } catch (err) {
     console.error('[tasks/:id/triage] error:', err);
     const msg = err instanceof Error ? err.message : 'Triage failed';
-    if (msg.toLowerCase().includes('timeout') || msg.includes('ETIMEDOUT')) {
-      return NextResponse.json({ error: msg }, { status: 504 });
-    }
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

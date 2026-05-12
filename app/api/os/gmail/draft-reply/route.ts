@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
+import { callAnthropicWithRetry, httpStatusForAnthropicError } from '@/lib/ai/anthropicRetry';
 import { getCompanyIntegrations, getAnyGoogleRefreshToken } from '@/lib/airtable/companyIntegrations';
 import { refreshAccessToken, getGoogleAccountEmail } from '@/lib/google/oauth';
 import { getIdentity, getVoice, getVoiceRulesBlock } from '@/lib/personalContext';
@@ -362,13 +363,15 @@ export async function POST(req: NextRequest) {
     // if missing, so the draft still has some attribution.
     const htmlSignature = await fetchSignature(gmail, myEmail);
 
-    const ai = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 800,
-      messages: [
-        {
-          role: 'user',
-          content: `You are drafting a reply on behalf of ${identity.name}, ${identity.role} of ${identity.company}. Write in their voice: ${voice.tone}. No corporate fluff.
+    const aiResult = await callAnthropicWithRetry(
+      () =>
+        anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 800,
+          messages: [
+            {
+              role: 'user',
+              content: `You are drafting a reply on behalf of ${identity.name}, ${identity.role} of ${identity.company}. Write in their voice: ${voice.tone}. No corporate fluff.
 
 ${voiceRules}
 
@@ -392,10 +395,21 @@ Draft a reply that ${identity.name} can quickly review and send. Use the prior c
 ${htmlSignature
   ? 'Do NOT include a signature — one will be appended automatically. End the body with a simple sign-off word like "Thanks," or "Best," on its own line.'
   : `End the reply with this signature on its own lines, preceded by a blank line:\n\n${identity.name}${identity.role && identity.company ? `\n${identity.role}, ${identity.company}` : ''}`}`,
-        },
-      ],
-    });
+            },
+          ],
+        }),
+      'draft-reply',
+    );
 
+    if (!aiResult.ok) {
+      const status = httpStatusForAnthropicError(aiResult);
+      return NextResponse.json(
+        { error: aiResult.error, upstreamStatus: aiResult.upstreamStatus, retryable: aiResult.retryable },
+        { status },
+      );
+    }
+
+    const ai = aiResult.value;
     const content = ai.content[0];
     if (content.type !== 'text') throw new Error('Unexpected AI response type');
     const replyBody = content.text.trim();

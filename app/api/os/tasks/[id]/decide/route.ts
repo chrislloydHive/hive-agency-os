@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import Anthropic from '@anthropic-ai/sdk';
+import { callAnthropicWithRetry, httpStatusForAnthropicError } from '@/lib/ai/anthropicRetry';
 import { getTasks, updateTask } from '@/lib/airtable/tasks';
 import type { TaskRecord } from '@/lib/airtable/tasks';
 import { getRecentTaskActivity, logEventAsync, type ActivityRow } from '@/lib/airtable/activityLog';
@@ -372,12 +373,25 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const prompt = buildDecisionPrompt(input);
 
     // ── Call Claude ───────────────────────────────────────────────────────
-    const ai = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1200,
-      messages: [{ role: 'user', content: prompt }],
-    });
+    const aiResult = await callAnthropicWithRetry(
+      () =>
+        anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1200,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      `decide/${task.id}`,
+    );
 
+    if (!aiResult.ok) {
+      const status = httpStatusForAnthropicError(aiResult);
+      return NextResponse.json(
+        { error: aiResult.error, upstreamStatus: aiResult.upstreamStatus, retryable: aiResult.retryable },
+        { status },
+      );
+    }
+
+    const ai = aiResult.value;
     const content = ai.content[0];
     if (!content || content.type !== 'text') {
       throw new Error('Unexpected AI response type');
