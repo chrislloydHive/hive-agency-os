@@ -210,11 +210,20 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     const identity = await getIdentity();
     const myEmail = identity.email || '';
 
-    const [voice, projectFolderUrl, live] = await Promise.all([
+    const [voice, projectFolderUrl, live, allTasks] = await Promise.all([
       getVoice(),
       getPmosDriveProjectFolderUrlForProjectName(task.project),
       fetchLiveState({ gmail, drive, task, threadId, myEmail }),
+      getTasks({}),
     ]);
+
+    const blockerTasks: TaskRecord[] = [];
+    if (task.blockedBy.length > 0) {
+      for (const bid of task.blockedBy) {
+        const bt = allTasks.find((t) => t.id === bid);
+        if (bt) blockerTasks.push(bt);
+      }
+    }
 
     const signatureBlock = [
       '',
@@ -312,6 +321,8 @@ ANALYSIS INSTRUCTIONS (CRITICAL — follow these exactly):
 - If the live state genuinely shows there's nothing to do, return a "no-action" proposal instead of inventing work.
 - The "reasoning" string MUST cite live-state facts ("user sent prep materials on May 9 at 2:43pm; ball is with Tom"), NOT snapshot facts ("the task says ..."). If a reader can't tell from the reasoning that you saw the latest messages, the prompt is failing.
 - CROSS-THREAD DISCOVERY: If the linked thread shows the work has gone quiet but one of the OTHER RECENT THREADS is plainly the continuation of this work (same contact, topically aligned, more recent), reason from THAT thread's state as the ground truth. Cite the specific other-thread subject and date in your reasoning so the user can verify. You may include a 'doc' or 'email' proposal that references the correct other thread. You may also include a 'subtasks' proposal whose first item is 'Link this task to the actual thread <subject>' so the user can re-anchor. When you conclude an other-thread is the true current state, include a "suggestedThreadRelink" object in your response (see schema above). CRITICAL: the toThreadId MUST be the exact hex threadId shown in the [threadId=...] tag of OTHER RECENT THREADS. Do NOT use the subject line, a URL, or any synthesized value. Do NOT construct a toThreadUrl — the server builds it.
+- BLOCKERS: If any blocker listed in BLOCKERS has status != Done, the strongest proposal is usually to advance the blocker, not this task. Propose a "no-action" chip whose label references the blocker by title, OR a "subtasks" chip whose first item is to act on the blocker. Only propose work on the current task if all blockers are Done or there's a parallelizable step that doesn't actually depend on the blocker.
+- EXTERNAL WAIT: If waitingOnType is set and the wait is still active (date hasn't passed, decision hasn't been recorded, etc.), default to "no-action" with waitingOn populated from the existing fields.
 
 Selection guidance:
 - If the task has a Gmail thread → include exactly one "email" option when a real reply or outreach makes sense GIVEN the current live thread state. The body must reflect what's actually been said.
@@ -353,6 +364,16 @@ recipientConfidence for email: "high" only when "to" is a single clear email; ot
 
     const linkedDocsBlock = `LINKED DOCS (live):\n${formatLinkedDocsForPrompt(live.linkedDocs)}`;
 
+    const blockersBlock =
+      blockerTasks.length > 0
+        ? `BLOCKERS (this task is gated on these — proposals should account for them):\n${blockerTasks.map((bt) => `— [${bt.status}] ${bt.task} — ${bt.nextAction || '(no next action)'}`).join('\n')}`
+        : 'BLOCKERS: (none)';
+
+    const externalWaitBlock =
+      task.waitingOnType
+        ? `EXTERNAL WAIT:\n  type: ${task.waitingOnType}, description: ${task.waitingOnDescription || '(none)'}, until: ${task.waitingUntil || 'open-ended'}`
+        : 'EXTERNAL WAIT: (none)';
+
     const meetingNotesBlock = `RECENT MEETING NOTES (live, filtered to this task — last 7 days):\n${formatMeetingNotesForPrompt(live.meetingNotes)}`;
 
     const userContent = [
@@ -370,6 +391,14 @@ recipientConfidence for email: "high" only when "to" is a single clear email; ot
       '---',
       '',
       linkedDocsBlock,
+      '',
+      '---',
+      '',
+      blockersBlock,
+      '',
+      '---',
+      '',
+      externalWaitBlock,
       '',
       '---',
       '',

@@ -92,6 +92,16 @@ const TASK_FIELDS = {
   THREAD_REFRESH_MESSAGE_ID:
     process.env.AIRTABLE_TASKS_FIELD_THREAD_REFRESH_MESSAGE_ID?.trim() ||
     'Thread Refresh Message Id',
+  /** JSON array of task IDs that block this task. */
+  BLOCKED_BY: 'Blocked By',
+  /** Single select: date | decision | person | meeting — or empty. */
+  WAITING_ON_TYPE: 'Waiting On Type',
+  /** One-liner describing what we're waiting on. */
+  WAITING_ON_DESCRIPTION: 'Waiting On Description',
+  /** ISO 8601 date/datetime — when the wait is expected to resolve. */
+  WAITING_UNTIL: 'Waiting Until',
+  /** JSON array of previously dismissed suggestion fingerprints. */
+  DISMISSED_SUGGESTIONS: 'Dismissed Suggestions',
 } as const;
 
 /** Allowed `recurrence` values for OS APIs and Airtable single-select. */
@@ -108,7 +118,14 @@ const TASK_RECURRENCE_SET = new Set<string>(TASK_RECURRENCE_VALUES);
 
 // --- Suggested resolution (long-text JSON on Tasks) -------------------------------------------
 
-export type SuggestedResolutionAction = 'close' | 'update_nextAction' | 'leave' | 'update_full';
+export type SuggestedResolutionAction =
+  | 'close'
+  | 'update_nextAction'
+  | 'leave'
+  | 'update_full'
+  | 'add_blocker'
+  | 'set_waiting_on'
+  | 'unblocked';
 export type SuggestedResolutionConfidence = 'high' | 'medium' | 'low';
 
 const suggestedResolutionCloseSchema = z
@@ -151,18 +168,62 @@ const suggestedResolutionUpdateFullSchema = z
   })
   .strict();
 
+const suggestedResolutionAddBlockerSchema = z
+  .object({
+    action: z.literal('add_blocker'),
+    confidence: z.enum(['high', 'medium', 'low']),
+    candidateTaskId: z.string().min(1),
+    candidateTaskTitle: z.string().min(1),
+    reasoning: z.string().min(1),
+    suggestedAt: z.string().min(1),
+  })
+  .strict();
+
+const suggestedResolutionSetWaitingOnSchema = z
+  .object({
+    action: z.literal('set_waiting_on'),
+    confidence: z.enum(['high', 'medium', 'low']),
+    proposal: z
+      .object({
+        waitingOnType: z.enum(['date', 'decision', 'person', 'meeting']),
+        waitingOnDescription: z.string().min(1),
+        waitingUntil: z.string().optional(),
+      })
+      .strict(),
+    reasoning: z.string().min(1),
+    suggestedAt: z.string().min(1),
+  })
+  .strict();
+
+const suggestedResolutionUnblockedSchema = z
+  .object({
+    action: z.literal('unblocked'),
+    confidence: z.enum(['high', 'medium', 'low']),
+    byTaskId: z.string().min(1),
+    byTaskTitle: z.string().min(1),
+    reasoning: z.string().min(1),
+    suggestedAt: z.string().min(1),
+  })
+  .strict();
+
 /** Stored in Airtable "Suggested Resolution" and returned on GET /tasks. */
 export type SuggestedResolution =
   | z.infer<typeof suggestedResolutionCloseSchema>
   | z.infer<typeof suggestedResolutionLeaveSchema>
   | z.infer<typeof suggestedResolutionUpdateNextSchema>
-  | z.infer<typeof suggestedResolutionUpdateFullSchema>;
+  | z.infer<typeof suggestedResolutionUpdateFullSchema>
+  | z.infer<typeof suggestedResolutionAddBlockerSchema>
+  | z.infer<typeof suggestedResolutionSetWaitingOnSchema>
+  | z.infer<typeof suggestedResolutionUnblockedSchema>;
 
 export const suggestedResolutionStoredSchema = z.discriminatedUnion('action', [
   suggestedResolutionCloseSchema,
   suggestedResolutionLeaveSchema,
   suggestedResolutionUpdateNextSchema,
   suggestedResolutionUpdateFullSchema,
+  suggestedResolutionAddBlockerSchema,
+  suggestedResolutionSetWaitingOnSchema,
+  suggestedResolutionUnblockedSchema,
 ]);
 
 /** Read Airtable cell → typed object or null if empty / invalid JSON / schema mismatch. */
@@ -255,6 +316,10 @@ export const TASK_HTTP_PATCH_KEYS = [
   'lastSeenAt',
   'latestInboundAt',
   'suggestedResolution',
+  'blockedBy',
+  'waitingOnType',
+  'waitingOnDescription',
+  'waitingUntil',
 ] as const satisfies readonly (keyof UpdateTaskInput)[];
 
 /** Allow-listed patch fields from a client JSON body (excludes `recurrence`). */
@@ -284,6 +349,14 @@ export type TaskSource =
 export type TaskPriority = 'P0' | 'P1' | 'P2' | 'P3';
 export type TaskStatus = 'Inbox' | 'Next' | 'Waiting' | 'Done' | 'Archive';
 export type TaskView = 'inbox' | 'braindump' | 'projects' | 'archive';
+export type WaitingOnType = 'date' | 'decision' | 'person' | 'meeting';
+export const WAITING_ON_TYPES = ['date', 'decision', 'person', 'meeting'] as const;
+
+export interface DismissedSuggestion {
+  action: string;
+  candidateTaskId?: string;
+  dismissedAt: string;
+}
 
 export interface TaskRecord {
   id: string;
@@ -321,6 +394,16 @@ export interface TaskRecord {
   lastSyncedAt: string | null;
   /** Gmail id of the latest thread message at last refresh (skip re-run if unchanged). */
   threadRefreshMessageId: string | null;
+  /** Task IDs that block this task. Empty array when not blocked. */
+  blockedBy: string[];
+  /** Type of external wait: date, decision, person, meeting, or null. */
+  waitingOnType: WaitingOnType | null;
+  /** One-liner describing the external wait. */
+  waitingOnDescription: string;
+  /** ISO 8601 date/datetime when the wait is expected to resolve. */
+  waitingUntil: string | null;
+  /** Previously dismissed suggestion fingerprints (prevents re-suggesting). */
+  dismissedSuggestions: DismissedSuggestion[];
 }
 
 export interface CreateTaskInput {
@@ -349,6 +432,10 @@ export interface CreateTaskInput {
   suggestedResolution?: SuggestedResolution | null;
   lastSyncedAt?: string | null;
   threadRefreshMessageId?: string | null;
+  blockedBy?: string[];
+  waitingOnType?: WaitingOnType | null;
+  waitingOnDescription?: string;
+  waitingUntil?: string | null;
 }
 
 export interface UpdateTaskInput {
@@ -381,6 +468,11 @@ export interface UpdateTaskInput {
   suggestedResolution?: SuggestedResolution | null;
   lastSyncedAt?: string | null;
   threadRefreshMessageId?: string | null;
+  blockedBy?: string[];
+  waitingOnType?: WaitingOnType | null;
+  waitingOnDescription?: string;
+  waitingUntil?: string | null;
+  dismissedSuggestions?: DismissedSuggestion[];
 }
 
 /** Map Airtable record → TaskRecord (includes recurrence). */
@@ -433,6 +525,11 @@ function mapRecordToTask(record: any): TaskRecord {
     suggestedResolution: parseSuggestedResolutionFromAirtable(f[TASK_FIELDS.SUGGESTED_RESOLUTION]),
     lastSyncedAt: (f[TASK_FIELDS.LAST_SYNCED_AT] as string) || null,
     threadRefreshMessageId: (f[TASK_FIELDS.THREAD_REFRESH_MESSAGE_ID] as string) || null,
+    blockedBy: parseJsonArrayFromAirtable(f[TASK_FIELDS.BLOCKED_BY]),
+    waitingOnType: parseWaitingOnType(f[TASK_FIELDS.WAITING_ON_TYPE]),
+    waitingOnDescription: (f[TASK_FIELDS.WAITING_ON_DESCRIPTION] as string) || '',
+    waitingUntil: (f[TASK_FIELDS.WAITING_UNTIL] as string) || null,
+    dismissedSuggestions: parseDismissedSuggestionsFromAirtable(f[TASK_FIELDS.DISMISSED_SUGGESTIONS]),
   };
 }
 
@@ -442,6 +539,40 @@ function normalizeRecurrenceFromAirtable(raw: unknown): TaskRecurrence | null {
     return raw as TaskRecurrence;
   }
   return null;
+}
+
+const WAITING_ON_TYPE_SET = new Set<string>(WAITING_ON_TYPES);
+
+function parseWaitingOnType(raw: unknown): WaitingOnType | null {
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'string' && WAITING_ON_TYPE_SET.has(raw)) {
+    return raw as WaitingOnType;
+  }
+  return null;
+}
+
+function parseJsonArrayFromAirtable(raw: unknown): string[] {
+  if (raw == null || raw === '') return [];
+  if (typeof raw !== 'string') return [];
+  try {
+    const arr = JSON.parse(raw.trim());
+    if (Array.isArray(arr)) return arr.filter((v): v is string => typeof v === 'string');
+  } catch { /* invalid JSON */ }
+  return [];
+}
+
+function parseDismissedSuggestionsFromAirtable(raw: unknown): DismissedSuggestion[] {
+  if (raw == null || raw === '') return [];
+  if (typeof raw !== 'string') return [];
+  try {
+    const arr = JSON.parse(raw.trim());
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(
+      (v): v is DismissedSuggestion =>
+        typeof v === 'object' && v !== null && typeof v.action === 'string' && typeof v.dismissedAt === 'string',
+    );
+  } catch { /* invalid JSON */ }
+  return [];
 }
 
 /**
@@ -568,6 +699,23 @@ function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<stri
   }
   if ('threadRefreshMessageId' in input) {
     fields[TASK_FIELDS.THREAD_REFRESH_MESSAGE_ID] = input.threadRefreshMessageId || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'blockedBy')) {
+    const bb = (input as UpdateTaskInput).blockedBy;
+    fields[TASK_FIELDS.BLOCKED_BY] = bb && bb.length > 0 ? JSON.stringify(bb) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'waitingOnType')) {
+    fields[TASK_FIELDS.WAITING_ON_TYPE] = (input as UpdateTaskInput).waitingOnType || null;
+  }
+  if ('waitingOnDescription' in input) {
+    fields[TASK_FIELDS.WAITING_ON_DESCRIPTION] = (input as UpdateTaskInput).waitingOnDescription || '';
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'waitingUntil')) {
+    fields[TASK_FIELDS.WAITING_UNTIL] = (input as UpdateTaskInput).waitingUntil || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'dismissedSuggestions')) {
+    const ds = (input as UpdateTaskInput).dismissedSuggestions;
+    fields[TASK_FIELDS.DISMISSED_SUGGESTIONS] = ds && ds.length > 0 ? JSON.stringify(ds) : null;
   }
 
   return fields;

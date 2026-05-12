@@ -912,6 +912,10 @@ interface SyncStats {
   sentDraftsClosed: number;
   autoSkippedViaDismissals: number;
   retroactivelyDismissed: number;
+  linkDetectionScanned: number;
+  linkDetectionCandidatesEvaluated: number;
+  linkDetectionBlockerSuggestions: number;
+  linkDetectionWaitingOnSuggestions: number;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1282,6 +1286,238 @@ async function upsertAutoTask(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Link detection pass — AI blocker + waiting-on detection
+// ────────────────────────────────────────────────────────────────────────────
+
+const LINK_STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'this', 'that', 'have', 'has',
+  'are', 'was', 'were', 'been', 'will', 'would', 'could', 'should',
+  'not', 'but', 'also', 'just', 'about', 'into', 'over', 'more',
+  'than', 'then', 'now', 'very', 'new', 'all', 'some', 'any',
+  'each', 'every', 'both', 'few', 'most', 'other', 'reply', 'follow',
+  'sent', 'send', 'check', 'update', 'email', 'task', 'get', 'set',
+  'call', 'meeting', 'next', 'step', 'action', 'status', 'follow-up',
+]);
+
+function extractSignificantTerms(text: string): Set<string> {
+  const words = text.toLowerCase().match(/[a-z]{3,}/g) || [];
+  return new Set(words.filter((w) => !LINK_STOPWORDS.has(w)));
+}
+
+function keywordOverlap(a: Set<string>, b: Set<string>): number {
+  let count = 0;
+  for (const w of Array.from(a)) {
+    if (b.has(w)) count++;
+  }
+  return count;
+}
+
+function extractContactEmails(task: TaskRecord): Set<string> {
+  const emails = new Set<string>();
+  const combined = [task.from, task.notes, task.nextAction].join(' ');
+  const matches = combined.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+  for (const m of matches) emails.add(m.toLowerCase());
+  return emails;
+}
+
+function wasDismissed(
+  task: TaskRecord,
+  action: string,
+  candidateTaskId?: string,
+): boolean {
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  return task.dismissedSuggestions.some(
+    (d) =>
+      d.action === action &&
+      (!candidateTaskId || d.candidateTaskId === candidateTaskId) &&
+      new Date(d.dismissedAt).getTime() > cutoff,
+  );
+}
+
+async function runLinkDetectionPass(
+  activeTasks: TaskRecord[],
+  stats: SyncStats,
+  errors: string[],
+): Promise<void> {
+  const openTasks = activeTasks.filter((t) => t.status !== 'Done' && !t.dismissedAt);
+  const tasksToScan = openTasks.slice(0, 50);
+  stats.linkDetectionScanned = tasksToScan.length;
+
+  const termSets = new Map<string, Set<string>>();
+  const threadIds = new Map<string, string>();
+  for (const t of openTasks) {
+    termSets.set(t.id, extractSignificantTerms([t.task, t.nextAction].join(' ')));
+    if (t.threadUrl) {
+      const tid = extractGmailThreadIdFromUrl(t.threadUrl);
+      if (tid) threadIds.set(t.id, tid);
+    }
+  }
+
+  for (const task of tasksToScan) {
+    if (task.suggestedResolution) continue;
+
+    const taskTerms = termSets.get(task.id) || new Set<string>();
+    const taskEmails = extractContactEmails(task);
+    const taskThreadId = threadIds.get(task.id);
+
+    const candidates: TaskRecord[] = [];
+    for (const other of openTasks) {
+      if (other.id === task.id) continue;
+      if (task.blockedBy.includes(other.id)) continue;
+      if (candidates.length >= 20) break;
+
+      let related = false;
+      if (task.project && other.project && task.project === other.project) related = true;
+      if (!related) {
+        const otherEmails = extractContactEmails(other);
+        for (const e of Array.from(taskEmails)) {
+          if (otherEmails.has(e)) { related = true; break; }
+        }
+      }
+      if (!related) {
+        const otherTerms = termSets.get(other.id) || new Set<string>();
+        if (keywordOverlap(taskTerms, otherTerms) >= 2) related = true;
+      }
+      if (!related && taskThreadId) {
+        const otherTid = threadIds.get(other.id);
+        if (otherTid && otherTid === taskThreadId) related = true;
+      }
+      if (related) candidates.push(other);
+    }
+
+    if (candidates.length === 0) continue;
+
+    const batches: TaskRecord[][] = [];
+    for (let i = 0; i < candidates.length; i += 5) {
+      batches.push(candidates.slice(i, i + 5));
+    }
+
+    for (const batch of batches) {
+      stats.linkDetectionCandidatesEvaluated += batch.length;
+      try {
+        const evaluations = batch
+          .map(
+            (c, i) =>
+              `Candidate ${i + 1} (id=${c.id}): "${c.task}" — nextAction: "${c.nextAction || 'none'}" — status: ${c.status} — project: ${c.project || 'none'}`,
+          )
+          .join('\n');
+
+        const res = await anthropic.messages.create({
+          model: 'claude-haiku-4-5-20241022',
+          max_tokens: 1024,
+          system: `You evaluate task dependencies. For each candidate, determine if task T MUST wait for the candidate to complete before T can meaningfully start or advance. "Related but parallel" is NOT a dependency — only strict sequential blocking qualifies. Output strict JSON array: [{ "candidateIndex": 1, "dependsOn": bool, "confidence": "high"|"medium"|"low", "why": "..." }, ...]`,
+          messages: [
+            {
+              role: 'user',
+              content: `Task T (id=${task.id}): "${task.task}" — nextAction: "${task.nextAction || 'none'}" — project: ${task.project || 'none'}\n\n${evaluations}`,
+            },
+          ],
+        });
+
+        const text = res.content[0]?.type === 'text' ? res.content[0].text : '';
+        let evals: Array<{
+          candidateIndex: number;
+          dependsOn: boolean;
+          confidence: string;
+          why: string;
+        }> = [];
+        try {
+          const jsonStr = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+          evals = JSON.parse(jsonStr);
+        } catch { continue; }
+
+        for (const ev of evals) {
+          if (!ev.dependsOn) continue;
+          if (ev.confidence === 'low') continue;
+          const candidateIdx = ev.candidateIndex - 1;
+          if (candidateIdx < 0 || candidateIdx >= batch.length) continue;
+          const candidate = batch[candidateIdx];
+          if (task.blockedBy.includes(candidate.id)) continue;
+          if (wasDismissed(task, 'add_blocker', candidate.id)) continue;
+          if (task.suggestedResolution) break;
+
+          await updateTask(task.id, {
+            suggestedResolution: {
+              action: 'add_blocker' as const,
+              confidence: ev.confidence as 'high' | 'medium',
+              candidateTaskId: candidate.id,
+              candidateTaskTitle: candidate.task,
+              reasoning: ev.why,
+              suggestedAt: new Date().toISOString(),
+            },
+          });
+          stats.linkDetectionBlockerSuggestions++;
+          break;
+        }
+      } catch (err) {
+        errors.push(`link-detection batch for ${task.id}: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
+    if (
+      !task.suggestedResolution &&
+      !task.waitingOnType &&
+      task.latestInboundAt
+    ) {
+      const daysSinceActivity =
+        (Date.now() - new Date(task.latestInboundAt).getTime()) / (1000 * 60 * 60 * 24);
+      const textToScan = [task.nextAction, task.notes].filter(Boolean).join(' ');
+      const hasWaitingLanguage = /waiting (?:for|on)|pending (?:review|approval|response)|until \d/i.test(textToScan);
+
+      if (daysSinceActivity >= 7 && hasWaitingLanguage && !wasDismissed(task, 'set_waiting_on')) {
+        try {
+          const waitRes = await anthropic.messages.create({
+            model: 'claude-haiku-4-5-20241022',
+            max_tokens: 256,
+            system: `Extract the external wait from the task text. Output strict JSON: { "type": "date"|"decision"|"person"|"meeting", "description": "one-liner", "until": "ISO date or null" }. If no clear wait signal, output { "type": null }.`,
+            messages: [
+              {
+                role: 'user',
+                content: `Task: "${task.task}"\nNext action: "${task.nextAction || ''}"\nNotes: "${(task.notes || '').slice(0, 500)}"`,
+              },
+            ],
+          });
+
+          const waitText = waitRes.content[0]?.type === 'text' ? waitRes.content[0].text : '';
+          try {
+            const waitParsed = JSON.parse(
+              waitText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim(),
+            ) as { type: string | null; description?: string; until?: string | null };
+
+            if (
+              waitParsed.type &&
+              ['date', 'decision', 'person', 'meeting'].includes(waitParsed.type) &&
+              waitParsed.description
+            ) {
+              await updateTask(task.id, {
+                suggestedResolution: {
+                  action: 'set_waiting_on' as const,
+                  confidence: 'medium' as const,
+                  proposal: {
+                    waitingOnType: waitParsed.type as 'date' | 'decision' | 'person' | 'meeting',
+                    waitingOnDescription: waitParsed.description,
+                    ...(waitParsed.until ? { waitingUntil: waitParsed.until } : {}),
+                  },
+                  reasoning: `Task has had no thread activity for ${Math.round(daysSinceActivity)} days and text contains waiting language.`,
+                  suggestedAt: new Date().toISOString(),
+                },
+              });
+              stats.linkDetectionWaitingOnSuggestions++;
+            }
+          } catch { /* invalid JSON from LLM */ }
+        } catch (err) {
+          errors.push(`waiting-on detection for ${task.id}: ${err instanceof Error ? err.message : err}`);
+        }
+      }
+    }
+  }
+
+  console.log(
+    `[sync link-detection] tasks-scanned=${stats.linkDetectionScanned} candidates-evaluated=${stats.linkDetectionCandidatesEvaluated} blocker-suggestions=${stats.linkDetectionBlockerSuggestions} waiting-on-suggestions=${stats.linkDetectionWaitingOnSuggestions}`,
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Handler
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1309,6 +1545,10 @@ export async function POST(req: NextRequest) {
     sentDraftsClosed: 0,
     autoSkippedViaDismissals: 0,
     retroactivelyDismissed: 0,
+    linkDetectionScanned: 0,
+    linkDetectionCandidatesEvaluated: 0,
+    linkDetectionBlockerSuggestions: 0,
+    linkDetectionWaitingOnSuggestions: 0,
   };
   const errors: string[] = [];
 
@@ -1556,6 +1796,15 @@ export async function POST(req: NextRequest) {
       }
     } catch (err) {
       console.error('[sync/auto-tasks] thread-activity pass error:', err);
+    }
+
+    // Link detection pass: identify blocker relationships and waiting-on
+    // signals across open tasks using Claude evaluation.
+    try {
+      const tasksForLinkDetection = await getTasks({ excludeDone: true });
+      await runLinkDetectionPass(tasksForLinkDetection, stats, errors);
+    } catch (err) {
+      console.error('[sync/auto-tasks] link-detection pass error:', err);
     }
 
     lastRunFinishedAt = Date.now();
