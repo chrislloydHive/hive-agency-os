@@ -15,8 +15,10 @@ import {
   fetchLiveState,
   formatLiveThreadForPrompt,
   formatLinkedDocsForPrompt,
+  formatCrossThreadsForPrompt,
   formatMeetingNotesForPrompt,
 } from '@/lib/os/nextStepLiveState';
+import type { SuggestedThreadRelink } from '@/lib/os/nextStepLiveState';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
@@ -93,6 +95,16 @@ const noActionOptionSchema = z
   })
   .strict();
 
+const suggestedThreadRelinkSchema = z
+  .object({
+    fromThreadId: z.string().min(1),
+    toThreadId: z.string().min(1),
+    toThreadUrl: z.string().min(1),
+    toSubject: z.string().min(1),
+    reasoning: z.string().min(1),
+  })
+  .strict();
+
 const nextStepResponseSchema = z
   .object({
     options: z
@@ -108,8 +120,8 @@ const nextStepResponseSchema = z
       .min(1)
       .max(3),
     reasoning: z.string().min(1),
-  })
-  .strict();
+    suggestedThreadRelink: suggestedThreadRelinkSchema.optional(),
+  });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -232,7 +244,14 @@ Propose 2 or 3 distinct "next step" options. Output strict JSON only — no pros
 Schema:
 {
   "options": [ /* 2 or 3 objects, each exactly one of the shapes below */ ],
-  "reasoning": "<paragraph grounded in LIVE state — cite specific messages by date/sender>"
+  "reasoning": "<paragraph grounded in LIVE state — cite specific messages by date/sender>",
+  "suggestedThreadRelink": { /* optional — include only when you conclude an other-thread is the true current state */
+    "fromThreadId": "<the currently linked thread id>",
+    "toThreadId": "<the other thread's id>",
+    "toThreadUrl": "<the other thread's URL>",
+    "toSubject": "<the other thread's subject>",
+    "reasoning": "<one sentence explaining why>"
+  }
 }
 
 Allowed option types (each object MUST include "type" exactly as shown). Never repeat the same type twice.
@@ -294,6 +313,7 @@ ANALYSIS INSTRUCTIONS (CRITICAL — follow these exactly):
 - If ballInCourt is "user", an email proposal can include a substantive follow-up. If ballInCourt is the other party AND the user's last message is recent (≤ 5 business days), the strongest proposal is usually a SCHEDULE option (follow-up reminder) rather than another email nudge.
 - If the live state genuinely shows there's nothing to do, return a "no-action" proposal instead of inventing work.
 - The "reasoning" string MUST cite live-state facts ("user sent prep materials on May 9 at 2:43pm; ball is with Tom"), NOT snapshot facts ("the task says ..."). If a reader can't tell from the reasoning that you saw the latest messages, the prompt is failing.
+- CROSS-THREAD DISCOVERY: If the linked thread shows the work has gone quiet but one of the OTHER RECENT THREADS is plainly the continuation of this work (same contact, topically aligned, more recent), reason from THAT thread's state as the ground truth. Cite the specific other-thread subject and date in your reasoning so the user can verify. You may include a 'doc' or 'email' proposal that references the correct other thread. You may also include a 'subtasks' proposal whose first item is 'Link this task to the actual thread <subject>' so the user can re-anchor. When you conclude an other-thread is the true current state, include a "suggestedThreadRelink" object in your response (see schema above).
 
 Selection guidance:
 - If the task has a Gmail thread → include exactly one "email" option when a real reply or outreach makes sense GIVEN the current live thread state. The body must reflect what's actually been said.
@@ -326,6 +346,13 @@ recipientConfidence for email: "high" only when "to" is a single clear email; ot
         ? 'LIVE THREAD STATE: (a thread is linked but contents could not be fetched — proceed cautiously and prefer asking the user for status over re-introducing.)'
         : 'LIVE THREAD STATE: (no linked thread)';
 
+    const crossThreadBlock =
+      live.crossThreadCandidates.length > 0 && live.primaryOutboundContact
+        ? `OTHER RECENT THREADS WITH ${live.primaryOutboundContact} (last 30 days, contact-based match — may include the true current state of this work):\n${formatCrossThreadsForPrompt(live.crossThreadCandidates, live.primaryOutboundContact)}`
+        : threadId
+          ? 'OTHER RECENT THREADS: (no other recent threads found with the primary contact)'
+          : 'OTHER RECENT THREADS: (no linked thread, so no contact-based search performed)';
+
     const linkedDocsBlock = `LINKED DOCS (live):\n${formatLinkedDocsForPrompt(live.linkedDocs)}`;
 
     const meetingNotesBlock = `RECENT MEETING NOTES (live, filtered to this task — last 7 days):\n${formatMeetingNotesForPrompt(live.meetingNotes)}`;
@@ -337,6 +364,10 @@ recipientConfidence for email: "high" only when "to" is a single clear email; ot
       '---',
       '',
       liveThreadBlock,
+      '',
+      '---',
+      '',
+      crossThreadBlock,
       '',
       '---',
       '',
@@ -399,16 +430,24 @@ recipientConfidence for email: "high" only when "to" is a single clear email; ot
       return rest as typeof o;
     });
 
-    // Log chosen types
+    // Extract suggestedThreadRelink if present
+    const suggestedThreadRelink: SuggestedThreadRelink | undefined =
+      parsed.suggestedThreadRelink ?? undefined;
+
     const chosenTypes = options.map((o) => o.type);
     console.log(
-      `[next-step] live-state: ${task.id} threadMsgs=${live.stats.threadMsgs} newSinceTask=${live.stats.newSinceTask} linkedDocs=${live.stats.linkedDocs} meetingCandidates=${live.stats.meetingCandidates} meetingMatched=${live.stats.meetingMatched} ballInCourt=${live.stats.ballInCourt} chosenTypes=[${chosenTypes.join(',')}]`,
+      `[next-step] live-state: ${task.id} threadMsgs=${live.stats.threadMsgs} newSinceTask=${live.stats.newSinceTask} linkedDocs=${live.stats.linkedDocs} meetingCandidates=${live.stats.meetingCandidates} meetingMatched=${live.stats.meetingMatched} ballInCourt=${live.stats.ballInCourt} contactCandidates=${live.stats.contactCandidates} suggestedRelink=${!!suggestedThreadRelink} chosenTypes=[${chosenTypes.join(',')}]`,
     );
 
-    return NextResponse.json({
+    const response: Record<string, unknown> = {
       options,
       reasoning: parsed.reasoning,
-    });
+    };
+    if (suggestedThreadRelink) {
+      response.suggestedThreadRelink = suggestedThreadRelink;
+    }
+
+    return NextResponse.json(response);
   } catch (err) {
     console.error('[tasks/:id/next-step] error:', err);
     const msg = err instanceof Error ? err.message : 'Next step failed';

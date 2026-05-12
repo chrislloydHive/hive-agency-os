@@ -66,10 +66,31 @@ export interface MeetingSource {
   date: string;
 }
 
+export interface CrossThreadCandidate {
+  threadId: string;
+  threadUrl: string;
+  subject: string;
+  lastMessageDate: string;
+  lastMessageFrom: string;
+  messageCount: number;
+  firstFewWordsOfLatestMessage: string;
+  userIsLatestSender: boolean;
+}
+
+export interface SuggestedThreadRelink {
+  fromThreadId: string;
+  toThreadId: string;
+  toThreadUrl: string;
+  toSubject: string;
+  reasoning: string;
+}
+
 export interface LiveState {
   thread: LiveThreadState | null;
   linkedDocs: LiveLinkedDoc[];
   meetingNotes: MeetingNoteMatch[];
+  crossThreadCandidates: CrossThreadCandidate[];
+  primaryOutboundContact: string | null;
   stats: {
     threadMsgs: number;
     newSinceTask: number;
@@ -77,6 +98,7 @@ export interface LiveState {
     meetingCandidates: number;
     meetingMatched: number;
     ballInCourt: string;
+    contactCandidates: number;
   };
 }
 
@@ -480,7 +502,148 @@ function filterMeetingNotes(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// 5. Main entry point
+// 5. Cross-thread discovery
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Identify the primary outbound contact from the linked thread:
+ * 1. Recipient on the user's most-recent outbound message
+ * 2. Non-user participant most frequently named in task title/nextAction/notes
+ * 3. Most-frequent non-user participant in the thread
+ */
+export function identifyPrimaryOutboundContact(
+  thread: LiveThreadState,
+  task: TaskRecord,
+  myEmail: string,
+): string | null {
+  const myEmailLower = myEmail.toLowerCase();
+
+  // Strategy 1: recipient on user's most-recent outbound message
+  for (let i = thread.messages.length - 1; i >= 0; i--) {
+    const msg = thread.messages[i];
+    if (!msg.fromUser) continue;
+    const toEmails = (msg.to || '').match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+    for (const e of toEmails) {
+      const lower = e.toLowerCase();
+      if (lower !== myEmailLower) return lower;
+    }
+  }
+
+  // Strategy 2: non-user participant most frequently named in task text
+  const taskText = [task.task, task.nextAction, task.notes].filter(Boolean).join(' ').toLowerCase();
+  const allNonUserEmails = new Map<string, number>();
+  for (const msg of thread.messages) {
+    for (const field of [msg.from, msg.to, msg.cc]) {
+      const emails = (field || '').match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+      for (const e of emails) {
+        const lower = e.toLowerCase();
+        if (lower !== myEmailLower) {
+          allNonUserEmails.set(lower, (allNonUserEmails.get(lower) || 0) + 1);
+        }
+      }
+    }
+  }
+
+  let bestTaskMention: string | null = null;
+  let bestTaskMentionCount = 0;
+  for (const [email, _count] of Array.from(allNonUserEmails.entries())) {
+    const localPart = email.split('@')[0] || '';
+    const nameParts = localPart.split(/[._-]/).filter((p) => p.length >= 2);
+    let mentions = 0;
+    for (const part of nameParts) {
+      const re = new RegExp(`\\b${part}\\b`, 'gi');
+      const match = taskText.match(re);
+      if (match) mentions += match.length;
+    }
+    if (mentions > bestTaskMentionCount) {
+      bestTaskMentionCount = mentions;
+      bestTaskMention = email;
+    }
+  }
+  if (bestTaskMention) return bestTaskMention;
+
+  // Strategy 3: most-frequent non-user participant
+  let bestFreq: string | null = null;
+  let bestFreqCount = 0;
+  for (const [email, count] of Array.from(allNonUserEmails.entries())) {
+    if (count > bestFreqCount) {
+      bestFreqCount = count;
+      bestFreq = email;
+    }
+  }
+  return bestFreq;
+}
+
+/**
+ * Search Gmail for other recent threads with the primary contact,
+ * excluding the linked thread. Returns lightweight summaries.
+ */
+export async function fetchCrossThreadCandidates(
+  gmail: gmail_v1.Gmail,
+  contactEmail: string,
+  linkedThreadId: string,
+  myEmail: string,
+): Promise<CrossThreadCandidate[]> {
+  const myEmailLower = myEmail.toLowerCase();
+  try {
+    const res = await gmail.users.threads.list({
+      userId: 'me',
+      q: `(from:${contactEmail} OR to:${contactEmail}) newer_than:30d`,
+      maxResults: 11,
+    });
+    const threads = (res.data.threads || [])
+      .filter((t) => t.id && t.id !== linkedThreadId)
+      .slice(0, 10);
+    if (threads.length === 0) return [];
+
+    const candidates: CrossThreadCandidate[] = [];
+    const fetched = await Promise.all(
+      threads.map((t) =>
+        gmail.users.threads
+          .get({ userId: 'me', id: t.id!, format: 'metadata', metadataHeaders: ['Subject', 'From', 'Date'] })
+          .then((r) => r.data)
+          .catch(() => null),
+      ),
+    );
+
+    for (const td of fetched) {
+      if (!td || !td.id) continue;
+      const msgs = td.messages || [];
+      if (msgs.length === 0) continue;
+
+      const firstMsg = msgs[0];
+      const lastMsg = msgs[msgs.length - 1];
+
+      const subject = getHeader(firstMsg.payload?.headers, 'Subject') || '(no subject)';
+      const lastFrom = getHeader(lastMsg.payload?.headers, 'From');
+      const lastDate = getHeader(lastMsg.payload?.headers, 'Date');
+      const lastFromEmail = emailFromHeader(lastFrom);
+
+      candidates.push({
+        threadId: td.id,
+        threadUrl: `https://mail.google.com/mail/u/0/#inbox/${td.id}`,
+        subject,
+        lastMessageDate: lastDate,
+        lastMessageFrom: lastFrom,
+        messageCount: msgs.length,
+        firstFewWordsOfLatestMessage: (lastMsg.snippet || '').slice(0, 120),
+        userIsLatestSender: lastFromEmail === myEmailLower,
+      });
+    }
+
+    // Sort by most-recent-message desc (use the thread's historyId as proxy; Gmail lists are already sorted)
+    return candidates;
+  } catch (err) {
+    console.warn(
+      '[next-step/live-state] cross-thread search failed:',
+      err instanceof Error ? err.message : err,
+    );
+    return [];
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 6. Main entry point
 // ────────────────────────────────────────────────────────────────────────────
 
 export async function fetchLiveState(opts: {
@@ -529,10 +692,27 @@ export async function fetchLiveState(opts: {
   const allMeetingCandidates = [...driveMeetingNotes, ...gmailMeetingNotes].slice(0, 25);
   const meetingNotes = filterMeetingNotes(allMeetingCandidates, taskContactEmails, task);
 
+  // Cross-thread discovery: find other recent threads with the primary contact
+  let crossThreadCandidates: CrossThreadCandidate[] = [];
+  let primaryOutboundContact: string | null = null;
+  if (liveThread && threadId) {
+    primaryOutboundContact = identifyPrimaryOutboundContact(liveThread, task, myEmail);
+    if (primaryOutboundContact) {
+      crossThreadCandidates = await fetchCrossThreadCandidates(
+        gmail,
+        primaryOutboundContact,
+        threadId,
+        myEmail,
+      );
+    }
+  }
+
   return {
     thread: liveThread,
     linkedDocs,
     meetingNotes,
+    crossThreadCandidates,
+    primaryOutboundContact,
     stats: {
       threadMsgs: liveThread?.totalMessages ?? 0,
       newSinceTask: liveThread?.newSinceTask ?? 0,
@@ -540,6 +720,7 @@ export async function fetchLiveState(opts: {
       meetingCandidates: allMeetingCandidates.length,
       meetingMatched: meetingNotes.length,
       ballInCourt: liveThread?.ballInCourt ?? 'n/a',
+      contactCandidates: crossThreadCandidates.length,
     },
   };
 }
@@ -588,6 +769,19 @@ export function formatLinkedDocsForPrompt(docs: LiveLinkedDoc[]): string {
       return `Title: ${d.title}${staleTag}\nURL: ${d.url}\nModified: ${d.modifiedTime}\nExcerpt:\n${d.excerpt || '(could not export)'}`;
     })
     .join('\n\n');
+}
+
+export function formatCrossThreadsForPrompt(
+  candidates: CrossThreadCandidate[],
+  contactEmail: string,
+): string {
+  if (candidates.length === 0) return '(none found)';
+  return candidates
+    .map((c) => {
+      const senderLabel = c.userIsLatestSender ? 'you' : c.lastMessageFrom;
+      return `— ${c.subject} (${c.lastMessageDate}, last from ${senderLabel}, ${c.messageCount} msgs)\n  "${c.firstFewWordsOfLatestMessage}"`;
+    })
+    .join('\n');
 }
 
 export function formatMeetingNotesForPrompt(notes: MeetingNoteMatch[]): string {
