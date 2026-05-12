@@ -553,6 +553,7 @@ function parseWaitingOnType(raw: unknown): WaitingOnType | null {
 
 function parseJsonArrayFromAirtable(raw: unknown): string[] {
   if (raw == null || raw === '') return [];
+  if (Array.isArray(raw)) return raw.filter((v): v is string => typeof v === 'string');
   if (typeof raw !== 'string') return [];
   try {
     const arr = JSON.parse(raw.trim());
@@ -702,7 +703,7 @@ function mapInputToFields(input: CreateTaskInput | UpdateTaskInput): Record<stri
   }
   if (Object.prototype.hasOwnProperty.call(input, 'blockedBy')) {
     const bb = (input as UpdateTaskInput).blockedBy;
-    fields[TASK_FIELDS.BLOCKED_BY] = bb && bb.length > 0 ? JSON.stringify(bb) : null;
+    fields[TASK_FIELDS.BLOCKED_BY] = bb && bb.length > 0 ? bb : null;
   }
   if (Object.prototype.hasOwnProperty.call(input, 'waitingOnType')) {
     fields[TASK_FIELDS.WAITING_ON_TYPE] = (input as UpdateTaskInput).waitingOnType || null;
@@ -968,6 +969,11 @@ export async function updateTask(recordId: string, input: UpdateTaskInput): Prom
   const current = await fetchTaskByRecordId(recordId);
   const mergedInput = mergeTaskUpdateWithArchiveRules(current, input);
   const fields = mapInputToFields(mergedInput);
+
+  if (TASK_FIELDS.BLOCKED_BY in fields) {
+    const v = fields[TASK_FIELDS.BLOCKED_BY];
+    console.log(`blockedBy-write: taskId=${recordId} raw=${typeof v} value=${JSON.stringify(v)}`);
+  }
 
   const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}/${recordId}`;
 
