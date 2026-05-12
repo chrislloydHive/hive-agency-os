@@ -890,7 +890,7 @@ export function formatCrossThreadsForPrompt(
   return candidates
     .map((c) => {
       const senderLabel = c.userIsLatestSender ? 'you' : c.lastMessageFrom;
-      return `— ${c.subject} (${c.lastMessageDate}, last from ${senderLabel}, ${c.messageCount} msgs)\n  "${c.firstFewWordsOfLatestMessage}"`;
+      return `— [threadId=${c.threadId}] ${c.subject} (${c.lastMessageDate}, last from ${senderLabel}, ${c.messageCount} msgs)\n  "${c.firstFewWordsOfLatestMessage}"`;
     })
     .join('\n');
 }

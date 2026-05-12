@@ -95,11 +95,10 @@ const noActionOptionSchema = z
   })
   .strict();
 
-const suggestedThreadRelinkSchema = z
+const suggestedThreadRelinkLlmSchema = z
   .object({
     fromThreadId: z.string().min(1),
     toThreadId: z.string().min(1),
-    toThreadUrl: z.string().min(1),
     toSubject: z.string().min(1),
     reasoning: z.string().min(1),
   })
@@ -120,7 +119,7 @@ const nextStepResponseSchema = z
       .min(1)
       .max(3),
     reasoning: z.string().min(1),
-    suggestedThreadRelink: suggestedThreadRelinkSchema.optional(),
+    suggestedThreadRelink: suggestedThreadRelinkLlmSchema.optional(),
   });
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -247,8 +246,7 @@ Schema:
   "reasoning": "<paragraph grounded in LIVE state — cite specific messages by date/sender>",
   "suggestedThreadRelink": { /* optional — include only when you conclude an other-thread is the true current state */
     "fromThreadId": "<the currently linked thread id>",
-    "toThreadId": "<the other thread's id>",
-    "toThreadUrl": "<the other thread's URL>",
+    "toThreadId": "<MUST be the exact threadId from the [threadId=...] tag in OTHER RECENT THREADS — a hex string, NOT the subject>",
     "toSubject": "<the other thread's subject>",
     "reasoning": "<one sentence explaining why>"
   }
@@ -313,7 +311,7 @@ ANALYSIS INSTRUCTIONS (CRITICAL — follow these exactly):
 - If ballInCourt is "user", an email proposal can include a substantive follow-up. If ballInCourt is the other party AND the user's last message is recent (≤ 5 business days), the strongest proposal is usually a SCHEDULE option (follow-up reminder) rather than another email nudge.
 - If the live state genuinely shows there's nothing to do, return a "no-action" proposal instead of inventing work.
 - The "reasoning" string MUST cite live-state facts ("user sent prep materials on May 9 at 2:43pm; ball is with Tom"), NOT snapshot facts ("the task says ..."). If a reader can't tell from the reasoning that you saw the latest messages, the prompt is failing.
-- CROSS-THREAD DISCOVERY: If the linked thread shows the work has gone quiet but one of the OTHER RECENT THREADS is plainly the continuation of this work (same contact, topically aligned, more recent), reason from THAT thread's state as the ground truth. Cite the specific other-thread subject and date in your reasoning so the user can verify. You may include a 'doc' or 'email' proposal that references the correct other thread. You may also include a 'subtasks' proposal whose first item is 'Link this task to the actual thread <subject>' so the user can re-anchor. When you conclude an other-thread is the true current state, include a "suggestedThreadRelink" object in your response (see schema above).
+- CROSS-THREAD DISCOVERY: If the linked thread shows the work has gone quiet but one of the OTHER RECENT THREADS is plainly the continuation of this work (same contact, topically aligned, more recent), reason from THAT thread's state as the ground truth. Cite the specific other-thread subject and date in your reasoning so the user can verify. You may include a 'doc' or 'email' proposal that references the correct other thread. You may also include a 'subtasks' proposal whose first item is 'Link this task to the actual thread <subject>' so the user can re-anchor. When you conclude an other-thread is the true current state, include a "suggestedThreadRelink" object in your response (see schema above). CRITICAL: the toThreadId MUST be the exact hex threadId shown in the [threadId=...] tag of OTHER RECENT THREADS. Do NOT use the subject line, a URL, or any synthesized value. Do NOT construct a toThreadUrl — the server builds it.
 
 Selection guidance:
 - If the task has a Gmail thread → include exactly one "email" option when a real reply or outreach makes sense GIVEN the current live thread state. The body must reflect what's actually been said.
@@ -430,9 +428,29 @@ recipientConfidence for email: "high" only when "to" is a single clear email; ot
       return rest as typeof o;
     });
 
-    // Extract suggestedThreadRelink if present
-    const suggestedThreadRelink: SuggestedThreadRelink | undefined =
-      parsed.suggestedThreadRelink ?? undefined;
+    // Validate and build suggestedThreadRelink server-side
+    const validCandidateIds = new Set(live.crossThreadCandidates.map((c) => c.threadId));
+    let suggestedThreadRelink: SuggestedThreadRelink | undefined;
+
+    if (parsed.suggestedThreadRelink) {
+      const llmRelink = parsed.suggestedThreadRelink;
+      const isValidHex = /^[0-9a-fA-F]{10,}$/.test(llmRelink.toThreadId);
+      const isKnownCandidate = validCandidateIds.has(llmRelink.toThreadId);
+
+      if (isValidHex && isKnownCandidate) {
+        suggestedThreadRelink = {
+          fromThreadId: llmRelink.fromThreadId,
+          toThreadId: llmRelink.toThreadId,
+          toThreadUrl: `https://mail.google.com/mail/u/0/#inbox/${llmRelink.toThreadId}`,
+          toSubject: llmRelink.toSubject,
+          reasoning: llmRelink.reasoning,
+        };
+      } else {
+        console.warn(
+          `[next-step] relink-invalid: llmReturned=${llmRelink.toThreadId} isHex=${isValidHex} isCandidate=${isKnownCandidate}`,
+        );
+      }
+    }
 
     const chosenTypes = options.map((o) => o.type);
     console.log(
