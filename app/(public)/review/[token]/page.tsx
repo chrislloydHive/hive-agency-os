@@ -10,7 +10,8 @@ import { resolveReviewProject } from '@/lib/review/resolveProject';
 import { resolveProjectsBaseId } from '@/lib/airtable/bases';
 import { restGetProjectRecordFields, restListTableRecords } from '@/lib/review/airtableReviewRest';
 import { AIRTABLE_TABLES } from '@/lib/airtable/tables';
-import { batchEnsureCrasRecords } from '@/lib/airtable/reviewAssetStatus';
+import { batchEnsureCrasRecords, listAssetStatuses } from '@/lib/airtable/reviewAssetStatus';
+import { enrichReviewSectionsFromCras } from '@/lib/review/enrichReviewSectionsFromCras';
 import {
   getReviewFolderMapFromJobFolderPartial,
   getReviewFolderMapFromClientProjectsFolder,
@@ -31,6 +32,13 @@ interface ReviewAsset {
   name: string;
   mimeType: string;
   modifiedTime: string;
+  muxPlaybackId?: string | null;
+  muxStatus?: string | null;
+  muxAspectRatio?: string | null;
+  airtableRecordId?: string;
+  reviewState?: 'new' | 'seen' | 'approved' | 'needs_changes';
+  assetApprovedClient?: boolean;
+  firstSeenByClientAt?: string | null;
 }
 
 interface TacticSectionData {
@@ -206,7 +214,7 @@ export default async function ReviewPage({
   }
 
   // For each variant×tactic, list all files from the folder
-  const sections: TacticSectionData[] = [];
+  let sections: TacticSectionData[] = [];
   const allAssetsForCras: Array<{ fileId: string; filename: string; tactic: string; variant: string }> = [];
 
   for (const variant of VARIANTS) {
@@ -236,6 +244,17 @@ export default async function ReviewPage({
         });
       }
     }
+  }
+
+  // Enrich Drive-listed assets with CRAS (Mux posters, review state) for first paint
+  try {
+    const statusMap = await listAssetStatuses(token);
+    sections = enrichReviewSectionsFromCras(sections, statusMap).map((sec) => ({
+      ...sec,
+      fileCount: sec.assets.length,
+    }));
+  } catch (err) {
+    console.warn('[review/page] CRAS enrich for SSR failed (non-fatal):', err instanceof Error ? err.message : err);
   }
 
   // Batch ensure CRAS records exist for all displayed assets

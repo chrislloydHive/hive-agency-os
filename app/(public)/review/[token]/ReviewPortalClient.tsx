@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import HiveLogo from '@/components/HiveLogo';
 import ReviewSection from './ReviewSection';
 import { AuthorIdentityProvider, useAuthorIdentity } from './AuthorIdentityContext';
+import { mergeReviewSections } from '@/lib/review/mergeReviewSections';
 
 const DEBOUNCE_MS = 800;
 
@@ -310,7 +311,7 @@ function ReviewPortalClientInner({
           counts?: { newApproved: number; approved: number; downloaded: number };
         }) => {
           if (data.ok === true && (data.version === 'review-assets-v1' || data.version === 'review-assets-v2-airtable-first') && Array.isArray(data.sections)) {
-            setSections(data.sections);
+            setSections((prev) => mergeReviewSections(prev, data.sections!));
             setRefreshError(null);
             if (Array.isArray(data.deliveryBatches)) {
               setDeliveryBatches(data.deliveryBatches);

@@ -15,10 +15,9 @@ import {
   reviewAssetIsVideo,
 } from '@/lib/review/reviewMediaDisplay';
 import {
-  type MuxThumbnailImageOpts,
   muxGridPosterConfig,
   muxPlaybackReadyForThumbnail,
-  muxThumbnailImageUrl,
+  muxPosterFallbackUrls,
 } from '@/lib/review/muxThumbnail';
 import { getSectionCounts, isAssetNew } from './reviewAssetUtils';
 import type { ReviewState } from './ReviewPortalClient';
@@ -246,7 +245,7 @@ export function VideoWithThumbnail({
   );
 }
 
-/** Mux poster with fallback to in-browser video frame when image.mux.com fails. */
+/** Mux poster with alternate CDN URLs; avoids H.265 video fallback when Mux is ready. */
 function MuxPosterThumbnail({
   playbackId,
   muxAspectRatio,
@@ -256,6 +255,7 @@ function MuxPosterThumbnail({
   downloadHref,
   imgClassName = 'h-full w-full object-contain',
   layout = 'grid',
+  muxReady = true,
 }: {
   playbackId: string;
   muxAspectRatio?: string | null;
@@ -264,39 +264,76 @@ function MuxPosterThumbnail({
   fallbackVideoSrc: string;
   downloadHref?: string;
   imgClassName?: string;
-  /** Grid uses aspect-aware posters; carousel uses square smartcrop. */
   layout?: 'grid' | 'carousel';
+  /** When true, do not fall back to Drive proxy video (often H.265 / blank in Chrome). */
+  muxReady?: boolean;
 }) {
-  const [useFallback, setUseFallback] = useState(false);
-  const thumbnailOpts =
-    layout === 'carousel'
-      ? ({ squareLogicalPx: 140, fitMode: 'smartcrop' as const } satisfies MuxThumbnailImageOpts)
-      : muxGridPosterConfig(muxAspectRatio).thumbnail;
+  const posterUrls = useMemo(
+    () => muxPosterFallbackUrls(playbackId, muxAspectRatio, layout),
+    [playbackId, muxAspectRatio, layout],
+  );
+  const [urlIndex, setUrlIndex] = useState(0);
+  const [exhaustedMux, setExhaustedMux] = useState(false);
 
   useEffect(() => {
-    setUseFallback(false);
-  }, [playbackId, fallbackVideoSrc]);
+    setUrlIndex(0);
+    setExhaustedMux(false);
+  }, [playbackId, fallbackVideoSrc, posterUrls]);
 
-  if (useFallback) {
+  if (exhaustedMux) {
+    if (!muxReady) {
+      return (
+        <VideoWithThumbnail
+          key={fallbackVideoSrc}
+          src={fallbackVideoSrc}
+          downloadHref={downloadHref}
+          className={className ?? imgClassName}
+        />
+      );
+    }
     return (
-      <VideoWithThumbnail
-        key={fallbackVideoSrc}
-        src={fallbackVideoSrc}
-        downloadHref={downloadHref}
-        className={className ?? imgClassName}
-      />
+      <div
+        className={`flex flex-col items-center justify-center gap-2 bg-gray-900 px-2 text-center ${className ?? imgClassName}`}
+        aria-hidden
+      >
+        <svg className="h-10 w-10 shrink-0 text-gray-500" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+        {downloadHref ? (
+          <a
+            href={downloadHref}
+            className="pointer-events-auto max-w-full truncate text-xs font-medium text-amber-400 underline hover:text-amber-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Download to view
+          </a>
+        ) : null}
+      </div>
     );
+  }
+
+  const src = posterUrls[urlIndex] ?? posterUrls[0];
+  if (!src) {
+    return null;
   }
 
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={muxThumbnailImageUrl(playbackId, thumbnailOpts)}
+      key={src}
+      src={src}
       alt={alt}
       loading="lazy"
       decoding="async"
+      referrerPolicy="no-referrer"
       className={imgClassName}
-      onError={() => setUseFallback(true)}
+      onError={() => {
+        if (urlIndex < posterUrls.length - 1) {
+          setUrlIndex((i) => i + 1);
+        } else {
+          setExhaustedMux(true);
+        }
+      }}
     />
   );
 }
@@ -1290,6 +1327,7 @@ function PlacementGroupCard({
                             downloadHref={reviewFileDownloadHref(src)}
                             imgClassName="h-full w-full object-cover transition-transform group-hover:scale-105"
                             layout="carousel"
+                            muxReady={carouselMuxPoster}
                           />
                         ) : (
                           <VideoWithThumbnail
@@ -1623,6 +1661,7 @@ function AssetCard({
                 fallbackVideoSrc={src}
                 downloadHref={reviewFileDownloadHref(src)}
                 imgClassName="h-full w-full object-contain"
+                muxReady={muxPoster}
               />
             ) : (
               <VideoWithThumbnail

@@ -77,6 +77,26 @@ export type MuxGridPosterConfig = {
 /**
  * Grid card poster: ultra-wide display ads use smartcrop in a 16:9 tile; others preserve CRAS aspect.
  */
+/** Ordered Mux poster URLs to try before giving up (grid vs carousel). */
+export function muxPosterFallbackUrls(
+  playbackId: string,
+  muxAspectRatio: string | null | undefined,
+  layout: 'grid' | 'carousel',
+): string[] {
+  const id = playbackId.trim();
+  if (!id) return [];
+  const urls: string[] = [];
+  if (layout === 'carousel') {
+    urls.push(muxThumbnailImageUrl(id, { squareLogicalPx: 140, fitMode: 'smartcrop' }));
+  } else {
+    const cfg = muxGridPosterConfig(muxAspectRatio);
+    urls.push(muxThumbnailImageUrl(id, cfg.thumbnail));
+    urls.push(muxThumbnailImageUrl(id, { squareLogicalPx: 300, fitMode: 'smartcrop' }));
+    urls.push(muxThumbnailImageUrl(id, { logicalWidthPx: 320, fitMode: 'preserve' }));
+  }
+  return [...new Set(urls)];
+}
+
 export function muxGridPosterConfig(muxAspectRatio: string | null | undefined): MuxGridPosterConfig {
   const { widthNum, heightNum } = parseMuxAspectDimensions(muxAspectRatio);
   const ratio = widthNum / heightNum;
