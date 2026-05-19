@@ -800,7 +800,7 @@ export default function ReviewSection({
       {/* Renders all assets in placement containers for consistent approval UX */}
       {hasFiles ? (
         <div className="p-5">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 [&>*]:min-w-0">
             {renderableItems.map(({ group }) => (
               <PlacementGroupCard
                 key={`group-${group.groupId}`}
@@ -1131,14 +1131,23 @@ function PlacementGroupCard({
   ]);
 
   return (
-    <div className={`rounded-lg border border-gray-700 bg-gray-800/30 p-4 ${isMultiAsset ? 'col-span-full' : ''}`}>
+    <div className={`min-w-0 overflow-hidden rounded-lg border border-gray-700 bg-gray-800/30 p-4 ${isMultiAsset ? 'col-span-full' : ''}`}>
       {/* Placement header */}
-      <div className={isMultiAsset ? 'mb-4' : 'mb-3'}>
-        {/* Group name */}
-        <h3 className="text-base font-semibold text-gray-100">{groupName}</h3>
+      <div className={`min-w-0 ${isMultiAsset ? 'mb-4' : 'mb-3'}`}>
+        {/* Group name (multi-asset / carousel only; single cards show filename on AssetCard) */}
+        {(isMultiAsset || isCarousel) ? (
+          <h3
+            className="line-clamp-2 break-words text-base font-semibold leading-snug text-gray-100"
+            title={groupName}
+          >
+            {groupName}
+          </h3>
+        ) : null}
 
         {/* Approval progress indicator */}
-        <div className="mt-1 flex items-center gap-2">
+        <div
+          className={`flex min-w-0 flex-wrap items-center gap-2 ${isMultiAsset || isCarousel ? 'mt-1' : ''}`}
+        >
           {allApproved ? (
             <span className="flex items-center gap-1 text-sm font-medium text-emerald-400">
               <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
@@ -1492,7 +1501,7 @@ function AssetCard({
 
   return (
     <div
-      className={`flex flex-col overflow-hidden rounded-lg border bg-gray-800 text-left transition-colors hover:border-amber-500/50 hover:bg-gray-750 ${
+      className={`flex min-w-0 flex-col overflow-hidden rounded-lg border bg-gray-800 text-left transition-colors hover:border-amber-500/50 hover:bg-gray-750 ${
         selected ? 'border-amber-500 ring-2 ring-amber-500/50' : 'border-gray-700'
       }`}
     >
@@ -1588,8 +1597,11 @@ function AssetCard({
           Click to expand
         </div>
       </div>
-      <div className="px-3 py-2">
-        <p className="truncate text-xs text-gray-300" title={asset.name}>
+      <div className="min-w-0 px-3 py-2">
+        <p
+          className="line-clamp-2 break-words text-xs leading-snug text-gray-300"
+          title={asset.name}
+        >
           {asset.name}
         </p>
         {isNew && (
