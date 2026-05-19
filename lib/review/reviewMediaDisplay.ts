@@ -4,7 +4,7 @@
 
 const IMAGE_EXT = /\.(jpe?g|png|gif|webp|bmp|svg|avif|heic|heif)$/i;
 const VIDEO_EXT = /\.(mp4|mov|webm|m4v|avi|mkv|mpeg|mpg)$/i;
-const AUDIO_EXT = /\.(mp3|wav|aac|ogg|m4a|flac)$/i;
+const AUDIO_EXT = /\.(mp3|wav|aac|ogg|m4a|flac|aiff?|wma)$/i;
 
 function basename(filename: string): string {
   const t = filename.trim();
@@ -66,6 +66,9 @@ export function inferMimeTypeFromFilename(filename: string): string | null {
   if (lower.endsWith('.wav')) return 'audio/wav';
   if (lower.endsWith('.m4a')) return 'audio/mp4';
   if (lower.endsWith('.aac')) return 'audio/aac';
+  if (lower.endsWith('.aif')) return 'audio/aiff';
+  if (lower.endsWith('.aiff')) return 'audio/aiff';
+  if (lower.endsWith('.wma')) return 'audio/x-ms-wma';
   if (lower.endsWith('.m4v')) return 'video/x-m4v';
   return null;
 }

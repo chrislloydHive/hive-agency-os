@@ -29,20 +29,21 @@ export function muxAspectRatioCssString(muxAspectRatio: string | null | undefine
   return parseMuxAspectDimensions(muxAspectRatio).cssRatio;
 }
 
+export type MuxThumbnailImageOpts = {
+  /** Non-square: logical width of the tile in CSS px (request uses 2×). */
+  logicalWidthPx?: number;
+  /** Square tiles: logical edge length in CSS px (width & height use 2×). */
+  squareLogicalPx?: number;
+  fitMode: MuxThumbnailFitMode;
+  /** When set with preserve, also requests height so Mux matches the creative aspect. */
+  muxAspectRatio?: string | null;
+};
+
 /**
  * Mux static thumbnail for a playback ID. Uses 2× logical px for retina, clamped for CDN.
  * @see https://docs.mux.com/guides/video/get-images-from-a-video
  */
-export function muxThumbnailImageUrl(
-  playbackId: string,
-  opts: {
-    /** Non-square: logical width of the tile in CSS px (request uses 2×). */
-    logicalWidthPx?: number;
-    /** Square tiles: logical edge length in CSS px (width & height use 2×). */
-    squareLogicalPx?: number;
-    fitMode: MuxThumbnailFitMode;
-  },
-): string {
+export function muxThumbnailImageUrl(playbackId: string, opts: MuxThumbnailImageOpts): string {
   const id = encodeURIComponent(playbackId.trim());
   const params = new URLSearchParams();
   if (opts.squareLogicalPx != null) {
@@ -53,9 +54,47 @@ export function muxThumbnailImageUrl(
     const logical = opts.logicalWidthPx ?? 320;
     const w = Math.round(Math.min(1280, Math.max(240, logical * 2)));
     params.set('width', String(w));
+    if (opts.muxAspectRatio && opts.fitMode === 'preserve') {
+      const { widthNum, heightNum } = parseMuxAspectDimensions(opts.muxAspectRatio);
+      const h = Math.round(Math.min(720, Math.max(120, (w * heightNum) / widthNum)));
+      params.set('height', String(h));
+    }
   }
   params.set('fit_mode', opts.fitMode);
   return `https://image.mux.com/${id}/thumbnail.jpg?${params.toString()}`;
+}
+
+/** Wide leaderboard / banner creatives: crop for readable grid tiles instead of ~30px-tall strips. */
+const GRID_LEADERBOARD_ASPECT_THRESHOLD = 3;
+
+export type MuxGridPosterConfig = {
+  thumbnail: MuxThumbnailImageOpts;
+  /** CSS aspect-ratio + optional minHeight for the thumb container. */
+  containerAspectRatio: string;
+  containerMinHeightPx?: number;
+};
+
+/**
+ * Grid card poster: ultra-wide display ads use smartcrop in a 16:9 tile; others preserve CRAS aspect.
+ */
+export function muxGridPosterConfig(muxAspectRatio: string | null | undefined): MuxGridPosterConfig {
+  const { widthNum, heightNum } = parseMuxAspectDimensions(muxAspectRatio);
+  const ratio = widthNum / heightNum;
+  if (ratio > GRID_LEADERBOARD_ASPECT_THRESHOLD) {
+    return {
+      thumbnail: { squareLogicalPx: 300, fitMode: 'smartcrop' },
+      containerAspectRatio: '16/9',
+      containerMinHeightPx: 72,
+    };
+  }
+  return {
+    thumbnail: {
+      logicalWidthPx: 300,
+      fitMode: 'preserve',
+      muxAspectRatio,
+    },
+    containerAspectRatio: muxAspectRatioCssString(muxAspectRatio),
+  };
 }
 
 /** True when CRAS Mux pipeline has a playable asset and we can use image.mux.com posters. */

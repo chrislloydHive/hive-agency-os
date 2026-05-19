@@ -5,7 +5,7 @@
 // Requires author identity before approval or commenting.
 // Assets can be clicked to open a lightbox for expanded preview.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import AssetLightbox from './AssetLightbox';
 import { useAuthorIdentity } from './AuthorIdentityContext';
 import {
@@ -15,7 +15,8 @@ import {
   reviewAssetIsVideo,
 } from '@/lib/review/reviewMediaDisplay';
 import {
-  muxAspectRatioCssString,
+  type MuxThumbnailImageOpts,
+  muxGridPosterConfig,
   muxPlaybackReadyForThumbnail,
   muxThumbnailImageUrl,
 } from '@/lib/review/muxThumbnail';
@@ -243,6 +244,69 @@ export function VideoWithThumbnail({
       onError={() => setLoadError(true)}
     />
   );
+}
+
+/** Mux poster with fallback to in-browser video frame when image.mux.com fails. */
+function MuxPosterThumbnail({
+  playbackId,
+  muxAspectRatio,
+  alt,
+  className,
+  fallbackVideoSrc,
+  downloadHref,
+  imgClassName = 'h-full w-full object-contain',
+  layout = 'grid',
+}: {
+  playbackId: string;
+  muxAspectRatio?: string | null;
+  alt: string;
+  className?: string;
+  fallbackVideoSrc: string;
+  downloadHref?: string;
+  imgClassName?: string;
+  /** Grid uses aspect-aware posters; carousel uses square smartcrop. */
+  layout?: 'grid' | 'carousel';
+}) {
+  const [useFallback, setUseFallback] = useState(false);
+  const thumbnailOpts =
+    layout === 'carousel'
+      ? ({ squareLogicalPx: 140, fitMode: 'smartcrop' as const } satisfies MuxThumbnailImageOpts)
+      : muxGridPosterConfig(muxAspectRatio).thumbnail;
+
+  useEffect(() => {
+    setUseFallback(false);
+  }, [playbackId, fallbackVideoSrc]);
+
+  if (useFallback) {
+    return (
+      <VideoWithThumbnail
+        key={fallbackVideoSrc}
+        src={fallbackVideoSrc}
+        downloadHref={downloadHref}
+        className={className ?? imgClassName}
+      />
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={muxThumbnailImageUrl(playbackId, thumbnailOpts)}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      className={imgClassName}
+      onError={() => setUseFallback(true)}
+    />
+  );
+}
+
+function muxThumbContainerStyle(muxAspectRatio: string | null | undefined): CSSProperties | undefined {
+  const cfg = muxGridPosterConfig(muxAspectRatio);
+  return {
+    aspectRatio: cfg.containerAspectRatio,
+    ...(cfg.containerMinHeightPx != null ? { minHeight: cfg.containerMinHeightPx } : {}),
+  };
 }
 
 interface ReviewAsset {
@@ -1177,6 +1241,7 @@ function PlacementGroupCard({
               const cardNumber = asset.placementCardOrder ?? index + 1;
               const isImage = reviewAssetIsImage(asset.mimeType, asset.name);
               const isVideo = reviewAssetIsVideo(asset.mimeType, asset.name);
+              const isAudio = reviewAssetIsAudio(asset.mimeType, asset.name);
               const carouselMuxPid = asset.muxPlaybackId?.trim();
               const carouselMuxPoster = muxPlaybackReadyForThumbnail(asset.muxStatus, carouselMuxPid);
 
@@ -1217,16 +1282,14 @@ function PlacementGroupCard({
                     {isVideo && (
                       <div className="relative h-full w-full">
                         {carouselMuxPoster && carouselMuxPid ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={muxThumbnailImageUrl(carouselMuxPid, {
-                              squareLogicalPx: 140,
-                              fitMode: 'smartcrop',
-                            })}
+                          <MuxPosterThumbnail
+                            playbackId={carouselMuxPid}
+                            muxAspectRatio={asset.muxAspectRatio}
                             alt={asset.name}
-                            loading="lazy"
-                            decoding="async"
-                            className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                            fallbackVideoSrc={src}
+                            downloadHref={reviewFileDownloadHref(src)}
+                            imgClassName="h-full w-full object-cover transition-transform group-hover:scale-105"
+                            layout="carousel"
                           />
                         ) : (
                           <VideoWithThumbnail
@@ -1237,7 +1300,7 @@ function PlacementGroupCard({
                           />
                         )}
                         {/* Video play icon overlay */}
-                        <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                           <div className="rounded-full bg-black/60 p-2">
                             <svg className="h-5 w-5 text-white" fill="currentColor" viewBox="0 0 20 20">
                               <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
@@ -1246,7 +1309,17 @@ function PlacementGroupCard({
                         </div>
                       </div>
                     )}
-                    {!isImage && !isVideo && (
+                    {isAudio && (
+                      <div
+                        className="flex h-full w-full flex-col items-center justify-center gap-1 bg-gray-900 p-2"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      >
+                        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                        <audio src={src} controls preload="metadata" className="w-full" />
+                      </div>
+                    )}
+                    {!isImage && !isVideo && !isAudio && (
                       <div className="flex h-full w-full items-center justify-center text-gray-500">
                         <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -1481,7 +1554,7 @@ function AssetCard({
   const isAudio = reviewAssetIsAudio(asset.mimeType, asset.name);
   const muxPid = asset.muxPlaybackId?.trim();
   const muxPoster = muxPlaybackReadyForThumbnail(asset.muxStatus, muxPid);
-  const thumbAspectFromMux = Boolean(muxPoster && asset.muxAspectRatio?.trim());
+  const thumbAspectFromMux = Boolean(muxPoster && isVideo);
   const isNew = isAssetNew(asset);
   const effectiveState: ReviewState | undefined = asset.assetApprovedClient ? 'approved' : asset.reviewState;
   const badgeLabel = isNew ? 'New' : statusBadgeLabel(effectiveState);
@@ -1519,13 +1592,9 @@ function AssetCard({
     >
       <div
         className={`relative flex w-full items-center justify-center bg-gray-900 ${
-          thumbAspectFromMux ? '' : 'aspect-video'
+          thumbAspectFromMux ? '' : isAudio ? 'min-h-[140px]' : 'aspect-video'
         }`}
-        style={
-          thumbAspectFromMux
-            ? { aspectRatio: muxAspectRatioCssString(asset.muxAspectRatio) }
-            : undefined
-        }
+        style={thumbAspectFromMux ? muxThumbContainerStyle(asset.muxAspectRatio) : undefined}
       >
         {/* Status badge: right of checkbox when checkbox present, else left-2 */}
         <span
@@ -1547,16 +1616,13 @@ function AssetCard({
         {isVideo && (
           <div className="relative h-full w-full">
             {muxPoster && muxPid ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={muxThumbnailImageUrl(muxPid, {
-                  logicalWidthPx: 300,
-                  fitMode: 'preserve',
-                })}
+              <MuxPosterThumbnail
+                playbackId={muxPid}
+                muxAspectRatio={asset.muxAspectRatio}
                 alt={asset.name}
-                loading="lazy"
-                decoding="async"
-                className="h-full w-full object-contain"
+                fallbackVideoSrc={src}
+                downloadHref={reviewFileDownloadHref(src)}
+                imgClassName="h-full w-full object-contain"
               />
             ) : (
               <VideoWithThumbnail
@@ -1577,13 +1643,13 @@ function AssetCard({
           </div>
         )}
         {isAudio && (
-          <div className="flex flex-col items-center gap-2">
-            <div className="rounded-full bg-gray-700 p-4">
-              <svg className="h-8 w-8 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-              </svg>
-            </div>
-            <span className="text-xs text-gray-400">Audio</span>
+          <div
+            className="flex w-full flex-col items-center justify-center gap-2 px-3 py-4"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+            <audio src={src} controls preload="metadata" className="w-full max-w-full" />
           </div>
         )}
         {!isImage && !isVideo && !isAudio && (
